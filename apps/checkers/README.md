@@ -2,6 +2,34 @@
 
 This Django app provides a small health-check framework and two management commands you can run locally or in automation.
 
+## Development (format/lint/test)
+
+This repo uses `uv` for dependency management and a small, consistent dev-tooling stack configured in `pyproject.toml`:
+
+- **Black** for formatting
+- **Ruff** for linting + import sorting
+- **pytest + pytest-django** for tests
+- **mypy + django-stubs** (optional) for type-checking
+
+Common commands:
+
+```bash
+# Install runtime + dev tools
+uv sync --extra dev
+
+# Format
+uv run black .
+
+# Lint (and auto-fix imports where possible)
+uv run ruff check . --fix
+
+# Tests
+uv run pytest
+
+# Optional: type-check
+uv run mypy .
+```
+
 ## What’s included
 
 ### Available checkers
@@ -167,4 +195,3 @@ Workarounds:
 ### Disk path not found
 
 If a disk path doesn’t exist, the disk checker returns `UNKNOWN` for that path.
-

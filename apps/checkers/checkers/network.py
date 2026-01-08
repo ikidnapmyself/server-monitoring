@@ -149,4 +149,3 @@ class NetworkChecker(BaseChecker):
 
         except Exception as e:
             return self._error_result(str(e))
-

@@ -140,9 +140,7 @@ class Command(BaseCommand):
             status_style = self.style.NOTICE
 
         self.stdout.write("")
-        self.stdout.write(
-            status_style(f"[{result.status.value.upper()}] {result.checker_name}")
-        )
+        self.stdout.write(status_style(f"[{result.status.value.upper()}] {result.checker_name}"))
         self.stdout.write(f"  {result.message}")
 
         if result.error:
@@ -161,4 +159,3 @@ class Command(BaseCommand):
                     self.stdout.write(f"    {key}: {value}")
 
         self.stdout.write("")
-

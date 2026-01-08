@@ -312,4 +312,3 @@ class CheckerRegistryTests(TestCase):
     def test_registry_returns_checker_classes(self):
         self.assertEqual(CHECKER_REGISTRY["cpu"], CPUChecker)
         self.assertEqual(CHECKER_REGISTRY["memory"], MemoryChecker)
-

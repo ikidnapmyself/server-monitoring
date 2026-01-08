@@ -154,4 +154,3 @@ class BaseChecker(ABC):
             message=f"Check failed: {error}",
             error=error,
         )
-

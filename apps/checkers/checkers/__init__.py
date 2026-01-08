@@ -1,8 +1,8 @@
 # Checker modules
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
 from apps.checkers.checkers.cpu import CPUChecker
-from apps.checkers.checkers.memory import MemoryChecker
 from apps.checkers.checkers.disk import DiskChecker
+from apps.checkers.checkers.memory import MemoryChecker
 from apps.checkers.checkers.network import NetworkChecker
 from apps.checkers.checkers.process import ProcessChecker
 

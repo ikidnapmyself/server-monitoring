@@ -43,7 +43,9 @@ class ProcessChecker(BaseChecker):
         """
         name_lower = name.lower()
         try:
-            for proc in psutil.process_iter(["pid", "name", "status", "cpu_percent", "memory_percent"]):
+            for proc in psutil.process_iter(
+                ["pid", "name", "status", "cpu_percent", "memory_percent"]
+            ):
                 try:
                     proc_name = proc.info["name"].lower()
                     if name_lower in proc_name or proc_name in name_lower:
@@ -114,4 +116,3 @@ class ProcessChecker(BaseChecker):
 
         except Exception as e:
             return self._error_result(str(e))
-

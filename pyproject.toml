@@ -8,3 +8,65 @@ dependencies = [
     "django>=5.2.10",
     "psutil>=5.9.0",
 ]
+
+[project.optional-dependencies]
+# Dev tooling (format, lint, tests, typing)
+dev = [
+    "black>=24.0.0",
+    "ruff>=0.6.0",
+    "pytest>=8.0.0",
+    "pytest-django>=4.8.0",
+    "mypy>=1.8.0",
+    "django-stubs>=5.0.0",
+    "types-psutil>=5.9.5.20240423",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+# Keep virtualenvs/cache/lock artifacts out of formatting.
+exclude = """
+/(
+    \\.venv
+  | venv
+  | build
+  | dist
+  | __pycache__
+  | \\.mypy_cache
+  | \\.ruff_cache
+  | migrations
+)/
+"""
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [
+  "migrations",
+]
+
+[tool.ruff.lint]
+# Start small: pyflakes + pycodestyle + import sorting.
+select = ["F", "E", "W", "I"]
+# Black handles line wrapping; avoid fighting over E501.
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["apps", "config"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+python_files = ["tests.py", "test_*.py", "*_tests.py"]
+addopts = "-q"
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+check_untyped_defs = false
+ignore_missing_imports = true
+plugins = ["mypy_django_plugin.main"]
+
+[tool.django-stubs]
+django_settings_module = "config.settings"
