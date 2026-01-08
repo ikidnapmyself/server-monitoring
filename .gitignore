@@ -5,8 +5,19 @@ build/
 dist/
 wheels/
 *.egg-info
-*.sqlite*
-.idea
 
 # Virtual environments
 .venv
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and databases
+*.log
+*.sqlite3
