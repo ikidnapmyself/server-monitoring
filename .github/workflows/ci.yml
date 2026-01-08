@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          # Keep in sync with local dev. "latest" is fine for most repos.
+          version: "latest"
+
+      - name: Sync dependencies (incl. dev tools)
+        run: uv sync --extra dev
+
+      - name: Format check (Black)
+        run: uv run black . --check
+
+      - name: Lint (Ruff)
+        run: uv run ruff check .
+
+      - name: Tests (pytest)
+        env:
+          # Django's settings.py uses a DEBUG-only fallback when SECRET_KEY is absent,
+          # but setting one here avoids surprises if DEBUG changes.
+          DJANGO_SECRET_KEY: "ci-not-a-secret"
+        run: uv run pytest
+
