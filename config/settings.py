@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,10 +21,21 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-727rc2ce7x#*be_k7z#m#5*0)j*2cl$16s$bx*6#ogfr_ueymu'
+# Read the secret key from the environment. In production set DJANGO_SECRET_KEY.
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
+
+# If SECRET_KEY wasn't provided via environment, allow a known insecure fallback
+# when running in DEBUG (local development). In production (DEBUG=False) this
+# will raise so deployments won't accidentally use the insecure key.
+if not SECRET_KEY:
+    if DEBUG:
+        # Local development fallback
+        SECRET_KEY = 'django-insecure-727rc2ce7x#*be_k7z#m#5*0)j*2cl$16s$bx*6#ogfr_ueymu'
+    else:
+        raise RuntimeError('DJANGO_SECRET_KEY environment variable is not set. Set it in your environment for production.')
 
 ALLOWED_HOSTS = []
 
