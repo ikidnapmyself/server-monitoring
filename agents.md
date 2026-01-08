@@ -130,9 +130,31 @@ A good plan should include:
 1. **Respect the `apps/` Prefix:** All internal imports must start with `apps.` (e.g., `from apps.notify.base import BaseDriver`).
 2. **Follow the Driver Pattern:** This project uses Abstract Base Classes (ABCs). New checkers/drivers/providers must inherit from the project’s base classes.
 3. **Reference Existing Code:** Point agents to existing directories (e.g., `apps/checkers/`) so changes match the established pattern.
-4. **Use uv for Packages:** If a plan requires a new library, specify `uv add <package>`.
-5. **Prefer small, testable units:** Parse/validate payloads separately from side effects (DB writes, network calls).
-6. **Be safe with external I/O:** Always set timeouts; handle retries; avoid leaking secrets in logs.
+4. **Use uv for Packages:**
+   - Runtime deps: `uv add <package>`
+   - Dev tooling is installed via the `dev` extra: `uv sync --extra dev`
+5. **Keep code formatted and lint-clean:**
+   - Format with **Black**: `uv run black .`
+   - Lint/sort imports with **Ruff**: `uv run ruff check . --fix`
+6. **Prefer small, testable units:** Parse/validate payloads separately from side effects (DB writes, network calls).
+7. **Be safe with external I/O:** Always set timeouts; handle retries; avoid leaking secrets in logs.
+
+---
+
+## Tooling & CI expectations
+
+This repo standardizes on:
+
+- **Formatting:** Black (configured in `pyproject.toml`)
+- **Linting/import sorting:** Ruff (configured in `pyproject.toml`)
+- **Testing:** pytest + pytest-django (configured in `pyproject.toml`)
+- **Optional typing:** mypy + django-stubs
+
+CI runs these checks in GitHub Actions (`.github/workflows/ci.yml`). Any PR should keep the following green:
+
+- `uv run black . --check`
+- `uv run ruff check .`
+- `uv run pytest`
 
 ---
 
@@ -141,7 +163,9 @@ A good plan should include:
 - **Django Project Structure:** All custom apps live inside the `apps/` directory.
 - **Imports:** Always use absolute imports: `from apps.alerts.models import Incident`.
 - **Configuration:** Main settings are located in `config/settings.py`.
-- **Package Management:** Managed by `uv`. Use `uv run manage.py <command>` to execute Django tasks.
+- **Package Management:** Managed by `uv`.
+  - Django commands: `uv run python manage.py <command>`
+  - Dev tools: `uv sync --extra dev`
 
 ---
 
