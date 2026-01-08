@@ -54,10 +54,10 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "apps.alerts",
-    "apps.checkers",
-    "apps.intelligence",
-    "apps.notify",
+    "apps.alerts.apps.AlertsConfig",
+    "apps.checkers.apps.CheckersConfig",
+    "apps.intelligence.apps.IntelligenceConfig",
+    "apps.notify.apps.NotifyConfig",
 ]
 
 MIDDLEWARE = [
