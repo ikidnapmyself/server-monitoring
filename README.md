@@ -19,7 +19,6 @@ Dependencies (from `pyproject.toml`): Django + psutil.
 ## Install
 
 ```bash
-cd /Users/burak/Projects/server-maintanence
 uv sync
 ```
 
