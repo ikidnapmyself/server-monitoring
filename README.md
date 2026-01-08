@@ -64,4 +64,6 @@ uv run python manage.py runserver
 
 ## License
 
-Add a license if/when you plan to distribute this project.
+MIT License (c) 2026 Burak.
+
+See [`LICENSE`](LICENSE).
