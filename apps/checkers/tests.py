@@ -440,4 +440,3 @@ class SystemChecksTests(TestCase):
             errors = check_crontab_configuration(app_configs=None)
             self.assertEqual(len(errors), 1)
             self.assertEqual(errors[0].id, "checkers.W006")
-

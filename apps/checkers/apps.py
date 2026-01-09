@@ -8,4 +8,3 @@ class CheckersConfig(AppConfig):
     def ready(self):
         # Import checks module to register system checks with Django
         from apps.checkers import checks  # noqa: F401
-

@@ -95,8 +95,7 @@ class Command(BaseCommand):
         for name in checker_names:
             if name not in CHECKER_REGISTRY:
                 raise CommandError(
-                    f"Unknown checker: {name}. "
-                    f"Available: {', '.join(CHECKER_REGISTRY.keys())}"
+                    f"Unknown checker: {name}. " f"Available: {', '.join(CHECKER_REGISTRY.keys())}"
                 )
 
         # Build checker configs with threshold overrides
@@ -127,44 +126,41 @@ class Command(BaseCommand):
 
             try:
                 result = checker.check()
-                results.append({
-                    "checker": checker_name,
-                    "status": result.status.value,
-                    "message": result.message,
-                    "metrics": result.metrics,
-                    "would_create_alert": result.status in (
-                        CheckStatus.CRITICAL,
-                        CheckStatus.WARNING,
-                    ),
-                })
+                results.append(
+                    {
+                        "checker": checker_name,
+                        "status": result.status.value,
+                        "message": result.message,
+                        "metrics": result.metrics,
+                        "would_create_alert": result.status
+                        in (
+                            CheckStatus.CRITICAL,
+                            CheckStatus.WARNING,
+                        ),
+                    }
+                )
 
                 # Format output
                 status_style = self._get_status_style(result.status)
                 self.stdout.write(
-                    f"\n{checker_name.upper()}: "
-                    f"{status_style(result.status.value.upper())}"
+                    f"\n{checker_name.upper()}: " f"{status_style(result.status.value.upper())}"
                 )
                 self.stdout.write(f"  Message: {result.message}")
                 if result.metrics:
                     self.stdout.write(f"  Metrics: {result.metrics}")
                 if result.status in (CheckStatus.CRITICAL, CheckStatus.WARNING):
-                    self.stdout.write(
-                        self.style.WARNING("  → Would create/update alert")
-                    )
+                    self.stdout.write(self.style.WARNING("  → Would create/update alert"))
                 else:
-                    self.stdout.write(
-                        self.style.SUCCESS("  → Would resolve alert (if exists)")
-                    )
+                    self.stdout.write(self.style.SUCCESS("  → Would resolve alert (if exists)"))
 
             except Exception as e:
-                results.append({
-                    "checker": checker_name,
-                    "error": str(e),
-                })
-                self.stdout.write(
-                    f"\n{checker_name.upper()}: "
-                    f"{self.style.ERROR('ERROR')}"
+                results.append(
+                    {
+                        "checker": checker_name,
+                        "error": str(e),
+                    }
                 )
+                self.stdout.write(f"\n{checker_name.upper()}: " f"{self.style.ERROR('ERROR')}")
                 self.stdout.write(f"  Error: {e}")
 
         if options["json_output"]:
@@ -195,9 +191,7 @@ class Command(BaseCommand):
             }
             self.stdout.write(json.dumps(output, indent=2))
         else:
-            self.stdout.write(
-                self.style.SUCCESS(f"\nChecks run: {result.checks_run}")
-            )
+            self.stdout.write(self.style.SUCCESS(f"\nChecks run: {result.checks_run}"))
             self.stdout.write(f"Alerts created: {result.alerts_created}")
             self.stdout.write(f"Alerts updated: {result.alerts_updated}")
             self.stdout.write(f"Alerts resolved: {result.alerts_resolved}")
@@ -219,4 +213,3 @@ class Command(BaseCommand):
             return self.style.SUCCESS
         else:
             return self.style.NOTICE
-

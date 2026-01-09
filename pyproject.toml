@@ -19,6 +19,7 @@ dev = [
     "mypy>=1.8.0",
     "django-stubs>=5.0.0",
     "types-psutil>=5.9.5.20240423",
+    "pre-commit>=4.0.0",
 ]
 
 [tool.black]

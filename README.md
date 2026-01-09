@@ -65,6 +65,12 @@ This repo uses `uv` for dependency management and a small, consistent dev-toolin
 # Install runtime + dev tools
 uv sync --extra dev
 
+# Set up pre-commit hooks
+uv run pre-commit install
+
+# Run pre-commit manually on all files
+uv run pre-commit run --all-files
+
 # Format
 uv run black .
 

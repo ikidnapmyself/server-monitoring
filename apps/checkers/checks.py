@@ -18,10 +18,7 @@ Usage:
 """
 
 import subprocess
-import sys
-from pathlib import Path
 
-from django.conf import settings
 from django.core.checks import Error, Tags, Warning, register
 
 
@@ -211,7 +208,6 @@ def check_database_tables_exist(app_configs, **kwargs):
     This is a deployment check that verifies migrations have created
     the expected tables. Only runs with --deploy flag.
     """
-    from django.apps import apps
     from django.db import connection
 
     errors = []
@@ -243,4 +239,3 @@ def check_database_tables_exist(app_configs, **kwargs):
         )
 
     return errors
-

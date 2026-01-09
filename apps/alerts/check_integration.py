@@ -300,13 +300,15 @@ class CheckAlertBridge:
         alert.description = parsed.description
         alert.annotations = parsed.annotations
         alert.raw_payload = parsed.raw_payload
-        alert.save(update_fields=[
-            "severity",
-            "description",
-            "annotations",
-            "raw_payload",
-            "updated_at",
-        ])
+        alert.save(
+            update_fields=[
+                "severity",
+                "description",
+                "annotations",
+                "raw_payload",
+                "updated_at",
+            ]
+        )
 
         if old_severity != parsed.severity:
             AlertHistory.objects.create(
@@ -489,4 +491,3 @@ class CheckAlertBridge:
                 result.errors.append(f"{checker_name}: {str(e)}")
 
         return result
-

@@ -1,0 +1,43 @@
+# Pre-commit hooks for server-maintanence
+# Install: uv run pre-commit install
+# Run manually: uv run pre-commit run --all-files
+
+repos:
+  # Black - code formatting
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        language_version: python3.10
+        args: [--line-length=100]
+
+  # Ruff - linting + import sorting
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+
+  # pytest - run tests
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: uv run pytest
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+  # mypy - type checking (optional, can be slow)
+#  - repo: local
+#    hooks:
+#      - id: mypy
+#        name: mypy
+#        entry: uv run mypy
+#        language: system
+#        types: [python]
+#        pass_filenames: false
+#        always_run: true
+#        stages: [pre-commit]
+

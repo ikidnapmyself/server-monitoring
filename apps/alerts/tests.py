@@ -922,4 +922,3 @@ class CheckAlertBridgeTests(TestCase):
         self.assertEqual(processing_result.alerts_created, 1)
         self.assertEqual(processing_result.incidents_created, 0)
         self.assertEqual(Incident.objects.count(), 0)
-
