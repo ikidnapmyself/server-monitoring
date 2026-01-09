@@ -2,14 +2,14 @@
 Alert drivers for ingesting alerts from various sources.
 """
 
-from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
 from apps.alerts.drivers.alertmanager import AlertManagerDriver
-from apps.alerts.drivers.grafana import GrafanaDriver
-from apps.alerts.drivers.generic import GenericWebhookDriver
-from apps.alerts.drivers.pagerduty import PagerDutyDriver
+from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
 from apps.alerts.drivers.datadog import DatadogDriver
+from apps.alerts.drivers.generic import GenericWebhookDriver
+from apps.alerts.drivers.grafana import GrafanaDriver
 from apps.alerts.drivers.newrelic import NewRelicDriver
 from apps.alerts.drivers.opsgenie import OpsGenieDriver
+from apps.alerts.drivers.pagerduty import PagerDutyDriver
 from apps.alerts.drivers.zabbix import ZabbixDriver
 
 __all__ = [
@@ -56,9 +56,7 @@ def get_driver(name: str) -> BaseAlertDriver:
         ValueError: If driver name is not found.
     """
     if name not in DRIVER_REGISTRY:
-        raise ValueError(
-            f"Unknown driver: {name}. Available: {', '.join(DRIVER_REGISTRY.keys())}"
-        )
+        raise ValueError(f"Unknown driver: {name}. Available: {', '.join(DRIVER_REGISTRY.keys())}")
     return DRIVER_REGISTRY[name]()
 
 
@@ -89,4 +87,3 @@ def detect_driver(payload: dict) -> BaseAlertDriver | None:
         return generic
 
     return None
-

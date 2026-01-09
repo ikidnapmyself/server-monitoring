@@ -152,4 +152,3 @@ class DatadogDriver(BaseAlertDriver):
         except (ValueError, TypeError, OSError):
             pass
         return datetime.now()
-

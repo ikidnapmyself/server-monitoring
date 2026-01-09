@@ -8,6 +8,7 @@ from django.utils import timezone
 
 class AlertSeverity(models.TextChoices):
     """Severity levels for alerts."""
+
     CRITICAL = "critical", "Critical"
     WARNING = "warning", "Warning"
     INFO = "info", "Info"
@@ -15,12 +16,14 @@ class AlertSeverity(models.TextChoices):
 
 class AlertStatus(models.TextChoices):
     """Status of an alert."""
+
     FIRING = "firing", "Firing"
     RESOLVED = "resolved", "Resolved"
 
 
 class IncidentStatus(models.TextChoices):
     """Status of an incident."""
+
     OPEN = "open", "Open"
     ACKNOWLEDGED = "acknowledged", "Acknowledged"
     RESOLVED = "resolved", "Resolved"
@@ -292,4 +295,3 @@ class AlertHistory(models.Model):
 
     def __str__(self):
         return f"{self.alert.name}: {self.event}"
-

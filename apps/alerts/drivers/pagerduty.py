@@ -184,4 +184,3 @@ class PagerDutyDriver(BaseAlertDriver):
             return datetime.fromisoformat(ts)
         except (ValueError, TypeError):
             return datetime.now()
-

@@ -6,14 +6,14 @@ import json
 from datetime import timedelta
 from unittest.mock import patch
 
-from django.test import TestCase, Client
+from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from apps.alerts.drivers import (
     AlertManagerDriver,
-    GrafanaDriver,
     GenericWebhookDriver,
+    GrafanaDriver,
     detect_driver,
     get_driver,
 )
@@ -32,7 +32,7 @@ class AlertManagerDriverTests(TestCase):
         self.driver = AlertManagerDriver()
         self.sample_payload = {
             "version": "4",
-            "groupKey": "{}:{alertname=\"TestAlert\"}",
+            "groupKey": '{}:{alertname="TestAlert"}',
             "receiver": "webhook",
             "status": "firing",
             "alerts": [

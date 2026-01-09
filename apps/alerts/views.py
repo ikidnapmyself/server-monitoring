@@ -6,12 +6,11 @@ import json
 import logging
 
 from django.http import JsonResponse
+from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
 
 from apps.alerts.services import AlertOrchestrator
-
 
 logger = logging.getLogger(__name__)
 
@@ -75,9 +74,10 @@ class AlertWebhookView(View):
 
     def get(self, request, driver=None):
         """Health check endpoint."""
-        return JsonResponse({
-            "status": "ok",
-            "message": "Alert webhook endpoint is ready",
-            "driver": driver or "auto-detect",
-        })
-
+        return JsonResponse(
+            {
+                "status": "ok",
+                "message": "Alert webhook endpoint is ready",
+                "driver": driver or "auto-detect",
+            }
+        )

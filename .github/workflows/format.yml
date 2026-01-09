@@ -1,4 +1,4 @@
-name: Tests
+name: Format
 
 on:
   push:
@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  format:
     runs-on: ubuntu-latest
 
     steps:
@@ -31,8 +31,6 @@ jobs:
       - name: Sync dependencies (incl. dev tools)
         run: uv sync --extra dev
 
-      - name: Tests (pytest)
-        env:
-          DJANGO_SECRET_KEY: "ci-not-a-secret"
-        run: uv run pytest
+      - name: Format check (Black)
+        run: uv run black . --check
 

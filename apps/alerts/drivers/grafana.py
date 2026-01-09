@@ -73,7 +73,9 @@ class GrafanaDriver(BaseAlertDriver):
             raw_payload=payload,
         )
 
-    def _parse_unified_alert(self, alert_data: dict[str, Any], payload: dict[str, Any]) -> ParsedAlert:
+    def _parse_unified_alert(
+        self, alert_data: dict[str, Any], payload: dict[str, Any]
+    ) -> ParsedAlert:
         """Parse a single alert from Grafana unified alerting format."""
         labels = alert_data.get("labels", {})
         annotations = alert_data.get("annotations", {})
@@ -170,4 +172,3 @@ class GrafanaDriver(BaseAlertDriver):
             return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
         except (ValueError, TypeError):
             return datetime.now()
-

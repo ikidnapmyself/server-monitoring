@@ -213,4 +213,3 @@ class GenericWebhookDriver(BaseAlertDriver):
                 pass
 
         return datetime.now()
-

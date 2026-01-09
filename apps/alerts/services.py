@@ -15,7 +15,6 @@ from django.utils import timezone
 from apps.alerts.drivers import (
     BaseAlertDriver,
     ParsedAlert,
-    ParsedPayload,
     detect_driver,
     get_driver,
 )
@@ -27,7 +26,6 @@ from apps.alerts.models import (
     Incident,
     IncidentStatus,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -263,7 +261,9 @@ class AlertOrchestrator:
             alert.save(update_fields=["incident"])
 
             # Update incident severity if this alert is more severe
-            if self._severity_rank(alert.severity) > self._severity_rank(existing_incident.severity):
+            if self._severity_rank(alert.severity) > self._severity_rank(
+                existing_incident.severity
+            ):
                 existing_incident.severity = alert.severity
                 existing_incident.save(update_fields=["severity", "updated_at"])
 
@@ -399,11 +399,13 @@ class IncidentManager:
         if "notes" not in incident.metadata:
             incident.metadata["notes"] = []
 
-        incident.metadata["notes"].append({
-            "text": note,
-            "author": author,
-            "timestamp": timezone.now().isoformat(),
-        })
+        incident.metadata["notes"].append(
+            {
+                "text": note,
+                "author": author,
+                "timestamp": timezone.now().isoformat(),
+            }
+        )
 
         incident.save(update_fields=["metadata", "updated_at"])
         return incident
@@ -418,9 +420,7 @@ class IncidentManager:
     @staticmethod
     def get_incident_with_alerts(incident_id: int) -> Incident:
         """Get an incident with all its alerts."""
-        return Incident.objects.prefetch_related(
-            "alerts", "alerts__history"
-        ).get(pk=incident_id)
+        return Incident.objects.prefetch_related("alerts", "alerts__history").get(pk=incident_id)
 
 
 class AlertQueryService:
@@ -453,4 +453,3 @@ class AlertQueryService:
     def get_alert_with_history(alert_id: int) -> Alert:
         """Get an alert with its history."""
         return Alert.objects.prefetch_related("history").get(pk=alert_id)
-

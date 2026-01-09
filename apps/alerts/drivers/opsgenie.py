@@ -152,4 +152,3 @@ class OpsGenieDriver(BaseAlertDriver):
             return datetime.fromtimestamp(ts)
         except (ValueError, TypeError, OSError):
             return datetime.now()
-

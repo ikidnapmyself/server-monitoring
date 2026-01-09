@@ -124,4 +124,3 @@ class AlertManagerDriver(BaseAlertDriver):
             return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
         except (ValueError, TypeError):
             return datetime.now()
-

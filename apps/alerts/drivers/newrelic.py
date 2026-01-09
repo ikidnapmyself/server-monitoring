@@ -138,8 +138,14 @@ class NewRelicDriver(BaseAlertDriver):
         """Parse New Relic workflow notification format."""
         # Get alert name from title or accumulations
         accumulations = payload.get("accumulations", {})
-        name = payload.get("title", accumulations.get("conditionName", ["New Relic Alert"])[0]
-                          if isinstance(accumulations.get("conditionName"), list) else "New Relic Alert")
+        name = payload.get(
+            "title",
+            (
+                accumulations.get("conditionName", ["New Relic Alert"])[0]
+                if isinstance(accumulations.get("conditionName"), list)
+                else "New Relic Alert"
+            ),
+        )
 
         # Determine status
         state = payload.get("state", "").lower()
@@ -147,7 +153,11 @@ class NewRelicDriver(BaseAlertDriver):
 
         # Get severity
         priority = payload.get("priority", "").lower()
-        severity = "critical" if priority in ("critical", "high") else "warning" if priority == "medium" else "info"
+        severity = (
+            "critical"
+            if priority in ("critical", "high")
+            else "warning" if priority == "medium" else "info"
+        )
 
         labels = {
             "alertname": name,
@@ -186,4 +196,3 @@ class NewRelicDriver(BaseAlertDriver):
         except (ValueError, TypeError, OSError):
             pass
         return datetime.now()
-

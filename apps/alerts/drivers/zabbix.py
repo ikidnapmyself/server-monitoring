@@ -173,4 +173,3 @@ class ZabbixDriver(BaseAlertDriver):
         except (ValueError, TypeError):
             pass
         return datetime.now()
-
