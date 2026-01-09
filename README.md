@@ -18,6 +18,22 @@ Dependencies (from `pyproject.toml`): Django + psutil.
 
 ## Install
 
+### Quick Install (recommended)
+
+Run the installer script which handles everything automatically:
+
+```bash
+./install.sh
+```
+
+This will:
+- Check Python 3.10+ is available
+- Install uv package manager if needed
+- Install all dependencies
+- Run database migrations
+
+### Manual Install
+
 ```bash
 uv sync
 ```
