@@ -3,7 +3,7 @@ Tests for the alerts app.
 """
 
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.test import TestCase, Client
@@ -14,12 +14,15 @@ from apps.alerts.drivers import (
     AlertManagerDriver,
     GrafanaDriver,
     GenericWebhookDriver,
-    ParsedAlert,
     detect_driver,
     get_driver,
 )
+from apps.alerts.drivers.datadog import DatadogDriver
+from apps.alerts.drivers.newrelic import NewRelicDriver
+from apps.alerts.drivers.pagerduty import PagerDutyDriver
+from apps.alerts.drivers.zabbix import ZabbixDriver
 from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus
-from apps.alerts.services import AlertOrchestrator, IncidentManager
+from apps.alerts.services import AlertOrchestrator, IncidentManager, ProcessingResult
 
 
 class AlertManagerDriverTests(TestCase):
@@ -454,3 +457,289 @@ class IncidentModelTests(TestCase):
         incident.status = IncidentStatus.RESOLVED
         self.assertFalse(incident.is_open)
 
+
+class PagerDutyDriverTests(TestCase):
+    """Tests for PagerDuty driver."""
+
+    def setUp(self):
+        self.driver = PagerDutyDriver()
+
+    def test_validate_and_parse_v3_event(self):
+        payload = {
+            "event": {
+                "id": "evt_1",
+                "event_type": "incident.triggered",
+                "resource_type": "incident",
+                "occurred_at": "2024-01-08T10:00:00Z",
+                "data": {
+                    "id": "inc_1",
+                    "type": "incident",
+                    "status": "triggered",
+                    "title": "PD: CPU high",
+                    "urgency": "high",
+                    "priority": {"name": "P1"},
+                    "service": {"id": "svc_1", "summary": "API"},
+                    "html_url": "https://example.pagerduty.test/incidents/inc_1",
+                },
+            }
+        }
+
+        self.assertTrue(self.driver.validate(payload))
+
+        parsed = self.driver.parse(payload)
+        self.assertEqual(parsed.source, "pagerduty")
+        self.assertEqual(len(parsed.alerts), 1)
+
+        alert = parsed.alerts[0]
+        self.assertEqual(alert.fingerprint, "inc_1")
+        self.assertEqual(alert.name, "PD: CPU high")
+        self.assertEqual(alert.status, "firing")
+        self.assertEqual(alert.severity, "critical")
+        self.assertEqual(alert.labels["service_name"], "API")
+
+    def test_parse_v3_resolved_from_event_type(self):
+        payload = {
+            "event": {
+                "id": "evt_2",
+                "event_type": "incident.resolved",
+                "resource_type": "incident",
+                "occurred_at": "2024-01-08T11:00:00Z",
+                "data": {
+                    "id": "inc_2",
+                    "title": "PD: Disk full",
+                    "urgency": "low",
+                    "service": {"id": "svc_2", "summary": "DB"},
+                },
+            }
+        }
+
+        parsed = self.driver.parse(payload)
+        alert = parsed.alerts[0]
+        self.assertEqual(alert.status, "resolved")
+        self.assertEqual(alert.severity, "warning")
+
+
+class NewRelicDriverTests(TestCase):
+    """Tests for New Relic driver."""
+
+    def setUp(self):
+        self.driver = NewRelicDriver()
+
+    def test_parse_classic_closed_is_resolved(self):
+        payload = {
+            "account_id": 123,
+            "account_name": "Acme",
+            "condition_id": 456,
+            "condition_name": "NR: Apdex low",
+            "current_state": "closed",
+            "details": "SLO violated",
+            "incident_id": 789,
+            "incident_url": "https://example.newrelic.test/incidents/789",
+            "severity": "CRITICAL",
+            "timestamp": 1704708000,  # 2024-01-08
+        }
+
+        self.assertTrue(self.driver.validate(payload))
+
+        parsed = self.driver.parse(payload)
+        alert = parsed.alerts[0]
+        self.assertEqual(alert.fingerprint, "789")
+        self.assertEqual(alert.name, "NR: Apdex low")
+        self.assertEqual(alert.status, "resolved")
+        self.assertEqual(alert.severity, "critical")
+
+    def test_parse_workflow_high_priority_is_critical(self):
+        payload = {
+            "issueUrl": "https://example.newrelic.test/issues/ISSUE-1",
+            "issueId": "ISSUE-1",
+            "title": "NR workflow: error rate",
+            "state": "open",
+            "priority": "high",
+            "createdAt": "2024-01-08T10:00:00Z",
+            "accumulations": {"conditionName": ["NR: error rate"]},
+        }
+
+        self.assertTrue(self.driver.validate(payload))
+
+        parsed = self.driver.parse(payload)
+        alert = parsed.alerts[0]
+        self.assertEqual(alert.fingerprint, "ISSUE-1")
+        self.assertEqual(alert.status, "firing")
+        self.assertEqual(alert.severity, "critical")
+
+
+class DatadogDriverTests(TestCase):
+    """Tests for Datadog driver."""
+
+    def setUp(self):
+        self.driver = DatadogDriver()
+
+    def test_tags_parse_and_resolved_state(self):
+        payload = {
+            "alert_id": "123",
+            "alert_title": "DD: latency",
+            "alert_transition": "recovered",
+            "alert_status": "ok",
+            "alert_type": "error",
+            "last_updated": "2024-01-08T10:00:00Z",
+            "tags": "service:api,env:prod,flag",
+            "url": "https://example.datadog.test/alerts/123",
+        }
+
+        self.assertTrue(self.driver.validate(payload))
+
+        parsed = self.driver.parse(payload)
+        alert = parsed.alerts[0]
+
+        self.assertEqual(alert.status, "resolved")
+        self.assertEqual(alert.severity, "critical")
+        self.assertEqual(alert.labels["service"], "api")
+        self.assertEqual(alert.labels["env"], "prod")
+        self.assertEqual(alert.labels["flag"], "true")
+
+    def test_tags_parse_list_form(self):
+        payload = {
+            "alert_id": "456",
+            "alert_title": "DD: memory",
+            "alert_transition": "triggered",
+            "alert_status": "warn",
+            "alert_type": "metric_alert",
+            "last_updated": "2024-01-08T10:00:00Z",
+            "tags": ["service:worker", "env:staging", "canary"],
+        }
+
+        parsed = self.driver.parse(payload)
+        alert = parsed.alerts[0]
+
+        self.assertEqual(alert.status, "firing")
+        self.assertEqual(alert.labels["service"], "worker")
+        self.assertEqual(alert.labels["env"], "staging")
+        self.assertEqual(alert.labels["canary"], "true")
+
+
+class ZabbixDriverTests(TestCase):
+    """Tests for Zabbix driver."""
+
+    def setUp(self):
+        self.driver = ZabbixDriver()
+
+    def test_numeric_severity_and_event_value_resolved(self):
+        payload = {
+            "event_id": "1001",
+            "trigger_id": "2002",
+            "trigger_name": "ZBX: Disk full",
+            "trigger_severity": "5",
+            "event_value": "0",  # OK
+            "host_name": "server-1",
+            "event_date": "2024.01.08",
+            "event_time": "10:00:00",
+        }
+
+        self.assertTrue(self.driver.validate(payload))
+
+        parsed = self.driver.parse(payload)
+        alert = parsed.alerts[0]
+
+        self.assertEqual(alert.fingerprint, "1001")
+        self.assertEqual(alert.status, "resolved")
+        self.assertEqual(alert.severity, "critical")
+        self.assertEqual(alert.labels["host_name"], "server-1")
+
+    def test_problem_status_is_firing(self):
+        payload = {
+            "event_id": "1002",
+            "trigger_id": "2003",
+            "trigger_name": "ZBX: CPU high",
+            "trigger_severity": "2",
+            "trigger_status": "PROBLEM",
+            "host_name": "server-2",
+        }
+
+        parsed = self.driver.parse(payload)
+        alert = parsed.alerts[0]
+
+        self.assertEqual(alert.status, "firing")
+        self.assertEqual(alert.severity, "warning")
+
+
+class AlertOrchestratorEdgeCaseTests(TestCase):
+    """Additional orchestrator tests for missing branches."""
+
+    def setUp(self):
+        self.orchestrator = AlertOrchestrator()
+
+    def test_invalid_driver_type_is_reported_as_error(self):
+        result = self.orchestrator.process_webhook({"anything": "goes"}, driver=object())
+        self.assertTrue(result.has_errors)
+        self.assertTrue(any("Invalid driver type" in e for e in result.errors))
+
+    def test_attach_to_existing_incident_and_escalate_severity(self):
+        payload_1 = {
+            "version": "4",
+            "groupKey": "test",
+            "receiver": "webhook",
+            "status": "firing",
+            "alerts": [
+                {
+                    "status": "firing",
+                    "labels": {"alertname": "SameName", "severity": "warning"},
+                    "annotations": {"description": "first"},
+                    "startsAt": "2024-01-08T10:00:00Z",
+                    "fingerprint": "fp-1",
+                }
+            ],
+            "groupLabels": {},
+            "commonLabels": {},
+        }
+        payload_2 = {
+            "version": "4",
+            "groupKey": "test",
+            "receiver": "webhook",
+            "status": "firing",
+            "alerts": [
+                {
+                    "status": "firing",
+                    "labels": {"alertname": "SameName", "severity": "critical"},
+                    "annotations": {"description": "second"},
+                    "startsAt": "2024-01-08T10:05:00Z",
+                    "fingerprint": "fp-2",
+                }
+            ],
+            "groupLabels": {},
+            "commonLabels": {},
+        }
+
+        r1 = self.orchestrator.process_webhook(payload_1)
+        self.assertEqual(r1.incidents_created, 1)
+
+        r2 = self.orchestrator.process_webhook(payload_2)
+        self.assertEqual(r2.incidents_created, 0)
+        self.assertEqual(r2.incidents_updated, 1)
+
+        self.assertEqual(Incident.objects.count(), 1)
+        incident = Incident.objects.first()
+        self.assertEqual(incident.alerts.count(), 2)
+        self.assertEqual(incident.severity, "critical")
+
+
+class WebhookViewPartialResponseTests(TestCase):
+    """Tests for webhook partial responses when orchestrator reports errors."""
+
+    def setUp(self):
+        self.client = Client()
+        self.webhook_url = reverse("alerts:webhook")
+
+    @patch("apps.alerts.views.AlertOrchestrator.process_webhook")
+    def test_webhook_returns_partial_when_orchestrator_has_errors(self, mock_process):
+        mock_process.return_value = ProcessingResult(errors=["boom"])
+
+        response = self.client.post(
+            self.webhook_url,
+            data=json.dumps({"name": "x"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "partial")
+        self.assertIn("errors", data)

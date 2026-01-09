@@ -54,6 +54,11 @@ Built-in drivers:
 
 - `alertmanager` — Prometheus Alertmanager webhook format
 - `grafana` — Grafana Unified Alerting webhook format
+- `pagerduty` — PagerDuty V2/V3 webhook format
+- `datadog` — Datadog webhook format
+- `newrelic` — New Relic Alerts webhook format
+- `opsgenie` — OpsGenie webhook format
+- `zabbix` — Zabbix webhook format
 - `generic` — flexible fallback format for custom integrations
 
 Driver selection:
@@ -127,7 +132,135 @@ Business logic lives in `apps/alerts/services.py` (`AlertOrchestrator`, `Inciden
 }
 ```
 
-### 3) Generic example (custom integrations)
+### 3) PagerDuty example
+
+`POST /alerts/webhook/` (auto-detect) or `POST /alerts/webhook/pagerduty/`:
+
+```json
+{
+  "event": {
+    "id": "evt-123",
+    "event_type": "incident.triggered",
+    "resource_type": "incident",
+    "occurred_at": "2024-01-08T10:00:00Z",
+    "data": {
+      "id": "INC-456",
+      "type": "incident",
+      "html_url": "https://myorg.pagerduty.com/incidents/INC-456",
+      "number": 42,
+      "status": "triggered",
+      "title": "High latency on API endpoints",
+      "urgency": "high",
+      "service": {
+        "id": "SVC-789",
+        "summary": "Production API"
+      }
+    }
+  }
+}
+```
+
+### 4) Datadog example
+
+`POST /alerts/webhook/` (auto-detect) or `POST /alerts/webhook/datadog/`:
+
+```json
+{
+  "id": "123456",
+  "title": "CPU High on web-server-1",
+  "alert_id": "789",
+  "alert_status": "Triggered",
+  "alert_transition": "Triggered",
+  "alert_type": "error",
+  "alert_title": "CPU High",
+  "event_msg": "CPU usage is above 90% on web-server-1",
+  "hostname": "web-server-1",
+  "priority": "P1",
+  "tags": "env:production,service:web",
+  "url": "https://app.datadoghq.com/monitors/789",
+  "org": {
+    "id": "org-123",
+    "name": "MyOrg"
+  }
+}
+```
+
+### 5) New Relic example
+
+`POST /alerts/webhook/` (auto-detect) or `POST /alerts/webhook/newrelic/`:
+
+```json
+{
+  "account_id": 12345,
+  "account_name": "Production",
+  "condition_id": 67890,
+  "condition_name": "High Memory Usage",
+  "current_state": "open",
+  "details": "Memory usage exceeded 85% threshold",
+  "event_type": "INCIDENT",
+  "incident_id": 111222,
+  "incident_url": "https://alerts.newrelic.com/accounts/12345/incidents/111222",
+  "policy_name": "Infrastructure Alerts",
+  "severity": "CRITICAL",
+  "timestamp": 1704711600,
+  "targets": [
+    {"name": "web-server-1", "type": "host"}
+  ]
+}
+```
+
+### 6) OpsGenie example
+
+`POST /alerts/webhook/` (auto-detect) or `POST /alerts/webhook/opsgenie/`:
+
+```json
+{
+  "action": "Create",
+  "alert": {
+    "alertId": "abc-123-def",
+    "message": "Database connection pool exhausted",
+    "tags": ["env:production", "team:backend"],
+    "tinyId": "1234",
+    "entity": "db-primary",
+    "alias": "db-pool-alert",
+    "createdAt": 1704711600000,
+    "description": "Connection pool has no available connections",
+    "team": "Backend Team",
+    "source": "monitoring-service",
+    "priority": "P1"
+  },
+  "integrationId": "integration-456",
+  "integrationName": "Webhook Integration"
+}
+```
+
+### 7) Zabbix example
+
+`POST /alerts/webhook/` (auto-detect) or `POST /alerts/webhook/zabbix/`:
+
+```json
+{
+  "event_id": "12345",
+  "event_name": "High CPU load",
+  "event_severity": "High",
+  "event_status": "PROBLEM",
+  "event_value": "1",
+  "event_date": "2024.01.08",
+  "event_time": "10:00:00",
+  "host_name": "web-server-1",
+  "host_ip": "192.168.1.100",
+  "trigger_id": "67890",
+  "trigger_name": "CPU load is too high",
+  "trigger_severity": "High",
+  "trigger_status": "PROBLEM",
+  "item_name": "CPU Load",
+  "item_value": "95.5",
+  "alert_message": "CPU load on web-server-1 is 95.5%",
+  "zabbix_url": "http://zabbix.example.com/tr_events.php?triggerid=67890"
+}
+```
+
+### 8) Generic example (custom integrations)
 
 Single alert:
 

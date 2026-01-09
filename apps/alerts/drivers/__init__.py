@@ -6,6 +6,11 @@ from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
 from apps.alerts.drivers.alertmanager import AlertManagerDriver
 from apps.alerts.drivers.grafana import GrafanaDriver
 from apps.alerts.drivers.generic import GenericWebhookDriver
+from apps.alerts.drivers.pagerduty import PagerDutyDriver
+from apps.alerts.drivers.datadog import DatadogDriver
+from apps.alerts.drivers.newrelic import NewRelicDriver
+from apps.alerts.drivers.opsgenie import OpsGenieDriver
+from apps.alerts.drivers.zabbix import ZabbixDriver
 
 __all__ = [
     "BaseAlertDriver",
@@ -14,6 +19,11 @@ __all__ = [
     "AlertManagerDriver",
     "GrafanaDriver",
     "GenericWebhookDriver",
+    "PagerDutyDriver",
+    "DatadogDriver",
+    "NewRelicDriver",
+    "OpsGenieDriver",
+    "ZabbixDriver",
     "DRIVER_REGISTRY",
     "get_driver",
     "detect_driver",
@@ -23,6 +33,11 @@ __all__ = [
 DRIVER_REGISTRY: dict[str, type[BaseAlertDriver]] = {
     "alertmanager": AlertManagerDriver,
     "grafana": GrafanaDriver,
+    "pagerduty": PagerDutyDriver,
+    "datadog": DatadogDriver,
+    "newrelic": NewRelicDriver,
+    "opsgenie": OpsGenieDriver,
+    "zabbix": ZabbixDriver,
     "generic": GenericWebhookDriver,
 }
 
