@@ -93,7 +93,7 @@ info "Using schedule: $CRON_SCHEDULE"
 # Build the cron command
 # Use full path to uv and manage.py
 UV_PATH=$(which uv)
-CRON_CMD="cd $PROJECT_DIR && $UV_PATH run python manage.py check_health >> $PROJECT_DIR/cron.log 2>&1"
+CRON_CMD="cd $PROJECT_DIR && $UV_PATH run python manage.py check_and_alert --json >> $PROJECT_DIR/cron.log 2>&1"
 
 # Create a unique identifier for this cron job
 CRON_ID="# server-maintanence health check"

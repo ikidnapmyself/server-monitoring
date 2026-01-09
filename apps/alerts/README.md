@@ -308,3 +308,95 @@ If auto-detection can’t find a driver:
 ### CSRF
 
 The webhook view is CSRF-exempt (`@csrf_exempt`) to support external systems.
+
+## Creating alerts from health checks
+
+The alerts app integrates with the checkers app to create alerts from health check results.
+
+### Using the management command
+
+```bash
+# Run all checks and create alerts
+python manage.py check_and_alert
+
+# Run specific checks
+python manage.py check_and_alert --checkers cpu memory disk
+
+# Dry run (show what would happen without creating alerts)
+python manage.py check_and_alert --dry-run
+
+# Skip incident creation
+python manage.py check_and_alert --no-incidents
+
+# Add custom labels to all alerts
+python manage.py check_and_alert --label env=production --label team=sre
+
+# Output as JSON
+python manage.py check_and_alert --json
+
+# Override thresholds for all checkers
+python manage.py check_and_alert --warning-threshold 60 --critical-threshold 80
+```
+
+### Programmatic usage
+
+```python
+from apps.alerts.check_integration import CheckAlertBridge
+from apps.checkers.checkers import CPUChecker
+
+# Create a bridge instance
+bridge = CheckAlertBridge(
+    auto_create_incidents=True,  # Create incidents for critical/warning alerts
+    hostname="my-server",        # Override hostname in labels
+)
+
+# Run a single check and create an alert
+checker = CPUChecker(warning_threshold=70, critical_threshold=90)
+result = checker.check()
+processing_result = bridge.process_check_result(result)
+
+print(f"Alerts created: {processing_result.alerts_created}")
+print(f"Incidents created: {processing_result.incidents_created}")
+
+# Or use the convenience method
+check_result, processing_result = bridge.run_check_and_alert(
+    "cpu",
+    checker_kwargs={"warning_threshold": 70},
+    labels={"environment": "production"},
+)
+
+# Run multiple checks at once
+from apps.alerts.check_integration import CheckAlertResult
+
+result = bridge.run_checks_and_alert(
+    checker_names=["cpu", "memory", "disk"],
+    labels={"datacenter": "us-east-1"},
+)
+
+print(f"Checks run: {result.checks_run}")
+print(f"Total alerts created: {result.alerts_created}")
+```
+
+### How it works
+
+1. **Check execution**: Run health checkers (CPU, memory, disk, etc.)
+2. **Status mapping**: CheckStatus is mapped to alert severity:
+   - `CRITICAL` → `critical` severity, `firing` status
+   - `WARNING` → `warning` severity, `firing` status
+   - `OK` → `info` severity, `resolved` status
+   - `UNKNOWN` → `warning` severity, `firing` status
+3. **Alert creation**: Alerts are created or updated based on fingerprint (checker + hostname)
+4. **Incident management**: Optionally create/update incidents for firing alerts
+5. **Auto-resolution**: When a check returns OK, the corresponding alert is resolved
+
+### Setting up scheduled checks
+
+Use cron to run checks periodically:
+
+```bash
+# Run all checks every 5 minutes
+*/5 * * * * cd /path/to/project && python manage.py check_and_alert --json >> /var/log/health-checks.log 2>&1
+
+# Run only critical checks every minute
+* * * * * cd /path/to/project && python manage.py check_and_alert --checkers cpu memory --json
+```

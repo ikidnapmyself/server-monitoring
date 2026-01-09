@@ -160,14 +160,14 @@ def check_crontab_configuration(app_configs, **kwargs):
                         id="checkers.W004",
                     )
                 )
-            # If found, check that it references check_health command
-            elif "check_health" not in crontab_content:
+            # If found, check that it references check_and_alert command
+            elif "check_and_alert" not in crontab_content:
                 errors.append(
                     Warning(
-                        "Cron job found but may not be running health checks",
+                        "Cron job found but may not be running health checks with alerts",
                         hint=(
-                            "The crontab contains 'server-maintanence' but not 'check_health'. "
-                            "Verify the cron job is correctly configured."
+                            "The crontab contains 'server-maintanence' but not 'check_and_alert'. "
+                            "Verify the cron job is correctly configured to create alerts."
                         ),
                         id="checkers.W005",
                     )
