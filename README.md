@@ -7,6 +7,8 @@ This top-level README is the entry point and documentation hub. App-specific doc
 ## Documentation map
 
 - Health checks (checkers): [`apps/checkers/README.md`](apps/checkers/README.md)
+- Alert ingestion: [`apps/alerts/README.md`](apps/alerts/README.md)
+- Notifications: [`apps/notify/README.md`](apps/notify/README.md)
 - Working with repo AI agents / conventions: [`agents.md`](agents.md)
 
 ## Requirements
@@ -39,21 +41,34 @@ This will:
 uv sync
 ```
 
-## Cron Setup
+## Development
 
-To schedule automatic health checks, run the cron setup script:
+This repo uses `uv` for dependency management and a small, consistent dev-tooling stack configured in `pyproject.toml`:
+
+- **Black** for formatting
+- **Ruff** for linting + import sorting
+- **pytest + pytest-django** for tests
+- **mypy + django-stubs** (optional) for type-checking
+
+### Common commands
 
 ```bash
-./bin/setup_cron.sh
+# Install runtime + dev tools
+uv sync --extra dev
+
+# Format
+uv run black .
+
+# Lint (and auto-fix imports where possible)
+uv run ruff check . --fix
+
+# Tests
+uv run pytest
+
+# Optional: type-check
+uv run mypy .
 ```
 
-Or choose "yes" when prompted during installation.
-
-This will:
-- Detect the project directory automatically
-- Let you choose a schedule (every 5/15/60 minutes, daily, or custom)
-- Add the health check command to your crontab
-- Log output to `cron.log`
 
 ## Quickstart
 

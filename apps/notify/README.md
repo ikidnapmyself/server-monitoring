@@ -4,33 +4,7 @@ This Django app provides a flexible notification delivery system for sending ale
 
 It abstracts the complexity of multiple notification backends (email, Slack, PagerDuty, etc.) behind a simple, unified interface. Drivers handle platform-specific logic and configuration.
 
-## Development (format/lint/test)
-
-This repo uses `uv` for dependency management and a small, consistent dev-tooling stack configured in `pyproject.toml`:
-
-- **Black** for formatting
-- **Ruff** for linting + import sorting
-- **pytest + pytest-django** for tests
-- **mypy + django-stubs** (optional) for type-checking
-
-Common commands:
-
-```bash
-# Install runtime + dev tools
-uv sync --extra dev
-
-# Format
-uv run black .
-
-# Lint (and auto-fix imports where possible)
-uv run ruff check . --fix
-
-# Tests
-uv run pytest
-
-# Optional: type-check
-uv run mypy .
-```
+> **Note:** For development setup (formatting, linting, testing), see the main [README](../../README.md#development).
 
 ## What's included
 
@@ -330,4 +304,3 @@ curl http://localhost:8000/notify/drivers/slack/
   ]
 }
 ```
-
