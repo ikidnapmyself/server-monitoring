@@ -6,6 +6,14 @@
 
 set -e
 
+# Get the directory where this script is located (bin/)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Project root is parent of bin/
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Change to project directory
+cd "$PROJECT_DIR"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -127,6 +135,14 @@ echo ""
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     info "Running health checks..."
     uv run python manage.py check_health
+fi
+
+# Optional: Ask if user wants to set up cron
+echo ""
+read -p "Would you like to set up automatic health checks via cron? [y/N] " -n 1 -r
+echo ""
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    "$SCRIPT_DIR/setup_cron.sh"
 fi
 
 success "Setup complete!"

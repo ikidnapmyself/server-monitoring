@@ -23,7 +23,7 @@ Dependencies (from `pyproject.toml`): Django + psutil.
 Run the installer script which handles everything automatically:
 
 ```bash
-./install.sh
+./bin/install.sh
 ```
 
 This will:
@@ -31,12 +31,29 @@ This will:
 - Install uv package manager if needed
 - Install all dependencies
 - Run database migrations
+- Optionally set up cron for automatic health checks
 
 ### Manual Install
 
 ```bash
 uv sync
 ```
+
+## Cron Setup
+
+To schedule automatic health checks, run the cron setup script:
+
+```bash
+./bin/setup_cron.sh
+```
+
+Or choose "yes" when prompted during installation.
+
+This will:
+- Detect the project directory automatically
+- Let you choose a schedule (every 5/15/60 minutes, daily, or custom)
+- Add the health check command to your crontab
+- Log output to `cron.log`
 
 ## Quickstart
 
