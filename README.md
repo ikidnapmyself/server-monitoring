@@ -41,6 +41,15 @@ This will:
 uv sync
 ```
 
+### Django System Checks
+
+After the installation steps, you can verify project configuration.
+Run all system checks:
+
+```bash
+uv run python manage.py check
+```
+
 ## Development
 
 This repo uses `uv` for dependency management and a small, consistent dev-tooling stack configured in `pyproject.toml`:

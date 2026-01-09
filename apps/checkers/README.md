@@ -22,6 +22,38 @@ List them via:
 uv run python manage.py check_health --list
 ```
 
+### Django System Checks
+
+In addition to runtime health checkers, this app registers Django system checks that run with `python manage.py check`. These verify project configuration:
+
+| Tag | Check ID | Description |
+|-----|----------|-------------|
+| `database` | `checkers.E001` | Database connection error |
+| `migrations` | `checkers.W001` | Pending migrations warning |
+| `crontab` | `checkers.W002` | No crontab configured |
+| `crontab` | `checkers.W004` | Health check cron job not found |
+| `database` | `checkers.E003` | Missing django_migrations table (deploy) |
+
+Run all system checks:
+
+```bash
+uv run python manage.py check
+```
+
+Run specific check tags:
+
+```bash
+uv run python manage.py check --tag database
+uv run python manage.py check --tag migrations
+uv run python manage.py check --tag crontab
+```
+
+Run deployment checks (includes additional security/config checks):
+
+```bash
+uv run python manage.py check --deploy
+```
+
 ## Running checks
 
 There are two management commands:

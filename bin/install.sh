@@ -108,7 +108,15 @@ info "Running database migrations..."
 uv run python manage.py migrate
 success "Migrations applied"
 
-# Step 5: Summary and next steps
+# Step 5: Run Django system checks
+info "Running Django system checks..."
+if uv run python manage.py check; then
+    success "All system checks passed"
+else
+    warn "System checks reported issues (see above). You may want to address them."
+fi
+
+# Step 6: Summary and next steps
 echo ""
 echo "============================================"
 echo -e "${GREEN}   Installation Complete!${NC}"
@@ -126,6 +134,7 @@ echo "Documentation:"
 echo "  - Main README:          README.md"
 echo "  - Checkers docs:        apps/checkers/README.md"
 echo "  - Alerts docs:          apps/alerts/README.md"
+echo "  - Notify docs:          apps/notify/README.md"
 echo "  - Agent conventions:    agents.md"
 echo ""
 
