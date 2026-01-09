@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "coverage>=7.13.1",
     "django>=5.2.10",
     "psutil>=5.9.0",
 ]
@@ -16,6 +17,7 @@ dev = [
     "ruff>=0.6.0",
     "pytest>=8.0.0",
     "pytest-django>=4.8.0",
+    "pytest-cov>=4.0.0",
     "mypy>=1.8.0",
     "django-stubs>=5.0.0",
     "types-psutil>=5.9.5.20240423",
@@ -71,3 +73,25 @@ plugins = ["mypy_django_plugin.main"]
 
 [tool.django-stubs]
 django_settings_module = "config.settings"
+
+[tool.coverage.run]
+source = ["apps", "config"]
+branch = true
+omit = [
+    "*/migrations/*",
+    "*/__pycache__/*",
+    "*/tests.py",
+    "*/test_*.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
+fail_under = 0
+show_missing = true
+skip_covered = false
+

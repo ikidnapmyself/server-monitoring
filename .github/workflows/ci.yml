@@ -31,8 +31,20 @@ jobs:
       - name: Sync dependencies (incl. dev tools)
         run: uv sync --extra dev
 
-      - name: Tests (pytest)
+      - name: Tests with coverage
         env:
           DJANGO_SECRET_KEY: "ci-not-a-secret"
-        run: uv run pytest
+        run: uv run coverage run -m pytest
+
+      - name: Generate coverage report
+        run: |
+          uv run coverage report
+          uv run coverage xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+          verbose: true
 
