@@ -9,6 +9,7 @@ This top-level README is the entry point and documentation hub. App-specific doc
 - Health checks (checkers): [`apps/checkers/README.md`](apps/checkers/README.md)
 - Alert ingestion: [`apps/alerts/README.md`](apps/alerts/README.md)
 - Notifications: [`apps/notify/README.md`](apps/notify/README.md)
+- Intelligence/recommendations: [`apps/intelligence/README.md`](apps/intelligence/README.md)
 - Working with repo AI agents / conventions: [`agents.md`](agents.md)
 
 ## Requirements
@@ -118,7 +119,7 @@ uv run python manage.py runserver
   - `apps/checkers/` — health checks + management commands
   - `apps/alerts/` — alert ingestion (scaffold)
   - `apps/notify/` — notification drivers (scaffold)
-  - `apps/intelligence/` — intelligence/providers (scaffold)
+  - `apps/intelligence/` — intelligence/recommendations system
 - `bin/` - shell scripts
 
 ## Contributing / extending
