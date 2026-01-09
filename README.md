@@ -89,6 +89,7 @@ uv run python manage.py runserver
   - `apps/alerts/` — alert ingestion (scaffold)
   - `apps/notify/` — notification drivers (scaffold)
   - `apps/intelligence/` — intelligence/providers (scaffold)
+- `bin/` - shell scripts
 
 ## Contributing / extending
 
