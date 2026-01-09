@@ -42,7 +42,7 @@ if not SECRET_KEY:
             "DJANGO_SECRET_KEY environment variable is not set. Set it in your environment for production."
         )
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS: list[str] = []
 
 
 # Application definition

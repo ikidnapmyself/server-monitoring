@@ -132,7 +132,7 @@ class GenericNotifyDriver(BaseNotifyDriver):
 
             # Create request
             request = urllib.request.Request(
-                endpoint,
+                str(endpoint),
                 data=payload_json if method in ("POST", "PUT", "PATCH") else None,
                 headers=request_headers,
                 method=method,
@@ -153,7 +153,7 @@ class GenericNotifyDriver(BaseNotifyDriver):
 
                 return {
                     "success": True,
-                    "message_id": f"generic_{hash(endpoint + message.title) & 0x7FFFFFFF:08x}",
+                    "message_id": f"generic_{hash(str(endpoint) + message.title) & 0x7FFFFFFF:08x}",
                     "metadata": {
                         "endpoint": endpoint,
                         "method": method,

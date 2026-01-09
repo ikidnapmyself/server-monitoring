@@ -6,7 +6,7 @@ creating/updating incidents, and managing alert lifecycle.
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from django.db import transaction
@@ -39,11 +39,7 @@ class ProcessingResult:
     alerts_resolved: int = 0
     incidents_created: int = 0
     incidents_updated: int = 0
-    errors: list[str] = None
-
-    def __post_init__(self):
-        if self.errors is None:
-            self.errors = []
+    errors: list[str] = field(default_factory=list)
 
     @property
     def total_processed(self) -> int:
@@ -446,7 +442,9 @@ class AlertQueryService:
     @staticmethod
     def get_recent_alerts(hours: int = 24):
         """Get alerts from the last N hours."""
-        since = timezone.now() - timezone.timedelta(hours=hours)
+        from datetime import timedelta
+
+        since = timezone.now() - timedelta(hours=hours)
         return Alert.objects.filter(received_at__gte=since)
 
     @staticmethod

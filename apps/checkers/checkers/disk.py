@@ -64,7 +64,7 @@ class DiskChecker(BaseChecker):
                         worst_path = path
 
                 except FileNotFoundError:
-                    disk_metrics[path] = {"error": "Path not found"}
+                    disk_metrics[path] = {"error": "Path not found"}  # type: ignore[dict-item]
                     worst_status = CheckStatus.UNKNOWN
                     worst_path = path
 

@@ -169,6 +169,7 @@ class EmailNotifyDriver(BaseNotifyDriver):
             email["Message-ID"] = f"<{message_id}@{smtp_host}>"
 
             # Connect and send
+            server: smtplib.SMTP | smtplib.SMTP_SSL
             if use_ssl:
                 server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=timeout)
             else:
