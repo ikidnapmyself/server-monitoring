@@ -16,6 +16,41 @@ Use the smallest agent that can complete the job safely and correctly:
 
 ---
 
+## The Orchestration Flow
+
+Instead of apps calling each other in a messy web, this project should follow a **linear pipeline** where the output of one app's service becomes the input for the next.
+
+**Pipeline:** `apps.alerts` → `apps.checkers` → `apps.intelligence` → `apps.notify`
+
+1. **`apps.alerts` (ingest)**
+   - Receives the initial trigger (typically a webhook).
+   - Validates/parses the inbound payload.
+   - Creates (or updates) an `Incident` record.
+
+2. **`apps.checkers` (diagnose)**
+   - Runs the diagnostic commands associated with the alert/incident.
+   - Produces structured results (command output, exit codes, timings, errors).
+
+3. **`apps.intelligence` (analyze)**
+   - Sends alert details + checker output to the LLM/provider.
+   - Produces a final analysis: summary, probable cause, suggested actions, confidence.
+
+4. **`apps.notify` (communicate)**
+   - Takes the final analysis and dispatches it to configured channels (Slack, email, etc.).
+
+**Recommended boundaries (keep it clean):**
+- Treat each app's *service layer* as the public API; avoid deep cross-imports of internal modules.
+- Pass **plain data** (dicts/dataclasses/serializable DTOs) between stages when possible; keep DB writes and network calls inside the relevant stage.
+- Keep each stage **idempotent** where possible (especially `apps.alerts` ingest and `apps.notify` send).
+
+**Where agents help in this flow:**
+- Use **Plan** when adding a new stage capability (new inbound driver, new checker type, new LLM provider, new notification channel) to ensure the pipeline contract stays linear.
+- Use **Coder** to implement the stage feature behind the existing base classes.
+- Use **Review** to verify payload validation, idempotency, timeouts/retries, and secret handling.
+- Use **Debug** when the pipeline breaks (parsing differences, timeouts, duplicated incidents, failing tests).
+
+---
+
 ## Available Agents
 
 ### Plan Agent

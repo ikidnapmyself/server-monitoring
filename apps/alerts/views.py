@@ -4,6 +4,8 @@ Webhook views for receiving alerts from external sources.
 
 import json
 import logging
+import os
+from typing import Any, cast
 
 from django.http import JsonResponse
 from django.utils.decorators import method_decorator
@@ -40,12 +42,47 @@ class AlertWebhookView(View):
                     status=400,
                 )
 
-            # Process the payload
+            # If Celery is enabled, enqueue the orchestration chain and return quickly.
+            # (In tests/dev you can set CELERY_TASK_ALWAYS_EAGER=1 to run inline.)
+            try:
+                from django.conf import settings
+
+                celery_eager = bool(getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False))
+            except Exception:
+                celery_eager = False
+
+            if os.environ.get("ENABLE_CELERY_ORCHESTRATION", "1") == "1" and not celery_eager:
+                try:
+                    from apps.alerts.tasks import orchestrate_event
+
+                    async_res = orchestrate_event.delay(
+                        {
+                            "trigger": "webhook",
+                            "payload": payload,
+                            "driver": driver,
+                        }
+                    )
+                    return JsonResponse(
+                        {
+                            "status": "queued",
+                            "pipeline_id": async_res.id,
+                        },
+                        status=202,
+                    )
+                except Exception as enqueue_err:
+                    # If Celery isn't reachable (broker/result backend down), don't 500 the webhook.
+                    # Fall back to synchronous processing.
+                    logger.warning(
+                        "Celery orchestration enqueue failed; falling back to sync processing: %s",
+                        enqueue_err,
+                    )
+
+            # Fallback: synchronous processing (previous behavior)
             orchestrator = AlertOrchestrator()
             result = orchestrator.process_webhook(payload, driver=driver)
 
             # Build response
-            response_data = {
+            response_data: dict[str, Any] = {
                 "status": "success" if not result.has_errors else "partial",
                 "alerts_created": result.alerts_created,
                 "alerts_updated": result.alerts_updated,
@@ -55,7 +92,7 @@ class AlertWebhookView(View):
             }
 
             if result.has_errors:
-                response_data["errors"] = result.errors
+                response_data["errors"] = cast(Any, result.errors)
                 logger.warning(f"Webhook processing errors: {result.errors}")
 
             logger.info(

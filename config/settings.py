@@ -141,3 +141,28 @@ STATIC_URL = "static/"
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# ---------------------------------------------------------------------------
+# Celery (Queue Manager / Orchestration)
+# ---------------------------------------------------------------------------
+# Broker/result backend are intentionally configurable via env vars.
+# Default broker uses Redis for local dev, but the *result backend* defaults to
+# an in-memory backend to avoid repeated reconnect attempts when Redis isn't running.
+
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
+
+# Prefer explicit result backend configuration; fall back to a safe in-memory backend.
+# If you want to use Redis for results, set:
+#   CELERY_RESULT_BACKEND=redis://localhost:6379/0
+CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", "cache+memory://")
+
+# Keep payloads JSON-serializable so stages can pass plain dict context.
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE
+
+# In tests (or local debugging), allow eager execution.
+# Set CELERY_TASK_ALWAYS_EAGER=1 to run tasks inline.
+CELERY_TASK_ALWAYS_EAGER = os.environ.get("CELERY_TASK_ALWAYS_EAGER", "0") == "1"
+CELERY_TASK_EAGER_PROPAGATES = True
