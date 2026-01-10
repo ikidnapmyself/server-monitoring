@@ -4,6 +4,43 @@ The **Intelligence** app provides local system analysis and generates actionable
 
 > **Note:** For development setup (formatting, linting, testing), see the main [README](../../README.md#development).
 
+## Orchestration Integration
+
+This app is the **third stage** in the pipeline: `alerts → checkers → intelligence → notify`
+
+### How it fits in the pipeline
+
+1. The **orchestrator** calls `intelligence.analyze()` with incident + checker output
+2. This app runs the configured provider to generate recommendations
+3. Results are returned to the orchestrator as structured output
+4. The **orchestrator** stores everything in `StageExecution.output_snapshot`
+
+### No separate models needed
+
+Execution tracking is handled entirely by `apps.orchestration`:
+
+- **PipelineRun** — tracks the full pipeline execution
+- **StageExecution** — tracks this stage with `stage="analyze"`
+
+The `StageExecution.output_snapshot` contains:
+```json
+{
+  "summary": "High memory usage detected...",
+  "probable_cause": "Memory leak in process X",
+  "recommendations": [...],
+  "confidence": 0.85,
+  "model_info": {"provider": "local", "model": null},
+  "token_usage": {"prompt": 150, "completion": 200, "total": 350}
+}
+```
+
+### Viewing analysis history
+
+To view intelligence stage executions in Django Admin:
+- Go to `/admin/orchestration/stageexecution/`
+- Filter by `stage = "analyze"`
+- View `output_snapshot` for analysis results
+
 ## Features
 
 ### Local Recommendation Provider

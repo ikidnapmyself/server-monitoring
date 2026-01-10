@@ -4,7 +4,30 @@ This Django app provides a small health-check framework and two management comma
 
 > **Note:** For development setup (formatting, linting, testing), see the main [README](../../README.md#development).
 
+## Orchestration Integration
+
+This app can run in two modes:
+
+### 1. Standalone mode (via cron/management command)
+- Checks run independently, outside the pipeline
+- Results logged to `CheckRun` model
+- Creates alerts via `CheckAlertBridge` if issues found
+
+### 2. Pipeline mode (via orchestrator)
+- Checks run as the **second stage**: `alerts → checkers → intelligence → notify`
+- Results stored in `StageExecution.output_snapshot` (stage="check")
+- Orchestrator handles alert creation and flow control
+
 ## What's included
+
+### Models
+
+- `CheckRun` — Log of **standalone** health check executions
+  - Status, message, and metrics from the check
+  - Link to created Alert (if check found an issue)
+  - Execution timing and correlation ID for tracing
+
+> **Note:** When checks run as part of the pipeline, tracking is handled by `apps.orchestration` via `StageExecution` with `stage="check"`.
 
 ### Available checkers
 
@@ -21,6 +44,20 @@ List them via:
 ```bash
 uv run python manage.py check_health --list
 ```
+
+### Django Admin
+
+Access the admin interface at `/admin/checkers/` to view check run history:
+
+- **CheckRun** — View all check executions (read-only)
+  - Colored status badges (ok/warning/critical/unknown)
+  - Duration display
+  - Link to created alert (if any)
+  - Filter by status, checker name, hostname
+  - Search by checker name, hostname, message, trace ID
+  - Date hierarchy by execution time
+
+> **Note:** Check runs are audit records and cannot be added/edited manually. They are created automatically when checks are run via management commands or the CheckAlertBridge.
 
 ### Django System Checks
 

@@ -4,9 +4,16 @@ This Django app provides a flexible notification delivery system for sending ale
 
 It abstracts the complexity of multiple notification backends (email, Slack, PagerDuty, etc.) behind a simple, unified interface. Drivers handle platform-specific logic and configuration.
 
+> **Note:** Notification delivery tracking (status, retries, errors) is handled by the **orchestration layer** (`apps.orchestration`). This app focuses solely on channel configuration and message dispatch.
+
 > **Note:** For development setup (formatting, linting, testing), see the main [README](../../README.md#development).
 
 ## What's included
+
+### Models
+
+- `NotificationChannel` — Persistent configuration for notification channels (managed via Django Admin)
+- `NotificationSeverity` — Severity levels for notifications (`critical`, `warning`, `info`, `success`)
 
 ### Drivers (notification backends)
 
@@ -38,12 +45,40 @@ The app exposes REST endpoints for sending notifications:
 - `GET /notify/drivers/` — List available drivers
 - `GET /notify/drivers/<driver>/` — Get specific driver info
 
+### Django Admin
+
+Access the admin interface at `/admin/notify/` to manage notification channels:
+
+- **NotificationChannel** — Create, edit, and disable notification channels
+  - Configure driver type and settings
+  - Store webhook URLs, API keys (as references), and other driver-specific config
+  - Enable/disable channels without deleting them
+
 ### Data model (high level)
 
+- `NotificationChannel` — persistent channel configuration (driver + config)
 - `NotificationMessage` — standardized message format with title, message, severity, and metadata
 - `BaseNotifyDriver` — abstract base for all notification drivers
 
 ## Using the notification system
+
+### 0) Configure channels via Admin
+
+The recommended approach is to configure channels via Django Admin:
+
+1. Navigate to `/admin/notify/notificationchannel/`
+2. Add a new channel (e.g., "ops-slack")
+3. Select the driver type (e.g., "slack")
+4. Configure driver-specific settings in the JSON config field
+5. Set `is_active=True` to enable
+
+Example channel config for Slack:
+```json
+{
+  "webhook_url": "https://hooks.slack.com/services/T.../B.../XXX",
+  "channel": "#alerts"
+}
+```
 
 ### 1) List available drivers
 
@@ -173,13 +208,47 @@ class MyServiceNotifyDriver(BaseNotifyDriver):
         }
 ```
 
+## Using NotificationChannel in code
+
+```python
+from apps.notify.models import NotificationChannel
+from apps.notify.drivers.slack import SlackNotifyDriver
+from apps.notify.drivers.base import NotificationMessage
+
+# Get an active channel by name
+channel = NotificationChannel.objects.get(name="ops-slack", is_active=True)
+
+# Create message
+message = NotificationMessage(
+    title="CPU Alert",
+    message="CPU usage exceeded 90%",
+    severity="critical",
+)
+
+# Get driver and send
+driver = SlackNotifyDriver()  # Or use a registry to get driver by channel.driver
+result = driver.send(message, channel.config)
+```
+
 ## Architecture notes
 
+### Orchestration integration
+
+This app is the **final stage** in the pipeline: `alerts → checkers → intelligence → notify`
+
+- **Delivery tracking** is handled by `apps.orchestration` (via `StageExecution`)
+- **Channel configuration** is stored in `NotificationChannel` model
+- **Message dispatch** is handled by drivers
+- The orchestrator calls this app's dispatch function and records results in `StageExecution.output_snapshot`
+
+### Design principles
+
 - Drivers are stateless and thread-safe
-- Configuration is passed at send time, not stored
+- Channel configuration is stored in `NotificationChannel`, passed to drivers at send time
 - All drivers normalize to the same result format
-- Failures return structured error information
+- Failures return structured error information (captured by orchestrator)
 - Each driver independently handles retries, rate-limiting, etc.
+- **No separate notification logs** — the orchestration layer tracks all delivery attempts
 
 ## API usage examples
 
