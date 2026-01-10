@@ -121,6 +121,31 @@ Set these environment variables (or in `config/settings.py`):
 
 ## Usage Examples
 
+### Management Command
+
+The easiest way to test the pipeline end-to-end:
+
+```bash
+# Dry run with sample alert (shows what would happen)
+uv run python manage.py run_pipeline --sample --dry-run
+
+# Run with sample alert
+uv run python manage.py run_pipeline --sample
+
+# Run with specific source format
+uv run python manage.py run_pipeline --sample --source alertmanager
+uv run python manage.py run_pipeline --sample --source grafana
+
+# Run with custom payload from file
+uv run python manage.py run_pipeline --file alert.json
+
+# Run with inline JSON payload
+uv run python manage.py run_pipeline --payload '{"name": "Test", "status": "firing", "severity": "warning"}'
+
+# Output as JSON
+uv run python manage.py run_pipeline --sample --json
+```
+
 ### Python API
 
 ```python
