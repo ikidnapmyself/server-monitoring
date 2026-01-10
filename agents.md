@@ -18,36 +18,125 @@ Use the smallest agent that can complete the job safely and correctly:
 
 ## The Orchestration Flow
 
-Instead of apps calling each other in a messy web, this project should follow a **linear pipeline** where the output of one app's service becomes the input for the next.
+This project is **pipeline-first**: a single orchestrator controls the full lifecycle of an incident through a strict, linear chain.
 
-**Pipeline:** `apps.alerts` → `apps.checkers` → `apps.intelligence` → `apps.notify`
+**Pipeline (always):** `apps.alerts` → `apps.checkers` → `apps.intelligence` → `apps.notify`
+
+### Core rule: one orchestrator, one trace
+- **Only the orchestrator** is allowed to move work from one stage to the next.
+- Every pipeline run gets a **correlation id** (e.g., `trace_id` / `run_id`) that must be attached to:
+  - logs
+  - monitoring events/spans
+  - DB records / audit trail
+  - outbound notifications
+
+> Goal: given a notification, you can jump back to the exact incident + checker output + LLM analysis + every retry/error.
+
+---
+
+### Orchestrator responsibilities (controls everything)
+
+The orchestrator (a service function / Celery workflow / management command entrypoint) owns:
+
+1. **State machine**
+   - Stage statuses: `INGESTED → CHECKED → ANALYZED → NOTIFIED` (plus `FAILED`, `RETRYING`, `SKIPPED`)
+   - Stage timestamps + duration
+   - Retry strategy and max attempts per stage
+
+2. **Contracts between stages**
+   - Each stage returns **structured outputs** (DTO/dict) and must not “secretly” call downstream apps.
+   - Each stage is **idempotent**: re-running the same `(incident_id, run_id, stage)` is safe.
+
+3. **Persistence / audit trail**
+   - Persist: incident identity + normalized alert payload reference + checker results reference + intelligence output reference + notification dispatch results.
+   - Store stage errors in a structured way (error type, message, stack, retryable flag).
+
+4. **Observability (mandatory)**
+   - The orchestrator emits monitoring signals at every stage boundary (start/end/error) and attaches artifacts.
+
+---
+
+### Stage boundaries (who does what)
 
 1. **`apps.alerts` (ingest)**
-   - Receives the initial trigger (typically a webhook).
-   - Validates/parses the inbound payload.
-   - Creates (or updates) an `Incident` record.
+   - Parse/validate inbound payload.
+   - Normalize it into an incident trigger object.
+   - Create/update `Incident` + attach `trace_id/run_id`.
+   - Output: `{ incident_id, alert_fingerprint, severity, source, normalized_payload_ref }`
 
 2. **`apps.checkers` (diagnose)**
-   - Runs the diagnostic commands associated with the alert/incident.
-   - Produces structured results (command output, exit codes, timings, errors).
+   - Run diagnostics associated with the incident.
+   - Output: `{ checks: [...], timings, errors, checker_output_ref }`
 
 3. **`apps.intelligence` (analyze)**
-   - Sends alert details + checker output to the LLM/provider.
-   - Produces a final analysis: summary, probable cause, suggested actions, confidence.
+   - Use incident + checker output to produce an analysis.
+   - Output: `{ summary, probable_cause, actions, confidence, ai_output_ref, model_info }`
 
 4. **`apps.notify` (communicate)**
-   - Takes the final analysis and dispatches it to configured channels (Slack, email, etc.).
+   - Render final message(s) and dispatch via configured channels.
+   - Output: `{ deliveries: [...], provider_ids, notify_output_ref }`
 
-**Recommended boundaries (keep it clean):**
-- Treat each app's *service layer* as the public API; avoid deep cross-imports of internal modules.
-- Pass **plain data** (dicts/dataclasses/serializable DTOs) between stages when possible; keep DB writes and network calls inside the relevant stage.
-- Keep each stage **idempotent** where possible (especially `apps.alerts` ingest and `apps.notify` send).
+**Hard boundary rule:** stage code may call *internal helpers* in its own app, but must not call the next app directly. Only the orchestrator advances the pipeline.
 
-**Where agents help in this flow:**
-- Use **Plan** when adding a new stage capability (new inbound driver, new checker type, new LLM provider, new notification channel) to ensure the pipeline contract stays linear.
-- Use **Coder** to implement the stage feature behind the existing base classes.
-- Use **Review** to verify payload validation, idempotency, timeouts/retries, and secret handling.
-- Use **Debug** when the pipeline breaks (parsing differences, timeouts, duplicated incidents, failing tests).
+---
+
+### Monitoring tool requirements (track everything)
+
+Introduce a single, app-agnostic monitoring surface (e.g. `apps.monitoring`) used by **every stage**.
+
+**Minimum signals to emit per stage:**
+- `pipeline.stage.started`
+- `pipeline.stage.succeeded`
+- `pipeline.stage.failed` (with `retryable=true/false`)
+- duration metric (stage timing)
+- counters for retries and failures
+
+**Minimum tags/fields on every signal:**
+- `trace_id/run_id`
+- `incident_id`
+- `stage` (`alerts|checkers|intelligence|notify`)
+- `source` (grafana/alertmanager/custom)
+- `alert_fingerprint`
+- `environment`
+- `attempt`
+
+**Artifacts to attach (or store refs to):**
+- normalized inbound payload ref (never raw secrets)
+- checker output ref
+- intelligence output ref (prompt/response refs, redacted)
+- notification delivery refs (provider message IDs, response codes)
+
+> Rule: never log secrets; payloads and prompts should be stored as **redacted refs** and only selectively attached.
+
+---
+
+### Failure & retry policy (pipeline-level)
+
+- The orchestrator decides if a failure is retryable.
+- Prefer **stage-local retries** with backoff for transient I/O (HTTP timeouts, provider 5xx).
+- Prefer **idempotency keys** for outbound notify to prevent duplicate messages.
+- If `apps.intelligence` fails, the pipeline may still notify with a “no AI analysis available” fallback (configurable), but must record that downgrade in monitoring + audit trail.
+
+---
+
+### A simple mental model
+
+**Orchestrator pseudocode:**
+- start pipeline span (trace_id)
+- run `alerts.ingest()` → record + emit signals
+- run `checkers.run()` → record + emit signals
+- run `intelligence.analyze()` → record + emit signals
+- run `notify.dispatch()` → record + emit signals
+- close pipeline span
+
+---
+
+### Where agents help (within this flow)
+
+- **Plan**: define stage contracts, DTOs, persistence, monitoring events, and failure policy.
+- **Coder**: implement one stage + orchestrator wiring + monitoring calls.
+- **Review**: verify boundary rule (no downstream calls), idempotency, timeouts/retries, secret redaction.
+- **Debug**: trace a failed run end-to-end using `trace_id` and stage events.
 
 ---
 
