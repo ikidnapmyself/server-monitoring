@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     "apps.checkers.apps.CheckersConfig",
     "apps.intelligence.apps.IntelligenceConfig",
     "apps.notify.apps.NotifyConfig",
+    "apps.orchestration.apps.OrchestrationConfig",
 ]
 
 MIDDLEWARE = [
@@ -166,3 +167,29 @@ CELERY_TIMEZONE = TIME_ZONE
 # Set CELERY_TASK_ALWAYS_EAGER=1 to run tasks inline.
 CELERY_TASK_ALWAYS_EAGER = os.environ.get("CELERY_TASK_ALWAYS_EAGER", "0") == "1"
 CELERY_TASK_EAGER_PROPAGATES = True
+
+# ---------------------------------------------------------------------------
+# Pipeline Orchestration Configuration
+# ---------------------------------------------------------------------------
+# Maximum number of retries per stage before marking the pipeline as failed.
+ORCHESTRATION_MAX_RETRIES_PER_STAGE = int(
+    os.environ.get("ORCHESTRATION_MAX_RETRIES_PER_STAGE", "3")
+)
+
+# Backoff factor for retry delays (exponential: factor^attempt seconds).
+ORCHESTRATION_BACKOFF_FACTOR = float(os.environ.get("ORCHESTRATION_BACKOFF_FACTOR", "2.0"))
+
+# Enable fallback when intelligence/AI stage fails.
+# When True, pipeline continues with "AI unavailable" message instead of failing.
+ORCHESTRATION_INTELLIGENCE_FALLBACK_ENABLED = (
+    os.environ.get("ORCHESTRATION_INTELLIGENCE_FALLBACK_ENABLED", "1") == "1"
+)
+
+# Metrics backend for pipeline monitoring signals.
+# Options: "logging" (default), "statsd"
+ORCHESTRATION_METRICS_BACKEND = os.environ.get("ORCHESTRATION_METRICS_BACKEND", "logging")
+
+# StatsD configuration (only used when ORCHESTRATION_METRICS_BACKEND=statsd)
+STATSD_HOST = os.environ.get("STATSD_HOST", "localhost")
+STATSD_PORT = int(os.environ.get("STATSD_PORT", "8125"))
+STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "pipeline")

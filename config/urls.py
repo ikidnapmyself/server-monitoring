@@ -23,4 +23,5 @@ urlpatterns = [
     path("alerts/", include("apps.alerts.urls")),
     path("notify/", include("apps.notify.urls")),
     path("intelligence/", include("apps.intelligence.urls")),
+    path("orchestration/", include("apps.orchestration.urls")),
 ]
