@@ -56,18 +56,21 @@ class BaseChecker(ABC):
         timeout: Maximum seconds to wait for the check to complete.
         warning_threshold: Value at which status becomes WARNING.
         critical_threshold: Value at which status becomes CRITICAL.
+        enabled: Whether this checker is enabled (default: True).
     """
 
     name: str = "base"
     timeout: float = 10.0
     warning_threshold: float = 70.0
     critical_threshold: float = 90.0
+    enabled: bool = True
 
     def __init__(
         self,
         timeout: float | None = None,
         warning_threshold: float | None = None,
         critical_threshold: float | None = None,
+        enabled: bool | None = None,
         **kwargs: Any,
     ) -> None:
         """
@@ -77,6 +80,7 @@ class BaseChecker(ABC):
             timeout: Override default timeout in seconds.
             warning_threshold: Override default warning threshold.
             critical_threshold: Override default critical threshold.
+            enabled: Override default enabled state.
             **kwargs: Additional checker-specific configuration.
         """
         if timeout is not None:
@@ -85,6 +89,8 @@ class BaseChecker(ABC):
             self.warning_threshold = warning_threshold
         if critical_threshold is not None:
             self.critical_threshold = critical_threshold
+        if enabled is not None:
+            self.enabled = enabled
 
     @abstractmethod
     def check(self) -> CheckResult:

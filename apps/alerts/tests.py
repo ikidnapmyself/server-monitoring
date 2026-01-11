@@ -3,6 +3,7 @@ Tests for the alerts app.
 """
 
 import json
+import os
 from datetime import timedelta
 from typing import Any, cast
 from unittest.mock import patch
@@ -370,10 +371,16 @@ class WebhookViewTests(TestCase):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 200)
+        # Webhook returns 202 when Celery orchestration is enabled (queued for async processing)
+        # or 200 when processing synchronously
+        self.assertIn(response.status_code, [200, 202])
         data = response.json()
-        self.assertEqual(data["status"], "success")
-        self.assertEqual(data["alerts_created"], 1)
+        if response.status_code == 202:
+            self.assertEqual(data["status"], "queued")
+            self.assertIn("pipeline_id", data)
+        else:
+            self.assertEqual(data["status"], "success")
+            self.assertEqual(data["alerts_created"], 1)
 
     def test_webhook_post_invalid_json(self):
         response = self.client.post(
@@ -404,7 +411,9 @@ class WebhookViewTests(TestCase):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 200)
+        # Webhook returns 202 when Celery orchestration is enabled (queued for async processing)
+        # or 200 when processing synchronously
+        self.assertIn(response.status_code, [200, 202])
 
 
 class AlertModelTests(TestCase):
@@ -733,6 +742,7 @@ class WebhookViewPartialResponseTests(TestCase):
         self.client = Client()
         self.webhook_url = reverse("alerts:webhook")
 
+    @patch.dict(os.environ, {"ENABLE_CELERY_ORCHESTRATION": "0"})
     @patch("apps.alerts.views.AlertOrchestrator.process_webhook")
     def test_webhook_returns_partial_when_orchestrator_has_errors(self, mock_process):
         mock_process.return_value = ProcessingResult(errors=["boom"])

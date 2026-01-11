@@ -15,6 +15,8 @@ __all__ = [
     "DiskChecker",
     "NetworkChecker",
     "ProcessChecker",
+    "get_enabled_checkers",
+    "is_checker_enabled",
 ]
 
 # Registry of available checkers
@@ -25,3 +27,30 @@ CHECKER_REGISTRY = {
     "network": NetworkChecker,
     "process": ProcessChecker,
 }
+
+
+def is_checker_enabled(checker_name: str) -> bool:
+    """
+    Check if a checker is enabled (not in CHECKERS_SKIP).
+
+    Args:
+        checker_name: Name of the checker to check.
+
+    Returns:
+        True if the checker is enabled, False if skipped.
+    """
+    from django.conf import settings
+
+    skip_list = getattr(settings, "CHECKERS_SKIP", [])
+    return checker_name not in skip_list
+
+
+def get_enabled_checkers() -> dict[str, type]:
+    """
+    Get registry of enabled checkers (excluding skipped ones).
+
+    Returns:
+        Dictionary of checker names to checker classes, excluding
+        those listed in settings.CHECKERS_SKIP.
+    """
+    return {name: cls for name, cls in CHECKER_REGISTRY.items() if is_checker_enabled(name)}

@@ -45,6 +45,56 @@ List them via:
 uv run python manage.py check_health --list
 ```
 
+### Skipping/Disabling Checkers
+
+You can disable specific checkers globally via the `CHECKERS_SKIP` setting.
+
+#### Environment Variable
+
+```bash
+# Skip network and process checkers
+export CHECKERS_SKIP=network,process
+
+# Then run checks - network and process will be skipped
+uv run python manage.py check_and_alert
+```
+
+#### Django Settings
+
+In `config/settings.py`:
+
+```python
+# Skip specific checkers
+CHECKERS_SKIP = ["network", "process"]
+```
+
+#### Override at Runtime
+
+Use `--include-skipped` to run all checkers regardless of the skip setting:
+
+```bash
+uv run python manage.py check_and_alert --include-skipped
+```
+
+Or specify checkers explicitly to bypass the skip list:
+
+```bash
+uv run python manage.py check_and_alert --checkers network process
+```
+
+#### Programmatic Check
+
+```python
+from apps.checkers.checkers import is_checker_enabled, get_enabled_checkers
+
+# Check if a specific checker is enabled
+if is_checker_enabled("network"):
+    # run network checks
+
+# Get only enabled checkers
+enabled = get_enabled_checkers()  # dict excluding skipped checkers
+```
+
 ### Django Admin
 
 Access the admin interface at `/admin/checkers/` to view check run history:

@@ -193,3 +193,12 @@ ORCHESTRATION_METRICS_BACKEND = os.environ.get("ORCHESTRATION_METRICS_BACKEND", 
 STATSD_HOST = os.environ.get("STATSD_HOST", "localhost")
 STATSD_PORT = int(os.environ.get("STATSD_PORT", "8125"))
 STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "pipeline")
+
+# ---------------------------------------------------------------------------
+# Checkers Configuration
+# ---------------------------------------------------------------------------
+# List of checker names to skip (disabled checkers).
+# Can be set via environment variable as comma-separated list.
+# Example: CHECKERS_SKIP=network,process
+_skip_checkers = os.environ.get("CHECKERS_SKIP", "")
+CHECKERS_SKIP: list[str] = [c.strip() for c in _skip_checkers.split(",") if c.strip()]

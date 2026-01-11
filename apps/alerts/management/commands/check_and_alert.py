@@ -26,7 +26,12 @@ import json
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.alerts.check_integration import CheckAlertBridge
-from apps.checkers.checkers import CHECKER_REGISTRY, CheckStatus
+from apps.checkers.checkers import (
+    CHECKER_REGISTRY,
+    CheckStatus,
+    get_enabled_checkers,
+    is_checker_enabled,
+)
 
 
 class Command(BaseCommand):
@@ -77,6 +82,11 @@ class Command(BaseCommand):
             type=float,
             help="Override critical threshold for all checkers.",
         )
+        parser.add_argument(
+            "--include-skipped",
+            action="store_true",
+            help="Include checkers that are in CHECKERS_SKIP setting.",
+        )
 
     def handle(self, *args, **options):
         # Parse labels
@@ -89,7 +99,15 @@ class Command(BaseCommand):
                 labels[key] = value
 
         # Determine which checkers to run
-        checker_names = options.get("checkers") or list(CHECKER_REGISTRY.keys())
+        if options.get("checkers"):
+            # User specified checkers explicitly
+            checker_names = options["checkers"]
+        elif options.get("include_skipped"):
+            # Include all checkers including skipped ones
+            checker_names = list(CHECKER_REGISTRY.keys())
+        else:
+            # Use only enabled checkers (respects CHECKERS_SKIP)
+            checker_names = list(get_enabled_checkers().keys())
 
         # Validate checker names
         for name in checker_names:
@@ -97,6 +115,19 @@ class Command(BaseCommand):
                 raise CommandError(
                     f"Unknown checker: {name}. " f"Available: {', '.join(CHECKER_REGISTRY.keys())}"
                 )
+
+        # Filter out skipped checkers unless --include-skipped or explicitly specified
+        if not options.get("include_skipped") and not options.get("checkers"):
+            skipped = [name for name in checker_names if not is_checker_enabled(name)]
+            if skipped:
+                self.stdout.write(
+                    self.style.WARNING(f"Skipping disabled checkers: {', '.join(skipped)}")
+                )
+            checker_names = [name for name in checker_names if is_checker_enabled(name)]
+
+        if not checker_names:
+            self.stdout.write(self.style.WARNING("No checkers to run (all are skipped)."))
+            return
 
         # Build checker configs with threshold overrides
         checker_configs = {}
