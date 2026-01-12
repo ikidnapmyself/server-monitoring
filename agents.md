@@ -2,6 +2,18 @@
 
 This document describes the available AI agents and how to use them efficiently in this modular server monitoring project.
 
+## Documentation map (nested relationship)
+
+- **Global rules (this file):** agent roles, pipeline-wide contracts, observability, and repo-wide conventions.
+- **App-local rules:** see each app’s `agents.md` for stage-specific contracts, module notes, and conventions:
+  - `apps/alerts/agents.md`
+  - `apps/checkers/agents.md`
+  - `apps/intelligence/agents.md`
+  - `apps/notify/agents.md`
+  - `apps/orchestration/agents.md`
+
+---
+
 ## How to Choose an Agent
 
 Use the smallest agent that can complete the job safely and correctly:
@@ -23,60 +35,30 @@ This project is **pipeline-first**: a single orchestrator controls the full life
 **Pipeline (always):** `apps.alerts` → `apps.checkers` → `apps.intelligence` → `apps.notify`
 
 ### Core rule: one orchestrator, one trace
-- **Only the orchestrator** is allowed to move work from one stage to the next.
+- **Only the orchestrator** (`apps.orchestration`) is allowed to move work from one stage to the next.
 - Every pipeline run gets a **correlation id** (e.g., `trace_id` / `run_id`) that must be attached to:
   - logs
   - monitoring events/spans
   - DB records / audit trail
   - outbound notifications
 
-> Goal: given a notification, you can jump back to the exact incident + checker output + LLM analysis + every retry/error.
+> Goal: given a notification, you can jump back to the exact incident + checker output + analysis + retries/errors.
 
----
+### Where stage-specific contracts live
 
-### Orchestrator responsibilities (controls everything)
-
-The orchestrator (a service function / Celery workflow / management command entrypoint) owns:
-
-1. **State machine**
-   - Stage statuses: `INGESTED → CHECKED → ANALYZED → NOTIFIED` (plus `FAILED`, `RETRYING`, `SKIPPED`)
-   - Stage timestamps + duration
-   - Retry strategy and max attempts per stage
-
-2. **Contracts between stages**
-   - Each stage returns **structured outputs** (DTO/dict) and must not “secretly” call downstream apps.
-   - Each stage is **idempotent**: re-running the same `(incident_id, run_id, stage)` is safe.
-
-3. **Persistence / audit trail**
-   - Persist: incident identity + normalized alert payload reference + checker results reference + intelligence output reference + notification dispatch results.
-   - Store stage errors in a structured way (error type, message, stack, retryable flag).
-
-4. **Observability (mandatory)**
-   - The orchestrator emits monitoring signals at every stage boundary (start/end/error) and attaches artifacts.
-
----
-
-### Stage boundaries (who does what)
-
-1. **`apps.alerts` (ingest)**
-   - Parse/validate inbound payload.
-   - Normalize it into an incident trigger object.
-   - Create/update `Incident` + attach `trace_id/run_id`.
-   - Output: `{ incident_id, alert_fingerprint, severity, source, normalized_payload_ref }`
-
-2. **`apps.checkers` (diagnose)**
-   - Run diagnostics associated with the incident.
-   - Output: `{ checks: [...], timings, errors, checker_output_ref }`
-
-3. **`apps.intelligence` (analyze)**
-   - Use incident + checker output to produce an analysis.
-   - Output: `{ summary, probable_cause, actions, confidence, ai_output_ref, model_info }`
-
-4. **`apps.notify` (communicate)**
-   - Render final message(s) and dispatch via configured channels.
-   - Output: `{ deliveries: [...], provider_ids, notify_output_ref }`
+Stage responsibilities and DTO contracts are documented in the app-local files:
+- ingest: `apps/alerts/agents.md`
+- diagnose: `apps/checkers/agents.md`
+- analyze: `apps/intelligence/agents.md`
+- communicate: `apps/notify/agents.md`
+- orchestration rules/state machine: `apps/orchestration/agents.md`
 
 **Hard boundary rule:** stage code may call *internal helpers* in its own app, but must not call the next app directly. Only the orchestrator advances the pipeline.
+
+**Diagnostic I/O clarification:** stages may call external systems (HTTP APIs, monitoring vendors) when needed to produce their own stage output.
+- Example: `apps.checkers` fetching StatusCake/uptime data or recent PagerDuty incident history.
+- These calls must be treated as **inputs only** (no cross-stage advancement, no direct notifications).
+- Always enforce timeouts/retries and redact secrets.
 
 ---
 
@@ -254,14 +236,24 @@ A good plan should include:
 1. **Respect the `apps/` Prefix:** All internal imports must start with `apps.` (e.g., `from apps.notify.base import BaseDriver`).
 2. **Follow the Driver Pattern:** This project uses Abstract Base Classes (ABCs). New checkers/drivers/providers must inherit from the project’s base classes.
 3. **Reference Existing Code:** Point agents to existing directories (e.g., `apps/checkers/`) so changes match the established pattern.
-4. **Use uv for Packages:**
+4. **App layout is consistent (required):** every app under `apps/<app_name>/` must include:
+   - `views/` (a package directory), organized by endpoint/module (avoid a monolithic `views.py`)
+     - Example: `apps/alerts/views/webhook.py`, `apps/alerts/views/health.py`
+   - `tests/` (a package) that mirrors the directories/modules/classes being tested
+     - Example: tests for `apps/alerts/views/webhook.py` live at `apps/alerts/tests/views/test_webhook.py`
+     - Avoid piling everything into a single `tests.py` as the app grows
+   - `agents.md` (app-local notes for prompts, conventions, and module-specific guidance)
+5. **Django Admin is an operations surface (required):** every app must provide an **extensive** `admin.py`.
+   - Admin should make it easy to manage the app’s models and trace pipeline behavior (via `Incident`, `trace_id/run_id`, and orchestration links).
+   - App-specific admin expectations live in each app’s `agents.md`.
+6. **Use uv for Packages:**
    - Runtime deps: `uv add <package>`
    - Dev tooling is installed via the `dev` extra: `uv sync --extra dev`
-5. **Keep code formatted and lint-clean:**
+7. **Keep code formatted and lint-clean:**
    - Format with **Black**: `uv run black .`
    - Lint/sort imports with **Ruff**: `uv run ruff check . --fix`
-6. **Prefer small, testable units:** Parse/validate payloads separately from side effects (DB writes, network calls).
-7. **Be safe with external I/O:** Always set timeouts; handle retries; avoid leaking secrets in logs.
+8. **Prefer small, testable units:** Parse/validate payloads separately from side effects (DB writes, network calls).
+9. **Be safe with external I/O:** Always set timeouts; handle retries; avoid leaking secrets in logs.
 
 ---
 
