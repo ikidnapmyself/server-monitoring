@@ -13,7 +13,6 @@ Tests cover:
 import uuid
 from unittest.mock import patch
 
-import pytest
 from django.test import TestCase
 
 from apps.orchestration.dtos import (
@@ -231,7 +230,7 @@ class StageExecutionModelTests(TestCase):
             stage=PipelineStage.INGEST,
             attempt=1,
         )
-        with pytest.raises(Exception):
+        with self.assertRaises(Exception):
             StageExecution.objects.create(
                 pipeline_run=self.pipeline_run,
                 stage=PipelineStage.INGEST,
@@ -261,7 +260,6 @@ class SignalTagsTests(TestCase):
         assert data["custom"] == "value"
 
 
-@pytest.mark.django_db
 class OrchestratorTests(TestCase):
     """Test PipelineOrchestrator."""
 

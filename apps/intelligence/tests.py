@@ -4,8 +4,6 @@ Tests for the intelligence app.
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from apps.intelligence.providers import (
     LocalRecommendationProvider,
     Recommendation,
@@ -36,8 +34,15 @@ class TestProviderRegistry:
 
     def test_get_unknown_provider(self):
         """Test that getting an unknown provider raises KeyError."""
-        with pytest.raises(KeyError):
-            get_provider("unknown_provider")
+
+        def test_get_unknown_provider(self):
+            """Test that getting an unknown provider raises KeyError."""
+
+            try:
+                get_provider("unknown_provider")
+                assert False, "Expected KeyError was not raised"
+            except KeyError:
+                pass
 
 
 class TestRecommendation:
@@ -227,7 +232,6 @@ class TestLocalRecommendationProvider:
             assert len(recommendations) >= 1
 
 
-@pytest.mark.django_db
 class TestIntegration:
     """Integration tests requiring database access."""
 

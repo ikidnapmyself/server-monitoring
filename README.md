@@ -52,6 +52,20 @@ Run all system checks:
 uv run python manage.py check
 ```
 
+## Environment configuration (.env / dotenv)
+
+This project supports **dotenv** files via `python-dotenv`.
+
+- Create a local `.env` by copying `.env.sample`.
+- Optionally use `.env.dev` for dev-only defaults by setting `DJANGO_ENV=dev`.
+- Values already present in your shell environment take precedence (dotenv never overrides existing vars).
+
+Common variables:
+- `DJANGO_SECRET_KEY` (required in production; local dev can fall back to an insecure default)
+- `DJANGO_DEBUG` (`1`/`0`)
+- `DJANGO_ALLOWED_HOSTS` (comma-separated)
+- `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `CELERY_TASK_ALWAYS_EAGER`
+
 ## Development
 
 This repo uses `uv` for dependency management and a small, consistent dev-tooling stack configured in `pyproject.toml`:
@@ -89,7 +103,13 @@ uv run mypy .
 
 ## Quickstart
 
-Apply migrations:
+1) Create a local env file:
+
+```bash
+cp .env.sample .env
+```
+
+2) Apply migrations:
 
 ```bash
 uv run python manage.py migrate

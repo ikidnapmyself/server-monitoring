@@ -6,6 +6,11 @@ dist/
 wheels/
 *.egg-info
 
+# DOT ENV files
+.env
+.env.*
+!.env.sample
+
 # Virtual environments
 .venv
 
@@ -22,3 +27,8 @@ Thumbs.db
 *.log
 *.sqlite3
 .coverage
+
+# Testing and linting caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/

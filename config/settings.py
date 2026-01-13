@@ -14,8 +14,13 @@ import os
 import sys
 from pathlib import Path
 
+from config.env import load_env
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load dotenv files early so os.environ is ready for settings below.
+load_env(BASE_DIR)
 
 # Add the 'apps' directory to sys.path
 sys.path.insert(0, str(BASE_DIR / "apps"))
@@ -24,25 +29,19 @@ sys.path.insert(0, str(BASE_DIR / "apps"))
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-# Read the secret key from the environment. In production set DJANGO_SECRET_KEY.
+# Always require DJANGO_SECRET_KEY to be provided via environment/.env.
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-# If SECRET_KEY wasn't provided via environment, allow a known insecure fallback
-# when running in DEBUG (local development). In production (DEBUG=False) this
-# will raise so deployments won't accidentally use the insecure key.
 if not SECRET_KEY:
-    if DEBUG:
-        # Local development fallback
-        SECRET_KEY = "django-insecure-727rc2ce7x#*be_k7z#m#5*0)j*2cl$16s$bx*6#ogfr_ueymu"
-    else:
-        raise RuntimeError(
-            "DJANGO_SECRET_KEY environment variable is not set. Set it in your environment for production."
-        )
+    raise RuntimeError(
+        "DJANGO_SECRET_KEY environment variable is not set. " "Set it in your shell or .env file."
+    )
 
-ALLOWED_HOSTS: list[str] = []
+# SECURITY WARNING: don't run with debug turned on in production!
+DEBUG = os.environ.get("DJANGO_DEBUG", "1") in {"1", "true", "True", "yes", "on"}
+
+_allowed_hosts = os.environ.get("DJANGO_ALLOWED_HOSTS", "")
+ALLOWED_HOSTS: list[str] = [h.strip() for h in _allowed_hosts.split(",") if h.strip()]
 
 
 # Application definition

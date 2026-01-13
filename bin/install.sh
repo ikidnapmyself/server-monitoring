@@ -22,25 +22,209 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Print colored output
-info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
+info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
-
-warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
-}
-
-error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-# Check if command exists
 command_exists() {
     command -v "$1" >/dev/null 2>&1
+}
+
+dotenv_ensure_file() {
+    local env_file="$PROJECT_DIR/.env"
+    local sample_file="$PROJECT_DIR/.env.sample"
+
+    if [ -f "$env_file" ]; then
+        success ".env already exists"
+        return 0
+    fi
+
+    if [ -f "$sample_file" ]; then
+        cp "$sample_file" "$env_file"
+        success "Created .env from .env.sample"
+        return 0
+    fi
+
+    warn "No .env.sample found; creating empty .env"
+    touch "$env_file"
+}
+
+dotenv_has_key() {
+    local file="$1"
+    local key="$2"
+    grep -Eq "^[[:space:]]*${key}[[:space:]]*=" "$file"
+}
+
+dotenv_set_if_missing() {
+    local file="$1"
+    local key="$2"
+    local value="$3"
+
+    if dotenv_has_key "$file" "$key"; then
+        return 0
+    fi
+
+    printf "%s=%s\n" "$key" "$value" >> "$file"
+}
+
+prompt_non_empty() {
+    local prompt="$1"
+    local value=""
+    while true; do
+        read -p "$prompt" -r value
+        if [ -n "$value" ]; then
+            echo "$value"
+            return 0
+        fi
+        echo "Value cannot be empty."
+    done
+}
+
+# Tracks the selection so later steps can decide what to install.
+INSTALL_MODE="dev"
+
+dotenv_prompt_setup() {
+    local env_file="$PROJECT_DIR/.env"
+
+    echo ""
+    echo "============================================"
+    echo "   Environment setup (.env)"
+    echo "============================================"
+    echo ""
+    info "This will append missing values to .env (it will not overwrite existing entries)."
+
+    local MODE=""
+    while true; do
+        read -p "Configure for [d]ev or [p]roduction? (default: dev): " -r MODE
+        MODE="${MODE:-d}"
+        case "$MODE" in
+            d|dev|Dev|DEV) MODE="dev"; break ;;
+            p|prod|production|Prod|PROD|PRODUCTION) MODE="prod"; break ;;
+            *) warn "Please enter dev or production." ;;
+        esac
+    done
+
+    # Expose selection outside this function.
+    INSTALL_MODE="$MODE"
+
+    # Set DJANGO_ENV based on mode (only if missing)
+    if [ "$MODE" = "prod" ]; then
+        dotenv_set_if_missing "$env_file" "DJANGO_ENV" "prod"
+    else
+        dotenv_set_if_missing "$env_file" "DJANGO_ENV" "dev"
+    fi
+
+    if [ "$MODE" = "prod" ]; then
+        echo ""
+        info "Production configuration"
+
+        # DEBUG off in prod by default
+        dotenv_set_if_missing "$env_file" "DJANGO_DEBUG" "0"
+
+        # Required in prod: ALLOWED_HOSTS
+        if ! dotenv_has_key "$env_file" "DJANGO_ALLOWED_HOSTS"; then
+            local hosts
+            hosts="$(prompt_non_empty "DJANGO_ALLOWED_HOSTS (comma-separated, e.g. example.com,www.example.com): ")"
+            dotenv_set_if_missing "$env_file" "DJANGO_ALLOWED_HOSTS" "$hosts"
+        fi
+
+        # Required in prod: SECRET_KEY
+        if ! dotenv_has_key "$env_file" "DJANGO_SECRET_KEY"; then
+            read -p "Generate a secure DJANGO_SECRET_KEY now? [Y/n]: " -n 1 -r
+            echo ""
+            if [[ -z "${REPLY:-}" || "${REPLY:-}" =~ ^[Yy]$ ]]; then
+                if command_exists python3; then
+                    local key
+                    key="$(python3 -c 'import secrets; print(secrets.token_urlsafe(50))')"
+                    dotenv_set_if_missing "$env_file" "DJANGO_SECRET_KEY" "$key"
+                    success "DJANGO_SECRET_KEY added to .env"
+                else
+                    error "python3 not available; cannot generate DJANGO_SECRET_KEY."
+                    local manual_key
+                    manual_key="$(prompt_non_empty "Paste DJANGO_SECRET_KEY to store in .env: ")"
+                    dotenv_set_if_missing "$env_file" "DJANGO_SECRET_KEY" "$manual_key"
+                fi
+            else
+                local manual_key
+                manual_key="$(prompt_non_empty "Paste DJANGO_SECRET_KEY to store in .env: ")"
+                dotenv_set_if_missing "$env_file" "DJANGO_SECRET_KEY" "$manual_key"
+            fi
+        fi
+
+        # Celery / Redis: require broker URL in prod
+        if ! dotenv_has_key "$env_file" "CELERY_BROKER_URL"; then
+            local broker
+            broker="$(prompt_non_empty "CELERY_BROKER_URL (e.g. redis://redis:6379/0): ")"
+            dotenv_set_if_missing "$env_file" "CELERY_BROKER_URL" "$broker"
+        fi
+
+        # Results backend: optional, but common in prod
+        if ! dotenv_has_key "$env_file" "CELERY_RESULT_BACKEND"; then
+            read -p "Set CELERY_RESULT_BACKEND? [y/N]: " -n 1 -r
+            echo ""
+            if [[ "${REPLY:-}" =~ ^[Yy]$ ]]; then
+                local backend
+                backend="$(prompt_non_empty "CELERY_RESULT_BACKEND (e.g. redis://redis:6379/1): ")"
+                dotenv_set_if_missing "$env_file" "CELERY_RESULT_BACKEND" "$backend"
+            fi
+        fi
+
+        # Safety: never eager in prod
+        dotenv_set_if_missing "$env_file" "CELERY_TASK_ALWAYS_EAGER" "0"
+
+    else
+        echo ""
+        info "Development configuration"
+
+        # DJANGO_DEBUG
+        if ! dotenv_has_key "$env_file" "DJANGO_DEBUG"; then
+            read -p "Enable Django DEBUG? [Y/n]: " -n 1 -r
+            echo ""
+            if [[ -z "${REPLY:-}" || "${REPLY:-}" =~ ^[Yy]$ ]]; then
+                dotenv_set_if_missing "$env_file" "DJANGO_DEBUG" "1"
+            else
+                dotenv_set_if_missing "$env_file" "DJANGO_DEBUG" "0"
+            fi
+        fi
+
+        # DJANGO_ALLOWED_HOSTS
+        if ! dotenv_has_key "$env_file" "DJANGO_ALLOWED_HOSTS"; then
+            read -p "DJANGO_ALLOWED_HOSTS (comma-separated, default: localhost,127.0.0.1): " -r ALLOWED_HOSTS_INPUT
+            ALLOWED_HOSTS_INPUT="${ALLOWED_HOSTS_INPUT:-localhost,127.0.0.1}"
+            dotenv_set_if_missing "$env_file" "DJANGO_ALLOWED_HOSTS" "$ALLOWED_HOSTS_INPUT"
+        fi
+
+        # DJANGO_SECRET_KEY (dev: can generate or leave as-is)
+        if ! dotenv_has_key "$env_file" "DJANGO_SECRET_KEY"; then
+            read -p "Generate and set DJANGO_SECRET_KEY in .env? [y/N]: " -n 1 -r
+            echo ""
+            if [[ "${REPLY:-}" =~ ^[Yy]$ ]]; then
+                if command_exists python3; then
+                    DJANGO_SECRET_KEY_VALUE="$(python3 -c 'import secrets; print(secrets.token_urlsafe(50))')"
+                    dotenv_set_if_missing "$env_file" "DJANGO_SECRET_KEY" "$DJANGO_SECRET_KEY_VALUE"
+                    success "DJANGO_SECRET_KEY added to .env"
+                else
+                    warn "python3 not available; skipping DJANGO_SECRET_KEY generation"
+                fi
+            else
+                warn "DJANGO_SECRET_KEY not set. Set it manually before production use."
+            fi
+        fi
+
+        # Celery eager toggle (useful for local)
+        if ! dotenv_has_key "$env_file" "CELERY_TASK_ALWAYS_EAGER"; then
+            read -p "Run Celery tasks eagerly (no broker) for local dev? [y/N]: " -n 1 -r
+            echo ""
+            if [[ "${REPLY:-}" =~ ^[Yy]$ ]]; then
+                dotenv_set_if_missing "$env_file" "CELERY_TASK_ALWAYS_EAGER" "1"
+            else
+                dotenv_set_if_missing "$env_file" "CELERY_TASK_ALWAYS_EAGER" "0"
+            fi
+        fi
+    fi
+
+    success ".env setup complete"
 }
 
 echo ""
@@ -78,12 +262,10 @@ else
     if [[ "$OSTYPE" == "darwin"* ]] || [[ "$OSTYPE" == "linux"* ]]; then
         curl -LsSf https://astral.sh/uv/install.sh | sh
 
-        # Source the shell profile to get uv in PATH
         if [ -f "$HOME/.cargo/env" ]; then
             source "$HOME/.cargo/env"
         fi
 
-        # Add to current session PATH
         export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
         if command_exists uv; then
@@ -98,17 +280,26 @@ else
     fi
 fi
 
-# Step 3: Sync dependencies
-info "Installing dependencies with uv sync..."
-uv sync
+# Step 3: .env setup
+dotenv_ensure_file
+dotenv_prompt_setup
+
+# Step 4: Sync dependencies
+if [ "$INSTALL_MODE" = "dev" ]; then
+    info "Installing dependencies with uv sync (including development dependencies)..."
+    uv sync --all-extras --dev
+else
+    info "Installing dependencies with uv sync (production only)..."
+    uv sync
+fi
 success "Dependencies installed"
 
-# Step 4: Run migrations
+# Step 5: Run migrations
 info "Running database migrations..."
 uv run python manage.py migrate
 success "Migrations applied"
 
-# Step 5: Run Django system checks
+# Step 6: Run Django system checks
 info "Running Django system checks..."
 if uv run python manage.py check; then
     success "All system checks passed"
@@ -116,7 +307,7 @@ else
     warn "System checks reported issues (see above). You may want to address them."
 fi
 
-# Step 6: Summary and next steps
+# Step 7: Summary and next steps
 echo ""
 echo "============================================"
 echo -e "${GREEN}   Installation Complete!${NC}"
@@ -132,13 +323,9 @@ echo "  - Run tests:            uv run pytest"
 echo ""
 echo "Documentation:"
 echo "  - Main README:          README.md"
-echo "  - Checkers docs:        apps/checkers/README.md"
-echo "  - Alerts docs:          apps/alerts/README.md"
-echo "  - Notify docs:          apps/notify/README.md"
 echo "  - Agent conventions:    agents.md"
 echo ""
 
-# Optional: Ask if user wants to run health check
 read -p "Would you like to run the health check suite now? [y/N] " -n 1 -r
 echo ""
 if [[ $REPLY =~ ^[Yy]$ ]]; then
@@ -146,7 +333,6 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     uv run python manage.py check_health
 fi
 
-# Optional: Ask if user wants to set up cron
 echo ""
 read -p "Would you like to set up automatic health checks via cron? [y/N] " -n 1 -r
 echo ""
@@ -155,4 +341,3 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 success "Setup complete!"
-

@@ -15,6 +15,10 @@ import os
 
 from celery import Celery
 
+from config.env import load_env
+
+load_env()
+
 # Ensure Django settings are loaded when Celery starts.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
