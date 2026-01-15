@@ -34,7 +34,7 @@ jobs:
       - name: Tests with coverage
         env:
           DJANGO_SECRET_KEY: "ci-not-a-secret"
-        run: uv run manage.py test
+        run: uv run coverage run manage.py test
 
       - name: Generate coverage report
         run: |
@@ -47,4 +47,3 @@ jobs:
           files: ./coverage.xml
           fail_ci_if_error: false
           verbose: true
-
