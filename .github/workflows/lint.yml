@@ -28,6 +28,12 @@ jobs:
           version: "latest"
           enable-cache: true
 
+      - name: Create env file
+        run: cp .env.example .env
+
+      - name: Create DJANGO_SECRET_KEY
+        run: echo "DJANGO_SECRET_KEY=$(openssl rand -base64 32)" >> .env
+
       - name: Sync dependencies (incl. dev tools)
         run: uv sync --extra dev
 
