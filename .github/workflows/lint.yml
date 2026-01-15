@@ -29,7 +29,7 @@ jobs:
           enable-cache: true
 
       - name: Create env file
-        run: cp .env.example .env
+        run: cp .env.sample .env
 
       - name: Create DJANGO_SECRET_KEY
         run: echo "DJANGO_SECRET_KEY=$(openssl rand -base64 32)" >> .env
