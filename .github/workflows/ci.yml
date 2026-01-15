@@ -34,7 +34,7 @@ jobs:
       - name: Tests with coverage
         env:
           DJANGO_SECRET_KEY: "ci-not-a-secret"
-        run: uv run coverage run -m pytest
+        run: uv run manage.py test
 
       - name: Generate coverage report
         run: |
