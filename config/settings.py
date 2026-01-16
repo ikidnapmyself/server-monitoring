@@ -196,8 +196,17 @@ STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "pipeline")
 # ---------------------------------------------------------------------------
 # Checkers Configuration
 # ---------------------------------------------------------------------------
+# Disable all checkers globally.
+# Useful when you want the orchestration pipeline to run:
+#   alerts → intelligence → notify
+# without running diagnostics.
+CHECKERS_SKIP_ALL = os.environ.get("CHECKERS_SKIP_ALL", "0") in {"1", "true", "True", "yes", "on"}
+
 # List of checker names to skip (disabled checkers).
 # Can be set via environment variable as comma-separated list.
 # Example: CHECKERS_SKIP=network,process
 _skip_checkers = os.environ.get("CHECKERS_SKIP", "")
 CHECKERS_SKIP: list[str] = [c.strip() for c in _skip_checkers.split(",") if c.strip()]
+
+# If CHECKERS_SKIP_ALL is enabled, treat all checkers as skipped.
+# We do this by overriding the skip list downstream (in apps.checkers.checkers.is_checker_enabled).

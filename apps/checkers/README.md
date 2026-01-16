@@ -49,6 +49,17 @@ uv run python manage.py check_health --list
 
 You can disable specific checkers globally via the `CHECKERS_SKIP` setting.
 
+#### Skip ALL checkers (helper)
+
+If you want to disable *every* checker (common when using the app as a pipeline controller and you want
+`alerts → intelligence → notify` without diagnostics), set:
+
+```bash
+export CHECKERS_SKIP_ALL=1
+```
+
+This takes precedence over `CHECKERS_SKIP`.
+
 #### Environment Variable
 
 ```bash
