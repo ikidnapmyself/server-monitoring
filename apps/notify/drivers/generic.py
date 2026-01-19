@@ -36,6 +36,10 @@ class GenericNotifyDriver(BaseNotifyDriver):
 
     def validate_config(self, config: dict[str, Any]) -> bool:
         """Validate generic driver configuration."""
+        # Allow empty/default config to mean "notifications disabled" (no-op)
+        if not config or config.get("disabled"):
+            return True
+
         # Require at least an endpoint URL
         if "endpoint" not in config and "webhook_url" not in config:
             return False

@@ -35,6 +35,41 @@ Built-in drivers:
 - `python manage.py list_notify_drivers` — List available notification drivers and configuration requirements
 - `python manage.py test_notify <driver>` — Test notification delivery to a specific backend
 
+### Skipping/Disabling Drivers
+
+You can disable specific drivers globally via the `NOTIFY_SKIP` setting.
+
+#### Skip ALL drivers (helper)
+
+If you want to disable *every* checker (common when using the app as a pipeline controller and you want
+`alerts → checkers → intelligence` without notifications), set:
+
+```bash
+export NOTIFY_SKIP_ALL=1
+```
+
+This takes precedence over `NOTIFY_SKIP`.
+
+#### Environment Variable
+
+```bash
+# Skip network and process drivers
+export NOTIFY_SKIP=network,process
+
+# Then run checks - network and process will be skipped
+uv run python manage.py check_and_alert
+```
+
+#### Django Settings
+
+In `config/settings.py`:
+
+```python
+# Skip specific drivers
+NOTIFY_SKIP = ["network", "process"]
+```
+
+
 ### API endpoints
 
 The app exposes REST endpoints for sending notifications:

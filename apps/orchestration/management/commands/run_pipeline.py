@@ -141,11 +141,20 @@ class Command(BaseCommand):
             raise CommandError("Must specify --sample, --payload, --file, or --checks-only")
 
         # Wrap payload with orchestration config
+        # Provide an explicit default notify_config for CLI runs using the generic driver.
+        # This communicates that notifications are disabled by default when the user
+        # did not provide a custom configuration, avoiding validation errors in drivers.
+        notify_driver = options.get("notify_driver", "generic")
+        notify_config = {}
+        if notify_driver == "generic":
+            # Mark generic driver as disabled/no-op by default when invoked from CLI
+            notify_config = {"disabled": True}
+
         return {
             "payload": inner_payload,
             "driver": options["source"] if options["source"] != "cli" else None,
-            "notify_driver": options["notify_driver"],
-            "notify_config": {},  # Use defaults
+            "notify_driver": notify_driver,
+            "notify_config": notify_config,
             "checker_names": None,  # Run all checkers
         }
 
@@ -300,6 +309,16 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS("✓ Pipeline completed successfully"))
         else:
             self.stdout.write(self.style.ERROR(f"✗ Pipeline failed: {result.status}"))
-            if result.errors:
-                for error in result.errors:
-                    self.stdout.write(self.style.ERROR(f"  - {error}"))
+
+            # Prefer structured final_error if available on PipelineResult
+            final_error = getattr(result, "final_error", None)
+            try:
+                err_type = getattr(final_error, "error_type", type(final_error).__name__)
+                err_msg = getattr(final_error, "message", str(final_error))
+                self.stdout.write(self.style.ERROR(f"  - {err_type}: {err_msg}"))
+                stack = getattr(final_error, "stack_trace", None)
+                if stack:
+                    self.stdout.write(self.style.ERROR(stack))
+            except Exception:
+                # Fallback: print string representation
+                self.stdout.write(self.style.ERROR(str(final_error)))
