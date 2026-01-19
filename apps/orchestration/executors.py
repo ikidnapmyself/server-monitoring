@@ -250,9 +250,11 @@ class NotifyExecutor(BaseExecutor):
             payload = ctx.payload
             previous = ctx.previous_results
 
-            driver_name = payload.get("notify_driver", "generic")
-            config = payload.get("notify_config", {})
-            channel = payload.get("notify_channel", "default")
+            # Read requested notify_channel from payload (None if not provided).
+            # We don't finalize the channel until we've resolved provider config
+            # because a DB-stored channel config may provide a preferred channel
+            # (for example, Slack channel name).
+            requested_channel = payload.get("notify_channel")
 
             # Build notification message from intelligence results
             intelligence = previous.get("analyze", {})
@@ -288,23 +290,45 @@ class NotifyExecutor(BaseExecutor):
                     f"Actions: {', '.join(intelligence.get('actions', ['Manual investigation required']))}"
                 )
 
-            driver_cls = DRIVER_REGISTRY.get(driver_name)
-            if driver_cls is None:
-                result.errors.append(
-                    f"Unknown notify driver: {driver_name}. Available: {list(DRIVER_REGISTRY.keys())}"
-                )
-                return result
+            # Centralize provider/channel selection via NotifySelector
+            from apps.notify.services import NotifySelector
 
-            # driver_cls is a concrete class from the registry, not the abstract base
-            driver_instance = driver_cls()  # type: ignore[abstract]
-            if not driver_instance.validate_config(config):
-                result.errors.append(f"Invalid configuration for notify driver: {driver_name}")
-                return result
+            requested = payload.get("notify_driver")
+            payload_config = payload.get("notify_config", {}) or {}
+
+            (
+                provider_name,
+                config,
+                selected_label,
+                driver_cls,
+                channel_obj,
+                final_channel,
+            ) = NotifySelector.resolve(requested, payload_config, requested_channel)
+
+            # Note: do NOT treat payload.notify_channel as a channel-name selector
+            # for choosing a NotificationChannel record. The selection priority is:
+            # 1) If payload.notify_driver matches a NotificationChannel.name -> use DB channel
+            # 2) If payload.notify_driver omitted -> pick first active NotificationChannel
+            # 3) Otherwise treat payload.notify_driver as a provider key and use payload.notify_config
+            # The payload.notify_channel is only a hint for the message destination (e.g. Slack channel)
+            # and should not be used to select the provider. This avoids overlapping semantics.
+
+            # Use final_channel computed by selector
+            channel = final_channel
 
             # Create idempotency key
             idempotency_key = f"{ctx.trace_id}:{ctx.run_id}:notify:{channel}"
 
-            msg = NotificationMessage(
+            # Ensure we have a concrete driver class (selector returns None when unknown)
+            if driver_cls is None:
+                result.errors.append(
+                    f"Unknown notify driver/provider: {provider_name}. Available: {list(DRIVER_REGISTRY.keys())}"
+                )
+                return result
+
+            # Build NotificationMessage using the base dataclass fields. Put
+            # idempotency info into tags and the intelligence/check output into context.
+            message = NotificationMessage(
                 title=title,
                 message=message_body,
                 severity=severity,
@@ -312,7 +336,6 @@ class NotifyExecutor(BaseExecutor):
                 tags={
                     "trace_id": ctx.trace_id,
                     "run_id": ctx.run_id,
-                    "incident_id": str(ctx.incident_id) if ctx.incident_id else "",
                     "idempotency_key": idempotency_key,
                 },
                 context={
@@ -325,31 +348,89 @@ class NotifyExecutor(BaseExecutor):
                 },
             )
 
-            result.channels_attempted = 1
-            send_result = driver_instance.send(msg, config)
+            # Store prepared message payload as a plain dict to avoid coupling DTOs
+            # to driver-specific classes.
+            from dataclasses import asdict
 
-            # Record delivery
-            delivery = {
-                "driver": driver_name,
-                "channel": channel,
-                "status": "success" if send_result.get("status") == "success" else "failed",
-                "provider_id": send_result.get("message_id", ""),
-                "response": send_result,
-            }
-            result.deliveries.append(delivery)
+            result.messages = [asdict(message)]
 
-            if delivery["status"] == "success":
-                result.channels_succeeded = 1
-                if delivery["provider_id"]:
-                    result.provider_ids.append(delivery["provider_id"])
-            else:
-                result.channels_failed = 1
+            # Instantiate driver and send the notification
+            driver_instance = driver_cls()
+            # Validate config before sending
+            if not driver_instance.validate_config(config):
                 result.errors.append(
-                    f"Delivery failed: {send_result.get('message', 'Unknown error')}"
+                    f"Invalid configuration for notify provider: {provider_name} (selected: {selected_label})"
                 )
+                return result
+
+            result.channels_attempted = 1
+            try:
+                send_result = driver_instance.send(message, config)
+            except Exception as e:
+                logger.exception("Error sending notification via driver")
+                result.channels_failed = 1
+                result.errors.append(f"Send error: {str(e)}")
+                # Record a failed delivery with exception message
+                delivery = {
+                    "driver": selected_label or provider_name,
+                    "provider": provider_name,
+                    "channel": channel,
+                    "status": "failed",
+                    "provider_id": "",
+                    "response": {"error": str(e)},
+                }
+                result.deliveries.append(delivery)
+            else:
+                # Normalize success flag
+                success = bool(
+                    send_result.get("success") or (send_result.get("status") == "success")
+                )
+                delivery = {
+                    "driver": selected_label or provider_name,
+                    "provider": provider_name,
+                    "channel": channel,
+                    "status": "success" if success else "failed",
+                    "provider_id": send_result.get("message_id", "")
+                    or send_result.get("provider_id", ""),
+                    "response": send_result,
+                }
+                result.deliveries.append(delivery)
+                if success:
+                    result.channels_succeeded = 1
+                    pid = delivery.get("provider_id")
+                    if pid:
+                        # Normalize provider id(s) into strings before appending.
+                        # Support single string, iterable of strings, or other types.
+                        if isinstance(pid, str):
+                            result.provider_ids.append(pid)
+                        elif isinstance(pid, (list, tuple, set)):
+                            for item in pid:
+                                result.provider_ids.append(str(item))
+                        else:
+                            # Fallback: coerce to string
+                            result.provider_ids.append(str(pid))
+                else:
+                    result.channels_failed = 1
+                    result.errors.append(
+                        f"Delivery failed: {send_result.get('error') or send_result.get('message', '')}"
+                    )
 
             # Generate output reference
             result.notify_output_ref = f"notify:{ctx.trace_id}:{ctx.run_id}:notify"
+
+            # Log the notification dispatch
+            logger.info(
+                "Dispatched notification",
+                extra={
+                    "trace_id": ctx.trace_id,
+                    "run_id": ctx.run_id,
+                    "provider": provider_name,
+                    "channel": channel,
+                    "title": title,
+                    "severity": severity,
+                    "idempotency_key": idempotency_key,
+                },
+            )
 
         except Exception as e:
             logger.exception("Error in NotifyExecutor")

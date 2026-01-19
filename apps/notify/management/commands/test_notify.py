@@ -32,10 +32,13 @@ class Command(BaseCommand):
     help = "Test notification delivery to a specific backend"
 
     def add_arguments(self, parser):
+        # Make driver optional: when omitted, pick first active NotificationChannel from DB
         parser.add_argument(
             "driver",
+            nargs="?",
+            default=None,
             type=str,
-            help=f"Notification driver to test. Options: {', '.join(DRIVER_REGISTRY.keys())}",
+            help=f"Notification driver or channel name to test. Options: {', '.join(DRIVER_REGISTRY.keys())} (optional, will use first active DB channel if omitted)",
         )
         parser.add_argument(
             "--title",
@@ -118,48 +121,85 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        driver_name = options["driver"]
+        # Centralize provider/channel selection via NotifySelector
+        from apps.notify.services import NotifySelector
 
-        if driver_name not in DRIVER_REGISTRY:
-            raise CommandError(
-                f"Unknown driver: {driver_name}. " f"Available: {', '.join(DRIVER_REGISTRY.keys())}"
-            )
+        driver_arg = options.get("driver")
+        requested = driver_arg
+        payload_config = None
 
-        # Build notification message
+        (
+            provider_name,
+            config,
+            selected_label,
+            driver_class,
+            channel_obj,
+            final_channel,
+        ) = NotifySelector.resolve(requested, payload_config, options.get("channel"))
+
+        # If NotifySelector returned None for driver_class (unknown provider), allow a
+        # fallback where the user provided a driver arg and we build config from CLI options
+        if not driver_class and driver_arg:
+            provider_name = driver_arg
+            config = self._build_config(provider_name, options)
+            selected_label = provider_name
+            driver_class = DRIVER_REGISTRY.get(provider_name)
+            # If CLI provided an explicit channel, use it as final_channel
+            final_channel = options.get("channel")
+
+        # Build notification message — use final_channel resolved by selector
         message = NotificationMessage(
             title=options["title"],
             message=options["message"],
             severity=options["severity"],
-            channel=options["channel"],
+            channel=final_channel,
         )
 
-        # Build driver configuration
-        config = self._build_config(driver_name, options)
+        if not driver_class:
+            raise CommandError(
+                f"Unknown provider: {provider_name}. Available: {', '.join(DRIVER_REGISTRY.keys())}"
+            )
 
-        # Validate configuration
-        driver_class = DRIVER_REGISTRY[driver_name]
         driver = driver_class()
+
+        # If CLI provided JSON config explicitly, allow it to override DB-config
+        if options.get("json_config"):
+            try:
+                cli_conf = json.loads(options.get("json_config"))
+                config = cli_conf
+            except json.JSONDecodeError as e:
+                raise CommandError(f"Invalid JSON config: {e}")
 
         if not driver.validate_config(config):
             raise CommandError(
-                f"Invalid configuration for {driver_name} driver. "
-                f"Missing required fields or invalid format."
+                f"Invalid configuration for {provider_name} driver. Missing required fields or invalid format."
             )
 
         # Send notification
-        self.stdout.write(self.style.WARNING(f"Sending test notification via {driver_name}..."))
+        self.stdout.write(
+            self.style.WARNING(
+                f"Sending test notification via {selected_label} (provider={provider_name})..."
+            )
+        )
 
         result = driver.send(message, config)
 
-        # Display result
-        if result.get("success"):
+        # Display result. Drivers may return either {'success': True} or {'status': 'success'}
+        success = bool(result.get("success") or (result.get("status") == "success"))
+        if success:
             self.stdout.write(self.style.SUCCESS("✓ Notification sent successfully!"))
-            self.stdout.write(f"  Message ID: {result.get('message_id')}")
+            self.stdout.write(f"  Provider: {provider_name}")
+            self.stdout.write(f"  Channel label: {selected_label}")
+            self.stdout.write(
+                f"  Message ID: {result.get('message_id') or result.get('message_id', '')}"
+            )
             if result.get("metadata"):
                 self.stdout.write(f"  Metadata: {json.dumps(result['metadata'], indent=2)}")
         else:
             self.stdout.write(self.style.ERROR("✗ Failed to send notification"))
-            self.stdout.write(f"  Error: {result.get('error')}")
+            self.stdout.write(f"  Provider: {provider_name}")
+            self.stdout.write(f"  Channel label: {selected_label}")
+            self.stdout.write(f"  Error: {result.get('error') or result.get('message') or result}")
 
     def _build_config(self, driver_name: str, options: dict[str, Any]) -> dict[str, Any]:
         """Build driver configuration from command options."""

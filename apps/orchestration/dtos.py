@@ -157,6 +157,9 @@ class NotifyResult:
 
     deliveries: list[dict[str, Any]] = field(default_factory=list)
     provider_ids: list[str] = field(default_factory=list)
+    # Prepared message payloads (not yet delivered) or message metadata created
+    # by the orchestrator. Stored as generic dicts to avoid coupling to driver types.
+    messages: list[dict[str, Any]] = field(default_factory=list)
     notify_output_ref: str | None = None
     channels_attempted: int = 0
     channels_succeeded: int = 0

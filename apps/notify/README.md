@@ -185,6 +185,21 @@ print(result)
 # }
 ```
 
+Selection priority when invoking notifications from the orchestration pipeline
+or management commands
+
+- If the pipeline payload's `notify_driver` matches a `NotificationChannel.name` in the
+  database (and that channel is `is_active=True`), the channel's stored `driver` and
+  `config` will be used (this allows choosing named channels configured via Admin).
+- If no `notify_driver` is provided in the payload, the orchestration layer will select
+  the first active `NotificationChannel` ordered by name and use its driver and config.
+- If neither of the above applies, the orchestration pipeline treats `notify_driver` as
+  a driver key (for example, `slack`, `email`, `generic`) and uses the provided
+  `notify_config` from the payload or default behavior.
+
+This ordering lets you prefer centrally-managed channels (via Admin) while still
+allowing ad-hoc driver usage from scripts and management commands.
+
 ### 5) Sending via email
 
 ```python

@@ -72,40 +72,51 @@ class NotifyView(View):
                     status=400,
                 )
 
-            # Determine driver
-            driver_name = driver or payload.get("driver", "generic")
-            if driver_name not in DRIVER_REGISTRY:
+            # Determine provider/channel via centralized selector
+            from apps.notify.services import NotifySelector
+
+            requested = driver or payload.get("driver")
+            payload_config = payload.get("config", {})
+            requested_channel = payload.get("channel")
+
+            (
+                provider_name,
+                config,
+                selected_label,
+                driver_class,
+                channel_obj,
+                final_channel,
+            ) = NotifySelector.resolve(requested, payload_config, requested_channel)
+
+            if driver_class is None:
                 return JsonResponse(
                     {
                         "status": "error",
-                        "message": f"Unknown driver: {driver_name}",
+                        "message": f"Unknown driver/provider: {provider_name}",
                         "available_drivers": list(DRIVER_REGISTRY.keys()),
                     },
                     status=400,
                 )
 
-            # Build notification message
+            # Build notification message. Use final_channel from selector so that
+            # DB-configured channel destinations take precedence over the payload hint.
             message = NotificationMessage(
                 title=payload["title"],
                 message=payload["message"],
                 severity=payload.get("severity", "info"),
-                channel=payload.get("channel", "default"),
+                channel=final_channel,
                 tags=payload.get("tags", {}),
                 context=payload.get("context", {}),
             )
 
-            # Get driver configuration
-            config = payload.get("config", {})
-
             # Instantiate and validate driver
-            driver_class = DRIVER_REGISTRY[driver_name]
             driver_instance = driver_class()
 
             if not driver_instance.validate_config(config):
                 return JsonResponse(
                     {
                         "status": "error",
-                        "message": f"Invalid configuration for {driver_name} driver",
+                        "message": f"Invalid configuration for {provider_name} driver",
                     },
                     status=400,
                 )
@@ -114,21 +125,27 @@ class NotifyView(View):
             result = driver_instance.send(message, config)
 
             if result.get("success"):
-                logger.info(f"Notification sent via {driver_name}: {message.title}")
+                logger.info(
+                    f"Notification sent via {provider_name} ({selected_label}): {message.title}"
+                )
                 return JsonResponse(
                     {
                         "status": "success",
-                        "driver": driver_name,
+                        "driver": provider_name,
+                        "channel": selected_label,
                         "message_id": result.get("message_id"),
                         "metadata": result.get("metadata", {}),
                     }
                 )
             else:
-                logger.warning(f"Notification failed via {driver_name}: {result.get('error')}")
+                logger.warning(
+                    f"Notification failed via {provider_name} ({selected_label}): {result.get('error')}"
+                )
                 return JsonResponse(
                     {
                         "status": "error",
-                        "driver": driver_name,
+                        "driver": provider_name,
+                        "channel": selected_label,
                         "message": result.get("error", "Unknown error"),
                     },
                     status=500,

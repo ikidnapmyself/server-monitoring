@@ -120,6 +120,7 @@ class Command(BaseCommand):
 
     def _get_payload(self, options) -> dict:
         """Build the payload from options."""
+        inner_payload = {}
         if options["payload"]:
             try:
                 inner_payload = json.loads(options["payload"])
@@ -140,21 +141,9 @@ class Command(BaseCommand):
         else:
             raise CommandError("Must specify --sample, --payload, --file, or --checks-only")
 
-        # Wrap payload with orchestration config
-        # Provide an explicit default notify_config for CLI runs using the generic driver.
-        # This communicates that notifications are disabled by default when the user
-        # did not provide a custom configuration, avoiding validation errors in drivers.
-        notify_driver = options.get("notify_driver", "generic")
-        notify_config = {}
-        if notify_driver == "generic":
-            # Mark generic driver as disabled/no-op by default when invoked from CLI
-            notify_config = {"disabled": True}
-
         return {
             "payload": inner_payload,
             "driver": options["source"] if options["source"] != "cli" else None,
-            "notify_driver": notify_driver,
-            "notify_config": notify_config,
             "checker_names": None,  # Run all checkers
         }
 
@@ -245,9 +234,11 @@ class Command(BaseCommand):
         self.stdout.write("=" * 60)
         self.stdout.write("")
 
-        # Overall status
-        status_style = self.style.SUCCESS if result.status == "COMPLETED" else self.style.ERROR
-        self.stdout.write(f"Status: {status_style(result.status)}")
+        # Overall status (print using style wrappers)
+        if result.status == "COMPLETED":
+            self.stdout.write(self.style.SUCCESS(f"Status: {result.status}"))
+        else:
+            self.stdout.write(self.style.ERROR(f"Status: {result.status}"))
         self.stdout.write(f"Trace ID: {result.trace_id}")
         self.stdout.write(f"Run ID: {result.run_id}")
         self.stdout.write(f"Duration: {result.total_duration_ms:.2f}ms")
