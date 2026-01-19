@@ -6,6 +6,9 @@ This top-level README is the entry point and documentation hub. App-specific doc
 
 ## Documentation map
 
+- Installation: [`docs/Installation.md`](docs/Installation.md)
+- Security: [`docs/Security.md`](docs/Security.md)
+- Templates: [`docs/Templates.md`](docs/Templates.md)
 - Health checks (checkers): [`apps/checkers/README.md`](apps/checkers/README.md)
 - Alert ingestion: [`apps/alerts/README.md`](apps/alerts/README.md)
 - Notifications: [`apps/notify/README.md`](apps/notify/README.md)
