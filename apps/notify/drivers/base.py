@@ -11,11 +11,15 @@ Public API:
 from __future__ import annotations
 
 import json
+import logging
+import urllib.error
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 from apps.notify.templating import NotificationTemplatingService, render_template
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -46,6 +50,28 @@ class BaseNotifyDriver(ABC):
     name: str = "base"
 
     _templating_service = NotificationTemplatingService()
+
+    # Common severity mappings shared across drivers
+    SEVERITY_COLORS = {
+        "critical": "#dc3545",
+        "warning": "#ffc107",
+        "info": "#17a2b8",
+        "success": "#28a745",
+    }
+
+    SEVERITY_EMOJIS = {
+        "critical": ":rotating_light:",
+        "warning": ":warning:",
+        "info": ":information_source:",
+        "success": ":white_check_mark:",
+    }
+
+    PRIORITY_MAP = {
+        "critical": "1",
+        "warning": "2",
+        "info": "3",
+        "success": "3",
+    }
 
     @abstractmethod
     def validate_config(self, config: dict[str, Any]) -> bool:
@@ -78,27 +104,15 @@ class BaseNotifyDriver(ABC):
 
         Returns dict with optional 'text' and 'html' keys (values or None).
         """
-        message_dict = {
-            "title": message.title,
-            "message": message.message,
-            "severity": message.severity,
-            "channel": message.channel,
-            "tags": message.tags,
-            "context": message.context,
-        }
-        return self._templating_service.render_message_templates(self.name, message_dict, config)
+        return self._templating_service.render_message_templates(
+            self.name, self._message_to_dict(message), config
+        )
 
     def _template_context(self, message: "NotificationMessage", incident_details: dict) -> dict:
         """Build the template rendering context for message templates."""
-        message_dict = {
-            "title": message.title,
-            "message": message.message,
-            "severity": message.severity,
-            "channel": message.channel,
-            "tags": message.tags,
-            "context": message.context,
-        }
-        return self._templating_service.build_template_context(message_dict, incident_details)
+        return self._templating_service.build_template_context(
+            self._message_to_dict(message), incident_details
+        )
 
     def _compose_incident_details(
         self, message: "NotificationMessage", config: dict[str, Any]
@@ -108,15 +122,9 @@ class BaseNotifyDriver(ABC):
         Returns a dict containing normalized metrics, context, summaries and
         recommendations suitable for including in driver payloads.
         """
-        message_dict = {
-            "title": message.title,
-            "message": message.message,
-            "severity": message.severity,
-            "channel": message.channel,
-            "tags": message.tags,
-            "context": message.context,
-        }
-        return self._templating_service.compose_incident_details(message_dict, config)
+        return self._templating_service.compose_incident_details(
+            self._message_to_dict(message), config
+        )
 
     def _prepare_notification(self, message: "NotificationMessage", config: dict[str, Any]) -> dict:
         """Prepare rendered templates and incident details for a notification.
@@ -160,3 +168,30 @@ class BaseNotifyDriver(ABC):
                 raise
 
         return result
+
+    def _message_to_dict(self, message: "NotificationMessage") -> dict[str, Any]:
+        """Convert NotificationMessage to dictionary format."""
+        return {
+            "title": message.title,
+            "message": message.message,
+            "severity": message.severity,
+            "channel": message.channel,
+            "tags": message.tags,
+            "context": message.context,
+        }
+
+    def _handle_http_error(self, e: urllib.error.HTTPError, service_name: str) -> dict[str, Any]:
+        """Handle HTTP errors consistently across drivers."""
+        error_body = e.read().decode("utf-8") if e.fp else str(e)
+        logger.error(f"{service_name} HTTP error {e.code}: {error_body}")
+        return {"success": False, "error": f"{service_name} API error ({e.code}): {error_body}"}
+
+    def _handle_url_error(self, e: urllib.error.URLError, service_name: str) -> dict[str, Any]:
+        """Handle URL errors consistently across drivers."""
+        logger.error(f"{service_name} URL error: {e.reason}")
+        return {"success": False, "error": f"Failed to connect to {service_name}: {e.reason}"}
+
+    def _handle_exception(self, e: Exception, service_name: str, action: str) -> dict[str, Any]:
+        """Handle general exceptions consistently across drivers."""
+        logger.exception(f"Failed to {action} {service_name}: {e}")
+        return {"success": False, "error": f"Failed to {action} {service_name}: {e}"}

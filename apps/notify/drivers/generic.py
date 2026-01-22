@@ -12,30 +12,11 @@ logger = logging.getLogger(__name__)
 
 
 class GenericNotifyDriver(BaseNotifyDriver):
-    """
-    Generic driver for custom notification integrations.
-
-    Configuration is flexible and depends on your custom backend:
-    {
-        "endpoint": "https://api.example.com/notify",
-        "method": "POST",
-        "headers": {
-            "Authorization": "Bearer your-api-key",
-            "X-Custom-Header": "value"
-        },
-        "timeout": 30,
-        "payload_template": {
-            "alert": "{title}",
-            "body": "{message}",
-            "level": "{severity}"
-        }
-    }
-    """
+    """Generic driver for custom notification integrations."""
 
     name = "generic"
 
     def validate_config(self, config: dict[str, Any]) -> bool:
-        """Validate generic driver configuration."""
         # Allow empty/default config to mean "notifications disabled" (no-op)
         if not config or config.get("disabled"):
             return True
@@ -51,11 +32,6 @@ class GenericNotifyDriver(BaseNotifyDriver):
     def _build_payload(
         self, message: NotificationMessage, config: dict[str, Any]
     ) -> dict[str, Any]:
-        """Build the notification payload.
-
-        If a payload_template is provided, use it for custom formatting.
-        Otherwise, use a sensible default structure.
-        """
         # Use centralized preparation which renders templates and composes incident
         prepared = self._prepare_notification(message, config)
 
@@ -96,10 +72,6 @@ class GenericNotifyDriver(BaseNotifyDriver):
     def _apply_template(
         self, template: dict[str, Any], message: NotificationMessage
     ) -> dict[str, Any]:
-        """Apply message values to a template.
-
-        Supports simple {field} substitutions in string values.
-        """
         substitutions = {
             "title": message.title,
             "message": message.message,
@@ -122,15 +94,6 @@ class GenericNotifyDriver(BaseNotifyDriver):
         return substitute(template)
 
     def send(self, message: NotificationMessage, config: dict[str, Any]) -> dict[str, Any]:
-        """Send a generic HTTP notification.
-
-        Args:
-            message: The notification message
-            config: Custom configuration with endpoint
-
-        Returns:
-            Result dictionary with success status
-        """
         if not self.validate_config(config):
             return {
                 "success": False,
@@ -143,19 +106,15 @@ class GenericNotifyDriver(BaseNotifyDriver):
         timeout = config.get("timeout", 30)
 
         try:
-            # Build the payload
             payload = self._build_payload(message, config)
             payload_json = json.dumps(payload).encode("utf-8")
 
-            # Default headers
             request_headers = {
                 "Content-Type": "application/json",
                 "User-Agent": "ServerMaintenance/1.0",
             }
-            # Add custom headers
             request_headers.update(headers)
 
-            # Create request
             request = urllib.request.Request(
                 str(endpoint),
                 data=payload_json if method in ("POST", "PUT", "PATCH") else None,
@@ -163,12 +122,10 @@ class GenericNotifyDriver(BaseNotifyDriver):
                 method=method,
             )
 
-            # Send request
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 response_body = response.read().decode("utf-8")
                 status_code = response.getcode()
 
-                # Try to parse response as JSON
                 try:
                     response_data = json.loads(response_body)
                 except json.JSONDecodeError:
@@ -190,19 +147,8 @@ class GenericNotifyDriver(BaseNotifyDriver):
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8") if e.fp else str(e)
             logger.error(f"Generic HTTP error {e.code}: {error_body}")
-            return {
-                "success": False,
-                "error": f"HTTP error ({e.code}): {error_body}",
-            }
+            return {"success": False, "error": f"HTTP error ({e.code}): {error_body}"}
         except urllib.error.URLError as e:
-            logger.error(f"Generic URL error: {e.reason}")
-            return {
-                "success": False,
-                "error": f"Failed to connect: {e.reason}",
-            }
+            return self._handle_url_error(e, "Generic")
         except Exception as e:
-            logger.exception(f"Failed to send generic notification: {e}")
-            return {
-                "success": False,
-                "error": f"Failed to send notification: {e}",
-            }
+            return self._handle_exception(e, "Generic", "send notification")

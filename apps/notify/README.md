@@ -111,7 +111,55 @@ Example channel config for Slack:
 ```json
 {
   "webhook_url": "https://hooks.slack.com/services/T.../B.../XXX",
-  "channel": "#alerts"
+  "channel": "#alerts",
+  "username": "UserName",
+  "icon_emoji": ":rotating_light:",
+  "timeout": 30
+}
+```
+
+#### Email Configuration
+```json
+{
+  "smtp_host": "smtp.example.com",
+  "smtp_port": 587,
+  "from_address": "alerts@example.com",
+  "to_addresses": ["ops@example.com"],
+  "use_tls": true,
+  "use_ssl": false,
+  "username": "user@example.com",
+  "password": "app-password",
+  "timeout": 30
+}
+```
+
+#### PagerDuty Configuration
+```json
+{
+  "integration_key": "your-pagerduty-integration-key",
+  "dedup_key": "optional-deduplication-key",
+  "event_action": "trigger",
+  "client": "Server Maintenance",
+  "client_url": "https://your-dashboard.com",
+  "timeout": 30
+}
+```
+
+#### Generic HTTP Configuration
+```json
+{
+  "endpoint": "https://api.example.com/notify",
+  "method": "POST",
+  "headers": {
+    "Authorization": "Bearer your-api-key",
+    "X-Custom-Header": "value"
+  },
+  "timeout": 30,
+  "payload_template": {
+    "alert": "{title}",
+    "body": "{message}",
+    "level": "{severity}"
+  }
 }
 ```
 
