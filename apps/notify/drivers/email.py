@@ -1,5 +1,6 @@
 """Email notification driver."""
 
+import json
 import logging
 import smtplib
 import uuid
@@ -65,13 +66,25 @@ class EmailNotifyDriver(BaseNotifyDriver):
         # Priority header based on severity
         email["X-Priority"] = self.PRIORITY_MAP.get(message.severity, "3")
 
-        # Build plain text body
-        text_body = self._build_text_body(message)
+        # Use centralized preparation to render templates and compose incident
+        prepared = self._prepare_notification(message, config)
+
+        text_body = prepared.get("text") or self._build_text_body(message)
         email.attach(MIMEText(text_body, "plain"))
 
-        # Build HTML body
-        html_body = self._build_html_body(message)
+        html_body = prepared.get("html") or self._build_html_body(message)
         email.attach(MIMEText(html_body, "html"))
+
+        # Attach an artifact with structured incident details for operators (optional)
+        try:
+            incident_json = json.dumps(
+                prepared.get("incident") or {}, default=str, ensure_ascii=False
+            )
+            if incident_json:
+                # Attach as plain text part named incident-details.txt
+                email.attach(MIMEText(incident_json, "plain"))
+        except Exception:
+            pass
 
         return email
 

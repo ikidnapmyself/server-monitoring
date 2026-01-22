@@ -1,0 +1,45 @@
+{# slack_text.j2 — produces a full Slack webhook JSON payload (Block Kit) #}
+{# Build safe values and a compact recommendations markdown section #}
+{% set _title = title or '' %}
+{% set _sev = (severity or '') | upper %}
+{# Choose body: intelligence.summary > first recommendation description > message #}
+{% if intelligence and intelligence.summary %}
+  {% set _body = intelligence.summary %}
+{% elif recommendations and recommendations[0] and recommendations[0].description %}
+  {% set _body = recommendations[0].description %}
+{% else %}
+  {% set _body = message or '' %}
+{% endif %}
+{# Sanitizer macro: escape triple backticks and remove CRs, truncate #}
+{% macro sanitize(s, max_len=8000) -%}
+  {%- if s is none -%}
+    {%- set _ = '' -%}
+  {%- else -%}
+    {%- set _ = s | replace('```', '`\\`\\`\\`') | replace('\r', '') -%}
+    {%- if _|length > max_len -%}
+      {%- set _ = _[: max_len - 12] ~ '... (truncated)' -%}
+    {%- endif -%}
+  {%- endif -%}
+  {{- _ -}}
+{%- endmacro %}
+
+{# Build compact recommendations markdown #}
+{% set ns = namespace(lines=[]) %}
+{% if recommendations %}
+  {% for r in recommendations[:5] %}
+    {% set t = (r.title if (r is mapping and r.title is defined) else (r.name if (r is mapping and r.name is defined) else 'Recommendation')) %}
+    {% set d = (r.description if (r is mapping and r.description is defined) else (r.detail if (r is mapping and r.detail is defined) else (r if not (r is mapping) else ''))) %}
+    {% set _ = ns.lines.append('• *' ~ (t|trim) ~ '*: ' ~ (d|trim)) %}
+  {% endfor %}
+{% endif %}
+{% set recs_md = ns.lines | join('\n') %}
+
+{# Compose blocks as JSON using tojson for safety #}
+{
+  "blocks": [
+    {"type": "section", "text": {"type": "mrkdwn", "text": {{ ('*' ~ _title ~ '* — `' ~ _sev ~ '`') | tojson }}}},
+    {"type": "section", "text": {"type": "mrkdwn", "text": {{ (sanitize(_body)) | tojson }}}}{% if recs_md %},
+    {"type": "section", "text": {"type": "mrkdwn", "text": {{ ('*Top recommendations:*\n' ~ sanitize(recs_md, 4000)) | tojson }}}}{% endif %}
+  ],
+  "text": {{ (sanitize(_body, 4000)) | tojson }}
+}

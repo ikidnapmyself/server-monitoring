@@ -1,0 +1,11 @@
+{
+  "title": "{{ title }}",
+  "summary": "{{ intelligence.summary | default('') | replace('\n','\\n') }}",
+  "severity": "{{ severity }}",
+  "incident_id": "{{ incident_id }}",
+  "recommendations": [
+    {% for r in recommendations %}
+    {"title": "{{ r.title | default('') }}", "description": "{{ r.description | default('') | replace('\n','\\n') }}"}{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ]
+}

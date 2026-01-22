@@ -1,0 +1,17 @@
+Alert: {{ title }}
+Severity: {{ severity | upper }}
+
+{% if intelligence.summary %}Summary:
+{{ intelligence.summary }}
+
+{% endif %}
+Recommendations:
+{% for r in recommendations[:10] %}- {{ r.title }}: {{ r.description }}
+{% endfor %}
+
+
+Ingest Summary:
+{{ ingest or 'N/A' }}
+
+Check Summary:
+{{ check or 'N/A' }}

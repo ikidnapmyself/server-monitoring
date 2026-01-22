@@ -409,6 +409,7 @@ class LocalRecommendationProvider(BaseProvider):
             details = {
                 "top_processes": top_cpu_processes,
                 "cpu_count": psutil.cpu_count(),
+                "cpu_physical_count": psutil.cpu_count(logical=False),
                 "load_avg": list(psutil.getloadavg()) if hasattr(psutil, "getloadavg") else None,
             }
 

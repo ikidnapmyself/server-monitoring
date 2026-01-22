@@ -1,0 +1,55 @@
+{{ "# " + title }}
+
+Severity: **{{ severity | upper }}**
+
+{% if incident_id %}Incident ID: `{{ incident_id }}`
+
+{% endif %}
+{% if source %}Source: `{{ source }}`
+
+{% endif %}
+{% if intelligence.summary %}Summary:
+{{ intelligence.summary }}
+
+{% endif %}
+{% if intelligence.probable_cause %}Probable cause:
+{{ intelligence.probable_cause }}
+
+{% endif %}
+{% if intelligence.actions %}Actions:
+{% for a in intelligence.actions %}- {{ a }}
+{% endfor %}
+
+{% endif %}
+{% if recommendations %}Recommendations (top {{ recommendations|length }}):
+{% for r in recommendations %}- **{{ r.title }}** ({{ r.priority|default('') }})
+  > {{ r.description|default('') }}
+  {% if r.details %}
+  Details:
+  {% if r.details.large_items %}
+  - Large items: {{ r.details.total_size_mb | default('') }} MB
+  {% endif %}
+  {% if r.details.top_processes %}
+  - Top processes:
+    {% for p in r.details.top_processes[:5] %}
+    - `{{ p.pid }}` {{ p.name }} — {{ p.cpu_percent | default(p.memory_percent) }}%
+    {% endfor %}
+  {% endif %}
+  {% endif %}
+
+{% endfor %}
+{% endif %}
+
+---
+
+_Ingest Summary:_
+{% if ingest %}
+{{ ingest }}
+{% else %}N/A
+{% endif %}
+
+_Check Summary:_
+{% if check %}
+{{ check }}
+{% else %}N/A
+{% endif %}

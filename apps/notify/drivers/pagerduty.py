@@ -67,16 +67,23 @@ class PagerDutyNotifyDriver(BaseNotifyDriver):
 
         # Only include payload section for trigger events
         if event_action == "trigger":
+            # Build base payload and compose common incident details
+            incident = self._compose_incident_details(message, config or {})
+
             payload["payload"] = {
                 "summary": f"[{message.severity.upper()}] {message.title}",
                 "severity": severity,
-                "source": message.tags.get("source", "server-maintenance"),
+                "source": incident.get("source")
+                or message.tags.get("source", "server-maintenance"),
                 "component": message.tags.get("component", message.channel),
                 "group": message.tags.get("group", "default"),
                 "class": message.tags.get("class", message.severity),
                 "custom_details": {
                     "message": message.message,
                     "severity": message.severity,
+                    "cpu_count": incident.get("cpu_count"),
+                    "ram_total_human": incident.get("ram_total_human"),
+                    "disk_total_human": incident.get("disk_total_human"),
                     **message.tags,
                     **message.context,
                 },
@@ -96,6 +103,18 @@ class PagerDutyNotifyDriver(BaseNotifyDriver):
                         "text": "View Details",
                     }
                 ]
+
+            # Use centralized preparation for templates and incident
+            prepared = self._prepare_notification(message, config)
+
+            # Merge rendered payload_obj or raw into custom_details when present
+            if prepared.get("payload_obj") and isinstance(prepared.get("payload_obj"), dict):
+                payload["payload"]["custom_details"].update(prepared.get("payload_obj"))
+            elif prepared.get("payload_raw"):
+                payload["payload"]["custom_details"]["rendered"] = prepared.get("payload_raw")
+
+            # Include structured incident details for downstream systems
+            payload["incident"] = prepared.get("incident")
 
         return payload
 

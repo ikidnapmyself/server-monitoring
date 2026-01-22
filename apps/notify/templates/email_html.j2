@@ -1,0 +1,25 @@
+<html>
+  <body style="font-family: Arial, sans-serif;">
+    <div style="border-left: 4px solid #ddd; padding-left: 12px; margin-bottom: 12px;">
+      <h2>{{ title }}</h2>
+      <small style="background-color:#eee;padding:2px 6px;border-radius:3px">{{ severity|upper }}</small>
+    </div>
+    {% if intelligence.summary %}
+    <h3>Summary</h3>
+    <p>{{ intelligence.summary }}</p>
+    {% endif %}
+    {% if recommendations %}
+    <h3>Recommendations</h3>
+    <ul>
+    {% for r in recommendations[:20] %}
+      <li><strong>{{ r.title }}</strong>: {{ r.description }}</li>
+    {% endfor %}
+    </ul>
+    {% endif %}
+    <hr>
+    <h4>Ingest Summary</h4>
+    <pre>{{ ingest }}</pre>
+    <h4>Check Summary</h4>
+    <pre>{{ check }}</pre>
+  </body>
+</html>

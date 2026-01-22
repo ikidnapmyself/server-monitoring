@@ -245,10 +245,10 @@ from apps.notify.drivers.base import BaseNotifyDriver, NotificationMessage
 
 class MyServiceNotifyDriver(BaseNotifyDriver):
     name = "myservice"
-    
+
     def validate_config(self, config):
         return "api_key" in config
-    
+
     def send(self, message, config):
         # Your implementation here
         return {
@@ -366,7 +366,7 @@ curl -X POST http://localhost:8000/notify/batch/ \
       },
       {
         "driver": "email",
-        "title": "Alert 2", 
+        "title": "Alert 2",
         "message": "Second notification",
         "severity": "info",
         "config": {"smtp_host": "smtp.example.com", "from_address": "alerts@example.com"}
@@ -423,3 +423,4 @@ curl http://localhost:8000/notify/drivers/slack/
   ]
 }
 ```
+

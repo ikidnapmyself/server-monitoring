@@ -328,9 +328,149 @@ class NotifyExecutor(BaseExecutor):
 
             # Build NotificationMessage using the base dataclass fields. Put
             # idempotency info into tags and the intelligence/check output into context.
+            # Build human-readable summaries for previous stages to include in
+            # the notification context (keeps messages concise and useful).
+            ingest_prev = previous.get("ingest") or {}
+            if isinstance(ingest_prev, dict):
+                ingest_lines = ["**Ingest Summary**"]
+                ingest_lines.append(f"- incident_id: `{ingest_prev.get('incident_id')}`")
+                ingest_lines.append(f"- severity: {ingest_prev.get('severity')}")
+                ingest_lines.append(f"- source: {ingest_prev.get('source')}")
+                ingest_lines.append(f"- alerts_created: {ingest_prev.get('alerts_created', 0)}")
+                ingest_lines.append(f"- alerts_updated: {ingest_prev.get('alerts_updated', 0)}")
+                ingest_lines.append(f"- alerts_resolved: {ingest_prev.get('alerts_resolved', 0)}")
+                ingest_lines.append(
+                    f"- incidents_created: {ingest_prev.get('incidents_created', 0)}"
+                )
+                ingest_lines.append(
+                    f"- incidents_updated: {ingest_prev.get('incidents_updated', 0)}"
+                )
+                ingest_lines.append(
+                    f"- duration_ms: `{round(float(ingest_prev.get('duration_ms', 0.0)), 2)}`"
+                )
+                ingest_md = "\n".join(ingest_lines)
+            else:
+                ingest_md = "**Ingest Summary**\n```\n" + str(ingest_prev) + "\n```"
+
+            check_prev = previous.get("check") or {}
+            if isinstance(check_prev, dict):
+                check_lines = ["**Check Summary**"]
+                check_lines.append(f"- checks_run: {check_prev.get('checks_run', 0)}")
+                check_lines.append(f"- passed: {check_prev.get('checks_passed', 0)}")
+                check_lines.append(f"- failed: {check_prev.get('checks_failed', 0)}")
+                cof = check_prev.get("checker_output_ref")
+                if cof:
+                    check_lines.append(f"- checker_output_ref: `{cof}`")
+                check_lines.append(
+                    f"- duration_ms: `{round(float(check_prev.get('duration_ms', 0.0)), 2)}`"
+                )
+                check_md = "\n".join(check_lines)
+            else:
+                check_md = "**Check Summary**\n```\n" + str(check_prev) + "\n```"
+
+            # Intelligence -> markdown: summary, probable cause, recommendations count and top processes
+            intelligence_prev = intelligence or {}
+            if isinstance(intelligence_prev, dict):
+                intel_lines = ["**Intelligence Summary**"]
+                if intelligence_prev.get("summary"):
+                    intel_lines.append(f"- summary: {intelligence_prev.get('summary')}")
+                if intelligence_prev.get("probable_cause"):
+                    intel_lines.append(
+                        f"- probable_cause: {intelligence_prev.get('probable_cause')}"
+                    )
+                recs = intelligence_prev.get("recommendations") or []
+                intel_lines.append(f"- recommendations: {len(recs)}")
+
+                # top processes (if present in first recommendation details)
+                top_proc_lines = []
+                if recs and isinstance(recs, list) and isinstance(recs[0], dict):
+                    details = recs[0].get("details", {}) or {}
+                    top = details.get("top_processes") or []
+                    if isinstance(top, list) and top:
+                        top_proc_lines.append("- top_processes:")
+                        for p in top[:5]:
+                            pid = p.get("pid")
+                            name = p.get("name") or (p.get("cmdline") or "")
+                            cpu = p.get("cpu_percent")
+                            try:
+                                cpu_s = f"{float(cpu):.1f}%" if cpu is not None else ""
+                            except Exception:
+                                cpu_s = str(cpu)
+                            top_proc_lines.append(f"  - `{pid}` {name} — {cpu_s}")
+                intel_md = "\n".join(intel_lines + top_proc_lines)
+            else:
+                intel_md = "**Intelligence Summary**\n```\n" + str(intelligence_prev) + "\n```"
+
+            # Build a single Markdown body that contains the message and
+            # the human-readable summaries. This ensures all drivers receive
+            # the same readable content and channels that support Markdown
+            # (like Slack) will render it nicely.
+            # Attempt to render a configured notification template. Template
+            # can come from channel config (selected channel_obj) or payload
+            # payload.notify_config.template. If present, render it with a
+            # rich context; otherwise fall back to building md_body as before.
+            from apps.notify.templating import render_template
+
+            template_spec = None
+            # Priority: DB channel config -> payload.notify_config
+            if channel_obj and (channel_obj.config or {}).get("template"):
+                template_spec = (channel_obj.config or {}).get("template")
+                logger.debug("NotifyExecutor: using channel_obj.config.template=%r", template_spec)
+            elif payload_config.get("template"):
+                template_spec = payload_config.get("template")
+                logger.debug("NotifyExecutor: using payload_config.template=%r", template_spec)
+
+            # Build the rendering context
+            render_ctx = {
+                "title": title,
+                "severity": severity,
+                "ingest": ingest_prev,
+                "check": check_prev,
+                "intelligence": intelligence_prev,
+                "recommendations": (
+                    intelligence_prev.get("recommendations")
+                    if isinstance(intelligence_prev, dict)
+                    else []
+                ),
+                "incident_id": ctx.incident_id,
+                "source": ctx.source,
+                "environment": ctx.environment,
+            }
+
+            if template_spec:
+                try:
+                    md_body = render_template(template_spec, render_ctx) or ""
+                    logger.debug("NotifyExecutor: rendered template_spec len=%d", len(md_body))
+                except Exception:
+                    logger.exception("Error rendering notification template")
+                    # fallback to default composition
+                    md_parts = []
+                    if message_body:
+                        md_parts.append(message_body)
+                    if ingest_md:
+                        md_parts.append(ingest_md)
+                    if check_md:
+                        md_parts.append(check_md)
+                    if intel_md:
+                        md_parts.append(intel_md)
+
+                    md_body = "\n\n---\n\n".join(md_parts).strip()
+            else:
+                md_parts = []
+                if message_body:
+                    md_parts.append(message_body)
+                if ingest_md:
+                    md_parts.append(ingest_md)
+                if check_md:
+                    md_parts.append(check_md)
+                if intel_md:
+                    md_parts.append(intel_md)
+
+                md_body = "\n\n---\n\n".join(md_parts).strip()
+
             message = NotificationMessage(
                 title=title,
-                message=message_body,
+                message=md_body,
                 severity=severity,
                 channel=channel,
                 tags={
@@ -342,9 +482,9 @@ class NotifyExecutor(BaseExecutor):
                     "incident_id": ctx.incident_id,
                     "source": ctx.source,
                     "environment": ctx.environment,
-                    "ingest": previous.get("ingest"),
-                    "check": previous.get("check"),
-                    "intelligence": intelligence,
+                    "ingest": ingest_md,
+                    "check": check_md,
+                    "intelligence": intel_md,
                 },
             )
 

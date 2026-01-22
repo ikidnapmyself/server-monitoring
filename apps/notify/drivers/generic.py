@@ -56,20 +56,41 @@ class GenericNotifyDriver(BaseNotifyDriver):
         If a payload_template is provided, use it for custom formatting.
         Otherwise, use a sensible default structure.
         """
-        template = config.get("payload_template")
+        # Use centralized preparation which renders templates and composes incident
+        prepared = self._prepare_notification(message, config)
 
-        if template:
-            # Use custom template with substitutions
-            return self._apply_template(template, message)
+        # If payload_obj (JSON/dict) exists, use it as payload
+        if prepared.get("payload_obj"):
+            payload = prepared["payload_obj"]
+            # Ensure we include incident details
+            if isinstance(payload, dict):
+                payload.setdefault("incident", prepared.get("incident"))
+            return payload
+
+        # If payload_raw (string) exists, return a wrapper
+        if prepared.get("payload_raw"):
+            return {
+                "title": message.title,
+                "message": prepared.get("payload_raw"),
+                "incident": prepared.get("incident"),
+            }
+
+        # Fallback to previous dict template or default payload
+        template = config.get("payload_template")
+        if template and isinstance(template, dict):
+            payload = self._apply_template(template, message)
+            payload.setdefault("incident", prepared.get("incident"))
+            return payload
 
         # Default payload structure
         return {
             "title": message.title,
-            "message": message.message,
+            "message": prepared.get("text") or message.message,
             "severity": message.severity,
             "channel": message.channel,
             "tags": message.tags,
             "context": message.context,
+            "incident": prepared.get("incident"),
         }
 
     def _apply_template(

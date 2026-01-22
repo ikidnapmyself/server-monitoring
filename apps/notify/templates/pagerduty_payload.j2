@@ -1,0 +1,11 @@
+{
+  "summary": "[{{ severity|upper }}] {{ title }}",
+  "custom_details": {
+    "message": "{{ message | replace('\n','\\n') }}",
+    "recommendations": [
+      {% for r in recommendations %}
+      {"title": "{{ r.title | default('') }}", "description": "{{ r.description | default('') | replace('\n','\\n') }}"}{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ]
+  }
+}
