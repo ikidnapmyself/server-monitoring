@@ -1,0 +1,42 @@
+name: Security
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Create env file
+        run: cp .env.sample .env
+
+      - name: Create DJANGO_SECRET_KEY
+        run: echo "DJANGO_SECRET_KEY=$(openssl rand -base64 32)" >> .env
+
+      - name: Sync dependencies (incl. dev tools)
+        run: uv sync --extra dev
+
+      - name: Django Security Check
+        uses: victoriadrake/django-security-check@v1.1.1
+
