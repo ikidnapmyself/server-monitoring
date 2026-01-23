@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
+  security-check:
     runs-on: ubuntu-latest
 
     steps:
