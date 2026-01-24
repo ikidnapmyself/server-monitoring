@@ -3,7 +3,19 @@ name: Security
 on:
   push:
     branches: ["main"]
+    paths:
+      - '**/*.py'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'apps/**'
+      - 'config/**'
   pull_request:
+    paths:
+      - '**/*.py'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'apps/**'
+      - 'config/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -28,6 +40,14 @@ jobs:
           version: "latest"
           enable-cache: true
 
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+
       - name: Create env file
         run: cp .env.sample .env
 
@@ -39,4 +59,3 @@ jobs:
 
       - name: Django Security Check
         uses: victoriadrake/django-security-check@v1.1.1
-
