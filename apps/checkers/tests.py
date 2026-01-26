@@ -389,7 +389,8 @@ class SystemChecksTests(TestCase):
                 self.assertEqual(errors[0].id, "checkers.W001")
                 self.assertIn("pending migration", errors[0].msg.lower())
 
-    def test_crontab_check_with_cron_configured(self):
+    @patch("apps.checkers.checks._is_testing", return_value=False)
+    def test_crontab_check_with_cron_configured(self, mock_is_testing):
         """Test that crontab check passes when cron job is configured."""
         from unittest.mock import patch
 
@@ -403,7 +404,8 @@ class SystemChecksTests(TestCase):
             errors = check_crontab_configuration(app_configs=None)
             self.assertEqual(errors, [])
 
-    def test_crontab_check_no_cron_job(self):
+    @patch("apps.checkers.checks._is_testing", return_value=False)
+    def test_crontab_check_no_cron_job(self, mock_is_testing):
         """Test that crontab check warns when cron job is missing."""
         from unittest.mock import patch
 
@@ -418,7 +420,8 @@ class SystemChecksTests(TestCase):
             self.assertEqual(len(errors), 1)
             self.assertEqual(errors[0].id, "checkers.W004")
 
-    def test_crontab_check_no_crontab(self):
+    @patch("apps.checkers.checks._is_testing", return_value=False)
+    def test_crontab_check_no_crontab(self, mock_is_testing):
         """Test that crontab check warns when no crontab exists."""
         from unittest.mock import patch
 
@@ -433,7 +436,8 @@ class SystemChecksTests(TestCase):
             self.assertEqual(len(errors), 1)
             self.assertEqual(errors[0].id, "checkers.W002")
 
-    def test_crontab_check_command_not_found(self):
+    @patch("apps.checkers.checks._is_testing", return_value=False)
+    def test_crontab_check_command_not_found(self, mock_is_testing):
         """Test that crontab check handles missing crontab command."""
         from unittest.mock import patch
 

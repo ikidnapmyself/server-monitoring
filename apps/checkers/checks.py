@@ -18,8 +18,14 @@ Usage:
 """
 
 import subprocess
+import sys
 
 from django.core.checks import Error, Tags, Warning, register
+
+
+def _is_testing():
+    """Return True if running under test framework."""
+    return "pytest" in sys.modules or "test" in sys.argv
 
 
 @register(Tags.database)
@@ -107,7 +113,15 @@ def check_crontab_configuration(app_configs, **kwargs):
 
     This verifies that the server-maintanence health check cron job
     is present in the current user's crontab.
+
+    Only runs in production (DEBUG=False and not in tests).
     """
+    from django.conf import settings
+
+    # Skip this check in development and tests
+    if settings.DEBUG or _is_testing():
+        return []
+
     errors = []
 
     # Cron identifier used in setup_cron.sh
