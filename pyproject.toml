@@ -84,8 +84,10 @@ branch = true
 omit = [
     "*/migrations/*",
     "*/__pycache__/*",
-    "*/tests.py",
-    "*/test_*.py",
+    "**/tests.py",
+    "**/test_*.py",
+    "**/tests/**",
+    "**/_tests/**",
 ]
 
 [tool.coverage.report]
