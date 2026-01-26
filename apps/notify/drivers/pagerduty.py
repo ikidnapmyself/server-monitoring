@@ -35,7 +35,6 @@ class PagerDutyNotifyDriver(BaseNotifyDriver):
     def _build_payload(
         self, message: NotificationMessage, config: dict[str, Any]
     ) -> dict[str, Any]:
-        severity = self.SEVERITY_MAP.get(message.severity, "info")
         event_action = config.get("event_action", "trigger")
 
         payload: dict[str, Any] = {
@@ -49,26 +48,21 @@ class PagerDutyNotifyDriver(BaseNotifyDriver):
             payload["dedup_key"] = message.tags["fingerprint"]
 
         if event_action == "trigger":
-            incident = self._compose_incident_details(message, config or {})
+            prepared = self._prepare_notification(message, config)
 
-            payload["payload"] = {
-                "summary": f"[{message.severity.upper()}] {message.title}",
-                "severity": severity,
-                "source": incident.get("source")
-                or message.tags.get("source", "server-maintenance"),
-                "component": message.tags.get("component", message.channel),
-                "group": message.tags.get("group", "default"),
-                "class": message.tags.get("class", message.severity),
-                "custom_details": {
-                    "message": message.message,
-                    "severity": message.severity,
-                    "cpu_count": incident.get("cpu_count"),
-                    "ram_total_human": incident.get("ram_total_human"),
-                    "disk_total_human": incident.get("disk_total_human"),
-                    **message.tags,
-                    **message.context,
-                },
-            }
+            # Template must provide the payload structure
+            if prepared.get("payload_obj"):
+                payload["payload"] = prepared["payload_obj"]
+                # Map severity to PagerDuty's expected values
+                if "severity" in payload["payload"]:
+                    payload["payload"]["severity"] = self.SEVERITY_MAP.get(
+                        payload["payload"]["severity"], "info"
+                    )
+            else:
+                raise ValueError("PagerDuty payload template required but not rendered")
+
+            # Add incident for tracking
+            payload["incident"] = prepared.get("incident")
 
             if config.get("client"):
                 payload["client"] = config["client"]
@@ -82,15 +76,6 @@ class PagerDutyNotifyDriver(BaseNotifyDriver):
                         "text": "View Details",
                     }
                 ]
-
-            prepared = self._prepare_notification(message, config)
-
-            if prepared.get("payload_obj") and isinstance(prepared.get("payload_obj"), dict):
-                payload["payload"]["custom_details"].update(prepared.get("payload_obj"))
-            elif prepared.get("payload_raw"):
-                payload["payload"]["custom_details"]["rendered"] = prepared.get("payload_raw")
-
-            payload["incident"] = prepared.get("incident")
 
         return payload
 

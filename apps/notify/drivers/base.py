@@ -149,7 +149,7 @@ class BaseNotifyDriver(ABC):
         result["text"] = rendered.get("text")
         result["html"] = rendered.get("html")
 
-        # If a payload_template exists, render it and try to parse JSON
+        # If a payload_template exists in config, render it and try to parse JSON
         payload_t = config.get("payload_template")
         if payload_t:
             try:
@@ -166,6 +166,19 @@ class BaseNotifyDriver(ABC):
             except Exception:
                 # propagate template errors
                 raise
+        elif result["text"]:
+            # If no explicit payload_template, check if rendered text looks like JSON
+            # This handles drivers using *_payload.j2 default templates
+            stripped = result["text"].strip()
+            if stripped.startswith("{") or stripped.startswith("["):
+                try:
+                    parsed = json.loads(result["text"])
+                    if isinstance(parsed, (dict, list)):
+                        result["payload_obj"] = parsed
+                        result["payload_raw"] = result["text"]
+                except Exception:
+                    # Not valid JSON, leave as text
+                    pass
 
         return result
 

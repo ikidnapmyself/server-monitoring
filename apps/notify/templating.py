@@ -371,7 +371,7 @@ class NotificationTemplatingService:
                     f"No template found for driver '{driver_name}'. Tried config keys and files: {tried}. Details: {error_detail}"
                 )
 
-        # Try html_template
+        # Try html_template from config first, then driver-default HTML file
         html_tmpl = config.get("html_template")
         if html_tmpl:
             try:
@@ -380,6 +380,16 @@ class NotificationTemplatingService:
                     result["html"] = rendered_html
             except Exception:
                 result["html"] = None
+        else:
+            # Try driver-default HTML template file
+            html_candidate = f"file:{driver_name}_html.j2"
+            try:
+                rendered_html = render_template(html_candidate, ctx)
+                if rendered_html:
+                    result["html"] = rendered_html
+            except Exception:
+                # HTML template is optional, don't fail if not found
+                pass
 
         logger.debug(
             "render_message_templates: driver=%s used=%s text_len=%s html_len=%s",

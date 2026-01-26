@@ -35,7 +35,7 @@ class GenericNotifyDriver(BaseNotifyDriver):
         # Use centralized preparation which renders templates and composes incident
         prepared = self._prepare_notification(message, config)
 
-        # If payload_obj (JSON/dict) exists, use it as payload
+        # Template must provide payload structure (as JSON)
         if prepared.get("payload_obj"):
             payload = prepared["payload_obj"]
             # Ensure we include incident details
@@ -43,7 +43,7 @@ class GenericNotifyDriver(BaseNotifyDriver):
                 payload.setdefault("incident", prepared.get("incident"))
             return payload
 
-        # If payload_raw (string) exists, return a wrapper
+        # If payload_raw (string) exists but not JSON, wrap it
         if prepared.get("payload_raw"):
             return {
                 "title": message.title,
@@ -51,47 +51,7 @@ class GenericNotifyDriver(BaseNotifyDriver):
                 "incident": prepared.get("incident"),
             }
 
-        # Fallback to previous dict template or default payload
-        template = config.get("payload_template")
-        if template and isinstance(template, dict):
-            payload = self._apply_template(template, message)
-            payload.setdefault("incident", prepared.get("incident"))
-            return payload
-
-        # Default payload structure
-        return {
-            "title": message.title,
-            "message": prepared.get("text") or message.message,
-            "severity": message.severity,
-            "channel": message.channel,
-            "tags": message.tags,
-            "context": message.context,
-            "incident": prepared.get("incident"),
-        }
-
-    def _apply_template(
-        self, template: dict[str, Any], message: NotificationMessage
-    ) -> dict[str, Any]:
-        substitutions = {
-            "title": message.title,
-            "message": message.message,
-            "severity": message.severity,
-            "channel": message.channel,
-        }
-
-        def substitute(value: Any) -> Any:
-            if isinstance(value, str):
-                result = value
-                for key, sub_value in substitutions.items():
-                    result = result.replace(f"{{{key}}}", str(sub_value))
-                return result
-            elif isinstance(value, dict):
-                return {k: substitute(v) for k, v in value.items()}
-            elif isinstance(value, list):
-                return [substitute(v) for v in value]
-            return value
-
-        return substitute(template)
+        raise ValueError("Generic driver payload template required but not rendered")
 
     def send(self, message: NotificationMessage, config: dict[str, Any]) -> dict[str, Any]:
         if not self.validate_config(config):

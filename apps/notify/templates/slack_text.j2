@@ -2,20 +2,27 @@
 {# Build safe values and a compact recommendations markdown section #}
 {% set _title = title or '' %}
 {% set _sev = (severity or '') | upper %}
-{# Choose body: intelligence.summary > first recommendation description > message #}
-{% if intelligence and intelligence.summary %}
-  {% set _body = intelligence.summary %}
-{% elif recommendations and recommendations[0] and recommendations[0].description %}
+{# Choose body: prefer short summary text, not structured data dumps #}
+{% if intelligence is mapping %}
+  {# Try to get a clean summary text from intelligence #}
+  {% if intelligence.summary is string and intelligence.summary and not intelligence.summary.startswith('-') and not intelligence.summary.startswith('*') %}
+    {% set _body = intelligence.summary %}
+  {% elif intelligence.probable_cause is string and intelligence.probable_cause %}
+    {% set _body = intelligence.probable_cause %}
+  {% else %}
+    {% set _body = message or '' %}
+  {% endif %}
+{% elif recommendations and recommendations[0] is mapping and recommendations[0].description %}
   {% set _body = recommendations[0].description %}
 {% else %}
   {% set _body = message or '' %}
 {% endif %}
-{# Sanitizer macro: escape triple backticks and remove CRs, truncate #}
+{# Sanitizer macro: escape triple backticks, fix bold syntax for Slack, remove CRs, truncate #}
 {% macro sanitize(s, max_len=8000) -%}
   {%- if s is none -%}
     {%- set _ = '' -%}
   {%- else -%}
-    {%- set _ = s | replace('```', '`\\`\\`\\`') | replace('\r', '') -%}
+    {%- set _ = s | replace('```', '`\\`\\`\\`') | replace('\r', '') | replace('**', '*') -%}
     {%- if _|length > max_len -%}
       {%- set _ = _[: max_len - 12] ~ '... (truncated)' -%}
     {%- endif -%}
@@ -23,13 +30,23 @@
   {{- _ -}}
 {%- endmacro %}
 
-{# Build compact recommendations markdown #}
+{# Build compact recommendations markdown - only include items with actual content #}
 {% set ns = namespace(lines=[]) %}
 {% if recommendations %}
   {% for r in recommendations[:5] %}
-    {% set t = (r.title if (r is mapping and r.title is defined) else (r.name if (r is mapping and r.name is defined) else 'Recommendation')) %}
-    {% set d = (r.description if (r is mapping and r.description is defined) else (r.detail if (r is mapping and r.detail is defined) else (r if not (r is mapping) else ''))) %}
-    {% set _ = ns.lines.append('• *' ~ (t|trim) ~ '*: ' ~ (d|trim)) %}
+    {% if r is mapping and (r.title is defined or r.description is defined or r.name is defined or r.detail is defined) %}
+      {% set t = (r.title if r.title is defined else (r.name if r.name is defined else '')) %}
+      {% set d = (r.description if r.description is defined else (r.detail if r.detail is defined else '')) %}
+      {% if t or d %}
+        {% set line = '• ' %}
+        {% if t %}{% set line = line ~ '*' ~ (t|trim) ~ '*' %}{% endif %}
+        {% if t and d %}{% set line = line ~ ': ' %}{% endif %}
+        {% if d %}{% set line = line ~ (d|trim) %}{% endif %}
+        {% set _ = ns.lines.append(line) %}
+      {% endif %}
+    {% elif r is string and r|trim %}
+      {% set _ = ns.lines.append('• ' ~ (r|trim)) %}
+    {% endif %}
   {% endfor %}
 {% endif %}
 {% set recs_md = ns.lines | join('\n') %}

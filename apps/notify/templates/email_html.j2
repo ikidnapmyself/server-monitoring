@@ -1,25 +1,50 @@
+{%- set colors = {'critical': '#dc3545', 'warning': '#ffc107', 'info': '#17a2b8', 'success': '#28a745'} -%}
+{%- set color = colors.get(severity, '#6c757d') -%}
 <html>
-  <body style="font-family: Arial, sans-serif;">
-    <div style="border-left: 4px solid #ddd; padding-left: 12px; margin-bottom: 12px;">
-      <h2>{{ title }}</h2>
-      <small style="background-color:#eee;padding:2px 6px;border-radius:3px">{{ severity|upper }}</small>
-    </div>
-    {% if intelligence.summary %}
-    <h3>Summary</h3>
-    <p>{{ intelligence.summary }}</p>
-    {% endif %}
-    {% if recommendations %}
-    <h3>Recommendations</h3>
+<body style="font-family: Arial, sans-serif; margin: 0; padding: 20px;">
+  <div style="border-left: 4px solid {{ color }}; padding-left: 15px;">
+    <h2 style="margin: 0 0 10px 0; color: {{ color }};">{{ title }}</h2>
+    <span style="background-color: {{ color }}; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">
+      {{ severity | upper }}
+    </span>
+  </div>
+  <p style="margin-top: 20px; line-height: 1.6;">{{ message }}</p>
+  {% if intelligence and intelligence.summary %}
+  <h3>Summary</h3>
+  <p>{{ intelligence.summary }}</p>
+  {% endif %}
+  {% if recommendations %}
+  <div style="margin-top: 20px;">
+    <strong>Recommendations:</strong>
     <ul>
     {% for r in recommendations[:20] %}
-      <li><strong>{{ r.title }}</strong>: {{ r.description }}</li>
+      <li><strong>{{ r.title | default('Recommendation') }}</strong>: {{ r.description | default('') }}</li>
     {% endfor %}
     </ul>
-    {% endif %}
-    <hr>
-    <h4>Ingest Summary</h4>
-    <pre>{{ ingest }}</pre>
-    <h4>Check Summary</h4>
-    <pre>{{ check }}</pre>
-  </body>
+  </div>
+  {% endif %}
+  {% if tags %}
+  <div style="margin-top: 20px;"><strong>Tags:</strong><ul>
+  {% for key, value in tags.items() %}
+    <li><code>{{ key }}</code>: {{ value }}</li>
+  {% endfor %}
+  </ul></div>
+  {% endif %}
+  {% if context %}
+  <div style="margin-top: 20px;"><strong>Context:</strong><ul>
+  {% for key, value in context.items() %}
+    <li><code>{{ key }}</code>: {{ value }}</li>
+  {% endfor %}
+  </ul></div>
+  {% endif %}
+  {% if incident.ingest %}
+  <hr>
+  <h4>Ingest Summary</h4>
+  <pre>{{ incident.ingest }}</pre>
+  {% endif %}
+  {% if incident.check %}
+  <h4>Check Summary</h4>
+  <pre>{{ incident.check }}</pre>
+  {% endif %}
+</body>
 </html>

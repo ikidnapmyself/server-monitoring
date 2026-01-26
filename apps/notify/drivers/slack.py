@@ -38,10 +38,10 @@ class SlackNotifyDriver(BaseNotifyDriver):
 
         try:
             rendered = self._render_message_templates(message, config)
-            rendered_text = rendered.get("text") or ""
+            rendered_text = rendered.get("text")
 
             if not rendered_text:
-                rendered_text = message.message or ""
+                raise ValueError("Slack template required but not rendered")
 
             payload_obj = None
             payload_raw = None

@@ -1,11 +1,15 @@
+{%- set has_recs = recommendations and recommendations[0] is mapping and recommendations[0].title is defined -%}
 {
-  "title": "{{ title }}",
-  "summary": "{{ intelligence.summary | default('') | replace('\n','\\n') }}",
+  "title": {{ title | tojson }},
+  "message": {{ message | tojson }},
   "severity": "{{ severity }}",
-  "incident_id": "{{ incident_id }}",
+  "channel": {{ channel | tojson }},
+  "tags": {{ tags | tojson }},
+  "context": {{ context | tojson }},
+  "incident_id": {{ incident_id | tojson }}{% if intelligence and intelligence.summary %},
+  "summary": {{ intelligence.summary | tojson }}{% endif %}{% if has_recs %},
   "recommendations": [
-    {% for r in recommendations %}
-    {"title": "{{ r.title | default('') }}", "description": "{{ r.description | default('') | replace('\n','\\n') }}"}{% if not loop.last %},{% endif %}
-    {% endfor %}
-  ]
+    {% for r in recommendations %}{"title": {{ (r.title | default('')) | tojson }}, "description": {{ (r.description | default('')) | tojson }}}{% if not loop.last %},
+    {% endif %}{% endfor %}
+  ]{% endif %}
 }

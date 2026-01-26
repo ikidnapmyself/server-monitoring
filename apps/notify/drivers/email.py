@@ -39,11 +39,14 @@ class EmailNotifyDriver(BaseNotifyDriver):
 
         prepared = self._prepare_notification(message, config)
 
-        text_body = prepared.get("text") or self._build_text_body(message)
+        text_body = prepared.get("text")
+        if not text_body:
+            raise ValueError("Email text template required but not rendered")
         email.attach(MIMEText(text_body, "plain"))
 
-        html_body = prepared.get("html") or self._build_html_body(message)
-        email.attach(MIMEText(html_body, "html"))
+        html_body = prepared.get("html")
+        if html_body:
+            email.attach(MIMEText(html_body, "html"))
 
         try:
             incident_json = json.dumps(
@@ -55,61 +58,6 @@ class EmailNotifyDriver(BaseNotifyDriver):
             pass
 
         return email
-
-    def _build_text_body(self, message: NotificationMessage) -> str:
-        lines = [
-            f"Alert: {message.title}",
-            f"Severity: {message.severity.upper()}",
-            "",
-            message.message,
-            "",
-        ]
-
-        if message.tags:
-            lines.append("Tags:")
-            for key, value in message.tags.items():
-                lines.append(f"  {key}: {value}")
-            lines.append("")
-
-        if message.context:
-            lines.append("Context:")
-            for key, value in message.context.items():
-                lines.append(f"  {key}: {value}")
-
-        return "\n".join(lines)
-
-    def _build_html_body(self, message: NotificationMessage) -> str:
-        color = self.SEVERITY_COLORS.get(message.severity, "#6c757d")
-
-        html = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px;">
-            <div style="border-left: 4px solid {color}; padding-left: 15px;">
-                <h2 style="margin: 0 0 10px 0; color: {color};">{message.title}</h2>
-                <span style="background-color: {color}; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">
-                    {message.severity.upper()}
-                </span>
-            </div>
-            <p style="margin-top: 20px; line-height: 1.6;">{message.message}</p>
-        """
-
-        if message.tags:
-            html += '<div style="margin-top: 20px;"><strong>Tags:</strong><ul>'
-            for key, value in message.tags.items():
-                html += f"<li><code>{key}</code>: {value}</li>"
-            html += "</ul></div>"
-
-        if message.context:
-            html += '<div style="margin-top: 20px;"><strong>Context:</strong><ul>'
-            for key, value in message.context.items():
-                html += f"<li><code>{key}</code>: {value}</li>"
-            html += "</ul></div>"
-
-        html += """
-        </body>
-        </html>
-        """
-        return html
 
     def send(self, message: NotificationMessage, config: dict[str, Any]) -> dict[str, Any]:
         if not self.validate_config(config):

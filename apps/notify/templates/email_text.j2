@@ -1,17 +1,40 @@
 Alert: {{ title }}
 Severity: {{ severity | upper }}
 
-{% if intelligence.summary %}Summary:
+{{ message }}
+
+{% if intelligence and intelligence.summary %}
+Summary:
 {{ intelligence.summary }}
 
 {% endif %}
+{% if recommendations %}
 Recommendations:
-{% for r in recommendations[:10] %}- {{ r.title }}: {{ r.description }}
+{% for r in recommendations[:10] %}
+- {{ r.title | default('Recommendation') }}: {{ r.description | default('') }}
 {% endfor %}
 
+{% endif %}
+{% if tags %}
+Tags:
+{% for key, value in tags.items() %}
+  {{ key }}: {{ value }}
+{% endfor %}
 
+{% endif %}
+{% if context %}
+Context:
+{% for key, value in context.items() %}
+  {{ key }}: {{ value }}
+{% endfor %}
+
+{% endif %}
+{% if incident.ingest %}
 Ingest Summary:
-{{ ingest or 'N/A' }}
+{{ incident.ingest }}
 
+{% endif %}
+{% if incident.check %}
 Check Summary:
-{{ check or 'N/A' }}
+{{ incident.check }}
+{% endif %}
