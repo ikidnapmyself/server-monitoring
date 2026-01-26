@@ -1,0 +1,1 @@
+"""Checker implementation tests."""
