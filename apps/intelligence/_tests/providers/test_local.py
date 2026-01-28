@@ -1,16 +1,15 @@
-"""
-Tests for the intelligence app.
-"""
+"""Tests for the LocalRecommendationProvider."""
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from apps.intelligence.providers import (
     LocalRecommendationProvider,
     Recommendation,
     RecommendationPriority,
     RecommendationType,
-    get_provider,
-    list_providers,
 )
 
 
@@ -19,30 +18,31 @@ class TestProviderRegistry:
 
     def test_list_providers(self):
         """Test listing available providers."""
+        from apps.intelligence.providers import list_providers
+
         providers = list_providers()
         assert "local" in providers
 
     def test_get_provider(self):
         """Test getting a provider by name."""
+        from apps.intelligence.providers import get_provider
+
         provider = get_provider("local")
         assert isinstance(provider, LocalRecommendationProvider)
 
     def test_get_provider_with_config(self):
         """Test getting a provider with custom configuration."""
+        from apps.intelligence.providers import get_provider
+
         provider = get_provider("local", top_n_processes=5)
         assert provider.top_n_processes == 5
 
-    def test_get_unknown_provider(self):
+    def test_get_unknown_provider_raises(self):
         """Test that getting an unknown provider raises KeyError."""
+        from apps.intelligence.providers import get_provider
 
-        def test_get_unknown_provider(self):
-            """Test that getting an unknown provider raises KeyError."""
-
-            try:
-                get_provider("unknown_provider")
-                assert False, "Expected KeyError was not raised"
-            except KeyError:
-                pass
+        with pytest.raises(KeyError):
+            get_provider("unknown_provider")
 
 
 class TestRecommendation:
@@ -97,7 +97,6 @@ class TestLocalRecommendationProvider:
     @patch("apps.intelligence.providers.local.psutil")
     def test_get_top_memory_processes(self, mock_psutil):
         """Test getting top memory-consuming processes."""
-        # Mock process iterator
         mock_proc1 = MagicMock()
         mock_proc1.info = {
             "pid": 1234,
@@ -122,7 +121,6 @@ class TestLocalRecommendationProvider:
         processes = provider._get_top_memory_processes()
 
         assert len(processes) > 0
-        # The first process should have higher memory
         if len(processes) >= 2:
             assert processes[0].memory_percent >= processes[1].memory_percent
 
@@ -130,7 +128,6 @@ class TestLocalRecommendationProvider:
         """Test detecting memory incident type."""
         provider = LocalRecommendationProvider()
 
-        # Mock incident
         incident = MagicMock()
         incident.title = "High Memory Usage Alert"
         incident.description = "Memory usage exceeded 90%"
@@ -181,8 +178,6 @@ class TestLocalRecommendationProvider:
 
     def test_classify_file_log(self):
         """Test classifying log files."""
-        from pathlib import Path
-
         provider = LocalRecommendationProvider()
 
         assert provider._classify_file(Path("/var/log/syslog.log")) == "log"
@@ -191,8 +186,6 @@ class TestLocalRecommendationProvider:
 
     def test_classify_file_cache(self):
         """Test classifying cache files."""
-        from pathlib import Path
-
         provider = LocalRecommendationProvider()
 
         assert provider._classify_file(Path("~/.cache/something")) == "cache"
@@ -200,11 +193,8 @@ class TestLocalRecommendationProvider:
 
     def test_classify_file_temp(self):
         """Test classifying temp files."""
-        from pathlib import Path
-
         provider = LocalRecommendationProvider()
 
-        # Files in /tmp are classified as cache (due to 'tmp' in path)
         assert provider._classify_file(Path("/tmp/something.tmp")) == "cache"
         assert provider._classify_file(Path("/tmp/tmpfile")) == "cache"
 
@@ -232,6 +222,7 @@ class TestLocalRecommendationProvider:
             assert len(recommendations) >= 1
 
 
+@pytest.mark.django_db
 class TestIntegration:
     """Integration tests requiring database access."""
 
@@ -239,7 +230,6 @@ class TestIntegration:
         """Test analyzing a real incident."""
         from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
 
-        # Create a test incident
         incident = Incident.objects.create(
             title="Memory Alert: High RAM Usage",
             description="Memory usage has exceeded 85% threshold",
@@ -250,7 +240,5 @@ class TestIntegration:
         provider = LocalRecommendationProvider()
         recommendations = provider.analyze(incident)
 
-        # Should return memory-related recommendations
         assert isinstance(recommendations, list)
-        # Clean up
         incident.delete()
