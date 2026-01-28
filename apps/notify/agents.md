@@ -37,15 +37,35 @@ For `apps.notify`, admin should make it easy to:
 
 ## App layout rules (required)
 
-- Endpoints must live under `apps/notify/views/` (endpoint/module-based).
-  - Example: `views/send.py`, `views/drivers.py`, `views/batch.py`
-- Tests must live under `apps/notify/tests/` and mirror the module tree.
-  - Example: `drivers/slack.py` → `tests/drivers/test_slack.py`
-  - Example: `views/send.py` → `tests/views/test_send.py`
+- Endpoints must live under `apps/notify/views/` as modules (one endpoint/module per file).
+  - Examples: `views/send.py`, `views/drivers.py`, `views/batch.py`
+  - Prefer small modules (one view function or class per file) to simplify imports and testing.
+- Tests must live under `apps/notify/_tests/` and mirror the module tree in `views/` and `drivers/`.
+  - Examples:
+    - `apps/notify/drivers/slack.py` → `apps/notify/_tests/drivers/test_slack.py`
+    - `apps/notify/views/send.py` → `apps/notify/_tests/views/test_send.py`
+  - Test files should be discoverable by pytest (use `test_*.py` or `*_tests.py` naming — current `pyproject.toml` supports these).
+- Fixtures, shared helpers, and package-level test utilities belong in `apps/notify/_tests/conftest.py` or `apps/notify/_tests/_helpers/`.
 
 ## Doc vs code status
 
-Some code still uses `views.py` / `tests.py`. This doc defines the **target layout** going forward.
+Some code in the repo still uses monolithic `views.py` or `tests.py` files. This document declares the **target layout**:
+
+- Move endpoint implementations into `apps/notify/views/<endpoint>.py` modules.
+- Move tests into `apps/notify/_tests/` mirroring the same structure so each module has a corresponding test file.
+
+Migration guidance:
+- Split large `views.py` into multiple modules, keeping public import shims if necessary (for backwards compatibility) during transition.
+- Move tests under `_tests/` and rename them to `test_<module>.py` (or `<module>_tests.py`) to match pytest discovery rules.
+- Update any imports in other parts of the codebase to point to the new module paths; prefer short-lived import shims (e.g. keep `views.py` that re-exports from `views.send` with a TODO comment) during the transition.
+
+Quick example of mirrored layout:
+
+- apps/notify/views/send.py
+- apps/notify/views/drivers.py
+- apps/notify/drivers/slack.py
+- apps/notify/_tests/views/test_send.py
+- apps/notify/_tests/drivers/test_slack.py
 
 ## Templates and presentation (added)
 
