@@ -20,6 +20,14 @@ PROVIDERS: dict[str, type[BaseProvider]] = {
     "local": LocalRecommendationProvider,
 }
 
+# Conditionally register OpenAI provider if the package is available
+try:
+    from apps.intelligence.providers.openai import OpenAIRecommendationProvider
+
+    PROVIDERS["openai"] = OpenAIRecommendationProvider
+except ImportError:
+    OpenAIRecommendationProvider = None  # type: ignore[misc, assignment]
+
 
 def get_provider(name: str, **kwargs) -> BaseProvider:
     """
@@ -51,6 +59,7 @@ __all__ = [
     "RecommendationPriority",
     "RecommendationType",
     "LocalRecommendationProvider",
+    "OpenAIRecommendationProvider",
     "get_local_recommendations",
     "get_provider",
     "list_providers",
