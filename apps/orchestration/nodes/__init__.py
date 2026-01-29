@@ -11,9 +11,9 @@ from apps.orchestration.nodes.base import (
     NodeResult,
     NodeType,
 )
+from apps.orchestration.nodes.context import ContextNodeHandler
 from apps.orchestration.nodes.intelligence import IntelligenceNodeHandler
 from apps.orchestration.nodes.notify import NotifyNodeHandler
-from apps.orchestration.nodes.context import ContextNodeHandler
 
 # Registry of node handlers by type
 _NODE_HANDLERS: dict[str, type[BaseNodeHandler]] = {}

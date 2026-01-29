@@ -1,4 +1,5 @@
 """Context node handler (gathers context information)."""
+
 from typing import Any, Dict
 
 from apps.orchestration.nodes.base import BaseNodeHandler, NodeContext, NodeResult, NodeType

@@ -1,4 +1,5 @@
 """Intelligence node handler for AI analysis (simple/local implementation)."""
+
 import time
 from typing import Any, Dict
 

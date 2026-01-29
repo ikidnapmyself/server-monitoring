@@ -1,4 +1,5 @@
 """Notify node handler (simple stub for tests)."""
+
 from typing import Any, Dict
 
 from apps.orchestration.nodes.base import BaseNodeHandler, NodeContext, NodeResult, NodeType
