@@ -407,3 +407,102 @@ class StageExecution(models.Model):
         if reason:
             self.error_message = f"Skipped: {reason}"
         self.save(update_fields=["status", "completed_at", "error_message"])
+
+
+class PipelineDefinition(models.Model):
+    """
+    Reusable pipeline definition.
+
+    Stores the configuration for a pipeline as a JSON schema,
+    allowing dynamic pipeline construction and execution.
+
+    Example config:
+    {
+        "version": "1.0",
+        "description": "Analyze and notify",
+        "defaults": {
+            "max_retries": 3,
+            "timeout_seconds": 300
+        },
+        "nodes": [
+            {
+                "id": "analyze_openai",
+                "type": "intelligence",
+                "config": {"provider": "openai"},
+                "next": "analyze_claude"
+            },
+            {
+                "id": "analyze_claude",
+                "type": "intelligence",
+                "config": {"provider": "claude"},
+                "next": "notify_slack"
+            },
+            {
+                "id": "notify_slack",
+                "type": "notify",
+                "config": {"driver": "slack"}
+            }
+        ]
+    }
+    """
+
+    name = models.CharField(
+        max_length=255,
+        unique=True,
+        db_index=True,
+        help_text="Unique identifier for this pipeline definition.",
+    )
+    description = models.TextField(
+        blank=True,
+        default="",
+        help_text="Human-readable description of what this pipeline does.",
+    )
+    version = models.PositiveIntegerField(
+        default=1,
+        help_text="Version number, incremented on each update.",
+    )
+    config = models.JSONField(
+        default=dict,
+        help_text="Pipeline configuration schema (nodes, connections, defaults).",
+    )
+    tags = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Arbitrary tags for filtering/categorization.",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        db_index=True,
+        help_text="Whether this pipeline can be executed.",
+    )
+    created_by = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="User or system that created this definition.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+        indexes = [
+            models.Index(fields=["name", "is_active"]),
+            models.Index(fields=["is_active", "-updated_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.name} (v{self.version})"
+
+    def get_nodes(self) -> list[dict]:
+        """Return the list of nodes from config."""
+        return self.config.get("nodes", [])
+
+    def get_defaults(self) -> dict:
+        """Return default settings from config."""
+        return self.config.get("defaults", {})
+
+    def get_entry_node(self) -> dict | None:
+        """Return the first node (entry point) of the pipeline."""
+        nodes = self.get_nodes()
+        return nodes[0] if nodes else None
