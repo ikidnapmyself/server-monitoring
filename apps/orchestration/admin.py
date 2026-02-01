@@ -2,7 +2,7 @@
 
 from django.contrib import admin
 
-from apps.orchestration.models import PipelineRun, StageExecution
+from apps.orchestration.models import PipelineDefinition, PipelineRun, StageExecution
 
 
 class StageExecutionInline(admin.TabularInline):
@@ -159,3 +159,68 @@ class StageExecutionAdmin(admin.ModelAdmin):
             {"fields": ["started_at", "completed_at", "duration_ms"]},
         ),
     ]
+
+
+@admin.register(PipelineDefinition)
+class PipelineDefinitionAdmin(admin.ModelAdmin):
+    """Admin for PipelineDefinition model."""
+
+    list_display = [
+        "name",
+        "version",
+        "is_active",
+        "node_count",
+        "tags_display",
+        "created_by",
+        "updated_at",
+    ]
+    list_filter = ["is_active", "created_at"]
+    search_fields = ["name", "description", "created_by"]
+    readonly_fields = ["version", "created_at", "updated_at"]
+    ordering = ["-updated_at"]
+
+    fieldsets = [
+        (
+            "Identification",
+            {
+                "fields": ["name", "description", "is_active", "created_by"],
+            },
+        ),
+        (
+            "Configuration",
+            {
+                "fields": ["config"],
+                "description": "Pipeline configuration in JSON format. See documentation for schema.",
+            },
+        ),
+        (
+            "Metadata",
+            {
+                "fields": ["tags", "version", "created_at", "updated_at"],
+            },
+        ),
+    ]
+
+    @admin.display(description="Nodes")
+    def node_count(self, obj):
+        """Display the number of nodes in the pipeline."""
+        nodes = obj.get_nodes()
+        return len(nodes)
+
+    @admin.display(description="Tags")
+    def tags_display(self, obj):
+        """Display tags in a readable format."""
+        if not obj.tags:
+            return "-"
+        tags = obj.tags
+        if isinstance(tags, dict):
+            return ", ".join(f"{k}={v}" for k, v in tags.items())
+        return str(tags)
+
+    def save_model(self, request, obj, form, change):
+        """Increment version on save if config changed."""
+        if change and "config" in form.changed_data:
+            obj.version += 1
+        if not obj.created_by:
+            obj.created_by = request.user.username
+        super().save_model(request, obj, form, change)

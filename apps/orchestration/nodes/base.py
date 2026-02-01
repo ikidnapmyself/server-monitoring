@@ -9,11 +9,12 @@ from typing import Any, Dict, List
 class NodeType(Enum):
     """Types of nodes in a pipeline."""
 
-    CONTEXT = "context"
-    INTELLIGENCE = "intelligence"
-    NOTIFY = "notify"
-    TRANSFORM = "transform"
-    CONDITION = "condition"
+    INGEST = "ingest"  # Alert ingestion (creates Incident/Alert)
+    CONTEXT = "context"  # Gather system context (CPU, memory, disk)
+    INTELLIGENCE = "intelligence"  # AI analysis providers
+    NOTIFY = "notify"  # Notification drivers
+    TRANSFORM = "transform"  # Data transformation
+    CONDITION = "condition"  # Conditional branching
 
 
 @dataclass

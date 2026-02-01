@@ -13,7 +13,8 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
-from apps.orchestration.models import PipelineRun, PipelineStatus
+from apps.orchestration.definition_orchestrator import DefinitionBasedOrchestrator
+from apps.orchestration.models import PipelineDefinition, PipelineRun, PipelineStatus
 from apps.orchestration.orchestrator import PipelineOrchestrator
 from apps.orchestration.tasks import start_pipeline_task
 
@@ -234,3 +235,150 @@ class PipelineResumeView(JSONResponseMixin, View):
         )
 
         return self.json_response(result.to_dict())
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class PipelineDefinitionListView(JSONResponseMixin, View):
+    """
+    API endpoint for listing pipeline definitions.
+
+    GET /orchestration/definitions/
+        List all active pipeline definitions.
+
+    Query params:
+        include_inactive: Include inactive definitions (default: false)
+    """
+
+    def get(self, request):
+        """List pipeline definitions."""
+        include_inactive = request.GET.get("include_inactive", "").lower() == "true"
+
+        queryset = PipelineDefinition.objects.all()
+        if not include_inactive:
+            queryset = queryset.filter(is_active=True)
+
+        queryset = queryset.order_by("-updated_at")
+
+        definitions = [
+            {
+                "name": d.name,
+                "description": d.description,
+                "version": d.version,
+                "is_active": d.is_active,
+                "tags": d.tags,
+                "node_count": len(d.get_nodes()),
+                "created_by": d.created_by,
+                "updated_at": d.updated_at.isoformat(),
+            }
+            for d in queryset
+        ]
+
+        return self.json_response({"count": len(definitions), "definitions": definitions})
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class PipelineDefinitionDetailView(JSONResponseMixin, View):
+    """
+    API endpoint for getting pipeline definition details.
+
+    GET /orchestration/definitions/<name>/
+        Get full details of a pipeline definition.
+    """
+
+    def get(self, request, name: str):
+        """Get pipeline definition details."""
+        try:
+            definition = PipelineDefinition.objects.get(name=name)
+        except PipelineDefinition.DoesNotExist:
+            return self.error_response(f"Pipeline definition not found: {name}", status=404)
+
+        return self.json_response(
+            {
+                "name": definition.name,
+                "description": definition.description,
+                "version": definition.version,
+                "is_active": definition.is_active,
+                "config": definition.config,
+                "tags": definition.tags,
+                "created_by": definition.created_by,
+                "created_at": definition.created_at.isoformat(),
+                "updated_at": definition.updated_at.isoformat(),
+            }
+        )
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class PipelineDefinitionValidateView(JSONResponseMixin, View):
+    """
+    API endpoint for validating a pipeline definition.
+
+    POST /orchestration/definitions/<name>/validate/
+        Validate a pipeline definition configuration.
+    """
+
+    def post(self, request, name: str):
+        """Validate a pipeline definition."""
+        try:
+            definition = PipelineDefinition.objects.get(name=name)
+        except PipelineDefinition.DoesNotExist:
+            return self.error_response(f"Pipeline definition not found: {name}", status=404)
+
+        orchestrator = DefinitionBasedOrchestrator(definition)
+        errors = orchestrator.validate()
+
+        return self.json_response(
+            {
+                "name": definition.name,
+                "version": definition.version,
+                "valid": len(errors) == 0,
+                "errors": errors,
+            }
+        )
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class PipelineDefinitionExecuteView(JSONResponseMixin, View):
+    """
+    API endpoint for executing a pipeline definition.
+
+    POST /orchestration/definitions/<name>/execute/
+        Execute a pipeline definition with provided payload.
+
+    Request body:
+    {
+        "payload": {...},  // Input data for the pipeline
+        "source": "api",  // Optional: source identifier
+        "trace_id": "...",  // Optional: correlation ID
+        "environment": "production"  // Optional: environment
+    }
+    """
+
+    def post(self, request, name: str):
+        """Execute a pipeline definition."""
+        try:
+            definition = PipelineDefinition.objects.get(name=name, is_active=True)
+        except PipelineDefinition.DoesNotExist:
+            return self.error_response(f"Active pipeline definition not found: {name}", status=404)
+
+        try:
+            body = json.loads(request.body) if request.body else {}
+        except json.JSONDecodeError:
+            return self.error_response("Invalid JSON body", status=400)
+
+        payload = body.get("payload", {})
+        source = body.get("source", "api")
+        trace_id = body.get("trace_id")
+        environment = body.get("environment", "production")
+        incident_id = body.get("incident_id")
+
+        orchestrator = DefinitionBasedOrchestrator(definition)
+        result = orchestrator.execute(
+            payload=payload,
+            source=source,
+            trace_id=trace_id,
+            environment=environment,
+            incident_id=incident_id,
+        )
+
+        status_code = 200 if result["status"] == "completed" else 500
+        return self.json_response(result, status=status_code)

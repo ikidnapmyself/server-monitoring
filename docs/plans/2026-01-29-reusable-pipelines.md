@@ -469,6 +469,7 @@ from typing import Any
 class NodeType(Enum):
     """Types of nodes in a pipeline."""
 
+    INGEST = "ingest"  # Alert ingestion (creates Incident/Alert)
     CONTEXT = "context"  # Gather system context (CPU, memory, disk)
     INTELLIGENCE = "intelligence"  # AI analysis providers
     NOTIFY = "notify"  # Notification drivers
@@ -1398,7 +1399,7 @@ class IngestNodeHandler(BaseNodeHandler):
     This is the entry point for alert-triggered pipelines.
     """
 
-    node_type = NodeType.CONTEXT  # Reusing CONTEXT as it's an input node
+    node_type = NodeType.INGEST
     name = "ingest"
 
     def execute(self, ctx: NodeContext, config: dict[str, Any]) -> NodeResult:
@@ -1825,6 +1826,17 @@ class DefinitionBasedOrchestrator:
                     # Update context with this node's output
                     node_ctx.previous_outputs[node_id] = result.output
 
+                    # IMPORTANT: If ingest node created an incident, propagate incident_id
+                    # to subsequent nodes so they have context
+                    if node_type == "ingest" and result.output.get("incident_id"):
+                        node_ctx.incident_id = result.output["incident_id"]
+                        pipeline_run.incident_id = result.output["incident_id"]
+                        pipeline_run.save(update_fields=["incident_id", "updated_at"])
+                        logger.info(
+                            f"Ingest node created incident_id={node_ctx.incident_id}",
+                            extra={"trace_id": trace_id, "incident_id": node_ctx.incident_id},
+                        )
+
                     # Check for errors
                     if result.has_errors:
                         required = node_config.get("required", True)
@@ -1880,6 +1892,7 @@ class DefinitionBasedOrchestrator:
             "definition": self.definition.name,
             "definition_version": self.definition.version,
             "status": final_status,
+            "incident_id": node_ctx.incident_id,  # May be set by ingest node
             "executed_nodes": executed_nodes,
             "skipped_nodes": skipped_nodes,
             "node_results": node_results,
@@ -3075,21 +3088,38 @@ uv run pytest apps/orchestration/_tests/test_definition_orchestrator.py -v
 
 ## Example Pipeline Configurations
 
-### Simple Analysis + Notify
+### Alert-Triggered: Ingest → Analyze → Notify
 ```json
 {
   "version": "1.0",
+  "description": "Standard alert pipeline - receives webhook, analyzes, notifies",
   "nodes": [
+    {"id": "ingest", "type": "ingest", "config": {"driver": "alertmanager"}, "next": "analyze"},
+    {"id": "analyze", "type": "intelligence", "config": {"provider": "openai"}, "next": "notify"},
+    {"id": "notify", "type": "notify", "config": {"driver": "slack", "channel": "#incidents"}}
+  ]
+}
+```
+**Trigger:** `POST /orchestration/pipeline/?definition=alert-pipeline`
+
+### Alert-Triggered: Ingest → Local Analysis → PagerDuty
+```json
+{
+  "version": "1.0",
+  "description": "Critical alerts with local analysis and PagerDuty",
+  "nodes": [
+    {"id": "ingest", "type": "ingest", "next": "analyze"},
     {"id": "analyze", "type": "intelligence", "config": {"provider": "local"}, "next": "notify"},
-    {"id": "notify", "type": "notify", "config": {"driver": "slack"}}
+    {"id": "notify", "type": "notify", "config": {"driver": "pagerduty"}}
   ]
 }
 ```
 
-### Context → OpenAI → Slack
+### Standalone: Context → OpenAI → Slack (Health Check)
 ```json
 {
   "version": "1.0",
+  "description": "Scheduled health check - gathers system metrics, analyzes, alerts",
   "nodes": [
     {"id": "context", "type": "context", "config": {"include": ["cpu", "memory", "disk"]}, "next": "analyze"},
     {"id": "analyze", "type": "intelligence", "config": {"provider": "openai"}, "next": "notify"},
@@ -3097,15 +3127,30 @@ uv run pytest apps/orchestration/_tests/test_definition_orchestrator.py -v
   ]
 }
 ```
+**Trigger:** `POST /orchestration/definitions/health-check/execute/`
 
-### Multi-AI Chain (OpenAI → Transform → Notify)
+### Standalone: Context → Transform → Notify (Simple Metrics Alert)
 ```json
 {
   "version": "1.0",
+  "description": "Simple metrics pipeline without AI",
   "nodes": [
-    {"id": "context", "type": "context", "config": {"include": ["cpu", "memory"]}, "next": "openai"},
+    {"id": "context", "type": "context", "config": {"include": ["cpu", "memory"]}, "next": "transform"},
+    {"id": "transform", "type": "transform", "config": {"source_node": "context", "mapping": {"cpu": "system.cpu.percent", "mem": "system.memory.percent"}}, "next": "notify"},
+    {"id": "notify", "type": "notify", "config": {"driver": "slack"}}
+  ]
+}
+```
+
+### Multi-AI Chain: Context → OpenAI → Transform → Notify
+```json
+{
+  "version": "1.0",
+  "description": "Gather metrics, analyze with OpenAI, filter results, notify",
+  "nodes": [
+    {"id": "context", "type": "context", "config": {"include": ["cpu", "memory", "processes"]}, "next": "openai"},
     {"id": "openai", "type": "intelligence", "config": {"provider": "openai"}, "next": "transform"},
-    {"id": "transform", "type": "transform", "config": {"source_node": "openai", "extract": "recommendations"}, "next": "notify"},
+    {"id": "transform", "type": "transform", "config": {"source_node": "openai", "extract": "recommendations", "filter_priority": "high"}, "next": "notify"},
     {"id": "notify", "type": "notify", "config": {"driver": "slack"}}
   ]
 }
@@ -3115,10 +3160,10 @@ uv run pytest apps/orchestration/_tests/test_definition_orchestrator.py -v
 
 ## Risk Assessment
 
-- **Low risk:** Creating new models and node handlers (Tasks 1-6) - additive changes
-- **Medium risk:** Creating orchestrator (Task 7) - new execution path, well isolated
-- **Low risk:** Admin and API (Tasks 8-9) - standard Django patterns
-- **Low risk:** Integration tests (Task 11) - verification only
+- **Low risk:** Creating new models and node handlers (Tasks 1-7) - additive changes
+- **Medium risk:** Creating orchestrator (Task 8) - new execution path, well isolated
+- **Low risk:** Admin and API (Tasks 9-10) - standard Django patterns
+- **Low risk:** Transform and integration tests (Tasks 11-12) - verification only
 
 ## Future Enhancements (Not in this plan)
 
@@ -3128,3 +3173,4 @@ uv run pytest apps/orchestration/_tests/test_definition_orchestrator.py -v
 4. **Visual pipeline editor** - React-based UI for drag-and-drop pipeline design
 5. **Pipeline versioning** - Full version history with rollback
 6. **Scheduled pipelines** - Cron-like execution triggers
+7. **Check node** - Wrap existing CheckExecutor for diagnostic checks

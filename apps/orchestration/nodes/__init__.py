@@ -12,8 +12,10 @@ from apps.orchestration.nodes.base import (
     NodeType,
 )
 from apps.orchestration.nodes.context import ContextNodeHandler
+from apps.orchestration.nodes.ingest import IngestNodeHandler
 from apps.orchestration.nodes.intelligence import IntelligenceNodeHandler
 from apps.orchestration.nodes.notify import NotifyNodeHandler
+from apps.orchestration.nodes.transform import TransformNodeHandler
 
 # Registry of node handlers by type
 _NODE_HANDLERS: dict[str, type[BaseNodeHandler]] = {}
@@ -48,9 +50,11 @@ def list_node_types() -> list[str]:
 
 
 # Register built-in handlers
+register_node_handler("ingest", IngestNodeHandler)
 register_node_handler("intelligence", IntelligenceNodeHandler)
 register_node_handler("notify", NotifyNodeHandler)
 register_node_handler("context", ContextNodeHandler)
+register_node_handler("transform", TransformNodeHandler)
 
 
 __all__ = [
