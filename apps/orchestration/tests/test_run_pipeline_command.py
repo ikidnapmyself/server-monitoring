@@ -69,6 +69,33 @@ class RunPipelineCommandTest(TestCase):
         self.assertIn("Pipeline Configuration:", output)
         self.assertIn("Pipeline Stages:", output)
 
+    def test_run_pipeline_definition_dry_run(self):
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.create(
+            name="test-pipeline",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {
+                        "id": "ctx",
+                        "type": "context",
+                        "config": {"include": ["cpu"]},
+                        "next": "notify",
+                    },
+                    {"id": "notify", "type": "notify", "config": {"driver": "slack"}},
+                ],
+            },
+        )
+
+        out = io.StringIO()
+        call_command("run_pipeline", "--definition", "test-pipeline", "--dry-run", stdout=out)
+        output = out.getvalue()
+        self.assertIn("=== DRY RUN ===", output)
+        self.assertIn("Pipeline Definition: test-pipeline", output)
+        self.assertIn("[context] ctx", output)
+        self.assertIn("[notify] notify", output)
+
     def test_run_pipeline_invalid_json(self):
         out = io.StringIO()
         with self.assertRaises(CommandError):
