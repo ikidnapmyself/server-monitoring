@@ -442,3 +442,99 @@ class Command(BaseCommand):
             except Exception:
                 # Fallback: print string representation
                 self.stdout.write(self.style.ERROR(str(final_error)))
+
+    def _display_definition_result(
+        self,
+        result: dict,
+        definition: "PipelineDefinition",
+        config_path: str | None = None,
+    ):
+        """Display definition-based pipeline result in human-readable format."""
+        self.stdout.write("")
+        self.stdout.write("=" * 60)
+        self.stdout.write(self.style.HTTP_INFO("PIPELINE RESULT"))
+        self.stdout.write("=" * 60)
+        self.stdout.write("")
+
+        # Overall status
+        status = result.get("status", "unknown")
+        if status == "completed":
+            self.stdout.write(self.style.SUCCESS(f"Status: {status}"))
+        else:
+            self.stdout.write(self.style.ERROR(f"Status: {status}"))
+
+        if config_path:
+            self.stdout.write(f"Config: {config_path}")
+        else:
+            self.stdout.write(f"Definition: {result.get('definition', definition.name)}")
+
+        self.stdout.write(f"Trace ID: {result.get('trace_id', 'N/A')}")
+        self.stdout.write(f"Run ID: {result.get('run_id', 'N/A')}")
+        self.stdout.write(f"Duration: {result.get('duration_ms', 0):.2f}ms")
+        self.stdout.write("")
+
+        # Node results
+        node_results = result.get("node_results", {})
+        nodes = definition.get_nodes()
+
+        for node in nodes:
+            node_id = node.get("id")
+            node_type = node.get("type")
+
+            self.stdout.write(f"--- {node_type} ({node_id}) ---")
+
+            if node_id in result.get("skipped_nodes", []):
+                self.stdout.write(self.style.WARNING("  (skipped)"))
+            elif node_id in node_results:
+                node_result = node_results[node_id]
+
+                # Show key info based on node type
+                if node_type == "context":
+                    self.stdout.write(f"  Checks run: {node_result.get('checks_run', 'N/A')}")
+                elif node_type == "intelligence":
+                    summary = node_result.get(
+                        "summary", node_result.get("output", {}).get("summary", "N/A")
+                    )
+                    if isinstance(summary, str) and len(summary) > 100:
+                        summary = summary[:100] + "..."
+                    self.stdout.write(f"  Summary: {summary}")
+                    provider = node_result.get(
+                        "provider", node_result.get("output", {}).get("provider")
+                    )
+                    if provider:
+                        self.stdout.write(f"  Provider: {provider}")
+                elif node_type == "notify":
+                    driver = node.get("config", {}).get("driver", "unknown")
+                    self.stdout.write(f"  Driver: {driver}")
+                    self.stdout.write(
+                        f"  Channels attempted: {node_result.get('channels_attempted', 'N/A')}"
+                    )
+                    self.stdout.write(
+                        f"  Succeeded: {node_result.get('channels_succeeded', 'N/A')}"
+                    )
+                elif node_type == "ingest":
+                    self.stdout.write(f"  Incident ID: {node_result.get('incident_id', 'N/A')}")
+                    self.stdout.write(
+                        f"  Alerts created: {node_result.get('alerts_created', 'N/A')}"
+                    )
+
+                # Show errors if any
+                errors = node_result.get("errors", [])
+                if errors:
+                    self.stdout.write(self.style.ERROR(f"  Errors: {errors}"))
+
+                duration = node_result.get("duration_ms", 0)
+                self.stdout.write(f"  Duration: {duration:.2f}ms")
+            else:
+                self.stdout.write(self.style.WARNING("  (not executed)"))
+
+            self.stdout.write("")
+
+        # Final summary
+        if status == "completed":
+            self.stdout.write(self.style.SUCCESS("✓ Pipeline completed successfully"))
+        else:
+            self.stdout.write(self.style.ERROR(f"✗ Pipeline failed: {status}"))
+            error = result.get("error")
+            if error:
+                self.stdout.write(self.style.ERROR(f"  {error}"))
