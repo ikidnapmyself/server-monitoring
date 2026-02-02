@@ -83,3 +83,23 @@ class RunPipelineCommandTest(TestCase):
         out = io.StringIO()
         with self.assertRaises(CommandError):
             call_command("run_pipeline", stdout=out)
+
+    def test_run_pipeline_definition_not_found(self):
+        out = io.StringIO()
+        with self.assertRaises(CommandError) as ctx:
+            call_command("run_pipeline", "--definition", "nonexistent", stdout=out)
+        self.assertIn("Pipeline definition not found", str(ctx.exception))
+
+    def test_run_pipeline_config_file_not_found(self):
+        out = io.StringIO()
+        with self.assertRaises(CommandError) as ctx:
+            call_command("run_pipeline", "--config", "missing.json", stdout=out)
+        self.assertIn("Config file not found", str(ctx.exception))
+
+    def test_run_pipeline_definition_and_config_mutually_exclusive(self):
+        out = io.StringIO()
+        with self.assertRaises(CommandError) as ctx:
+            call_command(
+                "run_pipeline", "--definition", "test", "--config", "test.json", stdout=out
+            )
+        self.assertIn("Cannot specify both", str(ctx.exception))
