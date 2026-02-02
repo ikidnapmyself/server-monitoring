@@ -97,6 +97,10 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # Validate mutually exclusive definition options
+        if options.get("definition") and options.get("config"):
+            raise CommandError("Cannot specify both --definition and --config")
+
         # Build payload
         payload = self._get_payload(options)
 
