@@ -96,6 +96,42 @@ class RunPipelineCommandTest(TestCase):
         self.assertIn("[context] ctx", output)
         self.assertIn("[notify] notify", output)
 
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.execute")
+    def test_run_pipeline_with_definition(self, mock_execute):
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.create(
+            name="test-exec-pipeline",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {"id": "notify", "type": "notify", "config": {"driver": "slack"}},
+                ],
+            },
+        )
+
+        mock_execute.return_value = {
+            "trace_id": "trace-456",
+            "run_id": "run-456",
+            "definition": "test-exec-pipeline",
+            "definition_version": 1,
+            "status": "completed",
+            "executed_nodes": ["notify"],
+            "skipped_nodes": [],
+            "node_results": {
+                "notify": {"node_id": "notify", "node_type": "notify", "duration_ms": 50}
+            },
+            "duration_ms": 100.0,
+            "error": None,
+        }
+
+        out = io.StringIO()
+        call_command("run_pipeline", "--definition", "test-exec-pipeline", stdout=out)
+        output = out.getvalue()
+        self.assertIn("PIPELINE RESULT", output)
+        self.assertIn("Definition: test-exec-pipeline", output)
+        self.assertIn("completed", output.lower())
+
     def test_run_pipeline_invalid_json(self):
         out = io.StringIO()
         with self.assertRaises(CommandError):
