@@ -102,14 +102,17 @@ class Command(BaseCommand):
         if options.get("definition") and options.get("config"):
             raise CommandError("Cannot specify both --definition and --config")
 
-        # Load definition if specified
+        # Load definition (if specified)
         definition, config_path = self._get_definition(options)
 
         # Build payload
-        payload = self._get_payload(options)
+        payload = self._get_payload(options, definition)
 
         if options["dry_run"]:
-            self._show_dry_run(payload, options)
+            if definition:
+                self._show_definition_dry_run(definition, payload, options, config_path)
+            else:
+                self._show_dry_run(payload, options)
             return
 
         # Run pipeline
@@ -136,7 +139,7 @@ class Command(BaseCommand):
         except Exception as e:
             raise CommandError(f"Pipeline failed: {e}")
 
-    def _get_payload(self, options) -> dict:
+    def _get_payload(self, options, definition: "PipelineDefinition | None" = None) -> dict:
         """Build the payload from options."""
         inner_payload = {}
         if options["payload"]:
@@ -156,8 +159,13 @@ class Command(BaseCommand):
             inner_payload = self._get_sample_payload(options["source"])
         elif options["checks_only"]:
             inner_payload = {}
+        elif definition:
+            # Definition-based pipelines can run without explicit payload
+            inner_payload = {}
         else:
-            raise CommandError("Must specify --sample, --payload, --file, or --checks-only")
+            raise CommandError(
+                "Must specify --sample, --payload, --file, --checks-only, --definition, or --config"
+            )
 
         return {
             "payload": inner_payload,
@@ -275,6 +283,49 @@ class Command(BaseCommand):
         self.stdout.write("  2. CHECK   - Run system diagnostics (CPU, memory, disk, etc.)")
         self.stdout.write("  3. ANALYZE - AI analysis of incident + checker results")
         self.stdout.write("  4. NOTIFY  - Send notification via configured driver")
+        self.stdout.write("")
+        self.stdout.write(self.style.SUCCESS("Use without --dry-run to execute"))
+
+    def _show_definition_dry_run(
+        self,
+        definition: "PipelineDefinition",
+        payload: dict,
+        options: dict,
+        config_path: str | None = None,
+    ):
+        """Display what would happen in a definition-based dry run."""
+        self.stdout.write(self.style.WARNING("=== DRY RUN ==="))
+        self.stdout.write("")
+
+        if config_path:
+            self.stdout.write(f"Pipeline Config: {config_path}")
+        else:
+            self.stdout.write(f"Pipeline Definition: {definition.name}")
+
+        self.stdout.write(f"Source: {options['source']}")
+        self.stdout.write(f"Environment: {options['environment']}")
+        self.stdout.write("")
+
+        nodes = definition.get_nodes()
+        self.stdout.write(f"Nodes ({len(nodes)}):")
+
+        for i, node in enumerate(nodes, 1):
+            node_id = node.get("id", f"node_{i}")
+            node_type = node.get("type", "unknown")
+            node_config = node.get("config", {})
+            next_node = node.get("next")
+
+            self.stdout.write(f"  {i}. [{node_type}] {node_id}")
+            if node_config:
+                self.stdout.write(f"     Config: {json.dumps(node_config)}")
+            if next_node:
+                self.stdout.write(f"     -> next: {next_node}")
+            else:
+                self.stdout.write("     -> end")
+            self.stdout.write("")
+
+        self.stdout.write("Payload:")
+        self.stdout.write(json.dumps(payload, indent=2))
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS("Use without --dry-run to execute"))
 
