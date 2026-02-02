@@ -25,6 +25,7 @@ import json
 
 from django.core.management.base import BaseCommand, CommandError
 
+from apps.orchestration.definition_orchestrator import DefinitionBasedOrchestrator
 from apps.orchestration.models import PipelineDefinition
 from apps.orchestration.orchestrator import PipelineOrchestrator
 
@@ -119,23 +120,48 @@ class Command(BaseCommand):
         self.stdout.write(self.style.NOTICE("Starting pipeline..."))
         self.stdout.write(f"  Source: {options['source']}")
         self.stdout.write(f"  Environment: {options['environment']}")
+        if definition:
+            self.stdout.write(f"  Definition: {definition.name}")
         self.stdout.write("")
 
-        orchestrator = PipelineOrchestrator()
-
         try:
-            result = orchestrator.run_pipeline(
-                payload=payload,
-                source=options["source"],
-                trace_id=options.get("trace_id"),
-                environment=options["environment"],
-            )
+            if definition:
+                # Definition-based execution
+                orchestrator = DefinitionBasedOrchestrator(definition)
 
-            if options["json"]:
-                self.stdout.write(json.dumps(result.to_dict(), indent=2, default=str))
+                # Validate before execution
+                errors = orchestrator.validate()
+                if errors:
+                    raise CommandError("Pipeline definition invalid:\n  - " + "\n  - ".join(errors))
+
+                result = orchestrator.execute(
+                    payload=payload.get("payload", {}),
+                    source=options["source"],
+                    trace_id=options.get("trace_id"),
+                    environment=options["environment"],
+                )
+
+                if options["json"]:
+                    self.stdout.write(json.dumps(result, indent=2, default=str))
+                else:
+                    self._display_definition_result(result, definition, config_path)
             else:
-                self._display_result(result)
+                # Hardcoded pipeline execution
+                orchestrator = PipelineOrchestrator()
+                result = orchestrator.run_pipeline(
+                    payload=payload,
+                    source=options["source"],
+                    trace_id=options.get("trace_id"),
+                    environment=options["environment"],
+                )
 
+                if options["json"]:
+                    self.stdout.write(json.dumps(result.to_dict(), indent=2, default=str))
+                else:
+                    self._display_result(result)
+
+        except CommandError:
+            raise
         except Exception as e:
             raise CommandError(f"Pipeline failed: {e}")
 
