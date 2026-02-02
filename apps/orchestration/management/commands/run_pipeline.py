@@ -25,6 +25,7 @@ import json
 
 from django.core.management.base import BaseCommand, CommandError
 
+from apps.orchestration.models import PipelineDefinition
 from apps.orchestration.orchestrator import PipelineOrchestrator
 
 
@@ -100,6 +101,9 @@ class Command(BaseCommand):
         # Validate mutually exclusive definition options
         if options.get("definition") and options.get("config"):
             raise CommandError("Cannot specify both --definition and --config")
+
+        # Load definition if specified
+        definition, config_path = self._get_definition(options)
 
         # Build payload
         payload = self._get_payload(options)
@@ -219,6 +223,40 @@ class Command(BaseCommand):
 
         # Default to generic if source not found
         return samples.get(source, samples["generic"])
+
+    def _get_definition(self, options) -> tuple[PipelineDefinition | None, dict | None]:
+        """
+        Load pipeline definition from database or config file.
+
+        Returns:
+            Tuple of (PipelineDefinition or None, config_path or None)
+        """
+        if options.get("definition"):
+            name = options["definition"]
+            try:
+                definition = PipelineDefinition.objects.get(name=name)
+                return definition, None
+            except PipelineDefinition.DoesNotExist:
+                raise CommandError(f"Pipeline definition not found: {name}")
+
+        if options.get("config"):
+            config_path = options["config"]
+            try:
+                with open(config_path) as f:
+                    config = json.load(f)
+            except FileNotFoundError:
+                raise CommandError(f"Config file not found: {config_path}")
+            except json.JSONDecodeError as e:
+                raise CommandError(f"Invalid JSON in config file: {e}")
+
+            # Create an unsaved PipelineDefinition for execution
+            definition = PipelineDefinition(
+                name=f"__adhoc__{config_path}",
+                config=config,
+            )
+            return definition, config_path
+
+        return None, None
 
     def _show_dry_run(self, payload: dict, options: dict):
         """Display what would happen in a dry run."""
