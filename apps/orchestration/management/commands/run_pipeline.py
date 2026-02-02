@@ -85,6 +85,16 @@ class Command(BaseCommand):
             action="store_true",
             help="Output result as JSON",
         )
+        parser.add_argument(
+            "--definition",
+            type=str,
+            help="Name of a PipelineDefinition to run (from database)",
+        )
+        parser.add_argument(
+            "--config",
+            type=str,
+            help="Path to JSON file containing pipeline definition config",
+        )
 
     def handle(self, *args, **options):
         # Build payload
