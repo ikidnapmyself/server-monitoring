@@ -272,7 +272,7 @@ class Command(BaseCommand):
         # Default to generic if source not found
         return samples.get(source, samples["generic"])
 
-    def _get_definition(self, options) -> tuple[PipelineDefinition | None, dict | None]:
+    def _get_definition(self, options) -> tuple[PipelineDefinition | None, str | None]:
         """
         Load pipeline definition from database or config file.
 
