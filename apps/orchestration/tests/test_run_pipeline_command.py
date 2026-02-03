@@ -2,8 +2,10 @@ import io
 import json
 import os
 import tempfile
+from pathlib import Path
 from unittest import mock
 
+import pytest
 from django.core.management import CommandError, call_command
 from django.test import TestCase
 
@@ -239,3 +241,76 @@ class RunPipelineCommandTest(TestCase):
         with self.assertRaises(CommandError) as ctx:
             call_command("run_pipeline", "--definition", "invalid-pipeline", stdout=out)
         self.assertIn("Pipeline definition invalid", str(ctx.exception))
+
+
+@pytest.mark.django_db
+class TestSamplePipelineDefinitions:
+    """Tests for apps/orchestration/management/commands/pipelines/ sample definition files."""
+
+    def _load_and_validate_pipeline(self, filename: str, name: str):
+        """Load a pipeline JSON file and validate it.
+
+        Args:
+            filename: The JSON filename (e.g., "pipeline-manager.json")
+            name: The name to assign to the PipelineDefinition
+
+        Returns:
+            A tuple of (definition, config) where definition is a validated
+            PipelineDefinition instance and config is the raw JSON dict.
+        """
+        from apps.orchestration.definition_orchestrator import DefinitionBasedOrchestrator
+        from apps.orchestration.models import PipelineDefinition
+
+        config_path = Path(f"apps/orchestration/management/commands/pipelines/{filename}")
+        assert config_path.exists(), f"Missing {config_path}"
+
+        with open(config_path) as f:
+            config = json.load(f)
+
+        definition = PipelineDefinition(name=name, config=config)
+        orchestrator = DefinitionBasedOrchestrator(definition)
+        errors = orchestrator.validate()
+
+        assert errors == [], f"Validation errors: {errors}"
+        return definition, config
+
+    def test_pipeline_manager_json_is_valid(self):
+        """Verify pipeline-manager.json can be loaded and validated."""
+        definition, _ = self._load_and_validate_pipeline("pipeline-manager.json", "test-pm")
+
+        assert len(definition.get_nodes()) == 3
+        assert definition.get_nodes()[0]["type"] == "ingest"
+        assert definition.get_nodes()[1]["type"] == "intelligence"
+        assert definition.get_nodes()[2]["type"] == "notify"
+
+    def test_local_monitor_json_is_valid(self):
+        """Verify local-monitor.json can be loaded and validated."""
+        definition, _ = self._load_and_validate_pipeline("local-monitor.json", "test-lm")
+
+        assert len(definition.get_nodes()) == 4
+        node_types = [n["type"] for n in definition.get_nodes()]
+        assert node_types == ["ingest", "context", "intelligence", "notify"]
+
+    def test_pipeline_manager_openai_json_is_valid(self):
+        """Verify pipeline-manager-openai.json can be loaded and validated."""
+        definition, _ = self._load_and_validate_pipeline(
+            "pipeline-manager-openai.json", "test-pm-openai"
+        )
+
+        # Verify OpenAI provider config
+        analyze_node = definition.get_nodes()[1]
+        assert analyze_node["config"]["provider"] == "openai"
+        assert analyze_node["config"]["provider_config"]["model"] == "gpt-4o-mini"
+
+    def test_pagerduty_alert_json_is_valid(self):
+        """Verify pagerduty-alert.json can be loaded and validated."""
+        definition, config = self._load_and_validate_pipeline(
+            "pagerduty-alert.json", "test-pd-alert"
+        )
+
+        assert len(definition.get_nodes()) == 3
+        # Verify context_flow documentation exists
+        assert "context_flow" in config
+        # Verify ingest has source_hint
+        ingest_node = definition.get_nodes()[0]
+        assert ingest_node["config"].get("source_hint") == "pagerduty"
