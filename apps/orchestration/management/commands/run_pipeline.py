@@ -365,7 +365,7 @@ class Command(BaseCommand):
             self.stdout.write("")
 
         self.stdout.write("Payload:")
-        self.stdout.write(json.dumps(payload, indent=2))
+        self.stdout.write(json.dumps(payload.get("payload", {}), indent=2))
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS("Use without --dry-run to execute"))
 
