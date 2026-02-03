@@ -11,7 +11,7 @@ from django.test import TestCase
 
 
 class RunPipelineCommandTest(TestCase):
-    @mock.patch("apps.orchestration.orchestrator.PipelineOrchestrator")
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
     def test_run_pipeline_with_sample(self, mock_orchestrator):
         mock_result = mock.Mock()
         mock_result.status = "COMPLETED"
@@ -53,7 +53,7 @@ class RunPipelineCommandTest(TestCase):
         self.assertIn("Status:", output)
         self.assertIn("✓ Pipeline completed successfully", output)
 
-    @mock.patch("apps.orchestration.orchestrator.PipelineOrchestrator")
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
     def test_run_pipeline_with_json_output(self, mock_orchestrator):
         mock_result = mock.Mock()
         mock_result.status = "COMPLETED"
