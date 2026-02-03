@@ -359,9 +359,9 @@ class Command(BaseCommand):
             if node_config:
                 self.stdout.write(f"     Config: {json.dumps(node_config)}")
             if next_node:
-                self.stdout.write(f"     -> next: {next_node}")
+                self.stdout.write(f"     → next: {next_node}")
             else:
-                self.stdout.write("     -> end")
+                self.stdout.write("     → end")
             self.stdout.write("")
 
         self.stdout.write("Payload:")
