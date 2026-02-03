@@ -1,0 +1,36 @@
+{
+  "version": "1.0",
+  "description": "Pipeline manager using OpenAI for analysis - requires OPENAI_API_KEY env var. Skips local health checks.",
+  "defaults": {
+    "max_retries": 3,
+    "timeout_seconds": 300
+  },
+  "nodes": [
+    {
+      "id": "ingest",
+      "type": "ingest",
+      "config": {},
+      "next": "analyze"
+    },
+    {
+      "id": "analyze",
+      "type": "intelligence",
+      "config": {
+        "provider": "openai",
+        "provider_config": {
+          "model": "gpt-4o-mini",
+          "max_tokens": 1024
+        }
+      },
+      "required": false,
+      "next": "notify"
+    },
+    {
+      "id": "notify",
+      "type": "notify",
+      "config": {
+        "driver": "generic"
+      }
+    }
+  ]
+}
