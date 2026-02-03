@@ -1,0 +1,32 @@
+{
+  "version": "1.0",
+  "description": "Pipeline manager for external alerts - skips local health checks. Use this when this server acts as a central pipeline controller receiving webhooks from multiple monitored servers.",
+  "defaults": {
+    "max_retries": 3,
+    "timeout_seconds": 300
+  },
+  "nodes": [
+    {
+      "id": "ingest",
+      "type": "ingest",
+      "config": {},
+      "next": "analyze"
+    },
+    {
+      "id": "analyze",
+      "type": "intelligence",
+      "config": {
+        "provider": "local"
+      },
+      "required": false,
+      "next": "notify"
+    },
+    {
+      "id": "notify",
+      "type": "notify",
+      "config": {
+        "driver": "generic"
+      }
+    }
+  ]
+}
