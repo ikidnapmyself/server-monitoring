@@ -1,4 +1,7 @@
 import io
+import json
+import os
+import tempfile
 from unittest import mock
 
 from django.core.management import CommandError, call_command
@@ -69,6 +72,71 @@ class RunPipelineCommandTest(TestCase):
         self.assertIn("Pipeline Configuration:", output)
         self.assertIn("Pipeline Stages:", output)
 
+    def test_run_pipeline_definition_dry_run(self):
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.create(
+            name="test-pipeline",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {
+                        "id": "ctx",
+                        "type": "context",
+                        "config": {"include": ["cpu"]},
+                        "next": "notify",
+                    },
+                    {"id": "notify", "type": "notify", "config": {"driver": "slack"}},
+                ],
+            },
+        )
+
+        out = io.StringIO()
+        call_command("run_pipeline", "--definition", "test-pipeline", "--dry-run", stdout=out)
+        output = out.getvalue()
+        self.assertIn("=== DRY RUN ===", output)
+        self.assertIn("Pipeline Definition: test-pipeline", output)
+        self.assertIn("[context] ctx", output)
+        self.assertIn("[notify] notify", output)
+
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.validate")
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.execute")
+    def test_run_pipeline_with_definition(self, mock_execute, mock_validate):
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.create(
+            name="test-exec-pipeline",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {"id": "notify", "type": "notify", "config": {"driver": "slack"}},
+                ],
+            },
+        )
+
+        mock_validate.return_value = []
+        mock_execute.return_value = {
+            "trace_id": "trace-456",
+            "run_id": "run-456",
+            "definition": "test-exec-pipeline",
+            "definition_version": 1,
+            "status": "completed",
+            "executed_nodes": ["notify"],
+            "skipped_nodes": [],
+            "node_results": {
+                "notify": {"node_id": "notify", "node_type": "notify", "duration_ms": 50}
+            },
+            "duration_ms": 100.0,
+            "error": None,
+        }
+
+        out = io.StringIO()
+        call_command("run_pipeline", "--definition", "test-exec-pipeline", stdout=out)
+        output = out.getvalue()
+        self.assertIn("PIPELINE RESULT", output)
+        self.assertIn("Definition: test-exec-pipeline", output)
+        self.assertIn("completed", output.lower())
+
     def test_run_pipeline_invalid_json(self):
         out = io.StringIO()
         with self.assertRaises(CommandError):
@@ -83,3 +151,91 @@ class RunPipelineCommandTest(TestCase):
         out = io.StringIO()
         with self.assertRaises(CommandError):
             call_command("run_pipeline", stdout=out)
+
+    def test_run_pipeline_definition_not_found(self):
+        out = io.StringIO()
+        with self.assertRaises(CommandError) as ctx:
+            call_command("run_pipeline", "--definition", "nonexistent", stdout=out)
+        self.assertIn("Pipeline definition not found", str(ctx.exception))
+
+    def test_run_pipeline_config_file_not_found(self):
+        out = io.StringIO()
+        with self.assertRaises(CommandError) as ctx:
+            call_command("run_pipeline", "--config", "missing.json", stdout=out)
+        self.assertIn("Config file not found", str(ctx.exception))
+
+    def test_run_pipeline_definition_and_config_mutually_exclusive(self):
+        out = io.StringIO()
+        with self.assertRaises(CommandError) as ctx:
+            call_command(
+                "run_pipeline", "--definition", "test", "--config", "test.json", stdout=out
+            )
+        self.assertIn("Cannot specify both", str(ctx.exception))
+
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.validate")
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.execute")
+    def test_run_pipeline_with_config_file(self, mock_execute, mock_validate):
+        config = {
+            "version": "1.0",
+            "nodes": [
+                {"id": "notify", "type": "notify", "config": {"driver": "slack"}},
+            ],
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(config, f)
+            config_path = f.name
+
+        try:
+            mock_validate.return_value = []
+            mock_execute.return_value = {
+                "trace_id": "trace-789",
+                "run_id": "run-789",
+                "definition": f"__adhoc__{config_path}",
+                "definition_version": 1,
+                "status": "completed",
+                "executed_nodes": ["notify"],
+                "skipped_nodes": [],
+                "node_results": {},
+                "duration_ms": 50.0,
+                "error": None,
+            }
+
+            out = io.StringIO()
+            call_command("run_pipeline", "--config", config_path, stdout=out)
+            output = out.getvalue()
+            self.assertIn("PIPELINE RESULT", output)
+            self.assertIn("completed", output.lower())
+        finally:
+            os.unlink(config_path)
+
+    def test_run_pipeline_invalid_config_json(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write("{invalid json content")
+            config_path = f.name
+
+        try:
+            out = io.StringIO()
+            with self.assertRaises(CommandError) as ctx:
+                call_command("run_pipeline", "--config", config_path, stdout=out)
+            self.assertIn("Invalid JSON in config file", str(ctx.exception))
+        finally:
+            os.unlink(config_path)
+
+    def test_run_pipeline_definition_validation_error(self):
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.create(
+            name="invalid-pipeline",
+            config={
+                # Missing version and has invalid node type
+                "nodes": [
+                    {"id": "bad", "type": "nonexistent_type"},
+                ]
+            },
+        )
+
+        out = io.StringIO()
+        with self.assertRaises(CommandError) as ctx:
+            call_command("run_pipeline", "--definition", "invalid-pipeline", stdout=out)
+        self.assertIn("Pipeline definition invalid", str(ctx.exception))

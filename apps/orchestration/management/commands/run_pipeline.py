@@ -2,7 +2,7 @@
 Management command to run the pipeline end-to-end.
 
 Usage:
-    # Run with sample alert payload
+    # Run with sample alert payload (hardcoded pipeline)
     python manage.py run_pipeline --sample
 
     # Run with custom JSON payload
@@ -19,17 +19,33 @@ Usage:
 
     # Dry run (show what would happen)
     python manage.py run_pipeline --sample --dry-run
+
+    # Run a pipeline definition from database
+    python manage.py run_pipeline --definition my-pipeline
+
+    # Run a pipeline definition with payload
+    python manage.py run_pipeline --definition my-pipeline --payload '{"server": "web-01"}'
+
+    # Run from a JSON config file
+    python manage.py run_pipeline --config ./pipelines/custom.json
+
+    # Dry run a definition
+    python manage.py run_pipeline --definition my-pipeline --dry-run
 """
 
 import json
 
 from django.core.management.base import BaseCommand, CommandError
 
+from apps.orchestration.definition_orchestrator import DefinitionBasedOrchestrator
+from apps.orchestration.models import PipelineDefinition
 from apps.orchestration.orchestrator import PipelineOrchestrator
 
 
 class Command(BaseCommand):
-    help = "Run the full pipeline: alerts → checkers → intelligence → notify"
+    help = (
+        "Run a pipeline: hardcoded (alerts → checkers → intelligence → notify) or definition-based"
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -85,40 +101,85 @@ class Command(BaseCommand):
             action="store_true",
             help="Output result as JSON",
         )
+        parser.add_argument(
+            "--definition",
+            type=str,
+            help="Name of a PipelineDefinition to run (from database)",
+        )
+        parser.add_argument(
+            "--config",
+            type=str,
+            help="Path to JSON file containing pipeline definition config",
+        )
 
     def handle(self, *args, **options):
+        # Validate mutually exclusive definition options
+        if options.get("definition") and options.get("config"):
+            raise CommandError("Cannot specify both --definition and --config")
+
+        # Load definition (if specified)
+        definition, config_path = self._get_definition(options)
+
         # Build payload
-        payload = self._get_payload(options)
+        payload = self._get_payload(options, definition)
 
         if options["dry_run"]:
-            self._show_dry_run(payload, options)
+            if definition:
+                self._show_definition_dry_run(definition, payload, options, config_path)
+            else:
+                self._show_dry_run(payload, options)
             return
 
         # Run pipeline
         self.stdout.write(self.style.NOTICE("Starting pipeline..."))
         self.stdout.write(f"  Source: {options['source']}")
         self.stdout.write(f"  Environment: {options['environment']}")
+        if definition:
+            self.stdout.write(f"  Definition: {definition.name}")
         self.stdout.write("")
 
-        orchestrator = PipelineOrchestrator()
-
         try:
-            result = orchestrator.run_pipeline(
-                payload=payload,
-                source=options["source"],
-                trace_id=options.get("trace_id"),
-                environment=options["environment"],
-            )
+            if definition:
+                # Definition-based execution
+                orchestrator = DefinitionBasedOrchestrator(definition)
 
-            if options["json"]:
-                self.stdout.write(json.dumps(result.to_dict(), indent=2, default=str))
+                # Validate before execution
+                errors = orchestrator.validate()
+                if errors:
+                    raise CommandError("Pipeline definition invalid:\n  - " + "\n  - ".join(errors))
+
+                result = orchestrator.execute(
+                    payload=payload.get("payload", {}),
+                    source=options["source"],
+                    trace_id=options.get("trace_id"),
+                    environment=options["environment"],
+                )
+
+                if options["json"]:
+                    self.stdout.write(json.dumps(result, indent=2, default=str))
+                else:
+                    self._display_definition_result(result, definition, config_path)
             else:
-                self._display_result(result)
+                # Hardcoded pipeline execution
+                orchestrator = PipelineOrchestrator()
+                result = orchestrator.run_pipeline(
+                    payload=payload,
+                    source=options["source"],
+                    trace_id=options.get("trace_id"),
+                    environment=options["environment"],
+                )
 
+                if options["json"]:
+                    self.stdout.write(json.dumps(result.to_dict(), indent=2, default=str))
+                else:
+                    self._display_result(result)
+
+        except CommandError:
+            raise
         except Exception as e:
             raise CommandError(f"Pipeline failed: {e}")
 
-    def _get_payload(self, options) -> dict:
+    def _get_payload(self, options, definition: "PipelineDefinition | None" = None) -> dict:
         """Build the payload from options."""
         inner_payload = {}
         if options["payload"]:
@@ -138,8 +199,13 @@ class Command(BaseCommand):
             inner_payload = self._get_sample_payload(options["source"])
         elif options["checks_only"]:
             inner_payload = {}
+        elif definition:
+            # Definition-based pipelines can run without explicit payload
+            inner_payload = {}
         else:
-            raise CommandError("Must specify --sample, --payload, --file, or --checks-only")
+            raise CommandError(
+                "Must specify --sample, --payload, --file, --checks-only, --definition, or --config"
+            )
 
         return {
             "payload": inner_payload,
@@ -206,6 +272,40 @@ class Command(BaseCommand):
         # Default to generic if source not found
         return samples.get(source, samples["generic"])
 
+    def _get_definition(self, options) -> tuple[PipelineDefinition | None, str | None]:
+        """
+        Load pipeline definition from database or config file.
+
+        Returns:
+            Tuple of (PipelineDefinition or None, config_path or None)
+        """
+        if options.get("definition"):
+            name = options["definition"]
+            try:
+                definition = PipelineDefinition.objects.get(name=name)
+                return definition, None
+            except PipelineDefinition.DoesNotExist:
+                raise CommandError(f"Pipeline definition not found: {name}")
+
+        if options.get("config"):
+            config_path = options["config"]
+            try:
+                with open(config_path) as f:
+                    config = json.load(f)
+            except FileNotFoundError:
+                raise CommandError(f"Config file not found: {config_path}")
+            except json.JSONDecodeError as e:
+                raise CommandError(f"Invalid JSON in config file: {e}")
+
+            # Create an unsaved PipelineDefinition for execution
+            definition = PipelineDefinition(
+                name=f"__adhoc__{config_path}",
+                config=config,
+            )
+            return definition, config_path
+
+        return None, None
+
     def _show_dry_run(self, payload: dict, options: dict):
         """Display what would happen in a dry run."""
         self.stdout.write(self.style.WARNING("=== DRY RUN ==="))
@@ -223,6 +323,49 @@ class Command(BaseCommand):
         self.stdout.write("  2. CHECK   - Run system diagnostics (CPU, memory, disk, etc.)")
         self.stdout.write("  3. ANALYZE - AI analysis of incident + checker results")
         self.stdout.write("  4. NOTIFY  - Send notification via configured driver")
+        self.stdout.write("")
+        self.stdout.write(self.style.SUCCESS("Use without --dry-run to execute"))
+
+    def _show_definition_dry_run(
+        self,
+        definition: "PipelineDefinition",
+        payload: dict,
+        options: dict,
+        config_path: str | None = None,
+    ):
+        """Display what would happen in a definition-based dry run."""
+        self.stdout.write(self.style.WARNING("=== DRY RUN ==="))
+        self.stdout.write("")
+
+        if config_path:
+            self.stdout.write(f"Pipeline Config: {config_path}")
+        else:
+            self.stdout.write(f"Pipeline Definition: {definition.name}")
+
+        self.stdout.write(f"Source: {options['source']}")
+        self.stdout.write(f"Environment: {options['environment']}")
+        self.stdout.write("")
+
+        nodes = definition.get_nodes()
+        self.stdout.write(f"Nodes ({len(nodes)}):")
+
+        for i, node in enumerate(nodes, 1):
+            node_id = node.get("id", f"node_{i}")
+            node_type = node.get("type", "unknown")
+            node_config = node.get("config", {})
+            next_node = node.get("next")
+
+            self.stdout.write(f"  {i}. [{node_type}] {node_id}")
+            if node_config:
+                self.stdout.write(f"     Config: {json.dumps(node_config)}")
+            if next_node:
+                self.stdout.write(f"     → next: {next_node}")
+            else:
+                self.stdout.write("     → end")
+            self.stdout.write("")
+
+        self.stdout.write("Payload:")
+        self.stdout.write(json.dumps(payload.get("payload", {}), indent=2))
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS("Use without --dry-run to execute"))
 
@@ -313,3 +456,99 @@ class Command(BaseCommand):
             except Exception:
                 # Fallback: print string representation
                 self.stdout.write(self.style.ERROR(str(final_error)))
+
+    def _display_definition_result(
+        self,
+        result: dict,
+        definition: "PipelineDefinition",
+        config_path: str | None = None,
+    ):
+        """Display definition-based pipeline result in human-readable format."""
+        self.stdout.write("")
+        self.stdout.write("=" * 60)
+        self.stdout.write(self.style.HTTP_INFO("PIPELINE RESULT"))
+        self.stdout.write("=" * 60)
+        self.stdout.write("")
+
+        # Overall status
+        status = result.get("status", "unknown")
+        if status == "completed":
+            self.stdout.write(self.style.SUCCESS(f"Status: {status}"))
+        else:
+            self.stdout.write(self.style.ERROR(f"Status: {status}"))
+
+        if config_path:
+            self.stdout.write(f"Config: {config_path}")
+        else:
+            self.stdout.write(f"Definition: {result.get('definition', definition.name)}")
+
+        self.stdout.write(f"Trace ID: {result.get('trace_id', 'N/A')}")
+        self.stdout.write(f"Run ID: {result.get('run_id', 'N/A')}")
+        self.stdout.write(f"Duration: {result.get('duration_ms', 0):.2f}ms")
+        self.stdout.write("")
+
+        # Node results
+        node_results = result.get("node_results", {})
+        nodes = definition.get_nodes()
+
+        for node in nodes:
+            node_id = node.get("id")
+            node_type = node.get("type")
+
+            self.stdout.write(f"--- {node_type} ({node_id}) ---")
+
+            if node_id in result.get("skipped_nodes", []):
+                self.stdout.write(self.style.WARNING("  (skipped)"))
+            elif node_id in node_results:
+                node_result = node_results[node_id]
+
+                # Show key info based on node type
+                if node_type == "context":
+                    self.stdout.write(f"  Checks run: {node_result.get('checks_run', 'N/A')}")
+                elif node_type == "intelligence":
+                    summary = node_result.get(
+                        "summary", node_result.get("output", {}).get("summary", "N/A")
+                    )
+                    if isinstance(summary, str) and len(summary) > 100:
+                        summary = summary[:100] + "..."
+                    self.stdout.write(f"  Summary: {summary}")
+                    provider = node_result.get(
+                        "provider", node_result.get("output", {}).get("provider")
+                    )
+                    if provider:
+                        self.stdout.write(f"  Provider: {provider}")
+                elif node_type == "notify":
+                    driver = node.get("config", {}).get("driver", "unknown")
+                    self.stdout.write(f"  Driver: {driver}")
+                    self.stdout.write(
+                        f"  Channels attempted: {node_result.get('channels_attempted', 'N/A')}"
+                    )
+                    self.stdout.write(
+                        f"  Succeeded: {node_result.get('channels_succeeded', 'N/A')}"
+                    )
+                elif node_type == "ingest":
+                    self.stdout.write(f"  Incident ID: {node_result.get('incident_id', 'N/A')}")
+                    self.stdout.write(
+                        f"  Alerts created: {node_result.get('alerts_created', 'N/A')}"
+                    )
+
+                # Show errors if any
+                errors = node_result.get("errors", [])
+                if errors:
+                    self.stdout.write(self.style.ERROR(f"  Errors: {errors}"))
+
+                duration = node_result.get("duration_ms", 0)
+                self.stdout.write(f"  Duration: {duration:.2f}ms")
+            else:
+                self.stdout.write(self.style.WARNING("  (not executed)"))
+
+            self.stdout.write("")
+
+        # Final summary
+        if status == "completed":
+            self.stdout.write(self.style.SUCCESS("✓ Pipeline completed successfully"))
+        else:
+            self.stdout.write(self.style.ERROR(f"✗ Pipeline failed: {status}"))
+            error = result.get("error")
+            if error:
+                self.stdout.write(self.style.ERROR(f"  {error}"))
