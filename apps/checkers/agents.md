@@ -43,9 +43,9 @@ For `apps.checkers`, admin should make it easy to:
 ## App layout rules (required)
 
 - Any HTTP endpoints must live under `apps/checkers/views/` (endpoint/module-based).
-- Tests must live under `apps/checkers/tests/` and mirror the module tree.
-  - Example: `checkers/cpu.py` → `tests/checkers/test_cpu.py`
-  - Example: `management/commands/check_health.py` → `tests/management/commands/test_check_health.py`
+- Tests must live under `apps/checkers/_tests/` and mirror the module tree.
+  - Example: `checkers/cpu.py` → `_tests/checkers/test_cpu.py`
+  - Example: `management/commands/check_health.py` → `_tests/management/commands/test_check_health.py`
 
 ## Doc vs code status
 

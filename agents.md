@@ -4,13 +4,51 @@ This document describes the available AI agents and how to use them efficiently 
 
 ## Documentation map (nested relationship)
 
-- **Global rules (this file):** agent roles, pipeline-wide contracts, observability, and repo-wide conventions.
-- **App-local rules:** see each app’s `agents.md` for stage-specific contracts, module notes, and conventions:
+- **CLAUDE.md:** Essential commands, architecture overview, and skills reference for Claude Code
+- **Global rules (this file):** agent roles, pipeline-wide contracts, observability, and repo-wide conventions
+- **App-local rules:** see each app's `agents.md` for stage-specific contracts, module notes, and conventions:
   - `apps/alerts/agents.md`
   - `apps/checkers/agents.md`
   - `apps/intelligence/agents.md`
   - `apps/notify/agents.md`
   - `apps/orchestration/agents.md`
+
+---
+
+## Skills (Superpowers)
+
+Claude Code has access to disciplined workflow skills invoked via `/skill-name`. **Use these before starting work when applicable.**
+
+### Core Workflow Skills
+
+| Skill | Purpose |
+|-------|---------|
+| `/brainstorming` | Explore requirements before any creative/feature work |
+| `/writing-plans` | Create implementation plans for multi-step tasks |
+| `/executing-plans` | Execute plans with review checkpoints |
+| `/test-driven-development` | Write tests before implementation |
+| `/systematic-debugging` | Diagnose bugs methodically before fixing |
+| `/verification-before-completion` | Confirm work is done (run tests, verify output) |
+
+### Review & Collaboration
+
+| Skill | Purpose |
+|-------|---------|
+| `/requesting-code-review` | Verify work meets requirements before merging |
+| `/receiving-code-review` | Handle feedback with technical rigor |
+
+### Git & Parallelization
+
+| Skill | Purpose |
+|-------|---------|
+| `/using-git-worktrees` | Isolated feature work in separate worktrees |
+| `/finishing-a-development-branch` | Decide merge/PR/cleanup strategy |
+| `/dispatching-parallel-agents` | Run 2+ independent tasks concurrently |
+| `/subagent-driven-development` | Execute plans with parallel independent tasks |
+
+### Skill Rule
+
+**If there's even a 1% chance a skill applies, invoke it first.** Skills define HOW to approach work and prevent undisciplined action.
 
 ---
 

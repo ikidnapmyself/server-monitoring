@@ -43,9 +43,9 @@ For `apps.alerts`, admin should make it easy to:
 
 - Endpoints must live under `apps/alerts/views/` (endpoint/module-based).
   - Example: `views/webhook.py`, `views/health.py`
-- Tests must live under `apps/alerts/tests/` and mirror the module tree being tested.
-  - Example: `drivers/grafana.py` → `tests/drivers/test_grafana.py`
-  - Example: `views/webhook.py` → `tests/views/test_webhook.py`
+- Tests must live under `apps/alerts/_tests/` and mirror the module tree being tested.
+  - Example: `drivers/grafana.py` → `_tests/drivers/test_grafana.py`
+  - Example: `views/webhook.py` → `_tests/views/test_webhook.py`
 
 ## Doc vs code status
 

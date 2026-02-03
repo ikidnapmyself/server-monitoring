@@ -42,9 +42,9 @@ Required tags/fields:
 
 - Endpoints must live under `apps/orchestration/views/` (endpoint/module-based).
   - Example: `views/pipeline.py`, `views/status.py`
-- Tests must live under `apps/orchestration/tests/` and mirror the module tree.
-  - Example: `orchestrator.py` → `tests/test_orchestrator.py` (or `tests/orchestrator/test_pipeline.py`)
-  - Example: `views/pipeline.py` → `tests/views/test_pipeline.py`
+- Tests must live under `apps/orchestration/_tests/` and mirror the module tree.
+  - Example: `orchestrator.py` → `_tests/test_orchestrator.py` (or `_tests/orchestrator/test_pipeline.py`)
+  - Example: `views/pipeline.py` → `_tests/views/test_pipeline.py`
 
 ## Doc vs code status
 

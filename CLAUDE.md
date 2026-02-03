@@ -2,6 +2,27 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Skills (Superpowers)
+
+Use these skills via `/skill-name` commands for disciplined workflows:
+
+| Skill | When to Use |
+|-------|-------------|
+| `/brainstorming` | **Before any creative work** — new features, components, behavior changes |
+| `/writing-plans` | When you have requirements for a multi-step task |
+| `/executing-plans` | Execute a written plan in a separate session |
+| `/test-driven-development` | Before writing implementation code |
+| `/systematic-debugging` | When encountering bugs, test failures, unexpected behavior |
+| `/verification-before-completion` | Before claiming work is done — run tests, confirm output |
+| `/requesting-code-review` | After completing tasks or major features |
+| `/receiving-code-review` | When receiving review feedback |
+| `/using-git-worktrees` | For isolated feature work |
+| `/finishing-a-development-branch` | When ready to merge/PR |
+| `/dispatching-parallel-agents` | For 2+ independent tasks |
+| `/subagent-driven-development` | Execute plans with independent tasks |
+
+**Rule**: If there's even a 1% chance a skill applies, invoke it first.
+
 ## Project Overview
 
 Django-based server monitoring and alerting system with a strict 4-stage orchestration pipeline: `alerts → checkers → intelligence → notify`. The orchestrator controls all stage transitions—stages never call downstream stages directly.
@@ -54,7 +75,7 @@ Each stage emits monitoring signals (`pipeline.stage.started/succeeded/failed`) 
 
 All apps under `apps/` follow this layout:
 - `views/` — Package (not monolithic `views.py`), organized by endpoint
-- `tests/` — Package mirroring source structure (e.g., `tests/views/test_webhook.py`)
+- `_tests/` — Package mirroring source structure (e.g., `_tests/views/test_webhook.py`)
 - `agents.md` — App-specific AI agent guidance
 - `admin.py` — Extensive admin for operations
 
