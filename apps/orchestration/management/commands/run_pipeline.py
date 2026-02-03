@@ -2,7 +2,7 @@
 Management command to run the pipeline end-to-end.
 
 Usage:
-    # Run with sample alert payload
+    # Run with sample alert payload (hardcoded pipeline)
     python manage.py run_pipeline --sample
 
     # Run with custom JSON payload
@@ -19,6 +19,18 @@ Usage:
 
     # Dry run (show what would happen)
     python manage.py run_pipeline --sample --dry-run
+
+    # Run a pipeline definition from database
+    python manage.py run_pipeline --definition my-pipeline
+
+    # Run a pipeline definition with payload
+    python manage.py run_pipeline --definition my-pipeline --payload '{"server": "web-01"}'
+
+    # Run from a JSON config file
+    python manage.py run_pipeline --config ./pipelines/custom.json
+
+    # Dry run a definition
+    python manage.py run_pipeline --definition my-pipeline --dry-run
 """
 
 import json
@@ -31,7 +43,9 @@ from apps.orchestration.orchestrator import PipelineOrchestrator
 
 
 class Command(BaseCommand):
-    help = "Run the full pipeline: alerts → checkers → intelligence → notify"
+    help = (
+        "Run a pipeline: hardcoded (alerts → checkers → intelligence → notify) or definition-based"
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(
