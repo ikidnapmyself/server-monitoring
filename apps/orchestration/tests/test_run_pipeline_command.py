@@ -99,8 +99,9 @@ class RunPipelineCommandTest(TestCase):
         self.assertIn("[context] ctx", output)
         self.assertIn("[notify] notify", output)
 
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.validate")
     @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.execute")
-    def test_run_pipeline_with_definition(self, mock_execute):
+    def test_run_pipeline_with_definition(self, mock_execute, mock_validate):
         from apps.orchestration.models import PipelineDefinition
 
         PipelineDefinition.objects.create(
@@ -113,6 +114,7 @@ class RunPipelineCommandTest(TestCase):
             },
         )
 
+        mock_validate.return_value = []
         mock_execute.return_value = {
             "trace_id": "trace-456",
             "run_id": "run-456",
@@ -170,8 +172,9 @@ class RunPipelineCommandTest(TestCase):
             )
         self.assertIn("Cannot specify both", str(ctx.exception))
 
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.validate")
     @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.execute")
-    def test_run_pipeline_with_config_file(self, mock_execute):
+    def test_run_pipeline_with_config_file(self, mock_execute, mock_validate):
         config = {
             "version": "1.0",
             "nodes": [
@@ -184,6 +187,7 @@ class RunPipelineCommandTest(TestCase):
             config_path = f.name
 
         try:
+            mock_validate.return_value = []
             mock_execute.return_value = {
                 "trace_id": "trace-789",
                 "run_id": "run-789",
