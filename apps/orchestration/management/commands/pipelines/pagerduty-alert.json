@@ -1,0 +1,46 @@
+{
+  "version": "1.0",
+  "description": "Pipeline for PagerDuty alerts - receives webhook events, passes full alert context to intelligence provider for analysis. Use for incident response automation.",
+  "defaults": {
+    "max_retries": 3,
+    "timeout_seconds": 300
+  },
+  "context_flow": {
+    "_comment": "Documents how PagerDuty alert context reaches the analyze step",
+    "pagerduty_webhook": "Alert payload received at /webhooks/pagerduty/",
+    "ingest_node": "Parses PagerDuty event, creates Incident & Alert in DB, stores raw_payload",
+    "intelligence_node": "Fetches Incident from DB, provider.analyze() receives full incident with alert.raw_payload"
+  },
+  "nodes": [
+    {
+      "id": "ingest",
+      "type": "ingest",
+      "config": {
+        "source_hint": "pagerduty"
+      },
+      "next": "analyze"
+    },
+    {
+      "id": "analyze",
+      "type": "intelligence",
+      "config": {
+        "provider": "openai",
+        "provider_config": {
+          "model": "gpt-4o-mini",
+          "max_tokens": 2048,
+          "system_prompt_hint": "Analyze the PagerDuty incident. The incident object includes related alerts with their original webhook payload in alert.raw_payload. Use this context to provide actionable recommendations."
+        }
+      },
+      "required": false,
+      "next": "notify"
+    },
+    {
+      "id": "notify",
+      "type": "notify",
+      "config": {
+        "driver": "pagerduty",
+        "include_recommendations": true
+      }
+    }
+  ]
+}

@@ -32,8 +32,8 @@ class TestProviderSelection:
     """Tests for provider selection and configuration."""
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
-    def test_default_provider_is_openai(self, mock_get_provider):
-        """Test that default provider is openai."""
+    def test_default_provider_is_local(self, mock_get_provider):
+        """Test that default provider is local."""
         mock_provider = MagicMock()
         mock_provider.get_recommendations.return_value = []
         mock_get_provider.return_value = mock_provider
@@ -43,7 +43,7 @@ class TestProviderSelection:
 
         mock_get_provider.assert_called_once()
         call_args = mock_get_provider.call_args
-        assert call_args[0][0] == "openai"
+        assert call_args[0][0] == "local"
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
     def test_custom_provider(self, mock_get_provider):

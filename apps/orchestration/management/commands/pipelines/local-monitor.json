@@ -1,0 +1,40 @@
+{
+  "version": "1.0",
+  "description": "Full local monitoring pipeline - ingests alerts, gathers system context, analyzes with AI, and notifies. Use this for monitoring the local server.",
+  "defaults": {
+    "max_retries": 3,
+    "timeout_seconds": 300
+  },
+  "nodes": [
+    {
+      "id": "ingest",
+      "type": "ingest",
+      "config": {},
+      "next": "context"
+    },
+    {
+      "id": "context",
+      "type": "context",
+      "config": {
+        "include": ["cpu", "memory", "disk"]
+      },
+      "next": "analyze"
+    },
+    {
+      "id": "analyze",
+      "type": "intelligence",
+      "config": {
+        "provider": "local"
+      },
+      "required": false,
+      "next": "notify"
+    },
+    {
+      "id": "notify",
+      "type": "notify",
+      "config": {
+        "driver": "generic"
+      }
+    }
+  ]
+}
