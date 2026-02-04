@@ -1,0 +1,15 @@
+{
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "DiskSpaceLow",
+        "severity": "warning",
+        "instance": "db-server-01"
+      },
+      "annotations": {
+        "description": "Disk usage above 85%"
+      }
+    }
+  ]
+}

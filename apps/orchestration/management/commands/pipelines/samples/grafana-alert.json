@@ -1,0 +1,6 @@
+{
+  "alertname": "HighCPU",
+  "severity": "critical",
+  "instance": "web-server-01",
+  "description": "CPU usage above 90% for 5 minutes"
+}
