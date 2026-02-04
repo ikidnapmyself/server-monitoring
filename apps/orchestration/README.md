@@ -144,6 +144,40 @@ uv run python manage.py run_pipeline --payload '{"name": "Test", "status": "firi
 
 # Output as JSON
 uv run python manage.py run_pipeline --sample --json
+
+# Set environment and trace ID for correlation
+uv run python manage.py run_pipeline --sample --environment production --trace-id my-trace-123
+
+# Run only the checkers stage (skip alert ingestion)
+uv run python manage.py run_pipeline --sample --checks-only
+
+# Specify notification driver
+uv run python manage.py run_pipeline --sample --notify-driver slack
+
+# Run a definition-based pipeline (from database)
+uv run python manage.py run_pipeline --definition my-pipeline-name
+
+# Run a pipeline from a JSON config file
+uv run python manage.py run_pipeline --config path/to/pipeline.json
+```
+
+### Monitor Pipeline Command
+
+View and monitor pipeline runs:
+
+```bash
+# List recent pipeline runs (default: 10)
+uv run python manage.py monitor_pipeline
+
+# List more runs
+uv run python manage.py monitor_pipeline --limit 50
+
+# Filter by status
+uv run python manage.py monitor_pipeline --status failed
+uv run python manage.py monitor_pipeline --status completed
+
+# Get details for a specific run
+uv run python manage.py monitor_pipeline --run-id abc123
 ```
 
 ### Python API

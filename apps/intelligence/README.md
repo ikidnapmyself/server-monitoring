@@ -77,6 +77,14 @@ uv run python manage.py get_recommendations --json
 
 # List available providers
 uv run python manage.py get_recommendations --list-providers
+
+# Use a specific provider
+uv run python manage.py get_recommendations --provider local
+
+# Customize analysis parameters
+uv run python manage.py get_recommendations --top-n 5          # Top N processes to show
+uv run python manage.py get_recommendations --threshold-mb 50  # Min file size for "large"
+uv run python manage.py get_recommendations --old-days 7       # Age for old file detection
 ```
 
 ### HTTP API

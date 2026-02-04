@@ -357,6 +357,9 @@ python manage.py check_and_alert --no-incidents
 # Add custom labels to all alerts
 python manage.py check_and_alert --label env=production --label team=sre
 
+# Override hostname in alert labels
+python manage.py check_and_alert --hostname my-custom-hostname
+
 # Output as JSON
 python manage.py check_and_alert --json
 

@@ -169,7 +169,7 @@ Example channel config for Slack:
 # Show available drivers
 python manage.py list_notify_drivers
 
-# Show detailed configuration requirements
+# Show detailed configuration requirements (required/optional fields)
 python manage.py list_notify_drivers --verbose
 ```
 
