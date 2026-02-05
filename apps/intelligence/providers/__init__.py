@@ -4,6 +4,8 @@ Intelligence providers registry.
 Providers analyze system state and incidents to generate actionable recommendations.
 """
 
+from typing import Callable
+
 from apps.intelligence.providers.base import (
     BaseProvider,
     Recommendation,
@@ -29,12 +31,17 @@ except ImportError:
     OpenAIRecommendationProvider = None  # type: ignore[misc, assignment]
 
 
-def get_provider(name: str, **kwargs) -> BaseProvider:
+def get_provider(
+    name: str = "local",
+    progress_callback: Callable[[str], None] | None = None,
+    **kwargs,
+) -> BaseProvider:
     """
     Get a provider instance by name.
 
     Args:
         name: Provider name (e.g., 'local').
+        progress_callback: Optional callback function for progress messages.
         **kwargs: Provider-specific configuration.
 
     Returns:
@@ -45,7 +52,12 @@ def get_provider(name: str, **kwargs) -> BaseProvider:
     """
     if name not in PROVIDERS:
         raise KeyError(f"Unknown provider: {name}. Available: {list(PROVIDERS.keys())}")
-    return PROVIDERS[name](**kwargs)
+    provider_class = PROVIDERS[name]
+    if name == "local":
+        # LocalRecommendationProvider accepts progress_callback, but the registry
+        # types it as type[BaseProvider] which doesn't have this parameter
+        return provider_class(progress_callback=progress_callback, **kwargs)  # type: ignore[call-arg]
+    return provider_class(**kwargs)
 
 
 def list_providers() -> list[str]:
