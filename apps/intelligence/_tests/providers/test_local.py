@@ -94,6 +94,22 @@ class TestLocalRecommendationProvider:
         assert provider.large_file_threshold_mb == 50.0
         assert provider.old_file_days == 7
 
+    def test_provider_calls_progress_callback(self):
+        """Provider should call progress_callback during operations."""
+        progress_messages = []
+
+        def capture_progress(msg):
+            progress_messages.append(msg)
+
+        provider = LocalRecommendationProvider(
+            top_n_processes=3,
+            progress_callback=capture_progress,
+        )
+        provider._get_memory_recommendations()
+
+        assert len(progress_messages) > 0
+        assert any("memory" in msg.lower() for msg in progress_messages)
+
     @patch("apps.intelligence.providers.local.psutil")
     def test_get_top_memory_processes(self, mock_psutil):
         """Test getting top memory-consuming processes."""

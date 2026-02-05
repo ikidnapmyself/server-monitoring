@@ -12,7 +12,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import psutil
 
@@ -88,6 +88,7 @@ class LocalRecommendationProvider(BaseProvider):
         large_file_threshold_mb: float = 100.0,
         old_file_days: int = 30,
         scan_paths: list[str] | None = None,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> None:
         """
         Initialize the local recommendation provider.
@@ -97,11 +98,13 @@ class LocalRecommendationProvider(BaseProvider):
             large_file_threshold_mb: Minimum size in MB to consider a file "large".
             old_file_days: Age in days after which a log file is considered old.
             scan_paths: Custom paths to scan for disk analysis.
+            progress_callback: Optional callback function for progress messages.
         """
         self.top_n_processes = top_n_processes
         self.large_file_threshold_mb = large_file_threshold_mb
         self.old_file_days = old_file_days
         self.scan_paths = scan_paths or self.LOG_DIRECTORIES
+        self._progress = progress_callback or (lambda msg: None)
 
     def analyze(self, incident: Any | None = None) -> list[Recommendation]:
         """
