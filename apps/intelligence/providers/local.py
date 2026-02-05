@@ -295,9 +295,11 @@ class LocalRecommendationProvider(BaseProvider):
         """
         recommendations = []
 
+        self._progress(f"Scanning {path} for large files (>{self.large_file_threshold_mb} MB)...")
         # Get large files and directories
         large_items = self._scan_large_files(path)
         old_files = self._find_old_logs()
+        self._progress(f"  -> Found {len(large_items)} large items")
 
         # Large files recommendation
         if large_items:
@@ -565,6 +567,13 @@ class LocalRecommendationProvider(BaseProvider):
                                     is_directory=os.path.isdir(path),
                                 )
                             )
+                            # Report large files found
+                            if days_ago > self.old_file_days:
+                                self._progress(
+                                    f"  Found: {path} ({size_mb:.1f} MB, {days_ago} days) [OLD]"
+                                )
+                            else:
+                                self._progress(f"  Found: {path} ({size_mb:.1f} MB) [LARGE]")
                         except ValueError:
                             continue
 
@@ -580,21 +589,34 @@ class LocalRecommendationProvider(BaseProvider):
             if not scan_path.exists():
                 return large_items
 
+            checked_count = 0
             for item in scan_path.rglob("*"):
                 try:
                     if item.is_file():
+                        checked_count += 1
+                        # Show progress every 100 files to avoid flooding
+                        if checked_count % 100 == 0:
+                            self._progress(f"  Checking {item} ({checked_count} files scanned)")
                         size = item.stat().st_size
                         if size >= threshold_bytes:
                             mtime = datetime.fromtimestamp(item.stat().st_mtime)
                             days_ago = (now - mtime).days
+                            size_mb = size / (1024 * 1024)
                             large_items.append(
                                 LargeFileInfo(
                                     path=str(item),
-                                    size_mb=size / (1024 * 1024),
+                                    size_mb=size_mb,
                                     modified_days_ago=days_ago,
                                     is_directory=False,
                                 )
                             )
+                            # Report large files found
+                            if days_ago > self.old_file_days:
+                                self._progress(
+                                    f"  Found: {str(item)} ({size_mb:.1f} MB, {days_ago} days) [OLD]"
+                                )
+                            else:
+                                self._progress(f"  Found: {str(item)} ({size_mb:.1f} MB) [LARGE]")
                 except (PermissionError, OSError):
                     continue
 
