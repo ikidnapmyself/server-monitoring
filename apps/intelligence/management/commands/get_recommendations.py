@@ -19,6 +19,15 @@ from apps.intelligence.providers import get_provider, list_providers
 class Command(BaseCommand):
     help = "Get intelligence recommendations based on system state or incidents"
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._json_mode = False
+
+    def _progress(self, msg: str) -> None:
+        """Write progress message to stdout, unless in JSON mode."""
+        if not self._json_mode:
+            self.stdout.write(msg)
+
     def add_arguments(self, parser):
         parser.add_argument(
             "--incident-id",
@@ -82,6 +91,9 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # Set json mode flag
+        self._json_mode = options.get("json", False)
+
         # List providers
         if options["list_providers"]:
             providers = list_providers()
@@ -94,6 +106,7 @@ class Command(BaseCommand):
         try:
             provider = get_provider(
                 options["provider"],
+                progress_callback=self._progress,
                 top_n_processes=options["top_n"],
                 large_file_threshold_mb=options["threshold_mb"],
                 old_file_days=options["old_days"],

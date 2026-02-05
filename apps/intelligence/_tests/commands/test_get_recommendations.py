@@ -2,7 +2,7 @@
 
 import json
 from io import StringIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from django.core.management import call_command
@@ -78,6 +78,7 @@ class TestProviderSelection:
 
         mock_get_provider.assert_called_once_with(
             "local",
+            progress_callback=ANY,
             top_n_processes=5,
             large_file_threshold_mb=50.0,
             old_file_days=7,
@@ -459,3 +460,69 @@ class TestPrintRecommendations:
         assert "HIGH" in output
         assert "MEDIUM" in output
         assert "LOW" in output
+
+
+class TestProgressCallback:
+    """Tests for progress callback functionality."""
+
+    @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
+    def test_get_recommendations_shows_progress(self, mock_get_provider):
+        """Test that progress messages are shown in normal mode."""
+        mock_provider = MagicMock()
+        mock_provider._get_memory_recommendations.return_value = []
+
+        # Capture the progress callback when get_provider is called
+        def capture_callback(*args, **kwargs):
+            # Call the progress callback to simulate progress output
+            if "progress_callback" in kwargs and kwargs["progress_callback"]:
+                kwargs["progress_callback"]("Analyzing memory")
+            return mock_provider
+
+        mock_get_provider.side_effect = capture_callback
+
+        out = StringIO()
+        call_command("get_recommendations", "--memory", stdout=out)
+
+        output = out.getvalue()
+        assert "Analyzing memory" in output
+
+    @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
+    def test_get_recommendations_no_progress_in_json_mode(self, mock_get_provider):
+        """Test that progress messages are suppressed in JSON mode."""
+        mock_provider = MagicMock()
+        mock_provider._get_memory_recommendations.return_value = []
+
+        # Capture the progress callback when get_provider is called
+        def capture_callback(*args, **kwargs):
+            # Call the progress callback to simulate progress output
+            if "progress_callback" in kwargs and kwargs["progress_callback"]:
+                kwargs["progress_callback"]("Analyzing memory")
+            return mock_provider
+
+        mock_get_provider.side_effect = capture_callback
+
+        out = StringIO()
+        call_command("get_recommendations", "--memory", "--json", stdout=out)
+
+        output = out.getvalue()
+        # Should be valid JSON with no progress text
+        data = json.loads(output)
+        assert "provider" in data
+        # Should NOT contain progress messages
+        assert "Analyzing memory" not in output
+
+    @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
+    def test_progress_callback_is_passed_to_provider(self, mock_get_provider):
+        """Test that progress_callback is passed to get_provider."""
+        mock_provider = MagicMock()
+        mock_provider.get_recommendations.return_value = []
+        mock_get_provider.return_value = mock_provider
+
+        out = StringIO()
+        call_command("get_recommendations", stdout=out)
+
+        # Verify progress_callback was passed
+        mock_get_provider.assert_called_once()
+        call_kwargs = mock_get_provider.call_args[1]
+        assert "progress_callback" in call_kwargs
+        assert callable(call_kwargs["progress_callback"])
