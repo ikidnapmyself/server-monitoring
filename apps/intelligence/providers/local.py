@@ -222,10 +222,16 @@ class LocalRecommendationProvider(BaseProvider):
 
         Returns recommendations about top memory-consuming processes.
         """
+        self._progress("Analyzing memory usage...")
         recommendations = []
+        self._progress("  Collecting process information...")
         top_processes = self._get_top_memory_processes()
+        self._progress("  Sorting by memory usage...")
 
         if top_processes:
+            top_proc = top_processes[0]
+            self._progress(f"  → Top consumer: {top_proc.name} ({top_proc.memory_percent:.1f}%)")
+            self._progress(f"  → Found {len(top_processes)} processes using >0.1% memory")
             # Calculate total memory used by top processes
             total_mem_percent = sum(p.memory_percent for p in top_processes)
 
