@@ -1,5 +1,6 @@
 """SpinnerProgress helper class for terminal progress with in-place updates."""
 
+import sys
 from typing import TextIO
 
 
@@ -19,15 +20,23 @@ class SpinnerProgress:
     SPINNER_CHARS = "\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f"
     CHECKMARK = "\u2713"
 
-    def __init__(self, output: TextIO, is_tty: bool = True):
+    def __init__(
+        self,
+        output: TextIO,
+        is_tty: bool | None = None,
+        tty_output: TextIO | None = None,
+    ):
         """Initialize the spinner progress helper.
 
         Args:
-            output: The output stream to write to (e.g., sys.stdout)
-            is_tty: Whether the output is a TTY (enables in-place updates)
+            output: The output stream for non-TTY messages
+            is_tty: Whether to enable TTY mode (auto-detects if None)
+            tty_output: Override TTY output stream (for testing; defaults to sys.stdout)
         """
         self.output = output
-        self.is_tty = is_tty
+        # Use sys.stdout for TTY writes (more reliable than Django's wrapper) unless overridden
+        self._tty_output = tty_output if tty_output is not None else sys.stdout
+        self.is_tty = is_tty if is_tty is not None else self._tty_output.isatty()
         self._spinner_index = 0
         self._last_line_length = 0
 
@@ -41,8 +50,8 @@ class SpinnerProgress:
         """Clear the current line (TTY mode only)."""
         if self.is_tty and self._last_line_length > 0:
             # Move to start of line and clear with spaces
-            self.output.write("\r" + " " * self._last_line_length + "\r")
-            self.output.flush()
+            self._tty_output.write("\r" + " " * self._last_line_length + "\r")
+            self._tty_output.flush()
 
     def start(self, msg: str) -> None:
         """Print the initial message.
@@ -53,9 +62,9 @@ class SpinnerProgress:
         if self.is_tty:
             spinner = self._get_spinner_char()
             line = f"{spinner} {msg}"
-            self.output.write(line)
+            self._tty_output.write(line)
             self._last_line_length = len(line)
-            self.output.flush()
+            self._tty_output.flush()
         else:
             self.output.write(f"{msg}\n")
             self.output.flush()
@@ -71,10 +80,13 @@ class SpinnerProgress:
         """
         if self.is_tty:
             spinner = self._get_spinner_char()
-            line = f"\r{spinner} {msg}"
-            self.output.write(line)
-            self._last_line_length = len(line) - 1  # Exclude \r from length
-            self.output.flush()
+            new_line = f"{spinner} {msg}"
+            # Pad with spaces to clear any leftover characters from previous longer line
+            padding = " " * max(0, self._last_line_length - len(new_line))
+            # Write directly to sys.stdout for reliable TTY behavior
+            self._tty_output.write(f"\r{new_line}{padding}")
+            self._last_line_length = len(new_line)
+            self._tty_output.flush()
         # Non-TTY: Don't output anything for updates to avoid spam
 
     def found(self, msg: str) -> None:
@@ -88,9 +100,12 @@ class SpinnerProgress:
         """
         if self.is_tty:
             self._clear_line()
-        self.output.write(f"  {msg}\n")
+            self._tty_output.write(f"  {msg}\n")
+            self._tty_output.flush()
+        else:
+            self.output.write(f"  {msg}\n")
+            self.output.flush()
         self._last_line_length = 0
-        self.output.flush()
 
     def finish(self, msg: str) -> None:
         """Print the completion message with a checkmark.
@@ -100,6 +115,9 @@ class SpinnerProgress:
         """
         if self.is_tty:
             self._clear_line()
-        self.output.write(f"{self.CHECKMARK} {msg}\n")
+            self._tty_output.write(f"{self.CHECKMARK} {msg}\n")
+            self._tty_output.flush()
+        else:
+            self.output.write(f"{self.CHECKMARK} {msg}\n")
+            self.output.flush()
         self._last_line_length = 0
-        self.output.flush()

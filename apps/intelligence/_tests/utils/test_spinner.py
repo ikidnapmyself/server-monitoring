@@ -11,7 +11,7 @@ class TestSpinnerProgress:
     def test_spinner_update_overwrites_line(self):
         """Spinner update should use carriage return to overwrite."""
         output = io.StringIO()
-        spinner = SpinnerProgress(output, is_tty=True)
+        spinner = SpinnerProgress(output, is_tty=True, tty_output=output)
         spinner.update("Processing... 10 files")
         spinner.update("Processing... 20 files")
         assert "\r" in output.getvalue()
@@ -19,7 +19,7 @@ class TestSpinnerProgress:
     def test_spinner_found_prints_on_new_line(self):
         """Found items should print on their own line."""
         output = io.StringIO()
-        spinner = SpinnerProgress(output, is_tty=True)
+        spinner = SpinnerProgress(output, is_tty=True, tty_output=output)
         spinner.update("Scanning...")
         spinner.found("Found: /path/file.log (100 MB)")
         assert "Found: /path/file.log" in output.getvalue()
@@ -28,7 +28,7 @@ class TestSpinnerProgress:
     def test_spinner_finish_shows_checkmark(self):
         """Finish should show completion with checkmark."""
         output = io.StringIO()
-        spinner = SpinnerProgress(output, is_tty=True)
+        spinner = SpinnerProgress(output, is_tty=True, tty_output=output)
         spinner.finish("Done, found 3 items")
         assert "\u2713" in output.getvalue()
 
@@ -43,14 +43,14 @@ class TestSpinnerProgress:
     def test_spinner_start_prints_initial_message(self):
         """Start should print the initial message."""
         output = io.StringIO()
-        spinner = SpinnerProgress(output, is_tty=True)
+        spinner = SpinnerProgress(output, is_tty=True, tty_output=output)
         spinner.start("Starting scan...")
         assert "Starting scan..." in output.getvalue()
 
     def test_spinner_cycles_through_braille_chars(self):
         """Spinner should cycle through braille dot characters."""
         output = io.StringIO()
-        spinner = SpinnerProgress(output, is_tty=True)
+        spinner = SpinnerProgress(output, is_tty=True, tty_output=output)
         # Call update multiple times to cycle through spinner chars
         for _ in range(12):
             spinner.update("Testing...")
@@ -63,7 +63,7 @@ class TestSpinnerProgress:
     def test_spinner_found_indents_with_two_spaces(self):
         """Found messages should be indented with 2 spaces."""
         output = io.StringIO()
-        spinner = SpinnerProgress(output, is_tty=True)
+        spinner = SpinnerProgress(output, is_tty=True, tty_output=output)
         spinner.found("Test discovery")
         assert "  " in output.getvalue()
 
@@ -91,7 +91,7 @@ class TestSpinnerProgress:
     def test_spinner_clears_line_before_found(self):
         """In TTY mode, found should clear the spinner line first."""
         output = io.StringIO()
-        spinner = SpinnerProgress(output, is_tty=True)
+        spinner = SpinnerProgress(output, is_tty=True, tty_output=output)
         spinner.update("Scanning...")
         spinner.found("Discovery!")
         # Should have cleared line (spaces) before printing found
@@ -101,7 +101,7 @@ class TestSpinnerProgress:
     def test_spinner_clears_line_before_finish(self):
         """In TTY mode, finish should clear the spinner line."""
         output = io.StringIO()
-        spinner = SpinnerProgress(output, is_tty=True)
+        spinner = SpinnerProgress(output, is_tty=True, tty_output=output)
         spinner.update("Working...")
         spinner.finish("Done!")
         content = output.getvalue()
