@@ -467,15 +467,21 @@ class TestProgressCallback:
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
     def test_get_recommendations_shows_progress(self, mock_get_provider):
-        """Test that progress messages are shown in normal mode."""
+        """Test that progress messages are shown in normal mode.
+
+        Note: In non-TTY mode (like StringIO), only "Found:" messages
+        appear in output. Regular spinner updates are suppressed to
+        avoid spamming CI/CD logs.
+        """
         mock_provider = MagicMock()
         mock_provider._get_memory_recommendations.return_value = []
 
         # Capture the progress callback when get_provider is called
         def capture_callback(*args, **kwargs):
             # Call the progress callback to simulate progress output
+            # Use "Found:" prefix so it appears in non-TTY mode
             if "progress_callback" in kwargs and kwargs["progress_callback"]:
-                kwargs["progress_callback"]("Analyzing memory")
+                kwargs["progress_callback"]("Found: /var/log/test.log (100 MB)")
             return mock_provider
 
         mock_get_provider.side_effect = capture_callback
@@ -484,7 +490,8 @@ class TestProgressCallback:
         call_command("get_recommendations", "--memory", stdout=out)
 
         output = out.getvalue()
-        assert "Analyzing memory" in output
+        assert "Found:" in output
+        assert "/var/log/test.log" in output
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
     def test_get_recommendations_no_progress_in_json_mode(self, mock_get_provider):

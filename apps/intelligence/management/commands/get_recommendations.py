@@ -14,6 +14,7 @@ import json
 from django.core.management.base import BaseCommand
 
 from apps.intelligence.providers import get_provider, list_providers
+from apps.intelligence.utils.spinner import SpinnerProgress
 
 
 class Command(BaseCommand):
@@ -22,11 +23,31 @@ class Command(BaseCommand):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._json_mode = False
+        self._spinner: SpinnerProgress | None = None
 
     def _progress(self, msg: str) -> None:
-        """Write progress message to stdout, unless in JSON mode."""
-        if not self._json_mode:
+        """Write progress message to stdout, unless in JSON mode.
+
+        Routes messages to appropriate spinner methods based on content:
+        - Messages containing "Found:" → spinner.found()
+        - Messages starting with "✓", "->", or "→" → spinner.finish()
+        - Other messages → spinner.update()
+        """
+        if self._json_mode:
+            return
+
+        if self._spinner is None:
+            # Fallback to simple write if spinner not initialized
             self.stdout.write(msg)
+            return
+
+        # Route to appropriate spinner method based on message content
+        if "Found:" in msg:
+            self._spinner.found(msg)
+        elif msg.startswith("✓") or msg.startswith("->") or msg.startswith("→"):
+            self._spinner.finish(msg)
+        else:
+            self._spinner.update(msg)
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -93,6 +114,10 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         # Set json mode flag
         self._json_mode = options.get("json", False)
+
+        # Create spinner for progress output (only if not in JSON mode)
+        if not self._json_mode:
+            self._spinner = SpinnerProgress(self.stdout, is_tty=self.stdout.isatty())
 
         # List providers
         if options["list_providers"]:
