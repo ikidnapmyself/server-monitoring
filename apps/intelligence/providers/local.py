@@ -222,16 +222,13 @@ class LocalRecommendationProvider(BaseProvider):
 
         Returns recommendations about top memory-consuming processes.
         """
-        self._progress("Analyzing memory usage...")
+        self._progress("Analyzing memory...")
         recommendations = []
-        self._progress("  Collecting process information...")
         top_processes = self._get_top_memory_processes()
-        self._progress("  Sorting by memory usage...")
+        self._progress(f"Analyzing memory... {len(top_processes)} processes")
 
         if top_processes:
-            top_proc = top_processes[0]
-            self._progress(f"  → Top consumer: {top_proc.name} ({top_proc.memory_percent:.1f}%)")
-            self._progress(f"  → Found {len(top_processes)} processes using >0.1% memory")
+            self._progress(f"-> Analyzed {len(top_processes)} processes")
             # Calculate total memory used by top processes
             total_mem_percent = sum(p.memory_percent for p in top_processes)
 
@@ -295,11 +292,11 @@ class LocalRecommendationProvider(BaseProvider):
         """
         recommendations = []
 
-        self._progress(f"Scanning {path} for large files (>{self.large_file_threshold_mb} MB)...")
+        self._progress(f"Scanning {path}...")
         # Get large files and directories
         large_items = self._scan_large_files(path)
         old_files = self._find_old_logs()
-        self._progress(f"  -> Found {len(large_items)} large items")
+        self._progress(f"-> Scanned {path}, found {len(large_items)} large items")
 
         # Large files recommendation
         if large_items:
@@ -570,10 +567,10 @@ class LocalRecommendationProvider(BaseProvider):
                             # Report large files found
                             if days_ago > self.old_file_days:
                                 self._progress(
-                                    f"  Found: {path} ({size_mb:.1f} MB, {days_ago} days) [OLD]"
+                                    f"Found: {path} ({size_mb:.1f} MB, {days_ago} days old)"
                                 )
                             else:
-                                self._progress(f"  Found: {path} ({size_mb:.1f} MB) [LARGE]")
+                                self._progress(f"Found: {path} ({size_mb:.1f} MB)")
                         except ValueError:
                             continue
 
@@ -596,7 +593,7 @@ class LocalRecommendationProvider(BaseProvider):
                         checked_count += 1
                         # Show progress every 100 files to avoid flooding
                         if checked_count % 100 == 0:
-                            self._progress(f"  Checking {item} ({checked_count} files scanned)")
+                            self._progress(f"Scanning... {checked_count} files")
                         size = item.stat().st_size
                         if size >= threshold_bytes:
                             mtime = datetime.fromtimestamp(item.stat().st_mtime)
@@ -613,10 +610,10 @@ class LocalRecommendationProvider(BaseProvider):
                             # Report large files found
                             if days_ago > self.old_file_days:
                                 self._progress(
-                                    f"  Found: {str(item)} ({size_mb:.1f} MB, {days_ago} days) [OLD]"
+                                    f"Found: {str(item)} ({size_mb:.1f} MB, {days_ago} days old)"
                                 )
                             else:
-                                self._progress(f"  Found: {str(item)} ({size_mb:.1f} MB) [LARGE]")
+                                self._progress(f"Found: {str(item)} ({size_mb:.1f} MB)")
                 except (PermissionError, OSError):
                     continue
 
