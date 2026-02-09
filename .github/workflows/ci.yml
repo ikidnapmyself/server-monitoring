@@ -1,69 +1,125 @@
-name: Tests
+name: CI
 
 on:
   push:
-    branches: ["main"]
-    paths:
-      - '**/*.py'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - 'apps/**'
-      - 'config/**'
+    branches: [main, develop]
   pull_request:
-    paths:
-      - '**/*.py'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - 'apps/**'
-      - 'config/**'
+    branches: [main, develop]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  DJANGO_SECRET_KEY: ci-not-a-secret
+  DJANGO_SETTINGS_MODULE: config.settings
+
 jobs:
-  test:
+  lint:
+    name: Lint & Format
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v5
         with:
           version: "latest"
           enable-cache: true
 
-      - name: Cache uv
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/uv
-          key: ${{ runner.os }}-uv-${{ hashFiles('**/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-uv-
-
-      - name: Sync dependencies (incl. dev tools)
+      - name: Install dependencies
         run: uv sync --extra dev
 
-      - name: Tests with coverage
-        env:
-          DJANGO_SECRET_KEY: "ci-not-a-secret"
-        run: uv run coverage run manage.py test
+      - name: Check formatting (Black)
+        run: uv run black --check apps config
 
-      - name: Generate coverage report
+      - name: Lint (Ruff)
+        run: uv run ruff check apps config
+
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Type check (mypy)
+        run: uv run mypy apps config --ignore-missing-imports
+
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run tests with coverage
         run: |
-          uv run coverage report
-          uv run coverage xml
+          uv run pytest --cov=apps --cov=config --cov-report=xml --cov-report=term-missing -v
 
       - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.10'
         uses: codecov/codecov-action@v4
         with:
           files: ./coverage.xml
+          flags: unittests
           fail_ci_if_error: false
-          verbose: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  django:
+    name: Django Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Django system check
+        run: uv run python manage.py check
+
+      - name: Check for missing migrations
+        run: uv run python manage.py makemigrations --check --dry-run
