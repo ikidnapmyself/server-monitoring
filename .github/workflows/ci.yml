@@ -1,18 +1,11 @@
 name: CI
 
 on:
-  push:
-    branches: [main, develop]
   pull_request:
-    branches: [main, develop]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  DJANGO_SECRET_KEY: ci-not-a-secret
-  DJANGO_SETTINGS_MODULE: config.settings
 
 jobs:
   lint:
