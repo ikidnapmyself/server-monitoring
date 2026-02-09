@@ -79,8 +79,12 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run tests with coverage
+        env:
+          DJANGO_SECRET_KEY: ci-test-key
         run: |
-          uv run pytest --cov=apps --cov=config --cov-report=xml --cov-report=term-missing -v
+          uv run coverage run manage.py test
+          uv run coverage xml
+          uv run coverage report
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.10'
@@ -112,7 +116,11 @@ jobs:
         run: uv sync --extra dev
 
       - name: Django system check
+        env:
+          DJANGO_SECRET_KEY: ci-test-key
         run: uv run python manage.py check
 
       - name: Check for missing migrations
+        env:
+          DJANGO_SECRET_KEY: ci-test-key
         run: uv run python manage.py makemigrations --check --dry-run

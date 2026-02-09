@@ -1,3 +1,8 @@
+checks:
+    python:
+        code_rating: true
+        duplicate_code: true
+
 build:
   environment:
     python: 3.10.19
@@ -24,10 +29,7 @@ build:
 
       tests:
         override:
-          - command: 'uv run pytest --cov=apps --cov=config --cov-report=xml:coverage.xml --cov-report=term-missing -v'
-            coverage:
-              file: 'coverage.xml'
-              format: 'py-cc'
+          - command: 'uv run manage.py test'
 
 filter:
   excluded_paths:
