@@ -35,10 +35,10 @@ jobs:
         run: uv sync --extra dev
 
       - name: Check formatting (Black)
-        run: uv run black --check apps config
+        run: uv run black --check .
 
       - name: Lint (Ruff)
-        run: uv run ruff check apps config
+        run: uv run ruff check .
 
   typecheck:
     name: Type Check
