@@ -35,10 +35,10 @@ jobs:
         run: uv sync --extra dev
 
       - name: Check formatting (Black)
-        run: uv run black --check apps config
+        run: uv run black --check .
 
       - name: Lint (Ruff)
-        run: uv run ruff check apps config
+        run: uv run ruff check .
 
   typecheck:
     name: Type Check
@@ -60,7 +60,7 @@ jobs:
         run: uv sync --extra dev
 
       - name: Type check (mypy)
-        run: uv run mypy apps config --ignore-missing-imports
+        run: uv run mypy . --ignore-missing-imports
 
   test:
     name: Test (Python ${{ matrix.python-version }})
