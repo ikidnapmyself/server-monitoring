@@ -60,7 +60,7 @@ jobs:
         run: uv sync --extra dev
 
       - name: Type check (mypy)
-        run: uv run mypy . --ignore-missing-imports
+        run: uv run mypy .
 
   test:
     name: Test (Python ${{ matrix.python-version }})
