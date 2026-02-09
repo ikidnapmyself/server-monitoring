@@ -64,11 +64,6 @@ filter:
     - "*/tests.py"
     - "*/_tests/*"
 
-coding_style:
-  python:
-    # Delegate to black/ruff - disable built-in checks
-    enabled: false
-
 tools:
   external_code_coverage:
     timeout: 600
