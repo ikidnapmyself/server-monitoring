@@ -1,6 +1,6 @@
 build:
   environment:
-    python: "3.10"
+    python: 3.10^
     variables:
       DJANGO_SETTINGS_MODULE: "config.settings"
       DJANGO_SECRET_KEY: "scrutinizer-test-key-not-for-production"
