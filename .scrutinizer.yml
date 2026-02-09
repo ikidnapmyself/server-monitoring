@@ -1,0 +1,81 @@
+# Scrutinizer CI Configuration
+# https://scrutinizer-ci.com/docs/
+
+build:
+  environment:
+    python: "3.10"
+    variables:
+      DJANGO_SETTINGS_MODULE: "config.settings"
+      DJANGO_SECRET_KEY: "scrutinizer-test-key-not-for-production"
+      PYTHONPATH: "."
+
+  nodes:
+    analysis:
+      tests:
+        override:
+          - py-scrutinizer-run
+
+    tests:
+      dependencies:
+        before:
+          # Install uv package manager
+          - curl -LsSf https://astral.sh/uv/install.sh | sh
+          - source $HOME/.local/bin/env || export PATH="$HOME/.local/bin:$PATH"
+
+      project_setup:
+        override:
+          # Install all dependencies including dev tools
+          - uv sync --all-extras
+
+      tests:
+        override:
+          # Run pytest with coverage
+          - command: 'uv run pytest --cov=apps --cov=config --cov-report=xml:coverage.xml --cov-report=term-missing -v'
+            coverage:
+              file: 'coverage.xml'
+              format: 'py-cc'
+
+          # Type checking with mypy
+          - uv run mypy apps config --ignore-missing-imports || true
+
+          # Linting with ruff
+          - uv run ruff check apps config
+
+          # Format check with black
+          - uv run black --check apps config
+
+checks:
+  python:
+    code_rating: true
+    duplicate_code: true
+    variables: true
+    arguments: true
+
+filter:
+  excluded_paths:
+    - "*/migrations/*"
+    - "*/__pycache__/*"
+    - ".venv/*"
+    - "venv/*"
+    - "docs/*"
+    - "bin/*"
+    - "*.pyc"
+    - "*_test.py"
+    - "*/tests.py"
+    - "*/_tests/*"
+
+coding_style:
+  python:
+    # Delegate to black/ruff - disable built-in checks
+    enabled: false
+
+tools:
+  external_code_coverage:
+    timeout: 600
+    runs: 1
+
+build_failure_conditions:
+  # Fail if code rating drops below C
+  - 'elements.rating(<= D).new.exists'
+  # Fail if coverage drops below 40%
+  - 'project.metric("scrutinizer.test_coverage", < 0.40)'
