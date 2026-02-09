@@ -1,7 +1,7 @@
 # server-maintanence
 
 [![Scrutinizer Code Quality](https://scrutinizer-ci.com/g/ikidnapmyself/server-monitoring/badges/quality-score.png?b=main)](https://scrutinizer-ci.com/g/ikidnapmyself/server-monitoring/?branch=main)
-[![Code Coverage](https://scrutinizer-ci.com/g/ikidnapmyself/server-monitoring/badges/coverage.png?b=main)](https://scrutinizer-ci.com/g/ikidnapmyself/server-monitoring/?branch=main)
+[![codecov](https://codecov.io/gh/ikidnapmyself/server-monitoring/branch/main/graph/badge.svg)](https://codecov.io/gh/ikidnapmyself/server-monitoring)
 [![Build Status](https://scrutinizer-ci.com/g/ikidnapmyself/server-monitoring/badges/build.png?b=main)](https://scrutinizer-ci.com/g/ikidnapmyself/server-monitoring/build-status/main)
 [![Code Intelligence Status](https://scrutinizer-ci.com/g/ikidnapmyself/server-monitoring/badges/code-intelligence.svg?b=main)](https://scrutinizer-ci.com/code-intelligence)
 
