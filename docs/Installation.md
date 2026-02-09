@@ -2,8 +2,7 @@
 
 This repo supports **two install paths**:
 
-1) **Quick install (recommended)** — uses the provided shell scripts
-2) **Manual install** — run the commands yourself (useful for CI or custom setups)
+[toc]
 
 ---
 
@@ -15,7 +14,7 @@ This repo supports **two install paths**:
 
 ---
 
-## 1) Quick install (recommended)
+## 1) Quick install
 
 ### 1.1 Clone the repo
 
@@ -88,32 +87,52 @@ tail -f ./cron.log
 
 ---
 
-## 3) Manual installation (no scripts)
+## 4) Interactive CLI (recommended)
+
+After installation, use the interactive CLI for a guided experience:
+
+```bash
+./bin/cli.sh
+```
+
+The CLI provides menus for all management commands with their available options.
+
+Direct shortcuts:
+```bash
+./bin/cli.sh health     # Health monitoring
+./bin/cli.sh intel      # Intelligence recommendations
+./bin/cli.sh pipeline   # Pipeline orchestration
+./bin/cli.sh notify     # Notifications
+```
+
+---
+
+## 4) Manual installation (no scripts)
 
 Use this if you want full control or you’re running in CI.
 
-### 3.1 Clone
+### 4.1 Clone
 
 ```bash
 git clone git@github.com:ikidnapmyself/server-monitoring.git
 cd server-monitoring
 ```
 
-### 3.2 Create and activate a virtualenv
+### 4.2 Create and activate a virtualenv
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
 ```
 
-### 3.3 Install uv (via pip)
+### 4.3 Install uv (via pip)
 
 ```bash
 python -m pip install --upgrade pip
 pip install uv
 ```
 
-### 3.4 Create your `.env`
+### 4.4 Create your `.env`
 
 ```bash
 cp .env.sample .env
@@ -126,7 +145,7 @@ Set at least a secret key (required for real deployments):
 echo 'DJANGO_SECRET_KEY=change-me' >> .env
 ```
 
-### 3.5 Install dependencies
+### 4.5 Install dependencies
 
 Production-style (no dev tools):
 
@@ -140,19 +159,19 @@ Dev install (includes dev tools/extras):
 uv sync --all-extras --dev
 ```
 
-### 3.6 Migrate
+### 4.6 Migrate
 
 ```bash
 uv run --frozen python manage.py migrate --noinput
 ```
 
-### 3.7 Django system check
+### 4.7 Django system check
 
 ```bash
 uv run python manage.py check
 ```
 
-### 3.8 Run the server
+### 4.8 Run the server
 
 ```bash
 uv run python manage.py runserver
@@ -160,7 +179,7 @@ uv run python manage.py runserver
 
 ---
 
-## 4) Common next commands
+## 5) Common commands (manual)
 
 ```bash
 # Run health checks
@@ -171,4 +190,7 @@ uv run python manage.py check_health --list
 
 # Run checks + create alerts (cron-friendly)
 uv run python manage.py check_and_alert --json
+
+# Get system recommendations
+uv run python manage.py get_recommendations --all
 ```

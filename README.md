@@ -4,6 +4,8 @@ A small, modular Django project for basic **server maintenance / monitoring** wo
 
 This top-level README is the entry point and documentation hub. App-specific docs live alongside the apps.
 
+[toc]
+
 ## Documentation map
 
 - Installation: [`docs/Installation.md`](docs/Installation.md)
@@ -14,6 +16,7 @@ This top-level README is the entry point and documentation hub. App-specific doc
 - Notifications: [`apps/notify/README.md`](apps/notify/README.md)
 - Intelligence/recommendations: [`apps/intelligence/README.md`](apps/intelligence/README.md)
 - Pipeline orchestration: [`apps/orchestration/README.md`](apps/orchestration/README.md)
+- Shell scripts & CLI: [`bin/README.md`](bin/README.md)
 - Working with repo AI agents / conventions: [`agents.md`](agents.md)
 
 ## Requirements
@@ -271,15 +274,21 @@ cp .env.sample .env
 uv run python manage.py migrate
 ```
 
-Run the health check suite (see full docs in `apps/checkers/README.md`):
+3) Run the interactive CLI (recommended for new users):
 
 ```bash
-uv run python manage.py check_health
+./bin/cli.sh
 ```
 
-List available checkers:
+The CLI guides you through all available commands with their options.
+
+Alternatively, run commands directly:
 
 ```bash
+# Run the health check suite
+uv run python manage.py check_health
+
+# List available checkers
 uv run python manage.py check_health --list
 ```
 
@@ -298,7 +307,7 @@ uv run python manage.py runserver
   - `apps/notify/` — notification drivers (scaffold)
   - `apps/intelligence/` — intelligence/recommendations system
   - `apps/orchestration/` — pipeline orchestration (alerts → checkers → intelligence → notify)
-- `bin/` - shell scripts
+- `bin/` — shell scripts (installer, cron setup, interactive CLI)
 
 ## Contributing / extending
 
