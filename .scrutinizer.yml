@@ -4,34 +4,11 @@ checks:
         duplicate_code: true
 
 build:
-  environment:
-    python:
-      version: 3.10.9
-      virtualenv: true
-    variables:
-      DJANGO_SETTINGS_MODULE: "config.settings"
-      DJANGO_SECRET_KEY: "scrutinizer-test-key-not-for-production"
-      PYTHONPATH: "."
-
   nodes:
     analysis:
       tests:
         override:
           - py-scrutinizer-run
-
-    tests:
-      dependencies:
-        before:
-          - curl -LsSf https://astral.sh/uv/install.sh | sh
-          - source $HOME/.local/bin/env || export PATH="$HOME/.local/bin:$PATH"
-
-      project_setup:
-        override:
-          - uv sync --all-extras
-
-      tests:
-        override:
-          - command: 'uv run manage.py test'
 
 filter:
   excluded_paths:
@@ -41,7 +18,3 @@ filter:
     - "venv/*"
     - "docs/*"
     - "bin/*"
-
-tools:
-  external_code_coverage:
-    timeout: 600
