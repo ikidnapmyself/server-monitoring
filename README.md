@@ -1,7 +1,5 @@
 # server-maintanence
 
-[![codecov](https://codecov.io/gh/ikidnapmyself/server-monitoring/branch/main/graph/badge.svg)](https://codecov.io/gh/ikidnapmyself/server-monitoring)
-
 A small, modular Django project for basic **server maintenance / monitoring** workflows.
 
 This top-level README is the entry point and documentation hub. App-specific docs live alongside the apps.
