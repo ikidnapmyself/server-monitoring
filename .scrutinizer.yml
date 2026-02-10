@@ -6,10 +6,10 @@ build:
       dependencies:
         before:
           - pip install uv
-          - cp .env.test .env
       project_setup:
         override:
-          - uv sync --all-extras
+          - uv sync --all-extras --dev
+          - cp .env.test .env
           - echo "DJANGO_SECRET_KEY=$(python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())')" >> .env
       tests:
         override:
