@@ -53,6 +53,8 @@ jobs:
         run: uv sync --extra dev
 
       - name: Type check (mypy)
+        env:
+          DJANGO_SECRET_KEY: ci-test-key
         run: uv run mypy .
 
   test:
