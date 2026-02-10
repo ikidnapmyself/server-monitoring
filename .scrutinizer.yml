@@ -11,8 +11,6 @@ checks:
   python:
     code_rating: true
     duplicate_code: true
-    base_config:
-      enabled: true
 
 filter:
   excluded_paths:
