@@ -1,14 +1,18 @@
-checks:
-    python:
-        code_rating: true
-        duplicate_code: true
-
 build:
   nodes:
     analysis:
+      environment:
+        python: 3.10.0
       tests:
         override:
           - py-scrutinizer-run
+
+checks:
+  python:
+    code_rating: true
+    duplicate_code: true
+    base_config:
+      enabled: true
 
 filter:
   excluded_paths:
@@ -18,3 +22,4 @@ filter:
     - "venv/*"
     - "docs/*"
     - "bin/*"
+    - "tests/*" # excluded from rating to avoid skewing scores
