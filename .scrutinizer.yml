@@ -3,6 +3,14 @@ build:
     analysis:
       environment:
         python: 3.10.0
+      dependencies:
+        before:
+          - pip install uv
+          - cp .env.test .env
+      project_setup:
+        override:
+          - uv sync --all-extras
+          - echo "DJANGO_SECRET_KEY=$(python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())')" >> .env
       tests:
         override:
           - py-scrutinizer-run
@@ -20,4 +28,4 @@ filter:
     - "venv/*"
     - "docs/*"
     - "bin/*"
-    - "tests/*" # excluded from rating to avoid skewing scores
+    - "tests/*"
