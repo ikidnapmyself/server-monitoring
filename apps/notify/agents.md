@@ -49,23 +49,7 @@ For `apps.notify`, admin should make it easy to:
 
 ## Doc vs code status
 
-Some code in the repo still uses monolithic `views.py` or `tests.py` files. This document declares the **target layout**:
-
-- Move endpoint implementations into `apps/notify/views/<endpoint>.py` modules.
-- Move tests into `apps/notify/_tests/` mirroring the same structure so each module has a corresponding test file.
-
-Migration guidance:
-- Split large `views.py` into multiple modules, keeping public import shims if necessary (for backwards compatibility) during transition.
-- Move tests under `_tests/` and rename them to `test_<module>.py` (or `<module>_tests.py`) to match pytest discovery rules.
-- Update any imports in other parts of the codebase to point to the new module paths; prefer short-lived import shims (e.g. keep `views.py` that re-exports from `views.send` with a TODO comment) during the transition.
-
-Quick example of mirrored layout:
-
-- apps/notify/views/send.py
-- apps/notify/views/drivers.py
-- apps/notify/drivers/slack.py
-- apps/notify/_tests/views/test_send.py
-- apps/notify/_tests/drivers/test_slack.py
+Tests have been migrated to `_tests/` (completed). Some code still uses monolithic `views.py`; migrate to `views/` package when touching related code.
 
 ## Templates and presentation (added)
 

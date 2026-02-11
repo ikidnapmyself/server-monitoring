@@ -35,8 +35,8 @@ uv sync --extra dev
 
 # Run tests
 uv run pytest                              # All tests
-uv run pytest apps/checkers/tests/         # Single app
-uv run pytest apps/checkers/tests/test_cpu.py -v  # Single file
+uv run pytest apps/checkers/_tests/        # Single app
+uv run pytest apps/checkers/_tests/checkers/test_cpu.py -v  # Single file
 
 # Code quality
 uv run black .                             # Format

@@ -49,5 +49,4 @@ For `apps.alerts`, admin should make it easy to:
 
 ## Doc vs code status
 
-This repo currently still contains `views.py` and `tests.py` in some apps.
-This document defines the **target layout going forward**; migrate incrementally when touching related code.
+Tests have been migrated to `_tests/` (completed). Some apps still use monolithic `views.py`; migrate to `views/` package when touching related code.
