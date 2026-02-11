@@ -59,9 +59,9 @@ class Command(BaseCommand):
             return
 
         self.stdout.write(
-            f"{'Run ID':<24} {'Status':<10} {'Trace ID':<24} {'Source':<12} {'Created':<20} {'Duration(ms)':<12}"
+            f"{'Run ID':<36} {'Status':<10} {'Trace ID':<36} {'Source':<12} {'Created':<19} {'Duration(ms)':<12}"
         )
-        self.stdout.write("-" * 100)
+        self.stdout.write("-" * 130)
         for run in qs:
             self.stdout.write(
                 f"{run.run_id:<24} {run.status:<10} {run.trace_id:<24} {run.source:<12} {run.created_at:%Y-%m-%d %H:%M:%S} {run.total_duration_ms:<12.2f}"
