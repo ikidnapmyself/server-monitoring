@@ -49,20 +49,4 @@ For `apps.intelligence`, admin should make it easy to:
 
 ## Doc vs code status
 
-Some code in the repo still uses monolithic `views.py` or `tests.py` files. This document declares the **target layout**:
-
-- Move endpoint implementations into `apps/intelligence/views/<endpoint>.py` modules.
-- Move tests into `apps/intelligence/_tests/` mirroring the same structure so each module has a corresponding test file.
-
-Migration guidance:
-- Split large `views.py` into multiple modules, keeping public import shims if necessary (for backwards compatibility) during transition.
-- Move tests under `_tests/` and rename them to `test_<module>.py` (or `<module>_tests.py`) to match pytest discovery rules.
-- Update any imports in other parts of the codebase to point to the new module paths; prefer short-lived import shims (e.g. keep `views.py` that re-exports from `views.recommendations` with a TODO comment) during the transition.
-
-Quick example of mirrored layout:
-
-- apps/intelligence/views/recommendations.py
-- apps/intelligence/views/providers.py
-- apps/intelligence/providers/local.py
-- apps/intelligence/_tests/views/test_recommendations.py
-- apps/intelligence/_tests/providers/test_local.py
+Tests have been migrated to `_tests/` (completed). Some code still uses monolithic `views.py`; migrate to `views/` package when touching related code.

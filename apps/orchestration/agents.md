@@ -48,7 +48,7 @@ Required tags/fields:
 
 ## Doc vs code status
 
-Some code still uses `views.py` / `tests.py`. This doc defines the **target layout** going forward.
+Tests have been migrated to `_tests/` (completed). Some code still uses monolithic `views.py`; migrate to `views/` package when touching related code.
 
 ## Django Admin expectations
 
