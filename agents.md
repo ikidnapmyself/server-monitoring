@@ -277,9 +277,8 @@ A good plan should include:
 4. **App layout is consistent (required):** every app under `apps/<app_name>/` must include:
    - `views/` (a package directory), organized by endpoint/module (avoid a monolithic `views.py`)
      - Example: `apps/alerts/views/webhook.py`, `apps/alerts/views/health.py`
-   - `tests/` (a package) that mirrors the directories/modules/classes being tested
-     - Example: tests for `apps/alerts/views/webhook.py` live at `apps/alerts/tests/views/test_webhook.py`
-     - Avoid piling everything into a single `tests.py` as the app grows
+   - `_tests/` (a package) that mirrors the directories/modules/classes being tested
+     - Example: tests for `apps/alerts/views/webhook.py` live at `apps/alerts/_tests/views/test_webhook.py`
    - `agents.md` (app-local notes for prompts, conventions, and module-specific guidance)
 5. **Django Admin is an operations surface (required):** every app must provide an **extensive** `admin.py`.
    - Admin should make it easy to manage the app’s models and trace pipeline behavior (via `Incident`, `trace_id/run_id`, and orchestration links).
