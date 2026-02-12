@@ -56,13 +56,13 @@ export CHECKERS_SKIP_ALL=1
 Alternatively, you can disable all checkers by listing them:
 
 ```bash
-export CHECKERS_SKIP=cpu,memory,disk,network,process
+export CHECKERS_SKIP=cpu,memory,disk,disk_macos,disk_linux,disk_common,network,process
 ```
 
-So “skip checks” = disable all of them:
+So "skip checks" = disable all of them:
 
 ```bash
-export CHECKERS_SKIP=cpu,memory,disk,network,process
+export CHECKERS_SKIP=cpu,memory,disk,disk_macos,disk_linux,disk_common,network,process
 ```
 
 With that set, the pipeline still runs, but the check stage has nothing to execute.
@@ -140,7 +140,7 @@ The orchestration app includes a management command to test end-to-end:
 uv run python manage.py run_pipeline --sample
 
 # If you also want to skip checks
-CHECKERS_SKIP=cpu,memory,disk,network,process uv run python manage.py run_pipeline --sample
+CHECKERS_SKIP=cpu,memory,disk,disk_macos,disk_linux,disk_common,network,process uv run python manage.py run_pipeline --sample
 ```
 
 This is the easiest way to confirm your `intelligence` + `notify` stages are wired correctly without building webhooks yet.
