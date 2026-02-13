@@ -10,7 +10,7 @@ def scan_directory(path: str, timeout: float | None = None) -> list[dict]:
     
     Args:
         path: Directory path to scan
-        timeout: Optional timeout in seconds (unused but kept for API consistency)
+        timeout: Optional timeout in seconds for directory size calculations
         
     Returns:
         List of dicts with 'path' and 'size_mb' keys, sorted by size descending
@@ -45,7 +45,7 @@ def find_old_files(path: str, max_age_days: int = 7, timeout: float | None = Non
     Args:
         path: Directory path to scan
         max_age_days: Maximum age in days for files to be considered
-        timeout: Optional timeout in seconds (unused but kept for API consistency)
+        timeout: Optional timeout in seconds for directory size calculations
         
     Returns:
         List of dicts with 'path', 'size_mb', and 'age_days' keys, sorted by size descending
