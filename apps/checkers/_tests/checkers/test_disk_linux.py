@@ -27,8 +27,8 @@ class DiskLinuxCheckerTests(TestCase):
         self.assertEqual(result.metrics.get("platform"), "darwin")
 
     @patch("apps.checkers.checkers.disk_linux.sys")
-    @patch("apps.checkers.checkers.disk_linux.DiskLinuxChecker._scan_directory")
-    @patch("apps.checkers.checkers.disk_linux.DiskLinuxChecker._find_old_files")
+    @patch("apps.checkers.checkers.disk_linux.scan_directory")
+    @patch("apps.checkers.checkers.disk_linux.find_old_files")
     def test_scans_apt_cache(self, mock_old_files, mock_scan, mock_sys):
         """Checker scans /var/cache/apt/archives on Linux."""
         mock_sys.platform = "linux"
@@ -43,8 +43,8 @@ class DiskLinuxCheckerTests(TestCase):
         self.assertIn("space_hogs", result.metrics)
 
     @patch("apps.checkers.checkers.disk_linux.sys")
-    @patch("apps.checkers.checkers.disk_linux.DiskLinuxChecker._scan_directory")
-    @patch("apps.checkers.checkers.disk_linux.DiskLinuxChecker._find_old_files")
+    @patch("apps.checkers.checkers.disk_linux.scan_directory")
+    @patch("apps.checkers.checkers.disk_linux.find_old_files")
     def test_warning_above_threshold(self, mock_old_files, mock_scan, mock_sys):
         """Checker returns WARNING when recoverable exceeds threshold."""
         mock_sys.platform = "linux"
@@ -59,8 +59,8 @@ class DiskLinuxCheckerTests(TestCase):
         self.assertEqual(result.status, CheckStatus.WARNING)
 
     @patch("apps.checkers.checkers.disk_linux.sys")
-    @patch("apps.checkers.checkers.disk_linux.DiskLinuxChecker._scan_directory")
-    @patch("apps.checkers.checkers.disk_linux.DiskLinuxChecker._find_old_files")
+    @patch("apps.checkers.checkers.disk_linux.scan_directory")
+    @patch("apps.checkers.checkers.disk_linux.find_old_files")
     def test_includes_linux_recommendations(self, mock_old_files, mock_scan, mock_sys):
         """Checker includes Linux-specific cleanup recommendations."""
         mock_sys.platform = "linux"
@@ -78,8 +78,8 @@ class DiskLinuxCheckerTests(TestCase):
         self.assertTrue(any("apt" in r.lower() for r in recs))
 
     @patch("apps.checkers.checkers.disk_linux.sys")
-    @patch("apps.checkers.checkers.disk_linux.DiskLinuxChecker._scan_directory")
-    @patch("apps.checkers.checkers.disk_linux.DiskLinuxChecker._find_old_files")
+    @patch("apps.checkers.checkers.disk_linux.scan_directory")
+    @patch("apps.checkers.checkers.disk_linux.find_old_files")
     def test_old_tmp_files(self, mock_old_files, mock_scan, mock_sys):
         """Checker finds old files in /tmp."""
         mock_sys.platform = "linux"
@@ -95,8 +95,8 @@ class DiskLinuxCheckerTests(TestCase):
         self.assertEqual(len(result.metrics["old_files"]), 1)
 
     @patch("apps.checkers.checkers.disk_linux.sys")
-    @patch("apps.checkers.checkers.disk_linux.DiskLinuxChecker._scan_directory")
-    @patch("apps.checkers.checkers.disk_linux.DiskLinuxChecker._find_old_files")
+    @patch("apps.checkers.checkers.disk_linux.scan_directory")
+    @patch("apps.checkers.checkers.disk_linux.find_old_files")
     def test_ok_below_thresholds(self, mock_old_files, mock_scan, mock_sys):
         """Checker returns OK when everything is clean."""
         mock_sys.platform = "linux"

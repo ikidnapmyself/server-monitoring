@@ -16,9 +16,9 @@ class DiskCommonCheckerTests(TestCase):
         return DiskCommonChecker
 
     @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._scan_directory")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._find_old_files")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._find_large_files")
+    @patch("apps.checkers.checkers.disk_common.scan_directory")
+    @patch("apps.checkers.checkers.disk_common.find_old_files")
+    @patch("apps.checkers.checkers.disk_common.find_large_files")
     def test_scans_var_log(self, mock_large, mock_old, mock_scan, mock_expanduser):
         """Checker scans /var/log."""
         mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
@@ -34,11 +34,11 @@ class DiskCommonCheckerTests(TestCase):
         self.assertIn("space_hogs", result.metrics)
 
     @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._scan_directory")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._find_old_files")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._find_large_files")
+    @patch("apps.checkers.checkers.disk_common.scan_directory")
+    @patch("apps.checkers.checkers.disk_common.find_old_files")
+    @patch("apps.checkers.checkers.disk_common.find_large_files")
     def test_finds_large_files_in_home(self, mock_large, mock_old, mock_scan, mock_expanduser):
-        """Checker finds large files in home directory."""
+        """Checker finds large files in the home directory."""
         mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
         mock_scan.return_value = []
         mock_old.return_value = []
@@ -53,11 +53,11 @@ class DiskCommonCheckerTests(TestCase):
         self.assertEqual(len(result.metrics["large_files"]), 1)
 
     @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._scan_directory")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._find_old_files")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._find_large_files")
+    @patch("apps.checkers.checkers.disk_common.scan_directory")
+    @patch("apps.checkers.checkers.disk_common.find_old_files")
+    @patch("apps.checkers.checkers.disk_common.find_large_files")
     def test_warning_above_threshold(self, mock_large, mock_old, mock_scan, mock_expanduser):
-        """Returns WARNING when total recoverable exceeds threshold."""
+        """Returns WARNING when total recoverable exceeds a threshold."""
         mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
         mock_scan.return_value = [
             {"path": "/var/log", "size_mb": 3000.0},
@@ -72,9 +72,9 @@ class DiskCommonCheckerTests(TestCase):
         self.assertEqual(result.status, CheckStatus.WARNING)
 
     @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._scan_directory")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._find_old_files")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._find_large_files")
+    @patch("apps.checkers.checkers.disk_common.scan_directory")
+    @patch("apps.checkers.checkers.disk_common.find_old_files")
+    @patch("apps.checkers.checkers.disk_common.find_large_files")
     def test_includes_recommendations(self, mock_large, mock_old, mock_scan, mock_expanduser):
         """Includes cleanup recommendations."""
         mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
@@ -91,9 +91,9 @@ class DiskCommonCheckerTests(TestCase):
         self.assertIsInstance(result.metrics["recommendations"], list)
 
     @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._scan_directory")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._find_old_files")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._find_large_files")
+    @patch("apps.checkers.checkers.disk_common.scan_directory")
+    @patch("apps.checkers.checkers.disk_common.find_old_files")
+    @patch("apps.checkers.checkers.disk_common.find_large_files")
     def test_old_temp_files(self, mock_large, mock_old, mock_scan, mock_expanduser):
         """Finds old files in /tmp and /var/tmp."""
         mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
@@ -109,9 +109,9 @@ class DiskCommonCheckerTests(TestCase):
         self.assertIn("old_files", result.metrics)
 
     @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._scan_directory")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._find_old_files")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._find_large_files")
+    @patch("apps.checkers.checkers.disk_common.scan_directory")
+    @patch("apps.checkers.checkers.disk_common.find_old_files")
+    @patch("apps.checkers.checkers.disk_common.find_large_files")
     def test_ok_when_clean(self, mock_large, mock_old, mock_scan, mock_expanduser):
         """Returns OK when nothing significant found."""
         mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
@@ -125,9 +125,9 @@ class DiskCommonCheckerTests(TestCase):
         self.assertEqual(result.status, CheckStatus.OK)
 
     @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._scan_directory")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._find_old_files")
-    @patch("apps.checkers.checkers.disk_common.DiskCommonChecker._find_large_files")
+    @patch("apps.checkers.checkers.disk_common.scan_directory")
+    @patch("apps.checkers.checkers.disk_common.find_old_files")
+    @patch("apps.checkers.checkers.disk_common.find_large_files")
     def test_metrics_include_platform(self, mock_large, mock_old, mock_scan, mock_expanduser):
         """Metrics always include platform info."""
         mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")

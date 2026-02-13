@@ -1,10 +1,12 @@
 """Linux disk analysis checker."""
 
-import os
 import sys
-import time
 
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
+from apps.checkers.checkers.disk_utils import (
+    find_old_files,
+    scan_directory,
+)
 
 
 class DiskLinuxChecker(BaseChecker):
@@ -34,14 +36,14 @@ class DiskLinuxChecker(BaseChecker):
             space_hogs = []
             seen = set()
             for target in scan_targets:
-                for item in self._scan_directory(target):
+                for item in scan_directory(target, timeout=self.timeout):
                     if item["path"] not in seen:
                         seen.add(item["path"])
                         space_hogs.append(item)
 
             old_files = []
             for target in old_file_targets:
-                for item in self._find_old_files(target):
+                for item in find_old_files(target, max_age_days=7, timeout=self.timeout):
                     if item["path"] not in seen:
                         seen.add(item["path"])
                         old_files.append(item)
@@ -63,76 +65,6 @@ class DiskLinuxChecker(BaseChecker):
             )
         except Exception as e:
             return self._error_result(str(e))
-
-    def _scan_directory(self, path: str) -> list[dict]:
-        """Scan a directory for subdirectories/files and their sizes."""
-        results: list[dict] = []
-        if not os.path.isdir(path):
-            return results
-        try:
-            with os.scandir(path) as entries:
-                for entry in entries:
-                    try:
-                        if entry.is_dir(follow_symlinks=False):
-                            size = self._dir_size(entry.path)
-                        else:
-                            size = entry.stat(follow_symlinks=False).st_size
-                        size_mb = size / (1024 * 1024)
-                        if size_mb >= 1.0:
-                            results.append({"path": entry.path, "size_mb": round(size_mb, 1)})
-                    except (PermissionError, OSError):
-                        continue
-        except (PermissionError, OSError):
-            pass
-        return sorted(results, key=lambda x: x["size_mb"], reverse=True)
-
-    def _find_old_files(self, path: str, max_age_days: int = 7) -> list[dict]:
-        """Find files older than max_age_days in the given directory."""
-        results: list[dict] = []
-        if not os.path.isdir(path):
-            return results
-        now = time.time()
-        cutoff = now - (max_age_days * 86400)
-        try:
-            with os.scandir(path) as entries:
-                for entry in entries:
-                    try:
-                        stat = entry.stat(follow_symlinks=False)
-                        if stat.st_mtime < cutoff:
-                            if entry.is_dir(follow_symlinks=False):
-                                size = self._dir_size(entry.path)
-                            else:
-                                size = stat.st_size
-                            size_mb = size / (1024 * 1024)
-                            age_days = int((now - stat.st_mtime) / 86400)
-                            results.append(
-                                {
-                                    "path": entry.path,
-                                    "size_mb": round(size_mb, 1),
-                                    "age_days": age_days,
-                                }
-                            )
-                    except (PermissionError, OSError):
-                        continue
-        except (PermissionError, OSError):
-            pass
-        return sorted(results, key=lambda x: x["size_mb"], reverse=True)
-
-    def _dir_size(self, path: str) -> int:
-        """Calculate total size of a directory recursively."""
-        total = 0
-        try:
-            for dirpath, _, filenames in os.walk(path):
-                for f in filenames:
-                    fp = os.path.join(dirpath, f)
-                    try:
-                        if not os.path.islink(fp):
-                            total += os.path.getsize(fp)
-                    except (PermissionError, OSError):
-                        continue
-        except (PermissionError, OSError):
-            pass
-        return total
 
     def _build_recommendations(self, space_hogs, old_files):
         """Generate Linux-specific cleanup recommendations."""
