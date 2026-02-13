@@ -44,7 +44,7 @@ class DiskCommonChecker(BaseChecker):
             old_files = []
             for target in old_file_targets:
                 path = os.path.expanduser(target)
-                for item in find_old_files(path, timeout=self.timeout):
+                for item in find_old_files(path, max_age_days=7, timeout=self.timeout):
                     if item["path"] not in seen:
                         seen.add(item["path"])
                         old_files.append(item)

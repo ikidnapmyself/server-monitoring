@@ -45,7 +45,7 @@ def find_old_files(path: str, max_age_days: int = 7, timeout: float | None = Non
     Args:
         path: Directory path to scan
         max_age_days: Maximum age in days for files to be considered
-        timeout: Optional timeout in seconds for directory size calculations
+        timeout: Optional timeout in seconds to limit scan duration
         
     Returns:
         List of dicts with 'path', 'size_mb', and 'age_days' keys, sorted by size descending

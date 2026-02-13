@@ -44,7 +44,7 @@ class DiskLinuxChecker(BaseChecker):
 
             old_files = []
             for target in old_file_targets:
-                for item in find_old_files(target, timeout=self.timeout):
+                for item in find_old_files(target, max_age_days=7, timeout=self.timeout):
                     if item["path"] not in seen:
                         seen.add(item["path"])
                         old_files.append(item)
