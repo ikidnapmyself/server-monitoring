@@ -108,19 +108,27 @@ def find_large_files(
     min_size_bytes = min_size_mb * 1024 * 1024
     exclude_paths = exclude_paths or set()
 
+    # This ensures /home/user/.cache doesn't match /home/user/.cacheX
+    normalized_excludes = {os.path.normpath(p) + os.sep for p in exclude_paths}
+
     # Calculate deadline if timeout is provided
     deadline = None
     if timeout and timeout > 0:
         deadline = time.monotonic() + timeout
 
     try:
-        for dirpath, _, filenames in os.walk(path):
+        for dirpath, dirnames, filenames in os.walk(path):
             # Check timeout before processing each directory
             if deadline is not None and time.monotonic() >= deadline:
                 break
 
-            # Skip excluded paths
-            if any(dirpath.startswith(excl) for excl in exclude_paths):
+            # Skip excluded paths (check both exact match and subdirectories)
+            norm_dirpath = os.path.normpath(dirpath)
+            if any(
+                norm_dirpath + os.sep == excl or (norm_dirpath + os.sep).startswith(excl)
+                for excl in normalized_excludes
+            ):
+                dirnames.clear()  # Prune walk: don't descend into excluded subtrees
                 continue
 
             for f in filenames:
