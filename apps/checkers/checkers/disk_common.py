@@ -51,7 +51,8 @@ class DiskCommonChecker(BaseChecker):
 
             # Build set of already-scanned paths to exclude from large file walk
             # This prevents double-counting (e.g., ~/.cache files counted both as space_hogs and large_files)
-            exclude_paths = {os.path.expanduser(t) for t in scan_targets}
+            # Normalize paths to ensure consistent comparisons
+            exclude_paths = {os.path.normpath(os.path.expanduser(t)) for t in scan_targets}
             
             large_files = []
             for target in large_file_targets:
