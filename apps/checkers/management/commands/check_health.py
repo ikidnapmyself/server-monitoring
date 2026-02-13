@@ -89,7 +89,10 @@ class Command(BaseCommand):
                 f"Available: {', '.join(CHECKER_REGISTRY.keys())}"
             )
 
-        self.stdout.write(f"Running checkers: {', '.join(checker_names)}\n")
+        if options["json_output"]:
+            self.stderr.write(f"Running checkers: {', '.join(checker_names)}\n")
+        else:
+            self.stdout.write(f"Running checkers: {', '.join(checker_names)}\n")
 
         results = []
         for name in checker_names:

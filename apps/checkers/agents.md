@@ -17,7 +17,7 @@ Output contract (to orchestrator):
 
 - `apps/checkers/checkers/` — checker implementations
   - Registry lives in `apps/checkers/checkers/__init__.py` (`CHECKER_REGISTRY`)
-  - OS-aware checkers (`disk_macos`, `disk_linux`, `disk_common`) use platform gating — early return OK with skip message on wrong OS
+  - Some checkers (for example, `disk_macos`, `disk_linux`) are OS-specific and may use platform gating — early return OK with a skip message on unsupported OSes
 - `apps/checkers/checks.py` — Django system checks (run with `manage.py check`)
 - `apps/checkers/management/commands/` — commands like `check_health`, `check_and_alert`
 - `apps/checkers/models.py` — `CheckRun` (standalone mode audit trail)
