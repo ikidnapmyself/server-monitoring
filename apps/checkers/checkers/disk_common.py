@@ -5,7 +5,6 @@ import sys
 
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
 from apps.checkers.checkers.disk_utils import (
-    dir_size,
     find_large_files,
     find_old_files,
     scan_directory,
@@ -53,11 +52,13 @@ class DiskCommonChecker(BaseChecker):
             # This prevents double-counting (e.g., ~/.cache files counted both as space_hogs and large_files)
             # Normalize paths to ensure consistent comparisons
             exclude_paths = {os.path.normpath(os.path.expanduser(t)) for t in scan_targets}
-            
+
             large_files = []
             for target in large_file_targets:
                 path = os.path.expanduser(target)
-                for item in find_large_files(path, timeout=self.timeout, exclude_paths=exclude_paths):
+                for item in find_large_files(
+                    path, timeout=self.timeout, exclude_paths=exclude_paths
+                ):
                     if item["path"] not in seen:
                         seen.add(item["path"])
                         large_files.append(item)

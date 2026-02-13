@@ -7,11 +7,11 @@ import time
 def scan_directory(path: str, timeout: float | None = None) -> list[dict]:
     """
     Scan a directory for subdirectories/files and their sizes.
-    
+
     Args:
         path: Directory path to scan
         timeout: Optional timeout in seconds (only enforced during recursive directory size calculations)
-        
+
     Returns:
         List of dicts with 'path' and 'size_mb' keys, sorted by size descending
     """
@@ -41,12 +41,12 @@ def scan_directory(path: str, timeout: float | None = None) -> list[dict]:
 def find_old_files(path: str, max_age_days: int = 7, timeout: float | None = None) -> list[dict]:
     """
     Find files older than max_age_days in the given directory.
-    
+
     Args:
         path: Directory path to scan
         max_age_days: Maximum age in days for files to be considered
         timeout: Optional timeout in seconds (only enforced during recursive directory size calculations)
-        
+
     Returns:
         List of dicts with 'path', 'size_mb', and 'age_days' keys, sorted by size descending
     """
@@ -84,47 +84,50 @@ def find_old_files(path: str, max_age_days: int = 7, timeout: float | None = Non
 
 
 def find_large_files(
-    path: str, min_size_mb: float = 100.0, timeout: float | None = None, exclude_paths: set | None = None
+    path: str,
+    min_size_mb: float = 100.0,
+    timeout: float | None = None,
+    exclude_paths: set | None = None,
 ) -> list[dict]:
     """
     Find files larger than min_size_mb in the given directory tree.
-    
+
     Args:
         path: Root directory path to walk
         min_size_mb: Minimum file size in MB
         timeout: Optional timeout in seconds to limit scan duration
         exclude_paths: Set of paths to exclude from the scan
-        
+
     Returns:
         List of dicts with 'path' and 'size_mb' keys, sorted by size descending
     """
     results: list[dict] = []
     if not os.path.isdir(path):
         return results
-    
+
     min_size_bytes = min_size_mb * 1024 * 1024
     exclude_paths = exclude_paths or set()
-    
+
     # Calculate deadline if timeout is provided
     deadline = None
     if timeout and timeout > 0:
         deadline = time.monotonic() + timeout
-    
+
     try:
         for dirpath, _, filenames in os.walk(path):
             # Check timeout before processing each directory
             if deadline is not None and time.monotonic() >= deadline:
                 break
-            
+
             # Skip excluded paths
             if any(dirpath.startswith(excl) for excl in exclude_paths):
                 continue
-                
+
             for f in filenames:
                 # Check timeout for each file
                 if deadline is not None and time.monotonic() >= deadline:
                     break
-                    
+
                 fp = os.path.join(dirpath, f)
                 try:
                     if os.path.islink(fp):
@@ -149,32 +152,32 @@ def find_large_files(
 def dir_size(path: str, timeout: float | None = None) -> int:
     """
     Calculate total size of a directory recursively.
-    
+
     Args:
         path: Directory path to measure
         timeout: Optional timeout in seconds to limit scan duration
-        
+
     Returns:
         Total size in bytes
     """
     total = 0
-    
+
     # Calculate deadline if timeout is provided
     deadline = None
     if timeout and timeout > 0:
         deadline = time.monotonic() + timeout
-    
+
     try:
         for dirpath, _, filenames in os.walk(path):
             # Check timeout before processing each directory
             if deadline is not None and time.monotonic() >= deadline:
                 break
-                
+
             for f in filenames:
                 # Check timeout for each file
                 if deadline is not None and time.monotonic() >= deadline:
                     break
-                    
+
                 fp = os.path.join(dirpath, f)
                 try:
                     if not os.path.islink(fp):

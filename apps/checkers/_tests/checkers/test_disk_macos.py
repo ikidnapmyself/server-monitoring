@@ -28,7 +28,7 @@ class DiskMacOSCheckerTests(TestCase):
 
     @patch("apps.checkers.checkers.disk_macos.sys")
     @patch("apps.checkers.checkers.disk_macos.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_macos.DiskMacOSChecker._scan_directory")
+    @patch("apps.checkers.checkers.disk_macos.scan_directory")
     def test_scans_library_caches(self, mock_scan, mock_expanduser, mock_sys):
         """Checker scans ~/Library/Caches on macOS."""
         mock_sys.platform = "darwin"
@@ -46,8 +46,8 @@ class DiskMacOSCheckerTests(TestCase):
 
     @patch("apps.checkers.checkers.disk_macos.sys")
     @patch("apps.checkers.checkers.disk_macos.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_macos.DiskMacOSChecker._scan_directory")
-    @patch("apps.checkers.checkers.disk_macos.DiskMacOSChecker._find_old_files")
+    @patch("apps.checkers.checkers.disk_macos.scan_directory")
+    @patch("apps.checkers.checkers.disk_macos.find_old_files")
     def test_warning_when_recoverable_exceeds_threshold(
         self, mock_old_files, mock_scan, mock_expanduser, mock_sys
     ):
@@ -67,8 +67,8 @@ class DiskMacOSCheckerTests(TestCase):
 
     @patch("apps.checkers.checkers.disk_macos.sys")
     @patch("apps.checkers.checkers.disk_macos.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_macos.DiskMacOSChecker._scan_directory")
-    @patch("apps.checkers.checkers.disk_macos.DiskMacOSChecker._find_old_files")
+    @patch("apps.checkers.checkers.disk_macos.scan_directory")
+    @patch("apps.checkers.checkers.disk_macos.find_old_files")
     def test_critical_when_recoverable_exceeds_critical(
         self, mock_old_files, mock_scan, mock_expanduser, mock_sys
     ):
@@ -87,8 +87,8 @@ class DiskMacOSCheckerTests(TestCase):
 
     @patch("apps.checkers.checkers.disk_macos.sys")
     @patch("apps.checkers.checkers.disk_macos.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_macos.DiskMacOSChecker._scan_directory")
-    @patch("apps.checkers.checkers.disk_macos.DiskMacOSChecker._find_old_files")
+    @patch("apps.checkers.checkers.disk_macos.scan_directory")
+    @patch("apps.checkers.checkers.disk_macos.find_old_files")
     def test_includes_recommendations(self, mock_old_files, mock_scan, mock_expanduser, mock_sys):
         """Checker includes cleanup recommendations."""
         mock_sys.platform = "darwin"
@@ -106,8 +106,8 @@ class DiskMacOSCheckerTests(TestCase):
 
     @patch("apps.checkers.checkers.disk_macos.sys")
     @patch("apps.checkers.checkers.disk_macos.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_macos.DiskMacOSChecker._scan_directory")
-    @patch("apps.checkers.checkers.disk_macos.DiskMacOSChecker._find_old_files")
+    @patch("apps.checkers.checkers.disk_macos.scan_directory")
+    @patch("apps.checkers.checkers.disk_macos.find_old_files")
     def test_ok_when_below_thresholds(self, mock_old_files, mock_scan, mock_expanduser, mock_sys):
         """Checker returns OK when recoverable is below warning threshold."""
         mock_sys.platform = "darwin"
@@ -124,8 +124,8 @@ class DiskMacOSCheckerTests(TestCase):
 
     @patch("apps.checkers.checkers.disk_macos.sys")
     @patch("apps.checkers.checkers.disk_macos.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_macos.DiskMacOSChecker._scan_directory")
-    @patch("apps.checkers.checkers.disk_macos.DiskMacOSChecker._find_old_files")
+    @patch("apps.checkers.checkers.disk_macos.scan_directory")
+    @patch("apps.checkers.checkers.disk_macos.find_old_files")
     def test_old_files_in_downloads(self, mock_old_files, mock_scan, mock_expanduser, mock_sys):
         """Checker finds old files in ~/Downloads."""
         mock_sys.platform = "darwin"

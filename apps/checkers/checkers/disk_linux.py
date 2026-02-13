@@ -1,6 +1,5 @@
 """Linux disk analysis checker."""
 
-import os
 import sys
 
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
