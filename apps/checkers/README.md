@@ -36,6 +36,9 @@ These checkers are registered in `apps/checkers/checkers/__init__.py` (`CHECKER_
 - `cpu` — CPU usage % (warn ≥ 70, critical ≥ 90)
 - `memory` — RAM usage % (warn ≥ 70, critical ≥ 90)
 - `disk` — disk usage % by path (warn ≥ 80, critical ≥ 95)
+- `disk_macos` — macOS disk analysis: space hogs, old files, cleanup recommendations (warn ≥ 5 GB, critical ≥ 20 GB recoverable). Skips on non-darwin.
+- `disk_linux` — Linux disk analysis: apt cache, journal logs, Docker/Snap data, old temp files (warn ≥ 5 GB, critical ≥ 20 GB recoverable). Skips on non-linux.
+- `disk_common` — Cross-platform disk analysis: system logs, user caches, temp files, large files in home (warn ≥ 5 GB, critical ≥ 20 GB recoverable).
 - `network` — % of hosts reachable via ping (OK ≥ 70%, warning ≥ 50%, else critical)
 - `process` — % of named processes running (OK = 100%, warning ≥ 50%, else critical)
 

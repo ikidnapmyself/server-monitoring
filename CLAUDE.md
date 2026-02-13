@@ -84,7 +84,7 @@ All apps under `apps/` follow this layout:
 | App | Purpose | Key Models |
 |-----|---------|------------|
 | `alerts` | Webhook ingestion (8 drivers) | Alert, Incident, AlertHistory |
-| `checkers` | Health checks (CPU, memory, disk, network, process) | CheckRun |
+| `checkers` | Health checks (CPU, memory, disk, disk_macos, disk_linux, disk_common, network, process) | CheckRun |
 | `intelligence` | AI analysis via provider pattern | Uses StageExecution |
 | `notify` | Notification delivery (Email, Slack, PagerDuty, Generic) | NotificationChannel |
 | `orchestration` | Pipeline state machine, retry logic | PipelineRun, StageExecution, PipelineDefinition |

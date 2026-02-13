@@ -89,6 +89,11 @@ class Command(BaseCommand):
                 f"Available: {', '.join(CHECKER_REGISTRY.keys())}"
             )
 
+        if options["json_output"]:
+            self.stderr.write(f"Running checkers: {', '.join(checker_names)}\n")
+        else:
+            self.stdout.write(f"Running checkers: {', '.join(checker_names)}\n")
+
         results = []
         for name in checker_names:
             checker_class = CHECKER_REGISTRY[name]
@@ -153,6 +158,9 @@ class Command(BaseCommand):
             if result.error:
                 self.stdout.write(self.style.ERROR(f"       Error: {result.error}"))
 
+            if result.metrics:
+                self._output_metrics(result.metrics)
+
         self.stdout.write("")
         self.stdout.write("-" * 60)
 
@@ -176,6 +184,65 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(summary))
 
         self.stdout.write("")
+
+    def _output_metrics(self, metrics: dict):
+        """Print key metrics below the checker result line."""
+        indent = "       "
+
+        # Disk analysis checkers: space_hogs, old_files, large_files, recommendations
+        for key in ("space_hogs", "old_files", "large_files"):
+            items = metrics.get(key)
+            if items:
+                label = key.replace("_", " ").title()
+                self.stdout.write(f"{indent}{label}:")
+                for item in items[:10]:
+                    size = f"{item['size_mb']:.1f} MB"
+                    extra = f" ({item['age_days']}d old)" if "age_days" in item else ""
+                    self.stdout.write(f"{indent}  - {item['path']}  {size}{extra}")
+                if len(items) > 10:
+                    self.stdout.write(f"{indent}  ... and {len(items) - 10} more")
+
+        total = metrics.get("total_recoverable_mb")
+        if total is not None:
+            self.stdout.write(f"{indent}Total recoverable: {total:.1f} MB")
+
+        recs = metrics.get("recommendations")
+        if recs:
+            self.stdout.write(f"{indent}Recommendations:")
+            for rec in recs:
+                self.stdout.write(f"{indent}  - {rec}")
+
+        # Standard checkers: flat key-value pairs (percent, paths, etc.)
+        skip = {
+            "space_hogs",
+            "old_files",
+            "large_files",
+            "total_recoverable_mb",
+            "recommendations",
+            "platform",
+        }
+        flat = {
+            k: v for k, v in metrics.items() if k not in skip and not isinstance(v, (list, dict))
+        }
+        for key, value in flat.items():
+            label = key.replace("_", " ")
+            if isinstance(value, float):
+                self.stdout.write(f"{indent}{label}: {value:.1f}")
+            else:
+                self.stdout.write(f"{indent}{label}: {value}")
+
+        # Nested dicts (e.g. disk checker's per-path breakdown)
+        nested = {k: v for k, v in metrics.items() if k not in skip and isinstance(v, dict)}
+        for key, sub in nested.items():
+            self.stdout.write(f"{indent}{key}:")
+            for sub_key, sub_val in sub.items():
+                if isinstance(sub_val, dict):
+                    parts = ", ".join(f"{k}: {v}" for k, v in sub_val.items())
+                    self.stdout.write(f"{indent}  {sub_key}: {parts}")
+                elif isinstance(sub_val, float):
+                    self.stdout.write(f"{indent}  {sub_key}: {sub_val:.1f}")
+                else:
+                    self.stdout.write(f"{indent}  {sub_key}: {sub_val}")
 
     def _output_json(self, results):
         output = {
