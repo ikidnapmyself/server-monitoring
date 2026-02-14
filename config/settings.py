@@ -47,7 +47,8 @@ ALLOWED_HOSTS: list[str] = [h.strip() for h in _allowed_hosts.split(",") if h.st
 # Application definition
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
+    "config.apps.MonitoringAdminConfig",
+    "django_object_actions",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -75,7 +76,7 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
