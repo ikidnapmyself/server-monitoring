@@ -190,3 +190,32 @@ class TestPipelineTracing:
         assert response.status_code == 200
         content = response.content.decode()
         assert "trace-xyz" in content
+
+
+@pytest.mark.django_db
+class TestPipelineRunObjectActions:
+    def test_mark_for_retry_button(self, admin_client):
+        run = PipelineRun.objects.create(
+            trace_id="t1",
+            run_id="r1",
+            status=PipelineStatus.FAILED,
+        )
+        response = admin_client.post(
+            f"/admin/orchestration/pipelinerun/{run.pk}/actions/mark_for_retry/",
+        )
+        assert response.status_code == 302
+        run.refresh_from_db()
+        assert run.status == PipelineStatus.RETRYING
+
+    def test_mark_failed_button(self, admin_client):
+        run = PipelineRun.objects.create(
+            trace_id="t1",
+            run_id="r1",
+            status=PipelineStatus.PENDING,
+        )
+        response = admin_client.post(
+            f"/admin/orchestration/pipelinerun/{run.pk}/actions/mark_failed/",
+        )
+        assert response.status_code == 302
+        run.refresh_from_db()
+        assert run.status == PipelineStatus.FAILED

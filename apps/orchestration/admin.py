@@ -3,6 +3,8 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
+from django_object_actions import DjangoObjectActions
+from django_object_actions import action as object_action
 
 from apps.orchestration.models import (
     PipelineDefinition,
@@ -35,7 +37,7 @@ class StageExecutionInline(admin.TabularInline):
 
 
 @admin.register(PipelineRun)
-class PipelineRunAdmin(admin.ModelAdmin):
+class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
     """Admin for PipelineRun model."""
 
     list_display = [
@@ -62,6 +64,7 @@ class PipelineRunAdmin(admin.ModelAdmin):
     ]
     inlines = [StageExecutionInline]
     actions = ["mark_for_retry_selected"]
+    change_actions = ["mark_for_retry", "mark_failed"]
 
     def get_queryset(self, request):
         return (
@@ -78,6 +81,33 @@ class PipelineRunAdmin(admin.ModelAdmin):
             run.mark_retrying()
             count += 1
         self.message_user(request, f"{count} pipeline run(s) marked for retry.")
+
+    @object_action(label="Mark for Retry", description="Queue this pipeline for retry")
+    def mark_for_retry(self, request, obj):
+        if obj.status == PipelineStatus.FAILED:
+            obj.mark_retrying()
+            self.message_user(request, f"Pipeline '{obj.run_id}' marked for retry.")
+        else:
+            self.message_user(
+                request,
+                f"Can only retry failed pipelines (current: {obj.status}).",
+                level="warning",
+            )
+
+    @object_action(label="Mark Failed", description="Mark this pipeline as failed")
+    def mark_failed(self, request, obj):
+        if obj.status not in (PipelineStatus.FAILED, PipelineStatus.NOTIFIED):
+            obj.mark_failed(
+                error_type="ManualOverride",
+                message="Manually marked as failed via admin",
+            )
+            self.message_user(request, f"Pipeline '{obj.run_id}' marked as failed.")
+        else:
+            self.message_user(
+                request,
+                f"Cannot mark as failed — status is '{obj.status}'.",
+                level="warning",
+            )
 
     fieldsets = [
         (

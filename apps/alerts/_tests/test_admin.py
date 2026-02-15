@@ -88,3 +88,45 @@ class TestBulkActions:
         assert response.status_code == 302
         run.refresh_from_db()
         assert run.status == PipelineStatus.RETRYING
+
+
+@pytest.mark.django_db
+class TestPerObjectActions:
+    def test_acknowledge_button_works(self, admin_client):
+        incident = Incident.objects.create(
+            title="Test",
+            severity="critical",
+            status=IncidentStatus.OPEN,
+        )
+        response = admin_client.post(
+            f"/admin/alerts/incident/{incident.pk}/actions/acknowledge_incident/",
+        )
+        assert response.status_code == 302
+        incident.refresh_from_db()
+        assert incident.status == IncidentStatus.ACKNOWLEDGED
+
+    def test_resolve_button_works(self, admin_client):
+        incident = Incident.objects.create(
+            title="Test",
+            severity="critical",
+            status=IncidentStatus.OPEN,
+        )
+        response = admin_client.post(
+            f"/admin/alerts/incident/{incident.pk}/actions/resolve_incident/",
+        )
+        assert response.status_code == 302
+        incident.refresh_from_db()
+        assert incident.status == IncidentStatus.RESOLVED
+
+    def test_close_button_works(self, admin_client):
+        incident = Incident.objects.create(
+            title="Test",
+            severity="critical",
+            status=IncidentStatus.RESOLVED,
+        )
+        response = admin_client.post(
+            f"/admin/alerts/incident/{incident.pk}/actions/close_incident/",
+        )
+        assert response.status_code == 302
+        incident.refresh_from_db()
+        assert incident.status == IncidentStatus.CLOSED
