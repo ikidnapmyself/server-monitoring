@@ -16,7 +16,7 @@ Replace the default Django admin index with a custom template showing system hea
 - **Failed Pipelines** — last 5 failed pipeline runs with error type and link to detail
 
 **Implementation:**
-- Subclass `AdminSite`, override `each_context()` to inject query data
+- Subclass `AdminSite`, override `index()` to inject dashboard-specific query data (avoids adding these queries to every admin page via `each_context()`)
 - Override `index_template` to render the dashboard
 - All queries use existing indexed fields (`status`, `created_at`, `severity`)
 - Use `select_related('incident')` where needed

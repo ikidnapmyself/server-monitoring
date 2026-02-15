@@ -65,12 +65,14 @@ def dashboard_data(db):
         hostname="srv1",
         status=CheckStatus.CRITICAL,
         message="CPU usage at 95%",
+        executed_at=now,
     )
     CheckRun.objects.create(
         checker_name="disk",
         hostname="srv1",
         status=CheckStatus.WARNING,
         message="Disk usage at 85%",
+        executed_at=now,
     )
 
     # Analysis runs

@@ -66,7 +66,7 @@ class MonitoringAdminSite(AdminSite):
         # --- Recent Check Runs (last 10) ---
         recent_check_runs = list(
             CheckRun.objects.order_by("-executed_at").only(
-                "checker_name", "hostname", "status", "message", "executed_at"
+                "checker_name", "hostname", "status", "executed_at"
             )[:10]
         )
 
