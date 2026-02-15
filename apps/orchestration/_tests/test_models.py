@@ -46,6 +46,17 @@ class PipelineRunModelTests(TestCase):
         run.refresh_from_db()
         assert run.status == PipelineStatus.INGESTED
 
+    def test_advance_to_updates_current_stage(self):
+        """Test that advance_to persists current_stage when provided."""
+        run = PipelineRun.objects.create(
+            trace_id=str(uuid.uuid4()),
+            run_id=str(uuid.uuid4()),
+        )
+        run.advance_to(PipelineStatus.CHECKED, stage="check")
+        run.refresh_from_db()
+        assert run.status == PipelineStatus.CHECKED
+        assert run.current_stage == "check"
+
     def test_mark_completed(self):
         """Test marking pipeline as completed."""
         run = PipelineRun.objects.create(

@@ -200,10 +200,12 @@ class PipelineRun(models.Model):
             self.status = PipelineStatus.PENDING  # Will transition after first stage completes
         self.save(update_fields=["current_stage", "started_at", "status", "updated_at"])
 
-    def advance_to(self, status: str):
-        """Advance pipeline to the next status."""
+    def advance_to(self, status: str, stage: str | None = None):
+        """Advance pipeline to the next status and optionally update current_stage."""
         self.status = status
-        self.save(update_fields=["status", "updated_at"])
+        if stage is not None:
+            self.current_stage = stage
+        self.save(update_fields=["status", "current_stage", "updated_at"])
 
     def mark_completed(self, status: str = PipelineStatus.NOTIFIED):
         """Mark pipeline as completed."""

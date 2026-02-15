@@ -43,6 +43,7 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
     list_display = [
         "run_id",
         "trace_id",
+        "pipeline_flow",
         "status",
         "source",
         "current_stage",
