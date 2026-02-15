@@ -346,8 +346,7 @@ class PipelineOrchestrator:
                         )
 
                 # Advance pipeline status
-                pipeline_run.current_stage = stage
-                pipeline_run.advance_to(STAGE_TO_STATUS[stage])
+                pipeline_run.advance_to(STAGE_TO_STATUS[stage], stage=stage)
                 result.stages_completed.append(stage)
 
                 # Attach result to PipelineResult
