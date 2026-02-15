@@ -1,0 +1,413 @@
+{% extends "admin/index.html" %}
+{% load i18n %}
+
+{% block content %}
+<style>
+  /* Dashboard container */
+  #dashboard {
+    margin-bottom: 30px;
+  }
+
+  /* Layout */
+  .dashboard-row {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+
+  .dashboard-card {
+    flex: 1;
+    padding: 15px;
+  }
+
+  /* Typography */
+  .dashboard-card h2 {
+    margin-top: 0;
+  }
+
+  .metric-value {
+    font-size: 32px;
+    font-weight: bold;
+    margin-bottom: 10px;
+  }
+
+  .metric-value.compact {
+    margin-bottom: 5px;
+  }
+
+  .metric-subtitle {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 10px;
+  }
+
+  .no-data-message {
+    color: #666;
+  }
+
+  .success-message {
+    color: #28a745;
+    font-size: 18px;
+  }
+
+  /* Badges */
+  .badge-container {
+    display: flex;
+    gap: 10px;
+  }
+
+  .severity-badge {
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+  }
+
+  .severity-badge.critical {
+    background: #dc3545;
+    color: #fff;
+  }
+
+  .severity-badge.warning {
+    background: #ffc107;
+    color: #000;
+  }
+
+  .severity-badge.info {
+    background: #17a2b8;
+    color: #fff;
+  }
+
+  /* Progress bar */
+  .progress-bar-container {
+    background: #eee;
+    border-radius: 4px;
+    height: 8px;
+    margin-bottom: 10px;
+  }
+
+  .progress-bar {
+    height: 8px;
+    border-radius: 4px;
+  }
+
+  .progress-bar.success {
+    background: #28a745;
+  }
+
+  .progress-bar.warning {
+    background: #ffc107;
+  }
+
+  .progress-bar.error {
+    background: #dc3545;
+  }
+
+  /* Trends module */
+  .trends-module {
+    padding: 15px;
+    margin-bottom: 20px;
+  }
+
+  .trends-module h2 {
+    margin-top: 0;
+  }
+
+  /* Stats display */
+  .stats-container {
+    display: flex;
+    gap: 15px;
+    font-size: 12px;
+  }
+
+  /* Tables */
+  .dashboard-table {
+    width: 100%;
+    font-size: 13px;
+  }
+
+  .dashboard-table th {
+    text-align: left;
+    padding: 4px 8px;
+  }
+
+  .dashboard-table td {
+    padding: 4px 8px;
+  }
+
+  /* Status badges */
+  .status-badge {
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+  }
+
+  .status-badge.ok {
+    background: #28a745;
+    color: #fff;
+  }
+
+  .status-badge.warning {
+    background: #ffc107;
+    color: #000;
+  }
+
+  .status-badge.critical {
+    background: #dc3545;
+    color: #fff;
+  }
+
+  .status-badge.unknown {
+    background: #6c757d;
+    color: #fff;
+  }
+
+  /* Links */
+  .view-all-link {
+    margin-top: 10px;
+  }
+
+  .table-link {
+    margin-top: 8px;
+  }
+
+  /* Trends section */
+  .trends-container {
+    display: flex;
+    gap: 20px;
+  }
+
+  .trends-section {
+    flex: 1;
+  }
+
+  .trends-section h3 {
+    font-size: 14px;
+    margin-bottom: 8px;
+  }
+
+  .trends-table {
+    width: 100%;
+    font-size: 13px;
+  }
+
+  .trends-table td {
+    padding: 3px 0;
+  }
+
+  .trends-table tbody td:last-child {
+    text-align: right;
+    font-weight: bold;
+  }
+
+  .trends-table th {
+    text-align: left;
+  }
+
+  .trends-table th:nth-child(2),
+  .trends-table th:nth-child(3) {
+    text-align: right;
+  }
+
+  .trends-no-data {
+    color: #666;
+    font-size: 13px;
+  }
+</style>
+
+<div id="dashboard">
+
+  <!-- Row 1: Active Incidents + Pipeline Health -->
+  <div class="dashboard-row">
+
+    <!-- Active Incidents -->
+    <div class="module dashboard-card">
+      <h2>Active Incidents</h2>
+      {% if active_incidents.total > 0 %}
+      <div class="metric-value">
+        {{ active_incidents.total }}
+      </div>
+      <div class="badge-container">
+        {% if active_incidents.critical > 0 %}
+        <span class="severity-badge critical">
+          {{ active_incidents.critical }} Critical
+        </span>
+        {% endif %}
+        {% if active_incidents.warning > 0 %}
+        <span class="severity-badge warning">
+          {{ active_incidents.warning }} Warning
+        </span>
+        {% endif %}
+        {% if active_incidents.info > 0 %}
+        <span class="severity-badge info">
+          {{ active_incidents.info }} Info
+        </span>
+        {% endif %}
+      </div>
+      <div class="view-all-link">
+        <a href="/admin/alerts/incident/?status__exact=open">View all &rarr;</a>
+      </div>
+      {% else %}
+      <div class="success-message">No active incidents</div>
+      {% endif %}
+    </div>
+
+    <!-- Pipeline Health (24h) -->
+    <div class="module dashboard-card">
+      <h2>Pipeline Health (24h)</h2>
+      {% if pipeline_health.total > 0 %}
+      <div class="metric-value compact">
+        {{ pipeline_health.success_rate }}%
+      </div>
+      <div class="metric-subtitle">
+        {{ pipeline_health.successful }}/{{ pipeline_health.total }} runs succeeded
+      </div>
+      <div class="progress-bar-container">
+        <div class="progress-bar {% if pipeline_health.success_rate >= 90 %}success{% elif pipeline_health.success_rate >= 70 %}warning{% else %}error{% endif %}"
+             style="width: {{ pipeline_health.success_rate }}%;"></div>
+      </div>
+      <div class="stats-container">
+        <span>Failed: <strong>{{ pipeline_health.failed }}</strong></span>
+        <span>Retrying: <strong>{{ pipeline_health.retrying }}</strong></span>
+        <span>In-flight: <strong>{{ pipeline_health.in_flight }}</strong></span>
+      </div>
+      {% else %}
+      <div class="no-data-message">No pipeline runs in the last 24 hours</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Row 2: Recent Check Runs + Failed Pipelines -->
+  <div class="dashboard-row">
+
+    <div class="module dashboard-card">
+      <h2>Recent Check Runs</h2>
+      {% if recent_check_runs %}
+      <table class="dashboard-table">
+        <thead>
+          <tr>
+            <th>Checker</th>
+            <th>Host</th>
+            <th>Status</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for run in recent_check_runs %}
+          <tr>
+            <td>{{ run.checker_name }}</td>
+            <td>{{ run.hostname }}</td>
+            <td>
+              <span class="status-badge {% if run.status == 'ok' %}ok{% elif run.status == 'warning' %}warning{% elif run.status == 'critical' %}critical{% else %}unknown{% endif %}">
+                {{ run.status|upper }}
+              </span>
+            </td>
+            <td>{{ run.executed_at|timesince }} ago</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="table-link"><a href="/admin/checkers/checkrun/">View all &rarr;</a></div>
+      {% else %}
+      <div class="no-data-message">No check runs recorded</div>
+      {% endif %}
+    </div>
+
+    <div class="module dashboard-card">
+      <h2>Failed Pipelines</h2>
+      {% if failed_pipelines %}
+      <table class="dashboard-table">
+        <thead>
+          <tr>
+            <th>Run ID</th>
+            <th>Error</th>
+            <th>When</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for run in failed_pipelines %}
+          <tr>
+            <td>
+              <a href="/admin/orchestration/pipelinerun/{{ run.pk }}/change/">{{ run.run_id|truncatechars:12 }}</a>
+            </td>
+            <td>{{ run.last_error_type|default:"Unknown"|truncatechars:40 }}</td>
+            <td>{{ run.created_at|timesince }} ago</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="table-link">
+        <a href="/admin/orchestration/pipelinerun/?status__exact=failed">View all &rarr;</a>
+      </div>
+      {% else %}
+      <div class="success-message">No failed pipelines</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Row 3: 7-Day Trends -->
+  <div class="module trends-module">
+    <h2>7-Day Trends</h2>
+    <div class="trends-container">
+
+      <div class="trends-section">
+        <h3>Top Failing Checkers</h3>
+        {% if top_failing_checkers %}
+        <table class="trends-table">
+          {% for item in top_failing_checkers %}
+          <tr>
+            <td>{{ item.checker_name }}</td>
+            <td>{{ item.count }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+        {% else %}
+        <div class="trends-no-data">No failures</div>
+        {% endif %}
+      </div>
+
+      <div class="trends-section">
+        <h3>Top Error Types</h3>
+        {% if top_error_types %}
+        <table class="trends-table">
+          {% for item in top_error_types %}
+          <tr>
+            <td>{{ item.last_error_type|default:"Unknown" }}</td>
+            <td>{{ item.count }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+        {% else %}
+        <div class="trends-no-data">No errors</div>
+        {% endif %}
+      </div>
+
+      <div class="trends-section">
+        <h3>AI Provider Usage</h3>
+        {% if provider_usage %}
+        <table class="trends-table">
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Runs</th>
+              <th>Tokens</th>
+            </tr>
+          </thead>
+          {% for item in provider_usage %}
+          <tr>
+            <td>{{ item.provider }}</td>
+            <td>{{ item.runs }}</td>
+            <td>{{ item.tokens|default:0 }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+        {% else %}
+        <div class="trends-no-data">No analysis runs</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{{ block.super }}
+{% endblock %}

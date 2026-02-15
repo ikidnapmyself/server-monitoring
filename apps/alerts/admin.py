@@ -2,8 +2,10 @@
 
 from django.contrib import admin
 from django.utils.html import format_html
+from django_object_actions import DjangoObjectActions
+from django_object_actions import action as object_action
 
-from apps.alerts.models import Alert, AlertHistory, Incident
+from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus
 from apps.orchestration.models import PipelineRun
 
 
@@ -76,7 +78,7 @@ class AlertAdmin(admin.ModelAdmin):
         "received_at",
     ]
     list_filter = ["status", "severity", "source"]
-    search_fields = ["name", "fingerprint", "description"]
+    search_fields = ["name", "fingerprint", "description", "incident__pipeline_runs__trace_id"]
     readonly_fields = [
         "fingerprint",
         "received_at",
@@ -84,6 +86,10 @@ class AlertAdmin(admin.ModelAdmin):
     ]
     date_hierarchy = "received_at"
     inlines = [AlertHistoryInline]
+    actions = ["resolve_selected"]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("incident")
 
     fieldsets = [
         (
@@ -119,6 +125,11 @@ class AlertAdmin(admin.ModelAdmin):
             },
         ),
     ]
+
+    @admin.action(description="Resolve selected alerts")
+    def resolve_selected(self, request, queryset):
+        updated = queryset.update(status=AlertStatus.RESOLVED)
+        self.message_user(request, f"{updated} alert(s) resolved.")
 
     @admin.display(description="Severity")
     def severity_badge(self, obj):
@@ -161,7 +172,7 @@ class AlertAdmin(admin.ModelAdmin):
 
 
 @admin.register(Incident)
-class IncidentAdmin(admin.ModelAdmin):
+class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
     """Admin for Incident model."""
 
     list_display = [
@@ -187,6 +198,11 @@ class IncidentAdmin(admin.ModelAdmin):
     ]
     date_hierarchy = "created_at"
     inlines = [AlertInline, PipelineRunInline]
+    actions = ["acknowledge_selected", "resolve_selected"]
+    change_actions = ["acknowledge_incident", "resolve_incident", "close_incident"]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("alerts", "pipeline_runs")
 
     fieldsets = [
         (
@@ -231,6 +247,50 @@ class IncidentAdmin(admin.ModelAdmin):
             },
         ),
     ]
+
+    @admin.action(description="Acknowledge selected incidents")
+    def acknowledge_selected(self, request, queryset):
+        count = 0
+        for incident in queryset.filter(status=IncidentStatus.OPEN):
+            incident.acknowledge()
+            count += 1
+        self.message_user(request, f"{count} incident(s) acknowledged.")
+
+    @admin.action(description="Resolve selected incidents")
+    def resolve_selected(self, request, queryset):
+        count = 0
+        for incident in queryset.exclude(
+            status__in=[IncidentStatus.RESOLVED, IncidentStatus.CLOSED]
+        ):
+            incident.resolve()
+            count += 1
+        self.message_user(request, f"{count} incident(s) resolved.")
+
+    @object_action(label="Acknowledge", description="Mark this incident as acknowledged")
+    def acknowledge_incident(self, request, obj):
+        if obj.status == IncidentStatus.OPEN:
+            obj.acknowledge()
+            self.message_user(request, f"Incident '{obj.title}' acknowledged.")
+        else:
+            self.message_user(
+                request, f"Cannot acknowledge — status is '{obj.status}'.", level="warning"
+            )
+
+    @object_action(label="Resolve", description="Mark this incident as resolved")
+    def resolve_incident(self, request, obj):
+        if obj.status not in (IncidentStatus.RESOLVED, IncidentStatus.CLOSED):
+            obj.resolve()
+            self.message_user(request, f"Incident '{obj.title}' resolved.")
+        else:
+            self.message_user(request, f"Already {obj.status}.", level="warning")
+
+    @object_action(label="Close", description="Mark this incident as closed")
+    def close_incident(self, request, obj):
+        if obj.status != IncidentStatus.CLOSED:
+            obj.close()
+            self.message_user(request, f"Incident '{obj.title}' closed.")
+        else:
+            self.message_user(request, "Already closed.", level="warning")
 
     @admin.display(description="Severity")
     def severity_badge(self, obj):

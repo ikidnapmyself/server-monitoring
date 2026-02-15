@@ -1,6 +1,7 @@
 """Admin configuration for intelligence app."""
 
 from django.contrib import admin
+from django.utils.html import format_html
 
 from apps.intelligence.models import AnalysisRun
 
@@ -30,13 +31,17 @@ class AnalysisRunAdmin(admin.ModelAdmin):
         "completed_at",
         "duration_ms",
         "total_tokens",
+        "pipeline_run_link",
     ]
     date_hierarchy = "created_at"
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("incident")
 
     fieldsets = [
         (
             "Identification",
-            {"fields": ["trace_id", "pipeline_run_id", "incident"]},
+            {"fields": ["trace_id", "pipeline_run_id", "pipeline_run_link", "incident"]},
         ),
         (
             "Provider",
@@ -84,3 +89,13 @@ class AnalysisRunAdmin(admin.ModelAdmin):
             {"fields": ["created_at", "started_at", "completed_at", "duration_ms"]},
         ),
     ]
+
+    @admin.display(description="Pipeline Run")
+    def pipeline_run_link(self, obj):
+        if obj.pipeline_run_id:
+            return format_html(
+                '<a href="/admin/orchestration/pipelinerun/?q={}">View pipeline ({})</a>',
+                obj.pipeline_run_id,
+                obj.pipeline_run_id[:12],
+            )
+        return "-"

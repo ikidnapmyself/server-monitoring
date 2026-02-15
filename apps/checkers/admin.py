@@ -34,8 +34,12 @@ class CheckRunAdmin(admin.ModelAdmin):
         "duration_ms",
         "executed_at",
         "trace_id",
+        "pipeline_run_link",
     ]
     date_hierarchy = "executed_at"
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("alert")
 
     fieldsets = [
         (
@@ -66,7 +70,7 @@ class CheckRunAdmin(admin.ModelAdmin):
         (
             "Execution",
             {
-                "fields": ["duration_ms", "executed_at", "trace_id"],
+                "fields": ["duration_ms", "executed_at", "trace_id", "pipeline_run_link"],
             },
         ),
     ]
@@ -106,6 +110,16 @@ class CheckRunAdmin(admin.ModelAdmin):
                 '<a href="/admin/alerts/alert/{}/change/">Alert #{}</a>',
                 obj.alert.id,
                 obj.alert.id,
+            )
+        return "-"
+
+    @admin.display(description="Pipeline Run")
+    def pipeline_run_link(self, obj):
+        if obj.trace_id:
+            return format_html(
+                '<a href="/admin/orchestration/pipelinerun/?q={}">View pipeline ({})</a>',
+                obj.trace_id,
+                obj.trace_id[:12],
             )
         return "-"
 
