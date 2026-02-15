@@ -1,7 +1,7 @@
 """Admin configuration for orchestration models."""
 
 from django.contrib import admin
-from django.utils.html import format_html, format_html_join
+from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
@@ -206,6 +206,7 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
         
         # Join parts with arrow. Each part is already SafeString from format_html.
         # We use mark_safe only on the static arrow separator, not on dynamic content.
+        # The joined result must be marked safe to preserve the SafeString nature.
         arrow = mark_safe('<span style="color:#999;margin:0 2px;">→</span>')
         stages_html = mark_safe(arrow.join(parts))
         
