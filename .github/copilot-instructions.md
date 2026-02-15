@@ -1,10 +1,8 @@
-# GitHub Copilot Instructions
-
-This file provides guidance to GitHub Copilot when working with code in this repository.
+# Copilot Instructions
 
 ## Project Overview
 
-Django-based server monitoring and alerting system with a strict 4-stage orchestration pipeline: `alerts → checkers → intelligence → notify`. The orchestrator controls all stage transitions—stages never call downstream stages directly.
+Django-based server monitoring and alerting system with a strict 4-stage orchestration pipeline: `alerts → checkers → intelligence → notify`. The orchestrator controls all stage transitions — stages never call downstream stages directly.
 
 ## Pipeline Flow
 
@@ -42,7 +40,7 @@ Each stage emits monitoring signals (`pipeline.stage.started/succeeded/failed`) 
 All apps under `apps/` follow this layout:
 
 ```
-apps/<app_name>/
+apps/<app>/
 ├── views/          # Package (not monolithic views.py), organized by endpoint
 ├── _tests/         # Package mirroring source structure
 ├── agents.md       # App-specific AI/agent guidance
@@ -70,60 +68,33 @@ apps/<app_name>/
 ## Essential Commands
 
 ```bash
-# Install dependencies
-uv sync --extra dev
-
-# Run tests
-uv run pytest                              # All tests
+uv sync --extra dev                        # Install dependencies
+uv run pytest                              # Run all tests
 uv run pytest apps/checkers/_tests/ -v     # Single app tests
-uv run pytest apps/checkers/_tests/checkers/test_cpu.py -v  # Single file
-
-# Code quality
 uv run black .                             # Format
 uv run ruff check . --fix                  # Lint + fix imports
-uv run mypy .                              # Type check (optional)
-
-# Pre-commit hooks
-uv run pre-commit install
-uv run pre-commit run --all-files
-
-# Django
-uv run python manage.py migrate
-uv run python manage.py runserver
 uv run python manage.py check              # Django system checks
-
-# Health checks
-uv run python manage.py check_health       # Run all checks
-uv run python manage.py check_health --list
-uv run python manage.py run_check cpu      # Single checker
-
-# Pipeline testing
-uv run python manage.py run_pipeline --sample
-uv run python manage.py run_pipeline --sample --dry-run
+uv run python manage.py run_pipeline --sample --dry-run  # Test pipeline
 ```
 
 ## Stage Contracts
 
 ### alerts (ingest)
-
 - Accept, validate, and parse inbound alert webhooks via drivers
 - Output: `{ incident_id, alert_fingerprint, severity, source, normalized_payload_ref }`
 - Never log/store secrets from inbound payloads
 
 ### checkers (diagnose)
-
 - Run health checks for an incident (pipeline mode) or standalone
 - Output: `{ checks: [...], timings, errors, checker_output_ref }`
 - May call external APIs as diagnostic inputs (with timeouts/retries), but must not create incidents or notify
 
 ### intelligence (analyze)
-
 - Produce analysis + recommendations using AI providers
 - Output: `{ summary, probable_cause, actions, confidence, ai_output_ref, model_info }`
 - Store redacted refs, never raw prompts/secrets
 
 ### notify (communicate)
-
 - Render and dispatch notifications through configured channels
 - Output: `{ deliveries: [...], provider_ids, notify_output_ref }`
 - Use idempotency keys, set timeouts, never log tokens/webhook URLs
@@ -158,20 +129,3 @@ Required tags: `trace_id/run_id`, `incident_id`, `stage`, `source`, `alert_finge
 - Tests exist in `_tests/` mirroring source structure
 - Admin updated if models changed
 - Docs updated if behavior/config changed
-
-## Key Documentation
-
-- `CLAUDE.md` — Essential commands and architecture overview for Claude Code
-- `agents.md` — AI agent roles, pipeline contracts, and conventions
-- `apps/<app>/agents.md` — App-specific AI guidance and stage contracts
-- `apps/<app>/README.md` — App-specific documentation
-- `docs/orchestration-pipelines.md` — Pipeline architecture details
-
-## Quick Tips
-
-- **Before coding**: Review the relevant app's `agents.md` for stage-specific contracts
-- **New integrations**: Follow the driver/provider/checker pattern in the respective app
-- **Testing**: Mirror the source structure in `_tests/` (e.g., `views/webhook.py` → `_tests/views/test_webhook.py`)
-- **Pipeline work**: Always respect the orchestrator boundary—stages never call downstream stages
-- **External I/O**: Always use timeouts, handle retries, and redact secrets
-- **Admin**: Update admin.py with filters and search for new models
