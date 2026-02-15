@@ -4,7 +4,12 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
-from apps.orchestration.models import PipelineDefinition, PipelineRun, StageExecution
+from apps.orchestration.models import (
+    PipelineDefinition,
+    PipelineRun,
+    PipelineStatus,
+    StageExecution,
+)
 
 
 class StageExecutionInline(admin.TabularInline):
@@ -56,6 +61,7 @@ class PipelineRunAdmin(admin.ModelAdmin):
         "pipeline_flow",
     ]
     inlines = [StageExecutionInline]
+    actions = ["mark_for_retry_selected"]
 
     def get_queryset(self, request):
         return (
@@ -64,6 +70,14 @@ class PipelineRunAdmin(admin.ModelAdmin):
             .select_related("incident")
             .prefetch_related("stage_executions")
         )
+
+    @admin.action(description="Mark selected for retry")
+    def mark_for_retry_selected(self, request, queryset):
+        count = 0
+        for run in queryset.filter(status=PipelineStatus.FAILED):
+            run.mark_retrying()
+            count += 1
+        self.message_user(request, f"{count} pipeline run(s) marked for retry.")
 
     fieldsets = [
         (

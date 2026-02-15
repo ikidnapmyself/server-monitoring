@@ -3,7 +3,7 @@
 from django.contrib import admin
 from django.utils.html import format_html
 
-from apps.alerts.models import Alert, AlertHistory, Incident
+from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus
 from apps.orchestration.models import PipelineRun
 
 
@@ -84,6 +84,7 @@ class AlertAdmin(admin.ModelAdmin):
     ]
     date_hierarchy = "received_at"
     inlines = [AlertHistoryInline]
+    actions = ["resolve_selected"]
 
     def get_queryset(self, request):
         return super().get_queryset(request).select_related("incident")
@@ -122,6 +123,11 @@ class AlertAdmin(admin.ModelAdmin):
             },
         ),
     ]
+
+    @admin.action(description="Resolve selected alerts")
+    def resolve_selected(self, request, queryset):
+        updated = queryset.update(status=AlertStatus.RESOLVED)
+        self.message_user(request, f"{updated} alert(s) resolved.")
 
     @admin.display(description="Severity")
     def severity_badge(self, obj):
@@ -190,6 +196,7 @@ class IncidentAdmin(admin.ModelAdmin):
     ]
     date_hierarchy = "created_at"
     inlines = [AlertInline, PipelineRunInline]
+    actions = ["acknowledge_selected", "resolve_selected"]
 
     def get_queryset(self, request):
         return super().get_queryset(request).prefetch_related("alerts", "pipeline_runs")
@@ -237,6 +244,24 @@ class IncidentAdmin(admin.ModelAdmin):
             },
         ),
     ]
+
+    @admin.action(description="Acknowledge selected incidents")
+    def acknowledge_selected(self, request, queryset):
+        count = 0
+        for incident in queryset.filter(status=IncidentStatus.OPEN):
+            incident.acknowledge()
+            count += 1
+        self.message_user(request, f"{count} incident(s) acknowledged.")
+
+    @admin.action(description="Resolve selected incidents")
+    def resolve_selected(self, request, queryset):
+        count = 0
+        for incident in queryset.exclude(
+            status__in=[IncidentStatus.RESOLVED, IncidentStatus.CLOSED]
+        ):
+            incident.resolve()
+            count += 1
+        self.message_user(request, f"{count} incident(s) resolved.")
 
     @admin.display(description="Severity")
     def severity_badge(self, obj):
