@@ -85,6 +85,9 @@ class AlertAdmin(admin.ModelAdmin):
     date_hierarchy = "received_at"
     inlines = [AlertHistoryInline]
 
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("incident")
+
     fieldsets = [
         (
             "Identification",
@@ -187,6 +190,9 @@ class IncidentAdmin(admin.ModelAdmin):
     ]
     date_hierarchy = "created_at"
     inlines = [AlertInline, PipelineRunInline]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("alerts", "pipeline_runs")
 
     fieldsets = [
         (

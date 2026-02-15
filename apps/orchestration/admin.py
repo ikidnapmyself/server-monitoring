@@ -54,6 +54,14 @@ class PipelineRunAdmin(admin.ModelAdmin):
     ]
     inlines = [StageExecutionInline]
 
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .select_related("incident")
+            .prefetch_related("stage_executions")
+        )
+
     fieldsets = [
         (
             "Identification",
@@ -132,6 +140,9 @@ class StageExecutionAdmin(admin.ModelAdmin):
     list_filter = ["stage", "status"]
     search_fields = ["pipeline_run__run_id", "pipeline_run__trace_id", "idempotency_key"]
     readonly_fields = ["started_at", "completed_at", "duration_ms"]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("pipeline_run")
 
     fieldsets = [
         (
