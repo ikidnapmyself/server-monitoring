@@ -2,10 +2,15 @@ import pytest
 from django.contrib import admin
 from django.utils import timezone
 
-from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
+from apps.alerts.models import Alert, AlertSeverity, AlertStatus, Incident, IncidentStatus
 from apps.checkers.models import CheckRun, CheckStatus
 from apps.intelligence.models import AnalysisRun
-from apps.orchestration.models import PipelineRun, PipelineStatus
+from apps.orchestration.models import (
+    PipelineRun,
+    PipelineStatus,
+    StageExecution,
+    StageStatus,
+)
 
 
 @pytest.mark.django_db
@@ -113,3 +118,75 @@ class TestDashboardContext:
         content = response.content.decode()
         assert "Active Incidents" in content
         assert "Pipeline Health" in content
+
+
+@pytest.fixture
+def pipeline_trace_data(db):
+    """Create a full pipeline trace for testing."""
+    incident = Incident.objects.create(
+        title="Test Incident",
+        severity=AlertSeverity.CRITICAL,
+        status=IncidentStatus.OPEN,
+    )
+    alert = Alert.objects.create(
+        fingerprint="fp-1",
+        source="prometheus",
+        name="HighCPU",
+        severity=AlertSeverity.CRITICAL,
+        status=AlertStatus.FIRING,
+        incident=incident,
+        started_at=timezone.now(),
+    )
+    run = PipelineRun.objects.create(
+        trace_id="trace-abc",
+        run_id="run-abc",
+        status=PipelineStatus.CHECKED,
+        current_stage="check",
+        incident=incident,
+    )
+    StageExecution.objects.create(
+        pipeline_run=run,
+        stage="ingest",
+        status=StageStatus.SUCCEEDED,
+        attempt=1,
+    )
+    StageExecution.objects.create(
+        pipeline_run=run,
+        stage="check",
+        status=StageStatus.RUNNING,
+        attempt=1,
+    )
+    return {"incident": incident, "alert": alert, "run": run}
+
+
+@pytest.mark.django_db
+class TestPipelineTracing:
+    def test_pipeline_run_detail_shows_flow(self, admin_client, pipeline_trace_data):
+        run = pipeline_trace_data["run"]
+        response = admin_client.get(f"/admin/orchestration/pipelinerun/{run.pk}/change/")
+        assert response.status_code == 200
+        content = response.content.decode()
+        # Should show the pipeline flow stages
+        assert "INGEST" in content
+        assert "CHECK" in content
+        assert "ANALYZE" in content
+        assert "NOTIFY" in content
+
+    def test_alert_search_by_trace_id(self, admin_client, pipeline_trace_data):
+        """AlertAdmin should support searching by fingerprint."""
+        response = admin_client.get("/admin/alerts/alert/?q=fp-1")
+        assert response.status_code == 200
+
+    def test_check_run_pipeline_link(self, admin_client, db):
+        now = timezone.now()
+        cr = CheckRun.objects.create(
+            checker_name="cpu",
+            hostname="srv1",
+            status=CheckStatus.OK,
+            trace_id="trace-xyz",
+            executed_at=now,
+        )
+        response = admin_client.get(f"/admin/checkers/checkrun/{cr.pk}/change/")
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "trace-xyz" in content

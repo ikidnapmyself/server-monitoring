@@ -1,6 +1,8 @@
 """Admin configuration for orchestration models."""
 
 from django.contrib import admin
+from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from apps.orchestration.models import PipelineDefinition, PipelineRun, StageExecution
 
@@ -51,6 +53,7 @@ class PipelineRunAdmin(admin.ModelAdmin):
         "started_at",
         "completed_at",
         "total_duration_ms",
+        "pipeline_flow",
     ]
     inlines = [StageExecutionInline]
 
@@ -67,6 +70,7 @@ class PipelineRunAdmin(admin.ModelAdmin):
             "Identification",
             {
                 "fields": [
+                    "pipeline_flow",
                     "trace_id",
                     "run_id",
                     "incident",
@@ -123,6 +127,40 @@ class PipelineRunAdmin(admin.ModelAdmin):
             },
         ),
     ]
+
+    @admin.display(description="Pipeline Flow")
+    def pipeline_flow(self, obj):
+        """Render a horizontal stage flow with status indicators."""
+        from apps.orchestration.models import PipelineStage, StageStatus
+
+        stages = [
+            (PipelineStage.INGEST, "INGEST"),
+            (PipelineStage.CHECK, "CHECK"),
+            (PipelineStage.ANALYZE, "ANALYZE"),
+            (PipelineStage.NOTIFY, "NOTIFY"),
+        ]
+        executions = {se.stage: se.status for se in obj.stage_executions.all()}
+        parts = []
+        for stage_value, stage_label in stages:
+            status = executions.get(stage_value, None)
+            if status == StageStatus.SUCCEEDED:
+                color, icon = "#28a745", "&#10003;"
+            elif status == StageStatus.RUNNING:
+                color, icon = "#ffc107", "&#9679;"
+            elif status == StageStatus.FAILED:
+                color, icon = "#dc3545", "&#10007;"
+            else:
+                color, icon = "#ccc", "&#9675;"
+            parts.append(
+                f'<span style="display:inline-block;text-align:center;margin:0 4px;">'
+                f'<span style="color:{color};font-size:18px;">{icon}</span><br>'
+                f'<span style="font-size:11px;">{stage_label}</span></span>'
+            )
+        arrow = '<span style="color:#999;margin:0 2px;">&#8594;</span>'
+        return format_html(
+            '<div style="display:flex;align-items:center;padding:8px 0;">{}</div>',
+            mark_safe(arrow.join(parts)),
+        )
 
 
 @admin.register(StageExecution)

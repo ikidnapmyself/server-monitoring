@@ -76,7 +76,7 @@ class AlertAdmin(admin.ModelAdmin):
         "received_at",
     ]
     list_filter = ["status", "severity", "source"]
-    search_fields = ["name", "fingerprint", "description"]
+    search_fields = ["name", "fingerprint", "description", "incident__pipeline_runs__trace_id"]
     readonly_fields = [
         "fingerprint",
         "received_at",
