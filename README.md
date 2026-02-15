@@ -1,7 +1,7 @@
 [![CI](https://github.com/ikidnapmyself/server-monitoring/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ikidnapmyself/server-monitoring/actions/workflows/ci.yml)
 [![Security](https://github.com/ikidnapmyself/server-monitoring/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/ikidnapmyself/server-monitoring/actions/workflows/security.yml)
 [![codecov](https://codecov.io/gh/ikidnapmyself/server-monitoring/graph/badge.svg)](https://codecov.io/gh/ikidnapmyself/server-monitoring)
-[![Codacy Badge](https://app.codacy.com/project/badge/Grade/CODACY_PROJECT_TOKEN)](https://app.codacy.com/gh/ikidnapmyself/server-monitoring/dashboard)
+[![Codacy Badge](https://app.codacy.com/project/badge/Grade/2926298c5268456f866ca414dd7e2cb8)](https://app.codacy.com/gh/ikidnapmyself/server-monitoring/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Django 5.2](https://img.shields.io/badge/django-5.2-green.svg)](https://www.djangoproject.com/)
