@@ -75,6 +75,7 @@ class MonitoringAdminSite(AdminSite):
             PipelineRun.objects.filter(status=PipelineStatus.FAILED)
             .order_by("-created_at")
             .only(
+                "id",
                 "run_id",
                 "trace_id",
                 "last_error_type",
