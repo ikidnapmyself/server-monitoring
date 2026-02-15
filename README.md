@@ -1,3 +1,4 @@
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/33356fb51d814c1faf0cfd2424dbecf1)](https://app.codacy.com/gh/ikidnapmyself/server-monitoring?utm_source=github.com&utm_medium=referral&utm_content=ikidnapmyself/server-monitoring&utm_campaign=Badge_Grade)
 [![CI](https://github.com/ikidnapmyself/server-monitoring/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ikidnapmyself/server-monitoring/actions/workflows/ci.yml)
 [![Security](https://github.com/ikidnapmyself/server-monitoring/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/ikidnapmyself/server-monitoring/actions/workflows/security.yml)
 [![codecov](https://codecov.io/gh/ikidnapmyself/server-monitoring/graph/badge.svg)](https://codecov.io/gh/ikidnapmyself/server-monitoring)
