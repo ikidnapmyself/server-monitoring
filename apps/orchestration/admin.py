@@ -1,8 +1,7 @@
 """Admin configuration for orchestration models."""
 
 from django.contrib import admin
-from django.utils.html import format_html
-from django.utils.safestring import mark_safe
+from django.utils.html import format_html, format_html_join
 from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
 
@@ -195,15 +194,19 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
                 color, icon = "#dc3545", "&#10007;"
             else:
                 color, icon = "#ccc", "&#9675;"
-            parts.append(
-                f'<span style="display:inline-block;text-align:center;margin:0 4px;">'
-                f'<span style="color:{color};font-size:18px;">{icon}</span><br>'
-                f'<span style="font-size:11px;">{stage_label}</span></span>'
-            )
-        arrow = '<span style="color:#999;margin:0 2px;">&#8594;</span>'
+            parts.append((color, icon, stage_label))
+        
+        # Use format_html_join to safely join HTML parts with proper escaping
+        stages_html = format_html_join(
+            '<span style="color:#999;margin:0 2px;">&#8594;</span>',
+            '<span style="display:inline-block;text-align:center;margin:0 4px;">'
+            '<span style="color:{};font-size:18px;">{}</span><br>'
+            '<span style="font-size:11px;">{}</span></span>',
+            parts
+        )
         return format_html(
             '<div style="display:flex;align-items:center;padding:8px 0;">{}</div>',
-            mark_safe(arrow.join(parts)),
+            stages_html,
         )
 
 
