@@ -175,9 +175,9 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
     @admin.display(description="Pipeline Flow")
     def pipeline_flow(self, obj):
         """Render a horizontal stage flow with status indicators.
-        
-        Warning: This method calls obj.stage_executions.all() and should NOT be 
-        added to list_display as it would cause N+1 query problems. Use only in 
+
+        Warning: This method calls obj.stage_executions.all() and should NOT be
+        added to list_display as it would cause N+1 query problems. Use only in
         readonly_fields and detail view fieldsets where prefetch_related is effective.
         """
         from apps.orchestration.models import PipelineStage, StageStatus
