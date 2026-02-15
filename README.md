@@ -1,3 +1,16 @@
+[![CI](https://github.com/ikidnapmyself/server-monitoring/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ikidnapmyself/server-monitoring/actions/workflows/ci.yml)
+[![Security](https://github.com/ikidnapmyself/server-monitoring/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/ikidnapmyself/server-monitoring/actions/workflows/security.yml)
+[![codecov](https://codecov.io/gh/ikidnapmyself/server-monitoring/graph/badge.svg)](https://codecov.io/gh/ikidnapmyself/server-monitoring)
+[![Codacy Badge](https://app.codacy.com/project/badge/Grade/CODACY_PROJECT_TOKEN)](https://app.codacy.com/gh/ikidnapmyself/server-monitoring/dashboard)
+
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Django 5.2](https://img.shields.io/badge/django-5.2-green.svg)](https://www.djangoproject.com/)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Linting: Ruff](https://img.shields.io/badge/linting-ruff-orange.svg)](https://github.com/astral-sh/ruff)
+
+[![License: MIT](https://img.shields.io/github/license/ikidnapmyself/server-monitoring)](https://github.com/ikidnapmyself/server-monitoring/blob/main/LICENSE)
+[![Pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen.svg)](https://pre-commit.com/)
+
 # server-maintanence
 
 A small, modular Django project for basic **server maintenance / monitoring** workflows.
