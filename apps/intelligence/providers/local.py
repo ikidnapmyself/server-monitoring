@@ -106,7 +106,7 @@ class LocalRecommendationProvider(BaseProvider):
         self.scan_paths = scan_paths or self.LOG_DIRECTORIES
         self._progress = progress_callback or (lambda msg: None)
 
-    def analyze(self, incident: Any | None = None) -> list[Recommendation]:
+    def analyze(self, incident: Any | None = None, analysis_type: str = "") -> list[Recommendation]:
         """
         Analyze an incident and generate targeted recommendations.
 

@@ -89,7 +89,7 @@ Be specific and actionable. Focus on root cause analysis and practical remediati
             self._client = OpenAI(api_key=self.api_key)
         return self._client
 
-    def analyze(self, incident: Any | None = None) -> list[Recommendation]:
+    def analyze(self, incident: Any | None = None, analysis_type: str = "") -> list[Recommendation]:
         """
         Analyze an incident using OpenAI and generate recommendations.
 

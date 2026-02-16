@@ -2,10 +2,15 @@
 Base provider interface for intelligence providers.
 """
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+SENSITIVE_PATTERNS = {"key", "secret", "token", "password", "api"}
 
 
 class RecommendationType(Enum):
@@ -76,24 +81,143 @@ class BaseProvider(ABC):
     description: str = "Base intelligence provider"
 
     @abstractmethod
-    def analyze(self, incident: Any | None = None) -> list[Recommendation]:
+    def analyze(self, incident: Any | None = None, analysis_type: str = "") -> list[Recommendation]:
         """
         Analyze system state and/or incident to generate recommendations.
 
         Args:
             incident: Optional incident object to analyze.
+            analysis_type: Optional type hint for analysis.
 
         Returns:
             List of recommendations.
         """
         ...
 
-    @abstractmethod
-    def get_recommendations(self) -> list[Recommendation]:
+    def run(
+        self,
+        *,
+        incident: Any | None = None,
+        analysis_type: str = "",
+        trace_id: str = "",
+        pipeline_run_id: str = "",
+        provider_config: dict | None = None,
+    ) -> list[Recommendation]:
         """
-        Get all current recommendations without a specific incident context.
+        Run analysis with audit logging via AnalysisRun.
+
+        Creates an AnalysisRun record tracking provider, status, timing,
+        and recommendations. DB failures are caught and logged -- they
+        never break analysis.
+
+        Args:
+            incident: Optional incident to analyze.
+            analysis_type: Optional type hint for analysis.
+            trace_id: Correlation ID for tracing across stages.
+            pipeline_run_id: Pipeline run ID this analysis belongs to.
 
         Returns:
-            List of recommendations based on current system state.
+            List of recommendations from analyze().
+
+        Raises:
+            Any exception from analyze() is re-raised after marking
+            the AnalysisRun as FAILED.
         """
-        ...
+        analysis_run = self._create_analysis_run(
+            trace_id=trace_id,
+            pipeline_run_id=pipeline_run_id,
+            incident=incident,
+            provider_config=provider_config,
+        )
+
+        if analysis_run is not None:
+            try:
+                analysis_run.mark_started()
+            except Exception:
+                logger.warning(
+                    "Failed to mark AnalysisRun as started for provider=%s",
+                    self.name,
+                    exc_info=True,
+                )
+                analysis_run = None
+
+        try:
+            recommendations = self.analyze(incident, analysis_type)
+        except Exception as exc:
+            if analysis_run is not None:
+                try:
+                    analysis_run.mark_failed(str(exc))
+                except Exception:
+                    logger.warning(
+                        "Failed to mark AnalysisRun as failed for provider=%s",
+                        self.name,
+                        exc_info=True,
+                    )
+            raise
+
+        if analysis_run is not None:
+            try:
+                analysis_run.mark_succeeded(
+                    recommendations=[r.to_dict() for r in recommendations],
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to mark AnalysisRun as succeeded for provider=%s",
+                    self.name,
+                    exc_info=True,
+                )
+
+        return recommendations
+
+    def _create_analysis_run(
+        self,
+        trace_id: str = "",
+        pipeline_run_id: str = "",
+        incident: Any | None = None,
+        provider_config: dict | None = None,
+    ):
+        """
+        Create an AnalysisRun record. Returns None on DB failure.
+
+        Uses a lazy import to avoid circular dependencies.
+        """
+        try:
+            from apps.intelligence.models import AnalysisRun
+
+            return AnalysisRun.objects.create(
+                trace_id=trace_id,
+                pipeline_run_id=pipeline_run_id,
+                provider=self.name,
+                provider_config=self._redact_config(provider_config or {}),
+                incident=incident,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to create AnalysisRun for provider=%s",
+                self.name,
+                exc_info=True,
+            )
+            return None
+
+    @staticmethod
+    def _redact_config(config: dict[str, Any]) -> dict[str, Any]:
+        """
+        Redact sensitive values from provider configuration.
+
+        Any key containing a word from SENSITIVE_PATTERNS (case-insensitive)
+        will have its value replaced with '***'.
+
+        Args:
+            config: Raw provider configuration dict.
+
+        Returns:
+            New dict with sensitive values replaced.
+        """
+        redacted = {}
+        for key, value in config.items():
+            key_lower = key.lower()
+            if any(pattern in key_lower for pattern in SENSITIVE_PATTERNS):
+                redacted[key] = "***"
+            else:
+                redacted[key] = value
+        return redacted
