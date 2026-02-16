@@ -447,7 +447,7 @@ class CheckAlertBridge:
 
         checker_class = CHECKER_REGISTRY[checker_name]
         checker = checker_class(**(checker_kwargs or {}))
-        check_result = checker.check()
+        check_result = checker.run()
 
         processing_result = self.process_check_result(check_result, labels)
 

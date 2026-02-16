@@ -134,7 +134,7 @@ class CheckAlertBridgeTests(TestCase):
         from unittest.mock import MagicMock
 
         mock_checker_class = MagicMock()
-        mock_checker_class.return_value.check.return_value = CheckResult(
+        mock_checker_class.return_value.run.return_value = CheckResult(
             status=CheckStatus.CRITICAL,
             message="Test critical",
             metrics={"value": 99},

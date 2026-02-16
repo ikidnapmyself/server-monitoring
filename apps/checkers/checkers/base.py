@@ -2,10 +2,14 @@
 Base checker classes and result types for server monitoring.
 """
 
+import logging
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class CheckStatus(Enum):
@@ -101,6 +105,39 @@ class BaseChecker(ABC):
             CheckResult with status, message, and metrics.
         """
         ...
+
+    def run(self, *, trace_id: str = "") -> CheckResult:
+        """
+        Run the check, time it, and create a CheckRun audit record.
+
+        Returns:
+            CheckResult from check() (or an UNKNOWN result on exception).
+        """
+        start = time.perf_counter()
+        try:
+            result = self.check()
+        except Exception as exc:
+            result = self._error_result(str(exc))
+        duration_ms = (time.perf_counter() - start) * 1000
+
+        try:
+            from apps.checkers.models import CheckRun
+
+            CheckRun.objects.create(
+                checker_name=self.name,
+                status=result.status.value,
+                message=result.message,
+                metrics=result.metrics,
+                error=result.error or "",
+                warning_threshold=self.warning_threshold,
+                critical_threshold=self.critical_threshold,
+                duration_ms=duration_ms,
+                trace_id=trace_id,
+            )
+        except Exception:
+            logger.warning("Failed to create CheckRun for '%s'", self.name, exc_info=True)
+
+        return result
 
     def _determine_status(self, value: float) -> CheckStatus:
         """
