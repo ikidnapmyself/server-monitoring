@@ -1,9 +1,12 @@
 """Admin configuration for intelligence app."""
 
 from django.contrib import admin
+from django.db import models as db_models
 from django.utils.html import format_html
+from django_json_widget.widgets import JSONEditorWidget
 
 from apps.intelligence.models import AnalysisRun
+from config.admin import prettify_json
 
 
 @admin.register(AnalysisRun)
@@ -23,6 +26,7 @@ class AnalysisRunAdmin(admin.ModelAdmin):
     ]
     list_filter = ["status", "provider", "fallback_used", "created_at"]
     search_fields = ["trace_id", "pipeline_run_id", "incident__title", "summary"]
+    formfield_overrides = {db_models.JSONField: {"widget": JSONEditorWidget}}
     readonly_fields = [
         "trace_id",
         "pipeline_run_id",
@@ -32,6 +36,8 @@ class AnalysisRunAdmin(admin.ModelAdmin):
         "duration_ms",
         "total_tokens",
         "pipeline_run_link",
+        "pretty_recommendations",
+        "pretty_provider_config",
     ]
     date_hierarchy = "created_at"
 
@@ -45,7 +51,7 @@ class AnalysisRunAdmin(admin.ModelAdmin):
         ),
         (
             "Provider",
-            {"fields": ["provider", "model_name", "provider_config"]},
+            {"fields": ["provider", "model_name", "pretty_provider_config"]},
         ),
         (
             "Status",
@@ -63,7 +69,7 @@ class AnalysisRunAdmin(admin.ModelAdmin):
             {
                 "fields": [
                     "recommendations_count",
-                    "recommendations",
+                    "pretty_recommendations",
                     "summary",
                     "probable_cause",
                     "confidence",
@@ -99,3 +105,11 @@ class AnalysisRunAdmin(admin.ModelAdmin):
                 obj.pipeline_run_id[:12],
             )
         return "-"
+
+    @admin.display(description="Recommendations")
+    def pretty_recommendations(self, obj):
+        return prettify_json(obj.recommendations)
+
+    @admin.display(description="Provider Config")
+    def pretty_provider_config(self, obj):
+        return prettify_json(obj.provider_config)
