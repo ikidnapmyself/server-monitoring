@@ -4,6 +4,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 
 from apps.checkers.models import CheckRun
+from config.admin import prettify_json
 
 
 @admin.register(CheckRun)
@@ -27,6 +28,7 @@ class CheckRunAdmin(admin.ModelAdmin):
         "status",
         "message",
         "metrics",
+        "pretty_metrics",
         "error",
         "warning_threshold",
         "critical_threshold",
@@ -51,7 +53,7 @@ class CheckRunAdmin(admin.ModelAdmin):
         (
             "Result",
             {
-                "fields": ["message", "metrics", "error"],
+                "fields": ["message", "pretty_metrics", "error"],
             },
         ),
         (
@@ -122,6 +124,10 @@ class CheckRunAdmin(admin.ModelAdmin):
                 obj.trace_id[:12],
             )
         return "-"
+
+    @admin.display(description="Metrics")
+    def pretty_metrics(self, obj):
+        return prettify_json(obj.metrics)
 
     def has_add_permission(self, request):
         """Disable adding check runs manually - they are created by running checks."""

@@ -130,3 +130,24 @@ class TestPerObjectActions:
         assert response.status_code == 302
         incident.refresh_from_db()
         assert incident.status == IncidentStatus.CLOSED
+
+
+@pytest.mark.django_db
+class TestJsonPrettyDisplay:
+    def test_alert_detail_shows_pretty_json(self, admin_client):
+        from apps.alerts.models import Alert, AlertSeverity, AlertStatus
+
+        alert = Alert.objects.create(
+            fingerprint="fp-json",
+            source="test",
+            name="JsonTest",
+            severity=AlertSeverity.WARNING,
+            status=AlertStatus.FIRING,
+            labels={"env": "prod", "team": "ops"},
+            raw_payload={"alertname": "test", "nested": {"key": "val"}},
+            started_at=timezone.now(),
+        )
+        response = admin_client.get(f"/admin/alerts/alert/{alert.pk}/change/")
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "<pre" in content
