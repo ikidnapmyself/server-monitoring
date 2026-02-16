@@ -221,3 +221,26 @@ class TestPipelineRunObjectActions:
         assert response.status_code == 302
         run.refresh_from_db()
         assert run.status == PipelineStatus.FAILED
+
+
+@pytest.mark.django_db
+class TestPrettifyJson:
+    def test_prettify_json_renders_formatted(self):
+        from config.admin import prettify_json
+
+        data = {"key": "value", "nested": {"a": 1}}
+        result = prettify_json(data)
+        assert "&quot;key&quot;" in result or '"key"' in result
+        assert "<pre" in result
+
+    def test_prettify_json_empty_dict(self):
+        from config.admin import prettify_json
+
+        result = prettify_json({})
+        assert "{}" in result
+
+    def test_prettify_json_none(self):
+        from config.admin import prettify_json
+
+        result = prettify_json(None)
+        assert "-" in result
