@@ -248,7 +248,7 @@ class TestLocalRecommendationProvider:
                     description="Test",
                 )
             ]
-            recommendations = provider.get_recommendations()
+            recommendations = provider.analyze()
 
             mock_mem_rec.assert_called_once()
             assert len(recommendations) >= 1

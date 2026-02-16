@@ -112,37 +112,38 @@ class LocalRecommendationProvider(BaseProvider):
 
         Args:
             incident: An Incident object from apps.alerts.models.
+            analysis_type: Optional type hint for targeted analysis
+                (e.g. "memory", "disk"). Bypasses incident detection.
 
         Returns:
             List of recommendations relevant to the incident.
         """
-        recommendations = []
+        # Targeted analysis by type (no incident required)
+        if analysis_type == "memory":
+            return self._get_memory_recommendations()
+        elif analysis_type == "disk":
+            return self._get_disk_recommendations()
 
         if incident is None:
-            return self.get_recommendations()
+            # General system scan (was get_recommendations)
+            return self._general_recommendations()
 
         # Check incident type based on title/description/alerts
         incident_type = self._detect_incident_type(incident)
 
         if incident_type == "memory":
-            recommendations.extend(self._analyze_memory_incident(incident))
+            recommendations = self._analyze_memory_incident(incident)
         elif incident_type == "disk":
-            recommendations.extend(self._analyze_disk_incident(incident))
+            recommendations = self._analyze_disk_incident(incident)
         elif incident_type == "cpu":
-            recommendations.extend(self._analyze_cpu_incident(incident))
+            recommendations = self._analyze_cpu_incident(incident)
         else:
-            # General analysis for unknown incident types
-            recommendations.extend(self.get_recommendations())
+            recommendations = self._general_recommendations()
 
         return recommendations
 
-    def get_recommendations(self) -> list[Recommendation]:
-        """
-        Get all current recommendations based on system state.
-
-        Returns:
-            List of recommendations for current system issues.
-        """
+    def _general_recommendations(self) -> list[Recommendation]:
+        """Get general recommendations based on current system state."""
         recommendations = []
 
         # Check memory status
