@@ -15,7 +15,9 @@ def prettify_json(data):
         return "-"
     formatted = json.dumps(data, indent=2, ensure_ascii=False, default=str)
     return format_html(
-        '<pre style="background:#f8f9fa;padding:10px;border-radius:4px;'
+        '<pre style="background:var(--body-bg, #f8f9fa);color:var(--body-fg, #333);'
+        "border:1px solid var(--hairline-color, #ddd);"
+        "padding:10px;border-radius:4px;"
         'max-height:400px;overflow:auto;font-size:13px;margin:0;">{}</pre>',
         formatted,
     )
