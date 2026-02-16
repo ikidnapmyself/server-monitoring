@@ -7,6 +7,7 @@ from django_object_actions import action as object_action
 
 from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus
 from apps.orchestration.models import PipelineRun
+from config.admin import prettify_json
 
 
 class AlertInline(admin.TabularInline):
@@ -83,6 +84,9 @@ class AlertAdmin(admin.ModelAdmin):
         "fingerprint",
         "received_at",
         "updated_at",
+        "pretty_labels",
+        "pretty_annotations",
+        "pretty_raw_payload",
     ]
     date_hierarchy = "received_at"
     inlines = [AlertHistoryInline]
@@ -107,14 +111,14 @@ class AlertAdmin(admin.ModelAdmin):
         (
             "Metadata",
             {
-                "fields": ["labels", "annotations"],
+                "fields": ["pretty_labels", "pretty_annotations"],
                 "classes": ["collapse"],
             },
         ),
         (
             "Raw Payload",
             {
-                "fields": ["raw_payload"],
+                "fields": ["pretty_raw_payload"],
                 "classes": ["collapse"],
             },
         ),
@@ -170,6 +174,18 @@ class AlertAdmin(admin.ModelAdmin):
             )
         return "-"
 
+    @admin.display(description="Labels")
+    def pretty_labels(self, obj):
+        return prettify_json(obj.labels)
+
+    @admin.display(description="Annotations")
+    def pretty_annotations(self, obj):
+        return prettify_json(obj.annotations)
+
+    @admin.display(description="Raw Payload")
+    def pretty_raw_payload(self, obj):
+        return prettify_json(obj.raw_payload)
+
 
 @admin.register(Incident)
 class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
@@ -195,6 +211,7 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         "alert_count_display",
         "firing_alert_count_display",
         "pipeline_runs_display",
+        "pretty_metadata",
     ]
     date_hierarchy = "created_at"
     inlines = [AlertInline, PipelineRunInline]
@@ -230,7 +247,7 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         (
             "Metadata",
             {
-                "fields": ["metadata"],
+                "fields": ["pretty_metadata"],
                 "classes": ["collapse"],
             },
         ),
@@ -343,6 +360,10 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
             return obj.pipeline_runs.count()
         except AttributeError:
             return "-"
+
+    @admin.display(description="Metadata")
+    def pretty_metadata(self, obj):
+        return prettify_json(obj.metadata)
 
 
 @admin.register(AlertHistory)
