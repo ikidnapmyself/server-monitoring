@@ -177,3 +177,4 @@ class BaseCheckerRunTests(TestCase):
         self.assertIn("boom", result.message)
         row = CheckRun.objects.first()
         self.assertEqual(row.status, "unknown")
+        self.assertIn("boom", row.error)
