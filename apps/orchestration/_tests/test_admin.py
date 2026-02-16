@@ -244,3 +244,40 @@ class TestPrettifyJson:
 
         result = prettify_json(None)
         assert "-" in result
+
+
+@pytest.mark.django_db
+class TestJsonWidgetRendering:
+    def test_pipeline_definition_config_uses_json_widget(self, admin_client):
+        from apps.orchestration.models import PipelineDefinition
+
+        pd = PipelineDefinition.objects.create(
+            name="test",
+            config={"stages": ["ingest"]},
+            is_active=True,
+        )
+        response = admin_client.get(f"/admin/orchestration/pipelinedefinition/{pd.pk}/change/")
+        assert response.status_code == 200
+        content = response.content.decode()
+        # django-json-widget injects its CSS/JS
+        assert "json-editor" in content.lower() or "jsoneditor" in content.lower()
+
+    def test_stage_execution_snapshot_pretty(self, admin_client):
+        from apps.orchestration.models import (
+            PipelineRun,
+            StageExecution,
+            StageStatus,
+        )
+
+        run = PipelineRun.objects.create(trace_id="t1", run_id="r1")
+        se = StageExecution.objects.create(
+            pipeline_run=run,
+            stage="ingest",
+            status=StageStatus.SUCCEEDED,
+            attempt=1,
+            output_snapshot={"result": "ok", "items": [1, 2, 3]},
+        )
+        response = admin_client.get(f"/admin/orchestration/stageexecution/{se.pk}/change/")
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "<pre" in content

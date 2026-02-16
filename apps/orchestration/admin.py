@@ -1,8 +1,10 @@
 """Admin configuration for orchestration models."""
 
 from django.contrib import admin
+from django.db import models as db_models
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
+from django_json_widget.widgets import JSONEditorWidget
 from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
 
@@ -12,6 +14,7 @@ from apps.orchestration.models import (
     PipelineStatus,
     StageExecution,
 )
+from config.admin import prettify_json
 
 
 class StageExecutionInline(admin.TabularInline):
@@ -238,10 +241,15 @@ class StageExecutionAdmin(admin.ModelAdmin):
     ]
     list_filter = ["stage", "status"]
     search_fields = ["pipeline_run__run_id", "pipeline_run__trace_id", "idempotency_key"]
-    readonly_fields = ["started_at", "completed_at", "duration_ms"]
+    readonly_fields = ["started_at", "completed_at", "duration_ms", "pretty_output_snapshot"]
+    formfield_overrides = {db_models.JSONField: {"widget": JSONEditorWidget}}
 
     def get_queryset(self, request):
         return super().get_queryset(request).select_related("pipeline_run")
+
+    @admin.display(description="Output Snapshot")
+    def pretty_output_snapshot(self, obj):
+        return prettify_json(obj.output_snapshot)
 
     fieldsets = [
         (
@@ -250,7 +258,7 @@ class StageExecutionAdmin(admin.ModelAdmin):
         ),
         (
             "State",
-            {"fields": ["status", "input_ref", "output_ref", "output_snapshot"]},
+            {"fields": ["status", "input_ref", "output_ref", "pretty_output_snapshot"]},
         ),
         (
             "Errors",
@@ -288,6 +296,7 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
     search_fields = ["name", "description", "created_by"]
     readonly_fields = ["version", "created_at", "updated_at"]
     ordering = ["-updated_at"]
+    formfield_overrides = {db_models.JSONField: {"widget": JSONEditorWidget}}
 
     fieldsets = [
         (
