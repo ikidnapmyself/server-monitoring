@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  push:
+    branches: ["main"]
   pull_request:
 
 concurrency:
@@ -122,3 +124,27 @@ jobs:
         env:
           DJANGO_SECRET_KEY: ci-test-key
         run: uv run python manage.py makemigrations --check --dry-run
+
+  security:
+    name: Security Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Django Security Check
+        env:
+          DJANGO_SECRET_KEY: ci-test-key
+        uses: victoriadrake/django-security-check@v1.1.1
