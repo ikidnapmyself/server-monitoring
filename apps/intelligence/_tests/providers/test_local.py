@@ -253,6 +253,35 @@ class TestLocalRecommendationProvider:
             mock_mem_rec.assert_called_once()
             assert len(recommendations) >= 1
 
+    def test_analyze_with_analysis_type_memory(self):
+        """analyze(analysis_type='memory') routes to _get_memory_recommendations."""
+        provider = LocalRecommendationProvider()
+        with patch.object(provider, "_get_memory_recommendations") as mock_mem:
+            mock_mem.return_value = []
+            provider.analyze(analysis_type="memory")
+            mock_mem.assert_called_once()
+
+    def test_analyze_with_analysis_type_disk(self):
+        """analyze(analysis_type='disk') routes to _get_disk_recommendations."""
+        provider = LocalRecommendationProvider()
+        with patch.object(provider, "_get_disk_recommendations") as mock_disk:
+            mock_disk.return_value = []
+            provider.analyze(analysis_type="disk")
+            mock_disk.assert_called_once()
+
+    def test_analysis_type_takes_precedence_over_incident(self):
+        """analysis_type='memory' bypasses incident detection even if incident provided."""
+        provider = LocalRecommendationProvider()
+        incident = MagicMock()
+        incident.title = "Disk Space Alert"
+
+        with patch.object(provider, "_get_memory_recommendations") as mock_mem:
+            with patch.object(provider, "_detect_incident_type") as mock_detect:
+                mock_mem.return_value = []
+                provider.analyze(incident, analysis_type="memory")
+                mock_mem.assert_called_once()
+                mock_detect.assert_not_called()
+
 
 @pytest.mark.django_db
 class TestIntegration:
