@@ -99,7 +99,7 @@ class Command(BaseCommand):
             checker_class = CHECKER_REGISTRY[name]
             checker_kwargs = self._build_checker_kwargs(name, options)
             checker = checker_class(**checker_kwargs)
-            result = checker.check()
+            result = checker.run()
             results.append(result)
 
         if options["json_output"]:

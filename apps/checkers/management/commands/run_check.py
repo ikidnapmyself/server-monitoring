@@ -112,7 +112,7 @@ class Command(BaseCommand):
         # Run the check
         checker_class = CHECKER_REGISTRY[checker_name]
         checker = checker_class(**kwargs)
-        result = checker.check()
+        result = checker.run()
 
         # Output
         if options["json_output"]:
