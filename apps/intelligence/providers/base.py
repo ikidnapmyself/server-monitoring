@@ -184,12 +184,13 @@ class BaseProvider(ABC):
         try:
             from apps.intelligence.models import AnalysisRun
 
+            incident_obj = incident if incident and hasattr(incident, "pk") else None
             return AnalysisRun.objects.create(
                 trace_id=trace_id,
                 pipeline_run_id=pipeline_run_id,
                 provider=self.name,
                 provider_config=self._redact_config(provider_config or {}),
-                incident=incident,
+                incident=incident_obj,
             )
         except Exception:
             logger.warning(

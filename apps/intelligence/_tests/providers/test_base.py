@@ -177,6 +177,14 @@ class BaseProviderRunTests(TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].title, "Test recommendation")
 
+    def test_run_ignores_non_model_incident(self):
+        """Non-model object as incident -> AnalysisRun.incident is None."""
+        provider = FakeProvider()
+        provider.run(incident="not-a-model-object")
+
+        row = AnalysisRun.objects.first()
+        self.assertIsNone(row.incident)
+
     def test_run_stores_redacted_config(self):
         """api_key='***' but model='gpt-4' stored in provider_config."""
         provider = FakeProvider()
