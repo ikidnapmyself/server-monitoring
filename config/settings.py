@@ -49,6 +49,7 @@ ALLOWED_HOSTS: list[str] = [h.strip() for h in _allowed_hosts.split(",") if h.st
 INSTALLED_APPS = [
     "config.apps.MonitoringAdminConfig",
     "django_object_actions",
+    "django_json_widget",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
