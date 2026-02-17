@@ -237,11 +237,12 @@ uv run python manage.py run_check memory --json
 
 #### CPU checker options
 
-- `--interval` (seconds; default 1.0)
+- `--samples` (integer; default 5) — number of samples to take
+- `--sample-interval` (seconds; default 1.0) — seconds between samples
 - `--per-cpu` (use the busiest core for the status)
 
 ```bash
-uv run python manage.py run_check cpu --interval 0.5 --per-cpu
+uv run python manage.py run_check cpu --samples 10 --sample-interval 0.5 --per-cpu
 ```
 
 #### Memory checker options

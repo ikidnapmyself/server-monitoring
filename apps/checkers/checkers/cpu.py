@@ -1,5 +1,5 @@
 """
-CPU usage checker.
+CPU usage checker with multi-sample averaging.
 """
 
 import psutil
@@ -9,9 +9,11 @@ from apps.checkers.checkers.base import BaseChecker, CheckResult
 
 class CPUChecker(BaseChecker):
     """
-    Check CPU usage percentage.
+    Check CPU usage by averaging multiple samples.
 
-    Measures CPU utilization and compares against warning/critical thresholds.
+    Takes N samples at a fixed interval and computes avg/min/max.
+    Status is determined from the average.
+    Default: 5 samples, 1 second apart (5 seconds total).
     Default thresholds: warning at 70%, critical at 90%.
     """
 
@@ -21,49 +23,62 @@ class CPUChecker(BaseChecker):
 
     def __init__(
         self,
-        interval: float = 1.0,
+        samples: int = 5,
+        sample_interval: float = 1.0,
         per_cpu: bool = False,
         **kwargs,
     ) -> None:
-        """
-        Initialize CPU checker.
-
-        Args:
-            interval: Seconds to sample CPU usage (default 1.0).
-            per_cpu: If True, check per-CPU usage; otherwise system-wide.
-            **kwargs: Additional BaseChecker arguments.
-        """
         super().__init__(**kwargs)
-        self.interval = interval
+        if samples < 1:
+            raise ValueError(f"samples must be >= 1, got {samples}")
+        if sample_interval < 0:
+            raise ValueError(f"sample_interval must be >= 0, got {sample_interval}")
+        self.samples = samples
+        self.sample_interval = sample_interval
         self.per_cpu = per_cpu
 
     def check(self) -> CheckResult:
-        """
-        Check CPU usage.
-
-        Returns:
-            CheckResult with CPU usage metrics.
-        """
         try:
             if self.per_cpu:
-                cpu_percents = psutil.cpu_percent(interval=self.interval, percpu=True)
-                cpu_percent = max(cpu_percents)  # Use highest core for status
-                metrics = {
-                    "cpu_percent": cpu_percent,
-                    "per_cpu_percent": cpu_percents,
-                    "cpu_count": len(cpu_percents),
-                }
-            else:
-                cpu_percent = psutil.cpu_percent(interval=self.interval)
-                metrics = {
-                    "cpu_percent": cpu_percent,
-                    "cpu_count": psutil.cpu_count(),
-                }
-
-            status = self._determine_status(cpu_percent)
-            message = f"CPU usage: {cpu_percent:.1f}%"
-
-            return self._make_result(status=status, message=message, metrics=metrics)
-
+                return self._check_per_cpu()
+            return self._check_system()
         except Exception as e:
             return self._error_result(str(e))
+
+    def _check_system(self) -> CheckResult:
+        readings = [psutil.cpu_percent(interval=self.sample_interval) for _ in range(self.samples)]
+        avg = sum(readings) / len(readings)
+        metrics = {
+            "cpu_percent": round(avg, 1),
+            "cpu_min": min(readings),
+            "cpu_max": max(readings),
+            "samples": self.samples,
+            "cpu_count": psutil.cpu_count(),
+        }
+        status = self._determine_status(avg)
+        message = f"CPU usage: {avg:.1f}% (avg of {self.samples} samples)"
+        return self._make_result(status=status, message=message, metrics=metrics)
+
+    def _check_per_cpu(self) -> CheckResult:
+        all_samples = [
+            psutil.cpu_percent(interval=self.sample_interval, percpu=True)
+            for _ in range(self.samples)
+        ]
+        num_cores = len(all_samples[0])
+        per_core_avgs = [
+            round(sum(s[i] for s in all_samples) / self.samples, 1) for i in range(num_cores)
+        ]
+        # min/max track the busiest core per sample (not individual core readings)
+        per_sample_maxes = [max(s) for s in all_samples]
+        cpu_percent = max(per_core_avgs)
+        metrics = {
+            "cpu_percent": cpu_percent,
+            "cpu_min": min(per_sample_maxes),
+            "cpu_max": max(per_sample_maxes),
+            "samples": self.samples,
+            "per_cpu_percent": per_core_avgs,
+            "cpu_count": num_cores,
+        }
+        status = self._determine_status(cpu_percent)
+        message = f"CPU usage: {cpu_percent:.1f}% (avg of {self.samples} samples, busiest core)"
+        return self._make_result(status=status, message=message, metrics=metrics)

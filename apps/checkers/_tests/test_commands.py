@@ -51,3 +51,47 @@ class RunCheckCommandTests(TestCase):
             call_command("run_check", "cpu", stdout=StringIO())
 
         mock_checker.return_value.run.assert_called_once()
+
+    def test_run_check_passes_samples_to_cpu(self):
+        mock_checker = MagicMock()
+        mock_checker.return_value.run.return_value = CheckResult(
+            status=CheckStatus.OK,
+            message="All good",
+            metrics={"cpu_percent": 10},
+            checker_name="cpu",
+        )
+
+        with patch.dict(
+            "apps.checkers.management.commands.run_check.CHECKER_REGISTRY",
+            {"cpu": mock_checker},
+            clear=True,
+        ):
+            call_command(
+                "run_check",
+                "cpu",
+                "--samples",
+                "3",
+                "--sample-interval",
+                "0.5",
+                stdout=StringIO(),
+            )
+
+        mock_checker.assert_called_once_with(samples=3, sample_interval=0.5)
+
+    def test_run_check_cpu_default_no_extra_kwargs(self):
+        mock_checker = MagicMock()
+        mock_checker.return_value.run.return_value = CheckResult(
+            status=CheckStatus.OK,
+            message="All good",
+            metrics={"cpu_percent": 10},
+            checker_name="cpu",
+        )
+
+        with patch.dict(
+            "apps.checkers.management.commands.run_check.CHECKER_REGISTRY",
+            {"cpu": mock_checker},
+            clear=True,
+        ):
+            call_command("run_check", "cpu", stdout=StringIO())
+
+        mock_checker.assert_called_once_with()
