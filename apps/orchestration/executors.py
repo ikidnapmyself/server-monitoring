@@ -171,15 +171,18 @@ class AnalyzeExecutor(BaseExecutor):
             provider = get_provider(provider_name, **(provider_config or {}))
             incident_id = ctx.incident_id
 
-            recommendations = []
+            incident = None
             if incident_id:
                 from apps.alerts.models import Incident
 
                 incident = Incident.objects.filter(id=incident_id).first()
-                if incident:
-                    recommendations = provider.analyze(incident)
-            else:
-                recommendations = provider.get_recommendations()
+
+            recommendations = provider.run(
+                incident=incident,
+                trace_id=ctx.trace_id,
+                pipeline_run_id=ctx.run_id,
+                provider_config=provider_config,
+            )
 
             # Populate result
             recs_list: list[dict[str, Any]] = []

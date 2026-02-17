@@ -37,14 +37,14 @@ class RecommendationsView(JSONResponseMixin, View):
                 try:
                     incident = Incident.objects.get(id=incident_id)
                     provider = get_provider(provider_name)
-                    recommendations = provider.analyze(incident)
+                    recommendations = provider.run(incident=incident)
                 except Incident.DoesNotExist:
                     return self.error_response(
                         f"Incident with id {incident_id} not found", status=404
                     )
             else:
                 provider = get_provider(provider_name)
-                recommendations = provider.get_recommendations()
+                recommendations = provider.run()
 
             return self.json_response(
                 {
@@ -79,13 +79,15 @@ class RecommendationsView(JSONResponseMixin, View):
 
                 try:
                     incident = Incident.objects.get(id=incident_id)
-                    recommendations = provider.analyze(incident)
+                    recommendations = provider.run(
+                        incident=incident, provider_config=provider_config
+                    )
                 except Incident.DoesNotExist:
                     return self.error_response(
                         f"Incident with id {incident_id} not found", status=404
                     )
             else:
-                recommendations = provider.get_recommendations()
+                recommendations = provider.run(provider_config=provider_config)
 
             return self.json_response(
                 {
