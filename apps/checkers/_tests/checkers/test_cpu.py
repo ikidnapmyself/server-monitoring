@@ -23,6 +23,14 @@ class CPUCheckerInitTests(TestCase):
         self.assertEqual(checker.samples, 10)
         self.assertEqual(checker.sample_interval, 0.5)
 
+    def test_samples_zero_raises(self):
+        with self.assertRaises(ValueError):
+            CPUChecker(samples=0)
+
+    def test_negative_sample_interval_raises(self):
+        with self.assertRaises(ValueError):
+            CPUChecker(sample_interval=-1.0)
+
 
 class CPUCheckerTests(TestCase):
     """Tests for CPUChecker.check() multi-sample behavior."""

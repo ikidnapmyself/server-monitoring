@@ -29,6 +29,10 @@ class CPUChecker(BaseChecker):
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
+        if samples < 1:
+            raise ValueError(f"samples must be >= 1, got {samples}")
+        if sample_interval < 0:
+            raise ValueError(f"sample_interval must be >= 0, got {sample_interval}")
         self.samples = samples
         self.sample_interval = sample_interval
         self.per_cpu = per_cpu

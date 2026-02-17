@@ -97,9 +97,9 @@ class Command(BaseCommand):
 
         # Checker-specific options
         if checker_name == "cpu":
-            if options.get("samples"):
+            if options.get("samples") is not None:
                 kwargs["samples"] = options["samples"]
-            if options.get("sample_interval"):
+            if options.get("sample_interval") is not None:
                 kwargs["sample_interval"] = options["sample_interval"]
             if options.get("per_cpu"):
                 kwargs["per_cpu"] = True
