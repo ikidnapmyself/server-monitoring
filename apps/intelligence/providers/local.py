@@ -701,4 +701,4 @@ def get_local_recommendations(incident=None) -> list[Recommendation]:
         List of recommendations.
     """
     provider = LocalRecommendationProvider()
-    return provider.analyze(incident)
+    return provider.run(incident=incident)
