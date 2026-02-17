@@ -64,6 +64,7 @@ class CPUChecker(BaseChecker):
         per_core_avgs = [
             round(sum(s[i] for s in all_samples) / self.samples, 1) for i in range(num_cores)
         ]
+        # min/max track the busiest core per sample (not individual core readings)
         per_sample_maxes = [max(s) for s in all_samples]
         cpu_percent = max(per_core_avgs)
         metrics = {
