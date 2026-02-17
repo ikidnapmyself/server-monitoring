@@ -35,7 +35,7 @@ class TestProviderSelection:
     def test_default_provider_is_local(self, mock_get_provider):
         """Test that default provider is local."""
         mock_provider = MagicMock()
-        mock_provider.get_recommendations.return_value = []
+        mock_provider.run.return_value = []
         mock_get_provider.return_value = mock_provider
 
         out = StringIO()
@@ -49,7 +49,7 @@ class TestProviderSelection:
     def test_custom_provider(self, mock_get_provider):
         """Test selecting a custom provider."""
         mock_provider = MagicMock()
-        mock_provider.get_recommendations.return_value = []
+        mock_provider.run.return_value = []
         mock_get_provider.return_value = mock_provider
 
         out = StringIO()
@@ -63,7 +63,7 @@ class TestProviderSelection:
     def test_provider_configuration_options(self, mock_get_provider):
         """Test provider configuration options are passed correctly."""
         mock_provider = MagicMock()
-        mock_provider.get_recommendations.return_value = []
+        mock_provider.run.return_value = []
         mock_get_provider.return_value = mock_provider
 
         out = StringIO()
@@ -112,7 +112,7 @@ class TestIncidentAnalysis:
         )
 
         mock_provider = MagicMock()
-        mock_provider.analyze.return_value = [
+        mock_provider.run.return_value = [
             Recommendation(
                 type=RecommendationType.MEMORY,
                 priority=RecommendationPriority.HIGH,
@@ -129,7 +129,7 @@ class TestIncidentAnalysis:
         output = out.getvalue()
         assert "Analyzing incident" in output
         assert "Test Memory Incident" in output
-        mock_provider.analyze.assert_called_once()
+        mock_provider.run.assert_called_once()
 
         # Cleanup
         incident.delete()
@@ -154,9 +154,9 @@ class TestRecommendationTypes:
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
     def test_memory_recommendations(self, mock_get_provider):
-        """Test --memory option calls memory-specific method."""
+        """Test --memory option calls run with analysis_type=memory."""
         mock_provider = MagicMock()
-        mock_provider._get_memory_recommendations.return_value = [
+        mock_provider.run.return_value = [
             Recommendation(
                 type=RecommendationType.MEMORY,
                 priority=RecommendationPriority.HIGH,
@@ -169,13 +169,13 @@ class TestRecommendationTypes:
         out = StringIO()
         call_command("get_recommendations", "--memory", "--provider=local", stdout=out)
 
-        mock_provider._get_memory_recommendations.assert_called_once()
+        mock_provider.run.assert_called_once_with(analysis_type="memory")
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
     def test_disk_recommendations(self, mock_get_provider):
-        """Test --disk option calls disk-specific method."""
+        """Test --disk option calls run with analysis_type=disk."""
         mock_provider = MagicMock()
-        mock_provider._get_disk_recommendations.return_value = [
+        mock_provider.run.return_value = [
             Recommendation(
                 type=RecommendationType.DISK,
                 priority=RecommendationPriority.MEDIUM,
@@ -188,13 +188,13 @@ class TestRecommendationTypes:
         out = StringIO()
         call_command("get_recommendations", "--disk", "--provider=local", stdout=out)
 
-        mock_provider._get_disk_recommendations.assert_called_once_with("/")
+        mock_provider.run.assert_called_once_with(analysis_type="disk")
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
     def test_disk_recommendations_with_path(self, mock_get_provider):
-        """Test --disk with --path option."""
+        """Test --disk with --path option calls run with analysis_type=disk."""
         mock_provider = MagicMock()
-        mock_provider._get_disk_recommendations.return_value = []
+        mock_provider.run.return_value = []
         mock_get_provider.return_value = mock_provider
 
         out = StringIO()
@@ -206,33 +206,33 @@ class TestRecommendationTypes:
             stdout=out,
         )
 
-        mock_provider._get_disk_recommendations.assert_called_once_with("/var/log")
+        mock_provider.run.assert_called_once_with(analysis_type="disk")
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
     def test_all_recommendations(self, mock_get_provider):
-        """Test --all option calls both memory and disk methods."""
+        """Test --all option calls run twice (memory + disk)."""
         mock_provider = MagicMock()
-        mock_provider._get_memory_recommendations.return_value = []
-        mock_provider._get_disk_recommendations.return_value = []
+        mock_provider.run.return_value = []
         mock_get_provider.return_value = mock_provider
 
         out = StringIO()
         call_command("get_recommendations", "--all", "--provider=local", stdout=out)
 
-        mock_provider._get_memory_recommendations.assert_called_once()
-        mock_provider._get_disk_recommendations.assert_called_once_with("/")
+        assert mock_provider.run.call_count == 2
+        mock_provider.run.assert_any_call(analysis_type="memory")
+        mock_provider.run.assert_any_call(analysis_type="disk")
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
-    def test_default_calls_get_recommendations(self, mock_get_provider):
-        """Test default behavior calls get_recommendations."""
+    def test_default_calls_run(self, mock_get_provider):
+        """Test default behavior calls run."""
         mock_provider = MagicMock()
-        mock_provider.get_recommendations.return_value = []
+        mock_provider.run.return_value = []
         mock_get_provider.return_value = mock_provider
 
         out = StringIO()
         call_command("get_recommendations", "--provider=local", stdout=out)
 
-        mock_provider.get_recommendations.assert_called_once()
+        mock_provider.run.assert_called_once()
 
 
 class TestOutputFormats:
@@ -242,7 +242,7 @@ class TestOutputFormats:
     def test_json_output(self, mock_get_provider):
         """Test --json option outputs valid JSON."""
         mock_provider = MagicMock()
-        mock_provider.get_recommendations.return_value = [
+        mock_provider.run.return_value = [
             Recommendation(
                 type=RecommendationType.MEMORY,
                 priority=RecommendationPriority.HIGH,
@@ -270,7 +270,7 @@ class TestOutputFormats:
     def test_no_recommendations_message(self, mock_get_provider):
         """Test message when no recommendations found."""
         mock_provider = MagicMock()
-        mock_provider.get_recommendations.return_value = []
+        mock_provider.run.return_value = []
         mock_get_provider.return_value = mock_provider
 
         out = StringIO()
@@ -283,7 +283,7 @@ class TestOutputFormats:
     def test_recommendation_count_in_output(self, mock_get_provider):
         """Test recommendation count is displayed."""
         mock_provider = MagicMock()
-        mock_provider.get_recommendations.return_value = [
+        mock_provider.run.return_value = [
             Recommendation(
                 type=RecommendationType.MEMORY,
                 priority=RecommendationPriority.HIGH,
@@ -313,7 +313,7 @@ class TestPrintRecommendations:
     def test_print_recommendation_with_actions(self, mock_get_provider):
         """Test printing recommendation with actions."""
         mock_provider = MagicMock()
-        mock_provider.get_recommendations.return_value = [
+        mock_provider.run.return_value = [
             Recommendation(
                 type=RecommendationType.CPU,
                 priority=RecommendationPriority.CRITICAL,
@@ -338,7 +338,7 @@ class TestPrintRecommendations:
     def test_print_recommendation_with_top_processes(self, mock_get_provider):
         """Test printing recommendation with process details."""
         mock_provider = MagicMock()
-        mock_provider.get_recommendations.return_value = [
+        mock_provider.run.return_value = [
             Recommendation(
                 type=RecommendationType.MEMORY,
                 priority=RecommendationPriority.HIGH,
@@ -367,7 +367,7 @@ class TestPrintRecommendations:
     def test_print_recommendation_with_large_items(self, mock_get_provider):
         """Test printing recommendation with large file details."""
         mock_provider = MagicMock()
-        mock_provider.get_recommendations.return_value = [
+        mock_provider.run.return_value = [
             Recommendation(
                 type=RecommendationType.DISK,
                 priority=RecommendationPriority.MEDIUM,
@@ -397,7 +397,7 @@ class TestPrintRecommendations:
     def test_print_recommendation_with_old_files(self, mock_get_provider):
         """Test printing recommendation with old file details."""
         mock_provider = MagicMock()
-        mock_provider.get_recommendations.return_value = [
+        mock_provider.run.return_value = [
             Recommendation(
                 type=RecommendationType.DISK,
                 priority=RecommendationPriority.LOW,
@@ -424,7 +424,7 @@ class TestPrintRecommendations:
     def test_priority_formatting(self, mock_get_provider):
         """Test that different priorities are displayed."""
         mock_provider = MagicMock()
-        mock_provider.get_recommendations.return_value = [
+        mock_provider.run.return_value = [
             Recommendation(
                 type=RecommendationType.GENERAL,
                 priority=RecommendationPriority.CRITICAL,
@@ -474,7 +474,7 @@ class TestProgressCallback:
         avoid spamming CI/CD logs.
         """
         mock_provider = MagicMock()
-        mock_provider._get_memory_recommendations.return_value = []
+        mock_provider.run.return_value = []
 
         # Capture the progress callback when get_provider is called
         def capture_callback(*args, **kwargs):
@@ -497,7 +497,7 @@ class TestProgressCallback:
     def test_get_recommendations_no_progress_in_json_mode(self, mock_get_provider):
         """Test that progress messages are suppressed in JSON mode."""
         mock_provider = MagicMock()
-        mock_provider._get_memory_recommendations.return_value = []
+        mock_provider.run.return_value = []
 
         # Capture the progress callback when get_provider is called
         def capture_callback(*args, **kwargs):
@@ -522,7 +522,7 @@ class TestProgressCallback:
     def test_progress_callback_is_passed_to_provider(self, mock_get_provider):
         """Test that progress_callback is passed to get_provider."""
         mock_provider = MagicMock()
-        mock_provider.get_recommendations.return_value = []
+        mock_provider.run.return_value = []
         mock_get_provider.return_value = mock_provider
 
         out = StringIO()

@@ -148,28 +148,28 @@ class Command(BaseCommand):
 
             try:
                 incident = Incident.objects.get(id=options["incident_id"])
-                recommendations = provider.analyze(incident)
                 self.stdout.write(self.style.SUCCESS(f"Analyzing incident: {incident.title}"))
+                recommendations = provider.run(incident=incident)
             except Incident.DoesNotExist:
                 self.stderr.write(self.style.ERROR(f"Incident {options['incident_id']} not found"))
                 return
 
         # Memory-specific analysis
         elif options["memory"]:
-            recommendations = provider._get_memory_recommendations()
+            recommendations = provider.run(analysis_type="memory")
 
         # Disk-specific analysis
         elif options["disk"]:
-            recommendations = provider._get_disk_recommendations(options["path"])
+            recommendations = provider.run(analysis_type="disk")
 
         # All recommendations
         elif options["all"]:
-            recommendations.extend(provider._get_memory_recommendations())
-            recommendations.extend(provider._get_disk_recommendations(options["path"]))
+            recommendations.extend(provider.run(analysis_type="memory"))
+            recommendations.extend(provider.run(analysis_type="disk"))
 
         # General recommendations based on current state
         else:
-            recommendations = provider.get_recommendations()
+            recommendations = provider.run()
 
         # Output
         if options["json"]:

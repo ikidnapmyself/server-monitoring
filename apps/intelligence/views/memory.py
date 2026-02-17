@@ -23,7 +23,7 @@ class MemoryAnalysisView(JSONResponseMixin, View):
 
         try:
             provider = get_provider("local", top_n_processes=top_n)
-            recommendations = provider._get_memory_recommendations()
+            recommendations = provider.run(analysis_type="memory")
 
             return self.json_response(
                 {

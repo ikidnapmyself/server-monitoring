@@ -59,27 +59,22 @@ class IntelligenceNodeHandler(BaseNodeHandler):
             provider = get_provider(provider_name, **provider_config)
 
             # If an incident id is present, prefer analyzing the incident
-            recommendations: list[Any] = []
+            incident = None
             if ctx.incident_id:
                 try:
                     from apps.alerts.models import Incident
 
                     incident = Incident.objects.filter(id=ctx.incident_id).first()
-                    if incident:
-                        recommendations = (
-                            self._call_with_timeout(provider.analyze, 1.0, incident) or []
-                        )
-                    else:
-                        recommendations = (
-                            self._call_with_timeout(provider.get_recommendations, 1.0) or []
-                        )
                 except Exception:
-                    # If alerts app isn't available or the lookup fails, fall back
-                    recommendations = (
-                        self._call_with_timeout(provider.get_recommendations, 1.0) or []
-                    )
-            else:
-                recommendations = self._call_with_timeout(provider.get_recommendations, 1.0) or []
+                    pass
+
+            recommendations: list[Any] = (
+                self._call_with_timeout(
+                    lambda: provider.run(incident=incident),
+                    1.0,
+                )
+                or []
+            )
 
             # Normalize recommendations into dicts
             recs_list = []

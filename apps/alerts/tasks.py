@@ -151,13 +151,13 @@ def analyze_incident(self, ctx: dict[str, Any]) -> dict[str, Any]:
     incident_id = ctx.get("incident_id")
     recommendations = None
 
+    incident = None
     if incident_id:
         from apps.alerts.models import Incident
 
         incident = Incident.objects.filter(id=incident_id).first()
-        recommendations = provider.analyze(incident)
-    else:
-        recommendations = provider.get_recommendations()
+
+    recommendations = provider.run(incident=incident)
 
     ctx["intelligence"] = {
         "provider": provider_name,

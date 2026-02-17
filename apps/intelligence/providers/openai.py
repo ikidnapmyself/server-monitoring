@@ -89,7 +89,7 @@ Be specific and actionable. Focus on root cause analysis and practical remediati
             self._client = OpenAI(api_key=self.api_key)
         return self._client
 
-    def analyze(self, incident: Any | None = None) -> list[Recommendation]:
+    def analyze(self, incident: Any | None = None, analysis_type: str = "") -> list[Recommendation]:
         """
         Analyze an incident using OpenAI and generate recommendations.
 
@@ -100,7 +100,7 @@ Be specific and actionable. Focus on root cause analysis and practical remediati
             List of AI-generated recommendations.
         """
         if incident is None:
-            return self.get_recommendations()
+            return []
 
         prompt = self._build_prompt(incident)
 
@@ -110,19 +110,6 @@ Be specific and actionable. Focus on root cause analysis and practical remediati
         except Exception as e:
             logger.error(f"OpenAI API error: {e}")
             return self._get_fallback_recommendation(incident, str(e))
-
-    def get_recommendations(self) -> list[Recommendation]:
-        """
-        Get general recommendations without a specific incident context.
-
-        For the OpenAI provider, this returns an empty list since the provider
-        is designed for incident analysis. Use the local provider for
-        system-state-based recommendations.
-
-        Returns:
-            Empty list (OpenAI provider requires incident context).
-        """
-        return []
 
     def _build_prompt(self, incident: Any) -> str:
         """

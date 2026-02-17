@@ -248,10 +248,163 @@ class TestLocalRecommendationProvider:
                     description="Test",
                 )
             ]
-            recommendations = provider.get_recommendations()
+            recommendations = provider.analyze()
 
             mock_mem_rec.assert_called_once()
             assert len(recommendations) >= 1
+
+    def test_analyze_with_analysis_type_memory(self):
+        """analyze(analysis_type='memory') routes to _get_memory_recommendations."""
+        provider = LocalRecommendationProvider()
+        with patch.object(provider, "_get_memory_recommendations") as mock_mem:
+            mock_mem.return_value = []
+            provider.analyze(analysis_type="memory")
+            mock_mem.assert_called_once()
+
+    def test_analyze_with_analysis_type_disk(self):
+        """analyze(analysis_type='disk') routes to _get_disk_recommendations."""
+        provider = LocalRecommendationProvider()
+        with patch.object(provider, "_get_disk_recommendations") as mock_disk:
+            mock_disk.return_value = []
+            provider.analyze(analysis_type="disk")
+            mock_disk.assert_called_once()
+
+    def test_analysis_type_takes_precedence_over_incident(self):
+        """analysis_type='memory' bypasses incident detection even if incident provided."""
+        provider = LocalRecommendationProvider()
+        incident = MagicMock()
+        incident.title = "Disk Space Alert"
+
+        with patch.object(provider, "_get_memory_recommendations") as mock_mem:
+            with patch.object(provider, "_detect_incident_type") as mock_detect:
+                mock_mem.return_value = []
+                provider.analyze(incident, analysis_type="memory")
+                mock_mem.assert_called_once()
+                mock_detect.assert_not_called()
+
+    def test_analyze_no_incident_calls_general_recommendations(self):
+        """analyze(incident=None) without analysis_type calls _general_recommendations."""
+        provider = LocalRecommendationProvider()
+        with patch.object(provider, "_general_recommendations") as mock_general:
+            mock_general.return_value = []
+            result = provider.analyze(incident=None)
+            mock_general.assert_called_once()
+            assert result == []
+
+    def test_analyze_unknown_incident_type_calls_general_recommendations(self):
+        """analyze(incident) with unknown type falls back to _general_recommendations."""
+        provider = LocalRecommendationProvider()
+        incident = MagicMock()
+        incident.title = "Random Alert"
+        incident.description = "Something unrelated happened"
+        incident.alerts = MagicMock()
+        incident.alerts.all.return_value = []
+
+        with patch.object(provider, "_general_recommendations") as mock_general:
+            mock_general.return_value = []
+            result = provider.analyze(incident=incident)
+            mock_general.assert_called_once()
+            assert result == []
+
+    @patch("apps.intelligence.providers.local.psutil.virtual_memory")
+    @patch("apps.intelligence.providers.local.psutil.disk_partitions")
+    def test_general_recommendations_high_memory_and_disk(self, mock_partitions, mock_memory):
+        """_general_recommendations checks memory and disk, returns recs for both."""
+        mock_memory.return_value = MagicMock(percent=85)
+
+        mock_partition = MagicMock()
+        mock_partition.mountpoint = "/"
+        mock_partitions.return_value = [mock_partition]
+
+        provider = LocalRecommendationProvider()
+        with patch.object(provider, "_get_memory_recommendations") as mock_mem_rec:
+            with patch.object(provider, "_get_disk_recommendations") as mock_disk_rec:
+                with patch("apps.intelligence.providers.local.psutil.disk_usage") as mock_usage:
+                    mock_usage.return_value = MagicMock(percent=80)
+                    mem_rec = Recommendation(
+                        type=RecommendationType.MEMORY,
+                        priority=RecommendationPriority.HIGH,
+                        title="Memory",
+                        description="Memory issue",
+                    )
+                    disk_rec = Recommendation(
+                        type=RecommendationType.DISK,
+                        priority=RecommendationPriority.MEDIUM,
+                        title="Disk",
+                        description="Disk issue",
+                    )
+                    mock_mem_rec.return_value = [mem_rec]
+                    mock_disk_rec.return_value = [disk_rec]
+
+                    result = provider._general_recommendations()
+
+                    mock_mem_rec.assert_called_once()
+                    mock_disk_rec.assert_called_once_with("/")
+                    assert len(result) == 2
+
+    @patch("apps.intelligence.providers.local.psutil.virtual_memory")
+    @patch("apps.intelligence.providers.local.psutil.disk_partitions")
+    def test_general_recommendations_low_usage_returns_empty(self, mock_partitions, mock_memory):
+        """_general_recommendations with low memory/disk returns empty list."""
+        mock_memory.return_value = MagicMock(percent=50)
+
+        mock_partition = MagicMock()
+        mock_partition.mountpoint = "/"
+        mock_partitions.return_value = [mock_partition]
+
+        provider = LocalRecommendationProvider()
+        with patch("apps.intelligence.providers.local.psutil.disk_usage") as mock_usage:
+            mock_usage.return_value = MagicMock(percent=50)
+            result = provider._general_recommendations()
+            assert result == []
+
+    @patch("apps.intelligence.providers.local.psutil.virtual_memory")
+    @patch("apps.intelligence.providers.local.psutil.disk_partitions")
+    def test_general_recommendations_disk_permission_error(self, mock_partitions, mock_memory):
+        """_general_recommendations handles PermissionError from disk_usage."""
+        mock_memory.return_value = MagicMock(percent=50)
+
+        mock_partition = MagicMock()
+        mock_partition.mountpoint = "/protected"
+        mock_partitions.return_value = [mock_partition]
+
+        provider = LocalRecommendationProvider()
+        with patch("apps.intelligence.providers.local.psutil.disk_usage") as mock_usage:
+            mock_usage.side_effect = PermissionError("access denied")
+            result = provider._general_recommendations()
+            assert result == []
+
+
+class TestGetLocalRecommendations:
+    """Tests for the get_local_recommendations convenience function."""
+
+    @patch("apps.intelligence.providers.local.LocalRecommendationProvider.run")
+    def test_get_local_recommendations_without_incident(self, mock_run):
+        """get_local_recommendations() calls provider.run(incident=None)."""
+        from apps.intelligence.providers.local import get_local_recommendations
+
+        mock_run.return_value = []
+        result = get_local_recommendations()
+        mock_run.assert_called_once_with(incident=None)
+        assert result == []
+
+    @patch("apps.intelligence.providers.local.LocalRecommendationProvider.run")
+    def test_get_local_recommendations_with_incident(self, mock_run):
+        """get_local_recommendations(incident) passes incident to provider.run."""
+        from apps.intelligence.providers.local import get_local_recommendations
+
+        fake_incident = MagicMock()
+        mock_run.return_value = [
+            Recommendation(
+                type=RecommendationType.MEMORY,
+                priority=RecommendationPriority.HIGH,
+                title="Test",
+                description="Test",
+            )
+        ]
+        result = get_local_recommendations(incident=fake_incident)
+        mock_run.assert_called_once_with(incident=fake_incident)
+        assert len(result) == 1
 
 
 @pytest.mark.django_db

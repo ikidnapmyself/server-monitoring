@@ -352,14 +352,6 @@ class TestAnalyzeIncident:
 
         assert recommendations == []
 
-    def test_get_recommendations_returns_empty(self):
-        """Test get_recommendations returns empty list."""
-        provider = OpenAIRecommendationProvider(api_key="test-key")
-
-        recommendations = provider.get_recommendations()
-
-        assert recommendations == []
-
 
 class TestCallOpenAI:
     """Tests for OpenAI API calls."""
