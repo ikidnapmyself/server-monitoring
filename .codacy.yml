@@ -1,0 +1,10 @@
+---
+exclude_paths:
+  - "docs/**"
+  - "**/migrations/**"
+engines:
+  bandit:
+    exclude_paths:
+      - "**/_tests/**"
+      - "**/tests/**"
+      - "**/test_*.py"
