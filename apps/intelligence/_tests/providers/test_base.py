@@ -196,6 +196,62 @@ class BaseProviderRunTests(TestCase):
         self.assertEqual(row.provider_config["api_key"], "***")
         self.assertEqual(row.provider_config["model"], "gpt-4")
 
+    def test_run_handles_mark_started_failure(self):
+        """mark_started() raises -> analysis_run set to None, recommendations still returned."""
+        provider = FakeProvider()
+
+        with patch(
+            "apps.intelligence.models.AnalysisRun.mark_started",
+            side_effect=RuntimeError("DB write failed"),
+        ):
+            result = provider.run()
+
+        # Recommendations are still returned despite mark_started failure
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].title, "Test recommendation")
+
+        # An AnalysisRun row was created but never moved past PENDING
+        # because mark_started failed and analysis_run was set to None,
+        # so mark_succeeded was never called.
+        row = AnalysisRun.objects.first()
+        self.assertEqual(row.status, AnalysisRunStatus.PENDING)
+
+    def test_run_handles_mark_failed_db_error(self):
+        """analyze() raises AND mark_failed() raises -> original exception re-raised."""
+        provider = FakeProvider(error=RuntimeError("analysis boom"))
+
+        with patch(
+            "apps.intelligence.models.AnalysisRun.mark_failed",
+            side_effect=RuntimeError("DB write failed"),
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                provider.run()
+            self.assertIn("analysis boom", str(ctx.exception))
+
+    def test_run_handles_mark_succeeded_db_error(self):
+        """mark_succeeded() raises -> recommendations still returned."""
+        provider = FakeProvider()
+
+        with patch(
+            "apps.intelligence.models.AnalysisRun.mark_succeeded",
+            side_effect=RuntimeError("DB write failed"),
+        ):
+            result = provider.run()
+
+        # Recommendations are still returned despite mark_succeeded failure
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].title, "Test recommendation")
+
+    def test_run_analyze_fails_with_none_analysis_run(self):
+        """analyze() raises when analysis_run is None -> exception re-raised without mark_failed."""
+        provider = FakeProvider(error=RuntimeError("analysis boom"))
+
+        # Force _create_analysis_run to return None (DB failure)
+        with patch.object(provider, "_create_analysis_run", return_value=None):
+            with self.assertRaises(RuntimeError) as ctx:
+                provider.run()
+            self.assertIn("analysis boom", str(ctx.exception))
+
 
 class RedactConfigTests(TestCase):
     """Tests for BaseProvider._redact_config()."""
