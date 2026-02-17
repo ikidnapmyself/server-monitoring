@@ -20,9 +20,9 @@ This top-level README is the entry point and documentation hub. App-specific doc
 
 ## Documentation map
 
+- Architecture: [`docs/Architecture.md`](docs/Architecture.md)
 - Installation: [`docs/Installation.md`](docs/Installation.md)
 - Security: [`docs/Security.md`](docs/Security.md)
-- Templates: [`docs/Templates.md`](docs/Templates.md)
 - Health checks (checkers): [`apps/checkers/README.md`](apps/checkers/README.md)
 - Alert ingestion: [`apps/alerts/README.md`](apps/alerts/README.md)
 - Notifications: [`apps/notify/README.md`](apps/notify/README.md)
@@ -44,183 +44,22 @@ See Installation document [`docs/Installation.md`](docs/Installation.md).
 
 ## Usage modes
 
-This repo supports two common ways to run it:
+This project supports two modes — see [Architecture](docs/Architecture.md) for full details:
 
-- **Pipeline controller**: ingest an alert and route it through `intelligence` and `notify` (optionally skipping `checkers`).
-- **Individual server monitor**: run health checks locally on a server and optionally generate alerts.
+1. **Pipeline controller**: Ingest alerts and route through intelligence + notify stages.
+2. **Individual server monitor**: Run health checks locally and optionally generate alerts.
 
-### 1) Use it like a PIPELINE CONTROLLER (alerts → intelligence → notify), skipping checks
-
-#### What “skipping checks” means in this repo
-
-The orchestrator pipeline order is fixed:
-
-`apps.alerts → apps.checkers → apps.intelligence → apps.notify`
-
-…but you can effectively “skip” the check stage by disabling checkers.
-
-**Recommended (simple):**
+Quick examples:
 
 ```bash
-export CHECKERS_SKIP_ALL=1
-```
-
-Alternatively, you can disable all checkers by listing them:
-
-```bash
-export CHECKERS_SKIP=cpu,memory,disk,disk_macos,disk_linux,disk_common,network,process
-```
-
-So "skip checks" = disable all of them:
-
-```bash
-export CHECKERS_SKIP=cpu,memory,disk,disk_macos,disk_linux,disk_common,network,process
-```
-
-With that set, the pipeline still runs, but the check stage has nothing to execute.
-
-#### Run it (pipeline controller)
-
-You need Django running for the orchestration HTTP endpoints, and optionally Celery+Redis for async execution.
-
-Minimum required env:
-- `DJANGO_SECRET_KEY` is mandatory (enforced in `config/settings.py`).
-
-##### Option A: run pipeline synchronously (no Celery worker required)
-
-1) Start Django:
-
-```bash
-uv run python manage.py migrate
-uv run python manage.py runserver
-```
-
-2) Call the sync endpoint:
-- `POST /orchestration/pipeline/sync/` (see `apps/orchestration/urls.py`)
-
-Example request body (see [`apps/orchestration/README.md`](apps/orchestration/README.md)):
-
-```json
-{
-  "payload": {
-    "alertname": "HighCPU",
-    "severity": "critical"
-  },
-  "source": "grafana",
-  "environment": "production"
-}
-```
-
-##### Option B: run pipeline async (recommended for production-like)
-
-1) Run Redis (default broker is `redis://localhost:6379/0`).
-
-2) Start Django:
-
-```bash
-uv run python manage.py runserver
-```
-
-3) Start a Celery worker (Celery config is in `config/celery.py`).
-
-4) Trigger:
-- `POST /orchestration/pipeline/`
-
-Response is a queued acknowledgement (per orchestration docs):
-
-```json
-{
-  "status": "queued",
-  "task_id": "abc123",
-  "message": "Pipeline queued for execution"
-}
-```
-
-#### How to check results / status
-
-These endpoints exist:
-- `GET /orchestration/pipeline/<run_id>/` (status)
-- `GET /orchestration/pipelines/?status=failed&limit=10` (list)
-- `POST /orchestration/pipeline/<run_id>/resume/` (resume failed)
-
-#### Quick “no-HTTP” way (management command)
-
-The orchestration app includes a management command to test end-to-end:
-
-```bash
-# With sample alert
+# Pipeline mode (sync, with sample alert)
 uv run python manage.py run_pipeline --sample
 
-# If you also want to skip checks
-CHECKERS_SKIP=cpu,memory,disk,disk_macos,disk_linux,disk_common,network,process uv run python manage.py run_pipeline --sample
-```
-
-This is the easiest way to confirm your `intelligence` + `notify` stages are wired correctly without building webhooks yet.
-
-### 2) Run it as an individual server monitor (standalone checks on one host)
-
-This is exactly what `apps/checkers` calls **Standalone mode**:
-- checks run locally
-- results are stored in `CheckRun`
-- alerts are created via `CheckAlertBridge` if issues are found
-
-#### Typical usage patterns
-
-##### A) Just run checks and see health (no alerting)
-
-`check_health` command:
-
-```bash
-# List available checkers
-uv run python manage.py check_health --list
-
-# Run all checks
+# Standalone health checks
 uv run python manage.py check_health
 
-# Run a subset
-uv run python manage.py check_health cpu memory disk
-
-# Automation-friendly JSON
-uv run python manage.py check_health --json
-```
-
-Exit codes for automation are described in [`apps/checkers/README.md`](apps/checkers/README.md).
-
-##### B) Run a single checker
-
-```bash
-uv run python manage.py run_check cpu
-```
-
-(Also supports checker-specific flags like disk paths, ping hosts, process names; see the checkers README.)
-
-##### C) Run checks and generate alerts (the “monitoring” mode)
-
-Use the command intended for cron/automation:
-
-```bash
+# Run checks and generate alerts
 uv run python manage.py check_and_alert
-```
-
-Then view:
-- `/admin/checkers/` (check history)
-- `/admin/alerts/` (alerts/incidents)
-
-#### Optional: disable some checks on that server
-
-```bash
-# Example: don’t run network/process checks on this host
-export CHECKERS_SKIP=network,process
-```
-
-You can override at runtime:
-
-```bash
-# Run all checkers regardless of skip setting
-uv run python manage.py check_and_alert --include-skipped
-
-# Or explicitly run only a list
-uv run python manage.py check_and_alert --checkers network process
 ```
 
 ## Environment configuration (.env / dotenv)
