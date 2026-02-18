@@ -235,19 +235,28 @@ echo ""
 
 # Step 1: Check Python version
 info "Checking Python version..."
-if command_exists python3; then
-    PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-    PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
-    PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
-
-    if [ "$PYTHON_MAJOR" -ge 3 ] && [ "$PYTHON_MINOR" -ge 10 ]; then
-        success "Python $PYTHON_VERSION found (>= 3.10 required)"
-    else
-        error "Python 3.10+ is required, but found Python $PYTHON_VERSION"
-        exit 1
+PYTHON_BIN=""
+for candidate in python3.13 python3.12 python3.11 python3.10 python3; do
+    if command_exists "$candidate"; then
+        PYTHON_BIN="$candidate"
+        break
     fi
-else
+done
+
+if [ -z "$PYTHON_BIN" ]; then
     error "Python 3 is not installed. Please install Python 3.10 or higher."
+    exit 1
+fi
+
+PYTHON_VERSION=$($PYTHON_BIN -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
+PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
+
+if [ "$PYTHON_MAJOR" -ge 3 ] && [ "$PYTHON_MINOR" -ge 10 ]; then
+    success "Python $PYTHON_VERSION found via $PYTHON_BIN (>= 3.10 required)"
+else
+    error "Python 3.10+ is required, but found Python $PYTHON_VERSION ($PYTHON_BIN)"
+    info "Tip: If Python 3.10+ is installed under a different name, set PYTHON_BIN and re-run."
     exit 1
 fi
 
