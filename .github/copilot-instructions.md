@@ -165,7 +165,7 @@ Required tags: `trace_id/run_id`, `incident_id`, `stage`, `source`, `alert_finge
 - `agents.md` — AI agent roles, pipeline contracts, and conventions
 - `apps/<app>/agents.md` — App-specific AI guidance and stage contracts
 - `apps/<app>/README.md` — App-specific documentation
-- `docs/orchestration-pipelines.md` — Pipeline architecture details
+- `docs/Architecture.md` — System architecture, all entry points, pipeline stages, data models
 
 ## Quick Tips
 

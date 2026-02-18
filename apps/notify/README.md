@@ -328,15 +328,6 @@ result = driver.send(message, channel.config)
 
 ## Architecture notes
 
-### Orchestration integration
-
-This app is the **final stage** in the pipeline: `alerts → checkers → intelligence → notify`
-
-- **Delivery tracking** is handled by `apps.orchestration` (via `StageExecution`)
-- **Channel configuration** is stored in `NotificationChannel` model
-- **Message dispatch** is handled by drivers
-- The orchestrator calls this app's dispatch function and records results in `StageExecution.output_snapshot`
-
 ### Design principles
 
 - Drivers are stateless and thread-safe
