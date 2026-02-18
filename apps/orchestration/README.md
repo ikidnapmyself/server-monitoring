@@ -1,10 +1,8 @@
 # Orchestration App
 
-The orchestration app controls the full lifecycle of an incident through a strict, linear pipeline:
+> See [Architecture](../../docs/Architecture.md) for the full pipeline overview, entry points, and orchestration system comparison.
 
-```
-apps.alerts → apps.checkers → apps.intelligence → apps.notify
-```
+This app controls the lifecycle of pipeline runs through a strict state machine.
 
 ## Key Concepts
 
