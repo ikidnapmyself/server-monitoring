@@ -4,7 +4,7 @@ This Django app provides alert ingestion and incident orchestration.
 
 It exposes a simple webhook endpoint that accepts JSON payloads from multiple alert sources (Alertmanager, Grafana, and a generic/fallback format), normalizes them into a common schema, and stores them as `Alert` + `Incident` records.
 
-> **Note:** For development setup (formatting, linting, testing), see the main [README](../../README.md#development).
+> See [Architecture](../../docs/Architecture.md) for how this app fits in the pipeline.
 
 ## What's included
 

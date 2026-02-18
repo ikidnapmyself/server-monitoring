@@ -4,9 +4,7 @@ This Django app provides a flexible notification delivery system for sending ale
 
 It abstracts the complexity of multiple notification backends (email, Slack, PagerDuty, etc.) behind a simple, unified interface. Drivers handle platform-specific logic and configuration.
 
-> **Note:** Notification delivery tracking (status, retries, errors) is handled by the **orchestration layer** (`apps.orchestration`). This app focuses solely on channel configuration and message dispatch.
-
-> **Note:** For development setup (formatting, linting, testing), see the main [README](../../README.md#development).
+> See [Architecture](../../docs/Architecture.md) for how this app fits in the pipeline (NOTIFY stage).
 
 ## What's included
 
@@ -329,15 +327,6 @@ result = driver.send(message, channel.config)
 ```
 
 ## Architecture notes
-
-### Orchestration integration
-
-This app is the **final stage** in the pipeline: `alerts → checkers → intelligence → notify`
-
-- **Delivery tracking** is handled by `apps.orchestration` (via `StageExecution`)
-- **Channel configuration** is stored in `NotificationChannel` model
-- **Message dispatch** is handled by drivers
-- The orchestrator calls this app's dispatch function and records results in `StageExecution.output_snapshot`
 
 ### Design principles
 
