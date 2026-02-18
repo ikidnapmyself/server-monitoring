@@ -105,7 +105,7 @@ All apps under `apps/` follow this layout:
 
 ## Key Documentation
 
+- `docs/Architecture.md` — System architecture, all entry points, pipeline stages, data models
 - `agents.md` — AI agent roles and pipeline contracts (read this for any significant work)
 - `apps/<app>/README.md` — App-specific documentation
 - `apps/<app>/agents.md` — App-specific AI guidance
-- `docs/orchestration-pipelines.md` — Pipeline architecture details
