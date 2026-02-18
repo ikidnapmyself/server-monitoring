@@ -8,15 +8,18 @@ Available check tags:
     - database: Database connectivity check
     - migrations: Pending migrations check
     - crontab: Cron job configuration check
+    - aliases: Shell alias configuration check (dev only)
 
 Usage:
     python manage.py check                     # Run all checks
     python manage.py check --tag database      # Run only database checks
     python manage.py check --tag migrations    # Run only migration checks
     python manage.py check --tag crontab       # Run only crontab checks
+    python manage.py check --tag aliases       # Run only aliases check
     python manage.py check --deploy            # Include deployment checks
 """
 
+import os
 import subprocess
 import sys
 
@@ -208,6 +211,47 @@ def check_crontab_configuration(app_configs, **kwargs):
                 f"Error checking crontab: {e}",
                 hint="Could not verify cron configuration.",
                 id="checkers.W008",
+            )
+        )
+
+    return errors
+
+
+def _aliases_file_exists():
+    """Return True if bin/aliases.sh exists in the project root."""
+    import django.conf
+
+    base_dir = getattr(django.conf.settings, "BASE_DIR", None)
+    if base_dir is None:
+        return True  # Can't check, don't warn
+    aliases_path = os.path.join(str(base_dir), "bin", "aliases.sh")
+    return os.path.isfile(aliases_path)
+
+
+@register("aliases")
+def check_aliases_configured(app_configs, **kwargs):
+    """
+    Check that shell aliases are configured for management commands.
+
+    Only runs in development (DEBUG=True and not in tests).
+    """
+    from django.conf import settings
+
+    if not settings.DEBUG or _is_testing():
+        return []
+
+    errors = []
+
+    if not _aliases_file_exists():
+        errors.append(
+            Warning(
+                "Shell aliases not configured for management commands",
+                hint=(
+                    "Run 'bin/setup_aliases.sh' to set up quick aliases like "
+                    "sm-check-health, sm-run-check, etc. "
+                    "This is optional but improves developer experience."
+                ),
+                id="checkers.W009",
             )
         )
 
