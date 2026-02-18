@@ -32,3 +32,6 @@ Thumbs.db
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+
+# Generated alias file (user-specific, project-path-locked)
+bin/aliases.sh
