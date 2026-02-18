@@ -2,21 +2,7 @@
 
 This Django app provides a small health-check framework and two management commands you can run locally or in automation.
 
-> **Note:** For development setup (formatting, linting, testing), see the main [README](../../README.md#development).
-
-## Orchestration Integration
-
-This app can run in two modes:
-
-### 1. Standalone mode (via cron/management command)
-- Checks run independently, outside the pipeline
-- Results logged to `CheckRun` model
-- Creates alerts via `CheckAlertBridge` if issues found
-
-### 2. Pipeline mode (via orchestrator)
-- Checks run as the **second stage**: `alerts → checkers → intelligence → notify`
-- Results stored in `StageExecution.output_snapshot` (stage="check")
-- Orchestrator handles alert creation and flow control
+> See [Architecture](../../docs/Architecture.md) for how this app fits in the pipeline (CHECK stage).
 
 ## What's included
 
