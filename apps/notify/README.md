@@ -30,8 +30,157 @@ Built-in drivers:
 
 ### Management commands
 
-- `python manage.py list_notify_drivers` — List available notification drivers and configuration requirements
-- `python manage.py test_notify <driver>` — Test notification delivery to a specific backend
+#### `list_notify_drivers`
+
+```bash
+# List available notification drivers
+uv run python manage.py list_notify_drivers
+
+# Show detailed configuration requirements (required/optional fields per driver)
+uv run python manage.py list_notify_drivers --verbose
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--verbose` | flag | — | Show required/optional config fields per driver |
+
+#### `test_notify`
+
+Send a test notification to verify driver or channel configuration. All flags can be passed after aliases too (e.g., `sm-test-notify slack --webhook-url ...`).
+
+```bash
+# Test using first active DB channel (no driver argument needed)
+uv run python manage.py test_notify
+
+# Test a specific driver
+uv run python manage.py test_notify slack
+uv run python manage.py test_notify email
+uv run python manage.py test_notify pagerduty
+uv run python manage.py test_notify generic
+
+# Test a named DB channel
+uv run python manage.py test_notify ops-slack
+```
+
+##### Custom message
+
+```bash
+# Custom title and message
+uv run python manage.py test_notify slack --title "Deploy Alert" --message "Deployment started"
+
+# Custom severity
+uv run python manage.py test_notify slack --severity critical
+uv run python manage.py test_notify slack --severity warning
+uv run python manage.py test_notify slack --severity info
+uv run python manage.py test_notify slack --severity success
+
+# Custom channel destination
+uv run python manage.py test_notify slack --channel "#ops-alerts"
+```
+
+##### Slack driver
+
+```bash
+# Slack with webhook URL
+uv run python manage.py test_notify slack --webhook-url https://hooks.slack.com/services/T.../B.../XXX
+
+# Slack with custom message + channel
+uv run python manage.py test_notify slack \
+  --webhook-url https://hooks.slack.com/services/T.../B.../XXX \
+  --channel "#alerts" \
+  --title "Test Alert" \
+  --message "Testing Slack integration" \
+  --severity warning
+```
+
+##### Email driver
+
+```bash
+# Email with SMTP config
+uv run python manage.py test_notify email \
+  --smtp-host smtp.gmail.com \
+  --from-address alerts@example.com
+
+# Email with TLS and custom port
+uv run python manage.py test_notify email \
+  --smtp-host smtp.gmail.com \
+  --smtp-port 587 \
+  --from-address alerts@example.com \
+  --use-tls
+
+# Email with full options
+uv run python manage.py test_notify email \
+  --smtp-host smtp.gmail.com \
+  --smtp-port 587 \
+  --from-address alerts@example.com \
+  --use-tls \
+  --title "Disk Alert" \
+  --message "Disk usage critical on server-01" \
+  --severity critical
+```
+
+##### PagerDuty driver
+
+```bash
+# PagerDuty with integration key
+uv run python manage.py test_notify pagerduty --integration-key your-key-here
+
+# PagerDuty with custom severity
+uv run python manage.py test_notify pagerduty \
+  --integration-key your-key-here \
+  --title "API Down" \
+  --message "API server not responding" \
+  --severity critical
+```
+
+##### Generic HTTP driver
+
+```bash
+# Generic with endpoint
+uv run python manage.py test_notify generic --endpoint https://api.example.com/notify
+
+# Generic with API key
+uv run python manage.py test_notify generic \
+  --endpoint https://api.example.com/notify \
+  --api-key your-api-key
+
+# Generic with full options
+uv run python manage.py test_notify generic \
+  --endpoint https://api.example.com/notify \
+  --api-key your-api-key \
+  --title "Custom Alert" \
+  --message "Something happened" \
+  --severity warning
+```
+
+##### JSON config (advanced)
+
+Pass full driver config as a JSON string (for complex configurations):
+
+```bash
+uv run python manage.py test_notify slack --json-config '{"webhook_url": "https://hooks.slack.com/...", "channel": "#alerts", "username": "Bot", "icon_emoji": ":robot:"}'
+
+uv run python manage.py test_notify email --json-config '{"smtp_host": "smtp.gmail.com", "smtp_port": 587, "from_address": "alerts@example.com", "to_addresses": ["ops@example.com"], "use_tls": true}'
+```
+
+##### Flag reference
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `driver` (positional) | str | first active channel | Driver name or DB channel name |
+| `--title` | str | `Test Alert` | Notification title |
+| `--message` | str | default test message | Notification body |
+| `--severity` | choice | `info` | `critical`, `warning`, `info`, or `success` |
+| `--channel` | str | `default` | Destination channel/recipient |
+| `--json-config` | str | — | Full driver config as JSON string |
+| `--smtp-host` | str | — | SMTP host (email driver) |
+| `--smtp-port` | int | `587` | SMTP port (email driver) |
+| `--from-address` | str | — | Sender address (email driver) |
+| `--use-tls` | flag | — | Enable TLS for SMTP (email driver) |
+| `--webhook-url` | str | — | Webhook URL (slack driver) |
+| `--integration-key` | str | — | Integration key (pagerduty driver) |
+| `--endpoint` | str | — | API endpoint (generic driver) |
+| `--api-key` | str | — | API key (generic driver) |
 
 ### Skipping/Disabling Drivers
 

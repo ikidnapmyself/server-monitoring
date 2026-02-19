@@ -17,38 +17,116 @@ The `LocalRecommendationProvider` analyzes system state and incidents to generat
 
 ## Quick Start
 
-### Management Command
+### Management Command: `get_recommendations`
+
+All flags can be passed after aliases too (e.g., `sm-get-recommendations --memory`).
 
 ```bash
-# Get recommendations based on current system state
+# Default: get general recommendations
 uv run python manage.py get_recommendations
+```
 
-# Get memory-specific recommendations
+#### Analysis modes
+
+```bash
+# Memory analysis: top processes by memory usage
 uv run python manage.py get_recommendations --memory
 
-# Get disk recommendations for a specific path
-uv run python manage.py get_recommendations --disk --path=/var/log
+# Disk analysis: large files, old logs, cleanup candidates
+uv run python manage.py get_recommendations --disk
 
-# Analyze a specific incident
-uv run python manage.py get_recommendations --incident-id=1
+# Disk analysis for a specific path
+uv run python manage.py get_recommendations --disk --path /var/log
+uv run python manage.py get_recommendations --disk --path /home
 
-# Get all recommendations (memory + disk)
+# All analysis (memory + disk combined)
 uv run python manage.py get_recommendations --all
+```
 
-# Output as JSON
-uv run python manage.py get_recommendations --json
+#### Incident-based analysis
 
+```bash
+# Analyze a specific incident (auto-detects type from title/description)
+uv run python manage.py get_recommendations --incident-id 1
+uv run python manage.py get_recommendations --incident-id 42
+
+# Incident analysis with specific provider
+uv run python manage.py get_recommendations --incident-id 1 --provider local
+```
+
+#### Provider selection
+
+```bash
 # List available providers
 uv run python manage.py get_recommendations --list-providers
 
 # Use a specific provider
 uv run python manage.py get_recommendations --provider local
-
-# Customize analysis parameters
-uv run python manage.py get_recommendations --top-n 5          # Top N processes to show
-uv run python manage.py get_recommendations --threshold-mb 50  # Min file size for "large"
-uv run python manage.py get_recommendations --old-days 7       # Age for old file detection
 ```
+
+#### Tuning parameters
+
+```bash
+# Show top 5 processes (default: 10)
+uv run python manage.py get_recommendations --top-n 5
+
+# Show top 20 processes
+uv run python manage.py get_recommendations --memory --top-n 20
+
+# Lower threshold for "large" files (default: 100 MB)
+uv run python manage.py get_recommendations --disk --threshold-mb 50
+
+# Higher threshold
+uv run python manage.py get_recommendations --disk --threshold-mb 500
+
+# Detect files older than 7 days (default: 30)
+uv run python manage.py get_recommendations --disk --old-days 7
+
+# Detect files older than 90 days
+uv run python manage.py get_recommendations --disk --old-days 90
+```
+
+#### JSON output
+
+```bash
+uv run python manage.py get_recommendations --json
+uv run python manage.py get_recommendations --memory --json
+uv run python manage.py get_recommendations --all --json
+```
+
+#### Combined examples
+
+```bash
+# Full analysis with tuned parameters + JSON
+uv run python manage.py get_recommendations --all \
+  --top-n 15 --threshold-mb 50 --old-days 14 --json
+
+# Disk analysis for /var/log with low threshold
+uv run python manage.py get_recommendations --disk \
+  --path /var/log --threshold-mb 10 --old-days 7
+
+# Memory analysis with top 5 + JSON
+uv run python manage.py get_recommendations --memory --top-n 5 --json
+
+# Incident analysis with custom provider + JSON
+uv run python manage.py get_recommendations --incident-id 1 --provider local --json
+```
+
+#### Flag reference
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--memory` | flag | — | Get memory-specific recommendations |
+| `--disk` | flag | — | Get disk-specific recommendations |
+| `--all` | flag | — | Get all recommendations (memory + disk) |
+| `--path` | str | `/` | Path to analyze for disk recommendations |
+| `--incident-id` | int | — | Analyze a specific incident by ID |
+| `--provider` | str | `local` | Intelligence provider to use |
+| `--list-providers` | flag | — | List available providers and exit |
+| `--top-n` | int | `10` | Number of top processes to report |
+| `--threshold-mb` | float | `100.0` | Minimum file size in MB for "large" |
+| `--old-days` | int | `30` | Age in days for old file detection |
+| `--json` | flag | — | Output as JSON |
 
 ### HTTP API
 

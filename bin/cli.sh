@@ -43,6 +43,11 @@ show_banner() {
     echo "║                    Server Maintenance CLI                    ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
+    # Show alias hint if aliases are not configured
+    if [ ! -f "$SCRIPT_DIR/aliases.sh" ]; then
+        echo -e "${YELLOW}Tip:${NC} Run ${CYAN}bin/setup_aliases.sh${NC} for quick command aliases (sm-check-health, sm-run-check, etc.)"
+        echo ""
+    fi
 }
 
 show_help() {
@@ -143,6 +148,7 @@ install_project() {
         "Full installation (uv sync + pre-commit)"
         "Install dependencies only (uv sync)"
         "Install pre-commit hooks"
+        "Setup shell aliases"
         "Check installation status"
         "Back to main menu"
     )
@@ -161,9 +167,12 @@ install_project() {
                 run_command "uv run pre-commit install" "Installing pre-commit hooks"
                 ;;
             4)
-                check_installation
+                run_command "$SCRIPT_DIR/setup_aliases.sh" "Setting up shell aliases"
                 ;;
             5)
+                check_installation
+                ;;
+            6)
                 return
                 ;;
             *)
@@ -197,6 +206,13 @@ check_installation() {
         echo -e "${GREEN}✓${NC} Pre-commit hooks installed"
     else
         echo -e "${YELLOW}!${NC} Pre-commit hooks not installed"
+    fi
+
+    # Check aliases
+    if [ -f "$SCRIPT_DIR/aliases.sh" ]; then
+        echo -e "${GREEN}✓${NC} Shell aliases configured"
+    else
+        echo -e "${YELLOW}!${NC} Shell aliases not configured (run bin/setup_aliases.sh)"
     fi
 
     # Check Django

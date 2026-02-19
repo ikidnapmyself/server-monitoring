@@ -141,127 +141,240 @@ Run deployment checks (includes additional security/config checks):
 uv run python manage.py check --deploy
 ```
 
-## Running checks
+## CLI Reference
 
-There are two management commands:
-
-- `check_health` — run **all** checkers (or a selection) and show a summary
-- `run_check` — run **one** checker with checker-specific options
+There are two management commands for running checks. All flags can be passed after aliases too (e.g., `sm-check-health --json`).
 
 ### `check_health`
 
-Run all checks:
+Run all checkers (or a selection) and show a summary.
 
 ```bash
+# Run ALL registered checkers
 uv run python manage.py check_health
+
+# Run specific checkers only
+uv run python manage.py check_health cpu memory
+uv run python manage.py check_health cpu memory disk network process
+
+# List available checkers and exit
+uv run python manage.py check_health --list
 ```
 
-Run only some checkers:
+#### JSON output
 
 ```bash
-uv run python manage.py check_health cpu memory disk
-```
-
-JSON output:
-
-```bash
+# JSON output (for scripts, cron, piping to jq)
 uv run python manage.py check_health --json
+
+# Specific checkers + JSON
+uv run python manage.py check_health cpu disk --json
 ```
 
-#### Exit codes (automation)
+#### Exit codes for CI/automation
 
-By default, the command exits non-zero when:
-
-- `2` if any check is **CRITICAL**
-- `1` if any check is **UNKNOWN**
-- `0` otherwise
-
-To make it stricter:
+By default: exit `2` if any CRITICAL, `1` if any UNKNOWN, `0` otherwise.
 
 ```bash
-# Exit 1 if any check is WARNING or CRITICAL
+# Exit 1 if ANY check is WARNING or CRITICAL (strictest)
 uv run python manage.py check_health --fail-on-warning
 
-# Exit 1 only if any check is CRITICAL
+# Exit 1 only if ANY check is CRITICAL
 uv run python manage.py check_health --fail-on-critical
+
+# CI pipeline example: fail build on critical
+uv run python manage.py check_health --fail-on-critical --json
 ```
 
 #### Threshold overrides
 
-Override thresholds for all checks in this run:
+Override default warning/critical thresholds for all checkers in this run:
 
 ```bash
-uv run python manage.py check_health --warning-threshold 75 --critical-threshold 92
+# Lower thresholds (more sensitive)
+uv run python manage.py check_health --warning-threshold 60 --critical-threshold 80
+
+# Higher thresholds (less sensitive)
+uv run python manage.py check_health --warning-threshold 85 --critical-threshold 98
+
+# Override thresholds for specific checkers only
+uv run python manage.py check_health cpu memory --warning-threshold 75 --critical-threshold 95
 ```
 
 #### Checker-specific options
 
-```bash
-# Disk paths
-uv run python manage.py check_health disk --disk-paths / /System/Volumes/Data
+These flags are passed to the relevant checker when it runs:
 
-# Ping targets
+```bash
+# Disk: check specific mount points
+uv run python manage.py check_health disk --disk-paths / /var /tmp /home
+
+# Network: ping specific hosts
 uv run python manage.py check_health network --ping-hosts 8.8.8.8 1.1.1.1 github.com
 
-# Required processes
-uv run python manage.py check_health process --processes nginx postgres
+# Process: verify specific processes are running
+uv run python manage.py check_health process --processes nginx postgres redis celery
 ```
+
+#### Combined examples
+
+```bash
+# Full CI check: all checkers, JSON, fail on warning
+uv run python manage.py check_health --json --fail-on-warning
+
+# Disk + network with custom targets + thresholds
+uv run python manage.py check_health disk network \
+  --disk-paths / /var/log \
+  --ping-hosts 8.8.8.8 google.com \
+  --warning-threshold 75 --critical-threshold 90
+
+# Cron job: all checks, JSON, append to log
+uv run python manage.py check_health --json >> /var/log/health-checks.log 2>&1
+
+# Quick smoke test: CPU + memory, fail on critical
+uv run python manage.py check_health cpu memory --fail-on-critical
+```
+
+#### Flag reference
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `checkers` (positional) | str... | all | Specific checkers to run (space-separated) |
+| `--list` | flag | — | List available checkers and exit |
+| `--json` | flag | — | Output results as JSON |
+| `--fail-on-warning` | flag | — | Exit 1 if any WARNING or CRITICAL |
+| `--fail-on-critical` | flag | — | Exit 1 only if any CRITICAL |
+| `--warning-threshold` | float | per-checker | Override warning threshold for all checks |
+| `--critical-threshold` | float | per-checker | Override critical threshold for all checks |
+| `--disk-paths` | str... | `/` | Paths to check (disk checker) |
+| `--ping-hosts` | str... | `8.8.8.8 1.1.1.1` | Hosts to ping (network checker) |
+| `--processes` | str... | — | Process names to check (process checker) |
+
+---
 
 ### `run_check`
 
-Run a single check:
+Run a **single** checker with checker-specific options.
 
 ```bash
+# Basic usage
 uv run python manage.py run_check cpu
+uv run python manage.py run_check memory
+uv run python manage.py run_check disk
+uv run python manage.py run_check network
+uv run python manage.py run_check process
 ```
 
-Single-check JSON output:
+#### JSON output
 
 ```bash
-uv run python manage.py run_check memory --json
+uv run python manage.py run_check cpu --json
+uv run python manage.py run_check disk --json
+```
+
+#### Threshold overrides
+
+```bash
+# Override thresholds for this single check
+uv run python manage.py run_check cpu --warning-threshold 80 --critical-threshold 95
+uv run python manage.py run_check memory --warning-threshold 75 --critical-threshold 90
+uv run python manage.py run_check disk --warning-threshold 85 --critical-threshold 98
 ```
 
 #### CPU checker options
 
-- `--samples` (integer; default 5) — number of samples to take
-- `--sample-interval` (seconds; default 1.0) — seconds between samples
-- `--per-cpu` (use the busiest core for the status)
-
 ```bash
+# Default: 5 samples, 1 second apart
+uv run python manage.py run_check cpu
+
+# More samples for better accuracy
+uv run python manage.py run_check cpu --samples 10
+
+# Faster sampling (0.5s intervals)
+uv run python manage.py run_check cpu --sample-interval 0.5
+
+# Quick snapshot (1 sample, no wait)
+uv run python manage.py run_check cpu --samples 1 --sample-interval 0
+
+# Per-CPU mode (reports busiest core)
+uv run python manage.py run_check cpu --per-cpu
+
+# All CPU options combined
 uv run python manage.py run_check cpu --samples 10 --sample-interval 0.5 --per-cpu
+
+# CPU with threshold override + JSON
+uv run python manage.py run_check cpu --samples 10 --per-cpu --warning-threshold 80 --critical-threshold 95 --json
 ```
 
 #### Memory checker options
 
-- `--include-swap`
-
 ```bash
+# Default: RAM only
+uv run python manage.py run_check memory
+
+# Include swap memory in the check
 uv run python manage.py run_check memory --include-swap
+
+# Memory with custom thresholds
+uv run python manage.py run_check memory --include-swap --warning-threshold 75 --critical-threshold 90 --json
 ```
 
 #### Disk checker options
 
-- `--paths` (one or more paths; default `/`)
-
 ```bash
-uv run python manage.py run_check disk --paths / /System/Volumes/Data
+# Default: check /
+uv run python manage.py run_check disk
+
+# Check specific paths
+uv run python manage.py run_check disk --paths /
+uv run python manage.py run_check disk --paths / /var /tmp /home
+uv run python manage.py run_check disk --paths /var/log /var/lib
+
+# Disk with thresholds + JSON
+uv run python manage.py run_check disk --paths / /var/log --warning-threshold 80 --critical-threshold 95 --json
 ```
 
 #### Network checker options
 
-- `--hosts` (one or more; default `8.8.8.8 1.1.1.1`)
-
 ```bash
+# Default hosts: 8.8.8.8, 1.1.1.1
+uv run python manage.py run_check network
+
+# Custom hosts
 uv run python manage.py run_check network --hosts 8.8.8.8 1.1.1.1 github.com
+uv run python manage.py run_check network --hosts google.com cloudflare.com aws.amazon.com
+
+# Network with JSON
+uv run python manage.py run_check network --hosts 8.8.8.8 google.com --json
 ```
 
 #### Process checker options
 
-- `--names` (one or more process names)
-
 ```bash
+# Check specific processes
+uv run python manage.py run_check process --names nginx
 uv run python manage.py run_check process --names nginx postgres redis
+uv run python manage.py run_check process --names nginx postgres redis celery gunicorn
+
+# Process with JSON
+uv run python manage.py run_check process --names nginx postgres --json
 ```
+
+#### Flag reference
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `checker` (positional) | str | required | Checker name (cpu, memory, disk, network, process, etc.) |
+| `--json` | flag | — | Output as JSON |
+| `--warning-threshold` | float | per-checker | Override warning threshold |
+| `--critical-threshold` | float | per-checker | Override critical threshold |
+| `--samples` | int | 5 | Number of CPU samples (cpu only) |
+| `--sample-interval` | float | 1.0 | Seconds between CPU samples (cpu only) |
+| `--per-cpu` | flag | — | Per-CPU mode, reports busiest core (cpu only) |
+| `--include-swap` | flag | — | Include swap memory (memory only) |
+| `--paths` | str... | `/` | Disk paths to check (disk only) |
+| `--hosts` | str... | `8.8.8.8 1.1.1.1` | Hosts to ping (network only) |
+| `--names` | str... | — | Process names to check (process only) |
 
 ## Extending
 
