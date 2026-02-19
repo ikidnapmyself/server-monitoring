@@ -1,10 +1,68 @@
-# Shell Scripts
+# Shell Scripts & CLI
 
 This directory contains shell scripts for installation, automation, and interactive usage.
 
 [toc]
 
+## Quick Command Reference
+
+All management commands and their shell aliases (set up via `setup_aliases.sh`):
+
+| Alias (default `sm-` prefix) | Management Command | App | Description |
+|------|------|-----|-------------|
+| `sm-check-health` | `check_health` | checkers | Run health checks (CPU, memory, disk, network, process) |
+| `sm-run-check` | `run_check` | checkers | Run a single checker with checker-specific options |
+| `sm-check-and-alert` | `check_and_alert` | alerts | Run checks and create alerts/incidents |
+| `sm-get-recommendations` | `get_recommendations` | intelligence | Get AI-powered system recommendations |
+| `sm-run-pipeline` | `run_pipeline` | orchestration | Execute the full pipeline |
+| `sm-monitor-pipeline` | `monitor_pipeline` | orchestration | Monitor pipeline run history |
+| `sm-test-notify` | `test_notify` | notify | Test notification delivery |
+| `sm-list-notify-drivers` | `list_notify_drivers` | notify | List available notification drivers |
+| `sm-cli` | — | — | Interactive CLI menu |
+
+Aliases pass all flags through. Example: `sm-check-health --json` = `uv run python manage.py check_health --json`.
+
+For full flag reference per command, see the app READMEs:
+- [`apps/checkers/README.md`](../apps/checkers/README.md) — `check_health` (10 flags), `run_check` (11 flags)
+- [`apps/alerts/README.md`](../apps/alerts/README.md) — `check_and_alert` (9 flags)
+- [`apps/intelligence/README.md`](../apps/intelligence/README.md) — `get_recommendations` (11 flags)
+- [`apps/notify/README.md`](../apps/notify/README.md) — `list_notify_drivers` (1 flag), `test_notify` (14 flags)
+- [`apps/orchestration/README.md`](../apps/orchestration/README.md) — `run_pipeline` (12 flags), `monitor_pipeline` (3 flags)
+
+---
+
 ## Scripts
+
+### `setup_aliases.sh` — Shell Alias Setup
+
+Set up shell aliases so you can run `sm-check-health` instead of `uv run python manage.py check_health`.
+
+```bash
+# Interactive setup (prompts for prefix, default: sm)
+./bin/setup_aliases.sh
+
+# Custom prefix
+./bin/setup_aliases.sh --prefix maint
+# Creates: maint-check-health, maint-run-check, etc.
+
+# Show current aliases
+./bin/setup_aliases.sh --list
+
+# Remove aliases and source line from shell profile
+./bin/setup_aliases.sh --remove
+```
+
+**What it does:**
+- Generates `bin/aliases.sh` (gitignored) with aliases locked to the project path
+- Adds a `source` line to `~/.zshrc` or `~/.bashrc`
+- `--remove` undoes both
+
+**After setup, activate immediately:**
+```bash
+source ~/.zshrc   # or source ~/.bashrc
+```
+
+---
 
 ### `cli.sh` — Interactive CLI
 
@@ -29,16 +87,7 @@ An interactive menu-driven interface for all management commands. Recommended fo
 - Shows available flags and options for each command
 - Confirms before running commands
 - Installation status check
-
-**Commands covered:**
-- `check_health` — System health metrics
-- `run_check` — Run specific checkers
-- `check_and_alert` — Run checker with alerting
-- `get_recommendations` — AI-powered recommendations
-- `run_pipeline` — Execute pipelines
-- `monitor_pipeline` — Monitor pipeline execution
-- `list_notify_drivers` — List notification drivers
-- `test_notify` — Send test notifications
+- Shell alias setup option
 
 ---
 
@@ -51,7 +100,7 @@ Full installation script for setting up the project.
 ```
 
 **What it does:**
-- Verifies Python 3.10+
+- Verifies Python 3.10+ (tries python3.13 → python3.10 → python3)
 - Installs `uv` if missing
 - Creates `.env` from `.env.sample`
 - Prompts for dev/production configuration

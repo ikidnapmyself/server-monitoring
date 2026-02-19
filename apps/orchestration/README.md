@@ -117,66 +117,202 @@ Set these environment variables (or in `config/settings.py`):
 | `STATSD_PORT` | `8125` | StatsD port |
 | `STATSD_PREFIX` | `pipeline` | StatsD metric prefix |
 
-## Usage Examples
+## CLI Reference
 
-### Management Command
+### `run_pipeline`
 
-The easiest way to test the pipeline end-to-end:
+Execute the full pipeline (ingest → check → analyze → notify) or parts of it. All flags can be passed after aliases too (e.g., `sm-run-pipeline --sample --dry-run`).
 
 ```bash
-# Dry run with sample alert (shows what would happen)
-uv run python manage.py run_pipeline --sample --dry-run
-
-# Run with sample alert
+# Run with sample alert payload (quickest test)
 uv run python manage.py run_pipeline --sample
 
-# Run with specific source format
+# Dry run: show what would happen without executing
+uv run python manage.py run_pipeline --sample --dry-run
+```
+
+#### Payload sources
+
+```bash
+# Sample payload (built-in test data)
+uv run python manage.py run_pipeline --sample
+
+# From a JSON file
+uv run python manage.py run_pipeline --file alert.json
+uv run python manage.py run_pipeline --file /path/to/payload.json
+
+# Inline JSON string
+uv run python manage.py run_pipeline --payload '{"name": "Test Alert", "status": "firing", "severity": "warning"}'
+```
+
+#### Source format
+
+```bash
+# Specify the alert source format
 uv run python manage.py run_pipeline --sample --source alertmanager
 uv run python manage.py run_pipeline --sample --source grafana
+uv run python manage.py run_pipeline --sample --source pagerduty
+uv run python manage.py run_pipeline --sample --source generic
+uv run python manage.py run_pipeline --file alert.json --source datadog
+```
 
-# Run with custom payload from file
-uv run python manage.py run_pipeline --file alert.json
+#### Environment and correlation
 
-# Run with inline JSON payload
-uv run python manage.py run_pipeline --payload '{"name": "Test", "status": "firing", "severity": "warning"}'
+```bash
+# Set environment name
+uv run python manage.py run_pipeline --sample --environment production
+uv run python manage.py run_pipeline --sample --environment staging
 
-# Output as JSON
-uv run python manage.py run_pipeline --sample --json
+# Set custom trace ID for correlation
+uv run python manage.py run_pipeline --sample --trace-id my-trace-123
 
-# Set environment and trace ID for correlation
-uv run python manage.py run_pipeline --sample --environment production --trace-id my-trace-123
+# Both
+uv run python manage.py run_pipeline --sample --environment production --trace-id deploy-v2.1.0
+```
 
+#### Partial execution
+
+```bash
 # Run only the checkers stage (skip alert ingestion)
 uv run python manage.py run_pipeline --sample --checks-only
 
-# Specify notification driver
-uv run python manage.py run_pipeline --sample --notify-driver slack
-
-# Run a definition-based pipeline (from database)
-uv run python manage.py run_pipeline --definition my-pipeline-name
-
-# Run a pipeline from a JSON config file
-uv run python manage.py run_pipeline --config path/to/pipeline.json
+# Checks only + dry run
+uv run python manage.py run_pipeline --sample --checks-only --dry-run
 ```
 
-### Monitor Pipeline Command
-
-View and monitor pipeline runs:
+#### Notification driver
 
 ```bash
-# List recent pipeline runs (default: 10)
+# Specify which notification driver to use
+uv run python manage.py run_pipeline --sample --notify-driver slack
+uv run python manage.py run_pipeline --sample --notify-driver email
+uv run python manage.py run_pipeline --sample --notify-driver pagerduty
+uv run python manage.py run_pipeline --sample --notify-driver generic
+```
+
+#### Definition-based pipelines
+
+```bash
+# Run a pipeline definition stored in the database
+uv run python manage.py run_pipeline --definition my-pipeline-name
+
+# Run from a JSON config file
+uv run python manage.py run_pipeline --config path/to/pipeline.json
+
+# Definition + environment
+uv run python manage.py run_pipeline --definition production-pipeline --environment production
+```
+
+#### JSON output
+
+```bash
+uv run python manage.py run_pipeline --sample --json
+uv run python manage.py run_pipeline --file alert.json --json
+```
+
+#### Combined examples
+
+```bash
+# Full production pipeline: file payload, production env, trace ID, slack notify, JSON
+uv run python manage.py run_pipeline \
+  --file alert.json \
+  --source grafana \
+  --environment production \
+  --trace-id incident-2024-001 \
+  --notify-driver slack \
+  --json
+
+# Quick smoke test: sample, dry run, JSON
+uv run python manage.py run_pipeline --sample --dry-run --json
+
+# Checks-only with custom source and trace
+uv run python manage.py run_pipeline --sample --checks-only --source alertmanager --trace-id diag-run-1
+
+# Definition pipeline with all options
+uv run python manage.py run_pipeline \
+  --definition my-pipeline \
+  --environment staging \
+  --trace-id test-run-42 \
+  --notify-driver email \
+  --json
+```
+
+#### Flag reference
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--sample` | flag | — | Use built-in sample alert payload |
+| `--payload` | str | — | Inline JSON payload string |
+| `--file` | str | — | Path to JSON payload file |
+| `--source` | str | `cli` | Alert source format |
+| `--environment` | str | `development` | Environment name |
+| `--trace-id` | str | auto-generated | Custom trace ID for correlation |
+| `--checks-only` | flag | — | Run only checkers stage |
+| `--dry-run` | flag | — | Preview without executing |
+| `--notify-driver` | str | `generic` | Notification driver to use |
+| `--json` | flag | — | Output as JSON |
+| `--definition` | str | — | Pipeline definition name (from DB) |
+| `--config` | str | — | Path to pipeline definition JSON file |
+
+---
+
+### `monitor_pipeline`
+
+View and monitor pipeline run history.
+
+```bash
+# List recent pipeline runs (default: last 10)
 uv run python manage.py monitor_pipeline
 
-# List more runs
+# Show more runs
+uv run python manage.py monitor_pipeline --limit 25
 uv run python manage.py monitor_pipeline --limit 50
-
-# Filter by status
-uv run python manage.py monitor_pipeline --status failed
-uv run python manage.py monitor_pipeline --status completed
-
-# Get details for a specific run
-uv run python manage.py monitor_pipeline --run-id abc123
+uv run python manage.py monitor_pipeline --limit 100
 ```
+
+#### Filter by status
+
+```bash
+# Show only failed runs
+uv run python manage.py monitor_pipeline --status failed
+
+# Show only completed runs
+uv run python manage.py monitor_pipeline --status notified
+
+# Other statuses
+uv run python manage.py monitor_pipeline --status pending
+uv run python manage.py monitor_pipeline --status ingested
+uv run python manage.py monitor_pipeline --status checked
+uv run python manage.py monitor_pipeline --status analyzed
+uv run python manage.py monitor_pipeline --status retrying
+uv run python manage.py monitor_pipeline --status skipped
+```
+
+#### Inspect a specific run
+
+```bash
+# Get full details for a pipeline run by run_id
+uv run python manage.py monitor_pipeline --run-id abc123
+uv run python manage.py monitor_pipeline --run-id 550e8400-e29b-41d4-a716-446655440000
+```
+
+#### Combined examples
+
+```bash
+# Last 50 failed runs
+uv run python manage.py monitor_pipeline --status failed --limit 50
+
+# Last 20 completed runs
+uv run python manage.py monitor_pipeline --status notified --limit 20
+```
+
+#### Flag reference
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--limit` | int | `10` | Number of pipeline runs to show |
+| `--status` | str | all | Filter by status (pending, ingested, checked, analyzed, notified, failed, retrying, skipped) |
+| `--run-id` | str | — | Show details for a specific pipeline run |
 
 ### Python API
 

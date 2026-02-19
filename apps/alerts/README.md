@@ -339,33 +339,132 @@ The webhook view is CSRF-exempt (`@csrf_exempt`) to support external systems.
 
 The alerts app integrates with the checkers app to create alerts from health check results.
 
-### Using the management command
+### `check_and_alert` CLI reference
+
+Run health checkers and automatically create alerts/incidents for failures. All flags can be passed after aliases too (e.g., `sm-check-and-alert --dry-run`).
 
 ```bash
 # Run all checks and create alerts
-python manage.py check_and_alert
+uv run python manage.py check_and_alert
 
-# Run specific checks
-python manage.py check_and_alert --checkers cpu memory disk
-
-# Dry run (show what would happen without creating alerts)
-python manage.py check_and_alert --dry-run
-
-# Skip incident creation
-python manage.py check_and_alert --no-incidents
-
-# Add custom labels to all alerts
-python manage.py check_and_alert --label env=production --label team=sre
-
-# Override hostname in alert labels
-python manage.py check_and_alert --hostname my-custom-hostname
-
-# Output as JSON
-python manage.py check_and_alert --json
-
-# Override thresholds for all checkers
-python manage.py check_and_alert --warning-threshold 60 --critical-threshold 80
+# Run specific checkers only
+uv run python manage.py check_and_alert --checkers cpu memory
+uv run python manage.py check_and_alert --checkers cpu memory disk network process
 ```
+
+#### Dry run
+
+Preview what would happen without creating any alerts or incidents:
+
+```bash
+uv run python manage.py check_and_alert --dry-run
+
+# Dry run with specific checkers
+uv run python manage.py check_and_alert --checkers cpu disk --dry-run
+
+# Dry run with JSON output
+uv run python manage.py check_and_alert --dry-run --json
+```
+
+#### Incident control
+
+```bash
+# Skip automatic incident creation (create alerts only)
+uv run python manage.py check_and_alert --no-incidents
+
+# Specific checkers without incidents
+uv run python manage.py check_and_alert --checkers cpu memory --no-incidents
+```
+
+#### Custom labels
+
+Add key=value labels to all generated alerts (repeatable):
+
+```bash
+# Single label
+uv run python manage.py check_and_alert --label env=production
+
+# Multiple labels
+uv run python manage.py check_and_alert --label env=production --label team=sre --label datacenter=us-east-1
+
+# Labels + specific checkers
+uv run python manage.py check_and_alert --checkers cpu memory --label env=staging --label service=api
+```
+
+#### Hostname override
+
+Override the auto-detected hostname in alert labels:
+
+```bash
+uv run python manage.py check_and_alert --hostname web-server-01
+
+# Hostname + labels
+uv run python manage.py check_and_alert --hostname db-primary --label env=production --label role=database
+```
+
+#### JSON output
+
+```bash
+uv run python manage.py check_and_alert --json
+
+# JSON + specific checkers
+uv run python manage.py check_and_alert --checkers cpu disk --json
+```
+
+#### Threshold overrides
+
+Override warning/critical thresholds for all checkers:
+
+```bash
+# Lower thresholds (more sensitive alerting)
+uv run python manage.py check_and_alert --warning-threshold 60 --critical-threshold 80
+
+# Higher thresholds (less noise)
+uv run python manage.py check_and_alert --warning-threshold 85 --critical-threshold 98
+```
+
+#### Skip list override
+
+```bash
+# Include checkers that are normally skipped via CHECKERS_SKIP
+uv run python manage.py check_and_alert --include-skipped
+```
+
+#### Combined examples
+
+```bash
+# Production cron job: all checks, JSON, custom labels
+uv run python manage.py check_and_alert --json --label env=production --hostname prod-web-01
+
+# CI smoke test: dry run, specific checkers, JSON
+uv run python manage.py check_and_alert --checkers cpu memory --dry-run --json
+
+# Sensitive alerting with full context
+uv run python manage.py check_and_alert \
+  --warning-threshold 50 --critical-threshold 75 \
+  --label env=production --label team=oncall \
+  --hostname api-server-03 --json
+
+# Include all checkers even skipped ones, no incidents
+uv run python manage.py check_and_alert --include-skipped --no-incidents --json
+
+# Cron: every 5 minutes with labels and JSON log
+# */5 * * * * cd /path/to/project && uv run python manage.py check_and_alert --json --label env=production >> /var/log/health-alerts.log 2>&1
+```
+
+#### Flag reference
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--checkers` | str... | all enabled | Specific checkers to run |
+| `--json` | flag | — | Output as JSON |
+| `--dry-run` | flag | — | Preview without creating alerts |
+| `--no-incidents` | flag | — | Create alerts but skip incident creation |
+| `--hostname` | str | auto-detected | Override hostname in alert labels |
+| `--label` | KEY=VALUE | — | Add label to all alerts (repeatable) |
+| `--warning-threshold` | float | per-checker | Override warning threshold |
+| `--critical-threshold` | float | per-checker | Override critical threshold |
+| `--include-skipped` | flag | — | Include checkers from CHECKERS_SKIP |
 
 ### Programmatic usage
 

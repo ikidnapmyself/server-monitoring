@@ -133,6 +133,14 @@ uv run python manage.py migrate
 
 The CLI guides you through all available commands with their options.
 
+4) (Optional) Set up shell aliases for quick command access:
+
+```bash
+./bin/setup_aliases.sh
+```
+
+After setup, use aliases like `sm-check-health`, `sm-run-check`, etc. See [`bin/README.md`](bin/README.md) for the full alias list.
+
 Alternatively, run commands directly:
 
 ```bash
