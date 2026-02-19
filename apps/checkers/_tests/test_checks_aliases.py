@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 
-from apps.checkers.checks import check_aliases_configured
+from apps.checkers.checks import _aliases_file_exists, check_aliases_configured
 
 
 class CheckAliasesConfiguredTests(TestCase):
@@ -39,3 +39,22 @@ class CheckAliasesConfiguredTests(TestCase):
         with patch("apps.checkers.checks._aliases_file_exists", return_value=True):
             result = check_aliases_configured(None)
         assert result == []
+
+
+class AliasesFileExistsTests(TestCase):
+    """Tests for the _aliases_file_exists helper."""
+
+    @override_settings(BASE_DIR=None)
+    def test_returns_true_when_base_dir_is_none(self):
+        """Should return True (don't warn) when BASE_DIR is not set."""
+        assert _aliases_file_exists() is True
+
+    def test_returns_true_when_file_exists(self):
+        """Should return True when bin/aliases.sh exists."""
+        with patch("os.path.isfile", return_value=True):
+            assert _aliases_file_exists() is True
+
+    def test_returns_false_when_file_missing(self):
+        """Should return False when bin/aliases.sh does not exist."""
+        with patch("os.path.isfile", return_value=False):
+            assert _aliases_file_exists() is False
