@@ -121,6 +121,46 @@ class Command(BaseCommand):
                 continue
             return ""
 
+    def _configure_alerts(self):
+        """
+        Prompt user to select alert drivers.
+
+        Returns:
+            List of selected driver name strings.
+        """
+        from apps.alerts.drivers import DRIVER_REGISTRY
+
+        self.stdout.write(self.style.HTTP_INFO("\n--- Stage: Alerts ---"))
+        options = [(name, name) for name in DRIVER_REGISTRY]
+        return self._prompt_multi("? Which alert drivers do you want to enable?", options)
+
+    def _configure_checkers(self):
+        """
+        Prompt user to select health checkers and per-checker config.
+
+        Returns:
+            Dict with 'enabled' list and optional per-checker config keys:
+            disk_paths, network_hosts, process_names.
+        """
+        from apps.checkers.checkers import CHECKER_REGISTRY
+
+        self.stdout.write(self.style.HTTP_INFO("\n--- Stage: Checkers ---"))
+        options = [(name, name) for name in CHECKER_REGISTRY]
+        selected = self._prompt_multi("? Which health checkers do you want to enable?", options)
+
+        result = {"enabled": selected}
+
+        if "disk" in selected:
+            result["disk_paths"] = self._prompt_input("  Disk paths to monitor", default="/")
+        if "network" in selected:
+            result["network_hosts"] = self._prompt_input(
+                "  Hosts to ping", default="8.8.8.8,1.1.1.1"
+            )
+        if "process" in selected:
+            result["process_names"] = self._prompt_input("  Process names to watch", required=True)
+
+        return result
+
     def _select_preset(self):
         """
         Prompt user to select a pipeline preset.

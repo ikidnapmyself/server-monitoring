@@ -109,3 +109,51 @@ class SelectPresetTests(TestCase):
         assert preset["name"] == "ai-analyzed"
         assert preset["has_checkers"] is False
         assert preset["has_intelligence"] is True
+
+
+class ConfigureAlertsTests(TestCase):
+    """Tests for _configure_alerts step."""
+
+    def setUp(self):
+        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
+
+    @patch("builtins.input", return_value="1,2,8")
+    def test_returns_selected_drivers(self, _mock_input):
+        result = self.cmd._configure_alerts()
+        assert result == ["alertmanager", "grafana", "generic"]
+
+    @patch("builtins.input", return_value="1")
+    def test_single_driver_selection(self, _mock_input):
+        result = self.cmd._configure_alerts()
+        assert result == ["alertmanager"]
+
+
+class ConfigureCheckersTests(TestCase):
+    """Tests for _configure_checkers step."""
+
+    def setUp(self):
+        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
+
+    @patch("builtins.input", return_value="1,2")
+    def test_returns_selected_checkers(self, _mock_input):
+        result = self.cmd._configure_checkers()
+        assert "cpu" in result["enabled"]
+        assert "memory" in result["enabled"]
+
+    @patch("builtins.input", side_effect=["1,2,3", "/,/home"])
+    def test_disk_checker_asks_for_paths(self, _mock_input):
+        result = self.cmd._configure_checkers()
+        assert "disk" in result["enabled"]
+        assert result["disk_paths"] == "/,/home"
+
+    @patch("builtins.input", side_effect=["7", "8.8.8.8"])
+    def test_network_checker_asks_for_hosts(self, _mock_input):
+        result = self.cmd._configure_checkers()
+        assert "network" in result["enabled"]
+        assert result["network_hosts"] == "8.8.8.8"
+
+    @patch("builtins.input", side_effect=["8", "nginx,postgres"])
+    def test_process_checker_asks_for_names(self, _mock_input):
+        result = self.cmd._configure_checkers()
+        assert "process" in result["enabled"]
+        assert result["process_names"] == "nginx,postgres"
