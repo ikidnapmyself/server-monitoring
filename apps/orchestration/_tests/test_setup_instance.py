@@ -81,6 +81,23 @@ class PromptInputTests(TestCase):
         assert result == "val"
 
 
+class SelectAlertSourceTests(TestCase):
+    """Tests for _select_alert_source step."""
+
+    def setUp(self):
+        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
+
+    @patch("builtins.input", return_value="1")
+    def test_select_external(self, _mock_input):
+        result = self.cmd._select_alert_source()
+        assert result == "external"
+
+    @patch("builtins.input", return_value="2")
+    def test_select_local(self, _mock_input):
+        result = self.cmd._select_alert_source()
+        assert result == "local"
+
+
 class SelectPresetTests(TestCase):
     """Tests for _select_preset step."""
 
@@ -89,30 +106,47 @@ class SelectPresetTests(TestCase):
 
     @patch("builtins.input", return_value="1")
     def test_select_direct_preset(self, _mock_input):
-        preset = self.cmd._select_preset()
+        preset = self.cmd._select_preset(source="external")
         assert preset["name"] == "direct"
+        assert preset["has_alerts"] is True
         assert preset["has_checkers"] is False
         assert preset["has_intelligence"] is False
 
     @patch("builtins.input", return_value="4")
     def test_select_full_preset(self, _mock_input):
-        preset = self.cmd._select_preset()
+        preset = self.cmd._select_preset(source="external")
         assert preset["name"] == "full"
         assert preset["has_checkers"] is True
         assert preset["has_intelligence"] is True
 
     @patch("builtins.input", return_value="2")
     def test_select_health_checked_preset(self, _mock_input):
-        preset = self.cmd._select_preset()
+        preset = self.cmd._select_preset(source="external")
         assert preset["name"] == "health-checked"
         assert preset["has_checkers"] is True
         assert preset["has_intelligence"] is False
 
     @patch("builtins.input", return_value="3")
     def test_select_ai_analyzed_preset(self, _mock_input):
-        preset = self.cmd._select_preset()
+        preset = self.cmd._select_preset(source="external")
         assert preset["name"] == "ai-analyzed"
         assert preset["has_checkers"] is False
+        assert preset["has_intelligence"] is True
+
+    @patch("builtins.input", return_value="1")
+    def test_select_local_monitor_preset(self, _mock_input):
+        preset = self.cmd._select_preset(source="local")
+        assert preset["name"] == "local-monitor"
+        assert preset["has_alerts"] is False
+        assert preset["has_checkers"] is True
+        assert preset["has_intelligence"] is False
+
+    @patch("builtins.input", return_value="2")
+    def test_select_local_smart_preset(self, _mock_input):
+        preset = self.cmd._select_preset(source="local")
+        assert preset["name"] == "local-smart"
+        assert preset["has_alerts"] is False
+        assert preset["has_checkers"] is True
         assert preset["has_intelligence"] is True
 
 
@@ -365,7 +399,12 @@ class CreatePipelineDefinitionTests(TestCase):
 
     def test_creates_direct_pipeline(self):
         config = {
-            "preset": {"name": "direct", "has_checkers": False, "has_intelligence": False},
+            "preset": {
+                "name": "direct",
+                "has_alerts": True,
+                "has_checkers": False,
+                "has_intelligence": False,
+            },
             "alerts": ["grafana"],
             "notify": [{"driver": "slack", "name": "ops-slack", "config": {}}],
         }
@@ -382,7 +421,12 @@ class CreatePipelineDefinitionTests(TestCase):
 
     def test_creates_full_pipeline(self):
         config = {
-            "preset": {"name": "full", "has_checkers": True, "has_intelligence": True},
+            "preset": {
+                "name": "full",
+                "has_alerts": True,
+                "has_checkers": True,
+                "has_intelligence": True,
+            },
             "alerts": ["alertmanager"],
             "checkers": {"enabled": ["cpu", "memory"]},
             "intelligence": {"provider": "openai"},
@@ -395,7 +439,12 @@ class CreatePipelineDefinitionTests(TestCase):
 
     def test_nodes_are_chained_with_next(self):
         config = {
-            "preset": {"name": "full", "has_checkers": True, "has_intelligence": True},
+            "preset": {
+                "name": "full",
+                "has_alerts": True,
+                "has_checkers": True,
+                "has_intelligence": True,
+            },
             "alerts": ["alertmanager"],
             "checkers": {"enabled": ["cpu"]},
             "intelligence": {"provider": "local"},
@@ -408,9 +457,31 @@ class CreatePipelineDefinitionTests(TestCase):
             assert node["next"] == nodes[i + 1]["id"]
         assert "next" not in nodes[-1]
 
+    def test_creates_local_pipeline_without_ingest(self):
+        config = {
+            "preset": {
+                "name": "local-monitor",
+                "has_alerts": False,
+                "has_checkers": True,
+                "has_intelligence": False,
+            },
+            "checkers": {"enabled": ["cpu", "memory"]},
+            "notify": [{"driver": "slack", "name": "ops-slack", "config": {}}],
+        }
+        defn = self.cmd._create_pipeline_definition(config)
+        nodes = defn.get_nodes()
+        node_types = [n["type"] for n in nodes]
+        assert "ingest" not in node_types
+        assert node_types == ["context", "notify"]
+
     def test_tags_include_setup_wizard(self):
         config = {
-            "preset": {"name": "direct", "has_checkers": False, "has_intelligence": False},
+            "preset": {
+                "name": "direct",
+                "has_alerts": True,
+                "has_checkers": False,
+                "has_intelligence": False,
+            },
             "alerts": ["generic"],
             "notify": [{"driver": "generic", "name": "wh", "config": {}}],
         }
@@ -544,6 +615,7 @@ class SetupInstanceIntegrationTests(TestCase):
     @patch(
         "builtins.input",
         side_effect=[
+            "1",  # alert source: external
             "4",  # preset: full
             "1,2",  # alerts: alertmanager, grafana
             "1,2",  # checkers: cpu, memory
@@ -577,6 +649,7 @@ class SetupInstanceIntegrationTests(TestCase):
     @patch(
         "builtins.input",
         side_effect=[
+            "1",  # alert source: external
             "1",  # preset: direct
             "1",  # alerts: first driver
             "1",  # notify: slack
@@ -601,6 +674,7 @@ class SetupInstanceIntegrationTests(TestCase):
     @patch(
         "builtins.input",
         side_effect=[
+            "1",  # alert source: external
             "1",  # preset: direct
             "1",  # alerts
             "1",  # notify: slack
@@ -615,3 +689,37 @@ class SetupInstanceIntegrationTests(TestCase):
         call_command("setup_instance", stdout=out)
         assert PipelineDefinition.objects.count() == 0
         assert NotificationChannel.objects.count() == 0
+
+    @patch(
+        "apps.orchestration.management.commands.setup_instance.Command._write_env",
+        return_value=None,
+    )
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "2",  # alert source: local
+            "1",  # preset: local-monitor (Checkers → Notify)
+            "1,2",  # checkers: cpu, memory
+            "1",  # notify: slack
+            "https://hooks.slack.com/xxx",  # slack webhook
+            "ops-alerts",  # channel name
+            "Y",  # confirm
+        ],
+    )
+    def test_local_monitor_flow(self, _mock_input, _mock_write_env):
+        """Local monitor preset skips alerts stage and has no ingest node."""
+        out = StringIO()
+        call_command("setup_instance", stdout=out)
+
+        defn = PipelineDefinition.objects.get(created_by="setup_instance")
+        assert defn.name == "local-monitor"
+        nodes = defn.get_nodes()
+        node_types = [n["type"] for n in nodes]
+        assert "ingest" not in node_types
+        assert node_types == ["context", "notify"]
+
+        ch = NotificationChannel.objects.get(name="ops-alerts")
+        assert ch.driver == "slack"
+
+        output = out.getvalue()
+        assert "crontab" in output.lower() or "check_and_alert" in output

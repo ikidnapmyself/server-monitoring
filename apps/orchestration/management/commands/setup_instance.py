@@ -12,12 +12,19 @@ import os
 
 from django.core.management.base import BaseCommand
 
+# Alert source modes
+ALERT_SOURCE_EXTERNAL = "external"
+ALERT_SOURCE_LOCAL = "local"
+
 # Preset definitions: name, label, description, active stages
 PRESETS = [
+    # External alert presets (webhooks from monitoring tools)
     {
         "name": "direct",
         "label": "Alert \u2192 Notify",
         "description": "Direct forwarding",
+        "source": ALERT_SOURCE_EXTERNAL,
+        "has_alerts": True,
         "has_checkers": False,
         "has_intelligence": False,
     },
@@ -25,6 +32,8 @@ PRESETS = [
         "name": "health-checked",
         "label": "Alert \u2192 Checkers \u2192 Notify",
         "description": "Health-checked alerts",
+        "source": ALERT_SOURCE_EXTERNAL,
+        "has_alerts": True,
         "has_checkers": True,
         "has_intelligence": False,
     },
@@ -32,6 +41,8 @@ PRESETS = [
         "name": "ai-analyzed",
         "label": "Alert \u2192 Intelligence \u2192 Notify",
         "description": "AI-analyzed alerts",
+        "source": ALERT_SOURCE_EXTERNAL,
+        "has_alerts": True,
         "has_checkers": False,
         "has_intelligence": True,
     },
@@ -39,6 +50,27 @@ PRESETS = [
         "name": "full",
         "label": "Alert \u2192 Checkers \u2192 Intelligence \u2192 Notify",
         "description": "Full pipeline",
+        "source": ALERT_SOURCE_EXTERNAL,
+        "has_alerts": True,
+        "has_checkers": True,
+        "has_intelligence": True,
+    },
+    # Local monitoring presets (crontab + check_and_alert)
+    {
+        "name": "local-monitor",
+        "label": "Checkers \u2192 Notify",
+        "description": "Local health monitoring",
+        "source": ALERT_SOURCE_LOCAL,
+        "has_alerts": False,
+        "has_checkers": True,
+        "has_intelligence": False,
+    },
+    {
+        "name": "local-smart",
+        "label": "Checkers \u2192 Intelligence \u2192 Notify",
+        "description": "Local monitoring with AI",
+        "source": ALERT_SOURCE_LOCAL,
+        "has_alerts": False,
         "has_checkers": True,
         "has_intelligence": True,
     },
@@ -236,7 +268,10 @@ class Command(BaseCommand):
             config: Dict with all collected wizard state.
         """
         self.stdout.write(self.style.HTTP_INFO("\n--- Summary ---"))
-        self.stdout.write(f"  Pipeline: {config['preset']['label']}")
+        preset = config["preset"]
+        source_label = "External webhooks" if preset.get("has_alerts", True) else "Local crontab"
+        self.stdout.write(f"  Alert source: {source_label}")
+        self.stdout.write(f"  Pipeline: {preset['label']}")
 
         if "alerts" in config:
             self.stdout.write(f"  Alert drivers: {', '.join(config['alerts'])}")
@@ -265,14 +300,34 @@ class Command(BaseCommand):
         response = input("\n? Apply this configuration? [Y/n]: ").strip().lower()
         return response in ("", "y", "yes")
 
-    def _select_preset(self):
+    def _select_alert_source(self):
+        """
+        Prompt user to choose how alerts will be generated.
+
+        Returns:
+            Alert source string: 'external' or 'local'.
+        """
+        return self._prompt_choice(
+            "? How will alerts be generated?",
+            [
+                (ALERT_SOURCE_EXTERNAL, "External webhooks  (Grafana, PagerDuty, etc.)"),
+                (ALERT_SOURCE_LOCAL, "Local crontab  (check_and_alert via cron)"),
+            ],
+        )
+
+    def _select_preset(self, source=None):
         """
         Prompt user to select a pipeline preset.
 
+        Args:
+            source: Alert source filter ('external' or 'local').
+                If None, shows all presets.
+
         Returns:
-            Dict with preset metadata (name, has_checkers, has_intelligence).
+            Dict with preset metadata.
         """
-        options = [(preset, f'{preset["label"]}  ({preset["description"]})') for preset in PRESETS]
+        filtered = [p for p in PRESETS if source is None or p["source"] == source]
+        options = [(preset, f'{preset["label"]}  ({preset["description"]})') for preset in filtered]
         selected = self._prompt_choice("? How will you use this instance?", options)
         return selected
 
@@ -330,7 +385,10 @@ class Command(BaseCommand):
         nodes = []
 
         # Build node chain based on preset
-        node_defs = [("ingest_webhook", "ingest", {})]
+        node_defs = []
+
+        if preset.get("has_alerts", True):
+            node_defs.append(("ingest_webhook", "ingest", {}))
 
         if preset["has_checkers"]:
             checker_config = config.get("checkers", {})
@@ -472,11 +530,16 @@ class Command(BaseCommand):
                 self.stdout.write("Setup cancelled.")
                 return
 
-        # Step 1: Select pipeline preset
-        preset = self._select_preset()
+        # Step 1: Select alert source
+        alert_source = self._select_alert_source()
 
-        # Step 2: Configure alerts (always present)
-        alerts = self._configure_alerts()
+        # Step 2: Select pipeline preset (filtered by source)
+        preset = self._select_preset(source=alert_source)
+
+        # Step 3: Configure alerts (only for external webhooks)
+        alerts = None
+        if preset.get("has_alerts", True):
+            alerts = self._configure_alerts()
 
         # Step 3: Configure checkers (if preset includes them)
         checkers = None
@@ -492,7 +555,9 @@ class Command(BaseCommand):
         notify = self._configure_notify()
 
         # Build full config
-        config = {"preset": preset, "alerts": alerts, "notify": notify}
+        config = {"preset": preset, "notify": notify}
+        if alerts:
+            config["alerts"] = alerts
         if checkers:
             config["checkers"] = checkers
         if intelligence:
@@ -508,7 +573,8 @@ class Command(BaseCommand):
         env_path = os.path.join(str(settings.BASE_DIR), ".env")
         env_updates = {}
 
-        env_updates["ALERTS_ENABLED_DRIVERS"] = ",".join(alerts)
+        if alerts:
+            env_updates["ALERTS_ENABLED_DRIVERS"] = ",".join(alerts)
 
         if checkers:
             from apps.checkers.checkers import CHECKER_REGISTRY
@@ -549,6 +615,16 @@ class Command(BaseCommand):
             )
 
         self.stdout.write(self.style.SUCCESS("\n✓ Configuration complete!"))
-        self.stdout.write(
-            "\nNext steps:\n" "  uv run python manage.py run_pipeline --sample --dry-run\n"
-        )
+
+        if alert_source == ALERT_SOURCE_LOCAL:
+            self.stdout.write(
+                "\nNext steps:\n"
+                "  bin/setup_cron.sh"
+                "                                    # Set up scheduled health checks\n"
+                "  uv run python manage.py check_and_alert --dry-run"
+                "    # Test local alert generation\n"
+            )
+        else:
+            self.stdout.write(
+                "\nNext steps:\n" "  uv run python manage.py run_pipeline --sample --dry-run\n"
+            )
