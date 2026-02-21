@@ -1,5 +1,7 @@
 """Tests for the setup_instance management command."""
 
+import os
+import tempfile
 from io import StringIO
 from unittest.mock import patch
 
@@ -287,3 +289,66 @@ class ConfirmApplyTests(TestCase):
     @patch("builtins.input", return_value="n")
     def test_returns_false_on_no(self, _mock_input):
         assert self.cmd._confirm_apply() is False
+
+
+class WriteEnvTests(TestCase):
+    """Tests for _write_env helper."""
+
+    def setUp(self):
+        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
+
+    def test_adds_new_keys_to_env_file(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
+            f.write("EXISTING_KEY=value\n")
+            f.flush()
+            env_path = f.name
+
+        try:
+            self.cmd._write_env(env_path, {"NEW_KEY": "new_value"})
+            with open(env_path) as f:
+                content = f.read()
+            assert "EXISTING_KEY=value" in content
+            assert "NEW_KEY=new_value" in content
+        finally:
+            os.unlink(env_path)
+
+    def test_updates_existing_keys(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
+            f.write("MY_KEY=old\nOTHER=keep\n")
+            f.flush()
+            env_path = f.name
+
+        try:
+            self.cmd._write_env(env_path, {"MY_KEY": "new"})
+            with open(env_path) as f:
+                content = f.read()
+            assert "MY_KEY=new" in content
+            assert "MY_KEY=old" not in content
+            assert "OTHER=keep" in content
+        finally:
+            os.unlink(env_path)
+
+    def test_creates_env_file_if_missing(self):
+        env_path = tempfile.mktemp(suffix=".env")
+        try:
+            self.cmd._write_env(env_path, {"KEY": "val"})
+            with open(env_path) as f:
+                content = f.read()
+            assert "KEY=val" in content
+        finally:
+            if os.path.exists(env_path):
+                os.unlink(env_path)
+
+    def test_adds_section_header_comment(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
+            f.write("")
+            f.flush()
+            env_path = f.name
+
+        try:
+            self.cmd._write_env(env_path, {"KEY": "val"})
+            with open(env_path) as f:
+                content = f.read()
+            assert "setup_instance" in content
+        finally:
+            os.unlink(env_path)

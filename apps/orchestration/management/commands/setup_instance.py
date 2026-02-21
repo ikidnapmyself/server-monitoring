@@ -8,6 +8,8 @@ Usage:
     python manage.py setup_instance
 """
 
+import os
+
 from django.core.management.base import BaseCommand
 
 # Preset definitions: name, label, description, active stages
@@ -273,6 +275,44 @@ class Command(BaseCommand):
         options = [(preset, f'{preset["label"]}  ({preset["description"]})') for preset in PRESETS]
         selected = self._prompt_choice("? How will you use this instance?", options)
         return selected
+
+    def _write_env(self, env_path, updates):
+        """
+        Update .env file with new key-value pairs, preserving existing content.
+
+        Args:
+            env_path: Path to .env file.
+            updates: Dict of key-value pairs to set.
+        """
+        import datetime
+
+        lines = []
+        existing_keys = set()
+
+        # Read existing file
+        if os.path.exists(env_path):
+            with open(env_path) as f:
+                for line in f:
+                    stripped = line.strip()
+                    # Check if this line sets a key we're updating
+                    if "=" in stripped and not stripped.startswith("#"):
+                        key = stripped.split("=", 1)[0].strip()
+                        if key in updates:
+                            lines.append(f"{key}={updates[key]}\n")
+                            existing_keys.add(key)
+                            continue
+                    lines.append(line)
+
+        # Append new keys that weren't already in the file
+        new_keys = {k: v for k, v in updates.items() if k not in existing_keys}
+        if new_keys:
+            today = datetime.date.today().isoformat()
+            lines.append(f"\n# --- setup_instance: Generated {today} ---\n")
+            for key, value in new_keys.items():
+                lines.append(f"{key}={value}\n")
+
+        with open(env_path, "w") as f:
+            f.writelines(lines)
 
     def handle(self, *args, **options):
         pass
