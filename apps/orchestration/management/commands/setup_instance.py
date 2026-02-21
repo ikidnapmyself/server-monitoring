@@ -314,5 +314,98 @@ class Command(BaseCommand):
         with open(env_path, "w") as f:
             f.writelines(lines)
 
+    def _create_pipeline_definition(self, config):
+        """
+        Create a PipelineDefinition record from collected config.
+
+        Args:
+            config: Full wizard config dict.
+
+        Returns:
+            Created PipelineDefinition instance.
+        """
+        from apps.orchestration.models import PipelineDefinition
+
+        preset = config["preset"]
+        nodes = []
+
+        # Build node chain based on preset
+        node_defs = [("ingest_webhook", "ingest", {})]
+
+        if preset["has_checkers"]:
+            checker_config = config.get("checkers", {})
+            node_defs.append(
+                (
+                    "check_health",
+                    "context",
+                    {"checker_names": checker_config.get("enabled", [])},
+                )
+            )
+
+        if preset["has_intelligence"]:
+            intel_config = config.get("intelligence", {})
+            node_defs.append(
+                (
+                    "analyze_incident",
+                    "intelligence",
+                    {"provider": intel_config.get("provider", "local")},
+                )
+            )
+
+        notify_drivers = [ch["driver"] for ch in config.get("notify", [])]
+        node_defs.append(
+            (
+                "notify_channels",
+                "notify",
+                {"drivers": notify_drivers},
+            )
+        )
+
+        # Chain nodes with "next" pointers
+        for i, (node_id, node_type, node_config) in enumerate(node_defs):
+            node = {"id": node_id, "type": node_type, "config": node_config}
+            if i < len(node_defs) - 1:
+                node["next"] = node_defs[i + 1][0]
+            nodes.append(node)
+
+        pipeline_config = {
+            "version": "1.0",
+            "description": f"Setup wizard: {preset['name']}",
+            "defaults": {"max_retries": 3, "timeout_seconds": 300},
+            "nodes": nodes,
+        }
+
+        return PipelineDefinition.objects.create(
+            name=preset["name"],
+            description=f"Pipeline created by setup_instance wizard ({preset['name']})",
+            config=pipeline_config,
+            tags=["setup_wizard"],
+            created_by="setup_instance",
+        )
+
+    def _create_notification_channels(self, channels_config):
+        """
+        Create NotificationChannel records from collected config.
+
+        Args:
+            channels_config: List of dicts with 'driver', 'name', 'config'.
+
+        Returns:
+            List of created NotificationChannel instances.
+        """
+        from apps.notify.models import NotificationChannel
+
+        created = []
+        for ch in channels_config:
+            channel = NotificationChannel.objects.create(
+                name=ch["name"],
+                driver=ch["driver"],
+                config=ch["config"],
+                is_active=True,
+                description=f"[setup_wizard] {ch['driver']} channel",
+            )
+            created.append(channel)
+        return created
+
     def handle(self, *args, **options):
         pass

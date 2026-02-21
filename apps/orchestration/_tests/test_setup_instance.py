@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
+from apps.notify.models import NotificationChannel
 from apps.orchestration.management.commands.setup_instance import Command
 
 
@@ -352,3 +353,96 @@ class WriteEnvTests(TestCase):
             assert "setup_instance" in content
         finally:
             os.unlink(env_path)
+
+
+class CreatePipelineDefinitionTests(TestCase):
+    """Tests for _create_pipeline_definition."""
+
+    def setUp(self):
+        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
+
+    def test_creates_direct_pipeline(self):
+        config = {
+            "preset": {"name": "direct", "has_checkers": False, "has_intelligence": False},
+            "alerts": ["grafana"],
+            "notify": [{"driver": "slack", "name": "ops-slack", "config": {}}],
+        }
+        defn = self.cmd._create_pipeline_definition(config)
+        assert defn.name == "direct"
+        assert defn.is_active is True
+        assert "setup_wizard" in defn.tags
+        nodes = defn.get_nodes()
+        node_types = [n["type"] for n in nodes]
+        assert "ingest" in node_types
+        assert "notify" in node_types
+        assert "context" not in node_types
+        assert "intelligence" not in node_types
+
+    def test_creates_full_pipeline(self):
+        config = {
+            "preset": {"name": "full", "has_checkers": True, "has_intelligence": True},
+            "alerts": ["alertmanager"],
+            "checkers": {"enabled": ["cpu", "memory"]},
+            "intelligence": {"provider": "openai"},
+            "notify": [{"driver": "slack", "name": "ops-slack", "config": {}}],
+        }
+        defn = self.cmd._create_pipeline_definition(config)
+        nodes = defn.get_nodes()
+        node_types = [n["type"] for n in nodes]
+        assert node_types == ["ingest", "context", "intelligence", "notify"]
+
+    def test_nodes_are_chained_with_next(self):
+        config = {
+            "preset": {"name": "full", "has_checkers": True, "has_intelligence": True},
+            "alerts": ["alertmanager"],
+            "checkers": {"enabled": ["cpu"]},
+            "intelligence": {"provider": "local"},
+            "notify": [{"driver": "slack", "name": "ops-slack", "config": {}}],
+        }
+        defn = self.cmd._create_pipeline_definition(config)
+        nodes = defn.get_nodes()
+        # Each node except last should have "next" pointing to next node
+        for i, node in enumerate(nodes[:-1]):
+            assert node["next"] == nodes[i + 1]["id"]
+        assert "next" not in nodes[-1]
+
+    def test_tags_include_setup_wizard(self):
+        config = {
+            "preset": {"name": "direct", "has_checkers": False, "has_intelligence": False},
+            "alerts": ["generic"],
+            "notify": [{"driver": "generic", "name": "wh", "config": {}}],
+        }
+        defn = self.cmd._create_pipeline_definition(config)
+        assert "setup_wizard" in defn.tags
+
+
+class CreateNotificationChannelsTests(TestCase):
+    """Tests for _create_notification_channels."""
+
+    def setUp(self):
+        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
+
+    def test_creates_channel_records(self):
+        channels_config = [
+            {
+                "driver": "slack",
+                "name": "ops-slack",
+                "config": {"webhook_url": "https://hooks.slack.com/xxx"},
+            },
+        ]
+        channels = self.cmd._create_notification_channels(channels_config)
+        assert len(channels) == 1
+        ch = NotificationChannel.objects.get(name="ops-slack")
+        assert ch.driver == "slack"
+        assert ch.config["webhook_url"] == "https://hooks.slack.com/xxx"
+        assert ch.is_active is True
+        assert "[setup_wizard]" in ch.description
+
+    def test_creates_multiple_channels(self):
+        channels_config = [
+            {"driver": "slack", "name": "slack-ch", "config": {}},
+            {"driver": "email", "name": "email-ch", "config": {}},
+        ]
+        channels = self.cmd._create_notification_channels(channels_config)
+        assert len(channels) == 2
+        assert NotificationChannel.objects.count() == 2
