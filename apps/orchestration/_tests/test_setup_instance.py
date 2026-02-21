@@ -238,3 +238,52 @@ class ConfigureNotifyTests(TestCase):
         assert len(result) == 1
         assert result[0]["driver"] == "generic"
         assert result[0]["config"]["endpoint_url"] == "https://example.com/hook"
+
+
+class ShowSummaryTests(TestCase):
+    """Tests for _show_summary step."""
+
+    def setUp(self):
+        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
+
+    def test_summary_includes_preset_name(self):
+        config = {
+            "preset": {"name": "full", "label": "Full pipeline"},
+            "alerts": ["alertmanager", "grafana"],
+            "checkers": {"enabled": ["cpu", "memory"]},
+            "intelligence": {"provider": "openai", "model": "gpt-4o-mini"},
+            "notify": [{"driver": "slack", "name": "ops-alerts"}],
+        }
+        self.cmd._show_summary(config)
+        output = self.cmd.stdout.getvalue()
+        assert "full" in output.lower() or "Full pipeline" in output
+
+    def test_summary_includes_all_drivers(self):
+        config = {
+            "preset": {"name": "direct", "label": "Direct"},
+            "alerts": ["grafana"],
+            "notify": [{"driver": "slack", "name": "ops-slack"}],
+        }
+        self.cmd._show_summary(config)
+        output = self.cmd.stdout.getvalue()
+        assert "grafana" in output
+        assert "slack" in output
+
+
+class ConfirmApplyTests(TestCase):
+    """Tests for _confirm_apply step."""
+
+    def setUp(self):
+        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
+
+    @patch("builtins.input", return_value="Y")
+    def test_returns_true_on_yes(self, _mock_input):
+        assert self.cmd._confirm_apply() is True
+
+    @patch("builtins.input", return_value="")
+    def test_returns_true_on_empty_default_yes(self, _mock_input):
+        assert self.cmd._confirm_apply() is True
+
+    @patch("builtins.input", return_value="n")
+    def test_returns_false_on_no(self, _mock_input):
+        assert self.cmd._confirm_apply() is False

@@ -226,6 +226,43 @@ class Command(BaseCommand):
 
         return channels
 
+    def _show_summary(self, config):
+        """
+        Display a summary of collected configuration for user review.
+
+        Args:
+            config: Dict with all collected wizard state.
+        """
+        self.stdout.write(self.style.HTTP_INFO("\n--- Summary ---"))
+        self.stdout.write(f"  Pipeline: {config['preset']['label']}")
+
+        if "alerts" in config:
+            self.stdout.write(f"  Alert drivers: {', '.join(config['alerts'])}")
+
+        if "checkers" in config:
+            self.stdout.write(f"  Checkers: {', '.join(config['checkers']['enabled'])}")
+
+        if "intelligence" in config:
+            intel = config["intelligence"]
+            provider_info = intel["provider"]
+            if intel.get("model"):
+                provider_info += f" ({intel['model']})"
+            self.stdout.write(f"  Intelligence: {provider_info}")
+
+        if "notify" in config:
+            for ch in config["notify"]:
+                self.stdout.write(f"  Notification: {ch['driver']} ({ch['name']})")
+
+    def _confirm_apply(self):
+        """
+        Ask user to confirm applying configuration.
+
+        Returns:
+            True if user confirms, False otherwise.
+        """
+        response = input("\n? Apply this configuration? [Y/n]: ").strip().lower()
+        return response in ("", "y", "yes")
+
     def _select_preset(self):
         """
         Prompt user to select a pipeline preset.
