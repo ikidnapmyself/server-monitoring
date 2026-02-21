@@ -161,6 +161,71 @@ class Command(BaseCommand):
 
         return result
 
+    def _configure_intelligence(self):
+        """
+        Prompt user to select an AI provider and collect credentials.
+
+        Returns:
+            Dict with 'provider' and optional 'api_key', 'model'.
+        """
+        from apps.intelligence.providers import PROVIDERS
+
+        self.stdout.write(self.style.HTTP_INFO("\n--- Stage: Intelligence ---"))
+        options = [(name, name) for name in PROVIDERS]
+        provider = self._prompt_choice("? Which AI provider do you want to use?", options)
+
+        result = {"provider": provider}
+
+        if provider == "openai":
+            result["api_key"] = self._prompt_input("  OpenAI API key", required=True)
+            result["model"] = self._prompt_input("  OpenAI model", default="gpt-4o-mini")
+
+        return result
+
+    def _configure_notify(self):
+        """
+        Prompt user to select notification channels and collect per-driver config.
+
+        Returns:
+            List of dicts, each with 'driver', 'name', 'config'.
+        """
+        from apps.notify.drivers import DRIVER_REGISTRY
+
+        self.stdout.write(self.style.HTTP_INFO("\n--- Stage: Notify ---"))
+        options = [(name, name) for name in DRIVER_REGISTRY]
+        selected = self._prompt_multi(
+            "? Which notification channels do you want to configure?", options
+        )
+
+        channels = []
+        for driver_name in selected:
+            self.stdout.write(f"\n  Configuring {driver_name}:")
+            config = {}
+
+            if driver_name == "email":
+                config["smtp_host"] = self._prompt_input("    SMTP host", required=True)
+                config["smtp_port"] = self._prompt_input("    SMTP port", default="587")
+                config["smtp_user"] = self._prompt_input("    SMTP user", required=True)
+                config["smtp_password"] = self._prompt_input("    SMTP password", required=True)
+                config["smtp_from"] = self._prompt_input("    From address", required=True)
+                config["smtp_to"] = self._prompt_input("    To address", required=True)
+            elif driver_name == "slack":
+                config["webhook_url"] = self._prompt_input("    Slack webhook URL", required=True)
+            elif driver_name == "pagerduty":
+                config["routing_key"] = self._prompt_input(
+                    "    PagerDuty routing key", required=True
+                )
+            elif driver_name == "generic":
+                config["endpoint_url"] = self._prompt_input("    Endpoint URL", required=True)
+                headers = self._prompt_input("    Headers (JSON, optional)", default="")
+                if headers:
+                    config["headers"] = headers
+
+            channel_name = self._prompt_input("    Channel name", default=f"ops-{driver_name}")
+            channels.append({"driver": driver_name, "name": channel_name, "config": config})
+
+        return channels
+
     def _select_preset(self):
         """
         Prompt user to select a pipeline preset.

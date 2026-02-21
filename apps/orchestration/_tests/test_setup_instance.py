@@ -157,3 +157,84 @@ class ConfigureCheckersTests(TestCase):
         result = self.cmd._configure_checkers()
         assert "process" in result["enabled"]
         assert result["process_names"] == "nginx,postgres"
+
+
+class ConfigureIntelligenceTests(TestCase):
+    """Tests for _configure_intelligence step."""
+
+    def setUp(self):
+        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
+
+    @patch("builtins.input", return_value="1")
+    def test_local_provider_needs_no_config(self, _mock_input):
+        result = self.cmd._configure_intelligence()
+        assert result["provider"] == "local"
+        assert "api_key" not in result
+
+    @patch("builtins.input", side_effect=["2", "sk-test123", "gpt-4o-mini"])
+    def test_openai_provider_collects_credentials(self, _mock_input):
+        result = self.cmd._configure_intelligence()
+        assert result["provider"] == "openai"
+        assert result["api_key"] == "sk-test123"
+        assert result["model"] == "gpt-4o-mini"
+
+    @patch("builtins.input", side_effect=["2", "sk-test123", ""])
+    def test_openai_uses_default_model(self, _mock_input):
+        result = self.cmd._configure_intelligence()
+        assert result["model"] == "gpt-4o-mini"
+
+
+class ConfigureNotifyTests(TestCase):
+    """Tests for _configure_notify step."""
+
+    def setUp(self):
+        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
+
+    @patch(
+        "builtins.input",
+        side_effect=["1", "https://hooks.slack.com/xxx", "ops-alerts"],
+    )
+    def test_slack_collects_webhook_url_and_name(self, _mock_input):
+        result = self.cmd._configure_notify()
+        assert len(result) == 1
+        assert result[0]["driver"] == "slack"
+        assert result[0]["config"]["webhook_url"] == "https://hooks.slack.com/xxx"
+        assert result[0]["name"] == "ops-alerts"
+
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "3",  # email is 3rd in registry: slack, pagerduty, email, generic
+            "smtp.example.com",
+            "587",
+            "user@example.com",
+            "password123",
+            "noreply@example.com",
+            "ops@example.com",
+            "ops-email",
+        ],
+    )
+    def test_email_collects_smtp_settings(self, _mock_input):
+        result = self.cmd._configure_notify()
+        assert len(result) == 1
+        assert result[0]["config"]["smtp_host"] == "smtp.example.com"
+        assert result[0]["config"]["smtp_port"] == "587"
+
+    @patch(
+        "builtins.input",
+        side_effect=["2", "R0123456789", "oncall-pd"],
+    )
+    def test_pagerduty_collects_routing_key(self, _mock_input):
+        result = self.cmd._configure_notify()
+        assert len(result) == 1
+        assert result[0]["config"]["routing_key"] == "R0123456789"
+
+    @patch(
+        "builtins.input",
+        side_effect=["4", "https://example.com/hook", "", "my-webhook"],
+    )
+    def test_generic_collects_endpoint(self, _mock_input):
+        result = self.cmd._configure_notify()
+        assert len(result) == 1
+        assert result[0]["driver"] == "generic"
+        assert result[0]["config"]["endpoint_url"] == "https://example.com/hook"
