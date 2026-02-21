@@ -407,5 +407,50 @@ class Command(BaseCommand):
             created.append(channel)
         return created
 
+    def _detect_existing(self):
+        """
+        Detect existing wizard-created pipeline definition.
+
+        Returns:
+            PipelineDefinition instance if found, None otherwise.
+        """
+        from apps.orchestration.models import PipelineDefinition
+
+        return (
+            PipelineDefinition.objects.filter(created_by="setup_instance", is_active=True)
+            .order_by("-updated_at")
+            .first()
+        )
+
+    def _handle_rerun(self, existing):
+        """
+        Handle re-run when existing wizard config is detected.
+
+        Args:
+            existing: Existing PipelineDefinition instance.
+
+        Returns:
+            Action string: 'reconfigure', 'add', or 'cancel'.
+        """
+        from apps.notify.models import NotificationChannel
+
+        action = self._prompt_choice(
+            f'? Existing pipeline "{existing.name}" found. What would you like to do?',
+            [
+                ("reconfigure", "Reconfigure — Replace existing pipeline and channels"),
+                ("add", "Add another — Create additional pipeline alongside existing"),
+                ("cancel", "Cancel"),
+            ],
+        )
+
+        if action == "reconfigure":
+            existing.is_active = False
+            existing.save(update_fields=["is_active"])
+            NotificationChannel.objects.filter(
+                description__startswith="[setup_wizard]", is_active=True
+            ).update(is_active=False)
+
+        return action
+
     def handle(self, *args, **options):
         pass

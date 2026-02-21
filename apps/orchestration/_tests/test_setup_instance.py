@@ -9,6 +9,7 @@ from django.test import TestCase
 
 from apps.notify.models import NotificationChannel
 from apps.orchestration.management.commands.setup_instance import Command
+from apps.orchestration.models import PipelineDefinition
 
 
 class PromptChoiceTests(TestCase):
@@ -446,3 +447,87 @@ class CreateNotificationChannelsTests(TestCase):
         channels = self.cmd._create_notification_channels(channels_config)
         assert len(channels) == 2
         assert NotificationChannel.objects.count() == 2
+
+
+class DetectExistingTests(TestCase):
+    """Tests for _detect_existing."""
+
+    def setUp(self):
+        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
+
+    def test_returns_none_when_no_existing(self):
+        result = self.cmd._detect_existing()
+        assert result is None
+
+    def test_returns_definition_when_exists(self):
+        PipelineDefinition.objects.create(
+            name="full",
+            config={"version": "1.0", "nodes": []},
+            tags=["setup_wizard"],
+            created_by="setup_instance",
+        )
+        result = self.cmd._detect_existing()
+        assert result is not None
+        assert result.name == "full"
+
+    def test_ignores_non_wizard_definitions(self):
+        PipelineDefinition.objects.create(
+            name="custom",
+            config={"version": "1.0", "nodes": []},
+            tags=["manual"],
+            created_by="admin",
+        )
+        result = self.cmd._detect_existing()
+        assert result is None
+
+
+class HandleRerunTests(TestCase):
+    """Tests for _handle_rerun."""
+
+    def setUp(self):
+        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
+
+    @patch("builtins.input", return_value="1")
+    def test_reconfigure_deactivates_existing(self, _mock_input):
+        defn = PipelineDefinition.objects.create(
+            name="full",
+            config={"version": "1.0", "nodes": []},
+            tags=["setup_wizard"],
+            created_by="setup_instance",
+        )
+        NotificationChannel.objects.create(
+            name="ops-slack",
+            driver="slack",
+            config={},
+            description="[setup_wizard] slack channel",
+        )
+        action = self.cmd._handle_rerun(defn)
+        assert action == "reconfigure"
+        defn.refresh_from_db()
+        assert defn.is_active is False
+        ch = NotificationChannel.objects.get(name="ops-slack")
+        assert ch.is_active is False
+
+    @patch("builtins.input", return_value="2")
+    def test_add_another_keeps_existing(self, _mock_input):
+        defn = PipelineDefinition.objects.create(
+            name="full",
+            config={"version": "1.0", "nodes": []},
+            tags=["setup_wizard"],
+            created_by="setup_instance",
+        )
+        action = self.cmd._handle_rerun(defn)
+        assert action == "add"
+        defn.refresh_from_db()
+        assert defn.is_active is True
+
+    @patch("builtins.input", return_value="3")
+    def test_cancel_returns_cancel(self, _mock_input):
+        defn = PipelineDefinition.objects.create(
+            name="full",
+            config={"version": "1.0", "nodes": []},
+            tags=["setup_wizard"],
+            created_by="setup_instance",
+        )
+        action = self.cmd._handle_rerun(defn)
+        assert action == "cancel"
