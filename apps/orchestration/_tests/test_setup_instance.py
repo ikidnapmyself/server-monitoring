@@ -5,6 +5,7 @@ import tempfile
 from io import StringIO
 from unittest.mock import patch
 
+from django.core.management import call_command
 from django.test import TestCase
 
 from apps.notify.models import NotificationChannel
@@ -531,3 +532,86 @@ class HandleRerunTests(TestCase):
         )
         action = self.cmd._handle_rerun(defn)
         assert action == "cancel"
+
+
+class SetupInstanceIntegrationTests(TestCase):
+    """Integration tests for the full setup_instance flow."""
+
+    @patch(
+        "apps.orchestration.management.commands.setup_instance.Command._write_env",
+        return_value=None,
+    )
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "4",  # preset: full
+            "1,2",  # alerts: alertmanager, grafana
+            "1,2",  # checkers: cpu, memory
+            "1",  # intelligence: local
+            "1",  # notify: slack (1st in registry)
+            "https://hooks.slack.com/xxx",  # slack webhook
+            "ops-alerts",  # channel name
+            "Y",  # confirm
+        ],
+    )
+    def test_full_pipeline_flow(self, _mock_input, _mock_write_env):
+        out = StringIO()
+        call_command("setup_instance", stdout=out)
+
+        # Verify PipelineDefinition created
+        defn = PipelineDefinition.objects.get(created_by="setup_instance")
+        assert defn.is_active is True
+        nodes = defn.get_nodes()
+        node_types = [n["type"] for n in nodes]
+        assert node_types == ["ingest", "context", "intelligence", "notify"]
+
+        # Verify NotificationChannel created
+        ch = NotificationChannel.objects.get(name="ops-alerts")
+        assert ch.driver == "slack"
+        assert ch.is_active is True
+
+    @patch(
+        "apps.orchestration.management.commands.setup_instance.Command._write_env",
+        return_value=None,
+    )
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "1",  # preset: direct
+            "1",  # alerts: first driver
+            "1",  # notify: slack
+            "https://hooks.slack.com/xxx",  # slack webhook
+            "ops-slack",  # channel name
+            "Y",  # confirm
+        ],
+    )
+    def test_direct_preset_skips_checkers_and_intelligence(self, _mock_input, _mock_write_env):
+        out = StringIO()
+        call_command("setup_instance", stdout=out)
+
+        defn = PipelineDefinition.objects.get(created_by="setup_instance")
+        node_types = [n["type"] for n in defn.get_nodes()]
+        assert "context" not in node_types
+        assert "intelligence" not in node_types
+
+    @patch(
+        "apps.orchestration.management.commands.setup_instance.Command._write_env",
+        return_value=None,
+    )
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "1",  # preset: direct
+            "1",  # alerts
+            "1",  # notify: slack
+            "https://example.com",  # slack webhook
+            "test-ch",  # channel name
+            "n",  # cancel at confirmation
+        ],
+    )
+    def test_cancel_on_confirmation_creates_nothing(self, _mock_input, _mock_write_env):
+        """When user cancels at confirmation, no DB records should be created."""
+        out = StringIO()
+        call_command("setup_instance", stdout=out)
+        assert PipelineDefinition.objects.count() == 0
+        assert NotificationChannel.objects.count() == 0

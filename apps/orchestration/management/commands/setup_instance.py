@@ -453,4 +453,102 @@ class Command(BaseCommand):
         return action
 
     def handle(self, *args, **options):
-        pass
+        from django.conf import settings
+
+        self.stdout.write(
+            self.style.HTTP_INFO(
+                "\n╔══════════════════════════════════════════════════╗"
+                "\n║     Server Maintenance — Instance Setup          ║"
+                "\n╚══════════════════════════════════════════════════╝"
+            )
+        )
+
+        # Check for existing wizard configuration
+        existing = self._detect_existing()
+        rerun_action = None
+        if existing:
+            rerun_action = self._handle_rerun(existing)
+            if rerun_action == "cancel":
+                self.stdout.write("Setup cancelled.")
+                return
+
+        # Step 1: Select pipeline preset
+        preset = self._select_preset()
+
+        # Step 2: Configure alerts (always present)
+        alerts = self._configure_alerts()
+
+        # Step 3: Configure checkers (if preset includes them)
+        checkers = None
+        if preset["has_checkers"]:
+            checkers = self._configure_checkers()
+
+        # Step 4: Configure intelligence (if preset includes it)
+        intelligence = None
+        if preset["has_intelligence"]:
+            intelligence = self._configure_intelligence()
+
+        # Step 5: Configure notifications (always present)
+        notify = self._configure_notify()
+
+        # Build full config
+        config = {"preset": preset, "alerts": alerts, "notify": notify}
+        if checkers:
+            config["checkers"] = checkers
+        if intelligence:
+            config["intelligence"] = intelligence
+
+        # Step 6: Show summary and confirm
+        self._show_summary(config)
+        if not self._confirm_apply():
+            self.stdout.write("Setup cancelled.")
+            return
+
+        # Step 7: Apply configuration
+        env_path = os.path.join(str(settings.BASE_DIR), ".env")
+        env_updates = {}
+
+        env_updates["ALERTS_ENABLED_DRIVERS"] = ",".join(alerts)
+
+        if checkers:
+            from apps.checkers.checkers import CHECKER_REGISTRY
+
+            all_checkers = set(CHECKER_REGISTRY.keys())
+            enabled = set(checkers["enabled"])
+            skipped = all_checkers - enabled
+            if skipped:
+                env_updates["CHECKERS_SKIP"] = ",".join(sorted(skipped))
+
+        if intelligence:
+            env_updates["INTELLIGENCE_PROVIDER"] = intelligence["provider"]
+            if intelligence.get("api_key"):
+                env_updates["OPENAI_API_KEY"] = intelligence["api_key"]
+            if intelligence.get("model"):
+                env_updates["OPENAI_MODEL"] = intelligence["model"]
+
+        self._write_env(env_path, env_updates)
+        self.stdout.write(self.style.SUCCESS(f"✓ Updated .env with {len(env_updates)} setting(s)"))
+
+        # Handle name collision for "add another" mode
+        pipeline_name = preset["name"]
+        if rerun_action == "add":
+            from apps.orchestration.models import PipelineDefinition
+
+            count = PipelineDefinition.objects.filter(name__startswith=pipeline_name).count()
+            if count > 0:
+                pipeline_name = f"{pipeline_name}-{count + 1}"
+            config["preset"] = {**preset, "name": pipeline_name}
+
+        defn = self._create_pipeline_definition(config)
+        self.stdout.write(self.style.SUCCESS(f'✓ Created PipelineDefinition "{defn.name}"'))
+
+        channels = self._create_notification_channels(notify)
+        for ch in channels:
+            self.stdout.write(
+                self.style.SUCCESS(f'✓ Created NotificationChannel "{ch.name}" ({ch.driver})')
+            )
+
+        self.stdout.write(self.style.SUCCESS("\n✓ Configuration complete!"))
+        self.stdout.write(
+            "\nNext steps:\n" "  uv run python manage.py run_pipeline --sample --dry-run\n"
+        )
