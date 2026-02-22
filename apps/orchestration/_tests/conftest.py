@@ -41,7 +41,7 @@ def chained_ai_pipeline_config():
             {
                 "id": "gather_context",
                 "type": "context",
-                "config": {"include": ["cpu", "memory", "disk"]},
+                "config": {"checker_names": ["cpu", "memory", "disk"]},
                 "next": "analyze_openai",
             },
             {
