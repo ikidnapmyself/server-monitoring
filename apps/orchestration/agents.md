@@ -38,6 +38,28 @@ Required tags/fields:
 - `apps/orchestration/executors.py` / `dtos.py` — stage execution helpers and DTOs
 - `apps/orchestration/urls.py` — URL routing
 
+## Node handler contracts
+
+Each definition-based pipeline node has a handler in `apps/orchestration/nodes/`. Below are the input/output contracts:
+
+| Node Type | Config Required | Config Optional | Output Keys | Error Behavior |
+|-----------|----------------|-----------------|-------------|----------------|
+| `ingest` | — | `driver` | `alerts_created`, `incident_id`, `severity` | Fails on invalid payload |
+| `context` | — | `checker_names` (list) | `checks_run`, `checks_passed`, `checks_failed`, `results` | Individual checker failures → `"unknown"` status, node continues |
+| `intelligence` | `provider` | `provider_config` | `provider`, `recommendations`, `summary` | Fails on exception; use `"required": false` to make optional |
+| `notify` | `drivers` (list) or `driver` (string) | — | `channels_attempted`, `channels_succeeded`, `deliveries` | Partial failure OK; errors only if ALL channels fail |
+| `transform` | `source_node` | `extract`, `mapping`, `filter_priority` | `transformed`, `source_node` | Fails on exception |
+
+**Output chaining:** Each node's output is stored in `ctx.previous_outputs[node_id]` and available to all downstream nodes. The `notify` node reads checker/intelligence outputs to build smart notification messages with derived severity.
+
+**Key files:**
+- `apps/orchestration/nodes/base.py` — `NodeContext`, `NodeResult`, `BaseNodeHandler`
+- `apps/orchestration/nodes/context.py` — runs `CHECKER_REGISTRY` checkers
+- `apps/orchestration/nodes/notify.py` — queries `NotificationChannel` DB records, uses `DRIVER_REGISTRY`
+- `apps/orchestration/nodes/intelligence.py` — calls provider with timeout
+- `apps/orchestration/nodes/ingest.py` — wraps `AlertOrchestrator`
+- `apps/orchestration/nodes/transform.py` — extract/filter/map operations
+
 ## App layout rules (required)
 
 - Endpoints must live under `apps/orchestration/views/` (endpoint/module-based).
