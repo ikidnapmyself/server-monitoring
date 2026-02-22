@@ -1,10 +1,22 @@
 # apps/orchestration/_tests/test_definition_orchestrator.py
 """Tests for DefinitionBasedOrchestrator."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from apps.orchestration.definition_orchestrator import DefinitionBasedOrchestrator
 from apps.orchestration.models import PipelineDefinition
+
+
+def _patch_notify_drivers():
+    """Patch DRIVER_REGISTRY so drivers don't make real HTTP calls."""
+    mock_driver_cls = MagicMock()
+    mock_instance = MagicMock()
+    mock_instance.validate_config.return_value = True
+    mock_instance.send.return_value = {"success": True, "message_id": "mock-msg-1"}
+    mock_driver_cls.return_value = mock_instance
+    return patch("apps.notify.views.DRIVER_REGISTRY", {"generic": mock_driver_cls})
 
 
 @pytest.mark.django_db
@@ -13,16 +25,26 @@ class TestDefinitionBasedOrchestrator:
 
     def test_execute_simple_pipeline(self, simple_pipeline_config):
         """Test executing a simple pipeline."""
+        from apps.notify.models import NotificationChannel
+
+        NotificationChannel.objects.create(
+            name="test-generic",
+            driver="generic",
+            config={"endpoint_url": "https://example.com/hook"},
+            is_active=True,
+        )
+
         definition = PipelineDefinition.objects.create(
             name="test-simple",
             config=simple_pipeline_config,
         )
 
-        orchestrator = DefinitionBasedOrchestrator(definition)
-        result = orchestrator.execute(
-            payload={"test": "data"},
-            source="test",
-        )
+        with _patch_notify_drivers():
+            orchestrator = DefinitionBasedOrchestrator(definition)
+            result = orchestrator.execute(
+                payload={"test": "data"},
+                source="test",
+            )
 
         assert result["status"] in ("completed", "partial")
         assert "executed_nodes" in result
@@ -30,18 +52,27 @@ class TestDefinitionBasedOrchestrator:
 
     def test_execute_records_pipeline_run(self, simple_pipeline_config):
         """Test that execution creates a PipelineRun record."""
+        from apps.notify.models import NotificationChannel
         from apps.orchestration.models import PipelineRun
+
+        NotificationChannel.objects.create(
+            name="test-generic",
+            driver="generic",
+            config={"endpoint_url": "https://example.com/hook"},
+            is_active=True,
+        )
 
         definition = PipelineDefinition.objects.create(
             name="test-record",
             config=simple_pipeline_config,
         )
 
-        orchestrator = DefinitionBasedOrchestrator(definition)
-        result = orchestrator.execute(
-            payload={"test": "data"},
-            source="test",
-        )
+        with _patch_notify_drivers():
+            orchestrator = DefinitionBasedOrchestrator(definition)
+            result = orchestrator.execute(
+                payload={"test": "data"},
+                source="test",
+            )
 
         # Check PipelineRun was created
         run = PipelineRun.objects.filter(run_id=result["run_id"]).first()
@@ -50,16 +81,26 @@ class TestDefinitionBasedOrchestrator:
 
     def test_execute_chains_node_outputs(self, simple_pipeline_config):
         """Test that node outputs are passed to subsequent nodes."""
+        from apps.notify.models import NotificationChannel
+
+        NotificationChannel.objects.create(
+            name="test-generic",
+            driver="generic",
+            config={"endpoint_url": "https://example.com/hook"},
+            is_active=True,
+        )
+
         definition = PipelineDefinition.objects.create(
             name="test-chain",
             config=simple_pipeline_config,
         )
 
-        orchestrator = DefinitionBasedOrchestrator(definition)
-        result = orchestrator.execute(
-            payload={"test": "data"},
-            source="test",
-        )
+        with _patch_notify_drivers():
+            orchestrator = DefinitionBasedOrchestrator(definition)
+            result = orchestrator.execute(
+                payload={"test": "data"},
+                source="test",
+            )
 
         # Check that node results include outputs
         assert "node_results" in result

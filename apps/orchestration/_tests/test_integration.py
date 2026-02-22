@@ -21,7 +21,7 @@ class TestPipelineIntegration:
                     {
                         "id": "gather",
                         "type": "context",
-                        "config": {"include": ["cpu", "memory"]},
+                        "config": {"checker_names": ["cpu", "memory"]},
                         "next": "analyze",
                     },
                     {
@@ -39,8 +39,10 @@ class TestPipelineIntegration:
         assert result["status"] == "completed"
         assert "gather" in result["executed_nodes"]
         assert "analyze" in result["executed_nodes"]
-        # Context node outputs under "context" key
-        assert "context" in result["node_results"]["gather"]["output"]
+        # Context node outputs checker results
+        gather_output = result["node_results"]["gather"]["output"]
+        assert "checks_run" in gather_output
+        assert "results" in gather_output
 
     def test_pipeline_with_optional_failing_node(self):
         """Test that optional nodes don't break the pipeline."""
@@ -52,7 +54,7 @@ class TestPipelineIntegration:
                     {
                         "id": "context",
                         "type": "context",
-                        "config": {"include": ["cpu"]},
+                        "config": {"checker_names": ["cpu"]},
                         "next": "bad_notify",
                     },
                     {
@@ -85,7 +87,7 @@ class TestPipelineIntegration:
                     {
                         "id": "context",
                         "type": "context",
-                        "config": {"include": ["cpu", "memory"]},
+                        "config": {"checker_names": ["cpu", "memory"]},
                         "next": "transform",
                     },
                     {
@@ -94,8 +96,8 @@ class TestPipelineIntegration:
                         "config": {
                             "source_node": "context",
                             "mapping": {
-                                "cpu_load": "context.cpu.load",
-                                "mem_used": "context.memory.used_mb",
+                                "cpu_status": "results.cpu.status",
+                                "mem_status": "results.memory.status",
                             },
                         },
                         "next": "analyze",

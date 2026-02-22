@@ -501,36 +501,51 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING("  (skipped)"))
             elif node_id in node_results:
                 node_result = node_results[node_id]
+                output = node_result.get("output", {})
 
                 # Show key info based on node type
                 if node_type == "context":
-                    self.stdout.write(f"  Checks run: {node_result.get('checks_run', 'N/A')}")
+                    self.stdout.write(f"  Checks run: {output.get('checks_run', 'N/A')}")
+                    self.stdout.write(f"  Passed: {output.get('checks_passed', 'N/A')}")
+                    self.stdout.write(f"  Failed: {output.get('checks_failed', 'N/A')}")
+                    results = output.get("results", {})
+                    for name, info in results.items():
+                        status_val = info.get("status", "?")
+                        msg = info.get("message", "")
+                        if status_val in ("warning", "critical"):
+                            self.stdout.write(self.style.WARNING(f"  {name}: {status_val} — {msg}"))
+                        else:
+                            self.stdout.write(f"  {name}: {status_val} — {msg}")
                 elif node_type == "intelligence":
-                    summary = node_result.get(
-                        "summary", node_result.get("output", {}).get("summary", "N/A")
-                    )
+                    summary = output.get("summary", "N/A")
                     if isinstance(summary, str) and len(summary) > 100:
                         summary = summary[:100] + "..."
                     self.stdout.write(f"  Summary: {summary}")
-                    provider = node_result.get(
-                        "provider", node_result.get("output", {}).get("provider")
-                    )
+                    provider = output.get("provider")
                     if provider:
                         self.stdout.write(f"  Provider: {provider}")
                 elif node_type == "notify":
-                    driver = node.get("config", {}).get("driver", "unknown")
-                    self.stdout.write(f"  Driver: {driver}")
                     self.stdout.write(
-                        f"  Channels attempted: {node_result.get('channels_attempted', 'N/A')}"
+                        f"  Channels attempted: {output.get('channels_attempted', 'N/A')}"
                     )
-                    self.stdout.write(
-                        f"  Succeeded: {node_result.get('channels_succeeded', 'N/A')}"
-                    )
+                    self.stdout.write(f"  Succeeded: {output.get('channels_succeeded', 'N/A')}")
+                    self.stdout.write(f"  Failed: {output.get('channels_failed', 'N/A')}")
+                    for delivery in output.get("deliveries", []):
+                        status_val = delivery.get("status", "?")
+                        ch_name = delivery.get("channel", "?")
+                        driver_name = delivery.get("driver", "?")
+                        if status_val == "success":
+                            self.stdout.write(
+                                self.style.SUCCESS(f"  {driver_name} ({ch_name}): sent")
+                            )
+                        else:
+                            err = delivery.get("error", "unknown error")
+                            self.stdout.write(
+                                self.style.ERROR(f"  {driver_name} ({ch_name}): {err}")
+                            )
                 elif node_type == "ingest":
-                    self.stdout.write(f"  Incident ID: {node_result.get('incident_id', 'N/A')}")
-                    self.stdout.write(
-                        f"  Alerts created: {node_result.get('alerts_created', 'N/A')}"
-                    )
+                    self.stdout.write(f"  Incident ID: {output.get('incident_id', 'N/A')}")
+                    self.stdout.write(f"  Alerts created: {output.get('alerts_created', 'N/A')}")
 
                 # Show errors if any
                 errors = node_result.get("errors", [])
