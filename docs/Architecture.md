@@ -146,33 +146,37 @@ Fixed 4-stage sequence: INGEST → CHECK → ANALYZE → NOTIFY. Each stage has 
 Dynamic stages configured via JSON stored in `PipelineDefinition` model. Supports any combination and ordering of node types.
 
 - **Endpoints:** `POST /orchestration/definitions/<name>/execute/`
+- **CLI:** `python manage.py run_pipeline --definition <name>` or `--config path/to/file.json`
 - **Celery support:** Not yet (sync only)
 - **Resume:** Not yet
 
 **Available node types:**
 
-| Type | Handler | Purpose |
-|------|---------|---------|
-| `ingest` | IngestNodeHandler | Process incoming alerts, create incidents |
-| `context` | ContextNodeHandler | Gather system metrics (CPU, memory, disk) |
-| `intelligence` | IntelligenceNodeHandler | AI analysis (local or OpenAI) |
-| `notify` | NotifyNodeHandler | Send notifications |
-| `transform` | TransformNodeHandler | Transform data between nodes |
+| Type | Handler | Purpose | Config Keys |
+|------|---------|---------|-------------|
+| `ingest` | IngestNodeHandler | Parse alert webhooks, create Incident + Alert records | `driver` (optional) |
+| `context` | ContextNodeHandler | Run real system health checkers (CPU, memory, disk, etc.) | `checker_names` (list, optional — defaults to all enabled) |
+| `intelligence` | IntelligenceNodeHandler | AI analysis via provider pattern (local or OpenAI) | `provider` (required), `provider_config` (optional) |
+| `notify` | NotifyNodeHandler | Send notifications via DB-configured channels | `drivers` (list) or `driver` (string) |
+| `transform` | TransformNodeHandler | Extract, filter, or map data between nodes | `source_node` (required), `extract`, `mapping`, `filter_priority` |
 
-**Example definition (standalone health check):**
+**Node output chaining:** Each node's output is stored in `NodeContext.previous_outputs[node_id]` and available to all downstream nodes. For example, the `notify` node reads checker results from previous context node output to build notification messages with appropriate severity (critical/warning/info).
+
+**Example definition (local health check → notify):**
 
 ```json
 {
   "version": "1.0",
   "nodes": [
-    {"id": "metrics", "type": "context", "config": {"include": ["cpu", "memory", "disk"]}, "next": "analyze"},
-    {"id": "analyze", "type": "intelligence", "config": {"provider": "local"}, "next": "notify"},
-    {"id": "notify", "type": "notify", "config": {"driver": "slack"}}
+    {"id": "check_health", "type": "context", "config": {"checker_names": ["cpu", "memory", "disk"]}, "next": "notify"},
+    {"id": "notify", "type": "notify", "config": {"drivers": ["slack"]}}
   ]
 }
 ```
 
-Definitions are created via Django Admin at `/admin/orchestration/pipelinedefinition/`.
+Definitions can be created via:
+- **Django Admin:** `/admin/orchestration/pipelinedefinition/`
+- **Setup wizard:** `python manage.py setup_instance`
 
 ### Comparison
 

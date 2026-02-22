@@ -256,6 +256,283 @@ uv run python manage.py run_pipeline \
 
 ---
 
+### Definition-Based Pipelines — Deep Dive
+
+The definition-based pipeline system lets you compose any combination of nodes into a custom pipeline. Unlike the hardcoded 4-stage pipeline, definition-based pipelines are configured via JSON and stored in the database.
+
+#### Node Handlers Reference
+
+##### `ingest` — Alert Ingestion
+
+Parses incoming alert webhooks and creates Incident + Alert records in the database.
+
+| Config Key | Type | Default | Description |
+|------------|------|---------|-------------|
+| `driver` | string | auto-detect | Alert source format (alertmanager, grafana, pagerduty, etc.) |
+
+**Output:**
+```json
+{
+  "alerts_created": 1,
+  "alerts_updated": 0,
+  "alerts_resolved": 0,
+  "incidents_created": 1,
+  "incident_id": 42,
+  "severity": "warning",
+  "source": "grafana"
+}
+```
+
+**Error behavior:** Fails the node if payload is invalid or ingestion raises an exception.
+
+##### `context` — System Health Checks
+
+Runs real system health checkers (CPU, memory, disk, network, process) and returns structured results.
+
+| Config Key | Type | Default | Description |
+|------------|------|---------|-------------|
+| `checker_names` | list[string] | all enabled | Which checkers to run. Omit to run all enabled checkers (respects `CHECKERS_SKIP`). |
+
+**Output:**
+```json
+{
+  "checks_run": 3,
+  "checks_passed": 2,
+  "checks_failed": 1,
+  "results": {
+    "cpu": {"status": "ok", "message": "CPU usage normal (12%)", "metrics": {"percent": 12.3}},
+    "memory": {"status": "warning", "message": "Memory usage high (82%)", "metrics": {"percent": 82.1}},
+    "disk": {"status": "ok", "message": "Disk usage normal", "metrics": {"percent": 45.0}}
+  }
+}
+```
+
+**Error behavior:** Individual checker failures do NOT fail the node. A failing checker is recorded with `"status": "unknown"` and its error message. The node only fails if zero valid checkers can be resolved.
+
+##### `intelligence` — AI Analysis
+
+Generates AI-powered recommendations using the configured provider (local rule-based or OpenAI).
+
+| Config Key | Type | Default | Description |
+|------------|------|---------|-------------|
+| `provider` | string | **required** | Provider name: `local` or `openai` |
+| `provider_config` | object | `{}` | Provider-specific config (e.g., `{"model": "gpt-4o-mini"}` for OpenAI) |
+
+**Output:**
+```json
+{
+  "provider": "local",
+  "recommendations": [
+    {"title": "High memory usage", "description": "Consider restarting workers", "priority": "high"}
+  ],
+  "count": 1,
+  "summary": "High memory usage"
+}
+```
+
+**Error behavior:** Fails the node on exception. Use `"required": false` in the pipeline definition to make AI analysis optional — the pipeline will continue even if this node fails.
+
+##### `notify` — Send Notifications
+
+Sends notifications via database-configured `NotificationChannel` records. Builds a smart notification message from all previous node outputs.
+
+| Config Key | Type | Default | Description |
+|------------|------|---------|-------------|
+| `drivers` | list[string] | — | Driver types to send via (e.g., `["slack", "email"]`) |
+| `driver` | string | — | Single driver type (backwards compat, use `drivers` for new pipelines) |
+
+**Output:**
+```json
+{
+  "channels_attempted": 2,
+  "channels_succeeded": 1,
+  "channels_failed": 1,
+  "deliveries": [
+    {"driver": "slack", "channel": "ops-alerts", "status": "success", "message_id": "msg-123"},
+    {"driver": "email", "channel": "ops-email", "status": "failed", "error": "SMTP timeout"}
+  ]
+}
+```
+
+**Error behavior:** Individual channel failures do NOT fail the node. The node only adds an error if ALL channels fail. Partial success (some channels delivered, some failed) is considered success at the node level.
+
+**Prerequisite:** You must have at least one active `NotificationChannel` in the database matching the configured driver type. Create channels via:
+- `python manage.py setup_instance` (interactive wizard)
+- Django Admin at `/admin/notify/notificationchannel/`
+
+##### `transform` — Data Transformation
+
+Extracts, filters, or maps data from a previous node's output.
+
+| Config Key | Type | Default | Description |
+|------------|------|---------|-------------|
+| `source_node` | string | **required** | ID of the node whose output to transform |
+| `extract` | string | — | Dot-notation path to extract (e.g., `"recommendations"`) |
+| `filter_priority` | string | — | Filter list items by priority field |
+| `mapping` | object | — | Map fields using dot-notation paths (e.g., `{"cpu": "results.cpu.metrics.percent"}`) |
+
+**Output:**
+```json
+{
+  "transformed": { ... },
+  "source_node": "check_health"
+}
+```
+
+#### Node Output Chaining
+
+Each node's output is automatically stored in `NodeContext.previous_outputs` keyed by the node's `id`. All downstream nodes can access any upstream node's output.
+
+```
+Pipeline: context("check_health") → intelligence("analyze") → notify("notify_channels")
+
+check_health runs → output stored as previous_outputs["check_health"]
+                ↓
+analyze runs   → can read previous_outputs["check_health"]
+               → output stored as previous_outputs["analyze"]
+                ↓
+notify runs    → can read previous_outputs["check_health"] AND previous_outputs["analyze"]
+               → uses both to build notification message
+```
+
+The `notify` node uses this to build smart notification messages:
+
+1. **From checker results:** Derives severity (critical > warning > info), lists failed checks, generates title like "Health Check Alert — Critical"
+2. **From intelligence results:** Includes AI summary, probable cause, and recommendation count
+3. **No previous outputs:** Falls back to "Pipeline completed."
+
+#### Building a Custom Pipeline — Tutorial
+
+**1. Decide which nodes you need**
+
+| Use case | Nodes |
+|----------|-------|
+| Local health monitoring | `context` → `notify` |
+| Local monitoring with AI | `context` → `intelligence` → `notify` |
+| External alert forwarding | `ingest` → `notify` |
+| Full pipeline | `ingest` → `context` → `intelligence` → `notify` |
+
+**2. Write the pipeline definition JSON**
+
+```json
+{
+  "version": "1.0",
+  "description": "Local health check with Slack notifications",
+  "nodes": [
+    {
+      "id": "check_health",
+      "type": "context",
+      "config": {"checker_names": ["cpu", "memory", "disk"]},
+      "next": "notify_channels"
+    },
+    {
+      "id": "notify_channels",
+      "type": "notify",
+      "config": {"drivers": ["slack"]}
+    }
+  ]
+}
+```
+
+Key rules:
+- Each node needs a unique `id`
+- Chain nodes with `"next": "<next_node_id>"` (omit on the last node)
+- The first node in the array is the entry point
+
+**3. Create a notification channel**
+
+The `notify` node sends via `NotificationChannel` records in the database. Create one:
+
+```bash
+# Interactive wizard (creates both pipeline and channels)
+uv run python manage.py setup_instance
+
+# Or via Django Admin
+# Go to /admin/notify/notificationchannel/ and add a channel
+```
+
+**4. Validate with dry-run**
+
+```bash
+# From a JSON file
+uv run python manage.py run_pipeline --config my-pipeline.json --dry-run
+
+# Or save to database first, then
+uv run python manage.py run_pipeline --definition my-pipeline --dry-run
+```
+
+Expected output shows node chain and config without executing:
+```
+=== DRY RUN ===
+Pipeline Config: my-pipeline.json
+Source: cli
+Environment: development
+
+Nodes (2):
+  1. [context] check_health
+     Config: {"checker_names": ["cpu", "memory", "disk"]}
+     → next: notify_channels
+
+  2. [notify] notify_channels
+     Config: {"drivers": ["slack"]}
+     → end
+```
+
+**5. Run for real**
+
+```bash
+uv run python manage.py run_pipeline --config my-pipeline.json
+```
+
+Expected output:
+```
+Starting pipeline...
+  Source: cli
+  Environment: development
+
+============================================================
+PIPELINE RESULT
+============================================================
+
+Status: completed
+Definition: my-pipeline
+Trace ID: abc123-...
+Run ID: def456-...
+Duration: 1523.45ms
+
+--- context (check_health) ---
+  Checks run: 3
+  Passed: 2
+  Failed: 1
+  cpu: ok — CPU usage normal (12%)
+  memory: warning — Memory usage high (82%)
+  disk: ok — Disk usage normal
+  Duration: 1200.00ms
+
+--- notify (notify_channels) ---
+  Channels attempted: 1
+  Succeeded: 1
+  Failed: 0
+  slack (ops-alerts): sent
+  Duration: 323.45ms
+
+✓ Pipeline completed successfully
+```
+
+#### Troubleshooting
+
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| `Checks run: N/A` in output | Wrong config key in pipeline definition | Use `"checker_names"`, not `"include"` |
+| `No active NotificationChannel found` | No matching channel in database | Run `setup_instance` or create channel in Django Admin |
+| `Unknown driver: <name>` | Channel's driver not in DRIVER_REGISTRY | Use a valid driver: `slack`, `email`, `pagerduty`, `generic` |
+| `All N notification channel(s) failed` | Every channel failed to send | Check channel config (webhook URLs, SMTP settings) and driver logs |
+| `No valid checkers to run` | All checker names in config are unknown | Check available checkers with `python manage.py check_health --list` |
+| Pipeline shows `completed` but no notification received | Channel config is wrong (e.g., bad webhook URL) | Check `deliveries` array in output — look for `"status": "failed"` with error details |
+| Intelligence node fails but pipeline continues | Node has `"required": false` | This is expected — optional nodes don't fail the pipeline |
+
+---
+
 ### `monitor_pipeline`
 
 View and monitor pipeline run history.
@@ -385,7 +662,7 @@ Tracks individual stage executions with:
 Run orchestration tests:
 
 ```bash
-uv run pytest apps/orchestration/tests.py -v
+uv run pytest apps/orchestration/_tests/ -v
 ```
 
 ## Admin Interface

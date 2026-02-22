@@ -188,8 +188,8 @@ You can disable specific drivers globally via the `NOTIFY_SKIP` setting.
 
 #### Skip ALL drivers (helper)
 
-If you want to disable *every* checker (common when using the app as a pipeline controller and you want
-`alerts → checkers → intelligence` without notifications), set:
+If you want to disable *every* notification driver (common when using the app as a pipeline controller
+without notifications), set:
 
 ```bash
 export NOTIFY_SKIP_ALL=1
@@ -200,11 +200,11 @@ This takes precedence over `NOTIFY_SKIP`.
 #### Environment Variable
 
 ```bash
-# Skip network and process drivers
-export NOTIFY_SKIP=network,process
+# Skip specific notification drivers
+export NOTIFY_SKIP=email,pagerduty
 
-# Then run checks - network and process will be skipped
-uv run python manage.py check_and_alert
+# Then run pipeline - email and pagerduty notifications will be skipped
+uv run python manage.py run_pipeline --sample
 ```
 
 #### Django Settings
@@ -213,7 +213,7 @@ In `config/settings.py`:
 
 ```python
 # Skip specific drivers
-NOTIFY_SKIP = ["network", "process"]
+NOTIFY_SKIP = ["email", "pagerduty"]
 ```
 
 

@@ -16,7 +16,7 @@
       "id": "context",
       "type": "context",
       "config": {
-        "include": ["cpu", "memory", "disk"]
+        "checker_names": ["cpu", "memory", "disk"]
       },
       "next": "analyze"
     },
