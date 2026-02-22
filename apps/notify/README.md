@@ -213,7 +213,7 @@ In `config/settings.py`:
 
 ```python
 # Skip specific drivers
-NOTIFY_SKIP = ["network", "process"]
+NOTIFY_SKIP = ["email", "pagerduty"]
 ```
 
 
