@@ -242,6 +242,502 @@ class RunPipelineCommandTest(TestCase):
             call_command("run_pipeline", "--definition", "invalid-pipeline", stdout=out)
         self.assertIn("Pipeline definition invalid", str(ctx.exception))
 
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
+    def test_display_result_failed_pipeline(self, mock_orchestrator):
+        """Failed pipeline shows error status."""
+        mock_result = mock.Mock()
+        mock_result.status = "FAILED"
+        mock_result.trace_id = "trace-err"
+        mock_result.run_id = "run-err"
+        mock_result.total_duration_ms = 50.0
+        mock_result.ingest = None
+        mock_result.check = None
+        mock_result.analyze = None
+        mock_result.notify = None
+        mock_result.errors = ["something broke"]
+        mock_result.final_error = None
+        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+
+        out = io.StringIO()
+        call_command("run_pipeline", "--sample", stdout=out)
+        output = out.getvalue()
+        self.assertIn("FAILED", output)
+        self.assertIn("Pipeline failed", output)
+
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
+    def test_display_result_with_analyze_fallback(self, mock_orchestrator):
+        """Display shows fallback warning when AI is unavailable."""
+        mock_result = mock.Mock()
+        mock_result.status = "COMPLETED"
+        mock_result.trace_id = "t"
+        mock_result.run_id = "r"
+        mock_result.total_duration_ms = 10
+        mock_result.ingest = None
+        mock_result.check = None
+        mock_result.analyze = {
+            "summary": "Fallback analysis",
+            "probable_cause": "Unknown",
+            "recommendations": [],
+            "fallback_used": True,
+            "duration_ms": 1,
+        }
+        mock_result.notify = None
+        mock_result.errors = []
+        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+
+        out = io.StringIO()
+        call_command("run_pipeline", "--sample", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Fallback used", output)
+
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.validate")
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.execute")
+    def test_display_definition_result_context_node(self, mock_execute, mock_validate):
+        """Definition result display shows context node details."""
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.create(
+            name="test-ctx-display",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {"id": "ctx", "type": "context", "config": {}},
+                ],
+            },
+        )
+
+        mock_validate.return_value = []
+        mock_execute.return_value = {
+            "trace_id": "t",
+            "run_id": "r",
+            "definition": "test-ctx-display",
+            "status": "completed",
+            "executed_nodes": ["ctx"],
+            "skipped_nodes": [],
+            "node_results": {
+                "ctx": {
+                    "node_id": "ctx",
+                    "node_type": "context",
+                    "output": {
+                        "checks_run": 3,
+                        "checks_passed": 2,
+                        "checks_failed": 1,
+                        "results": {
+                            "cpu": {"status": "ok", "message": "CPU fine"},
+                            "memory": {"status": "warning", "message": "Memory high"},
+                            "disk": {"status": "ok", "message": "Disk fine"},
+                        },
+                    },
+                    "errors": [],
+                    "duration_ms": 50.0,
+                },
+            },
+            "duration_ms": 100.0,
+        }
+
+        out = io.StringIO()
+        call_command("run_pipeline", "--definition", "test-ctx-display", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Checks run: 3", output)
+        self.assertIn("Passed: 2", output)
+        self.assertIn("Failed: 1", output)
+        self.assertIn("memory: warning", output)
+        self.assertIn("cpu: ok", output)
+
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.validate")
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.execute")
+    def test_display_definition_result_notify_node(self, mock_execute, mock_validate):
+        """Definition result display shows notify node details."""
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.create(
+            name="test-notify-display",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {"id": "notify", "type": "notify", "config": {"driver": "slack"}},
+                ],
+            },
+        )
+
+        mock_validate.return_value = []
+        mock_execute.return_value = {
+            "trace_id": "t",
+            "run_id": "r",
+            "definition": "test-notify-display",
+            "status": "completed",
+            "executed_nodes": ["notify"],
+            "skipped_nodes": [],
+            "node_results": {
+                "notify": {
+                    "node_id": "notify",
+                    "node_type": "notify",
+                    "output": {
+                        "channels_attempted": 2,
+                        "channels_succeeded": 1,
+                        "channels_failed": 1,
+                        "deliveries": [
+                            {
+                                "driver": "slack",
+                                "channel": "ops-alerts",
+                                "status": "success",
+                            },
+                            {
+                                "driver": "email",
+                                "channel": "ops-email",
+                                "status": "failed",
+                                "error": "SMTP timeout",
+                            },
+                        ],
+                    },
+                    "errors": [],
+                    "duration_ms": 200.0,
+                },
+            },
+            "duration_ms": 250.0,
+        }
+
+        out = io.StringIO()
+        call_command("run_pipeline", "--definition", "test-notify-display", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Channels attempted: 2", output)
+        self.assertIn("Succeeded: 1", output)
+        self.assertIn("Failed: 1", output)
+        self.assertIn("slack (ops-alerts): sent", output)
+        self.assertIn("email (ops-email): SMTP timeout", output)
+
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.validate")
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.execute")
+    def test_display_definition_result_intelligence_node(self, mock_execute, mock_validate):
+        """Definition result display shows intelligence node details."""
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.create(
+            name="test-intel-display",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {
+                        "id": "analyze",
+                        "type": "intelligence",
+                        "config": {"provider": "local"},
+                    },
+                ],
+            },
+        )
+
+        mock_validate.return_value = []
+        mock_execute.return_value = {
+            "trace_id": "t",
+            "run_id": "r",
+            "definition": "test-intel-display",
+            "status": "completed",
+            "executed_nodes": ["analyze"],
+            "skipped_nodes": [],
+            "node_results": {
+                "analyze": {
+                    "node_id": "analyze",
+                    "node_type": "intelligence",
+                    "output": {
+                        "summary": "High CPU caused by worker loop",
+                        "provider": "local",
+                    },
+                    "errors": [],
+                    "duration_ms": 30.0,
+                },
+            },
+            "duration_ms": 50.0,
+        }
+
+        out = io.StringIO()
+        call_command("run_pipeline", "--definition", "test-intel-display", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Summary: High CPU caused by worker loop", output)
+        self.assertIn("Provider: local", output)
+
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.validate")
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.execute")
+    def test_display_definition_result_skipped_node(self, mock_execute, mock_validate):
+        """Definition result display shows skipped nodes."""
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.create(
+            name="test-skip-display",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {"id": "ctx", "type": "context", "config": {}},
+                    {"id": "notify", "type": "notify", "config": {"driver": "slack"}},
+                ],
+            },
+        )
+
+        mock_validate.return_value = []
+        mock_execute.return_value = {
+            "trace_id": "t",
+            "run_id": "r",
+            "definition": "test-skip-display",
+            "status": "completed",
+            "executed_nodes": ["notify"],
+            "skipped_nodes": ["ctx"],
+            "node_results": {
+                "notify": {
+                    "node_id": "notify",
+                    "node_type": "notify",
+                    "output": {"channels_attempted": 0},
+                    "errors": [],
+                    "duration_ms": 10.0,
+                },
+            },
+            "duration_ms": 50.0,
+        }
+
+        out = io.StringIO()
+        call_command("run_pipeline", "--definition", "test-skip-display", stdout=out)
+        output = out.getvalue()
+        self.assertIn("(skipped)", output)
+
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.validate")
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.execute")
+    def test_display_definition_result_with_errors(self, mock_execute, mock_validate):
+        """Definition result display shows node errors."""
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.create(
+            name="test-err-display",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {"id": "notify", "type": "notify", "config": {"driver": "slack"}},
+                ],
+            },
+        )
+
+        mock_validate.return_value = []
+        mock_execute.return_value = {
+            "trace_id": "t",
+            "run_id": "r",
+            "definition": "test-err-display",
+            "status": "partial",
+            "executed_nodes": ["notify"],
+            "skipped_nodes": [],
+            "node_results": {
+                "notify": {
+                    "node_id": "notify",
+                    "node_type": "notify",
+                    "output": {
+                        "channels_attempted": 1,
+                        "channels_succeeded": 0,
+                        "channels_failed": 1,
+                    },
+                    "errors": ["All 1 notification channel(s) failed"],
+                    "duration_ms": 10.0,
+                },
+            },
+            "duration_ms": 50.0,
+            "error": None,
+        }
+
+        out = io.StringIO()
+        call_command("run_pipeline", "--definition", "test-err-display", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Errors:", output)
+        self.assertIn("Pipeline failed", output)
+
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.validate")
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.execute")
+    def test_display_definition_result_ingest_node(self, mock_execute, mock_validate):
+        """Definition result display shows ingest node details."""
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.create(
+            name="test-ingest-display",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {"id": "ingest", "type": "ingest", "config": {}},
+                ],
+            },
+        )
+
+        mock_validate.return_value = []
+        mock_execute.return_value = {
+            "trace_id": "t",
+            "run_id": "r",
+            "definition": "test-ingest-display",
+            "status": "completed",
+            "executed_nodes": ["ingest"],
+            "skipped_nodes": [],
+            "node_results": {
+                "ingest": {
+                    "node_id": "ingest",
+                    "node_type": "ingest",
+                    "output": {
+                        "incident_id": 42,
+                        "alerts_created": 1,
+                    },
+                    "errors": [],
+                    "duration_ms": 15.0,
+                },
+            },
+            "duration_ms": 30.0,
+        }
+
+        out = io.StringIO()
+        call_command("run_pipeline", "--definition", "test-ingest-display", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Incident ID: 42", output)
+        self.assertIn("Alerts created: 1", output)
+
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.validate")
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.execute")
+    def test_display_definition_json_output(self, mock_execute, mock_validate):
+        """Definition result with --json outputs JSON."""
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.create(
+            name="test-json-def",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {"id": "notify", "type": "notify", "config": {"driver": "slack"}},
+                ],
+            },
+        )
+
+        mock_validate.return_value = []
+        mock_execute.return_value = {
+            "trace_id": "t-json",
+            "run_id": "r-json",
+            "definition": "test-json-def",
+            "status": "completed",
+            "executed_nodes": ["notify"],
+            "skipped_nodes": [],
+            "node_results": {},
+            "duration_ms": 10.0,
+        }
+
+        out = io.StringIO()
+        call_command("run_pipeline", "--definition", "test-json-def", "--json", stdout=out)
+        output = out.getvalue()
+        self.assertIn('"status": "completed"', output)
+        self.assertIn('"trace_id": "t-json"', output)
+
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
+    def test_run_pipeline_with_payload_string(self, mock_orchestrator):
+        """Runs pipeline with --payload JSON string."""
+        mock_result = mock.Mock()
+        mock_result.status = "COMPLETED"
+        mock_result.trace_id = "t"
+        mock_result.run_id = "r"
+        mock_result.total_duration_ms = 10
+        mock_result.ingest = None
+        mock_result.check = None
+        mock_result.analyze = None
+        mock_result.notify = None
+        mock_result.errors = []
+        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+
+        out = io.StringIO()
+        call_command(
+            "run_pipeline",
+            "--payload",
+            '{"title": "Test Alert"}',
+            stdout=out,
+        )
+        output = out.getvalue()
+        self.assertIn("PIPELINE RESULT", output)
+
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
+    def test_run_pipeline_with_file_payload(self, mock_orchestrator):
+        """Runs pipeline with --file payload."""
+        mock_result = mock.Mock()
+        mock_result.status = "COMPLETED"
+        mock_result.trace_id = "t"
+        mock_result.run_id = "r"
+        mock_result.total_duration_ms = 10
+        mock_result.ingest = None
+        mock_result.check = None
+        mock_result.analyze = None
+        mock_result.notify = None
+        mock_result.errors = []
+        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"title": "File Alert"}, f)
+            payload_path = f.name
+
+        try:
+            out = io.StringIO()
+            call_command("run_pipeline", "--file", payload_path, stdout=out)
+            output = out.getvalue()
+            self.assertIn("PIPELINE RESULT", output)
+        finally:
+            os.unlink(payload_path)
+
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
+    def test_run_pipeline_checks_only(self, mock_orchestrator):
+        """Runs pipeline with --checks-only flag."""
+        mock_result = mock.Mock()
+        mock_result.status = "COMPLETED"
+        mock_result.trace_id = "t"
+        mock_result.run_id = "r"
+        mock_result.total_duration_ms = 10
+        mock_result.ingest = None
+        mock_result.check = {"checks_run": 3, "checks_passed": 3, "checks_failed": 0}
+        mock_result.analyze = None
+        mock_result.notify = None
+        mock_result.errors = []
+        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+
+        out = io.StringIO()
+        call_command("run_pipeline", "--checks-only", stdout=out)
+        output = out.getvalue()
+        self.assertIn("PIPELINE RESULT", output)
+
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.validate")
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.execute")
+    def test_display_definition_result_from_config_file(self, mock_execute, mock_validate):
+        """Definition result display shows config path when loaded from file."""
+        config = {
+            "version": "1.0",
+            "nodes": [
+                {"id": "notify", "type": "notify", "config": {"driver": "slack"}},
+            ],
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(config, f)
+            config_path = f.name
+
+        try:
+            mock_validate.return_value = []
+            mock_execute.return_value = {
+                "trace_id": "t",
+                "run_id": "r",
+                "definition": f"__adhoc__{config_path}",
+                "status": "completed",
+                "executed_nodes": ["notify"],
+                "skipped_nodes": [],
+                "node_results": {
+                    "notify": {
+                        "node_id": "notify",
+                        "node_type": "notify",
+                        "output": {"channels_attempted": 0},
+                        "errors": [],
+                        "duration_ms": 10.0,
+                    },
+                },
+                "duration_ms": 20.0,
+            }
+
+            out = io.StringIO()
+            call_command("run_pipeline", "--config", config_path, stdout=out)
+            output = out.getvalue()
+            self.assertIn("Config:", output)
+        finally:
+            os.unlink(config_path)
+
 
 @pytest.mark.django_db
 class TestSamplePipelineDefinitions:

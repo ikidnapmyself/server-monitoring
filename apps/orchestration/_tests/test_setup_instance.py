@@ -605,6 +605,147 @@ class HandleRerunTests(TestCase):
         assert action == "cancel"
 
 
+class ConfigureCheckersEdgeCaseTests(TestCase):
+    """Tests for _configure_checkers conditional paths."""
+
+    def setUp(self):
+        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
+
+    @patch("builtins.input", return_value="1,2")
+    def test_no_disk_paths_when_disk_not_selected(self, _mock_input):
+        """disk_paths key absent when disk not in selection."""
+        result = self.cmd._configure_checkers()
+        assert "disk_paths" not in result
+
+    @patch("builtins.input", return_value="1,2")
+    def test_no_network_hosts_when_network_not_selected(self, _mock_input):
+        """network_hosts key absent when network not in selection."""
+        result = self.cmd._configure_checkers()
+        assert "network_hosts" not in result
+
+    @patch("builtins.input", return_value="1,2")
+    def test_no_process_names_when_process_not_selected(self, _mock_input):
+        """process_names key absent when process not in selection."""
+        result = self.cmd._configure_checkers()
+        assert "process_names" not in result
+
+
+class ConfigureNotifyEdgeCaseTests(TestCase):
+    """Tests for _configure_notify edge cases."""
+
+    def setUp(self):
+        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
+
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "4",  # generic
+            "https://example.com/hook",
+            '{"Authorization": "Bearer tok"}',  # headers JSON
+            "my-webhook",
+        ],
+    )
+    def test_generic_with_headers(self, _mock_input):
+        """Generic driver stores headers when provided."""
+        result = self.cmd._configure_notify()
+        assert result[0]["config"]["headers"] == '{"Authorization": "Bearer tok"}'
+
+
+class ApplyConfigEnvTests(TestCase):
+    """Tests for handle() env var generation paths."""
+
+    def setUp(self):
+        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
+
+    @patch(
+        "apps.orchestration.management.commands.setup_instance.Command._write_env",
+        return_value=None,
+    )
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "1",  # alert source: external
+            "2",  # preset: health-checked
+            "1",  # alerts: first driver
+            "1,2",  # checkers: cpu, memory (not all)
+            "1",  # notify: slack
+            "https://hooks.slack.com/xxx",
+            "ops-alerts",
+            "Y",  # confirm
+        ],
+    )
+    def test_generates_checkers_skip_env(self, _mock_input, mock_write_env):
+        """Sets CHECKERS_SKIP for unchecked checkers."""
+        call_command("setup_instance", stdout=StringIO())
+        # _write_env should have been called with CHECKERS_SKIP
+        env_updates = mock_write_env.call_args[0][1]
+        assert "CHECKERS_SKIP" in env_updates
+
+    @patch(
+        "apps.orchestration.management.commands.setup_instance.Command._write_env",
+        return_value=None,
+    )
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "1",  # alert source: external
+            "3",  # preset: ai-analyzed
+            "1",  # alerts
+            "2",  # intelligence: openai
+            "sk-test-key",  # API key
+            "gpt-4o",  # model
+            "1",  # notify: slack
+            "https://hooks.slack.com/xxx",
+            "ops-alerts",
+            "Y",  # confirm
+        ],
+    )
+    def test_generates_openai_env_vars(self, _mock_input, mock_write_env):
+        """Sets OPENAI_API_KEY and OPENAI_MODEL for openai provider."""
+        call_command("setup_instance", stdout=StringIO())
+        env_updates = mock_write_env.call_args[0][1]
+        assert env_updates.get("INTELLIGENCE_PROVIDER") == "openai"
+        assert env_updates.get("OPENAI_API_KEY") == "sk-test-key"
+        assert env_updates.get("OPENAI_MODEL") == "gpt-4o"
+
+
+class PipelineNameCollisionTests(TestCase):
+    """Tests for handle() pipeline name collision in add-another mode."""
+
+    @patch(
+        "apps.orchestration.management.commands.setup_instance.Command._write_env",
+        return_value=None,
+    )
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "2",  # rerun: add another
+            "1",  # alert source: external
+            "1",  # preset: direct
+            "1",  # alerts
+            "1",  # notify: slack
+            "https://hooks.slack.com/xxx",
+            "second-ch",
+            "Y",  # confirm
+        ],
+    )
+    def test_adds_suffix_on_name_collision(self, _mock_input, _mock_write_env):
+        """Appends count suffix when pipeline name already exists."""
+        # Create existing wizard pipeline
+        PipelineDefinition.objects.create(
+            name="direct",
+            config={"version": "1.0", "nodes": []},
+            tags=["setup_wizard"],
+            created_by="setup_instance",
+        )
+
+        call_command("setup_instance", stdout=StringIO())
+
+        # Should have created a second one with suffix
+        names = list(PipelineDefinition.objects.values_list("name", flat=True).order_by("name"))
+        assert "direct-2" in names
+
+
 class SetupInstanceIntegrationTests(TestCase):
     """Integration tests for the full setup_instance flow."""
 
@@ -722,4 +863,4 @@ class SetupInstanceIntegrationTests(TestCase):
         assert ch.driver == "slack"
 
         output = out.getvalue()
-        assert "crontab" in output.lower() or "check_and_alert" in output
+        assert "run_pipeline --definition local-monitor" in output
