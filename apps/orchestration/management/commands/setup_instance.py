@@ -616,15 +616,16 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS("\n✓ Configuration complete!"))
 
+        pipeline_cmd = f"uv run python manage.py run_pipeline --definition {defn.name}"
         if alert_source == ALERT_SOURCE_LOCAL:
             self.stdout.write(
-                "\nNext steps:\n"
-                "  bin/setup_cron.sh"
-                "                                    # Set up scheduled health checks\n"
-                "  uv run python manage.py check_and_alert --dry-run"
-                "    # Test local alert generation\n"
+                f"\nNext steps:\n"
+                f"  {pipeline_cmd} --dry-run  # Preview pipeline\n"
+                f"  {pipeline_cmd}            # Run checks and notify\n"
             )
         else:
             self.stdout.write(
-                "\nNext steps:\n" "  uv run python manage.py run_pipeline --sample --dry-run\n"
+                f"\nNext steps:\n"
+                f"  {pipeline_cmd} --dry-run  # Preview pipeline\n"
+                f"  {pipeline_cmd} --sample   # Test with sample alert\n"
             )
