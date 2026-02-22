@@ -366,7 +366,9 @@ class WriteEnvTests(TestCase):
             os.unlink(env_path)
 
     def test_creates_env_file_if_missing(self):
-        env_path = tempfile.mktemp(suffix=".env")
+        with tempfile.NamedTemporaryFile(suffix=".env", delete=False) as f:
+            env_path = f.name
+        os.unlink(env_path)  # Remove so _write_env creates it
         try:
             self.cmd._write_env(env_path, {"KEY": "val"})
             with open(env_path) as f:
