@@ -29,7 +29,9 @@ This top-level README is the entry point and documentation hub. App-specific doc
 - Intelligence/recommendations: [`apps/intelligence/README.md`](apps/intelligence/README.md)
 - Pipeline orchestration: [`apps/orchestration/README.md`](apps/orchestration/README.md)
 - Shell scripts & CLI: [`bin/README.md`](bin/README.md)
-- Working with repo AI agents / conventions: [`agents.md`](agents.md)
+- Working with repo AI agents / conventions: 
+  - [`CLAUDE.md`](CLAUDE.md)
+  - [`agents.md`](agents.md)
 
 ## Requirements
 
