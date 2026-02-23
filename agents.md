@@ -308,6 +308,7 @@ CI runs these checks in GitHub Actions (`.github/workflows/ci.yml`). Any PR shou
 - `uv run black . --check`
 - `uv run ruff check .`
 - `uv run pytest`
+- **100% branch coverage** on changed lines — `uv run coverage run manage.py test && uv run coverage report`
 
 ---
 
@@ -327,7 +328,7 @@ CI runs these checks in GitHub Actions (`.github/workflows/ci.yml`). Any PR shou
 A change is typically “done” when:
 - Code follows the existing base class / module patterns
 - Config changes are wired correctly (settings/env)
-- Tests exist (or a clear reason why not)
+- Tests achieve 100% branch coverage on changed code
 - Basic verification steps are provided (how to run/check)
 - Docs are updated if behavior/config changed
 
