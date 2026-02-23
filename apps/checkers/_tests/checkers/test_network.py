@@ -84,7 +84,7 @@ class PingHostEdgeCaseTests(TestCase):
     @patch("apps.checkers.checkers.network.subprocess.run")
     def test_ping_host_timeout_expired(self, mock_run):
         """TimeoutExpired returns (False, None)."""
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd="ping", timeout=5)
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd=["ping"], timeout=5)
 
         checker = NetworkChecker()
         success, latency = checker._ping_host("8.8.8.8")
