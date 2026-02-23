@@ -108,6 +108,7 @@ Full installation script for setting up the project.
 - Runs Django migrations
 - Optionally runs health checks
 - Optionally sets up cron
+- Optionally sets up shell aliases
 
 See [`docs/Installation.md`](../docs/Installation.md) for full details.
 

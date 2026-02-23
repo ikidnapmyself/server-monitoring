@@ -349,4 +349,11 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     "$SCRIPT_DIR/setup_cron.sh"
 fi
 
+echo ""
+read -p "Would you like to set up shell aliases (e.g., sm-check-health)? [y/N] " -n 1 -r
+echo ""
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    "$SCRIPT_DIR/setup_aliases.sh"
+fi
+
 success "Setup complete!"
