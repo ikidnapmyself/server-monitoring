@@ -6,6 +6,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from django.core.management import call_command
+from django.test import SimpleTestCase, TestCase
 
 from apps.intelligence.providers import (
     Recommendation,
@@ -14,7 +15,7 @@ from apps.intelligence.providers import (
 )
 
 
-class TestListProviders:
+class TestListProviders(SimpleTestCase):
     """Tests for --list-providers option."""
 
     def test_list_providers(self):
@@ -28,7 +29,7 @@ class TestListProviders:
         assert "openai" in output
 
 
-class TestProviderSelection:
+class TestProviderSelection(SimpleTestCase):
     """Tests for provider selection and configuration."""
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
@@ -94,7 +95,7 @@ class TestProviderSelection:
         assert "Unknown provider" in error_output or "unknown" in error_output.lower()
 
 
-class TestIncidentAnalysis:
+class TestIncidentAnalysis(TestCase):
     """Tests for incident analysis."""
 
     @pytest.mark.django_db
@@ -149,7 +150,7 @@ class TestIncidentAnalysis:
         assert "not found" in error_output.lower()
 
 
-class TestRecommendationTypes:
+class TestRecommendationTypes(SimpleTestCase):
     """Tests for different recommendation type options."""
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
@@ -235,7 +236,7 @@ class TestRecommendationTypes:
         mock_provider.run.assert_called_once()
 
 
-class TestOutputFormats:
+class TestOutputFormats(SimpleTestCase):
     """Tests for output formatting."""
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
@@ -306,7 +307,7 @@ class TestOutputFormats:
         assert "2 recommendation(s)" in output
 
 
-class TestPrintRecommendations:
+class TestPrintRecommendations(SimpleTestCase):
     """Tests for recommendation printing."""
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
@@ -462,7 +463,7 @@ class TestPrintRecommendations:
         assert "LOW" in output
 
 
-class TestProgressCallback:
+class TestProgressCallback(SimpleTestCase):
     """Tests for progress callback functionality."""
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")

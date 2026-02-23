@@ -2,10 +2,12 @@
 
 import io
 
+from django.test import SimpleTestCase
+
 from apps.intelligence.utils.spinner import SpinnerProgress
 
 
-class TestSpinnerProgress:
+class TestSpinnerProgress(SimpleTestCase):
     """Tests for the SpinnerProgress helper class."""
 
     def test_spinner_update_overwrites_line(self):

@@ -5,7 +5,6 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
-import pytest
 from django.core.management import CommandError, call_command
 from django.test import TestCase
 
@@ -739,8 +738,7 @@ class RunPipelineCommandTest(TestCase):
             os.unlink(config_path)
 
 
-@pytest.mark.django_db
-class TestSamplePipelineDefinitions:
+class TestSamplePipelineDefinitions(TestCase):
     """Tests for apps/orchestration/management/commands/pipelines/ sample definition files."""
 
     def _load_and_validate_pipeline(self, filename: str, name: str):

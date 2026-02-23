@@ -1,3 +1,6 @@
+from datetime import datetime
+from unittest.mock import patch
+
 from django.test import TestCase
 
 from apps.alerts.drivers import AlertManagerDriver
@@ -62,3 +65,64 @@ class AlertManagerDriverTests(TestCase):
 
         self.assertEqual(alert.status, "resolved")
         self.assertIsNotNone(alert.ended_at)
+
+    # --- _parse_timestamp tests ---
+
+    def test_parse_timestamp_none_returns_now(self):
+        """_parse_timestamp(None) should return approximately now."""
+        fake_now = datetime(2024, 6, 15, 12, 0, 0)
+        with patch(
+            "apps.alerts.drivers.alertmanager.datetime",
+        ) as mock_dt:
+            mock_dt.now.return_value = fake_now
+            mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+            result = self.driver._parse_timestamp(None)
+        self.assertEqual(result, fake_now)
+
+    def test_parse_timestamp_valid_rfc3339(self):
+        """Valid RFC3339 timestamp should be parsed correctly."""
+        result = self.driver._parse_timestamp("2024-01-08T10:30:00+00:00")
+        self.assertEqual(result.year, 2024)
+        self.assertEqual(result.month, 1)
+        self.assertEqual(result.day, 8)
+        self.assertEqual(result.hour, 10)
+        self.assertEqual(result.minute, 30)
+
+    def test_parse_timestamp_invalid_returns_now(self):
+        """Invalid timestamp string should fall back to now."""
+        before = datetime.now()
+        result = self.driver._parse_timestamp("not-a-timestamp")
+        after = datetime.now()
+        self.assertGreaterEqual(result, before)
+        self.assertLessEqual(result, after)
+
+    # --- fingerprint fallback tests ---
+
+    def test_fingerprint_fallback_when_missing(self):
+        """When no fingerprint field, generate_fingerprint should be used."""
+        self.sample_payload["alerts"][0].pop("fingerprint")
+        result = self.driver.parse(self.sample_payload)
+        alert = result.alerts[0]
+        # Should be a hex string from generate_fingerprint
+        self.assertTrue(len(alert.fingerprint) > 0)
+        self.assertNotEqual(alert.fingerprint, "abc123")
+
+    # --- ended_at future filtering ---
+
+    def test_ended_at_far_future_is_set_to_none(self):
+        """endsAt set to a far future year should be filtered to None."""
+        self.sample_payload["alerts"][0]["endsAt"] = "2099-01-01T00:00:00Z"
+        result = self.driver.parse(self.sample_payload)
+        alert = result.alerts[0]
+        self.assertIsNone(alert.ended_at)
+
+    # --- description from annotations.summary ---
+
+    def test_description_falls_back_to_summary(self):
+        """When annotations.description is absent, use annotations.summary."""
+        self.sample_payload["alerts"][0]["annotations"] = {
+            "summary": "Summary text only",
+        }
+        result = self.driver.parse(self.sample_payload)
+        alert = result.alerts[0]
+        self.assertEqual(alert.description, "Summary text only")

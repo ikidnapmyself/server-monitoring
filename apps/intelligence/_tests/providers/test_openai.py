@@ -3,6 +3,8 @@
 import json
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from apps.intelligence.providers import (
     RecommendationPriority,
     RecommendationType,
@@ -10,7 +12,7 @@ from apps.intelligence.providers import (
 from apps.intelligence.providers.openai import OpenAIRecommendationProvider
 
 
-class TestOpenAIProviderInitialization:
+class TestOpenAIProviderInitialization(SimpleTestCase):
     """Tests for OpenAI provider initialization."""
 
     def test_initialization_defaults(self):
@@ -85,7 +87,7 @@ class TestOpenAIProviderInitialization:
         assert client1 is client2
 
 
-class TestBuildPrompt:
+class TestBuildPrompt(SimpleTestCase):
     """Tests for prompt building."""
 
     def test_build_prompt_basic(self):
@@ -167,7 +169,7 @@ class TestBuildPrompt:
         assert "/var/log" in prompt
 
 
-class TestParseResponse:
+class TestParseResponse(SimpleTestCase):
     """Tests for response parsing."""
 
     def test_parse_response_valid_json(self):
@@ -286,7 +288,7 @@ class TestParseResponse:
         assert recommendations[0].title == "With Desc"
 
 
-class TestAnalyzeIncident:
+class TestAnalyzeIncident(SimpleTestCase):
     """Tests for incident analysis."""
 
     @patch.object(OpenAIRecommendationProvider, "_call_openai")
@@ -353,7 +355,7 @@ class TestAnalyzeIncident:
         assert recommendations == []
 
 
-class TestCallOpenAI:
+class TestCallOpenAI(SimpleTestCase):
     """Tests for OpenAI API calls."""
 
     @patch("openai.OpenAI")
@@ -383,7 +385,7 @@ class TestCallOpenAI:
         assert len(call_kwargs["messages"]) == 2
 
 
-class TestProviderRegistration:
+class TestProviderRegistration(SimpleTestCase):
     """Tests for provider registration."""
 
     def test_openai_provider_in_registry(self):
@@ -410,7 +412,7 @@ class TestProviderRegistration:
         assert "local" in providers
 
 
-class TestProviderAttributes:
+class TestProviderAttributes(SimpleTestCase):
     """Tests for provider class attributes."""
 
     def test_provider_name(self):
@@ -430,7 +432,7 @@ class TestProviderAttributes:
         assert "recommendation" in OpenAIRecommendationProvider.SYSTEM_PROMPT.lower()
 
 
-class TestParseRecommendationItem:
+class TestParseRecommendationItem(SimpleTestCase):
     """Tests for _parse_recommendation_item method."""
 
     def test_parse_all_recommendation_types(self):
@@ -549,7 +551,7 @@ class TestParseRecommendationItem:
         assert rec.priority == RecommendationPriority.HIGH
 
 
-class TestBuildPromptEdgeCases:
+class TestBuildPromptEdgeCases(SimpleTestCase):
     """Additional tests for prompt building edge cases."""
 
     def test_build_prompt_limits_alerts_to_10(self):
@@ -643,7 +645,7 @@ class TestBuildPromptEdgeCases:
         assert "Associated Alerts:" not in prompt
 
 
-class TestParseResponseEdgeCases:
+class TestParseResponseEdgeCases(SimpleTestCase):
     """Additional tests for response parsing edge cases."""
 
     def test_parse_response_code_block_without_closing(self):
@@ -738,7 +740,7 @@ class TestParseResponseEdgeCases:
         assert len(recommendations) == 2
 
 
-class TestFallbackRecommendation:
+class TestFallbackRecommendation(SimpleTestCase):
     """Tests for fallback recommendation generation."""
 
     def test_fallback_with_incident_id(self):
@@ -780,7 +782,7 @@ class TestFallbackRecommendation:
         assert any("manual" in action.lower() for action in recs[0].actions)
 
 
-class TestCallOpenAIEdgeCases:
+class TestCallOpenAIEdgeCases(SimpleTestCase):
     """Additional tests for OpenAI API calls."""
 
     @patch("openai.OpenAI")
@@ -840,7 +842,7 @@ class TestCallOpenAIEdgeCases:
         assert messages[1]["content"] == "User prompt here"
 
 
-class TestAnalyzeEdgeCases:
+class TestAnalyzeEdgeCases(SimpleTestCase):
     """Additional tests for analyze method edge cases."""
 
     @patch.object(OpenAIRecommendationProvider, "_call_openai")

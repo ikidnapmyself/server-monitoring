@@ -2,12 +2,12 @@
 """Tests for PipelineDefinition model."""
 
 import pytest
+from django.test import TestCase
 
 from apps.orchestration.models import PipelineDefinition
 
 
-@pytest.mark.django_db
-class TestPipelineDefinition:
+class TestPipelineDefinition(TestCase):
     """Tests for PipelineDefinition model."""
 
     def test_create_minimal_definition(self):

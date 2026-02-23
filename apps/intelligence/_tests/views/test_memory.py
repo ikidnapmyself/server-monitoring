@@ -3,7 +3,7 @@
 from unittest.mock import patch
 
 import pytest
-from django.test import Client
+from django.test import Client, SimpleTestCase
 
 from apps.intelligence.providers.base import (
     Recommendation,
@@ -13,7 +13,7 @@ from apps.intelligence.providers.base import (
 
 
 @pytest.mark.django_db
-class TestMemoryAnalysisView:
+class TestMemoryAnalysisView(SimpleTestCase):
     """Tests for GET /intelligence/memory/."""
 
     @patch("apps.intelligence.views.memory.get_provider")

@@ -46,3 +46,14 @@ class MemoryCheckerTests(TestCase):
 
         self.assertIn("swap_percent", result.metrics)
         self.assertEqual(result.metrics["swap_percent"], 10.0)
+
+    @patch("apps.checkers.checkers.memory.psutil")
+    def test_memory_check_generic_exception_returns_error_result(self, mock_psutil):
+        """Generic exception in check() produces UNKNOWN via _error_result."""
+        mock_psutil.virtual_memory.side_effect = RuntimeError("memory read failed")
+
+        checker = MemoryChecker()
+        result = checker.check()
+
+        self.assertEqual(result.status, CheckStatus.UNKNOWN)
+        self.assertIn("memory read failed", result.message)

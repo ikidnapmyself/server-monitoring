@@ -45,3 +45,18 @@ class DiskCheckerTests(TestCase):
 
         self.assertEqual(result.status, CheckStatus.CRITICAL)
         self.assertEqual(result.metrics["worst_path"], "/data")
+
+    @patch("apps.checkers.checkers.disk.psutil")
+    def test_disk_check_file_not_found_returns_unknown(self, mock_psutil):
+        """FileNotFoundError for a path sets UNKNOWN status."""
+        mock_psutil.disk_usage.side_effect = FileNotFoundError("not found")
+
+        checker = DiskChecker(paths=["/nonexistent"])
+        result = checker.check()
+
+        self.assertEqual(result.status, CheckStatus.UNKNOWN)
+        self.assertIn("not found", result.message)
+        self.assertEqual(
+            result.metrics["disks"]["/nonexistent"],
+            {"error": "Path not found"},
+        )

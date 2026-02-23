@@ -2,12 +2,35 @@
 
 import json
 
-import pytest
-from django.test import Client
+from django.test import Client, TestCase
 
 
-@pytest.mark.django_db
-class TestPipelineDefinitionListView:
+def _simple_pipeline_config():
+    """A simple pipeline configuration for testing."""
+    return {
+        "version": "1.0",
+        "description": "Simple test pipeline",
+        "defaults": {
+            "max_retries": 3,
+            "timeout_seconds": 300,
+        },
+        "nodes": [
+            {
+                "id": "analyze",
+                "type": "intelligence",
+                "config": {"provider": "local"},
+                "next": "notify",
+            },
+            {
+                "id": "notify",
+                "type": "notify",
+                "config": {"driver": "generic"},
+            },
+        ],
+    }
+
+
+class TestPipelineDefinitionListView(TestCase):
     """Tests for PipelineDefinitionListView."""
 
     def test_list_empty(self):
@@ -20,9 +43,11 @@ class TestPipelineDefinitionListView:
         assert data["count"] == 0
         assert data["definitions"] == []
 
-    def test_list_active_only(self, simple_pipeline_config):
+    def test_list_active_only(self):
         """Test that only active definitions are listed by default."""
         from apps.orchestration.models import PipelineDefinition
+
+        simple_pipeline_config = _simple_pipeline_config()
 
         # Create active and inactive definitions
         PipelineDefinition.objects.create(
@@ -44,9 +69,11 @@ class TestPipelineDefinitionListView:
         assert data["count"] == 1
         assert data["definitions"][0]["name"] == "active-pipeline"
 
-    def test_list_include_inactive(self, simple_pipeline_config):
+    def test_list_include_inactive(self):
         """Test listing with inactive definitions included."""
         from apps.orchestration.models import PipelineDefinition
+
+        simple_pipeline_config = _simple_pipeline_config()
 
         PipelineDefinition.objects.create(
             name="active-pipeline",
@@ -67,13 +94,14 @@ class TestPipelineDefinitionListView:
         assert data["count"] == 2
 
 
-@pytest.mark.django_db
-class TestPipelineDefinitionDetailView:
+class TestPipelineDefinitionDetailView(TestCase):
     """Tests for PipelineDefinitionDetailView."""
 
-    def test_get_definition(self, simple_pipeline_config):
+    def test_get_definition(self):
         """Test getting a pipeline definition."""
         from apps.orchestration.models import PipelineDefinition
+
+        simple_pipeline_config = _simple_pipeline_config()
 
         PipelineDefinition.objects.create(
             name="test-pipeline",
@@ -98,13 +126,14 @@ class TestPipelineDefinitionDetailView:
         assert response.status_code == 404
 
 
-@pytest.mark.django_db
-class TestPipelineDefinitionValidateView:
+class TestPipelineDefinitionValidateView(TestCase):
     """Tests for PipelineDefinitionValidateView."""
 
-    def test_validate_valid_definition(self, simple_pipeline_config):
+    def test_validate_valid_definition(self):
         """Test validating a valid pipeline definition."""
         from apps.orchestration.models import PipelineDefinition
+
+        simple_pipeline_config = _simple_pipeline_config()
 
         PipelineDefinition.objects.create(
             name="valid-pipeline",
@@ -143,13 +172,14 @@ class TestPipelineDefinitionValidateView:
         assert len(data["errors"]) > 0
 
 
-@pytest.mark.django_db
-class TestPipelineDefinitionExecuteView:
+class TestPipelineDefinitionExecuteView(TestCase):
     """Tests for PipelineDefinitionExecuteView."""
 
-    def test_execute_definition(self, simple_pipeline_config):
+    def test_execute_definition(self):
         """Test executing a pipeline definition."""
         from apps.orchestration.models import PipelineDefinition
+
+        simple_pipeline_config = _simple_pipeline_config()
 
         PipelineDefinition.objects.create(
             name="exec-pipeline",
@@ -170,9 +200,11 @@ class TestPipelineDefinitionExecuteView:
         assert "status" in data
         assert data["definition"] == "exec-pipeline"
 
-    def test_execute_inactive_definition(self, simple_pipeline_config):
+    def test_execute_inactive_definition(self):
         """Test that inactive definitions cannot be executed."""
         from apps.orchestration.models import PipelineDefinition
+
+        simple_pipeline_config = _simple_pipeline_config()
 
         PipelineDefinition.objects.create(
             name="inactive-pipeline",

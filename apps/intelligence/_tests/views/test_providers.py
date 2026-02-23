@@ -1,11 +1,11 @@
 """Tests for the providers list view."""
 
 import pytest
-from django.test import Client
+from django.test import Client, SimpleTestCase
 
 
 @pytest.mark.django_db
-class TestProvidersListView:
+class TestProvidersListView(SimpleTestCase):
     """Tests for ProvidersListView."""
 
     def test_list_providers(self):
