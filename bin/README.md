@@ -23,6 +23,8 @@ All management commands and their shell aliases (set up via `setup_aliases.sh`):
 
 Aliases pass all flags through. Example: `sm-check-health --json` = `uv run python manage.py check_health --json`.
 
+See [`docs/Installation.md`](../docs/Installation.md) for setup guide and pipeline workflow examples.
+
 For full flag reference per command, see the app READMEs:
 - [`apps/checkers/README.md`](../apps/checkers/README.md) — `check_health` (10 flags), `run_check` (11 flags)
 - [`apps/alerts/README.md`](../apps/alerts/README.md) — `check_and_alert` (9 flags)
