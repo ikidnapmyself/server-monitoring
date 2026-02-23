@@ -35,3 +35,6 @@ Thumbs.db
 
 # Generated alias file (user-specific, project-path-locked)
 bin/aliases.sh
+
+# Git worktrees
+.worktrees/
