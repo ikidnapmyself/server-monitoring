@@ -1,6 +1,6 @@
 """Tests for the network checker."""
 
-import subprocess
+from subprocess import TimeoutExpired
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
@@ -84,7 +84,7 @@ class PingHostEdgeCaseTests(TestCase):
     @patch("apps.checkers.checkers.network.subprocess.run")
     def test_ping_host_timeout_expired(self, mock_run):
         """TimeoutExpired returns (False, None)."""
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd=["ping"], timeout=5)
+        mock_run.side_effect = TimeoutExpired(cmd=["ping"], timeout=5)
 
         checker = NetworkChecker()
         success, latency = checker._ping_host("8.8.8.8")

@@ -1,8 +1,8 @@
 """Tests for the LocalRecommendationProvider."""
 
-import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
+from subprocess import TimeoutExpired
 from unittest.mock import MagicMock, patch
 
 import psutil
@@ -713,7 +713,7 @@ class TestScanLargeFiles(SimpleTestCase):
     @patch("apps.intelligence.providers.local.subprocess.run")
     def test_subprocess_timeout_falls_through(self, mock_run):
         """subprocess.TimeoutExpired falls through to Python fallback."""
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd=["du"], timeout=30)
+        mock_run.side_effect = TimeoutExpired(cmd=["du"], timeout=30)
 
         mock_scan_path = MagicMock()
         mock_scan_path.exists.return_value = False
