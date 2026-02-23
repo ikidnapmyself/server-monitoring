@@ -109,3 +109,54 @@ class DiskLinuxCheckerTests(TestCase):
         result = checker.check()
 
         self.assertEqual(result.status, CheckStatus.OK)
+
+
+class DiskLinuxBuildRecommendationsTests(TestCase):
+    """Tests for DiskLinuxChecker._build_recommendations() branch coverage."""
+
+    def _make_checker(self):
+        from apps.checkers.checkers.disk_linux import DiskLinuxChecker
+
+        return DiskLinuxChecker()
+
+    def test_apt_cache_recommendation(self):
+        """Recommends apt clean when apt appears in space_hogs."""
+        checker = self._make_checker()
+        space_hogs = [{"path": "/var/cache/apt/archives", "size_mb": 1500.0}]
+        recs = checker._build_recommendations(space_hogs, [])
+        self.assertTrue(any("apt clean" in r for r in recs))
+
+    def test_journal_logs_recommendation(self):
+        """Recommends journalctl vacuum when journal appears in space_hogs."""
+        checker = self._make_checker()
+        space_hogs = [{"path": "/var/log/journal", "size_mb": 800.0}]
+        recs = checker._build_recommendations(space_hogs, [])
+        self.assertTrue(any("journalctl" in r for r in recs))
+
+    def test_docker_recommendation(self):
+        """Recommends docker system prune when docker appears in space_hogs."""
+        checker = self._make_checker()
+        space_hogs = [{"path": "/var/lib/docker/overlay2", "size_mb": 5000.0}]
+        recs = checker._build_recommendations(space_hogs, [])
+        self.assertTrue(any("docker system prune" in r for r in recs))
+
+    def test_snap_cache_recommendation(self):
+        """Recommends removing old snap revisions when snap appears."""
+        checker = self._make_checker()
+        space_hogs = [{"path": "/var/lib/snapd/snaps", "size_mb": 2000.0}]
+        recs = checker._build_recommendations(space_hogs, [])
+        self.assertTrue(any("snap" in r.lower() for r in recs))
+
+    def test_old_files_recommendation(self):
+        """Recommends removing old temp files when old_files is non-empty."""
+        checker = self._make_checker()
+        old_files = [{"path": "/tmp/old-build", "size_mb": 100.0, "age_days": 14}]
+        recs = checker._build_recommendations([], old_files)
+        self.assertTrue(any("/tmp" in r for r in recs))
+
+    def test_no_matches_empty_recommendations(self):
+        """Returns empty list when no patterns match and no old files."""
+        checker = self._make_checker()
+        space_hogs = [{"path": "/some/unknown/path", "size_mb": 100.0}]
+        recs = checker._build_recommendations(space_hogs, [])
+        self.assertEqual(recs, [])

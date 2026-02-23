@@ -1,14 +1,13 @@
 # apps/orchestration/_tests/test_integration.py
 """Integration tests for the complete pipeline system."""
 
-import pytest
+from django.test import TestCase
 
 from apps.orchestration.definition_orchestrator import DefinitionBasedOrchestrator
 from apps.orchestration.models import PipelineDefinition, PipelineRun
 
 
-@pytest.mark.django_db
-class TestPipelineIntegration:
+class TestPipelineIntegration(TestCase):
     """Integration tests for complete pipelines."""
 
     def test_context_to_intelligence_pipeline(self):

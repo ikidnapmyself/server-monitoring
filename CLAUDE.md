@@ -102,7 +102,7 @@ All apps under `apps/` follow this layout:
 - **Line length**: 100 characters (Black, Ruff)
 - **Settings**: `config/settings.py`
 - **Env vars**: Copy `.env.sample` to `.env`
-- **Test coverage**: 100% branch coverage required for every PR. Run `uv run coverage run manage.py test && uv run coverage report` to verify.
+- **Test coverage**: 100% branch coverage required for every PR. Run `uv run coverage run -m pytest && uv run coverage report` to verify.
 
 ## Key Documentation
 

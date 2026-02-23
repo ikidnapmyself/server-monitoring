@@ -3,7 +3,7 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
+from django.test import TestCase
 
 from apps.orchestration.definition_orchestrator import DefinitionBasedOrchestrator
 from apps.orchestration.models import PipelineDefinition
@@ -19,13 +19,39 @@ def _patch_notify_drivers():
     return patch("apps.notify.views.DRIVER_REGISTRY", {"generic": mock_driver_cls})
 
 
-@pytest.mark.django_db
-class TestDefinitionBasedOrchestrator:
+def _simple_pipeline_config():
+    """A simple pipeline configuration for testing."""
+    return {
+        "version": "1.0",
+        "description": "Simple test pipeline",
+        "defaults": {
+            "max_retries": 3,
+            "timeout_seconds": 300,
+        },
+        "nodes": [
+            {
+                "id": "analyze",
+                "type": "intelligence",
+                "config": {"provider": "local"},
+                "next": "notify",
+            },
+            {
+                "id": "notify",
+                "type": "notify",
+                "config": {"driver": "generic"},
+            },
+        ],
+    }
+
+
+class TestDefinitionBasedOrchestrator(TestCase):
     """Tests for DefinitionBasedOrchestrator."""
 
-    def test_execute_simple_pipeline(self, simple_pipeline_config):
+    def test_execute_simple_pipeline(self):
         """Test executing a simple pipeline."""
         from apps.notify.models import NotificationChannel
+
+        simple_pipeline_config = _simple_pipeline_config()
 
         NotificationChannel.objects.create(
             name="test-generic",
@@ -50,10 +76,12 @@ class TestDefinitionBasedOrchestrator:
         assert "executed_nodes" in result
         assert len(result["executed_nodes"]) > 0
 
-    def test_execute_records_pipeline_run(self, simple_pipeline_config):
+    def test_execute_records_pipeline_run(self):
         """Test that execution creates a PipelineRun record."""
         from apps.notify.models import NotificationChannel
         from apps.orchestration.models import PipelineRun
+
+        simple_pipeline_config = _simple_pipeline_config()
 
         NotificationChannel.objects.create(
             name="test-generic",
@@ -79,9 +107,11 @@ class TestDefinitionBasedOrchestrator:
         assert run is not None
         assert run.source == "test"
 
-    def test_execute_chains_node_outputs(self, simple_pipeline_config):
+    def test_execute_chains_node_outputs(self):
         """Test that node outputs are passed to subsequent nodes."""
         from apps.notify.models import NotificationChannel
+
+        simple_pipeline_config = _simple_pipeline_config()
 
         NotificationChannel.objects.create(
             name="test-generic",
@@ -107,8 +137,10 @@ class TestDefinitionBasedOrchestrator:
         for node_id, node_result in result["node_results"].items():
             assert "output" in node_result
 
-    def test_validate_definition(self, simple_pipeline_config):
+    def test_validate_definition(self):
         """Test validating a pipeline definition."""
+        simple_pipeline_config = _simple_pipeline_config()
+
         definition = PipelineDefinition.objects.create(
             name="test-validate",
             config=simple_pipeline_config,

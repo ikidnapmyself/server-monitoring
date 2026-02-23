@@ -1,11 +1,11 @@
 """Tests for the health view."""
 
 import pytest
-from django.test import Client
+from django.test import Client, SimpleTestCase
 
 
 @pytest.mark.django_db
-class TestHealthView:
+class TestHealthView(SimpleTestCase):
     """Tests for HealthView."""
 
     def test_health_returns_ok(self):

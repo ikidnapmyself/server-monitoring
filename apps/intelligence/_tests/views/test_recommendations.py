@@ -4,7 +4,7 @@ import json
 from unittest.mock import patch
 
 import pytest
-from django.test import Client
+from django.test import Client, TestCase
 
 from apps.intelligence.providers.base import (
     Recommendation,
@@ -24,7 +24,7 @@ SAMPLE_RECOMMENDATIONS = [
 
 
 @pytest.mark.django_db
-class TestRecommendationsGetView:
+class TestRecommendationsGetView(TestCase):
     """Tests for GET /intelligence/recommendations/."""
 
     @patch("apps.intelligence.views.recommendations.get_provider")
@@ -76,7 +76,7 @@ class TestRecommendationsGetView:
 
 
 @pytest.mark.django_db
-class TestRecommendationsPostView:
+class TestRecommendationsPostView(TestCase):
     """Tests for POST /intelligence/recommendations/."""
 
     @patch("apps.intelligence.views.recommendations.get_provider")
