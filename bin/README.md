@@ -18,6 +18,7 @@ All management commands and their shell aliases (set up via `setup_aliases.sh`):
 | `sm-monitor-pipeline` | `monitor_pipeline` | orchestration | Monitor pipeline run history |
 | `sm-test-notify` | `test_notify` | notify | Test notification delivery |
 | `sm-list-notify-drivers` | `list_notify_drivers` | notify | List available notification drivers |
+| `sm-setup-instance` | `setup_instance` | orchestration | Interactive wizard to create pipelines and notification channels |
 | `sm-cli` | — | — | Interactive CLI menu |
 
 Aliases pass all flags through. Example: `sm-check-health --json` = `uv run python manage.py check_health --json`.
