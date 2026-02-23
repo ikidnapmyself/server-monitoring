@@ -29,10 +29,10 @@ cd server-monitoring
 ./bin/install.sh
 ```
 
-If you get “permission denied”, run:
+If you get "permission denied", run:
 
 ```bash
-chmod +x ./bin/install.sh ./bin/setup_cron.sh ./bin/deploy.sh
+chmod +x ./bin/*.sh
 ```
 
 ### What the installer does (in order)
@@ -51,6 +51,7 @@ chmod +x ./bin/install.sh ./bin/setup_cron.sh ./bin/deploy.sh
 - Runs `python manage.py check`
 - Optionally runs health checks now
 - Optionally sets up cron via `./bin/setup_cron.sh`
+- Optionally sets up shell aliases via `./bin/setup_aliases.sh`
 
 See the installer implementation in `bin/install.sh`.
 
@@ -58,7 +59,7 @@ See the installer implementation in `bin/install.sh`.
 
 ## 2) Cron setup (optional)
 
-If you didn’t enable cron during install, you can run it later:
+If you didn't enable cron during install, you can run it later:
 
 ```bash
 ./bin/setup_cron.sh
@@ -87,6 +88,48 @@ tail -f ./cron.log
 
 ---
 
+## 3) Shell aliases (optional)
+
+Shell aliases let you run `sm-check-health` instead of `uv run python manage.py check_health`.
+
+If you didn't set up aliases during install, run:
+
+```bash
+./bin/setup_aliases.sh
+```
+
+It will prompt for a prefix (default: `sm`), generate aliases, and add a `source` line to your shell profile.
+
+### Key aliases
+
+| Alias | What it does |
+|-------|-------------|
+| `sm-check-health` | Run health checks (CPU, memory, disk, network, process) |
+| `sm-run-pipeline` | Execute pipelines (definition-based or sample) |
+| `sm-setup-instance` | Interactive wizard to create pipelines and notification channels |
+| `sm-check-and-alert` | Run checks and create alerts/incidents |
+| `sm-get-recommendations` | Get AI-powered system recommendations |
+| `sm-cli` | Interactive CLI menu |
+
+All aliases pass flags through: `sm-check-health --json` = `uv run python manage.py check_health --json`.
+
+See [`bin/README.md`](../bin/README.md) for the full alias table and script details.
+
+### Custom prefix
+
+```bash
+./bin/setup_aliases.sh --prefix maint
+# Creates: maint-check-health, maint-run-pipeline, etc.
+```
+
+### Remove aliases
+
+```bash
+./bin/setup_aliases.sh --remove
+```
+
+---
+
 ## 4) Interactive CLI (recommended)
 
 After installation, use the interactive CLI for a guided experience:
@@ -107,32 +150,32 @@ Direct shortcuts:
 
 ---
 
-## 4) Manual installation (no scripts)
+## 5) Manual installation (no scripts)
 
-Use this if you want full control or you’re running in CI.
+Use this if you want full control or you're running in CI.
 
-### 4.1 Clone
+### 5.1 Clone
 
 ```bash
 git clone git@github.com:ikidnapmyself/server-monitoring.git
 cd server-monitoring
 ```
 
-### 4.2 Create and activate a virtualenv
+### 5.2 Create and activate a virtualenv
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
 ```
 
-### 4.3 Install uv (via pip)
+### 5.3 Install uv (via pip)
 
 ```bash
 python -m pip install --upgrade pip
 pip install uv
 ```
 
-### 4.4 Create your `.env`
+### 5.4 Create your `.env`
 
 ```bash
 cp .env.sample .env
@@ -145,7 +188,7 @@ Set at least a secret key (required for real deployments):
 echo 'DJANGO_SECRET_KEY=change-me' >> .env
 ```
 
-### 4.5 Install dependencies
+### 5.5 Install dependencies
 
 Production-style (no dev tools):
 
@@ -159,19 +202,19 @@ Dev install (includes dev tools/extras):
 uv sync --all-extras --dev
 ```
 
-### 4.6 Migrate
+### 5.6 Migrate
 
 ```bash
 uv run --frozen python manage.py migrate --noinput
 ```
 
-### 4.7 Django system check
+### 5.7 Django system check
 
 ```bash
 uv run python manage.py check
 ```
 
-### 4.8 Run the server
+### 5.8 Run the server
 
 ```bash
 uv run python manage.py runserver
@@ -179,18 +222,85 @@ uv run python manage.py runserver
 
 ---
 
-## 5) Common commands (manual)
+## 6) Common commands
+
+With aliases (after running `./bin/setup_aliases.sh`):
 
 ```bash
-# Run health checks
-uv run python manage.py check_health
-
-# List available checkers
-uv run python manage.py check_health --list
-
-# Run checks + create alerts (cron-friendly)
-uv run python manage.py check_and_alert --json
-
-# Get system recommendations
-uv run python manage.py get_recommendations --all
+sm-check-health                  # Run health checks
+sm-check-health --list           # List available checkers
+sm-check-and-alert --json        # Run checks + create alerts (cron-friendly)
+sm-get-recommendations --all     # Get system recommendations
+sm-run-pipeline --sample         # Run pipeline with sample alert
 ```
+
+Without aliases:
+
+```bash
+uv run python manage.py check_health
+uv run python manage.py check_health --list
+uv run python manage.py check_and_alert --json
+uv run python manage.py get_recommendations --all
+uv run python manage.py run_pipeline --sample
+```
+
+---
+
+## 7) Pipeline workflow with aliases
+
+Definition-based pipelines let you compose custom monitoring workflows. Here's the typical workflow using shell aliases:
+
+### Step 1: Create a pipeline and notification channels
+
+```bash
+sm-setup-instance
+```
+
+The interactive wizard walks you through:
+- Choosing which health checkers to enable
+- Configuring notification channels (Slack, email, PagerDuty, generic webhook)
+- Creating a `PipelineDefinition` in the database (e.g., `local-monitor`)
+
+### Step 2: Validate with dry-run
+
+```bash
+sm-run-pipeline --definition local-monitor --dry-run
+```
+
+This shows the node chain and config without executing anything.
+
+### Step 3: Run the pipeline
+
+```bash
+sm-run-pipeline --definition local-monitor
+```
+
+This runs real health checks and sends real notifications through the channels you configured.
+
+### More examples
+
+```bash
+# Run from a JSON file instead of a DB definition
+sm-run-pipeline --config apps/orchestration/management/commands/pipelines/local-monitor.json
+
+# Run with a sample alert payload (for testing ingest-based pipelines)
+sm-run-pipeline --definition local-monitor --sample
+
+# Monitor pipeline run history
+sm-monitor-pipeline
+
+# Test notification delivery without running a pipeline
+sm-test-notify --driver slack
+```
+
+### Without aliases
+
+The same workflow without aliases:
+
+```bash
+uv run python manage.py setup_instance
+uv run python manage.py run_pipeline --definition local-monitor --dry-run
+uv run python manage.py run_pipeline --definition local-monitor
+```
+
+For full pipeline documentation including node types, config options, and troubleshooting, see [`apps/orchestration/README.md`](../apps/orchestration/README.md).
