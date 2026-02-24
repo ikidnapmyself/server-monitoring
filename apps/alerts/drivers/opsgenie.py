@@ -8,6 +8,8 @@ See: https://support.atlassian.com/opsgenie/docs/integrate-with-webhook/
 from datetime import datetime
 from typing import Any
 
+from django.utils import timezone
+
 from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
 
 
@@ -144,11 +146,11 @@ class OpsGenieDriver(BaseAlertDriver):
     def _parse_timestamp(self, ts: int | None) -> datetime:
         """Parse Unix timestamp in milliseconds."""
         if not ts:
-            return datetime.now()
+            return timezone.now()
         try:
             # OpsGenie uses milliseconds
             if ts > 10000000000:
                 ts = ts // 1000
             return datetime.fromtimestamp(ts)
         except (ValueError, TypeError, OSError):
-            return datetime.now()
+            return timezone.now()

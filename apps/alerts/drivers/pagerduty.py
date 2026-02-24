@@ -8,6 +8,8 @@ See: https://developer.pagerduty.com/docs/webhooks/v3-overview/
 from datetime import datetime
 from typing import Any
 
+from django.utils import timezone
+
 from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
 
 
@@ -177,10 +179,10 @@ class PagerDutyDriver(BaseAlertDriver):
     def _parse_timestamp(self, ts: str | None) -> datetime:
         """Parse ISO 8601 timestamp."""
         if not ts:
-            return datetime.now()
+            return timezone.now()
         try:
             # Handle various ISO formats
             ts = ts.replace("Z", "+00:00")
             return datetime.fromisoformat(ts)
         except (ValueError, TypeError):
-            return datetime.now()
+            return timezone.now()

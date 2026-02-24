@@ -1,7 +1,9 @@
 from datetime import datetime
+from datetime import timezone as dt_tz
 from unittest.mock import patch
 
 from django.test import TestCase
+from django.utils import timezone
 
 from apps.alerts.drivers.zabbix import ZabbixDriver
 
@@ -54,12 +56,11 @@ class ZabbixDriverTests(TestCase):
 
     def test_parse_timestamp_none_returns_now(self):
         """_parse_timestamp(None) should return approximately now."""
-        fake_now = datetime(2024, 6, 15, 12, 0, 0)
+        fake_now = datetime(2024, 6, 15, 12, 0, 0, tzinfo=dt_tz.utc)
         with patch(
-            "apps.alerts.drivers.zabbix.datetime",
-        ) as mock_dt:
-            mock_dt.now.return_value = fake_now
-            mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+            "apps.alerts.drivers.zabbix.timezone",
+        ) as mock_tz:
+            mock_tz.now.return_value = fake_now
             result = self.driver._parse_timestamp(None)
         self.assertEqual(result, fake_now)
 
@@ -82,17 +83,11 @@ class ZabbixDriverTests(TestCase):
 
     def test_parse_timestamp_invalid_returns_now(self):
         """Invalid timestamp should fall back to now."""
-        fake_now = datetime(2024, 6, 15, 12, 0, 0)
-        with patch(
-            "apps.alerts.drivers.zabbix.datetime",
-        ) as mock_dt:
-            mock_dt.now.return_value = fake_now
-            mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
-            mock_dt.fromtimestamp = datetime.fromtimestamp
-            mock_dt.strptime = datetime.strptime
-            mock_dt.fromisoformat = datetime.fromisoformat
-            result = self.driver._parse_timestamp("not-a-timestamp")
-        self.assertEqual(result, fake_now)
+        before = timezone.now()
+        result = self.driver._parse_timestamp("not-a-timestamp")
+        after = timezone.now()
+        self.assertGreaterEqual(result, before)
+        self.assertLessEqual(result, after)
 
     def test_parse_timestamp_dd_mm_yyyy_format(self):
         """DD.MM.YYYY HH:MM:SS format should be parsed."""

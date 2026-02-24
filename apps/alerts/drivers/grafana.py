@@ -8,6 +8,8 @@ See: https://grafana.com/docs/grafana/latest/alerting/configure-notifications/ma
 from datetime import datetime
 from typing import Any
 
+from django.utils import timezone
+
 from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
 
 
@@ -96,7 +98,7 @@ class GrafanaDriver(BaseAlertDriver):
         ended_at = None
         if alert_data.get("endsAt"):
             ended_at = self._parse_timestamp(alert_data.get("endsAt"))
-            if ended_at and ended_at.year > datetime.now().year + 1:
+            if ended_at and ended_at.year > timezone.now().year + 1:
                 ended_at = None
 
         # Get description
@@ -152,15 +154,15 @@ class GrafanaDriver(BaseAlertDriver):
             description=payload.get("message", ""),
             labels=labels,
             annotations={"ruleUrl": payload.get("ruleUrl", "")},
-            started_at=datetime.now(),
-            ended_at=None if status == "firing" else datetime.now(),
+            started_at=timezone.now(),
+            ended_at=None if status == "firing" else timezone.now(),
             raw_payload=payload,
         )
 
     def _parse_timestamp(self, timestamp_str: str | None) -> datetime:
         """Parse timestamp from Grafana format."""
         if not timestamp_str:
-            return datetime.now()
+            return timezone.now()
 
         try:
             from django.utils.dateparse import parse_datetime
@@ -171,4 +173,4 @@ class GrafanaDriver(BaseAlertDriver):
 
             return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
         except (ValueError, TypeError):
-            return datetime.now()
+            return timezone.now()

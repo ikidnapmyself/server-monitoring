@@ -1,7 +1,9 @@
 from datetime import datetime
+from datetime import timezone as dt_tz
 from unittest.mock import patch
 
 from django.test import TestCase
+from django.utils import timezone
 
 from apps.alerts.drivers import GenericWebhookDriver
 
@@ -55,12 +57,11 @@ class GenericDriverTests(TestCase):
 
     def test_parse_timestamp_none_returns_now(self):
         """_parse_timestamp(None) should return approximately now."""
-        fake_now = datetime(2024, 6, 15, 12, 0, 0)
+        fake_now = datetime(2024, 6, 15, 12, 0, 0, tzinfo=dt_tz.utc)
         with patch(
-            "apps.alerts.drivers.generic.datetime",
-        ) as mock_dt:
-            mock_dt.now.return_value = fake_now
-            mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+            "apps.alerts.drivers.generic.timezone",
+        ) as mock_tz:
+            mock_tz.now.return_value = fake_now
             result = self.driver._parse_timestamp(None)
         self.assertEqual(result, fake_now)
 
@@ -81,9 +82,9 @@ class GenericDriverTests(TestCase):
 
     def test_parse_timestamp_invalid_string_returns_now(self):
         """Invalid timestamp string should fall back to now."""
-        before = datetime.now()
+        before = timezone.now()
         result = self.driver._parse_timestamp("garbage")
-        after = datetime.now()
+        after = timezone.now()
         self.assertGreaterEqual(result, before)
         self.assertLessEqual(result, after)
 
@@ -95,10 +96,10 @@ class GenericDriverTests(TestCase):
 
     def test_parse_timestamp_invalid_unix_returns_now(self):
         """Extremely large int should fall back to now via OSError."""
-        before = datetime.now()
+        before = timezone.now()
         # This value is way too large for fromtimestamp, triggers OSError
         result = self.driver._parse_timestamp(999999999999999999)
-        after = datetime.now()
+        after = timezone.now()
         self.assertGreaterEqual(result, before)
         self.assertLessEqual(result, after)
 

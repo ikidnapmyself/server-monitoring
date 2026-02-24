@@ -8,6 +8,8 @@ See: https://docs.newrelic.com/docs/alerts-applied-intelligence/notifications/we
 from datetime import datetime
 from typing import Any
 
+from django.utils import timezone
+
 from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
 
 
@@ -183,7 +185,7 @@ class NewRelicDriver(BaseAlertDriver):
     def _parse_timestamp(self, ts: str | int | None) -> datetime:
         """Parse timestamp (Unix timestamp in seconds or milliseconds)."""
         if not ts:
-            return datetime.now()
+            return timezone.now()
         try:
             if isinstance(ts, int):
                 # Handle milliseconds
@@ -195,4 +197,4 @@ class NewRelicDriver(BaseAlertDriver):
                 return datetime.fromisoformat(ts)
         except (ValueError, TypeError, OSError):
             pass
-        return datetime.now()
+        return timezone.now()

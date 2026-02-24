@@ -1,4 +1,5 @@
 from datetime import datetime
+from datetime import timezone as dt_tz
 from unittest.mock import patch
 
 from django.test import TestCase
@@ -299,20 +300,18 @@ class OpsGenieDriverParseTimestampTests(TestCase):
     def setUp(self):
         self.driver = OpsGenieDriver()
 
-    @patch("apps.alerts.drivers.opsgenie.datetime")
-    def test_none_returns_now(self, mock_dt):
-        now = datetime(2024, 1, 8, 10, 0, 0)
-        mock_dt.now.return_value = now
-        mock_dt.fromtimestamp = datetime.fromtimestamp
+    @patch("apps.alerts.drivers.opsgenie.timezone")
+    def test_none_returns_now(self, mock_tz):
+        now = datetime(2024, 1, 8, 10, 0, 0, tzinfo=dt_tz.utc)
+        mock_tz.now.return_value = now
 
         result = self.driver._parse_timestamp(None)
         self.assertEqual(result, now)
 
-    @patch("apps.alerts.drivers.opsgenie.datetime")
-    def test_zero_returns_now(self, mock_dt):
-        now = datetime(2024, 1, 8, 10, 0, 0)
-        mock_dt.now.return_value = now
-        mock_dt.fromtimestamp = datetime.fromtimestamp
+    @patch("apps.alerts.drivers.opsgenie.timezone")
+    def test_zero_returns_now(self, mock_tz):
+        now = datetime(2024, 1, 8, 10, 0, 0, tzinfo=dt_tz.utc)
+        mock_tz.now.return_value = now
 
         result = self.driver._parse_timestamp(0)
         self.assertEqual(result, now)
@@ -328,11 +327,10 @@ class OpsGenieDriverParseTimestampTests(TestCase):
         expected = datetime.fromtimestamp(1704708000)
         self.assertEqual(result, expected)
 
-    @patch("apps.alerts.drivers.opsgenie.datetime")
-    def test_invalid_timestamp_returns_now(self, mock_dt):
-        now = datetime(2024, 1, 8, 10, 0, 0)
-        mock_dt.now.return_value = now
-        mock_dt.fromtimestamp.side_effect = OSError("invalid")
+    @patch("apps.alerts.drivers.opsgenie.timezone")
+    def test_invalid_timestamp_returns_now(self, mock_tz):
+        now = datetime(2024, 1, 8, 10, 0, 0, tzinfo=dt_tz.utc)
+        mock_tz.now.return_value = now
 
         result = self.driver._parse_timestamp(99999999999999999999)
         self.assertEqual(result, now)

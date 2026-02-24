@@ -8,6 +8,8 @@ See: https://docs.datadoghq.com/integrations/webhooks/
 from datetime import datetime
 from typing import Any
 
+from django.utils import timezone
+
 from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
 
 
@@ -141,7 +143,7 @@ class DatadogDriver(BaseAlertDriver):
     def _parse_timestamp(self, ts: str | int | None) -> datetime:
         """Parse timestamp (can be ISO string or Unix timestamp)."""
         if not ts:
-            return datetime.now()
+            return timezone.now()
         try:
             if isinstance(ts, int):
                 return datetime.fromtimestamp(ts)
@@ -151,4 +153,4 @@ class DatadogDriver(BaseAlertDriver):
                 return datetime.fromisoformat(ts)
         except (ValueError, TypeError, OSError):
             pass
-        return datetime.now()
+        return timezone.now()
