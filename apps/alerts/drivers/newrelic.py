@@ -120,7 +120,9 @@ class NewRelicDriver(BaseAlertDriver):
         # Parse timestamp
         started_at = self._parse_timestamp(payload.get("timestamp"))
 
-        fingerprint = str(payload.get("incident_id") or "") or self.generate_fingerprint(labels, name)
+        fingerprint = str(payload.get("incident_id") or "") or self.generate_fingerprint(
+            labels, name
+        )
 
         return ParsedAlert(
             fingerprint=fingerprint,
