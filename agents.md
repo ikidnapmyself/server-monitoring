@@ -308,7 +308,7 @@ CI runs these checks in GitHub Actions (`.github/workflows/ci.yml`). Any PR shou
 - `uv run black . --check`
 - `uv run ruff check .`
 - `uv run pytest`
-- **100% branch coverage** on changed lines — `uv run coverage run manage.py test && uv run coverage report`
+- **100% branch coverage** on changed lines — `uv run coverage run -m pytest && uv run coverage report`
 
 ---
 

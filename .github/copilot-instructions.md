@@ -24,7 +24,7 @@ Each stage emits monitoring signals (`pipeline.stage.started/succeeded/failed`) 
 | App | Stage | Purpose | Key Models |
 |-----|-------|---------|------------|
 | `alerts` | ingest | Webhook ingestion (8 drivers) | Alert, Incident, AlertHistory |
-| `checkers` | diagnose | Health checks (CPU, memory, disk, network, process) | CheckRun |
+| `checkers` | diagnose | Health checks (CPU, memory, disk, disk_macos, disk_linux, disk_common, network, process) | CheckRun |
 | `intelligence` | analyze | AI analysis via provider pattern | AnalysisRun, uses StageExecution |
 | `notify` | communicate | Notification delivery (Email, Slack, PagerDuty, Generic) | NotificationChannel |
 | `orchestration` | controller | Pipeline state machine, retry logic | PipelineRun, StageExecution, PipelineDefinition |
@@ -63,6 +63,7 @@ apps/<app_name>/
 - **Formatting**: Black
 - **Linting/imports**: Ruff
 - **Testing**: pytest + pytest-django
+- **Test coverage**: 100% branch coverage required for every PR. Run `uv run coverage run -m pytest && uv run coverage report` to verify.
 - **Package manager**: uv (not pip)
 - **Settings**: `config/settings.py`
 - **Env vars**: `.env` (copy from `.env.sample`)
@@ -163,9 +164,14 @@ Required tags: `trace_id/run_id`, `incident_id`, `stage`, `source`, `alert_finge
 
 - `CLAUDE.md` — Essential commands and architecture overview for Claude Code
 - `agents.md` — AI agent roles, pipeline contracts, and conventions
-- `apps/<app>/agents.md` — App-specific AI guidance and stage contracts
-- `apps/<app>/README.md` — App-specific documentation
 - `docs/Architecture.md` — System architecture, all entry points, pipeline stages, data models
+- `apps/<app>/README.md` — App-specific documentation
+- App-level AI guidance (stage-specific contracts):
+  - `apps/alerts/agents.md`
+  - `apps/checkers/agents.md`
+  - `apps/intelligence/agents.md`
+  - `apps/notify/agents.md`
+  - `apps/orchestration/agents.md`
 
 ## Quick Tips
 
