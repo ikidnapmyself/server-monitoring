@@ -1,8 +1,8 @@
-from datetime import datetime, timezone as dt_tz
+from datetime import datetime
+from datetime import timezone as dt_tz
 from unittest.mock import patch
 
 from django.test import TestCase
-from django.utils import timezone
 
 from apps.alerts.drivers.opsgenie import OpsGenieDriver
 
