@@ -471,3 +471,43 @@ class EmailSendTests(SimpleTestCase):
             d.send(msg, cfg)
 
         mock_server.quit.assert_called_once()
+
+    @patch("apps.notify.drivers.email.smtplib.SMTP")
+    def test_send_success_when_quit_raises(self, mock_smtp_cls):
+        """When quit() raises after a successful sendmail, send() still returns success."""
+        mock_server = self._mock_smtp()
+        mock_server.quit.side_effect = smtplib.SMTPException("Connection already closed")
+        mock_smtp_cls.return_value = mock_server
+
+        d = EmailNotifyDriver()
+        cfg = _base_config(to_addresses=["r@example.local"])
+        msg = _msg()
+
+        prepared = {"text": "body", "html": None, "incident": {}}
+        with patch.object(d, "_prepare_notification", return_value=prepared):
+            result = d.send(msg, cfg)
+
+        self.assertTrue(result["success"])
+        self.assertIn("message_id", result)
+
+
+class EmailResolveToAddressesTests(SimpleTestCase):
+    """Tests for _resolve_to_addresses helper."""
+
+    def test_resolve_to_addresses_from_config(self):
+        d = EmailNotifyDriver()
+        cfg = _base_config(to_addresses=["a@example.local", "b@example.local"])
+        msg = _msg()
+        self.assertEqual(d._resolve_to_addresses(msg, cfg), ["a@example.local", "b@example.local"])
+
+    def test_resolve_to_addresses_fallback_channel(self):
+        d = EmailNotifyDriver()
+        cfg = _base_config()
+        msg = _msg(channel="ops@example.local")
+        self.assertEqual(d._resolve_to_addresses(msg, cfg), ["ops@example.local"])
+
+    def test_resolve_to_addresses_fallback_from_address(self):
+        d = EmailNotifyDriver()
+        cfg = _base_config()
+        msg = _msg(channel="default")
+        self.assertEqual(d._resolve_to_addresses(msg, cfg), ["noreply@example.local"])

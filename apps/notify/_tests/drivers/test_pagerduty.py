@@ -318,6 +318,27 @@ class PagerDutySendTests(SimpleTestCase):
         self.assertFalse(result["success"])
         self.assertIn("something broke", result["error"])
 
+    @patch("apps.notify.drivers.pagerduty.logger")
+    @patch("apps.notify.drivers.pagerduty.urllib.request.urlopen")
+    def test_send_http_error_logs_error(self, mock_urlopen, mock_logger):
+        """HTTPError is logged before returning the error response."""
+        error_body = io.BytesIO(json.dumps({"message": "Forbidden"}).encode())
+        http_error = urllib.error.HTTPError(
+            url="https://events.pagerduty.com/v2/enqueue",
+            code=403,
+            msg="Forbidden",
+            hdrs=MagicMock(),
+            fp=error_body,
+        )
+        mock_urlopen.side_effect = http_error
+
+        result = self.driver.send(_make_msg(), self.config)
+
+        self.assertFalse(result["success"])
+        mock_logger.error.assert_called_once()
+        logged_msg = mock_logger.error.call_args[0][0]
+        self.assertIn("403", logged_msg)
+
 
 class PagerDutyAcknowledgeResolveTests(SimpleTestCase):
     """Tests for acknowledge() and resolve() convenience methods."""

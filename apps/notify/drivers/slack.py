@@ -4,6 +4,7 @@ import json
 import logging
 import urllib.error
 import urllib.request
+import uuid
 from typing import Any
 
 from apps.notify.drivers.base import BaseNotifyDriver, NotificationMessage
@@ -78,7 +79,7 @@ class SlackNotifyDriver(BaseNotifyDriver):
                     logger.info(f"Slack notification sent: {message.title}")
                     return {
                         "success": True,
-                        "message_id": f"slack_{hash(message.title + message.message) & 0x7FFFFFFF:08x}",
+                        "message_id": str(uuid.uuid4()),
                         "metadata": {
                             "channel": payload.get("channel", "default"),
                             "severity": message.severity,

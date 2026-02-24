@@ -131,6 +131,7 @@ class PagerDutyNotifyDriver(BaseNotifyDriver):
                 error_msg = error_data.get("message", error_body)
             except json.JSONDecodeError:
                 error_msg = error_body
+            logger.error(f"PagerDuty HTTP error {e.code}: {error_msg}")
             return {"success": False, "error": f"PagerDuty API error ({e.code}): {error_msg}"}
         except urllib.error.URLError as e:
             return self._handle_url_error(e, "PagerDuty")

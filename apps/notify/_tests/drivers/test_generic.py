@@ -350,3 +350,47 @@ class GenericSendTests(SimpleTestCase):
 
         self.assertFalse(result["success"])
         self.assertIn("unexpected error", result["error"])
+
+
+class GenericSendDisabledTests(SimpleTestCase):
+    """Tests for send() no-op behaviour when config is empty or disabled."""
+
+    def setUp(self):
+        self.driver = GenericNotifyDriver()
+
+    def test_send_empty_config_returns_noop_success(self):
+        """Empty config means notifications are disabled; send() is a no-op."""
+        result = self.driver.send(_make_msg(), {})
+        self.assertTrue(result["success"])
+        self.assertIsNone(result["message_id"])
+        self.assertTrue(result["metadata"]["disabled"])
+
+    def test_send_none_config_returns_noop_success(self):
+        """None config means notifications are disabled; send() is a no-op."""
+        result = self.driver.send(_make_msg(), None)
+        self.assertTrue(result["success"])
+        self.assertTrue(result["metadata"]["disabled"])
+
+    def test_send_disabled_flag_returns_noop_success(self):
+        """Config with disabled=True is a no-op."""
+        result = self.driver.send(_make_msg(), {"disabled": True})
+        self.assertTrue(result["success"])
+        self.assertTrue(result["metadata"]["disabled"])
+
+
+class GenericUserAgentTests(SimpleTestCase):
+    """Tests that the correct User-Agent header is sent."""
+
+    @patch("apps.notify.drivers.generic.urllib.request.urlopen")
+    def test_user_agent_header_is_server_monitoring(self, mock_urlopen):
+        """User-Agent header must be 'ServerMonitoring/1.0'."""
+        mock_urlopen.return_value = _mock_urlopen("{}")
+        driver = GenericNotifyDriver()
+        config = {"endpoint": ENDPOINT}
+
+        with patch.object(driver, "_build_payload", return_value={"title": "T"}):
+            driver.send(_make_msg(), config)
+
+        call_args = mock_urlopen.call_args
+        request_obj = call_args[0][0]
+        self.assertEqual(request_obj.get_header("User-agent"), "ServerMonitoring/1.0")
