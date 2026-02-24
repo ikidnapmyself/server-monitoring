@@ -60,6 +60,10 @@ class GenericNotifyDriver(BaseNotifyDriver):
                 "error": "Invalid configuration (endpoint or webhook_url required)",
             }
 
+        # No-op: notifications are disabled or config is empty
+        if not config or config.get("disabled"):
+            return {"success": True, "message_id": None, "metadata": {"disabled": True}}
+
         endpoint = config.get("endpoint") or config.get("webhook_url")
         method = config.get("method", "POST").upper()
         headers = config.get("headers", {})
@@ -71,7 +75,7 @@ class GenericNotifyDriver(BaseNotifyDriver):
 
             request_headers = {
                 "Content-Type": "application/json",
-                "User-Agent": "ServerMaintenance/1.0",
+                "User-Agent": "ServerMonitoring/1.0",
             }
             request_headers.update(headers)
 

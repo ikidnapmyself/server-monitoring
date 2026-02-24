@@ -22,18 +22,24 @@ class EmailNotifyDriver(BaseNotifyDriver):
         required_keys = {"smtp_host", "from_address"}
         return all(key in config for key in required_keys)
 
+    def _resolve_to_addresses(
+        self, message: NotificationMessage, config: dict[str, Any]
+    ) -> list[str]:
+        """Resolve the list of recipient addresses from config and message channel."""
+        to_addresses = config.get("to_addresses", [])
+        if not to_addresses and message.channel != "default":
+            to_addresses = [message.channel]
+        elif not to_addresses:
+            to_addresses = [config["from_address"]]
+        return to_addresses
+
     def _build_email(self, message: NotificationMessage, config: dict[str, Any]) -> MIMEMultipart:
         email = MIMEMultipart("alternative")
 
         email["Subject"] = f"[{message.severity.upper()}] {message.title}"
         email["From"] = config["from_address"]
 
-        to_addresses = config.get("to_addresses", [])
-        if not to_addresses and message.channel != "default":
-            to_addresses = [message.channel]
-        elif not to_addresses:
-            to_addresses = [config["from_address"]]
-
+        to_addresses = self._resolve_to_addresses(message, config)
         email["To"] = ", ".join(to_addresses)
         email["X-Priority"] = self.PRIORITY_MAP.get(message.severity, "3")
 
@@ -92,11 +98,7 @@ class EmailNotifyDriver(BaseNotifyDriver):
                 if username and password:
                     server.login(username, password)
 
-                to_addresses = config.get("to_addresses", [])
-                if not to_addresses and message.channel != "default":
-                    to_addresses = [message.channel]
-                elif not to_addresses:
-                    to_addresses = [config["from_address"]]
+                to_addresses = self._resolve_to_addresses(message, config)
 
                 server.sendmail(
                     config["from_address"],
@@ -117,7 +119,10 @@ class EmailNotifyDriver(BaseNotifyDriver):
                 }
 
             finally:
-                server.quit()
+                try:
+                    server.quit()
+                except smtplib.SMTPException:
+                    pass
 
         except smtplib.SMTPAuthenticationError as e:
             return self._handle_exception(e, "Email", "authenticate SMTP")

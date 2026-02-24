@@ -305,3 +305,28 @@ class SlackSendErrorHandlerTests(SimpleTestCase):
         call_args = mock_urlopen.call_args
         sent_data = json.loads(call_args[0][0].data.decode("utf-8"))
         self.assertEqual(sent_data["text"], "[not valid json")
+
+    @patch("apps.notify.drivers.slack.urllib.request.urlopen")
+    def test_send_message_id_is_unique_uuid(self, mock_urlopen):
+        """Each successful send produces a unique UUID message_id."""
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b"ok"
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        import uuid
+
+        with patch.object(
+            self.driver,
+            "_render_message_templates",
+            return_value={"text": "hello", "html": None},
+        ):
+            result1 = self.driver.send(_make_msg(), self.config)
+            result2 = self.driver.send(_make_msg(), self.config)
+
+        # Both should be valid UUIDs
+        uuid.UUID(result1["message_id"])
+        uuid.UUID(result2["message_id"])
+        # And unique across calls
+        self.assertNotEqual(result1["message_id"], result2["message_id"])
