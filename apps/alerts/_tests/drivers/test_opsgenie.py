@@ -319,12 +319,12 @@ class OpsGenieDriverParseTimestampTests(TestCase):
     def test_milliseconds_converted(self):
         # 1704708000000 ms = 1704708000 seconds
         result = self.driver._parse_timestamp(1704708000000)
-        expected = datetime.fromtimestamp(1704708000)
+        expected = datetime.fromtimestamp(1704708000, tz=dt_tz.utc)
         self.assertEqual(result, expected)
 
     def test_seconds_used_directly(self):
         result = self.driver._parse_timestamp(1704708000)
-        expected = datetime.fromtimestamp(1704708000)
+        expected = datetime.fromtimestamp(1704708000, tz=dt_tz.utc)
         self.assertEqual(result, expected)
 
     @patch("apps.alerts.drivers.opsgenie.timezone")

@@ -6,6 +6,7 @@ This serves as a fallback and a template for custom integrations.
 """
 
 from datetime import datetime
+from datetime import timezone as dt_tz
 from typing import Any
 
 from django.utils import timezone
@@ -197,7 +198,7 @@ class GenericWebhookDriver(BaseAlertDriver):
                 # Handle milliseconds
                 if timestamp > 1e12:
                     timestamp = timestamp / 1000
-                return datetime.fromtimestamp(timestamp)
+                return datetime.fromtimestamp(timestamp, tz=dt_tz.utc)
             except (ValueError, OSError):
                 return timezone.now()
 

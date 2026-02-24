@@ -6,6 +6,7 @@ See: https://docs.datadoghq.com/integrations/webhooks/
 """
 
 from datetime import datetime
+from datetime import timezone as dt_tz
 from typing import Any
 
 from django.utils import timezone
@@ -146,7 +147,7 @@ class DatadogDriver(BaseAlertDriver):
             return timezone.now()
         try:
             if isinstance(ts, int):
-                return datetime.fromtimestamp(ts)
+                return datetime.fromtimestamp(ts, tz=dt_tz.utc)
             if isinstance(ts, str):
                 # Try ISO format
                 ts = ts.replace("Z", "+00:00")

@@ -107,6 +107,21 @@ class NewRelicDriverTests(TestCase):
         # generate_fingerprint produces a 16-char hex string
         self.assertTrue(len(alert.fingerprint) > 0)
 
+    def test_classic_fingerprint_null_incident_id_uses_generate(self):
+        """Classic alert with incident_id=null should use generate_fingerprint, not 'None'."""
+        payload = {
+            "account_id": 123,
+            "condition_id": 456,
+            "condition_name": "NR: null incident_id",
+            "current_state": "open",
+            "incident_id": None,
+            "severity": "WARNING",
+        }
+        parsed = self.driver.parse(payload)
+        alert = parsed.alerts[0]
+        self.assertNotEqual(alert.fingerprint, "None")
+        self.assertTrue(len(alert.fingerprint) > 0)
+
     def test_workflow_fingerprint_fallback(self):
         """Workflow alert without issueId should use generate_fingerprint."""
         payload = {

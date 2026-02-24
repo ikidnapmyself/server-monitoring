@@ -6,6 +6,7 @@ See: https://docs.newrelic.com/docs/alerts-applied-intelligence/notifications/we
 """
 
 from datetime import datetime
+from datetime import timezone as dt_tz
 from typing import Any
 
 from django.utils import timezone
@@ -119,7 +120,9 @@ class NewRelicDriver(BaseAlertDriver):
         # Parse timestamp
         started_at = self._parse_timestamp(payload.get("timestamp"))
 
-        fingerprint = str(payload.get("incident_id", "")) or self.generate_fingerprint(labels, name)
+        fingerprint = str(payload.get("incident_id") or "") or self.generate_fingerprint(
+            labels, name
+        )
 
         return ParsedAlert(
             fingerprint=fingerprint,
@@ -191,7 +194,7 @@ class NewRelicDriver(BaseAlertDriver):
                 # Handle milliseconds
                 if ts > 10000000000:
                     ts = ts // 1000
-                return datetime.fromtimestamp(ts)
+                return datetime.fromtimestamp(ts, tz=dt_tz.utc)
             if isinstance(ts, str):
                 ts = ts.replace("Z", "+00:00")
                 return datetime.fromisoformat(ts)
