@@ -8,6 +8,8 @@ See: https://www.zabbix.com/documentation/current/en/manual/config/notifications
 from datetime import datetime
 from typing import Any
 
+from django.utils import timezone
+
 from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
 
 
@@ -152,7 +154,7 @@ class ZabbixDriver(BaseAlertDriver):
     def _parse_timestamp(self, ts: str | int | None) -> datetime:
         """Parse timestamp (various formats)."""
         if not ts:
-            return datetime.now()
+            return timezone.now()
         try:
             if isinstance(ts, int):
                 return datetime.fromtimestamp(ts)
@@ -172,4 +174,4 @@ class ZabbixDriver(BaseAlertDriver):
                 return datetime.fromisoformat(ts)
         except (ValueError, TypeError):
             pass
-        return datetime.now()
+        return timezone.now()

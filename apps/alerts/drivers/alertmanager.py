@@ -8,6 +8,8 @@ See: https://prometheus.io/docs/alerting/latest/configuration/#webhook_config
 from datetime import datetime
 from typing import Any
 
+from django.utils import timezone
+
 from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
 
 
@@ -85,7 +87,7 @@ class AlertManagerDriver(BaseAlertDriver):
         if alert_data.get("endsAt"):
             ended_at = self._parse_timestamp(alert_data.get("endsAt"))
             # AlertManager sets endsAt to a far future date for firing alerts
-            if ended_at and ended_at.year > datetime.now().year + 1:
+            if ended_at and ended_at.year > timezone.now().year + 1:
                 ended_at = None
 
         # Get description from annotations
@@ -109,7 +111,7 @@ class AlertManagerDriver(BaseAlertDriver):
     def _parse_timestamp(self, timestamp_str: str | None) -> datetime:
         """Parse AlertManager timestamp format (RFC3339)."""
         if not timestamp_str:
-            return datetime.now()
+            return timezone.now()
 
         try:
             # Handle RFC3339 format with timezone
@@ -123,4 +125,4 @@ class AlertManagerDriver(BaseAlertDriver):
             # Fallback: try ISO format
             return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
         except (ValueError, TypeError):
-            return datetime.now()
+            return timezone.now()

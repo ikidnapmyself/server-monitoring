@@ -8,6 +8,8 @@ This serves as a fallback and a template for custom integrations.
 from datetime import datetime
 from typing import Any
 
+from django.utils import timezone
+
 from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
 
 
@@ -183,7 +185,7 @@ class GenericWebhookDriver(BaseAlertDriver):
     def _parse_timestamp(self, timestamp: Any) -> datetime:
         """Parse timestamp from various formats."""
         if not timestamp:
-            return datetime.now()
+            return timezone.now()
 
         # Already a datetime
         if isinstance(timestamp, datetime):
@@ -197,7 +199,7 @@ class GenericWebhookDriver(BaseAlertDriver):
                     timestamp = timestamp / 1000
                 return datetime.fromtimestamp(timestamp)
             except (ValueError, OSError):
-                return datetime.now()
+                return timezone.now()
 
         # String timestamp
         if isinstance(timestamp, str):
@@ -212,4 +214,4 @@ class GenericWebhookDriver(BaseAlertDriver):
             except (ValueError, TypeError):
                 pass
 
-        return datetime.now()
+        return timezone.now()
