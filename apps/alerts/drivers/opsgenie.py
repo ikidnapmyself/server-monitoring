@@ -6,6 +6,7 @@ See: https://support.atlassian.com/opsgenie/docs/integrate-with-webhook/
 """
 
 from datetime import datetime
+from datetime import timezone as dt_tz
 from typing import Any
 
 from django.utils import timezone
@@ -151,6 +152,6 @@ class OpsGenieDriver(BaseAlertDriver):
             # OpsGenie uses milliseconds
             if ts > 10000000000:
                 ts = ts // 1000
-            return datetime.fromtimestamp(ts)
+            return datetime.fromtimestamp(ts, tz=dt_tz.utc)
         except (ValueError, TypeError, OSError):
             return timezone.now()

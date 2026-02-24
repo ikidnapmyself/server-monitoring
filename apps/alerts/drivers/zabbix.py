@@ -6,6 +6,7 @@ See: https://www.zabbix.com/documentation/current/en/manual/config/notifications
 """
 
 from datetime import datetime
+from datetime import timezone as dt_tz
 from typing import Any
 
 from django.utils import timezone
@@ -157,7 +158,7 @@ class ZabbixDriver(BaseAlertDriver):
             return timezone.now()
         try:
             if isinstance(ts, int):
-                return datetime.fromtimestamp(ts)
+                return datetime.fromtimestamp(ts, tz=dt_tz.utc)
             if isinstance(ts, str):
                 # Try common Zabbix date formats
                 for fmt in [
@@ -166,12 +167,12 @@ class ZabbixDriver(BaseAlertDriver):
                     "%d.%m.%Y %H:%M:%S",
                 ]:
                     try:
-                        return datetime.strptime(ts, fmt)
+                        return datetime.strptime(ts, fmt).replace(tzinfo=dt_tz.utc)
                     except ValueError:
                         continue
                 # Try ISO format
                 ts = ts.replace("Z", "+00:00")
                 return datetime.fromisoformat(ts)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OSError):
             pass
         return timezone.now()
