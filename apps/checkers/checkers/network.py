@@ -19,7 +19,9 @@ class NetworkChecker(BaseChecker):
 
     name = "network"
     warning_threshold = 70.0  # Minimum % of hosts that must be reachable for OK
-    critical_threshold = 50.0  # Minimum % of hosts that must be reachable for WARNING
+    critical_threshold = (
+        50.0  # Minimum % of hosts that must be reachable for WARNING (below this = CRITICAL)
+    )
     timeout = 5.0
 
     def __init__(
@@ -61,7 +63,7 @@ class NetworkChecker(BaseChecker):
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=self.timeout + 1,
+                timeout=self.timeout * self.ping_count + 1,
             )
 
             if result.returncode == 0:
