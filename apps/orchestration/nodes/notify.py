@@ -1,6 +1,7 @@
 """Notify node handler — sends real notifications via configured channels."""
 
 import logging
+import time
 from typing import Any, Dict
 
 from apps.orchestration.nodes.base import BaseNodeHandler, NodeContext, NodeResult, NodeType
@@ -16,6 +17,7 @@ class NotifyNodeHandler(BaseNodeHandler):
         from apps.notify.models import NotificationChannel
         from apps.notify.views import DRIVER_REGISTRY
 
+        start_time = time.perf_counter()
         node_id = config.get("id", "notify")
         result = NodeResult(node_id=node_id, node_type="notify")
 
@@ -28,6 +30,7 @@ class NotifyNodeHandler(BaseNodeHandler):
 
         if not drivers:
             result.errors.append("Missing 'drivers' or 'driver' in notify config")
+            result.duration_ms = (time.perf_counter() - start_time) * 1000
             return result
 
         # Query active channels matching the configured driver types
@@ -42,6 +45,7 @@ class NotifyNodeHandler(BaseNodeHandler):
                 channels = [channel_obj]
             else:
                 result.errors.append(f"No active NotificationChannel found for drivers: {drivers}")
+                result.duration_ms = (time.perf_counter() - start_time) * 1000
                 return result
 
         # Build notification message from previous node outputs
@@ -126,6 +130,7 @@ class NotifyNodeHandler(BaseNodeHandler):
         if channels_attempted > 0 and channels_succeeded == 0:
             result.errors.append(f"All {channels_failed} notification channel(s) failed")
 
+        result.duration_ms = (time.perf_counter() - start_time) * 1000
         return result
 
     def _build_message(self, ctx: NodeContext, config: Dict[str, Any]):
