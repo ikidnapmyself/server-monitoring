@@ -48,7 +48,7 @@ class ProcessChecker(BaseChecker):
             ):
                 try:
                     proc_name = proc.info["name"].lower()
-                    if name_lower in proc_name or proc_name in name_lower:
+                    if name_lower in proc_name:
                         return {
                             "running": True,
                             "pid": proc.info["pid"],

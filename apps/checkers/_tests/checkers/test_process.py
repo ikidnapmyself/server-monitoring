@@ -83,6 +83,25 @@ class ProcessCheckerTests(TestCase):
         self.assertTrue(result.metrics["processes"]["python"]["running"])
 
     @patch("apps.checkers.checkers.process.psutil.process_iter")
+    def test_process_name_no_reverse_match(self, mock_process_iter):
+        """Does NOT match when process name is a substring of the search term (reverse match)."""
+        mock_proc = MagicMock()
+        mock_proc.info = {
+            "pid": 101,
+            "name": "sh",
+            "status": "running",
+            "cpu_percent": 0.0,
+            "memory_percent": 0.1,
+        }
+        mock_process_iter.return_value = [mock_proc]
+
+        # Searching for "bash" should NOT match a process named "sh" (sh ⊂ bash, but bash ⊄ sh)
+        checker = ProcessChecker(processes=["bash"])
+        result = checker.check()
+
+        self.assertFalse(result.metrics["processes"]["bash"]["running"])
+
+    @patch("apps.checkers.checkers.process.psutil.process_iter")
     def test_process_iter_nosuchprocess_and_accessdenied(self, mock_process_iter):
         """NoSuchProcess and AccessDenied on individual proc are skipped."""
         bad_proc1 = MagicMock()

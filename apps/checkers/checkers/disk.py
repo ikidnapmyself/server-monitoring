@@ -41,6 +41,7 @@ class DiskChecker(BaseChecker):
             worst_status = CheckStatus.OK
             worst_percent = 0.0
             worst_path = ""
+            error_path = ""
             disk_metrics = {}
 
             for path in self.paths:
@@ -63,10 +64,10 @@ class DiskChecker(BaseChecker):
                         worst_status = path_status
                         worst_path = path
 
-                except FileNotFoundError:
-                    disk_metrics[path] = {"error": "Path not found"}  # type: ignore[dict-item]
-                    worst_status = CheckStatus.UNKNOWN
-                    worst_path = path
+                except (FileNotFoundError, PermissionError) as exc:
+                    disk_metrics[path] = {"error": str(exc)}  # type: ignore[dict-item]
+                    if not error_path:
+                        error_path = path
 
             metrics = {
                 "disks": disk_metrics,
@@ -74,11 +75,13 @@ class DiskChecker(BaseChecker):
                 "worst_path": worst_path,
             }
 
-            if worst_status == CheckStatus.UNKNOWN:
-                message = f"Disk check error: path '{worst_path}' not found"
-            else:
-                message = f"Disk usage: {worst_path} at {worst_percent:.1f}%"
+            if error_path:
+                message = f"Disk check error: path '{error_path}' not accessible"
+                return self._make_result(
+                    status=CheckStatus.UNKNOWN, message=message, metrics=metrics
+                )
 
+            message = f"Disk usage: {worst_path} at {worst_percent:.1f}%"
             return self._make_result(status=worst_status, message=message, metrics=metrics)
 
         except Exception as e:

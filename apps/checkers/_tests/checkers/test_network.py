@@ -102,3 +102,14 @@ class PingHostEdgeCaseTests(TestCase):
 
         self.assertFalse(success)
         self.assertIsNone(latency)
+
+    @patch("apps.checkers.checkers.network.subprocess.run")
+    def test_subprocess_timeout_scales_with_ping_count(self, mock_run):
+        """Subprocess timeout is ping_count * per-host timeout + 1."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="")
+
+        checker = NetworkChecker(ping_count=3, timeout=5.0)
+        checker._ping_host("8.8.8.8")
+
+        _, kwargs = mock_run.call_args
+        self.assertAlmostEqual(kwargs["timeout"], 3 * 5.0 + 1)
