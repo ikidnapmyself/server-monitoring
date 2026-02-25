@@ -23,13 +23,55 @@ PROVIDERS: dict[str, type[BaseProvider]] = {
     "local": LocalRecommendationProvider,
 }
 
-# Conditionally register OpenAI provider if the package is available
+# Conditionally register AI providers — each is guarded by its SDK availability
 try:
     from apps.intelligence.providers.openai import OpenAIRecommendationProvider
 
     PROVIDERS["openai"] = OpenAIRecommendationProvider
 except ImportError:
     OpenAIRecommendationProvider = None  # type: ignore[misc, assignment]
+
+try:
+    from apps.intelligence.providers.claude import ClaudeRecommendationProvider
+
+    PROVIDERS["claude"] = ClaudeRecommendationProvider
+except ImportError:
+    ClaudeRecommendationProvider = None  # type: ignore[misc, assignment]
+
+try:
+    from apps.intelligence.providers.gemini import GeminiRecommendationProvider
+
+    PROVIDERS["gemini"] = GeminiRecommendationProvider
+except ImportError:
+    GeminiRecommendationProvider = None  # type: ignore[misc, assignment]
+
+try:
+    from apps.intelligence.providers.copilot import CopilotRecommendationProvider
+
+    PROVIDERS["copilot"] = CopilotRecommendationProvider
+except ImportError:
+    CopilotRecommendationProvider = None  # type: ignore[misc, assignment]
+
+try:
+    from apps.intelligence.providers.grok import GrokRecommendationProvider
+
+    PROVIDERS["grok"] = GrokRecommendationProvider
+except ImportError:
+    GrokRecommendationProvider = None  # type: ignore[misc, assignment]
+
+try:
+    from apps.intelligence.providers.ollama import OllamaRecommendationProvider
+
+    PROVIDERS["ollama"] = OllamaRecommendationProvider
+except ImportError:
+    OllamaRecommendationProvider = None  # type: ignore[misc, assignment]
+
+try:
+    from apps.intelligence.providers.mistral import MistralRecommendationProvider
+
+    PROVIDERS["mistral"] = MistralRecommendationProvider
+except ImportError:
+    MistralRecommendationProvider = None  # type: ignore[misc, assignment]
 
 
 def get_provider(
@@ -69,13 +111,19 @@ def list_providers() -> list[str]:
 __all__ = [
     "BaseAIProvider",
     "BaseProvider",
+    "ClaudeRecommendationProvider",
+    "CopilotRecommendationProvider",
+    "GeminiRecommendationProvider",
+    "GrokRecommendationProvider",
+    "LocalRecommendationProvider",
+    "MistralRecommendationProvider",
+    "OllamaRecommendationProvider",
+    "OpenAIRecommendationProvider",
+    "PROVIDERS",
     "Recommendation",
     "RecommendationPriority",
     "RecommendationType",
-    "LocalRecommendationProvider",
-    "OpenAIRecommendationProvider",
     "get_local_recommendations",
     "get_provider",
     "list_providers",
-    "PROVIDERS",
 ]

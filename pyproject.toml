@@ -15,6 +15,10 @@ dependencies = [
     "jinja2>=3.1.2",
     "django-object-actions>=4.3.0",
     "django-json-widget>=2.0.1",
+    "anthropic>=0.84.0",
+    "google-genai>=1.64.0",
+    "ollama>=0.6.1",
+    "mistralai>=1.12.4",
 ]
 
 [project.optional-dependencies]
