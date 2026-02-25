@@ -58,14 +58,13 @@ class TestGetActiveProvider(TestCase):
             config={"api_key": "key"},
             is_active=True,
         )
-        # Temporarily remove openai from PROVIDERS to simulate unavailable SDK
-        original = PROVIDERS.pop("openai", None)
-        try:
+        # Use patch.dict to temporarily remove openai without mutating dict ordering
+        providers_without_openai = {k: v for k, v in PROVIDERS.items() if k != "openai"}
+        with patch.dict(
+            "apps.intelligence.providers.PROVIDERS", providers_without_openai, clear=True
+        ):
             provider = get_active_provider()
             assert isinstance(provider, LocalRecommendationProvider)
-        finally:
-            if original is not None:
-                PROVIDERS["openai"] = original
 
     def test_inactive_provider_ignored(self):
         IntelligenceProvider.objects.create(
