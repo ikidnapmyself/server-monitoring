@@ -2,18 +2,16 @@
 
 ## Goal
 
-Replace env-var-based provider configuration with a database-driven `IntelligenceProvider` model (same pattern as `NotificationChannel`). Add 6 new AI provider drivers (Claude, Gemini, Copilot, Grok, Ollama, Mistral) alongside the existing OpenAI driver. The local provider becomes a context enricher that feeds system metrics into AI provider prompts.
+Replace env-var-based provider configuration with a database-driven `IntelligenceProvider` model (same pattern as `NotificationChannel`). Add 6 new AI provider drivers (Claude, Gemini, Copilot, Grok, Ollama, Mistral) alongside the existing OpenAI driver. The local provider remains the fallback/default when no AI provider is configured.
 
 ## Architecture
 
 ```
 Pipeline triggers intelligence stage
         ↓
-Local provider runs (always) → system context (processes, disk, CPU)
-        ↓
-If meaningful findings → inject as context into AI prompt
-        ↓
-Active AI provider (from DB) → incident + local context → LLM API → Recommendations
+DB has active AI provider?
+    YES → AI provider (from DB) → incident → LLM API → Recommendations
+    NO  → Local provider (fallback) → rule-based analysis → Recommendations
         ↓
 Recommendations stored in AnalysisRun
 ```
@@ -22,7 +20,7 @@ Recommendations stored in AnalysisRun
 
 1. **DB-driven config** — `IntelligenceProvider` model stores provider type, credentials (JSONField), active flag. No env vars required (but OpenAI backward-compat preserved).
 2. **Single active provider** — One provider is active at a time. `is_active` flag with DB constraint.
-3. **Local as context enricher** — Local provider always runs first. If it finds meaningful data (non-empty recommendations), findings are serialized into the AI provider's prompt.
+3. **Local as fallback** — Local provider runs when no AI provider is active in the DB. It provides rule-based recommendations without requiring any external API.
 4. **Official SDKs** — Each provider uses its official Python SDK with lazy imports (conditional on package availability).
 5. **Same prompt strategy** — All AI providers use the same system prompt and incident formatting as OpenAI. Only the API call differs.
 
@@ -57,13 +55,11 @@ Config JSONField per provider:
 
 Refactor existing `BaseProvider` to support:
 - Receiving config from DB (via `provider_config` dict)
-- Receiving local context (system metrics) to include in prompts
-- A shared `_build_prompt()` that includes local context section
 
 ### New Abstract: BaseAIProvider(BaseProvider)
 
 Intermediate class for all LLM-backed providers:
-- `_build_prompt(incident, local_context)` — shared prompt construction with local context injection
+- `_build_prompt(incident)` — shared prompt construction
 - `_parse_response(response)` — shared JSON response parsing (already in OpenAI, extract to base)
 - `_get_fallback_recommendation(incident, error_message)` — shared fallback
 
@@ -78,27 +74,6 @@ Intermediate class for all LLM-backed providers:
 | `grok.py` | GrokRecommendationProvider | `openai` | OpenAI-compatible endpoint (x.ai) |
 | `ollama.py` | OllamaRecommendationProvider | `ollama` | Local model, no API key needed |
 | `mistral.py` | MistralRecommendationProvider | `mistralai` | Mistral chat API |
-
-### Local Context Format
-
-When local provider finds meaningful data, it's formatted as:
-
-```
-## Local System Analysis
-
-### Memory
-Top processes by memory: python (45.2%), node (12.1%), postgres (8.3%)
-
-### Disk
-Large files found:
-- /var/log/syslog: 2.3 GB
-- /tmp/build-cache: 1.8 GB
-
-### CPU
-Processes above 80% CPU: java (92.1%), webpack (85.3%)
-```
-
-This gets appended to the incident prompt sent to the AI provider.
 
 ## Registration & Selection
 

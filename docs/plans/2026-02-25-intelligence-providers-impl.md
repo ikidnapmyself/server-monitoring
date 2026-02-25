@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Add 6 new AI provider drivers + DB-driven provider model + local context enrichment.
+**Goal:** Add 6 new AI provider drivers + DB-driven provider model.
 
-**Architecture:** DB model `IntelligenceProvider` stores provider config (like `NotificationChannel`). Local provider always runs as context enricher. Active AI provider receives incident + local context.
+**Architecture:** DB model `IntelligenceProvider` stores provider config (like `NotificationChannel`). Active AI provider receives incident and produces recommendations. Local provider is the fallback/default when no AI provider is configured.
 
 **Tech Stack:** Django, anthropic, google-genai, openai, ollama, mistralai
 
@@ -105,12 +105,11 @@ git commit -m "feat: add IntelligenceProvider model for DB-driven config"
 
 ---
 
-### Task 2: BaseAIProvider + Refactor OpenAI + Local Context
+### Task 2: BaseAIProvider + Refactor OpenAI
 
 **Files:**
 - Create: `apps/intelligence/providers/ai_base.py`
 - Modify: `apps/intelligence/providers/openai.py`
-- Modify: `apps/intelligence/providers/local.py`
 - Modify: `apps/intelligence/providers/__init__.py`
 
 **Step 1: Create BaseAIProvider**
@@ -132,10 +131,10 @@ class BaseAIProvider(BaseProvider):
         self.model = model or self.default_model
         self.max_tokens = max_tokens or self.default_max_tokens
 
-    def analyze(self, incident=None, analysis_type="", local_context="") -> list[Recommendation]:
+    def analyze(self, incident=None, analysis_type="") -> list[Recommendation]:
         if incident is None:
             return []
-        prompt = self._build_prompt(incident, local_context)
+        prompt = self._build_prompt(incident)
         try:
             response = self._call_api(prompt)
             return self._parse_response(response, incident_id=getattr(incident, "id", None))
@@ -147,9 +146,9 @@ class BaseAIProvider(BaseProvider):
         """Make the API call. Subclasses implement this."""
         ...
 
-    def _build_prompt(self, incident, local_context="") -> str:
-        """Build prompt with incident data + local context."""
-        # Extract from OpenAI's existing _build_prompt, add local_context section
+    def _build_prompt(self, incident) -> str:
+        """Build prompt with incident data."""
+        # Extract from OpenAI's existing _build_prompt
         ...
 
     def _parse_response(self, response, incident_id=None) -> list[Recommendation]:
@@ -165,37 +164,24 @@ class BaseAIProvider(BaseProvider):
     SYSTEM_PROMPT = "..."  # Shared system prompt
 ```
 
-**Step 2: Add local context generation to LocalRecommendationProvider**
-
-```python
-# In local.py — add method
-def get_context_summary(self, incident=None, analysis_type="") -> str:
-    """Run local analysis and return formatted context string for AI providers."""
-    recommendations = self.analyze(incident=incident, analysis_type=analysis_type)
-    if not recommendations:
-        return ""
-    # Format recommendations into readable context
-    ...
-```
-
-**Step 3: Refactor OpenAI to extend BaseAIProvider**
+**Step 2: Refactor OpenAI to extend BaseAIProvider**
 
 The existing OpenAI provider should extend BaseAIProvider, implementing only `_call_api()`.
 
-**Step 4: Update __init__.py**
+**Step 3: Update __init__.py**
 
-Export BaseAIProvider, update get_provider to support local_context injection.
+Export BaseAIProvider.
 
-**Step 5: Write tests**
+**Step 4: Write tests**
 
-Test BaseAIProvider._build_prompt with and without local context, _parse_response, fallback.
+Test BaseAIProvider._build_prompt, _parse_response, fallback.
 
-**Step 6: Run tests and commit**
+**Step 5: Run tests and commit**
 
 Run: `uv run pytest apps/intelligence/_tests/ -v --tb=short`
 
 ```bash
-git commit -m "feat: add BaseAIProvider with shared prompt/parsing and local context"
+git commit -m "feat: add BaseAIProvider with shared prompt/parsing logic"
 ```
 
 ---
@@ -421,14 +407,10 @@ def get_active_provider(**kwargs) -> BaseProvider:
     return LocalRecommendationProvider(**kwargs)
 ```
 
-**Step 2: Wire local context into orchestration**
-
-In the intelligence node handler, run local provider first, pass context to AI provider.
-
-**Step 3: Tests + commit**
+**Step 2: Tests + commit**
 
 ```bash
-git commit -m "feat: wire DB-driven provider selection with local context enrichment"
+git commit -m "feat: wire DB-driven provider selection with local fallback"
 ```
 
 ---
@@ -443,7 +425,7 @@ git commit -m "feat: wire DB-driven provider selection with local context enrich
 Add documentation for:
 - How to configure providers via Django admin
 - Config keys per provider
-- Local context enrichment behavior
+- Local provider as fallback/default behavior
 - Migration from env-var-based OpenAI
 
 **Commit:** `git commit -m "docs: update intelligence provider documentation"`
