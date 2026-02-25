@@ -291,10 +291,10 @@ class TestParseResponse(SimpleTestCase):
 class TestAnalyzeIncident(SimpleTestCase):
     """Tests for incident analysis."""
 
-    @patch.object(OpenAIRecommendationProvider, "_call_openai")
-    def test_analyze_incident_success(self, mock_call_openai):
+    @patch.object(OpenAIRecommendationProvider, "_call_api")
+    def test_analyze_incident_success(self, mock_call_api):
         """Test successful incident analysis."""
-        mock_call_openai.return_value = json.dumps(
+        mock_call_api.return_value = json.dumps(
             [
                 {
                     "type": "memory",
@@ -321,12 +321,12 @@ class TestAnalyzeIncident(SimpleTestCase):
 
         assert len(recommendations) == 1
         assert recommendations[0].incident_id == 123
-        mock_call_openai.assert_called_once()
+        mock_call_api.assert_called_once()
 
-    @patch.object(OpenAIRecommendationProvider, "_call_openai")
-    def test_analyze_incident_api_error(self, mock_call_openai):
+    @patch.object(OpenAIRecommendationProvider, "_call_api")
+    def test_analyze_incident_api_error(self, mock_call_api):
         """Test graceful handling of API errors."""
-        mock_call_openai.side_effect = Exception("API Error")
+        mock_call_api.side_effect = Exception("API Error")
 
         provider = OpenAIRecommendationProvider(api_key="test-key")
 
@@ -845,10 +845,10 @@ class TestCallOpenAIEdgeCases(SimpleTestCase):
 class TestAnalyzeEdgeCases(SimpleTestCase):
     """Additional tests for analyze method edge cases."""
 
-    @patch.object(OpenAIRecommendationProvider, "_call_openai")
-    def test_analyze_multiple_recommendations(self, mock_call_openai):
+    @patch.object(OpenAIRecommendationProvider, "_call_api")
+    def test_analyze_multiple_recommendations(self, mock_call_api):
         """Test analyzing incident that returns multiple recommendations."""
-        mock_call_openai.return_value = json.dumps(
+        mock_call_api.return_value = json.dumps(
             [
                 {"type": "memory", "priority": "high", "title": "Mem", "description": "Memory"},
                 {"type": "disk", "priority": "medium", "title": "Disk", "description": "Disk"},
@@ -871,10 +871,10 @@ class TestAnalyzeEdgeCases(SimpleTestCase):
         assert len(recommendations) == 2
         assert all(r.incident_id == 100 for r in recommendations)
 
-    @patch.object(OpenAIRecommendationProvider, "_call_openai")
-    def test_analyze_builds_correct_prompt(self, mock_call_openai):
+    @patch.object(OpenAIRecommendationProvider, "_call_api")
+    def test_analyze_builds_correct_prompt(self, mock_call_api):
         """Test that analyze builds prompt correctly from incident."""
-        mock_call_openai.return_value = "[]"
+        mock_call_api.return_value = "[]"
 
         provider = OpenAIRecommendationProvider(api_key="test-key")
 
@@ -889,7 +889,7 @@ class TestAnalyzeEdgeCases(SimpleTestCase):
 
         provider.analyze(incident)
 
-        # Check the prompt passed to _call_openai
-        call_args = mock_call_openai.call_args[0][0]
+        # Check the prompt passed to _call_api
+        call_args = mock_call_api.call_args[0][0]
         assert "Memory Alert" in call_args
         assert "High memory usage on server01" in call_args

@@ -6,6 +6,7 @@ Providers analyze system state and incidents to generate actionable recommendati
 
 from typing import Callable
 
+from apps.intelligence.providers.ai_base import BaseAIProvider
 from apps.intelligence.providers.base import (
     BaseProvider,
     Recommendation,
@@ -66,6 +67,7 @@ def list_providers() -> list[str]:
 
 
 __all__ = [
+    "BaseAIProvider",
     "BaseProvider",
     "Recommendation",
     "RecommendationPriority",
