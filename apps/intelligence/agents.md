@@ -16,8 +16,20 @@ Output contract (to orchestrator):
 ## Key modules
 
 - `apps/intelligence/providers/` — provider implementations and registry
+  - `ai_base.py` — `BaseAIProvider` shared by all LLM-backed providers
+  - `local.py` — Local analysis provider (fallback/default)
+  - `openai.py`, `claude.py`, `gemini.py`, `copilot.py`, `grok.py`, `ollama.py`, `mistral.py` — LLM providers
+  - `__init__.py` — `PROVIDERS` registry, `get_provider()`, `get_active_provider()`
+- `apps/intelligence/models.py` — `IntelligenceProvider` (DB-driven config), `AnalysisRun`
 - `apps/intelligence/management/commands/` — `get_recommendations`
 - `apps/intelligence/urls.py` — URL routing
+
+## Provider selection
+
+- **DB-driven**: `get_active_provider()` queries `IntelligenceProvider` model for active provider
+- **Fallback**: If no active DB provider, falls back to `LocalRecommendationProvider`
+- **Config**: Provider credentials stored in `IntelligenceProvider.config` JSONField
+- **Single active**: Only one provider can be `is_active=True` at a time (enforced by model)
 
 ## Boundary rules
 
