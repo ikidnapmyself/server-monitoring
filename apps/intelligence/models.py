@@ -4,7 +4,8 @@ Intelligence models.
 Tracks intelligence analysis runs for audit and debugging.
 """
 
-from django.db import models
+from django.db import models, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 
@@ -56,6 +57,13 @@ class IntelligenceProvider(models.Model):
 
     class Meta:
         ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["is_active"],
+                condition=Q(is_active=True),
+                name="unique_active_intelligence_provider",
+            )
+        ]
 
     def __str__(self):
         status = "active" if self.is_active else "inactive"
@@ -63,10 +71,13 @@ class IntelligenceProvider(models.Model):
 
     def save(self, *args, **kwargs):
         if self.is_active:
-            IntelligenceProvider.objects.filter(is_active=True).exclude(pk=self.pk).update(
-                is_active=False
-            )
-        super().save(*args, **kwargs)
+            with transaction.atomic():
+                IntelligenceProvider.objects.filter(is_active=True).exclude(pk=self.pk).update(
+                    is_active=False
+                )
+                super().save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
 
 
 class AnalysisRunStatus(models.TextChoices):

@@ -18,6 +18,27 @@ class IntelligenceProviderAdmin(admin.ModelAdmin):
     search_fields = ["name", "description"]
     readonly_fields = ["created_at", "updated_at"]
     formfield_overrides = {db_models.JSONField: {"widget": JSONEditorWidget}}
+    fieldsets = [
+        (
+            "General",
+            {
+                "fields": ["name", "provider", "is_active", "description"],
+            },
+        ),
+        (
+            "Configuration",
+            {
+                "fields": ["config"],
+                "classes": ["collapse"],
+            },
+        ),
+        (
+            "Timestamps",
+            {
+                "fields": ["created_at", "updated_at"],
+            },
+        ),
+    ]
 
 
 @admin.register(AnalysisRun)

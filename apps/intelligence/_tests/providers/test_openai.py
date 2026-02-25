@@ -67,7 +67,7 @@ class TestOpenAIProviderInitialization(SimpleTestCase):
         provider = OpenAIRecommendationProvider(api_key="test-key")
         client = provider.client
 
-        mock_openai_class.assert_called_once_with(api_key="test-key")
+        mock_openai_class.assert_called_once_with(api_key="test-key", timeout=30)
         assert client == mock_client
 
     @patch("openai.OpenAI")

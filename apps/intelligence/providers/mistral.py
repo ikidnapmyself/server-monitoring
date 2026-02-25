@@ -23,7 +23,9 @@ class MistralRecommendationProvider(BaseAIProvider):
             UserMessage,
         )
 
-        client = Mistral(api_key=self.api_key)
+        client = Mistral(
+            api_key=self.api_key, timeout_ms=self.timeout_s * 1000
+        )  # convert seconds → ms
         messages: list[AssistantMessage | SystemMessage | ToolMessage | UserMessage] = [
             SystemMessage(content=self.SYSTEM_PROMPT),
             UserMessage(content=prompt),

@@ -162,13 +162,16 @@ class AnalyzeExecutor(BaseExecutor):
         result = AnalyzeResult()
 
         try:
-            from apps.intelligence.providers import get_provider
+            from apps.intelligence.providers import get_active_provider, get_provider
 
             payload = ctx.payload
-            provider_name = payload.get("provider", "local")
+            provider_name = payload.get("provider")
             provider_config = payload.get("provider_config", {})
 
-            provider = get_provider(provider_name, **(provider_config or {}))
+            if provider_name:
+                provider = get_provider(provider_name, **(provider_config or {}))
+            else:
+                provider = get_active_provider(**(provider_config or {}))
             incident_id = ctx.incident_id
 
             incident = None
@@ -195,7 +198,7 @@ class AnalyzeExecutor(BaseExecutor):
                     # Convert object attributes to dict
                     recs_list.append(vars(r) if hasattr(r, "__dict__") else {"value": str(r)})
             result.recommendations = recs_list
-            result.model_info = {"provider": provider_name}
+            result.model_info = {"provider": getattr(provider, "name", provider_name or "local")}
 
             if recommendations:
                 first_rec = recommendations[0]

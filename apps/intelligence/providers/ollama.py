@@ -27,7 +27,7 @@ class OllamaRecommendationProvider(BaseAIProvider):
     def _call_api(self, prompt: str) -> str:
         from ollama import Client
 
-        client = Client(host=self.host)
+        client = Client(host=self.host, timeout=self.timeout_s)
         response = client.chat(
             model=self.model,
             messages=[

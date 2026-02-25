@@ -17,7 +17,7 @@ class ClaudeRecommendationProvider(BaseAIProvider):
     def _call_api(self, prompt: str) -> str:
         import anthropic
 
-        client = anthropic.Anthropic(api_key=self.api_key)
+        client = anthropic.Anthropic(api_key=self.api_key, timeout=self.timeout_s)
         message = client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,

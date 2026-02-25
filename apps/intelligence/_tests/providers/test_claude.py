@@ -49,7 +49,7 @@ class TestClaudeCallApi(SimpleTestCase):
         result = provider._call_api("Test prompt")
 
         assert result == '{"test": "response"}'
-        mock_anthropic_class.assert_called_once_with(api_key="test-key")
+        mock_anthropic_class.assert_called_once_with(api_key="test-key", timeout=30)
         mock_client.messages.create.assert_called_once()
         call_kwargs = mock_client.messages.create.call_args.kwargs
         assert call_kwargs["model"] == "claude-sonnet-4-20250514"

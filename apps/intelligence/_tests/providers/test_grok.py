@@ -55,7 +55,7 @@ class TestGrokCallApi(SimpleTestCase):
 
         assert result == '{"test": "response"}'
         mock_openai_class.assert_called_once_with(
-            api_key="test-key", base_url="https://api.x.ai/v1"
+            api_key="test-key", base_url="https://api.x.ai/v1", timeout=30
         )
         call_kwargs = mock_client.chat.completions.create.call_args.kwargs
         assert call_kwargs["model"] == "grok-3-mini"
@@ -76,7 +76,7 @@ class TestGrokCallApi(SimpleTestCase):
         provider._call_api("prompt")
 
         mock_openai_class.assert_called_once_with(
-            api_key="key", base_url="https://custom.xai.com/v1"
+            api_key="key", base_url="https://custom.xai.com/v1", timeout=30
         )
 
     @patch("openai.OpenAI")

@@ -2336,17 +2336,13 @@ name = "server-maintanence"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "anthropic" },
     { name = "celery" },
     { name = "coverage" },
     { name = "django", version = "5.2.10", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "django", version = "6.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "django-json-widget" },
     { name = "django-object-actions" },
-    { name = "google-genai" },
     { name = "jinja2" },
-    { name = "mistralai" },
-    { name = "ollama" },
     { name = "openai" },
     { name = "psutil" },
     { name = "python-dotenv" },
@@ -2354,10 +2350,20 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+ai = [
+    { name = "anthropic" },
+    { name = "google-genai" },
+    { name = "mistralai" },
+    { name = "ollama" },
+]
 dev = [
+    { name = "anthropic" },
     { name = "black" },
     { name = "django-stubs" },
+    { name = "google-genai" },
+    { name = "mistralai" },
     { name = "mypy" },
+    { name = "ollama" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -2368,7 +2374,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", specifier = ">=0.84.0" },
+    { name = "anthropic", marker = "extra == 'ai'", specifier = ">=0.84.0" },
+    { name = "anthropic", marker = "extra == 'dev'", specifier = ">=0.84.0" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=24.0.0" },
     { name = "celery", specifier = ">=5.6.2" },
     { name = "coverage", specifier = ">=7.13.1" },
@@ -2376,11 +2383,14 @@ requires-dist = [
     { name = "django-json-widget", specifier = ">=2.0.1" },
     { name = "django-object-actions", specifier = ">=4.3.0" },
     { name = "django-stubs", marker = "extra == 'dev'", specifier = ">=5.0.0" },
-    { name = "google-genai", specifier = ">=1.64.0" },
+    { name = "google-genai", marker = "extra == 'ai'", specifier = ">=1.64.0" },
+    { name = "google-genai", marker = "extra == 'dev'", specifier = ">=1.64.0" },
     { name = "jinja2", specifier = ">=3.1.2" },
-    { name = "mistralai", specifier = ">=1.12.4" },
+    { name = "mistralai", marker = "extra == 'ai'", specifier = ">=1.12.4" },
+    { name = "mistralai", marker = "extra == 'dev'", specifier = ">=1.12.4" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8.0" },
-    { name = "ollama", specifier = ">=0.6.1" },
+    { name = "ollama", marker = "extra == 'ai'", specifier = ">=0.6.1" },
+    { name = "ollama", marker = "extra == 'dev'", specifier = ">=0.6.1" },
     { name = "openai", specifier = ">=1.0.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "psutil", specifier = ">=5.9.0" },
@@ -2392,7 +2402,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
     { name = "types-psutil", marker = "extra == 'dev'", specifier = ">=5.9.5.20240423" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["ai", "dev"]
 
 [[package]]
 name = "six"
