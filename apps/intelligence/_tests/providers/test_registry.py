@@ -1,5 +1,7 @@
 """Tests for the intelligence provider registry and get_active_provider."""
 
+import importlib
+import sys
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, TestCase
@@ -30,6 +32,53 @@ class TestProviderRegistry(SimpleTestCase):
         assert "grok" in providers
         assert "ollama" in providers
         assert "mistral" in providers
+
+
+class TestProviderImportErrorFallback(SimpleTestCase):
+    """Tests for ImportError handling during provider registration.
+
+    Setting sys.modules[key] = None makes Python raise ImportError on import.
+    """
+
+    def _reload_with_blocked_import(self, blocked_module_path):
+        """Reload __init__.py with the given provider module blocked."""
+        import apps.intelligence.providers as pkg
+
+        with patch.dict(sys.modules, {blocked_module_path: None}):
+            importlib.reload(pkg)
+            result_providers = dict(pkg.PROVIDERS)
+
+        # Restore PROVIDERS to normal state
+        importlib.reload(pkg)
+        return result_providers
+
+    def test_openai_import_error_handled(self):
+        providers = self._reload_with_blocked_import("apps.intelligence.providers.openai")
+        assert "openai" not in providers
+
+    def test_claude_import_error_handled(self):
+        providers = self._reload_with_blocked_import("apps.intelligence.providers.claude")
+        assert "claude" not in providers
+
+    def test_gemini_import_error_handled(self):
+        providers = self._reload_with_blocked_import("apps.intelligence.providers.gemini")
+        assert "gemini" not in providers
+
+    def test_copilot_import_error_handled(self):
+        providers = self._reload_with_blocked_import("apps.intelligence.providers.copilot")
+        assert "copilot" not in providers
+
+    def test_grok_import_error_handled(self):
+        providers = self._reload_with_blocked_import("apps.intelligence.providers.grok")
+        assert "grok" not in providers
+
+    def test_ollama_import_error_handled(self):
+        providers = self._reload_with_blocked_import("apps.intelligence.providers.ollama")
+        assert "ollama" not in providers
+
+    def test_mistral_import_error_handled(self):
+        providers = self._reload_with_blocked_import("apps.intelligence.providers.mistral")
+        assert "mistral" not in providers
 
 
 class TestGetActiveProvider(TestCase):

@@ -645,6 +645,38 @@ class TestBuildPromptEdgeCases(SimpleTestCase):
         assert "Associated Alerts:" not in prompt
 
 
+class TestParseResponseItemError(SimpleTestCase):
+    """Tests for _parse_response when _parse_recommendation_item raises."""
+
+    @patch.object(OpenAIRecommendationProvider, "_parse_recommendation_item")
+    def test_parse_response_skips_items_raising_key_error(self, mock_parse_item):
+        """Test that KeyError in item parsing is caught and item skipped."""
+        mock_parse_item.side_effect = [KeyError("missing key"), MagicMock(type="general")]
+
+        provider = OpenAIRecommendationProvider(api_key="test-key")
+        response = json.dumps(
+            [
+                {"type": "memory", "description": "first"},
+                {"type": "disk", "description": "second"},
+            ]
+        )
+
+        recommendations = provider._parse_response(response)
+        # First item raises KeyError and is skipped; second returns a mock
+        assert len(recommendations) == 1
+
+    @patch.object(OpenAIRecommendationProvider, "_parse_recommendation_item")
+    def test_parse_response_skips_items_raising_value_error(self, mock_parse_item):
+        """Test that ValueError in item parsing is caught and item skipped."""
+        mock_parse_item.side_effect = ValueError("bad value")
+
+        provider = OpenAIRecommendationProvider(api_key="test-key")
+        response = json.dumps([{"type": "cpu", "description": "test"}])
+
+        recommendations = provider._parse_response(response)
+        assert len(recommendations) == 0
+
+
 class TestParseResponseEdgeCases(SimpleTestCase):
     """Additional tests for response parsing edge cases."""
 
