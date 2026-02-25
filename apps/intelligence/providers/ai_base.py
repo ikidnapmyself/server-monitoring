@@ -85,7 +85,7 @@ class BaseAIProvider(BaseProvider):
     @abstractmethod
     def _call_api(self, prompt: str) -> str:
         """Make the API call and return the response text. Subclasses implement this."""
-        ...
+        ...  # pragma: no cover
 
     # ------------------------------------------------------------------
     # Shared helpers
