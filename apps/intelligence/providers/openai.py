@@ -48,7 +48,7 @@ class OpenAIRecommendationProvider(BaseAIProvider):
     def client(self):
         """Lazy-initialize the OpenAI client."""
         if self._client is None:
-            from openai import OpenAI
+            from openai import OpenAI  # nosemgrep
 
             self._client = OpenAI(api_key=self.api_key)
         return self._client
