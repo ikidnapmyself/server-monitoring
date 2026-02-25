@@ -103,6 +103,25 @@ def get_provider(
     return provider_class(**kwargs)
 
 
+def get_active_provider(**kwargs) -> BaseProvider:
+    """Get the active provider from DB, falling back to local.
+
+    Queries IntelligenceProvider for an active record.  If found and its
+    driver class is available, returns a configured instance.  Otherwise
+    falls back to the local provider.
+    """
+    try:
+        from apps.intelligence.models import IntelligenceProvider as ProviderModel
+
+        db_provider = ProviderModel.objects.filter(is_active=True).first()
+        if db_provider and db_provider.provider in PROVIDERS:
+            cls = PROVIDERS[db_provider.provider]
+            return cls(**db_provider.config, **kwargs)
+    except Exception:
+        pass
+    return LocalRecommendationProvider(**kwargs)
+
+
 def list_providers() -> list[str]:
     """List all registered provider names."""
     return list(PROVIDERS.keys())
@@ -123,6 +142,7 @@ __all__ = [
     "Recommendation",
     "RecommendationPriority",
     "RecommendationType",
+    "get_active_provider",
     "get_local_recommendations",
     "get_provider",
     "list_providers",
