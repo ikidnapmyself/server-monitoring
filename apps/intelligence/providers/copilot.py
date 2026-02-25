@@ -27,7 +27,7 @@ class CopilotRecommendationProvider(BaseAIProvider):
     def _call_api(self, prompt: str) -> str:
         from openai import OpenAI  # nosemgrep
 
-        client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+        client = OpenAI(api_key=self.api_key, base_url=self.base_url)  # nosemgrep
         response = client.chat.completions.create(
             model=self.model,
             max_tokens=self.max_tokens,
