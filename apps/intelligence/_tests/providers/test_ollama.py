@@ -47,7 +47,7 @@ class TestOllamaCallApi(SimpleTestCase):
         result = provider._call_api("Test prompt")
 
         assert result == '{"test": "response"}'
-        mock_client_class.assert_called_once_with(host="http://localhost:11434")
+        mock_client_class.assert_called_once_with(host="http://localhost:11434", timeout=30)
         mock_client.chat.assert_called_once()
         call_kwargs = mock_client.chat.call_args.kwargs
         assert call_kwargs["model"] == "llama3.1"
@@ -66,7 +66,7 @@ class TestOllamaCallApi(SimpleTestCase):
         provider = OllamaRecommendationProvider(host="http://gpu:11434")
         provider._call_api("prompt")
 
-        mock_client_class.assert_called_once_with(host="http://gpu:11434")
+        mock_client_class.assert_called_once_with(host="http://gpu:11434", timeout=30)
 
     @patch("ollama.Client")
     def test_call_api_custom_model(self, mock_client_class):

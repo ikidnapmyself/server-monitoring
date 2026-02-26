@@ -131,6 +131,14 @@ class TestGetActiveProvider(TestCase):
             provider = get_active_provider()
             assert isinstance(provider, LocalRecommendationProvider)
 
+    def test_db_operational_error_falls_back_to_local(self):
+        from django.db import OperationalError
+
+        with patch("apps.intelligence.models.IntelligenceProvider.objects") as mock_objects:
+            mock_objects.filter.side_effect = OperationalError("connection refused")
+            provider = get_active_provider()
+            assert isinstance(provider, LocalRecommendationProvider)
+
     def test_kwargs_passed_to_provider(self):
         IntelligenceProvider.objects.create(
             name="test-openai",

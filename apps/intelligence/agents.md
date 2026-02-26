@@ -26,10 +26,12 @@ Output contract (to orchestrator):
 
 ## Provider selection
 
-- **DB-driven**: `get_active_provider()` queries `IntelligenceProvider` model for active provider
-- **Fallback**: If no active DB provider, falls back to `LocalRecommendationProvider`
+- **DB-driven (default)**: The orchestrator calls `get_active_provider()` which queries `IntelligenceProvider`
+  for the active DB record. If found, returns a configured provider instance.
+- **Explicit override**: If the pipeline payload specifies a `provider` key, `get_provider(name)` is used instead.
+- **Fallback**: If no active DB provider exists (or DB is unavailable), falls back to `LocalRecommendationProvider`
 - **Config**: Provider credentials stored in `IntelligenceProvider.config` JSONField
-- **Single active**: Only one provider can be `is_active=True` at a time (enforced by model)
+- **Single active**: Only one provider can be `is_active=True` at a time (enforced by model + UniqueConstraint)
 
 ## Boundary rules
 

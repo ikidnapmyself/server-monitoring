@@ -1,7 +1,7 @@
 """Tests for the GeminiRecommendationProvider."""
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -48,7 +48,7 @@ class TestGeminiCallApi(SimpleTestCase):
         result = provider._call_api("Test prompt")
 
         assert result == '{"test": "response"}'
-        mock_client_class.assert_called_once_with(api_key="test-key")
+        mock_client_class.assert_called_once_with(api_key="test-key", http_options=ANY)
         mock_client.models.generate_content.assert_called_once()
         call_kwargs = mock_client.models.generate_content.call_args.kwargs
         assert call_kwargs["model"] == "gemini-2.0-flash"

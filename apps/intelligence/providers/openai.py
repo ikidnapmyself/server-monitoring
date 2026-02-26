@@ -50,7 +50,7 @@ class OpenAIRecommendationProvider(BaseAIProvider):
         if self._client is None:
             from openai import OpenAI  # nosemgrep
 
-            self._client = OpenAI(api_key=self.api_key)  # nosemgrep
+            self._client = OpenAI(api_key=self.api_key, timeout=self.timeout_s)
         return self._client
 
     def _call_api(self, prompt: str) -> str:

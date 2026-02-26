@@ -110,6 +110,12 @@ def get_active_provider(**kwargs) -> BaseProvider:
     driver class is available, returns a configured instance.  Otherwise
     falls back to the local provider.
     """
+    import logging
+
+    from django.db import OperationalError, ProgrammingError
+
+    logger = logging.getLogger(__name__)
+
     try:
         from apps.intelligence.models import IntelligenceProvider as ProviderModel
 
@@ -117,8 +123,16 @@ def get_active_provider(**kwargs) -> BaseProvider:
         if db_provider and db_provider.provider in PROVIDERS:
             cls = PROVIDERS[db_provider.provider]
             return cls(**db_provider.config, **kwargs)
+    except (OperationalError, ProgrammingError) as exc:
+        logger.warning(
+            "DB unavailable when resolving active intelligence provider, falling back to local: %s",
+            exc,
+            exc_info=True,
+        )
     except Exception:
-        pass
+        logger.exception(
+            "Unexpected error resolving active intelligence provider, falling back to local"
+        )
     return LocalRecommendationProvider(**kwargs)
 
 

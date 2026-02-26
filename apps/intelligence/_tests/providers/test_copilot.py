@@ -55,7 +55,7 @@ class TestCopilotCallApi(SimpleTestCase):
 
         assert result == '{"test": "response"}'
         mock_openai_class.assert_called_once_with(
-            api_key="test-key", base_url="https://api.githubcopilot.com"
+            api_key="test-key", base_url="https://api.githubcopilot.com", timeout=30
         )
         call_kwargs = mock_client.chat.completions.create.call_args.kwargs
         assert call_kwargs["model"] == "gpt-4o"
@@ -75,7 +75,9 @@ class TestCopilotCallApi(SimpleTestCase):
         provider = CopilotRecommendationProvider(api_key="key", base_url="https://custom.url")
         provider._call_api("prompt")
 
-        mock_openai_class.assert_called_once_with(api_key="key", base_url="https://custom.url")
+        mock_openai_class.assert_called_once_with(
+            api_key="key", base_url="https://custom.url", timeout=30
+        )
 
     @patch("openai.OpenAI")
     def test_call_api_none_content_returns_empty(self, mock_openai_class):

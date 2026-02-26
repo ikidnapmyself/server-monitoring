@@ -30,6 +30,7 @@ class BaseAIProvider(BaseProvider):
     # Subclasses override these
     default_model: str = ""
     default_max_tokens: int = 1024
+    default_timeout_s: int = 30
 
     SYSTEM_PROMPT = (
         "You are an expert system administrator and incident response specialist.\n"
@@ -56,11 +57,13 @@ class BaseAIProvider(BaseProvider):
         api_key: str = "",
         model: str = "",
         max_tokens: int = 0,
+        timeout_s: int = 0,
         **kwargs: Any,
     ) -> None:
         self.api_key = api_key
         self.model = model or self.default_model
         self.max_tokens = max_tokens or self.default_max_tokens
+        self.timeout_s = timeout_s or self.default_timeout_s
 
     # ------------------------------------------------------------------
     # Public API

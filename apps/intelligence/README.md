@@ -264,9 +264,10 @@ Providers are configured via Django Admin (`IntelligenceProvider` model):
 
 1. Go to Admin > Intelligence > Intelligence Providers
 2. Create a provider with type, name, and config (JSON with api_key, model, etc.)
-3. Set `is_active=True` — only one can be active at a time
-4. The orchestrator calls `get_active_provider()` which queries the DB
-5. If no active provider exists, falls back to `local`
+3. Set `is_active=True` — only one can be active at a time (enforced by `UniqueConstraint`)
+4. The orchestrator calls `get_active_provider()` by default, which queries the DB
+5. If no active provider exists (or the DB is unavailable), falls back to `local`
+6. Pipeline configs can override with an explicit `provider` key, which calls `get_provider()` directly
 
 ```python
 from apps.intelligence.providers import get_active_provider

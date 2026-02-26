@@ -17,7 +17,12 @@ class GeminiRecommendationProvider(BaseAIProvider):
     def _call_api(self, prompt: str) -> str:
         from google import genai
 
-        client = genai.Client(api_key=self.api_key)
+        client = genai.Client(
+            api_key=self.api_key,
+            http_options=genai.types.HttpOptions(
+                timeout=self.timeout_s * 1000
+            ),  # convert seconds → ms
+        )
         response = client.models.generate_content(
             model=self.model,
             contents=prompt,

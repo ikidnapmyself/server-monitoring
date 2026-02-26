@@ -49,7 +49,7 @@ class TestMistralCallApi(SimpleTestCase):
         result = provider._call_api("Test prompt")
 
         assert result == '{"test": "response"}'
-        mock_mistral_class.assert_called_once_with(api_key="test-key")
+        mock_mistral_class.assert_called_once_with(api_key="test-key", timeout_ms=30000)
         mock_client.chat.complete.assert_called_once()
         call_kwargs = mock_client.chat.complete.call_args.kwargs
         assert call_kwargs["model"] == "mistral-small-latest"
