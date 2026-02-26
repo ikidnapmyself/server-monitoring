@@ -31,6 +31,7 @@ This top-level README is the entry point and documentation hub. App-specific doc
 - Shell scripts & CLI: [`bin/README.md`](bin/README.md)
 - Working with repo AI agents / conventions: 
   - [`CLAUDE.md`](CLAUDE.md)
+  - [`copilot-instructions.md`](.github/copilot-instructions.md)
   - [`agents.md`](agents.md)
 
 ## Requirements
