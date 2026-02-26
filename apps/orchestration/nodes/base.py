@@ -1,6 +1,8 @@
 """Base node handler and types for pipeline nodes."""
 
+import time
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List
@@ -68,6 +70,16 @@ class NodeResult:
             "skipped": self.skipped,
             "skip_reason": self.skip_reason,
         }
+
+
+@contextmanager
+def track_duration(result: "NodeResult"):
+    """Automatically set ``result.duration_ms`` on exit (normal or exception)."""
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        result.duration_ms = (time.perf_counter() - start) * 1000
 
 
 class BaseNodeHandler(ABC):
