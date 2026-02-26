@@ -221,14 +221,23 @@ When CPU usage is high:
 
 ## Provider Architecture
 
-The intelligence system uses a provider-based architecture:
+The intelligence system uses a provider-based architecture with DB-driven selection:
 
 ```
 apps/intelligence/
 ├── providers/
-│   ├── __init__.py      # Registry and exports
+│   ├── __init__.py      # Registry, get_active_provider, exports
 │   ├── base.py          # BaseProvider interface
-│   └── local.py         # LocalRecommendationProvider
+│   ├── ai_base.py       # BaseAIProvider (shared LLM logic)
+│   ├── local.py         # LocalRecommendationProvider (fallback/default)
+│   ├── openai.py        # OpenAI (GPT models)
+│   ├── claude.py        # Claude (Anthropic)
+│   ├── gemini.py        # Gemini (Google)
+│   ├── copilot.py       # GitHub Copilot
+│   ├── grok.py          # Grok (xAI)
+│   ├── ollama.py        # Ollama (local LLM)
+│   └── mistral.py       # Mistral AI
+├── models.py            # IntelligenceProvider (DB config)
 ├── views.py             # HTTP API endpoints
 ├── urls.py              # URL routing
 └── management/
@@ -236,33 +245,57 @@ apps/intelligence/
         └── get_recommendations.py
 ```
 
+### Available Providers
+
+| Provider | SDK | Config Keys |
+|----------|-----|-------------|
+| `local` | None (built-in) | `top_n_processes`, `large_file_threshold_mb`, `old_file_days` |
+| `openai` | `openai` | `api_key`, `model` (default: gpt-4o-mini), `max_tokens` |
+| `claude` | `anthropic` | `api_key`, `model` (default: claude-sonnet-4-20250514), `max_tokens` |
+| `gemini` | `google-genai` | `api_key`, `model` (default: gemini-2.0-flash), `max_tokens` |
+| `copilot` | `openai` | `api_key`, `model` (default: gpt-4o), `base_url`, `max_tokens` |
+| `grok` | `openai` | `api_key`, `model` (default: grok-3-mini), `base_url`, `max_tokens` |
+| `ollama` | `ollama` | `host` (default: http://localhost:11434), `model` (default: llama3.1), `max_tokens` |
+| `mistral` | `mistralai` | `api_key`, `model` (default: mistral-small-latest), `max_tokens` |
+
+### DB-Driven Provider Selection
+
+Providers are configured via Django Admin (`IntelligenceProvider` model):
+
+1. Go to Admin > Intelligence > Intelligence Providers
+2. Create a provider with type, name, and config (JSON with api_key, model, etc.)
+3. Set `is_active=True` — only one can be active at a time (enforced by `UniqueConstraint`)
+4. The orchestrator calls `get_active_provider()` by default, which queries the DB
+5. If no active provider exists (or the DB is unavailable), falls back to `local`
+6. Pipeline configs can override with an explicit `provider` key, which calls `get_provider()` directly
+
+```python
+from apps.intelligence.providers import get_active_provider
+
+# Returns the DB-configured active provider, or local as fallback
+provider = get_active_provider()
+recommendations = provider.analyze(incident)
+```
+
 ### Extending with New Providers
 
-1. Create a new provider in `apps/intelligence/providers/`:
+1. Create a new provider extending `BaseAIProvider`:
 
 ```python
-from apps.intelligence.providers.base import BaseProvider, Recommendation
+from apps.intelligence.providers.ai_base import BaseAIProvider
 
-class MyCustomProvider(BaseProvider):
-    name = "my_custom"
-    description = "My custom intelligence provider"
+class MyProvider(BaseAIProvider):
+    name = "myprovider"
+    description = "My custom LLM provider"
+    default_model = "my-model-v1"
 
-    def analyze(self, incident=None):
-        # Your analysis logic
-        return []
-
-    def get_recommendations(self):
-        # Your recommendations logic
-        return []
+    def _call_api(self, prompt: str) -> str:
+        # Call your LLM API and return the response text
+        ...
 ```
 
-2. Register it in `apps/intelligence/providers/__init__.py`:
-
-```python
-from apps.intelligence.providers.my_custom import MyCustomProvider
-
-PROVIDERS["my_custom"] = MyCustomProvider
-```
+2. Register it in `apps/intelligence/providers/__init__.py` with a try/except guard.
+3. Add the provider type to `IntelligenceProvider.PROVIDER_CHOICES` in `models.py`.
 
 ## Configuration Options
 
@@ -278,7 +311,7 @@ PROVIDERS["my_custom"] = MyCustomProvider
 Run the tests:
 
 ```bash
-uv run pytest apps/intelligence/tests.py -v
+uv run pytest apps/intelligence/_tests/ -v
 ```
 
 ## Integration with Alerts

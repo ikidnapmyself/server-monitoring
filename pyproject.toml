@@ -18,8 +18,21 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# AI provider SDKs — install with: uv sync --extra ai
+# Each SDK is guarded by a try/except ImportError in the provider registry,
+# so only the SDKs you install are available as active providers.
+ai = [
+    "anthropic>=0.84.0",
+    "google-genai>=1.64.0",
+    "ollama>=0.6.1",
+    "mistralai>=1.12.4",
+]
 # Dev tooling (format, lint, tests, typing)
 dev = [
+    "anthropic>=0.84.0",
+    "google-genai>=1.64.0",
+    "ollama>=0.6.1",
+    "mistralai>=1.12.4",
     "black>=24.0.0",
     "ruff>=0.6.0",
     "pytest>=8.0.0",

@@ -4,8 +4,80 @@ Intelligence models.
 Tracks intelligence analysis runs for audit and debugging.
 """
 
-from django.db import models
+from django.db import models, transaction
+from django.db.models import Q
 from django.utils import timezone
+
+
+class IntelligenceProvider(models.Model):
+    """Database-driven intelligence provider configuration.
+
+    Stores provider type and credentials, similar to NotificationChannel.
+    Only one provider can be active at a time.
+    """
+
+    PROVIDER_CHOICES = [
+        ("openai", "OpenAI"),
+        ("claude", "Claude (Anthropic)"),
+        ("gemini", "Gemini (Google)"),
+        ("copilot", "Copilot (GitHub)"),
+        ("grok", "Grok (xAI)"),
+        ("ollama", "Ollama (Local)"),
+        ("mistral", "Mistral"),
+    ]
+
+    name = models.CharField(
+        max_length=100,
+        unique=True,
+        help_text="Unique name for this provider (e.g., 'production-claude').",
+    )
+    provider = models.CharField(
+        max_length=50,
+        choices=PROVIDER_CHOICES,
+        db_index=True,
+        help_text="Provider driver type.",
+    )
+    config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Provider-specific config (api_key, model, max_tokens, etc.).",
+    )
+    is_active = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Whether this provider is the active one. Only one can be active.",
+    )
+    description = models.TextField(
+        blank=True,
+        default="",
+        help_text="Description of this provider configuration.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["is_active"],
+                condition=Q(is_active=True),
+                name="unique_active_intelligence_provider",
+            )
+        ]
+
+    def __str__(self):
+        status = "active" if self.is_active else "inactive"
+        return f"{self.name} ({self.provider}) [{status}]"
+
+    def save(self, *args, **kwargs):
+        if self.is_active:
+            with transaction.atomic():
+                IntelligenceProvider.objects.filter(is_active=True).exclude(pk=self.pk).update(
+                    is_active=False
+                )
+                super().save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
 
 
 class AnalysisRunStatus(models.TextChoices):

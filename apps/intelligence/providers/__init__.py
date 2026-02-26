@@ -6,6 +6,7 @@ Providers analyze system state and incidents to generate actionable recommendati
 
 from typing import Callable
 
+from apps.intelligence.providers.ai_base import BaseAIProvider
 from apps.intelligence.providers.base import (
     BaseProvider,
     Recommendation,
@@ -22,13 +23,55 @@ PROVIDERS: dict[str, type[BaseProvider]] = {
     "local": LocalRecommendationProvider,
 }
 
-# Conditionally register OpenAI provider if the package is available
+# Conditionally register AI providers — each is guarded by its SDK availability
 try:
     from apps.intelligence.providers.openai import OpenAIRecommendationProvider
 
     PROVIDERS["openai"] = OpenAIRecommendationProvider
 except ImportError:
     OpenAIRecommendationProvider = None  # type: ignore[misc, assignment]
+
+try:
+    from apps.intelligence.providers.claude import ClaudeRecommendationProvider
+
+    PROVIDERS["claude"] = ClaudeRecommendationProvider
+except ImportError:
+    ClaudeRecommendationProvider = None  # type: ignore[misc, assignment]
+
+try:
+    from apps.intelligence.providers.gemini import GeminiRecommendationProvider
+
+    PROVIDERS["gemini"] = GeminiRecommendationProvider
+except ImportError:
+    GeminiRecommendationProvider = None  # type: ignore[misc, assignment]
+
+try:
+    from apps.intelligence.providers.copilot import CopilotRecommendationProvider
+
+    PROVIDERS["copilot"] = CopilotRecommendationProvider
+except ImportError:
+    CopilotRecommendationProvider = None  # type: ignore[misc, assignment]
+
+try:
+    from apps.intelligence.providers.grok import GrokRecommendationProvider
+
+    PROVIDERS["grok"] = GrokRecommendationProvider
+except ImportError:
+    GrokRecommendationProvider = None  # type: ignore[misc, assignment]
+
+try:
+    from apps.intelligence.providers.ollama import OllamaRecommendationProvider
+
+    PROVIDERS["ollama"] = OllamaRecommendationProvider
+except ImportError:
+    OllamaRecommendationProvider = None  # type: ignore[misc, assignment]
+
+try:
+    from apps.intelligence.providers.mistral import MistralRecommendationProvider
+
+    PROVIDERS["mistral"] = MistralRecommendationProvider
+except ImportError:
+    MistralRecommendationProvider = None  # type: ignore[misc, assignment]
 
 
 def get_provider(
@@ -60,20 +103,61 @@ def get_provider(
     return provider_class(**kwargs)
 
 
+def get_active_provider(**kwargs) -> BaseProvider:
+    """Get the active provider from DB, falling back to local.
+
+    Queries IntelligenceProvider for an active record.  If found and its
+    driver class is available, returns a configured instance.  Otherwise
+    falls back to the local provider.
+    """
+    import logging
+
+    from django.db import OperationalError, ProgrammingError
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        from apps.intelligence.models import IntelligenceProvider as ProviderModel
+
+        db_provider = ProviderModel.objects.filter(is_active=True).first()
+        if db_provider and db_provider.provider in PROVIDERS:
+            cls = PROVIDERS[db_provider.provider]
+            return cls(**db_provider.config, **kwargs)
+    except (OperationalError, ProgrammingError) as exc:
+        logger.warning(
+            "DB unavailable when resolving active intelligence provider, falling back to local: %s",
+            exc,
+            exc_info=True,
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error resolving active intelligence provider, falling back to local"
+        )
+    return LocalRecommendationProvider(**kwargs)
+
+
 def list_providers() -> list[str]:
     """List all registered provider names."""
     return list(PROVIDERS.keys())
 
 
 __all__ = [
+    "BaseAIProvider",
     "BaseProvider",
+    "ClaudeRecommendationProvider",
+    "CopilotRecommendationProvider",
+    "GeminiRecommendationProvider",
+    "GrokRecommendationProvider",
+    "LocalRecommendationProvider",
+    "MistralRecommendationProvider",
+    "OllamaRecommendationProvider",
+    "OpenAIRecommendationProvider",
+    "PROVIDERS",
     "Recommendation",
     "RecommendationPriority",
     "RecommendationType",
-    "LocalRecommendationProvider",
-    "OpenAIRecommendationProvider",
+    "get_active_provider",
     "get_local_recommendations",
     "get_provider",
     "list_providers",
-    "PROVIDERS",
 ]

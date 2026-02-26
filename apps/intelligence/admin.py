@@ -5,8 +5,40 @@ from django.db import models as db_models
 from django.utils.html import format_html
 from django_json_widget.widgets import JSONEditorWidget
 
-from apps.intelligence.models import AnalysisRun
+from apps.intelligence.models import AnalysisRun, IntelligenceProvider
 from config.admin import prettify_json
+
+
+@admin.register(IntelligenceProvider)
+class IntelligenceProviderAdmin(admin.ModelAdmin):
+    """Admin for IntelligenceProvider model."""
+
+    list_display = ["name", "provider", "is_active", "updated_at"]
+    list_filter = ["provider", "is_active"]
+    search_fields = ["name", "description"]
+    readonly_fields = ["created_at", "updated_at"]
+    formfield_overrides = {db_models.JSONField: {"widget": JSONEditorWidget}}
+    fieldsets = [
+        (
+            "General",
+            {
+                "fields": ["name", "provider", "is_active", "description"],
+            },
+        ),
+        (
+            "Configuration",
+            {
+                "fields": ["config"],
+                "classes": ["collapse"],
+            },
+        ),
+        (
+            "Timestamps",
+            {
+                "fields": ["created_at", "updated_at"],
+            },
+        ),
+    ]
 
 
 @admin.register(AnalysisRun)

@@ -27,7 +27,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra ai
 
       - name: Check formatting (Black)
         run: uv run black --check .
@@ -52,7 +52,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra ai
 
       - name: Type check (mypy)
         env:
@@ -80,7 +80,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra ai
 
       - name: Run tests with coverage
         env:
@@ -116,7 +116,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra ai
 
       - name: Django system check
         env:
@@ -145,7 +145,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra ai
 
       - name: Django Security Check
         env:
