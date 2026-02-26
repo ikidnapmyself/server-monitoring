@@ -5,6 +5,8 @@ import logging
 import time
 from typing import Any, Dict
 
+from django.utils import timezone
+
 from apps.orchestration.nodes.base import (
     BaseNodeHandler,
     NodeContext,
@@ -49,6 +51,10 @@ class IngestNodeHandler(BaseNodeHandler):
                 result.duration_ms = (time.perf_counter() - start_time) * 1000
                 return result
 
+            # Record time before processing so we can filter to alerts
+            # created during this call and avoid a concurrency race.
+            before_process = timezone.now()
+
             # Process the webhook
             orchestrator = AlertOrchestrator()
             proc_result = orchestrator.process_webhook(
@@ -70,10 +76,17 @@ class IngestNodeHandler(BaseNodeHandler):
             if proc_result.errors:
                 result.errors.extend(proc_result.errors)
 
-            # Find the incident ID from the latest alert
+            # Find the incident ID from alerts created during this run.
+            # Filtering by received_at >= before_process avoids picking up an
+            # unrelated alert inserted concurrently by another process.
             from apps.alerts.models import Alert
 
-            latest_alert = Alert.objects.order_by("-received_at").select_related("incident").first()
+            latest_alert = (
+                Alert.objects.filter(received_at__gte=before_process)
+                .order_by("-received_at")
+                .select_related("incident")
+                .first()
+            )
             if latest_alert and latest_alert.incident_id:
                 result.output["incident_id"] = latest_alert.incident_id
                 result.output["alert_fingerprint"] = latest_alert.fingerprint
@@ -83,7 +96,7 @@ class IngestNodeHandler(BaseNodeHandler):
                 # This is done by the orchestrator reading from output
 
         except Exception as e:
-            logger.exception(f"Error in IngestNodeHandler: {e}")
+            logger.exception("Error in IngestNodeHandler: %s", e)
             result.errors.append(f"Ingest error: {str(e)}")
 
         result.duration_ms = (time.perf_counter() - start_time) * 1000

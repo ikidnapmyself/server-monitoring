@@ -1554,7 +1554,7 @@ class TestIngestNodeEdgeCases(TestCase):
             patch("apps.alerts.models.Alert.objects") as mock_alert_qs,
         ):
             mock_orch_cls.return_value.process_webhook.return_value = mock_proc_result
-            mock_alert_qs.order_by.return_value.select_related.return_value.first.return_value = (
+            mock_alert_qs.filter.return_value.order_by.return_value.select_related.return_value.first.return_value = (
                 None
             )
             result = handler.execute(ctx, {"id": "ingest-1"})
@@ -1617,7 +1617,7 @@ class TestIngestNodeEdgeCases(TestCase):
             mock_alert.incident_id = 42
             mock_alert.fingerprint = "abc123"
             mock_alert.severity = "warning"
-            mock_alert_qs.order_by.return_value.select_related.return_value.first.return_value = (
+            mock_alert_qs.filter.return_value.order_by.return_value.select_related.return_value.first.return_value = (
                 mock_alert
             )
             result = handler.execute(ctx, {"id": "ingest-1", "driver": "generic"})
@@ -1655,7 +1655,7 @@ class TestIngestNodeEdgeCases(TestCase):
             patch("apps.alerts.models.Alert.objects") as mock_alert_qs,
         ):
             mock_orch_cls.return_value.process_webhook.return_value = mock_proc_result
-            mock_alert_qs.order_by.return_value.select_related.return_value.first.return_value = (
+            mock_alert_qs.filter.return_value.order_by.return_value.select_related.return_value.first.return_value = (
                 None
             )
             result = handler.execute(ctx, {})
@@ -1901,3 +1901,155 @@ class TestNotifyBuildMessageNoOkChecks(TestCase):
         # But failed checks should be listed
         assert "disk" in captured_message.message.lower()
         assert "memory" in captured_message.message.lower()
+
+
+# =============================================================
+# New tests for fixes
+# =============================================================
+
+
+class TestContextNodeHandlerDurationMs(SimpleTestCase):
+    """duration_ms is populated by ContextNodeHandler."""
+
+    @patch("apps.checkers.checkers.CHECKER_REGISTRY", {"cpu": _OkChecker})
+    def test_duration_ms_is_nonzero(self):
+        """ContextNodeHandler sets duration_ms after running checkers."""
+        handler = get_node_handler("context")
+        ctx = NodeContext(trace_id="t", run_id="r")
+        result = handler.execute(ctx, {"checker_names": ["cpu"]})
+
+        assert result.duration_ms > 0
+
+    @patch("apps.checkers.checkers.CHECKER_REGISTRY", {})
+    def test_duration_ms_set_on_no_valid_checkers(self):
+        """duration_ms is set even when the node errors due to no valid checkers."""
+        handler = get_node_handler("context")
+        ctx = NodeContext(trace_id="t", run_id="r")
+        result = handler.execute(ctx, {"checker_names": ["nonexistent"]})
+
+        assert result.has_errors
+        assert result.duration_ms > 0
+
+
+@pytest.mark.django_db
+class TestNotifyNodeHandlerDurationMs(TestCase):
+    """duration_ms is populated by NotifyNodeHandler."""
+
+    def test_duration_ms_is_nonzero_on_success(self):
+        """NotifyNodeHandler sets duration_ms after sending notifications."""
+        from apps.notify.models import NotificationChannel
+
+        NotificationChannel.objects.create(
+            name="test-ch",
+            driver="slack",
+            config={"webhook_url": "https://hooks.slack.com/test"},
+            is_active=True,
+        )
+
+        handler = get_node_handler("notify")
+        ctx = NodeContext(trace_id="t", run_id="r")
+
+        with patch("apps.notify.views.DRIVER_REGISTRY") as mock_registry:
+            mock_driver_cls = MagicMock()
+            mock_driver_instance = MagicMock()
+            mock_driver_instance.validate_config.return_value = True
+            mock_driver_instance.send.return_value = {"success": True}
+            mock_driver_cls.return_value = mock_driver_instance
+            mock_registry.get.return_value = mock_driver_cls
+
+            result = handler.execute(ctx, {"drivers": ["slack"]})
+
+        assert result.duration_ms > 0
+
+    def test_duration_ms_set_on_missing_drivers_error(self):
+        """duration_ms is set even when the node errors due to missing drivers config."""
+        handler = get_node_handler("notify")
+        ctx = NodeContext(trace_id="t", run_id="r")
+        result = handler.execute(ctx, {})
+
+        assert result.has_errors
+        assert result.duration_ms > 0
+
+    def test_duration_ms_set_on_no_active_channels(self):
+        """duration_ms is set when the node errors due to no active channels."""
+        handler = get_node_handler("notify")
+        ctx = NodeContext(trace_id="t", run_id="r")
+
+        with patch("apps.notify.services.NotifySelector.resolve") as mock_resolve:
+            mock_resolve.return_value = ("generic", {}, "generic", None, None, "default")
+            result = handler.execute(ctx, {"drivers": ["slack"]})
+
+        assert result.has_errors
+        assert result.duration_ms > 0
+
+
+class TestIntelligenceMissingProvider(SimpleTestCase):
+    """Intelligence execute errors when provider is missing."""
+
+    def test_execute_missing_provider_returns_error(self):
+        """execute() with no 'provider' in config returns an error result."""
+        from apps.orchestration.nodes.intelligence import IntelligenceNodeHandler
+
+        handler = IntelligenceNodeHandler()
+        ctx = NodeContext(trace_id="t", run_id="r")
+
+        # Remove PYTEST_CURRENT_TEST so we exercise the new guard, not the pytest fast-path
+        import os
+
+        old_val = os.environ.pop("PYTEST_CURRENT_TEST", None)
+        try:
+            result = handler.execute(ctx, {})
+        finally:
+            if old_val is not None:
+                os.environ["PYTEST_CURRENT_TEST"] = old_val
+
+        assert result.has_errors
+        assert "provider" in result.errors[0].lower()
+        assert result.duration_ms > 0
+
+
+@pytest.mark.django_db
+class TestIngestNodeAlertFilteredByTimestamp(TestCase):
+    """Ingest node filters Alert lookup to alerts created during processing."""
+
+    def test_alert_filter_uses_received_at(self):
+        """Alert query filters by received_at__gte=before_process, not globally."""
+        from apps.orchestration.nodes.ingest import IngestNodeHandler
+
+        handler = IngestNodeHandler()
+        ctx = NodeContext(
+            trace_id="t",
+            run_id="r",
+            payload={
+                "driver": "generic",
+                "payload": {"title": "Test", "severity": "info"},
+            },
+        )
+
+        mock_proc_result = MagicMock()
+        mock_proc_result.alerts_created = 1
+        mock_proc_result.alerts_updated = 0
+        mock_proc_result.alerts_resolved = 0
+        mock_proc_result.incidents_created = 1
+        mock_proc_result.incidents_updated = 0
+        mock_proc_result.errors = []
+
+        with (
+            patch("apps.alerts.services.AlertOrchestrator") as mock_orch_cls,
+            patch("apps.alerts.models.Alert.objects") as mock_alert_qs,
+        ):
+            mock_orch_cls.return_value.process_webhook.return_value = mock_proc_result
+            mock_alert = MagicMock()
+            mock_alert.incident_id = 99
+            mock_alert.fingerprint = "fp-xyz"
+            mock_alert.severity = "info"
+            mock_alert_qs.filter.return_value.order_by.return_value.select_related.return_value.first.return_value = (
+                mock_alert
+            )
+            result = handler.execute(ctx, {})
+
+        # Verify filter() was called (received_at__gte=... constraint is applied)
+        assert mock_alert_qs.filter.called
+        call_kwargs = mock_alert_qs.filter.call_args[1]
+        assert "received_at__gte" in call_kwargs
+        assert result.output["incident_id"] == 99

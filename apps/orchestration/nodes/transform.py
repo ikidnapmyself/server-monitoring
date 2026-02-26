@@ -65,7 +65,7 @@ class TransformNodeHandler(BaseNodeHandler):
                 result.output = {"transformed": source_data, "source_node": source_node}
 
         except Exception as e:
-            logger.exception(f"Error in TransformNodeHandler: {e}")
+            logger.exception("Error in TransformNodeHandler: %s", e)
             result.errors.append(f"Transform error: {str(e)}")
 
         result.duration_ms = (time.perf_counter() - start_time) * 1000

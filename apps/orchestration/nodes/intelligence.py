@@ -36,7 +36,13 @@ class IntelligenceNodeHandler(BaseNodeHandler):
         try:
             from apps.intelligence.providers import PROVIDERS, get_provider
 
-            provider_name = config.get("provider", "local")
+            provider_name = config.get("provider")
+
+            if not provider_name:
+                result.errors.append("Missing required field: provider")
+                result.duration_ms = (time.perf_counter() - start_time) * 1000
+                return result
+
             provider_config = config.get("provider_config", {}) or {}
 
             # Fast-path when running in pytest to avoid heavy local scanning

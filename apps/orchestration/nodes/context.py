@@ -1,6 +1,7 @@
 """Context node handler — runs real system health checkers."""
 
 import logging
+import time
 from typing import Any, Dict
 
 from apps.orchestration.nodes.base import BaseNodeHandler, NodeContext, NodeResult, NodeType
@@ -16,6 +17,7 @@ class ContextNodeHandler(BaseNodeHandler):
         from apps.checkers.checkers import CHECKER_REGISTRY, get_enabled_checkers
         from apps.checkers.checkers.base import CheckStatus
 
+        start_time = time.perf_counter()
         node_id = config.get("id", "context")
         result = NodeResult(node_id=node_id, node_type="context")
 
@@ -32,6 +34,7 @@ class ContextNodeHandler(BaseNodeHandler):
 
         if not valid_names:
             result.errors.append("No valid checkers to run")
+            result.duration_ms = (time.perf_counter() - start_time) * 1000
             return result
 
         checks_run = 0
@@ -72,6 +75,7 @@ class ContextNodeHandler(BaseNodeHandler):
             "checks_failed": checks_failed,
             "results": results,
         }
+        result.duration_ms = (time.perf_counter() - start_time) * 1000
         return result
 
     def validate_config(self, config: Dict[str, Any]) -> list[str]:
