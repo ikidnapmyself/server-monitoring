@@ -123,6 +123,7 @@ class Alert(models.Model):
             models.Index(fields=["source", "fingerprint"]),
             models.Index(fields=["status", "severity"]),
             models.Index(fields=["started_at"]),
+            models.Index(fields=["-received_at"]),
         ]
 
     def __str__(self):
