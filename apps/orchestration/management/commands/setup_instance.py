@@ -599,6 +599,51 @@ class Command(BaseCommand):
             .first()
         )
 
+    def _show_existing_details(self, existing):
+        """
+        Display details of an existing wizard-created pipeline.
+
+        Args:
+            existing: PipelineDefinition instance.
+        """
+        from apps.notify.models import NotificationChannel
+
+        self.stdout.write(self.style.HTTP_INFO(f'\n--- Existing pipeline: "{existing.name}" ---'))
+
+        # Show node chain
+        nodes = existing.get_nodes()
+        if nodes:
+            chain = " → ".join(n.get("id", n.get("type", "?")) for n in nodes)
+            self.stdout.write(f"  Flow: {chain}")
+
+        # Show per-node details
+        for node in nodes:
+            node_type = node.get("type", "?")
+            node_config = node.get("config", {})
+            if node_type == "context":
+                checkers = node_config.get("checker_names", [])
+                if checkers:
+                    self.stdout.write(f"  Checkers: {', '.join(checkers)}")
+            elif node_type == "intelligence":
+                provider = node_config.get("provider", "?")
+                self.stdout.write(f"  Intelligence: {provider}")
+            elif node_type == "notify":
+                drivers = node_config.get("drivers", [])
+                if drivers:
+                    self.stdout.write(f"  Notify drivers: {', '.join(drivers)}")
+
+        # Show linked notification channels
+        wizard_channels = NotificationChannel.objects.filter(
+            description__startswith="[setup_wizard]", is_active=True
+        )
+        if wizard_channels.exists():
+            self.stdout.write("  Channels:")
+            for ch in wizard_channels:
+                self.stdout.write(f"    - {ch.name} ({ch.driver})")
+
+        created = existing.created_at.strftime("%Y-%m-%d %H:%M")
+        self.stdout.write(f"  Created: {created}")
+
     def _handle_rerun(self, existing):
         """
         Handle re-run when existing wizard config is detected.
@@ -611,8 +656,10 @@ class Command(BaseCommand):
         """
         from apps.notify.models import NotificationChannel
 
+        self._show_existing_details(existing)
+
         action = self._prompt_choice(
-            f'? Existing pipeline "{existing.name}" found. What would you like to do?',
+            "? What would you like to do?",
             [
                 ("reconfigure", "Reconfigure — Replace existing pipeline and channels"),
                 ("add", "Add another — Create additional pipeline alongside existing"),

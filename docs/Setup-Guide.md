@@ -649,10 +649,28 @@ uv run python manage.py run_pipeline --definition full --file alert.json
 
 ### Re-running the setup wizard
 
-The wizard detects existing configurations. When you re-run it, you can:
+The wizard detects existing configurations. When you re-run it, it shows the current pipeline
+details so you can make an informed decision:
+
+```
+--- Existing pipeline: "local-smart" ---
+  Flow: check_health → analyze_incident → notify_channels
+  Checkers: cpu, memory, disk
+  Intelligence: local
+  Notify drivers: slack
+  Channels:
+    - ops-slack (slack)
+  Created: 2026-02-28 14:30
+
+? What would you like to do?
+  1) Reconfigure — Replace existing pipeline and channels
+  2) Add another — Create additional pipeline alongside existing
+  3) Cancel
+```
 
 - **Reconfigure** — Deactivates existing pipeline and channels, creates new ones
 - **Add another** — Creates an additional pipeline alongside the existing one
+- **Cancel** — Exit without changes
 
 ```bash
 uv run python manage.py setup_instance
