@@ -606,43 +606,11 @@ class Command(BaseCommand):
         Args:
             existing: PipelineDefinition instance.
         """
-        from apps.notify.models import NotificationChannel
+        from apps.orchestration.services import PipelineInspector
 
-        self.stdout.write(self.style.HTTP_INFO(f'\n--- Existing pipeline: "{existing.name}" ---'))
-
-        # Show node chain
-        nodes = existing.get_nodes()
-        if nodes:
-            chain = " → ".join(n.get("id", n.get("type", "?")) for n in nodes)
-            self.stdout.write(f"  Flow: {chain}")
-
-        # Show per-node details
-        for node in nodes:
-            node_type = node.get("type", "?")
-            node_config = node.get("config", {})
-            if node_type == "context":
-                checkers = node_config.get("checker_names", [])
-                if checkers:
-                    self.stdout.write(f"  Checkers: {', '.join(checkers)}")
-            elif node_type == "intelligence":
-                provider = node_config.get("provider", "?")
-                self.stdout.write(f"  Intelligence: {provider}")
-            elif node_type == "notify":
-                drivers = node_config.get("drivers", [])
-                if drivers:
-                    self.stdout.write(f"  Notify drivers: {', '.join(drivers)}")
-
-        # Show linked notification channels
-        wizard_channels = NotificationChannel.objects.filter(
-            description__startswith="[setup_wizard]", is_active=True
-        )
-        if wizard_channels.exists():
-            self.stdout.write("  Channels:")
-            for ch in wizard_channels:
-                self.stdout.write(f"    - {ch.name} ({ch.driver})")
-
-        created = existing.created_at.strftime("%Y-%m-%d %H:%M")
-        self.stdout.write(f"  Created: {created}")
+        detail = PipelineInspector.get_by_name(existing.name)
+        if detail:
+            PipelineInspector.render_text(detail, self.stdout)
 
     def _handle_rerun(self, existing):
         """

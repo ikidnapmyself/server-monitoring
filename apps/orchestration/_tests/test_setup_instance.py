@@ -685,12 +685,12 @@ class DetectExistingTests(TestCase):
 
 
 class ShowExistingDetailsTests(TestCase):
-    """Tests for _show_existing_details."""
+    """Tests for _show_existing_details delegation to PipelineInspector."""
 
     def setUp(self):
         self.cmd = Command(stdout=StringIO(), stderr=StringIO())
 
-    def test_shows_node_chain(self):
+    def test_delegates_to_pipeline_inspector(self):
         defn = PipelineDefinition.objects.create(
             name="full",
             config={
@@ -700,35 +700,12 @@ class ShowExistingDetailsTests(TestCase):
                         "id": "check_health",
                         "type": "context",
                         "config": {"checker_names": ["cpu", "memory"]},
-                        "next": "analyze_incident",
-                    },
-                    {
-                        "id": "analyze_incident",
-                        "type": "intelligence",
-                        "config": {"provider": "local"},
                         "next": "notify_channels",
                     },
-                    {"id": "notify_channels", "type": "notify", "config": {"drivers": ["slack"]}},
-                ],
-            },
-            created_by="setup_instance",
-        )
-        self.cmd._show_existing_details(defn)
-        output = self.cmd.stdout.getvalue()
-        assert "check_health" in output
-        assert "analyze_incident" in output
-        assert "notify_channels" in output
-
-    def test_shows_checker_names(self):
-        defn = PipelineDefinition.objects.create(
-            name="local-monitor",
-            config={
-                "version": "1.0",
-                "nodes": [
                     {
-                        "id": "check_health",
-                        "type": "context",
-                        "config": {"checker_names": ["cpu", "memory"]},
+                        "id": "notify_channels",
+                        "type": "notify",
+                        "config": {"drivers": ["slack"]},
                     },
                 ],
             },
@@ -736,118 +713,19 @@ class ShowExistingDetailsTests(TestCase):
         )
         self.cmd._show_existing_details(defn)
         output = self.cmd.stdout.getvalue()
-        assert "cpu, memory" in output
+        assert "full" in output
+        assert "check_health" in output
 
-    def test_shows_intelligence_provider(self):
+    def test_handles_missing_pipeline_gracefully(self):
         defn = PipelineDefinition.objects.create(
-            name="ai-analyzed",
-            config={
-                "version": "1.0",
-                "nodes": [
-                    {"id": "analyze", "type": "intelligence", "config": {"provider": "openai"}},
-                ],
-            },
-            created_by="setup_instance",
-        )
-        self.cmd._show_existing_details(defn)
-        output = self.cmd.stdout.getvalue()
-        assert "openai" in output
-
-    def test_shows_notify_drivers(self):
-        defn = PipelineDefinition.objects.create(
-            name="direct",
-            config={
-                "version": "1.0",
-                "nodes": [
-                    {"id": "notify", "type": "notify", "config": {"drivers": ["slack", "email"]}},
-                ],
-            },
-            created_by="setup_instance",
-        )
-        self.cmd._show_existing_details(defn)
-        output = self.cmd.stdout.getvalue()
-        assert "slack, email" in output
-
-    def test_shows_wizard_channels(self):
-        defn = PipelineDefinition.objects.create(
-            name="direct",
+            name="test",
             config={"version": "1.0", "nodes": []},
             created_by="setup_instance",
         )
-        NotificationChannel.objects.create(
-            name="ops-slack",
-            driver="slack",
-            config={},
-            description="[setup_wizard] slack channel",
-        )
+        defn.delete()
         self.cmd._show_existing_details(defn)
         output = self.cmd.stdout.getvalue()
-        assert "ops-slack (slack)" in output
-
-    def test_shows_created_date(self):
-        defn = PipelineDefinition.objects.create(
-            name="direct",
-            config={"version": "1.0", "nodes": []},
-            created_by="setup_instance",
-        )
-        self.cmd._show_existing_details(defn)
-        output = self.cmd.stdout.getvalue()
-        assert "Created:" in output
-
-    def test_empty_nodes(self):
-        defn = PipelineDefinition.objects.create(
-            name="empty",
-            config={"version": "1.0", "nodes": []},
-            created_by="setup_instance",
-        )
-        self.cmd._show_existing_details(defn)
-        output = self.cmd.stdout.getvalue()
-        assert "empty" in output
-        assert "Flow:" not in output
-
-    def test_no_wizard_channels(self):
-        defn = PipelineDefinition.objects.create(
-            name="direct",
-            config={"version": "1.0", "nodes": []},
-            created_by="setup_instance",
-        )
-        self.cmd._show_existing_details(defn)
-        output = self.cmd.stdout.getvalue()
-        assert "Channels:" not in output
-
-    def test_empty_checker_names_and_drivers(self):
-        defn = PipelineDefinition.objects.create(
-            name="edge",
-            config={
-                "version": "1.0",
-                "nodes": [
-                    {"id": "ctx", "type": "context", "config": {"checker_names": []}},
-                    {"id": "ntf", "type": "notify", "config": {"drivers": []}},
-                ],
-            },
-            created_by="setup_instance",
-        )
-        self.cmd._show_existing_details(defn)
-        output = self.cmd.stdout.getvalue()
-        assert "Checkers:" not in output
-        assert "Notify drivers:" not in output
-
-    def test_unknown_node_type_skipped(self):
-        defn = PipelineDefinition.objects.create(
-            name="custom",
-            config={
-                "version": "1.0",
-                "nodes": [
-                    {"id": "transform_data", "type": "transform", "config": {}},
-                ],
-            },
-            created_by="setup_instance",
-        )
-        self.cmd._show_existing_details(defn)
-        output = self.cmd.stdout.getvalue()
-        assert "transform_data" in output  # shown in flow chain
-        assert "Checkers:" not in output
-        assert "Intelligence:" not in output
+        assert "test" not in output
 
 
 class HandleRerunTests(TestCase):
