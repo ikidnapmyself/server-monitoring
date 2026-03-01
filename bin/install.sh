@@ -349,6 +349,19 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     "$SCRIPT_DIR/setup_cron.sh"
 fi
 
+# Show existing pipeline definitions if any
+echo ""
+PIPELINE_COUNT=$(uv run python manage.py show_pipeline --json 2>/dev/null | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+if [ "$PIPELINE_COUNT" != "0" ] && [ "$PIPELINE_COUNT" != "" ]; then
+    info "Found $PIPELINE_COUNT configured pipeline(s):"
+    uv run python manage.py show_pipeline
+    echo ""
+else
+    info "No pipelines configured yet. Run the setup wizard to create one:"
+    echo "  uv run python manage.py setup_instance"
+    echo ""
+fi
+
 echo ""
 read -p "Would you like to set up shell aliases (e.g., sm-check-health)? [y/N] " -n 1 -r
 echo ""

@@ -75,6 +75,16 @@ class Command(BaseCommand):
             return
 
         self.stdout.write(self.style.HTTP_INFO(f"Pipeline Run: {run.run_id}"))
+
+        # Show active pipeline definitions for context
+        from apps.orchestration.services import PipelineInspector
+
+        details = PipelineInspector.list_all()
+        if details:
+            for detail in details:
+                PipelineInspector.render_text(detail, self.stdout)
+            self.stdout.write("")
+
         self.stdout.write(f"  Status: {run.status}")
         self.stdout.write(f"  Trace ID: {run.trace_id}")
         self.stdout.write(f"  Source: {run.source}")

@@ -496,6 +496,7 @@ pipeline_menu() {
     echo ""
 
     local options=(
+        "show_pipeline - View pipeline definitions"
         "run_pipeline - Execute a pipeline"
         "monitor_pipeline - Monitor pipeline execution"
         "Back to main menu"
@@ -503,10 +504,56 @@ pipeline_menu() {
 
     select opt in "${options[@]}"; do
         case $REPLY in
-            1) run_pipeline_menu ;;
-            2) monitor_pipeline_menu ;;
-            3) return ;;
+            1) show_pipeline_menu ;;
+            2) run_pipeline_menu ;;
+            3) monitor_pipeline_menu ;;
+            4) return ;;
             *) echo -e "${RED}Invalid option${NC}" ;;
+        esac
+        break
+    done
+}
+
+show_pipeline_menu() {
+    show_banner
+    echo -e "${BOLD}═══ show_pipeline ═══${NC}"
+    echo ""
+    echo "View pipeline definitions and their configuration"
+    echo ""
+
+    local options=(
+        "Show all active pipelines"
+        "Show all pipelines (including inactive)"
+        "Show specific pipeline"
+        "Show as JSON"
+        "Back"
+    )
+
+    select opt in "${options[@]}"; do
+        case $REPLY in
+            1)
+                confirm_and_run "uv run python manage.py show_pipeline"
+                ;;
+            2)
+                confirm_and_run "uv run python manage.py show_pipeline --all"
+                ;;
+            3)
+                read -p "Enter pipeline name: " pipeline_name
+                if [ -n "$pipeline_name" ]; then
+                    confirm_and_run "uv run python manage.py show_pipeline --name $pipeline_name"
+                else
+                    echo -e "${RED}Pipeline name required${NC}"
+                fi
+                ;;
+            4)
+                confirm_and_run "uv run python manage.py show_pipeline --json"
+                ;;
+            5)
+                return
+                ;;
+            *)
+                echo -e "${RED}Invalid option${NC}"
+                ;;
         esac
         break
     done
