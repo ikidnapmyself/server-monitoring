@@ -132,6 +132,34 @@ class ListAllTests(TestCase):
         assert result[0].channels[0]["name"] == "ops-slack"
         assert result[0].channels[0]["driver"] == "slack"
 
+    def test_channels_filtered_by_notify_drivers(self):
+        """Only channels whose driver matches notify_drivers are included."""
+        PipelineDefinition.objects.create(
+            name="slack-only",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {"id": "notify", "type": "notify", "config": {"drivers": ["slack"]}},
+                ],
+            },
+            created_by="setup_instance",
+        )
+        NotificationChannel.objects.create(
+            name="ops-slack",
+            driver="slack",
+            config={},
+            description="[setup_wizard] slack channel",
+        )
+        NotificationChannel.objects.create(
+            name="ops-email",
+            driver="email",
+            config={},
+            description="[setup_wizard] email channel",
+        )
+        result = PipelineInspector.list_all()
+        assert len(result[0].channels) == 1
+        assert result[0].channels[0]["driver"] == "slack"
+
     def test_no_intelligence_when_absent(self):
         PipelineDefinition.objects.create(
             name="direct",

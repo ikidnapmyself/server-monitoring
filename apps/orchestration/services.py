@@ -60,10 +60,15 @@ class PipelineInspector:
 
         # Wizard-created channels are global (not scoped per-pipeline)
         # since PipelineDefinition has no FK to NotificationChannel.
+        # Filter by driver to show only channels relevant to this pipeline.
         wizard_channels = NotificationChannel.objects.filter(
             description__startswith="[setup_wizard]", is_active=True
-        )
-        channels = [{"name": ch.name, "driver": ch.driver} for ch in wizard_channels]
+        ).order_by("name")
+        channels = [
+            {"name": ch.name, "driver": ch.driver}
+            for ch in wizard_channels
+            if ch.driver in notify_drivers
+        ]
 
         return PipelineDetail(
             name=defn.name,
