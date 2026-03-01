@@ -7,6 +7,7 @@ and bash scripts (cli.sh, install.sh).
 """
 
 from dataclasses import asdict, dataclass, field
+from typing import IO, Any
 
 from apps.notify.models import NotificationChannel
 from apps.orchestration.models import PipelineDefinition
@@ -26,7 +27,7 @@ class PipelineDetail:
     created_at: str = ""
     is_active: bool = True
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable dict."""
         return asdict(self)
 
@@ -45,6 +46,8 @@ class PipelineInspector:
         intelligence: str | None = None
         notify_drivers: list[str] = []
 
+        # Pipeline nodes are single-linear chains — one node per type.
+        # If multiple nodes of the same type exist, last one wins.
         for node in nodes:
             node_type = node.get("type", "?")
             node_config = node.get("config", {})
@@ -55,7 +58,8 @@ class PipelineInspector:
             elif node_type == "notify":
                 notify_drivers = node_config.get("drivers", [])
 
-        # Linked wizard-created channels
+        # Wizard-created channels are global (not scoped per-pipeline)
+        # since PipelineDefinition has no FK to NotificationChannel.
         wizard_channels = NotificationChannel.objects.filter(
             description__startswith="[setup_wizard]", is_active=True
         )
@@ -92,7 +96,7 @@ class PipelineInspector:
         return PipelineInspector._extract_detail(defn)
 
     @staticmethod
-    def render_text(detail: PipelineDetail, stdout) -> None:
+    def render_text(detail: PipelineDetail, stdout: IO[str]) -> None:
         """Write styled pipeline details to a Django command stdout."""
         from django.core.management.color import color_style
 
