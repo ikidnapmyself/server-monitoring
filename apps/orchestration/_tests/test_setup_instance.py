@@ -1,6 +1,7 @@
 """Tests for the setup_instance management command."""
 
 import os
+import sys
 import tempfile
 from io import StringIO
 from unittest.mock import patch
@@ -58,6 +59,35 @@ class PromptMultiTests(TestCase):
         result = self.cmd._prompt_multi("Pick:", [("a", "A"), ("b", "B")])
         assert result == ["a"]
 
+    @patch("builtins.input", side_effect=["abc", "1"])
+    def test_retries_on_non_numeric_input(self, _mock_input):
+        result = self.cmd._prompt_multi("Pick:", [("a", "A"), ("b", "B")])
+        assert result == ["a"]
+
+    @patch("builtins.input", return_value="")
+    def test_empty_input_accepts_defaults(self, _mock_input):
+        result = self.cmd._prompt_multi(
+            "Pick:", [("a", "A"), ("b", "B"), ("c", "C")], defaults=["a", "c"]
+        )
+        assert result == ["a", "c"]
+
+    @patch("builtins.input", return_value="2")
+    def test_explicit_input_overrides_defaults(self, _mock_input):
+        result = self.cmd._prompt_multi(
+            "Pick:", [("a", "A"), ("b", "B"), ("c", "C")], defaults=["a", "c"]
+        )
+        assert result == ["b"]
+
+    def test_defaults_shown_with_star_marker(self):
+        with patch("builtins.input", return_value=""):
+            self.cmd._prompt_multi(
+                "Pick:", [("a", "A"), ("b", "B"), ("c", "C")], defaults=["a", "c"]
+            )
+        output = self.cmd.stdout.getvalue()
+        assert "* 1) A" in output
+        assert "  2) B" in output
+        assert "* 3) C" in output
+
 
 class PromptInputTests(TestCase):
     """Tests for _prompt_input helper."""
@@ -79,6 +109,11 @@ class PromptInputTests(TestCase):
     def test_retries_when_required_and_empty(self, _mock_input):
         result = self.cmd._prompt_input("Enter value:", required=True)
         assert result == "val"
+
+    @patch("builtins.input", return_value="")
+    def test_returns_empty_string_when_not_required_no_default(self, _mock_input):
+        result = self.cmd._prompt_input("Enter value:")
+        assert result == ""
 
 
 class SelectAlertSourceTests(TestCase):
@@ -167,6 +202,60 @@ class ConfigureAlertsTests(TestCase):
         assert result == ["alertmanager"]
 
 
+class GetPlatformCheckersTests(TestCase):
+    """Tests for _get_platform_checkers helper."""
+
+    def setUp(self):
+        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
+
+    @patch.object(sys, "platform", "darwin")
+    def test_filters_out_disk_linux_on_macos(self):
+        options, _ = self.cmd._get_platform_checkers()
+        names = [val for val, _ in options]
+        assert "disk_macos" in names
+        assert "disk_linux" not in names
+
+    @patch.object(sys, "platform", "linux")
+    def test_filters_out_disk_macos_on_linux(self):
+        options, _ = self.cmd._get_platform_checkers()
+        names = [val for val, _ in options]
+        assert "disk_linux" in names
+        assert "disk_macos" not in names
+
+    @patch.object(sys, "platform", "darwin")
+    def test_defaults_include_platform_disk_on_macos(self):
+        _, defaults = self.cmd._get_platform_checkers()
+        assert "disk_macos" in defaults
+        assert "disk_linux" not in defaults
+
+    @patch.object(sys, "platform", "linux")
+    def test_defaults_include_platform_disk_on_linux(self):
+        _, defaults = self.cmd._get_platform_checkers()
+        assert "disk_linux" in defaults
+        assert "disk_macos" not in defaults
+
+    def test_defaults_always_include_core_checkers(self):
+        _, defaults = self.cmd._get_platform_checkers()
+        assert "cpu" in defaults
+        assert "memory" in defaults
+        assert "disk" in defaults
+        assert "disk_common" in defaults
+
+    def test_defaults_do_not_include_network_or_process(self):
+        _, defaults = self.cmd._get_platform_checkers()
+        assert "network" not in defaults
+        assert "process" not in defaults
+
+    @patch.object(sys, "platform", "win32")
+    def test_non_unix_platform_excludes_both_disk_variants(self):
+        options, defaults = self.cmd._get_platform_checkers()
+        names = [val for val, _ in options]
+        assert "disk_macos" not in names
+        assert "disk_linux" not in names
+        assert "disk_macos" not in defaults
+        assert "disk_linux" not in defaults
+
+
 class ConfigureCheckersTests(TestCase):
     """Tests for _configure_checkers step."""
 
@@ -185,17 +274,32 @@ class ConfigureCheckersTests(TestCase):
         assert "disk" in result["enabled"]
         assert result["disk_paths"] == "/,/home"
 
-    @patch("builtins.input", side_effect=["7", "8.8.8.8"])
+    @patch("builtins.input", side_effect=["6", "8.8.8.8"])
     def test_network_checker_asks_for_hosts(self, _mock_input):
         result = self.cmd._configure_checkers()
         assert "network" in result["enabled"]
         assert result["network_hosts"] == "8.8.8.8"
 
-    @patch("builtins.input", side_effect=["8", "nginx,postgres"])
+    @patch("builtins.input", side_effect=["7", "nginx,postgres"])
     def test_process_checker_asks_for_names(self, _mock_input):
         result = self.cmd._configure_checkers()
         assert "process" in result["enabled"]
         assert result["process_names"] == "nginx,postgres"
+
+    @patch("builtins.input", return_value="")
+    def test_accepts_defaults_on_enter(self, _mock_input):
+        """Pressing Enter without input selects the platform defaults."""
+        result = self.cmd._configure_checkers()
+        assert "cpu" in result["enabled"]
+        assert "memory" in result["enabled"]
+        assert "disk" in result["enabled"]
+        assert "disk_common" in result["enabled"]
+
+    def test_shows_detected_platform(self):
+        with patch("builtins.input", return_value=""):
+            self.cmd._configure_checkers()
+        output = self.cmd.stdout.getvalue()
+        assert "Detected platform:" in output
 
 
 class ConfigureIntelligenceTests(TestCase):
@@ -308,6 +412,15 @@ class ShowSummaryTests(TestCase):
         assert "grafana" in output
         assert "slack" in output
 
+    def test_summary_without_notify(self):
+        config = {
+            "preset": {"name": "direct", "label": "Direct"},
+        }
+        self.cmd._show_summary(config)
+        output = self.cmd.stdout.getvalue()
+        assert "Direct" in output
+        assert "Notification:" not in output
+
 
 class ConfirmApplyTests(TestCase):
     """Tests for _confirm_apply step."""
@@ -377,6 +490,22 @@ class WriteEnvTests(TestCase):
         finally:
             if os.path.exists(env_path):
                 os.unlink(env_path)
+
+    def test_preserves_comments_and_empty_lines(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
+            f.write("# A comment\n\nKEY=value\n")
+            f.flush()
+            env_path = f.name
+
+        try:
+            self.cmd._write_env(env_path, {"NEW": "val"})
+            with open(env_path) as f:
+                content = f.read()
+            assert "# A comment" in content
+            assert "KEY=value" in content
+            assert "NEW=val" in content
+        finally:
+            os.unlink(env_path)
 
     def test_adds_section_header_comment(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
@@ -555,6 +684,172 @@ class DetectExistingTests(TestCase):
         assert result is None
 
 
+class ShowExistingDetailsTests(TestCase):
+    """Tests for _show_existing_details."""
+
+    def setUp(self):
+        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
+
+    def test_shows_node_chain(self):
+        defn = PipelineDefinition.objects.create(
+            name="full",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {
+                        "id": "check_health",
+                        "type": "context",
+                        "config": {"checker_names": ["cpu", "memory"]},
+                        "next": "analyze_incident",
+                    },
+                    {
+                        "id": "analyze_incident",
+                        "type": "intelligence",
+                        "config": {"provider": "local"},
+                        "next": "notify_channels",
+                    },
+                    {"id": "notify_channels", "type": "notify", "config": {"drivers": ["slack"]}},
+                ],
+            },
+            created_by="setup_instance",
+        )
+        self.cmd._show_existing_details(defn)
+        output = self.cmd.stdout.getvalue()
+        assert "check_health" in output
+        assert "analyze_incident" in output
+        assert "notify_channels" in output
+
+    def test_shows_checker_names(self):
+        defn = PipelineDefinition.objects.create(
+            name="local-monitor",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {
+                        "id": "check_health",
+                        "type": "context",
+                        "config": {"checker_names": ["cpu", "memory"]},
+                    },
+                ],
+            },
+            created_by="setup_instance",
+        )
+        self.cmd._show_existing_details(defn)
+        output = self.cmd.stdout.getvalue()
+        assert "cpu, memory" in output
+
+    def test_shows_intelligence_provider(self):
+        defn = PipelineDefinition.objects.create(
+            name="ai-analyzed",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {"id": "analyze", "type": "intelligence", "config": {"provider": "openai"}},
+                ],
+            },
+            created_by="setup_instance",
+        )
+        self.cmd._show_existing_details(defn)
+        output = self.cmd.stdout.getvalue()
+        assert "openai" in output
+
+    def test_shows_notify_drivers(self):
+        defn = PipelineDefinition.objects.create(
+            name="direct",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {"id": "notify", "type": "notify", "config": {"drivers": ["slack", "email"]}},
+                ],
+            },
+            created_by="setup_instance",
+        )
+        self.cmd._show_existing_details(defn)
+        output = self.cmd.stdout.getvalue()
+        assert "slack, email" in output
+
+    def test_shows_wizard_channels(self):
+        defn = PipelineDefinition.objects.create(
+            name="direct",
+            config={"version": "1.0", "nodes": []},
+            created_by="setup_instance",
+        )
+        NotificationChannel.objects.create(
+            name="ops-slack",
+            driver="slack",
+            config={},
+            description="[setup_wizard] slack channel",
+        )
+        self.cmd._show_existing_details(defn)
+        output = self.cmd.stdout.getvalue()
+        assert "ops-slack (slack)" in output
+
+    def test_shows_created_date(self):
+        defn = PipelineDefinition.objects.create(
+            name="direct",
+            config={"version": "1.0", "nodes": []},
+            created_by="setup_instance",
+        )
+        self.cmd._show_existing_details(defn)
+        output = self.cmd.stdout.getvalue()
+        assert "Created:" in output
+
+    def test_empty_nodes(self):
+        defn = PipelineDefinition.objects.create(
+            name="empty",
+            config={"version": "1.0", "nodes": []},
+            created_by="setup_instance",
+        )
+        self.cmd._show_existing_details(defn)
+        output = self.cmd.stdout.getvalue()
+        assert "empty" in output
+        assert "Flow:" not in output
+
+    def test_no_wizard_channels(self):
+        defn = PipelineDefinition.objects.create(
+            name="direct",
+            config={"version": "1.0", "nodes": []},
+            created_by="setup_instance",
+        )
+        self.cmd._show_existing_details(defn)
+        output = self.cmd.stdout.getvalue()
+        assert "Channels:" not in output
+
+    def test_empty_checker_names_and_drivers(self):
+        defn = PipelineDefinition.objects.create(
+            name="edge",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {"id": "ctx", "type": "context", "config": {"checker_names": []}},
+                    {"id": "ntf", "type": "notify", "config": {"drivers": []}},
+                ],
+            },
+            created_by="setup_instance",
+        )
+        self.cmd._show_existing_details(defn)
+        output = self.cmd.stdout.getvalue()
+        assert "Checkers:" not in output
+        assert "Notify drivers:" not in output
+
+    def test_unknown_node_type_skipped(self):
+        defn = PipelineDefinition.objects.create(
+            name="custom",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {"id": "transform_data", "type": "transform", "config": {}},
+                ],
+            },
+            created_by="setup_instance",
+        )
+        self.cmd._show_existing_details(defn)
+        output = self.cmd.stdout.getvalue()
+        assert "transform_data" in output  # shown in flow chain
+        assert "Checkers:" not in output
+        assert "Intelligence:" not in output
+
+
 class HandleRerunTests(TestCase):
     """Tests for _handle_rerun."""
 
@@ -632,6 +927,159 @@ class ConfigureCheckersEdgeCaseTests(TestCase):
         assert "process_names" not in result
 
 
+class ConfigureNotifyExistingChannelsTests(TestCase):
+    """Tests for _configure_notify with existing channels."""
+
+    def setUp(self):
+        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
+
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "4",  # no existing channels → falls through to create new (generic)
+            "https://example.com/hook",
+            "",  # no headers
+            "ops-generic",
+        ],
+    )
+    def test_no_existing_channels_falls_through(self, _mock_input):
+        """When no existing channels, goes straight to create-new flow."""
+        result = self.cmd._configure_notify()
+        assert len(result) == 1
+        assert result[0]["driver"] == "generic"
+        assert "existing" not in result[0]
+
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "1",  # mode: use existing
+            "",  # accept all defaults (all existing channels)
+        ],
+    )
+    def test_reuse_existing_channels(self, _mock_input):
+        """Selecting 'Use existing' returns channels with existing=True."""
+        NotificationChannel.objects.create(
+            name="ops-slack",
+            driver="slack",
+            config={"webhook_url": "https://hooks.slack.com/xxx"},
+        )
+        NotificationChannel.objects.create(
+            name="ops-email",
+            driver="email",
+            config={"smtp_host": "smtp.example.com"},
+        )
+        result = self.cmd._configure_notify()
+        assert len(result) == 2
+        assert all(ch["existing"] is True for ch in result)
+        drivers = {ch["driver"] for ch in result}
+        assert drivers == {"slack", "email"}
+
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "1",  # mode: use existing
+            "1",  # select only first channel (alphabetically: ops-email)
+        ],
+    )
+    def test_reuse_specific_existing_channel(self, _mock_input):
+        """User can select specific existing channels."""
+        NotificationChannel.objects.create(
+            name="ops-slack",
+            driver="slack",
+            config={"webhook_url": "https://hooks.slack.com/xxx"},
+        )
+        NotificationChannel.objects.create(
+            name="ops-email",
+            driver="email",
+            config={"smtp_host": "smtp.example.com"},
+        )
+        result = self.cmd._configure_notify()
+        assert len(result) == 1
+        # Channels are sorted by name; ops-email comes first
+        assert result[0]["name"] == "ops-email"
+        assert result[0]["existing"] is True
+
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "2",  # mode: create new
+            "4",  # generic
+            "https://example.com/hook",
+            "",  # no headers
+            "new-webhook",
+        ],
+    )
+    def test_create_new_when_existing_available(self, _mock_input):
+        """Choosing 'Create new' ignores existing channels."""
+        NotificationChannel.objects.create(
+            name="ops-slack",
+            driver="slack",
+            config={},
+        )
+        result = self.cmd._configure_notify()
+        assert len(result) == 1
+        assert result[0]["name"] == "new-webhook"
+        assert "existing" not in result[0]
+
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "3",  # mode: both
+            "",  # accept all existing defaults
+            "4",  # create new: generic
+            "https://example.com/hook",
+            "",  # no headers
+            "new-webhook",
+        ],
+    )
+    def test_both_existing_and_new(self, _mock_input):
+        """Choosing 'Both' combines existing + new channels."""
+        NotificationChannel.objects.create(
+            name="ops-slack",
+            driver="slack",
+            config={"webhook_url": "https://hooks.slack.com/xxx"},
+        )
+        result = self.cmd._configure_notify()
+        assert len(result) == 2
+        existing = [ch for ch in result if ch.get("existing")]
+        new = [ch for ch in result if not ch.get("existing")]
+        assert len(existing) == 1
+        assert existing[0]["name"] == "ops-slack"
+        assert len(new) == 1
+        assert new[0]["name"] == "new-webhook"
+
+    def test_existing_channels_listed_in_output(self):
+        """Existing channels are displayed to the user."""
+        NotificationChannel.objects.create(
+            name="ops-slack",
+            driver="slack",
+            config={},
+        )
+        with patch("builtins.input", side_effect=["1", ""]):
+            self.cmd._configure_notify()
+        output = self.cmd.stdout.getvalue()
+        assert "ops-slack (slack)" in output
+        assert "Found 1 existing" in output
+
+    def test_inactive_channels_not_shown(self):
+        """Inactive channels are excluded from the existing list."""
+        NotificationChannel.objects.create(
+            name="inactive-ch",
+            driver="slack",
+            config={},
+            is_active=False,
+        )
+        # No existing active channels → falls through to create-new
+        with patch(
+            "builtins.input",
+            side_effect=["4", "https://example.com", "", "ops-generic"],
+        ):
+            result = self.cmd._configure_notify()
+        assert len(result) == 1
+        assert result[0]["driver"] == "generic"
+        assert "existing" not in result[0]
+
+
 class ConfigureNotifyEdgeCaseTests(TestCase):
     """Tests for _configure_notify edge cases."""
 
@@ -651,6 +1099,20 @@ class ConfigureNotifyEdgeCaseTests(TestCase):
         """Generic driver stores headers when provided."""
         result = self.cmd._configure_notify()
         assert result[0]["config"]["headers"] == '{"Authorization": "Bearer tok"}'
+
+    @patch("builtins.input", return_value="my-custom-ch")
+    @patch.object(
+        Command,
+        "_prompt_multi",
+        return_value=["custom_driver"],
+    )
+    def test_unknown_driver_collects_no_config(self, _mock_multi, _mock_input):
+        """A driver not in the known list creates a channel with empty config."""
+        result = self.cmd._configure_notify_new()
+        assert len(result) == 1
+        assert result[0]["driver"] == "custom_driver"
+        assert result[0]["config"] == {}
+        assert result[0]["name"] == "my-custom-ch"
 
 
 class ApplyConfigEnvTests(TestCase):
@@ -866,3 +1328,152 @@ class SetupInstanceIntegrationTests(TestCase):
 
         output = out.getvalue()
         assert "run_pipeline --definition local-monitor" in output
+
+    @patch(
+        "apps.orchestration.management.commands.setup_instance.Command._write_env",
+        return_value=None,
+    )
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "1",  # alert source: external
+            "1",  # preset: direct
+            "1",  # alerts: first driver
+            "1",  # notify mode: use existing
+            "",  # accept all existing channels
+            "Y",  # confirm
+        ],
+    )
+    def test_reuse_existing_channels_no_new_created(self, _mock_input, _mock_write_env):
+        """Using existing channels does not create duplicates."""
+        NotificationChannel.objects.create(
+            name="ops-slack",
+            driver="slack",
+            config={"webhook_url": "https://hooks.slack.com/xxx"},
+        )
+        out = StringIO()
+        call_command("setup_instance", stdout=out)
+
+        # No new channel created — still just the original one
+        assert NotificationChannel.objects.count() == 1
+        output = out.getvalue()
+        assert 'Using existing NotificationChannel "ops-slack"' in output
+
+    @patch(
+        "apps.orchestration.management.commands.setup_instance.Command._write_env",
+        return_value=None,
+    )
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "1",  # alert source: external
+            "1",  # preset: direct
+            "1",  # alerts: first driver
+            "3",  # notify mode: both
+            "",  # accept all existing channels
+            "4",  # create new: generic
+            "https://example.com/hook",
+            "",  # no headers
+            "new-webhook",
+            "Y",  # confirm
+        ],
+    )
+    def test_both_existing_and_new_channels(self, _mock_input, _mock_write_env):
+        """'Both' mode reuses existing and creates new channels."""
+        NotificationChannel.objects.create(
+            name="ops-slack",
+            driver="slack",
+            config={"webhook_url": "https://hooks.slack.com/xxx"},
+        )
+        out = StringIO()
+        call_command("setup_instance", stdout=out)
+
+        # Original + new = 2
+        assert NotificationChannel.objects.count() == 2
+        assert NotificationChannel.objects.filter(name="ops-slack").exists()
+        assert NotificationChannel.objects.filter(name="new-webhook").exists()
+
+        output = out.getvalue()
+        assert 'Using existing NotificationChannel "ops-slack"' in output
+        assert 'Created NotificationChannel "new-webhook"' in output
+
+    @patch(
+        "apps.orchestration.management.commands.setup_instance.Command._write_env",
+        return_value=None,
+    )
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "3",  # rerun: cancel
+        ],
+    )
+    def test_cancel_on_rerun_exits_early(self, _mock_input, _mock_write_env):
+        """Cancelling on rerun prompt exits without creating anything new."""
+        PipelineDefinition.objects.create(
+            name="direct",
+            config={"version": "1.0", "nodes": []},
+            tags=["setup_wizard"],
+            created_by="setup_instance",
+        )
+        out = StringIO()
+        call_command("setup_instance", stdout=out)
+        output = out.getvalue()
+        assert "Setup cancelled." in output
+        # Original pipeline unchanged
+        assert PipelineDefinition.objects.filter(is_active=True).count() == 1
+
+    @patch(
+        "apps.orchestration.management.commands.setup_instance.Command._write_env",
+        return_value=None,
+    )
+    @patch(
+        "apps.checkers.checkers.CHECKER_REGISTRY",
+        {"cpu": None, "memory": None},
+    )
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "2",  # alert source: local
+            "1",  # preset: local-monitor
+            "1,2",  # checkers: cpu, memory (= all in mocked registry)
+            "1",  # notify: slack
+            "https://hooks.slack.com/xxx",
+            "ops-alerts",
+            "Y",  # confirm
+        ],
+    )
+    def test_all_checkers_enabled_no_skip_env(self, _mock_input, mock_write_env):
+        """When all checkers are selected, CHECKERS_SKIP is not set."""
+        call_command("setup_instance", stdout=StringIO())
+        env_updates = mock_write_env.call_args[0][1]
+        assert "CHECKERS_SKIP" not in env_updates
+
+    @patch(
+        "apps.orchestration.management.commands.setup_instance.Command._write_env",
+        return_value=None,
+    )
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "2",  # rerun: add another
+            "1",  # alert source: external
+            "3",  # preset: ai-analyzed (different from existing "full")
+            "1",  # alerts
+            "1",  # intelligence: local
+            "1",  # notify: slack
+            "https://hooks.slack.com/xxx",
+            "ops-alerts",
+            "Y",  # confirm
+        ],
+    )
+    def test_add_another_no_name_collision(self, _mock_input, _mock_write_env):
+        """Add-another with different preset name needs no suffix."""
+        PipelineDefinition.objects.create(
+            name="full",
+            config={"version": "1.0", "nodes": []},
+            tags=["setup_wizard"],
+            created_by="setup_instance",
+        )
+        call_command("setup_instance", stdout=StringIO())
+        # New pipeline should be "ai-analyzed" (no suffix needed)
+        assert PipelineDefinition.objects.filter(name="ai-analyzed").exists()
