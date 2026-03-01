@@ -7,7 +7,7 @@ and bash scripts (cli.sh, install.sh).
 """
 
 from dataclasses import asdict, dataclass, field
-from typing import IO, Any
+from typing import Any
 
 from apps.notify.models import NotificationChannel
 from apps.orchestration.models import PipelineDefinition
@@ -96,7 +96,7 @@ class PipelineInspector:
         return PipelineInspector._extract_detail(defn)
 
     @staticmethod
-    def render_text(detail: PipelineDetail, stdout: IO[str]) -> None:
+    def render_text(detail: PipelineDetail, stdout: Any) -> None:
         """Write styled pipeline details to a Django command stdout."""
         from django.core.management.color import color_style
 
