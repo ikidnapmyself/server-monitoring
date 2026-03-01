@@ -9,6 +9,7 @@ Usage:
 """
 
 import os
+import sys
 
 from django.core.management.base import BaseCommand
 
@@ -104,23 +105,36 @@ class Command(BaseCommand):
                 pass
             self.stdout.write(self.style.WARNING(f"  Please enter 1-{len(options)}."))
 
-    def _prompt_multi(self, prompt, options):
+    def _prompt_multi(self, prompt, options, defaults=None):
         """
         Prompt user to select one or more options (comma-separated numbers).
 
         Args:
             prompt: Question text to display.
             options: List of (value, label) tuples.
+            defaults: Optional list of values to pre-select. When set,
+                pressing Enter without input accepts the defaults.
 
         Returns:
             List of selected values.
         """
+        default_indices = []
+        if defaults:
+            default_indices = [i + 1 for i, (val, _) in enumerate(options) if val in defaults]
+
         self.stdout.write(f"\n{prompt}")
-        for i, (_, label) in enumerate(options, 1):
-            self.stdout.write(f"  {i}) {label}")
+        for i, (val, label) in enumerate(options, 1):
+            marker = "*" if i in default_indices else " "
+            self.stdout.write(f"  {marker} {i}) {label}")
 
         while True:
-            raw = input("\n> (comma-separated, e.g. 1,3): ")
+            if default_indices:
+                default_hint = ",".join(str(i) for i in default_indices)
+                raw = input(f"\n> (comma-separated, default: {default_hint}): ").strip()
+            else:
+                raw = input("\n> (comma-separated, e.g. 1,3): ").strip()
+            if not raw and default_indices:
+                return [options[i - 1][0] for i in default_indices]
             try:
                 indices = [int(x.strip()) for x in raw.split(",") if x.strip()]
                 if indices and all(1 <= i <= len(options) for i in indices):
@@ -168,19 +182,65 @@ class Command(BaseCommand):
         options = [(name, name) for name in DRIVER_REGISTRY]
         return self._prompt_multi("? Which alert drivers do you want to enable?", options)
 
+    def _get_platform_checkers(self):
+        """
+        Return checkers relevant to the current OS, filtering out
+        platform-specific checkers that don't apply.
+
+        Returns:
+            Tuple of (options, defaults) where options is a list of
+            (value, label) tuples and defaults is a list of recommended
+            checker names.
+        """
+        from apps.checkers.checkers import CHECKER_REGISTRY
+
+        platform = sys.platform
+        # Map platform-specific checkers to their target platform
+        platform_filter = {
+            "disk_linux": "linux",
+            "disk_macos": "darwin",
+        }
+
+        options = []
+        for name in CHECKER_REGISTRY:
+            required_platform = platform_filter.get(name)
+            if required_platform and required_platform != platform:
+                continue
+            options.append((name, name))
+
+        # Sensible defaults: core checkers + platform-appropriate disk analysis
+        defaults = ["cpu", "memory", "disk", "disk_common"]
+        if platform == "darwin":
+            defaults.append("disk_macos")
+        elif platform == "linux":
+            defaults.append("disk_linux")
+
+        # Only include defaults that survived platform filtering
+        valid_names = {val for val, _ in options}
+        defaults = [d for d in defaults if d in valid_names]
+
+        return options, defaults
+
     def _configure_checkers(self):
         """
         Prompt user to select health checkers and per-checker config.
+
+        Detects the current OS to filter out irrelevant platform-specific
+        checkers and pre-selects sensible defaults.
 
         Returns:
             Dict with 'enabled' list and optional per-checker config keys:
             disk_paths, network_hosts, process_names.
         """
-        from apps.checkers.checkers import CHECKER_REGISTRY
-
         self.stdout.write(self.style.HTTP_INFO("\n--- Stage: Checkers ---"))
-        options = [(name, name) for name in CHECKER_REGISTRY]
-        selected = self._prompt_multi("? Which health checkers do you want to enable?", options)
+
+        platform_label = "macOS" if sys.platform == "darwin" else sys.platform.capitalize()
+        self.stdout.write(f"  Detected platform: {platform_label}")
+
+        options, defaults = self._get_platform_checkers()
+        selected = self._prompt_multi(
+            "? Which health checkers do you want to enable?", options, defaults=defaults
+        )
 
         result = {"enabled": selected}
 
@@ -216,16 +276,15 @@ class Command(BaseCommand):
 
         return result
 
-    def _configure_notify(self):
+    def _configure_notify_new(self):
         """
-        Prompt user to select notification channels and collect per-driver config.
+        Prompt user to create new notification channels from scratch.
 
         Returns:
             List of dicts, each with 'driver', 'name', 'config'.
         """
         from apps.notify.drivers import DRIVER_REGISTRY
 
-        self.stdout.write(self.style.HTTP_INFO("\n--- Stage: Notify ---"))
         options = [(name, name) for name in DRIVER_REGISTRY]
         selected = self._prompt_multi(
             "? Which notification channels do you want to configure?", options
@@ -257,6 +316,66 @@ class Command(BaseCommand):
 
             channel_name = self._prompt_input("    Channel name", default=f"ops-{driver_name}")
             channels.append({"driver": driver_name, "name": channel_name, "config": config})
+
+        return channels
+
+    def _configure_notify(self):
+        """
+        Prompt user to select notification channels.
+
+        If existing channels are found in the database, offers the choice
+        to reuse them, create new ones, or both. Existing channels are
+        returned with an ``existing`` flag so ``handle()`` skips creating
+        them again.
+
+        Returns:
+            List of dicts, each with 'driver', 'name', 'config', and
+            optionally 'existing': True for reused channels.
+        """
+        from apps.notify.models import NotificationChannel
+
+        self.stdout.write(self.style.HTTP_INFO("\n--- Stage: Notify ---"))
+
+        existing_qs = NotificationChannel.objects.filter(is_active=True).order_by("name")
+        if not existing_qs.exists():
+            return self._configure_notify_new()
+
+        existing_list = list(existing_qs)
+        self.stdout.write(f"  Found {len(existing_list)} existing notification channel(s):")
+        for ch in existing_list:
+            self.stdout.write(f"    - {ch.name} ({ch.driver})")
+
+        mode = self._prompt_choice(
+            "? Use existing channels, create new ones, or both?",
+            [
+                ("existing", "Use existing — Select from channels above"),
+                ("new", "Create new — Configure new channels from scratch"),
+                ("both", "Both — Select existing + add new ones"),
+            ],
+        )
+
+        channels = []
+
+        if mode in ("existing", "both"):
+            options = [(ch, f"{ch.name} ({ch.driver})") for ch in existing_list]
+            defaults = [ch for ch in existing_list]
+            selected = self._prompt_multi(
+                "? Which existing channels do you want to use?",
+                options,
+                defaults=defaults,
+            )
+            for ch in selected:
+                channels.append(
+                    {
+                        "driver": ch.driver,
+                        "name": ch.name,
+                        "config": ch.config,
+                        "existing": True,
+                    }
+                )
+
+        if mode in ("new", "both"):
+            channels.extend(self._configure_notify_new())
 
         return channels
 
@@ -608,10 +727,18 @@ class Command(BaseCommand):
         defn = self._create_pipeline_definition(config)
         self.stdout.write(self.style.SUCCESS(f'✓ Created PipelineDefinition "{defn.name}"'))
 
-        channels = self._create_notification_channels(notify)
+        new_notify = [ch for ch in notify if not ch.get("existing")]
+        reused_notify = [ch for ch in notify if ch.get("existing")]
+        channels = self._create_notification_channels(new_notify)
         for ch in channels:
             self.stdout.write(
                 self.style.SUCCESS(f'✓ Created NotificationChannel "{ch.name}" ({ch.driver})')
+            )
+        for ch in reused_notify:
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f'✓ Using existing NotificationChannel "{ch["name"]}" ({ch["driver"]})'
+                )
             )
 
         self.stdout.write(self.style.SUCCESS("\n✓ Configuration complete!"))
