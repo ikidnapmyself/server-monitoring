@@ -29,7 +29,7 @@ class AlertWebhookView(View):
     The driver can be auto-detected or specified in the URL.
     """
 
-    def post(self, request, driver=None):
+    def post(self, request: Any, driver: str | None = None) -> JsonResponse:
         """Handle incoming alert webhook."""
         try:
             # Parse JSON payload
@@ -109,7 +109,7 @@ class AlertWebhookView(View):
                 status=500,
             )
 
-    def get(self, request, driver=None):
+    def get(self, request: Any, driver: str | None = None) -> JsonResponse:
         """Health check endpoint."""
         return JsonResponse(
             {

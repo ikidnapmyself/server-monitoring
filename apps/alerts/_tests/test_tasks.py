@@ -71,7 +71,7 @@ class ServiceOrchestratorTasksTests(TestCase):
             def apply(self):
                 return _FakeResult(self._value)
 
-        def _fake_chain_builder(ctx):
+        def _fake_chain_builder(ctx: dict[str, Any]) -> _FakeChain:
             # Minimal context payload that downstream code expects.
             final_ctx: dict[str, Any] = {
                 **ctx,
