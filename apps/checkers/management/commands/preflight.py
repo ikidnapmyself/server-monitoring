@@ -123,7 +123,7 @@ class Command(BaseCommand):
                 elif level == "warning":
                     self.stdout.write(self.style.WARNING(f"  WARN {msg}"))
                 elif level == "info":
-                    self.stdout.write(f"  INFO {msg}")
+                    self.stdout.write(f"  \033[34mINFO\033[0m {msg}")
                 else:
                     self.stdout.write(self.style.SUCCESS(f"  OK   {msg}"))
                 if check["hint"]:
