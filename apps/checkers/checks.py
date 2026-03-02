@@ -20,6 +20,7 @@ Usage:
 """
 
 import os
+import re
 import subprocess
 import sys
 
@@ -296,6 +297,77 @@ def check_secret_key_strength(app_configs, **kwargs):
                     ' print(get_random_secret_key())"'
                 ),
                 id="checkers.W011",
+            )
+        )
+    return errors
+
+
+@register("environment")
+def check_env_file_exists(app_configs, **kwargs):
+    """Check that .env file exists."""
+    from django.conf import settings
+
+    errors = []
+    base_dir = str(getattr(settings, "BASE_DIR", ""))
+    env_path = os.path.join(base_dir, ".env")
+    if not os.path.isfile(env_path):
+        errors.append(
+            Warning(
+                ".env file not found",
+                hint="Copy .env.sample to .env and configure: cp .env.sample .env",
+                id="checkers.W012",
+            )
+        )
+    return errors
+
+
+@register("environment")
+def check_required_env_vars(app_configs, **kwargs):
+    """Check that required env vars from .env.sample are set."""
+    from django.conf import settings
+
+    errors = []
+    base_dir = str(getattr(settings, "BASE_DIR", ""))
+    sample_path = os.path.join(base_dir, ".env.sample")
+    if not os.path.isfile(sample_path):
+        return errors
+    try:
+        with open(sample_path) as f:
+            content = f.read()
+    except OSError:
+        return errors
+
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#") or not stripped:
+            continue
+        match = re.match(r"^([A-Z][A-Z0-9_]*)=", stripped)
+        if match:
+            var_name = match.group(1)
+            if var_name not in os.environ:
+                errors.append(
+                    Warning(
+                        f"Environment variable {var_name} not set" f" (defined in .env.sample)",
+                        hint=f"Set {var_name} in your .env file or shell environment.",
+                        id="checkers.W013",
+                    )
+                )
+    return errors
+
+
+@register("environment")
+def check_base_dir_writable(app_configs, **kwargs):
+    """Check that the project directory is writable."""
+    from django.conf import settings
+
+    errors = []
+    base_dir = str(getattr(settings, "BASE_DIR", ""))
+    if base_dir and not os.access(base_dir, os.W_OK):
+        errors.append(
+            Warning(
+                "Project directory is not writable",
+                hint="Cron logs and other output require write access to the project directory.",
+                id="checkers.W017",
             )
         )
     return errors

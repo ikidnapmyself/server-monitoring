@@ -1,14 +1,18 @@
 """Tests for Django system checks in the checkers app."""
 
-from unittest.mock import MagicMock, patch
+import os
+from unittest.mock import MagicMock, mock_open, patch
 
 from django.test import TestCase
 
 from apps.checkers.checks import (
+    check_base_dir_writable,
     check_crontab_configuration,
     check_database_connection,
     check_debug_mode,
+    check_env_file_exists,
     check_pending_migrations,
+    check_required_env_vars,
     check_secret_key_strength,
 )
 
@@ -165,3 +169,67 @@ class SecurityChecksTests(TestCase):
         """Test that secret key check is skipped during tests."""
         errors = check_secret_key_strength(app_configs=None)
         self.assertEqual(errors, [])
+
+
+class EnvironmentChecksTests(TestCase):
+    """Tests for environment system checks (.env, env vars, writable dir)."""
+
+    @patch("os.path.isfile", return_value=False)
+    def test_env_file_warns_when_missing(self, mock_isfile):
+        """Test that .env check warns when file is missing."""
+        errors = check_env_file_exists(app_configs=None)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].id, "checkers.W012")
+
+    @patch("os.path.isfile", return_value=True)
+    def test_env_file_ok_when_present(self, mock_isfile):
+        """Test that .env check passes when file exists."""
+        errors = check_env_file_exists(app_configs=None)
+        self.assertEqual(errors, [])
+
+    @patch("os.path.isfile", return_value=True)
+    def test_required_env_vars_warns_on_missing(self, mock_isfile):
+        """Test that required env vars check warns on missing variables."""
+        sample_content = "DJANGO_DEBUG=1\nOPENAI_API_KEY=\n"
+        with patch("builtins.open", mock_open(read_data=sample_content)):
+            with patch.dict("os.environ", {"DJANGO_DEBUG": "1"}, clear=False):
+                # Remove OPENAI_API_KEY if it exists
+                env = os.environ.copy()
+                env.pop("OPENAI_API_KEY", None)
+                with patch.dict("os.environ", env, clear=True):
+                    errors = check_required_env_vars(app_configs=None)
+                    warning_vars = [e.msg for e in errors]
+                    self.assertTrue(any("OPENAI_API_KEY" in msg for msg in warning_vars))
+                    self.assertTrue(all(e.id == "checkers.W013" for e in errors))
+
+    @patch("os.path.isfile", return_value=True)
+    def test_required_env_vars_ok_when_all_set(self, mock_isfile):
+        """Test that required env vars check passes when all vars are set."""
+        sample_content = "DJANGO_DEBUG=1\nOPENAI_API_KEY=\n"
+        with patch("builtins.open", mock_open(read_data=sample_content)):
+            with patch.dict(
+                "os.environ",
+                {"DJANGO_DEBUG": "1", "OPENAI_API_KEY": "sk-test"},
+                clear=False,
+            ):
+                errors = check_required_env_vars(app_configs=None)
+                self.assertEqual(errors, [])
+
+    @patch("os.path.isfile", return_value=False)
+    def test_required_env_vars_skips_when_no_sample(self, mock_isfile):
+        """Test that required env vars check skips when .env.sample is missing."""
+        errors = check_required_env_vars(app_configs=None)
+        self.assertEqual(errors, [])
+
+    @patch("os.access", return_value=True)
+    def test_base_dir_writable_ok(self, mock_access):
+        """Test that base dir writable check passes when directory is writable."""
+        errors = check_base_dir_writable(app_configs=None)
+        self.assertEqual(errors, [])
+
+    @patch("os.access", return_value=False)
+    def test_base_dir_not_writable_warns(self, mock_access):
+        """Test that base dir writable check warns when not writable."""
+        errors = check_base_dir_writable(app_configs=None)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].id, "checkers.W017")
