@@ -20,8 +20,14 @@ from apps.notify.drivers.pagerduty import PagerDutyNotifyDriver
 from apps.notify.drivers.slack import SlackNotifyDriver
 from apps.notify.models import NotificationChannel
 
-# Registry of available drivers
-DRIVER_REGISTRY = {
+_ConcreteDriver = (
+    type[EmailNotifyDriver]
+    | type[SlackNotifyDriver]
+    | type[PagerDutyNotifyDriver]
+    | type[GenericNotifyDriver]
+)
+
+DRIVER_REGISTRY: dict[str, _ConcreteDriver] = {
     "email": EmailNotifyDriver,
     "slack": SlackNotifyDriver,
     "pagerduty": PagerDutyNotifyDriver,
@@ -441,13 +447,12 @@ class Command(BaseCommand):
         msg_opts: dict[str, str],
     ) -> dict[str, Any]:
         """Instantiate driver, validate, send, and display the result."""
-        driver_class = DRIVER_REGISTRY.get(driver_name)
-        if not driver_class:
+        if driver_name not in DRIVER_REGISTRY:
             raise CommandError(
                 f"Unknown driver: {driver_name}. " f"Available: {', '.join(DRIVER_REGISTRY.keys())}"
             )
 
-        driver = driver_class()
+        driver = DRIVER_REGISTRY[driver_name]()
 
         if not driver.validate_config(config):
             self.stderr.write(
