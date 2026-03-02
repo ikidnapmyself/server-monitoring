@@ -18,6 +18,19 @@ Output contract (to orchestrator):
 - `apps/notify/drivers/` — notification drivers/backends
 - `apps/notify/models.py` — notification channel configuration models
 - `apps/notify/urls.py` — URL routing
+- `apps/notify/management/commands/test_notify.py` — interactive test notification wizard
+
+## Management command: test_notify
+
+Default mode is an **interactive wizard** that discovers active `NotificationChannel` records,
+prompts for message options, and provides a retry/switch loop. Use `--non-interactive` for
+CI/scripting (flag-based behavior).
+
+Key contract:
+- `_handle_interactive()` — wizard entry point, uses `_select_channel()`, `_prompt_message_options()`, `_send_and_show_result()`, `_post_send_loop()`
+- `_handle_non_interactive()` — original flag-based behavior, uses `NotifySelector.resolve()` for channel/driver resolution
+- `DRIVER_REGISTRY` — maps driver names to driver classes (email, slack, pagerduty, generic)
+- Interactive mode uses `builtins.input()` — tests mock this with `side_effect` lists
 
 ## Boundary rules
 

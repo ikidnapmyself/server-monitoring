@@ -172,7 +172,18 @@ The wizard creates:
 - A `NotificationChannel` for each notification driver you configured
 - Updated `.env` with `CHECKERS_SKIP` for any disabled checkers
 
-### Step 7: Verify with a dry run
+### Step 7: Test your notification channels
+
+Before running the full pipeline, verify that notifications are working:
+
+```bash
+uv run python manage.py test_notify
+```
+
+The interactive wizard lists the channels you just configured, lets you send a test
+notification, and retry with different options if something isn't right.
+
+### Step 8: Verify with a dry run
 
 ```bash
 uv run python manage.py run_pipeline --definition local-monitor --dry-run
@@ -181,7 +192,7 @@ uv run python manage.py run_pipeline --definition local-monitor --dry-run
 This shows the node chain and configuration without executing anything. Verify the nodes
 and config look correct.
 
-### Step 8: Run your first pipeline
+### Step 9: Run your first pipeline
 
 ```bash
 uv run python manage.py run_pipeline --definition local-monitor
@@ -190,7 +201,7 @@ uv run python manage.py run_pipeline --definition local-monitor
 You should see output showing each node executing in sequence: health checks run, results
 are collected, and a notification is sent through your configured channel.
 
-### Step 9: Set up recurring monitoring with cron
+### Step 10: Set up recurring monitoring with cron
 
 To run checks automatically on a schedule:
 
