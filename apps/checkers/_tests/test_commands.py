@@ -3,6 +3,7 @@
 from io import StringIO
 from unittest.mock import MagicMock, patch
 
+from django.core.checks import CheckMessage, Error
 from django.core.management import call_command
 from django.test import TestCase
 
@@ -132,3 +133,56 @@ class PreflightCommandTests(TestCase):
         data = json.loads(out.getvalue())
         self.assertIn("security", data["groups"])
         self.assertNotIn("pipeline", data["groups"])
+
+
+class PreflightDisplayTests(TestCase):
+    """Tests for preflight command display edge cases."""
+
+    def test_preflight_displays_error_level(self):
+        """Test that error-level checks are displayed with ERR prefix."""
+        mock_error = Error("Test error message", hint="Fix this", id="test.E001")
+        with patch(
+            "apps.checkers.management.commands.preflight.run_checks",
+            return_value=[mock_error],
+        ):
+            out = StringIO()
+            call_command("preflight", "--only", "security", stdout=out)
+            output = out.getvalue()
+            self.assertIn("ERR", output)
+            self.assertIn("Test error message", output)
+
+    def test_preflight_displays_ok_level(self):
+        """Test that non-error/warning/info checks show OK."""
+        # A plain CheckMessage (not Error/Warning/Info) should show as OK
+        mock_check = CheckMessage(0, "All good", id="test.C001")
+        with patch(
+            "apps.checkers.management.commands.preflight.run_checks",
+            return_value=[mock_check],
+        ):
+            out = StringIO()
+            call_command("preflight", "--only", "security", stdout=out)
+            output = out.getvalue()
+            self.assertIn("OK", output)
+
+    def test_preflight_no_checks_registered(self):
+        """Test display when a tag group has no checks."""
+        with patch(
+            "apps.checkers.management.commands.preflight.run_checks",
+            return_value=[],
+        ):
+            out = StringIO()
+            call_command("preflight", "--only", "security", stdout=out)
+            output = out.getvalue()
+            self.assertIn("no checks registered", output)
+
+    def test_preflight_error_summary_style(self):
+        """Test that summary uses error style when errors exist."""
+        mock_error = Error("Critical failure", id="test.E001")
+        with patch(
+            "apps.checkers.management.commands.preflight.run_checks",
+            return_value=[mock_error],
+        ):
+            out = StringIO()
+            call_command("preflight", "--only", "security", stdout=out)
+            output = out.getvalue()
+            self.assertIn("1 error(s)", output)

@@ -228,6 +228,21 @@ class EnvironmentChecksTests(TestCase):
         errors = check_required_env_vars(app_configs=None)
         self.assertEqual(errors, [])
 
+    @patch("os.path.isfile", return_value=True)
+    def test_required_env_vars_oserror_reading_sample(self, mock_isfile):
+        """Test graceful handling when .env.sample can't be read."""
+        with patch("builtins.open", side_effect=OSError("Permission denied")):
+            errors = check_required_env_vars(app_configs=None)
+            self.assertEqual(errors, [])
+
+    @patch("os.path.isfile", return_value=True)
+    def test_required_env_vars_skips_non_matching_lines(self, mock_isfile):
+        """Test that non-variable lines in .env.sample are skipped."""
+        sample_content = "# This is a comment\n\nlowercase=value\n"
+        with patch("builtins.open", mock_open(read_data=sample_content)):
+            errors = check_required_env_vars(app_configs=None)
+            self.assertEqual(errors, [])
+
     @patch("os.access", return_value=True)
     def test_base_dir_writable_ok(self, mock_access):
         """Test that base dir writable check passes when directory is writable."""
@@ -278,6 +293,26 @@ class PipelineChecksTests(TestCase):
         self.assertEqual(len(errors), 1)
         self.assertEqual(errors[0].id, "checkers.W014")
         self.assertIn("empty config", errors[0].msg)
+
+    def test_pipeline_status_handles_exception(self):
+        """Test pipeline status handles database errors gracefully."""
+        with patch(
+            "apps.orchestration.models.PipelineDefinition.objects.all",
+            side_effect=Exception("DB error"),
+        ):
+            errors = check_pipeline_status(app_configs=None)
+            self.assertEqual(len(errors), 1)
+            self.assertIn("Cannot check", errors[0].msg)
+
+    def test_notification_channels_handles_exception(self):
+        """Test notification channels handles database errors gracefully."""
+        with patch(
+            "apps.notify.models.NotificationChannel.objects.filter",
+            side_effect=Exception("DB error"),
+        ):
+            errors = check_notification_channels(app_configs=None)
+            self.assertEqual(len(errors), 1)
+            self.assertIn("Cannot check", errors[0].msg)
 
     def test_notification_channels_ok_when_valid(self):
         """Test notification channels check passes with valid config."""
@@ -353,6 +388,52 @@ class CronLogChecksTests(TestCase):
     @patch("os.path.getsize", return_value=1024)
     def test_cron_log_size_ok_when_small(self, mock_getsize, mock_isfile):
         """Test that cron log size check passes when log is small."""
+        errors = check_cron_log_size(app_configs=None)
+        self.assertEqual(errors, [])
+
+    @patch("apps.checkers.checks._is_testing", return_value=False)
+    @patch("os.path.isfile", return_value=True)
+    @patch("subprocess.run")
+    def test_cron_log_freshness_skips_when_cron_not_configured(
+        self, mock_subprocess, mock_isfile, mock_is_testing
+    ):
+        """Test freshness check skips when cron is not configured for this project."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "* * * * * /some/other/job"  # No server-maintanence
+        mock_subprocess.return_value = mock_result
+        errors = check_cron_log_freshness(app_configs=None)
+        self.assertEqual(errors, [])
+
+    @patch("apps.checkers.checks._is_testing", return_value=False)
+    @patch("os.path.isfile", return_value=True)
+    @patch("subprocess.run")
+    @patch("os.path.getmtime", side_effect=OSError("Permission denied"))
+    def test_cron_log_freshness_handles_oserror(
+        self, mock_getmtime, mock_subprocess, mock_isfile, mock_is_testing
+    ):
+        """Test freshness check handles OSError on getmtime."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "* * * * * server-maintanence check"
+        mock_subprocess.return_value = mock_result
+        errors = check_cron_log_freshness(app_configs=None)
+        self.assertEqual(errors, [])
+
+    @patch("apps.checkers.checks._is_testing", return_value=False)
+    @patch("os.path.isfile", return_value=True)
+    @patch("subprocess.run", side_effect=Exception("crontab failed"))
+    def test_cron_log_freshness_handles_subprocess_exception(
+        self, mock_subprocess, mock_isfile, mock_is_testing
+    ):
+        """Test freshness check handles subprocess exception gracefully."""
+        errors = check_cron_log_freshness(app_configs=None)
+        self.assertEqual(errors, [])
+
+    @patch("os.path.isfile", return_value=True)
+    @patch("os.path.getsize", side_effect=OSError("Permission denied"))
+    def test_cron_log_size_handles_oserror(self, mock_getsize, mock_isfile):
+        """Test size check handles OSError gracefully."""
         errors = check_cron_log_size(app_configs=None)
         self.assertEqual(errors, [])
 
