@@ -11,10 +11,14 @@ from apps.checkers.checks import (
     check_database_connection,
     check_debug_mode,
     check_env_file_exists,
+    check_notification_channels,
     check_pending_migrations,
+    check_pipeline_status,
     check_required_env_vars,
     check_secret_key_strength,
 )
+from apps.notify.models import NotificationChannel
+from apps.orchestration.models import PipelineDefinition
 
 
 class SystemChecksTests(TestCase):
@@ -233,3 +237,54 @@ class EnvironmentChecksTests(TestCase):
         errors = check_base_dir_writable(app_configs=None)
         self.assertEqual(len(errors), 1)
         self.assertEqual(errors[0].id, "checkers.W017")
+
+
+class PipelineChecksTests(TestCase):
+    """Tests for pipeline system checks (definitions, notification channels)."""
+
+    def test_pipeline_status_info_with_definitions(self):
+        """Test pipeline status reports active/inactive counts."""
+        PipelineDefinition.objects.create(name="pipeline-active", is_active=True)
+        PipelineDefinition.objects.create(name="pipeline-inactive", is_active=False)
+        errors = check_pipeline_status(app_configs=None)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].id, "checkers.I001")
+        self.assertIn("2 pipeline", errors[0].msg)
+        self.assertIn("1 active", errors[0].msg)
+
+    def test_pipeline_status_info_with_none(self):
+        """Test pipeline status reports zero definitions."""
+        errors = check_pipeline_status(app_configs=None)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].id, "checkers.I001")
+        self.assertIn("0 pipeline", errors[0].msg)
+
+    def test_notification_channels_warns_when_none_active(self):
+        """Test notification channels check warns when no active channels."""
+        errors = check_notification_channels(app_configs=None)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].id, "checkers.W014")
+        self.assertIn("No active", errors[0].msg)
+
+    def test_notification_channels_warns_on_empty_config(self):
+        """Test notification channels check warns on empty config."""
+        NotificationChannel.objects.create(
+            name="test-channel", driver="generic", config={}, is_active=True
+        )
+        errors = check_notification_channels(app_configs=None)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].id, "checkers.W014")
+        self.assertIn("empty config", errors[0].msg)
+
+    def test_notification_channels_ok_when_valid(self):
+        """Test notification channels check passes with valid config."""
+        NotificationChannel.objects.create(
+            name="test-channel",
+            driver="generic",
+            config={"url": "https://example.com/webhook"},
+            is_active=True,
+        )
+        errors = check_notification_channels(app_configs=None)
+        # Should have no W014 warnings
+        w014_errors = [e for e in errors if e.id == "checkers.W014"]
+        self.assertEqual(w014_errors, [])

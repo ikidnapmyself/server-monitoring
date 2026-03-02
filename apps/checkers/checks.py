@@ -24,7 +24,7 @@ import re
 import subprocess
 import sys
 
-from django.core.checks import Error, Tags, Warning, register
+from django.core.checks import Error, Info, Tags, Warning, register
 
 
 def _is_testing():
@@ -370,6 +370,72 @@ def check_base_dir_writable(app_configs, **kwargs):
                 id="checkers.W017",
             )
         )
+    return errors
+
+
+@register("pipeline")
+def check_pipeline_status(app_configs, **kwargs):
+    """Report pipeline definition counts (active/inactive)."""
+    from apps.orchestration.models import PipelineDefinition
+
+    errors = []
+    try:
+        definitions = list(PipelineDefinition.objects.all().values("name", "is_active"))
+        total = len(definitions)
+        active = sum(1 for d in definitions if d["is_active"])
+        inactive = total - active
+        names = ", ".join(
+            f"{d['name']} ({'active' if d['is_active'] else 'inactive'})" for d in definitions
+        )
+        errors.append(
+            Info(
+                f"{total} pipeline definition(s) ({active} active, {inactive} inactive)"
+                + (f": {names}" if names else ""),
+                id="checkers.I001",
+            )
+        )
+    except Exception as e:
+        errors.append(Warning(f"Cannot check pipeline definitions: {e}", id="checkers.I001"))
+    return errors
+
+
+@register("pipeline")
+def check_notification_channels(app_configs, **kwargs):
+    """Check notification channel health."""
+    from apps.notify.models import NotificationChannel
+
+    errors = []
+    try:
+        active_channels = list(
+            NotificationChannel.objects.filter(is_active=True).values("name", "driver", "config")
+        )
+        if not active_channels:
+            errors.append(
+                Warning(
+                    "No active notification channels configured",
+                    hint=(
+                        "Create notification channels via Django Admin"
+                        " or run 'python manage.py setup_instance'."
+                    ),
+                    id="checkers.W014",
+                )
+            )
+        else:
+            for ch in active_channels:
+                if not ch["config"]:
+                    errors.append(
+                        Warning(
+                            f"Notification channel '{ch['name']}' ({ch['driver']})"
+                            f" has empty config",
+                            hint=(
+                                f"Configure {ch['driver']} settings for channel"
+                                f" '{ch['name']}' in Django Admin."
+                            ),
+                            id="checkers.W014",
+                        )
+                    )
+    except Exception as e:
+        errors.append(Warning(f"Cannot check notification channels: {e}", id="checkers.W014"))
     return errors
 
 
