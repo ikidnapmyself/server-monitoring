@@ -95,3 +95,40 @@ class RunCheckCommandTests(TestCase):
             call_command("run_check", "cpu", stdout=StringIO())
 
         mock_checker.assert_called_once_with()
+
+
+class PreflightCommandTests(TestCase):
+    """Tests for the preflight management command."""
+
+    def test_preflight_runs_all_groups(self):
+        out = StringIO()
+        call_command("preflight", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Preflight Check", output)
+        self.assertIn("Summary", output)
+
+    def test_preflight_only_filter(self):
+        out = StringIO()
+        call_command("preflight", "--only", "security", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Security", output)
+        # Should not contain other groups
+        self.assertNotIn("Pipeline", output)
+
+    def test_preflight_json_output(self):
+        import json
+
+        out = StringIO()
+        call_command("preflight", "--json", stdout=out)
+        data = json.loads(out.getvalue())
+        self.assertIn("groups", data)
+        self.assertIn("summary", data)
+
+    def test_preflight_json_with_filter(self):
+        import json
+
+        out = StringIO()
+        call_command("preflight", "--json", "--only", "security", stdout=out)
+        data = json.loads(out.getvalue())
+        self.assertIn("security", data["groups"])
+        self.assertNotIn("pipeline", data["groups"])
