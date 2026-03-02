@@ -2,10 +2,10 @@
 Management command to test notification delivery to various backends.
 
 Usage:
-    python manage.py test_notify email
-    python manage.py test_notify slack --webhook-url https://hooks.slack.com/...
-    python manage.py test_notify pagerduty --integration-key xyz123
-    python manage.py test_notify email --smtp-host smtp.gmail.com --from-address alerts@example.com
+    python manage.py test_notify                        # Interactive wizard (default)
+    python manage.py test_notify --non-interactive email # Non-interactive mode
+    python manage.py test_notify --non-interactive slack --webhook-url https://hooks.slack.com/...
+    python manage.py test_notify --non-interactive pagerduty --integration-key xyz123
 """
 
 import json
@@ -18,9 +18,16 @@ from apps.notify.drivers.email import EmailNotifyDriver
 from apps.notify.drivers.generic import GenericNotifyDriver
 from apps.notify.drivers.pagerduty import PagerDutyNotifyDriver
 from apps.notify.drivers.slack import SlackNotifyDriver
+from apps.notify.models import NotificationChannel
 
-# Registry of available drivers
-DRIVER_REGISTRY = {
+_ConcreteDriver = (
+    type[EmailNotifyDriver]
+    | type[SlackNotifyDriver]
+    | type[PagerDutyNotifyDriver]
+    | type[GenericNotifyDriver]
+)
+
+DRIVER_REGISTRY: dict[str, _ConcreteDriver] = {
     "email": EmailNotifyDriver,
     "slack": SlackNotifyDriver,
     "pagerduty": PagerDutyNotifyDriver,
@@ -32,13 +39,24 @@ class Command(BaseCommand):
     help = "Test notification delivery to a specific backend"
 
     def add_arguments(self, parser):
+        parser.add_argument(
+            "--non-interactive",
+            action="store_true",
+            default=False,
+            help="Run in non-interactive mode (use CLI flags instead of wizard)",
+        )
+
         # Make driver optional: when omitted, pick first active NotificationChannel from DB
         parser.add_argument(
             "driver",
             nargs="?",
             default=None,
             type=str,
-            help=f"Notification driver or channel name to test. Options: {', '.join(DRIVER_REGISTRY.keys())} (optional, will use first active DB channel if omitted)",
+            help=(
+                f"Notification driver or channel name to test. "
+                f"Options: {', '.join(DRIVER_REGISTRY.keys())} "
+                f"(optional, will use first active DB channel if omitted)"
+            ),
         )
         parser.add_argument(
             "--title",
@@ -121,6 +139,15 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        if options.get("non_interactive"):
+            return self._handle_non_interactive(*args, **options)
+        return self._handle_interactive(**options)
+
+    # ------------------------------------------------------------------
+    # Non-interactive mode (original handle() body, unchanged)
+    # ------------------------------------------------------------------
+
+    def _handle_non_interactive(self, *args, **options):
         # Centralize provider/channel selection via NotifySelector
         from apps.notify.services import NotifySelector
 
@@ -267,3 +294,240 @@ class Command(BaseCommand):
             config["api_key"] = options["api_key"]
 
         return config
+
+    # ------------------------------------------------------------------
+    # Interactive wizard helpers
+    # ------------------------------------------------------------------
+
+    def _prompt_choice(self, prompt: str, options: list[tuple[str, str]]) -> str:
+        """Display a numbered list and return the selected value.
+
+        Args:
+            prompt: Header text shown above the numbered list.
+            options: List of (value, label) tuples.
+
+        Returns:
+            The *value* from the chosen tuple.
+        """
+        self.stdout.write(f"\n{prompt}")
+        for idx, (_value, label) in enumerate(options, 1):
+            self.stdout.write(f"  {idx}. {label}")
+
+        while True:
+            raw = input("Enter choice: ").strip()
+            try:
+                choice = int(raw)
+                if 1 <= choice <= len(options):
+                    return options[choice - 1][0]
+            except (ValueError, IndexError):
+                pass
+            self.stderr.write(
+                self.style.ERROR(f"Invalid selection. Please enter 1-{len(options)}.")
+            )
+
+    def _prompt_input(
+        self,
+        prompt: str,
+        default: str | None = None,
+        required: bool = False,
+    ) -> str:
+        """Prompt for free-text input with optional default.
+
+        Shows ``[default]`` suffix when a default is provided.  Retries when
+        *required* is ``True`` and the user supplies an empty string.
+        """
+        suffix = f" [{default}]" if default else ""
+        while True:
+            raw = input(f"{prompt}{suffix}: ").strip()
+            if raw:
+                return raw
+            if default is not None:
+                return default
+            if required:
+                self.stderr.write(self.style.ERROR("This field is required."))
+                continue
+            return ""
+
+    # ------------------------------------------------------------------
+    # Channel selection
+    # ------------------------------------------------------------------
+
+    def _select_channel(
+        self,
+    ) -> tuple[str, dict[str, Any], str]:
+        """Let the user pick an existing DB channel or configure a new one.
+
+        Returns:
+            (driver_name, config_dict, selected_label)
+        """
+        channels = list(NotificationChannel.objects.filter(is_active=True).order_by("name"))
+
+        options: list[tuple[str, str]] = []
+        for ch in channels:
+            options.append((str(ch.pk), f"{ch.name} ({ch.driver})"))
+        options.append(("__new__", "Configure a new driver manually"))
+
+        choice = self._prompt_choice("Select a channel:", options)
+
+        if choice == "__new__":
+            return self._configure_new_driver()
+
+        # DB-channel was selected
+        channel = NotificationChannel.objects.get(pk=int(choice))
+        return channel.driver, channel.config or {}, channel.name
+
+    def _configure_new_driver(
+        self,
+    ) -> tuple[str, dict[str, Any], str]:
+        """Prompt the user to pick a driver type and fill in its config.
+
+        Returns:
+            (driver_name, config_dict, selected_label)
+        """
+        driver_options: list[tuple[str, str]] = [(name, name) for name in DRIVER_REGISTRY]
+        driver_name = self._prompt_choice("Select driver type:", driver_options)
+        config = self._build_config_interactive(driver_name)
+        return driver_name, config, f"new {driver_name}"
+
+    def _build_config_interactive(self, driver_name: str) -> dict[str, Any]:
+        """Collect driver-specific configuration fields interactively."""
+        if driver_name == "slack":
+            return {
+                "webhook_url": self._prompt_input("Webhook URL", required=True),
+            }
+        elif driver_name == "email":
+            return {
+                "smtp_host": self._prompt_input("SMTP host", required=True),
+                "from_address": self._prompt_input("From address", required=True),
+                "smtp_port": self._prompt_input("SMTP port", default="587"),
+            }
+        elif driver_name == "pagerduty":
+            return {
+                "integration_key": self._prompt_input("Integration key", required=True),
+            }
+        elif driver_name == "generic":
+            return {
+                "endpoint": self._prompt_input("Endpoint URL", required=True),
+            }
+        return {}
+
+    # ------------------------------------------------------------------
+    # Message options
+    # ------------------------------------------------------------------
+
+    def _prompt_message_options(self, defaults: dict[str, str] | None = None) -> dict[str, str]:
+        """Collect title, message, and severity from the user."""
+        defaults = defaults or {}
+        title = self._prompt_input(
+            "Title",
+            default=defaults.get("title", "Test Alert"),
+        )
+        message = self._prompt_input(
+            "Message",
+            default=defaults.get(
+                "message",
+                "This is a test notification from the notify app.",
+            ),
+        )
+        severity = self._prompt_input(
+            "Severity (critical/warning/info/success)",
+            default=defaults.get("severity", "info"),
+        )
+        return {"title": title, "message": message, "severity": severity}
+
+    # ------------------------------------------------------------------
+    # Send and display
+    # ------------------------------------------------------------------
+
+    def _send_and_show_result(
+        self,
+        driver_name: str,
+        config: dict[str, Any],
+        selected_label: str,
+        msg_opts: dict[str, str],
+    ) -> dict[str, Any]:
+        """Instantiate driver, validate, send, and display the result."""
+        if driver_name not in DRIVER_REGISTRY:
+            raise CommandError(
+                f"Unknown driver: {driver_name}. " f"Available: {', '.join(DRIVER_REGISTRY.keys())}"
+            )
+
+        driver = DRIVER_REGISTRY[driver_name]()
+
+        if not driver.validate_config(config):
+            self.stderr.write(
+                self.style.ERROR(
+                    f"Invalid configuration for {driver_name}. " "Check required fields."
+                )
+            )
+            return {"success": False, "error": "invalid config"}
+
+        message = NotificationMessage(
+            title=msg_opts["title"],
+            message=msg_opts["message"],
+            severity=msg_opts["severity"],
+        )
+
+        self.stdout.write(
+            self.style.WARNING(
+                f"Sending test notification via {selected_label} " f"(provider={driver_name})..."
+            )
+        )
+
+        result = driver.send(message, config)
+
+        success = bool(result.get("success") or result.get("status") == "success")
+        if success:
+            self.stdout.write(self.style.SUCCESS("Notification sent successfully!"))
+            mid = result.get("message_id", "")
+            if mid:
+                self.stdout.write(f"  Message ID: {mid}")
+            if result.get("metadata"):
+                self.stdout.write(f"  Metadata: {json.dumps(result['metadata'], indent=2)}")
+        else:
+            self.stdout.write(self.style.ERROR("Failed to send notification"))
+            self.stdout.write(f"  Error: {result.get('error') or result.get('message') or result}")
+
+        return result
+
+    # ------------------------------------------------------------------
+    # Post-send loop
+    # ------------------------------------------------------------------
+
+    def _post_send_loop(self) -> str:
+        """Ask the user what to do next after a send attempt.
+
+        Returns one of: ``"retry"``, ``"switch"``, ``"done"``.
+        """
+        return self._prompt_choice(
+            "What next?",
+            [
+                ("retry", "Retry with different message options"),
+                ("switch", "Switch to a different channel"),
+                ("done", "Done — exit"),
+            ],
+        )
+
+    # ------------------------------------------------------------------
+    # Interactive mode entry point
+    # ------------------------------------------------------------------
+
+    def _handle_interactive(self, **options: Any) -> None:
+        """Run the interactive test-notification wizard."""
+        self.stdout.write("=== Test Notification Wizard ===")
+
+        driver_name, config, selected_label = self._select_channel()
+        msg_opts = self._prompt_message_options()
+        self._send_and_show_result(driver_name, config, selected_label, msg_opts)
+
+        while True:
+            action = self._post_send_loop()
+            if action == "retry":
+                msg_opts = self._prompt_message_options(defaults=msg_opts)
+                self._send_and_show_result(driver_name, config, selected_label, msg_opts)
+            elif action == "switch":
+                driver_name, config, selected_label = self._select_channel()
+                msg_opts = self._prompt_message_options(defaults=msg_opts)
+                self._send_and_show_result(driver_name, config, selected_label, msg_opts)
+            else:
+                break

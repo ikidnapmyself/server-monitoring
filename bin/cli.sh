@@ -702,10 +702,35 @@ test_notify_menu() {
     echo ""
     echo "Send a test notification to verify driver configuration"
     echo ""
-    echo -e "${BOLD}Available options:${NC}"
-    echo "  DRIVER_NAME        Name of notification driver (required)"
-    echo "  --channel=NAME     Specific channel/recipient"
-    echo "  --message=TEXT     Custom test message"
+
+    local options=(
+        "Interactive wizard (recommended)"
+        "Non-interactive (specify driver and flags)"
+        "Back"
+    )
+
+    select opt in "${options[@]}"; do
+        case $REPLY in
+            1)
+                confirm_and_run "uv run python manage.py test_notify"
+                ;;
+            2)
+                test_notify_non_interactive
+                ;;
+            3)
+                return
+                ;;
+            *)
+                echo -e "${RED}Invalid option${NC}"
+                ;;
+        esac
+        break
+    done
+}
+
+test_notify_non_interactive() {
+    echo ""
+    echo -e "${BOLD}Available drivers:${NC} email, slack, pagerduty, generic"
     echo ""
 
     read -p "Enter driver name: " driver_name
@@ -717,7 +742,7 @@ test_notify_menu() {
     read -p "Enter channel (optional): " channel
     read -p "Enter custom message (optional): " message
 
-    local cmd="uv run python manage.py test_notify $driver_name"
+    local cmd="uv run python manage.py test_notify $driver_name --non-interactive"
     if [ -n "$channel" ]; then
         cmd="$cmd --channel=$channel"
     fi

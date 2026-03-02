@@ -10,6 +10,7 @@ Usage:
 """
 
 import json
+from typing import Any
 
 from django.core.management.base import BaseCommand
 
@@ -20,7 +21,7 @@ from apps.intelligence.utils.spinner import SpinnerProgress
 class Command(BaseCommand):
     help = "Get intelligence recommendations based on system state or incidents"
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._json_mode = False
         self._spinner: SpinnerProgress | None = None
