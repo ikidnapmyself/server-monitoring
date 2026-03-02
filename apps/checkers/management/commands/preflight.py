@@ -10,7 +10,8 @@ Usage:
 import json
 from typing import Any
 
-from django.core.checks import Error, Info, Warning, run_checks
+from django.core.checks import Error, Info, run_checks
+from django.core.checks import Warning as CheckWarning
 from django.core.management.base import BaseCommand
 
 # Tag groups in display order
@@ -62,7 +63,7 @@ class Command(BaseCommand):
         for tag, label in groups:
             checks = run_checks(tags=[tag])
             group_errors = sum(1 for c in checks if isinstance(c, Error))
-            group_warnings = sum(1 for c in checks if isinstance(c, Warning))
+            group_warnings = sum(1 for c in checks if isinstance(c, CheckWarning))
 
             results[tag] = {
                 "label": label,
@@ -141,7 +142,7 @@ class Command(BaseCommand):
 def _level(check) -> str:
     if isinstance(check, Error):
         return "error"
-    if isinstance(check, Warning):
+    if isinstance(check, CheckWarning):
         return "warning"
     if isinstance(check, Info):
         return "info"
