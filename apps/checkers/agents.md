@@ -19,7 +19,7 @@ Output contract (to orchestrator):
   - Registry lives in `apps/checkers/checkers/__init__.py` (`CHECKER_REGISTRY`)
   - Some checkers (for example, `disk_macos`, `disk_linux`) are OS-specific and may use platform gating — early return OK with a skip message on unsupported OSes
 - `apps/checkers/checks.py` — Django system checks (run with `manage.py check`)
-- `apps/checkers/management/commands/` — commands like `check_health`, `check_and_alert`
+- `apps/checkers/management/commands/` — commands like `check_health`, `check_and_alert`, `preflight`
 - `apps/checkers/models.py` — `CheckRun` (standalone mode audit trail)
 
 ## Boundary rules
@@ -47,6 +47,25 @@ For `apps.checkers`, admin should make it easy to:
 - Tests must live under `apps/checkers/_tests/` and mirror the module tree.
   - Example: `checkers/cpu.py` → `_tests/checkers/test_cpu.py`
   - Example: `management/commands/check_health.py` → `_tests/management/commands/test_check_health.py`
+
+## Management command contracts
+
+### `preflight`
+
+Runs all Django system checks grouped by tag with formatted output.
+
+```bash
+manage.py preflight                    # All checks, human output
+manage.py preflight --only security    # Filter by tag(s)
+manage.py preflight --json             # JSON output for CI
+```
+
+Input: None (reads Django system check registry)
+Output (human): Grouped checks with OK/WARN/ERR/INFO levels + summary line
+Output (JSON): `{ "groups": { "<tag>": { "checks": [...], "errors": N, "warnings": N } }, "summary": { "passed": N, "warnings": N, "errors": N } }`
+Exit code: 0 always (uses Django's check framework, not custom exit codes)
+
+Tag groups (in display order): security, environment, pipeline, crontab, migrations, database
 
 ## Doc vs code status
 
