@@ -26,6 +26,7 @@ TAG_GROUPS: list[tuple[str, str]] = [
 
 class Command(BaseCommand):
     help = "Run comprehensive system preflight checks"
+    requires_system_checks: list[str] = []
 
     def add_arguments(self, parser):
         parser.add_argument(
