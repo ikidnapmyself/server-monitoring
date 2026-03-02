@@ -5,9 +5,16 @@ Usage:
     python manage.py preflight                    # All checks, human output
     python manage.py preflight --only security    # Filter by tag(s)
     python manage.py preflight --json             # JSON output for CI
+    python manage.py preflight --verbosity 0      # Errors only
+    python manage.py preflight --verbosity 1      # Errors + warnings (default)
+    python manage.py preflight --verbosity 2      # All (errors + warnings + info)
+
+Verbosity can also be set via PREFLIGHT_VERBOSITY in .env (0, 1, or 2).
+The --verbosity flag overrides the env var.
 """
 
 import json
+import os
 from typing import Any
 
 from django.core.checks import Error, Info, run_checks
@@ -23,6 +30,10 @@ TAG_GROUPS: list[tuple[str, str]] = [
     ("migrations", "Migrations"),
     ("database", "Database"),
 ]
+
+# Verbosity levels: which check severities to display
+# 0 = errors only, 1 = errors + warnings, 2 = all (errors + warnings + info)
+LEVEL_PRIORITY = {"error": 0, "warning": 1, "info": 2, "ok": 2}
 
 
 class Command(BaseCommand):
@@ -47,6 +58,13 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         only = options.get("only")
         json_output = options.get("json_output", False)
+
+        # Determine verbosity: CLI --verbosity overrides env var
+        cli_verbosity = options.get("verbosity", None)
+        if cli_verbosity is not None:
+            verbosity = int(cli_verbosity)
+        else:
+            verbosity = int(os.environ.get("PREFLIGHT_VERBOSITY", "1"))
 
         # Determine which tag groups to run
         if only:
@@ -99,7 +117,7 @@ class Command(BaseCommand):
                 )
             )
         else:
-            self._display_human(results, total_passed, total_warnings, total_errors)
+            self._display_human(results, total_passed, total_warnings, total_errors, verbosity)
 
     def _display_human(
         self,
@@ -107,15 +125,22 @@ class Command(BaseCommand):
         passed: int,
         warnings: int,
         errors: int,
+        verbosity: int = 1,
     ) -> None:
         self.stdout.write(self.style.MIGRATE_HEADING("=== Preflight Check ===\n"))
 
         for tag, group in results.items():
-            self.stdout.write(self.style.MIGRATE_LABEL(group["label"]))
-            checks = group["checks"]
-            if not checks:
+            visible = [c for c in group["checks"] if LEVEL_PRIORITY.get(c["level"], 2) <= verbosity]
+            if not visible and not group["checks"]:
+                self.stdout.write(self.style.MIGRATE_LABEL(group["label"]))
                 self.stdout.write("  (no checks registered)")
-            for check in checks:
+                self.stdout.write("")
+                continue
+            if not visible:
+                continue
+
+            self.stdout.write(self.style.MIGRATE_LABEL(group["label"]))
+            for check in visible:
                 level = check["level"]
                 msg = check["message"]
                 if level == "error":

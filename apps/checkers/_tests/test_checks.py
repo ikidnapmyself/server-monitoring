@@ -135,7 +135,7 @@ class SecurityChecksTests(TestCase):
         with self.settings(DEBUG=True):
             errors = check_debug_mode(app_configs=None)
             self.assertEqual(len(errors), 1)
-            self.assertEqual(errors[0].id, "checkers.I002")
+            self.assertEqual(errors[0].id, "checkers.W010")
 
     @patch("apps.checkers.checks._is_testing", return_value=False)
     def test_debug_mode_ok_when_false(self, mock_is_testing):

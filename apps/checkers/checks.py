@@ -271,10 +271,10 @@ def check_debug_mode(app_configs, **kwargs):
     errors = []
     if settings.DEBUG:
         errors.append(
-            Info(
+            CheckWarning(
                 "DEBUG mode is enabled",
                 hint="Set DEBUG=False in production. DEBUG=True exposes sensitive information.",
-                id="checkers.I002",
+                id="checkers.W010",
             )
         )
     return errors

@@ -3,7 +3,7 @@
 from io import StringIO
 from unittest.mock import MagicMock, patch
 
-from django.core.checks import CheckMessage, Error
+from django.core.checks import CheckMessage, Error, Info
 from django.core.management import call_command
 from django.test import TestCase
 
@@ -154,13 +154,14 @@ class PreflightDisplayTests(TestCase):
     def test_preflight_displays_ok_level(self):
         """Test that non-error/warning/info checks show OK."""
         # A plain CheckMessage (not Error/Warning/Info) should show as OK
+        # "ok" level has priority 2, so needs verbosity >= 2
         mock_check = CheckMessage(0, "All good", id="test.C001")
         with patch(
             "apps.checkers.management.commands.preflight.run_checks",
             return_value=[mock_check],
         ):
             out = StringIO()
-            call_command("preflight", "--only", "security", stdout=out)
+            call_command("preflight", "--only", "security", "--verbosity", "2", stdout=out)
             output = out.getvalue()
             self.assertIn("OK", output)
 
@@ -186,3 +187,72 @@ class PreflightDisplayTests(TestCase):
             call_command("preflight", "--only", "security", stdout=out)
             output = out.getvalue()
             self.assertIn("1 error(s)", output)
+
+    def test_preflight_verbosity_0_hides_warnings_and_info(self):
+        """Test that verbosity 0 only shows errors."""
+        from django.core.checks import Warning as CheckWarning
+
+        mock_checks = [
+            Error("Critical error", id="test.E001"),
+            CheckWarning("Some warning", id="test.W001"),
+            Info("Some info", id="test.I001"),
+        ]
+        with patch(
+            "apps.checkers.management.commands.preflight.run_checks",
+            return_value=mock_checks,
+        ):
+            out = StringIO()
+            call_command("preflight", "--only", "security", "--verbosity", "0", stdout=out)
+            output = out.getvalue()
+            self.assertIn("Critical error", output)
+            self.assertNotIn("Some warning", output)
+            self.assertNotIn("Some info", output)
+
+    def test_preflight_verbosity_1_hides_info(self):
+        """Test that verbosity 1 shows errors and warnings but not info."""
+        from django.core.checks import Warning as CheckWarning
+
+        mock_checks = [
+            CheckWarning("Some warning", id="test.W001"),
+            Info("Some info", id="test.I001"),
+        ]
+        with patch(
+            "apps.checkers.management.commands.preflight.run_checks",
+            return_value=mock_checks,
+        ):
+            out = StringIO()
+            call_command("preflight", "--only", "security", "--verbosity", "1", stdout=out)
+            output = out.getvalue()
+            self.assertIn("Some warning", output)
+            self.assertNotIn("Some info", output)
+
+    def test_preflight_verbosity_2_shows_all(self):
+        """Test that verbosity 2 shows everything including info."""
+        mock_checks = [
+            Info("Some info", id="test.I001"),
+        ]
+        with patch(
+            "apps.checkers.management.commands.preflight.run_checks",
+            return_value=mock_checks,
+        ):
+            out = StringIO()
+            call_command("preflight", "--only", "security", "--verbosity", "2", stdout=out)
+            output = out.getvalue()
+            self.assertIn("Some info", output)
+
+    def test_preflight_verbosity_from_env(self):
+        """Test that PREFLIGHT_VERBOSITY env var controls verbosity."""
+        mock_checks = [
+            Info("Hidden info", id="test.I001"),
+        ]
+        with (
+            patch(
+                "apps.checkers.management.commands.preflight.run_checks",
+                return_value=mock_checks,
+            ),
+            patch.dict("os.environ", {"PREFLIGHT_VERBOSITY": "0"}),
+        ):
+            out = StringIO()
+            call_command("preflight", "--only", "security", stdout=out)
+            output = out.getvalue()
+            self.assertNotIn("Hidden info", output)

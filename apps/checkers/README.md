@@ -117,7 +117,7 @@ In addition to runtime health checkers, this app registers Django system checks 
 |-----|----------|-------------|
 | `database` | `checkers.E001` | Database connection error |
 | `migrations` | `checkers.W001` | Pending migrations warning |
-| `security` | `checkers.I002` | DEBUG mode enabled (info) |
+| `security` | `checkers.W010` | DEBUG mode enabled |
 | `security` | `checkers.W011` | Weak SECRET_KEY |
 | `environment` | `checkers.W012` | `.env` file missing |
 | `environment` | `checkers.I003` | Required env var not set (from `.env.sample`, info) |
