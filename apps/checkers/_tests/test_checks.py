@@ -1,12 +1,15 @@
 """Tests for Django system checks in the checkers app."""
 
 import os
+import time
 from unittest.mock import MagicMock, mock_open, patch
 
 from django.test import TestCase
 
 from apps.checkers.checks import (
     check_base_dir_writable,
+    check_cron_log_freshness,
+    check_cron_log_size,
     check_crontab_configuration,
     check_database_connection,
     check_debug_mode,
@@ -288,3 +291,73 @@ class PipelineChecksTests(TestCase):
         # Should have no W014 warnings
         w014_errors = [e for e in errors if e.id == "checkers.W014"]
         self.assertEqual(w014_errors, [])
+
+
+class CronLogChecksTests(TestCase):
+    """Tests for cron log system checks (freshness, size)."""
+
+    @patch("apps.checkers.checks._is_testing", return_value=False)
+    @patch("os.path.isfile", return_value=True)
+    @patch("subprocess.run")
+    @patch("os.path.getmtime")
+    def test_cron_log_freshness_warns_when_stale(
+        self, mock_getmtime, mock_subprocess, mock_isfile, mock_is_testing
+    ):
+        """Test that cron log freshness check warns when log is stale."""
+        mock_getmtime.return_value = time.time() - 7200  # 2 hours ago
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "* * * * * server-maintanence check"
+        mock_subprocess.return_value = mock_result
+        errors = check_cron_log_freshness(app_configs=None)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].id, "checkers.W015")
+
+    @patch("apps.checkers.checks._is_testing", return_value=False)
+    @patch("os.path.isfile", return_value=True)
+    @patch("subprocess.run")
+    @patch("os.path.getmtime")
+    def test_cron_log_freshness_ok_when_recent(
+        self, mock_getmtime, mock_subprocess, mock_isfile, mock_is_testing
+    ):
+        """Test that cron log freshness check passes when log is recent."""
+        mock_getmtime.return_value = time.time() - 60  # 1 minute ago
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "* * * * * server-maintanence check"
+        mock_subprocess.return_value = mock_result
+        errors = check_cron_log_freshness(app_configs=None)
+        self.assertEqual(errors, [])
+
+    @patch("apps.checkers.checks._is_testing", return_value=False)
+    @patch("os.path.isfile", return_value=False)
+    def test_cron_log_freshness_skips_when_no_log(self, mock_isfile, mock_is_testing):
+        """Test that cron log freshness check skips when no log file."""
+        errors = check_cron_log_freshness(app_configs=None)
+        self.assertEqual(errors, [])
+
+    def test_cron_log_freshness_skips_in_tests(self):
+        """Test that cron log freshness check is skipped during tests."""
+        errors = check_cron_log_freshness(app_configs=None)
+        self.assertEqual(errors, [])
+
+    @patch("os.path.isfile", return_value=True)
+    @patch("os.path.getsize", return_value=60 * 1024 * 1024)
+    def test_cron_log_size_warns_when_large(self, mock_getsize, mock_isfile):
+        """Test that cron log size check warns when log is too large."""
+        errors = check_cron_log_size(app_configs=None)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].id, "checkers.W016")
+
+    @patch("os.path.isfile", return_value=True)
+    @patch("os.path.getsize", return_value=1024)
+    def test_cron_log_size_ok_when_small(self, mock_getsize, mock_isfile):
+        """Test that cron log size check passes when log is small."""
+        errors = check_cron_log_size(app_configs=None)
+        self.assertEqual(errors, [])
+
+    @patch("os.path.isfile", return_value=False)
+    def test_cron_log_size_skips_when_no_log(self, mock_isfile):
+        """Test that cron log size check skips when no log file."""
+        errors = check_cron_log_size(app_configs=None)
+        self.assertEqual(errors, [])

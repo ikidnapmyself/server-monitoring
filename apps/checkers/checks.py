@@ -23,6 +23,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 from django.core.checks import Error, Info, Tags, Warning, register
 
@@ -436,6 +437,71 @@ def check_notification_channels(app_configs, **kwargs):
                     )
     except Exception as e:
         errors.append(Warning(f"Cannot check notification channels: {e}", id="checkers.W014"))
+    return errors
+
+
+@register("crontab")
+def check_cron_log_freshness(app_configs, **kwargs):
+    """Check that cron.log has been updated recently."""
+    from django.conf import settings
+
+    if _is_testing():
+        return []
+    errors = []
+    base_dir = str(getattr(settings, "BASE_DIR", ""))
+    log_path = os.path.join(base_dir, "cron.log")
+    if not os.path.isfile(log_path):
+        return errors
+    try:
+        result = subprocess.run(["crontab", "-l"], capture_output=True, text=True, timeout=10)
+        if result.returncode != 0 or "server-maintanence" not in result.stdout:
+            return errors
+    except Exception:
+        return errors
+    try:
+        mtime = os.path.getmtime(log_path)
+        age_seconds = time.time() - mtime
+        if age_seconds > 3600:
+            age_minutes = int(age_seconds / 60)
+            errors.append(
+                Warning(
+                    f"cron.log last updated {age_minutes} minutes ago",
+                    hint=(
+                        "The cron log hasn't been updated in over an hour."
+                        " Check that the cron job is running: crontab -l"
+                    ),
+                    id="checkers.W015",
+                )
+            )
+    except OSError:
+        pass
+    return errors
+
+
+@register("crontab")
+def check_cron_log_size(app_configs, **kwargs):
+    """Check that cron.log is not too large."""
+    from django.conf import settings
+
+    errors = []
+    base_dir = str(getattr(settings, "BASE_DIR", ""))
+    log_path = os.path.join(base_dir, "cron.log")
+    if not os.path.isfile(log_path):
+        return errors
+    try:
+        size_bytes = os.path.getsize(log_path)
+        max_size = 50 * 1024 * 1024
+        if size_bytes > max_size:
+            size_mb = size_bytes / (1024 * 1024)
+            errors.append(
+                Warning(
+                    f"cron.log is {size_mb:.0f}MB (threshold: 50MB)",
+                    hint="Consider log rotation: logrotate, or truncate with: > cron.log",
+                    id="checkers.W016",
+                )
+            )
+    except OSError:
+        pass
     return errors
 
 
