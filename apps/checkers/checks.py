@@ -271,10 +271,10 @@ def check_debug_mode(app_configs, **kwargs):
     errors = []
     if settings.DEBUG:
         errors.append(
-            CheckWarning(
+            Info(
                 "DEBUG mode is enabled",
                 hint="Set DEBUG=False in production. DEBUG=True exposes sensitive information.",
-                id="checkers.W010",
+                id="checkers.I002",
             )
         )
     return errors
@@ -348,10 +348,10 @@ def check_required_env_vars(app_configs, **kwargs):
             var_name = match.group(1)
             if var_name not in os.environ:
                 errors.append(
-                    CheckWarning(
-                        f"Environment variable {var_name} not set" f" (defined in .env.sample)",
+                    Info(
+                        f"Environment variable {var_name} not set (defined in .env.sample)",
                         hint=f"Set {var_name} in your .env file or shell environment.",
-                        id="checkers.W013",
+                        id="checkers.I003",
                     )
                 )
     return errors

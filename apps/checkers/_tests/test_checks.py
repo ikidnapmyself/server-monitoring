@@ -135,7 +135,7 @@ class SecurityChecksTests(TestCase):
         with self.settings(DEBUG=True):
             errors = check_debug_mode(app_configs=None)
             self.assertEqual(len(errors), 1)
-            self.assertEqual(errors[0].id, "checkers.W010")
+            self.assertEqual(errors[0].id, "checkers.I002")
 
     @patch("apps.checkers.checks._is_testing", return_value=False)
     def test_debug_mode_ok_when_false(self, mock_is_testing):
@@ -207,7 +207,7 @@ class EnvironmentChecksTests(TestCase):
                     errors = check_required_env_vars(app_configs=None)
                     warning_vars = [e.msg for e in errors]
                     self.assertTrue(any("OPENAI_API_KEY" in msg for msg in warning_vars))
-                    self.assertTrue(all(e.id == "checkers.W013" for e in errors))
+                    self.assertTrue(all(e.id == "checkers.I003" for e in errors))
 
     @patch("os.path.isfile", return_value=True)
     def test_required_env_vars_ok_when_all_set(self, mock_isfile):
