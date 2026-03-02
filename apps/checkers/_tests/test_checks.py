@@ -7,7 +7,9 @@ from django.test import TestCase
 from apps.checkers.checks import (
     check_crontab_configuration,
     check_database_connection,
+    check_debug_mode,
     check_pending_migrations,
+    check_secret_key_strength,
 )
 
 
@@ -111,3 +113,55 @@ class SystemChecksTests(TestCase):
             errors = check_crontab_configuration(app_configs=None)
             self.assertEqual(len(errors), 1)
             self.assertEqual(errors[0].id, "checkers.W006")
+
+
+class SecurityChecksTests(TestCase):
+    """Tests for security system checks (debug mode, secret key)."""
+
+    @patch("apps.checkers.checks._is_testing", return_value=False)
+    def test_debug_mode_warns_when_true(self, mock_is_testing):
+        """Test that debug mode check warns when DEBUG=True."""
+        with self.settings(DEBUG=True):
+            errors = check_debug_mode(app_configs=None)
+            self.assertEqual(len(errors), 1)
+            self.assertEqual(errors[0].id, "checkers.W010")
+
+    @patch("apps.checkers.checks._is_testing", return_value=False)
+    def test_debug_mode_ok_when_false(self, mock_is_testing):
+        """Test that debug mode check passes when DEBUG=False."""
+        with self.settings(DEBUG=False):
+            errors = check_debug_mode(app_configs=None)
+            self.assertEqual(errors, [])
+
+    def test_debug_mode_skipped_in_tests(self):
+        """Test that debug mode check is skipped during tests."""
+        errors = check_debug_mode(app_configs=None)
+        self.assertEqual(errors, [])
+
+    @patch("apps.checkers.checks._is_testing", return_value=False)
+    def test_secret_key_warns_when_short(self, mock_is_testing):
+        """Test that secret key check warns when key is too short."""
+        with self.settings(SECRET_KEY="short"):
+            errors = check_secret_key_strength(app_configs=None)
+            self.assertEqual(len(errors), 1)
+            self.assertEqual(errors[0].id, "checkers.W011")
+
+    @patch("apps.checkers.checks._is_testing", return_value=False)
+    def test_secret_key_warns_when_insecure(self, mock_is_testing):
+        """Test that secret key check warns when key contains 'insecure'."""
+        with self.settings(SECRET_KEY="django-insecure-" + "x" * 50):
+            errors = check_secret_key_strength(app_configs=None)
+            self.assertEqual(len(errors), 1)
+            self.assertEqual(errors[0].id, "checkers.W011")
+
+    @patch("apps.checkers.checks._is_testing", return_value=False)
+    def test_secret_key_ok_when_strong(self, mock_is_testing):
+        """Test that secret key check passes with a strong key."""
+        with self.settings(SECRET_KEY="a" * 50):
+            errors = check_secret_key_strength(app_configs=None)
+            self.assertEqual(errors, [])
+
+    def test_secret_key_skipped_in_tests(self):
+        """Test that secret key check is skipped during tests."""
+        errors = check_secret_key_strength(app_configs=None)
+        self.assertEqual(errors, [])

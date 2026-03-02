@@ -258,6 +258,49 @@ def check_aliases_configured(app_configs, **kwargs):
     return errors
 
 
+@register("security")
+def check_debug_mode(app_configs, **kwargs):
+    """Check that DEBUG is not enabled in production."""
+    from django.conf import settings
+
+    if _is_testing():
+        return []
+    errors = []
+    if settings.DEBUG:
+        errors.append(
+            Warning(
+                "DEBUG mode is enabled",
+                hint="Set DEBUG=False in production. DEBUG=True exposes sensitive information.",
+                id="checkers.W010",
+            )
+        )
+    return errors
+
+
+@register("security")
+def check_secret_key_strength(app_configs, **kwargs):
+    """Check that SECRET_KEY is sufficiently strong."""
+    from django.conf import settings
+
+    if _is_testing():
+        return []
+    errors = []
+    secret_key = getattr(settings, "SECRET_KEY", "")
+    if len(secret_key) < 50 or "insecure" in secret_key.lower():
+        errors.append(
+            Warning(
+                f"SECRET_KEY appears weak ({len(secret_key)} chars)",
+                hint=(
+                    "Generate a strong secret key: "
+                    'python -c "from django.core.management.utils import get_random_secret_key;'
+                    ' print(get_random_secret_key())"'
+                ),
+                id="checkers.W011",
+            )
+        )
+    return errors
+
+
 @register(Tags.database, deploy=True)
 def check_database_tables_exist(app_configs, **kwargs):
     """
