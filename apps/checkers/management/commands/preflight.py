@@ -54,17 +54,15 @@ class Command(BaseCommand):
             dest="json_output",
             help="Output results as JSON",
         )
+        # Configure verbosity default from env var, allowing CLI --verbosity to override.
+        parser.set_defaults(verbosity=int(os.environ.get("PREFLIGHT_VERBOSITY", "1")))
 
     def handle(self, *args, **options):
         only = options.get("only")
         json_output = options.get("json_output", False)
 
-        # Determine verbosity: CLI --verbosity overrides env var
-        cli_verbosity = options.get("verbosity", None)
-        if cli_verbosity is not None:
-            verbosity = int(cli_verbosity)
-        else:
-            verbosity = int(os.environ.get("PREFLIGHT_VERBOSITY", "1"))
+        # Determine verbosity: parser default (from env) overridden by CLI --verbosity
+        verbosity = int(options.get("verbosity", 1))
 
         # Determine which tag groups to run
         if only:

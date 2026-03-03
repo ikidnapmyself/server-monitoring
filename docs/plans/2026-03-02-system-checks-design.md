@@ -38,7 +38,7 @@ No duplication — `preflight` is a consumer of `checks.py`, not a reimplementat
 | `checkers.W010` | `security` | Warning | `DEBUG=True` in non-test, non-DEBUG env |
 | `checkers.W011` | `security` | Warning | `SECRET_KEY` is weak (< 50 chars or contains "insecure") |
 | `checkers.W012` | `environment` | Warning | `.env` file missing from `BASE_DIR` |
-| `checkers.W013` | `environment` | Warning | Required env vars from `.env.sample` not set (one per var) |
+| `checkers.I003` | `environment` | Info | Required env vars from `.env.sample` not set (one per var) |
 | `checkers.I001` | `pipeline` | Info | Pipeline definition counts (active/inactive) with names |
 | `checkers.W014` | `pipeline` | Warning | Notification channels: zero active, or active with empty config |
 | `checkers.W015` | `crontab` | Warning | `cron.log` stale (last modified > 1 hour ago, if cron is configured) |
@@ -49,7 +49,7 @@ No duplication — `preflight` is a consumer of `checks.py`, not a reimplementat
 
 ```bash
 manage.py check --tag security      # W010, W011
-manage.py check --tag environment   # W012, W013, W017
+manage.py check --tag environment   # W012, I003, W017
 manage.py check --tag pipeline      # I001, W014
 manage.py check --tag crontab       # W002-W008, W015, W016
 manage.py check --tag migrations    # W001
@@ -74,10 +74,10 @@ manage.py check                     # All
 - Check `os.path.isfile(BASE_DIR / ".env")`
 - Hint: "Copy .env.sample to .env and configure"
 
-**`check_required_env_vars` (W013)**
+**`check_required_env_vars` (I003)**
 - Parse `.env.sample` for variable names (lines matching `^[A-Z_]+=`)
 - Check each against `os.environ`
-- One warning per missing var
+- One Info per missing var
 - Skip vars with `# optional` comment
 
 **`check_pipeline_status` (I001)**

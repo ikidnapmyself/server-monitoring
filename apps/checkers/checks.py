@@ -397,7 +397,7 @@ def check_pipeline_status(app_configs, **kwargs):
             )
         )
     except Exception as e:
-        errors.append(CheckWarning(f"Cannot check pipeline definitions: {e}", id="checkers.I001"))
+        errors.append(CheckWarning(f"Cannot check pipeline definitions: {e}", id="checkers.W018"))
     return errors
 
 
