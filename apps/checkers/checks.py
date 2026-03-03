@@ -20,10 +20,13 @@ Usage:
 """
 
 import os
+import re
 import subprocess
 import sys
+import time
 
-from django.core.checks import Error, Tags, Warning, register
+from django.core.checks import Error, Info, Tags, register
+from django.core.checks import Warning as CheckWarning
 
 
 def _is_testing():
@@ -91,7 +94,7 @@ def check_pending_migrations(app_configs, **kwargs):
                     pending_str += f" (and {len(pending) - 5} more)"
 
                 errors.append(
-                    Warning(
+                    CheckWarning(
                         f"Database '{alias}' has {len(pending)} pending migration(s)",
                         hint=f"Run 'python manage.py migrate' to apply: {pending_str}",
                         id="checkers.W001",
@@ -143,7 +146,7 @@ def check_crontab_configuration(app_configs, **kwargs):
             # No crontab exists for this user
             if "no crontab" in result.stderr.lower():
                 errors.append(
-                    Warning(
+                    CheckWarning(
                         "No crontab configured for current user",
                         hint=(
                             "Run 'bin/setup_cron.sh' to configure health check cron job. "
@@ -154,7 +157,7 @@ def check_crontab_configuration(app_configs, **kwargs):
                 )
             else:
                 errors.append(
-                    Warning(
+                    CheckWarning(
                         f"Could not read crontab: {result.stderr.strip()}",
                         hint="Ensure cron is installed and you have permission to use it.",
                         id="checkers.W003",
@@ -165,7 +168,7 @@ def check_crontab_configuration(app_configs, **kwargs):
 
             if cron_identifier not in crontab_content:
                 errors.append(
-                    Warning(
+                    CheckWarning(
                         "Health check cron job not found in crontab",
                         hint=(
                             "Run 'bin/setup_cron.sh' to configure automated health checks. "
@@ -177,7 +180,7 @@ def check_crontab_configuration(app_configs, **kwargs):
             # If found, check that it references check_and_alert command
             elif "check_and_alert" not in crontab_content:
                 errors.append(
-                    Warning(
+                    CheckWarning(
                         "Cron job found but may not be running health checks with alerts",
                         hint=(
                             "The crontab contains 'server-maintanence' but not 'check_and_alert'. "
@@ -188,7 +191,7 @@ def check_crontab_configuration(app_configs, **kwargs):
                 )
     except FileNotFoundError:
         errors.append(
-            Warning(
+            CheckWarning(
                 "crontab command not found",
                 hint=(
                     "Cron may not be installed on this system. "
@@ -199,7 +202,7 @@ def check_crontab_configuration(app_configs, **kwargs):
         )
     except subprocess.TimeoutExpired:
         errors.append(
-            Warning(
+            CheckWarning(
                 "Timeout reading crontab",
                 hint="The crontab command took too long to respond.",
                 id="checkers.W007",
@@ -207,7 +210,7 @@ def check_crontab_configuration(app_configs, **kwargs):
         )
     except Exception as e:
         errors.append(
-            Warning(
+            CheckWarning(
                 f"Error checking crontab: {e}",
                 hint="Could not verify cron configuration.",
                 id="checkers.W008",
@@ -244,7 +247,7 @@ def check_aliases_configured(app_configs, **kwargs):
 
     if not _aliases_file_exists():
         errors.append(
-            Warning(
+            CheckWarning(
                 "Shell aliases not configured for management commands",
                 hint=(
                     "Run 'bin/setup_aliases.sh' to set up quick aliases like "
@@ -255,6 +258,253 @@ def check_aliases_configured(app_configs, **kwargs):
             )
         )
 
+    return errors
+
+
+@register("security")
+def check_debug_mode(app_configs, **kwargs):
+    """Check that DEBUG is not enabled in production."""
+    from django.conf import settings
+
+    if _is_testing():
+        return []
+    errors = []
+    if settings.DEBUG:
+        errors.append(
+            CheckWarning(
+                "DEBUG mode is enabled",
+                hint="Set DEBUG=False in production. DEBUG=True exposes sensitive information.",
+                id="checkers.W010",
+            )
+        )
+    return errors
+
+
+@register("security")
+def check_secret_key_strength(app_configs, **kwargs):
+    """Check that SECRET_KEY is sufficiently strong."""
+    from django.conf import settings
+
+    if _is_testing():
+        return []
+    errors = []
+    secret_key = getattr(settings, "SECRET_KEY", "")
+    if len(secret_key) < 50 or "insecure" in secret_key.lower():
+        errors.append(
+            CheckWarning(
+                f"SECRET_KEY appears weak ({len(secret_key)} chars)",
+                hint=(
+                    "Generate a strong secret key: "
+                    'python -c "from django.core.management.utils import get_random_secret_key;'
+                    ' print(get_random_secret_key())"'
+                ),
+                id="checkers.W011",
+            )
+        )
+    return errors
+
+
+@register("environment")
+def check_env_file_exists(app_configs, **kwargs):
+    """Check that .env file exists."""
+    from django.conf import settings
+
+    errors = []
+    base_dir = str(getattr(settings, "BASE_DIR", ""))
+    env_path = os.path.join(base_dir, ".env")
+    if not os.path.isfile(env_path):
+        errors.append(
+            CheckWarning(
+                ".env file not found",
+                hint="Copy .env.sample to .env and configure: cp .env.sample .env",
+                id="checkers.W012",
+            )
+        )
+    return errors
+
+
+@register("environment")
+def check_required_env_vars(app_configs, **kwargs):
+    """Check that required env vars from .env.sample are set."""
+    from django.conf import settings
+
+    errors = []
+    base_dir = str(getattr(settings, "BASE_DIR", ""))
+    sample_path = os.path.join(base_dir, ".env.sample")
+    if not os.path.isfile(sample_path):
+        return errors
+    try:
+        with open(sample_path) as f:
+            content = f.read()
+    except OSError:
+        return errors
+
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#") or not stripped:
+            continue
+        match = re.match(r"^([A-Z][A-Z0-9_]*)=", stripped)
+        if match:
+            var_name = match.group(1)
+            if var_name not in os.environ:
+                errors.append(
+                    Info(
+                        f"Environment variable {var_name} not set (defined in .env.sample)",
+                        hint=f"Set {var_name} in your .env file or shell environment.",
+                        id="checkers.I003",
+                    )
+                )
+    return errors
+
+
+@register("environment")
+def check_base_dir_writable(app_configs, **kwargs):
+    """Check that the project directory is writable."""
+    from django.conf import settings
+
+    errors = []
+    base_dir = str(getattr(settings, "BASE_DIR", ""))
+    if base_dir and not os.access(base_dir, os.W_OK):
+        errors.append(
+            CheckWarning(
+                "Project directory is not writable",
+                hint="Cron logs and other output require write access to the project directory.",
+                id="checkers.W017",
+            )
+        )
+    return errors
+
+
+@register("pipeline")
+def check_pipeline_status(app_configs, **kwargs):
+    """Report pipeline definition counts (active/inactive)."""
+    from apps.orchestration.models import PipelineDefinition
+
+    errors = []
+    try:
+        definitions = list(PipelineDefinition.objects.all().values("name", "is_active"))
+        total = len(definitions)
+        active = sum(1 for d in definitions if d["is_active"])
+        inactive = total - active
+        names = ", ".join(
+            f"{d['name']} ({'active' if d['is_active'] else 'inactive'})" for d in definitions
+        )
+        errors.append(
+            Info(
+                f"{total} pipeline definition(s) ({active} active, {inactive} inactive)"
+                + (f": {names}" if names else ""),
+                id="checkers.I001",
+            )
+        )
+    except Exception as e:
+        errors.append(CheckWarning(f"Cannot check pipeline definitions: {e}", id="checkers.W018"))
+    return errors
+
+
+@register("pipeline")
+def check_notification_channels(app_configs, **kwargs):
+    """Check notification channel health."""
+    from apps.notify.models import NotificationChannel
+
+    errors = []
+    try:
+        active_channels = list(
+            NotificationChannel.objects.filter(is_active=True).values("name", "driver", "config")
+        )
+        if not active_channels:
+            errors.append(
+                CheckWarning(
+                    "No active notification channels configured",
+                    hint=(
+                        "Create notification channels via Django Admin"
+                        " or run 'python manage.py setup_instance'."
+                    ),
+                    id="checkers.W014",
+                )
+            )
+        else:
+            for ch in active_channels:
+                if not ch["config"]:
+                    errors.append(
+                        CheckWarning(
+                            f"Notification channel '{ch['name']}' ({ch['driver']})"
+                            f" has empty config",
+                            hint=(
+                                f"Configure {ch['driver']} settings for channel"
+                                f" '{ch['name']}' in Django Admin."
+                            ),
+                            id="checkers.W014",
+                        )
+                    )
+    except Exception as e:
+        errors.append(CheckWarning(f"Cannot check notification channels: {e}", id="checkers.W014"))
+    return errors
+
+
+@register("crontab")
+def check_cron_log_freshness(app_configs, **kwargs):
+    """Check that cron.log has been updated recently."""
+    from django.conf import settings
+
+    if _is_testing():
+        return []
+    errors = []
+    base_dir = str(getattr(settings, "BASE_DIR", ""))
+    log_path = os.path.join(base_dir, "cron.log")
+    if not os.path.isfile(log_path):
+        return errors
+    try:
+        result = subprocess.run(  # noqa: S603, S607
+            ["crontab", "-l"], capture_output=True, text=True, timeout=10
+        )
+        if result.returncode != 0 or "server-maintanence" not in result.stdout:
+            return errors
+    except Exception:
+        return errors
+    try:
+        mtime = os.path.getmtime(log_path)
+        age_seconds = time.time() - mtime
+        if age_seconds > 3600:
+            age_minutes = int(age_seconds / 60)
+            errors.append(
+                CheckWarning(
+                    f"cron.log last updated {age_minutes} minutes ago",
+                    hint=(
+                        "The cron log hasn't been updated in over an hour."
+                        " Check that the cron job is running: crontab -l"
+                    ),
+                    id="checkers.W015",
+                )
+            )
+    except OSError:
+        pass
+    return errors
+
+
+@register("crontab")
+def check_cron_log_size(app_configs, **kwargs):
+    """Check that cron.log is not too large."""
+    from django.conf import settings
+
+    errors = []
+    base_dir = str(getattr(settings, "BASE_DIR", ""))
+    log_path = os.path.join(base_dir, "cron.log")
+    if not os.path.isfile(log_path):
+        return errors
+    try:
+        size_bytes = os.path.getsize(log_path)
+        max_size = 50 * 1024 * 1024
+        if size_bytes > max_size:
+            size_mb = size_bytes / (1024 * 1024)
+            errors.append(
+                CheckWarning(
+                    f"cron.log is {size_mb:.0f}MB (threshold: 50MB)",
+                    hint="Consider log rotation: logrotate, or truncate with: > cron.log",
+                    id="checkers.W016",
+                )
+            )
+    except OSError:
+        pass
     return errors
 
 

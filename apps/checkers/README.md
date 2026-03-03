@@ -117,8 +117,17 @@ In addition to runtime health checkers, this app registers Django system checks 
 |-----|----------|-------------|
 | `database` | `checkers.E001` | Database connection error |
 | `migrations` | `checkers.W001` | Pending migrations warning |
+| `security` | `checkers.W010` | DEBUG mode enabled |
+| `security` | `checkers.W011` | Weak SECRET_KEY |
+| `environment` | `checkers.W012` | `.env` file missing |
+| `environment` | `checkers.I003` | Required env var not set (from `.env.sample`, info) |
+| `environment` | `checkers.W017` | Project directory not writable |
+| `pipeline` | `checkers.I001` | Pipeline definition counts (info) |
+| `pipeline` | `checkers.W014` | No active notification channels or empty config |
 | `crontab` | `checkers.W002` | No crontab configured |
 | `crontab` | `checkers.W004` | Health check cron job not found |
+| `crontab` | `checkers.W015` | `cron.log` stale (> 1 hour) |
+| `crontab` | `checkers.W016` | `cron.log` too large (> 50MB) |
 | `database` | `checkers.E003` | Missing django_migrations table (deploy) |
 
 Run all system checks:
@@ -132,6 +141,9 @@ Run specific check tags:
 ```bash
 uv run python manage.py check --tag database
 uv run python manage.py check --tag migrations
+uv run python manage.py check --tag security
+uv run python manage.py check --tag environment
+uv run python manage.py check --tag pipeline
 uv run python manage.py check --tag crontab
 ```
 
@@ -139,6 +151,32 @@ Run deployment checks (includes additional security/config checks):
 
 ```bash
 uv run python manage.py check --deploy
+```
+
+### Preflight Command
+
+The `preflight` command runs all Django system checks grouped by tag with formatted output:
+
+```bash
+# Run all checks
+uv run python manage.py preflight
+
+# Filter by tag(s)
+uv run python manage.py preflight --only security
+uv run python manage.py preflight --only security,environment
+
+# JSON output (for CI)
+uv run python manage.py preflight --json
+```
+
+### System Check Script
+
+For a comprehensive check that includes shell-level pre-Django checks (Python version, `uv` installed, disk space) plus all Django preflight checks:
+
+```bash
+bin/check_system.sh                # Full check (shell + Django)
+bin/check_system.sh --shell-only   # Only shell-level checks
+bin/check_system.sh --django-only  # Only Django preflight
 ```
 
 ## CLI Reference

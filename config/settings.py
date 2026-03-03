@@ -212,3 +212,13 @@ CHECKERS_SKIP: list[str] = [c.strip() for c in _skip_checkers.split(",") if c.st
 
 # If CHECKERS_SKIP_ALL is enabled, treat all checkers as skipped.
 # We do this by overriding the skip list downstream (in apps.checkers.checkers.is_checker_enabled).
+
+# ---------------------------------------------------------------------------
+# Django System Check Silencing
+# ---------------------------------------------------------------------------
+# Silence specific system check IDs so they don't appear during unrelated
+# commands (e.g., migrate, runserver). The preflight command still shows all checks.
+# Set via env var as comma-separated check IDs.
+# Example: SILENCED_SYSTEM_CHECKS=checkers.W009,checkers.W010,checkers.I001
+_silenced = os.environ.get("SILENCED_SYSTEM_CHECKS", "")
+SILENCED_SYSTEM_CHECKS: list[str] = [c.strip() for c in _silenced.split(",") if c.strip()]

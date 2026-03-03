@@ -19,11 +19,12 @@ Before starting, make sure you have completed the installation:
 Verify everything is working:
 
 ```bash
-uv run python manage.py check          # Django system checks
+bin/check_system.sh                    # Full system check (shell + Django)
+uv run python manage.py preflight      # Django-only preflight checks
 uv run python manage.py check_health   # Health checks run without errors
 ```
 
-If either command fails, see [Installation.md](Installation.md) for troubleshooting.
+If any command fails, see [Installation.md](Installation.md) for troubleshooting.
 
 ---
 
