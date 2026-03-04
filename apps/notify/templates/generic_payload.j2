@@ -4,12 +4,15 @@
   "message": {{ message | tojson }},
   "severity": "{{ severity }}",
   "channel": {{ channel | tojson }},
+  "source": {{ (source or '') | tojson }},
+  "incident_id": {{ incident_id | tojson }},
+  "generated_at": {{ (incident.generated_at or '') | tojson }},
   "tags": {{ tags | tojson }},
-  "context": {{ context | tojson }},
-  "incident_id": {{ incident_id | tojson }}{% if intelligence and intelligence.summary %},
-  "summary": {{ intelligence.summary | tojson }}{% endif %}{% if has_recs %},
+  "context": {{ context | tojson }}{% if intelligence and intelligence.summary %},
+  "summary": {{ intelligence.summary | tojson }}{% endif %}{% if intelligence and intelligence.probable_cause %},
+  "probable_cause": {{ intelligence.probable_cause | tojson }}{% endif %}{% if has_recs %},
   "recommendations": [
-    {% for r in recommendations %}{"title": {{ (r.title | default('')) | tojson }}, "description": {{ (r.description | default('')) | tojson }}}{% if not loop.last %},
+    {% for r in recommendations[:10] %}{"title": {{ (r.title | default('')) | tojson }}, "description": {{ (r.description | default('')) | tojson }}}{% if not loop.last %},
     {% endif %}{% endfor %}
   ]{% endif %}
 }

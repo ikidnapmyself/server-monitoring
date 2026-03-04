@@ -2,6 +2,8 @@
 {# Build safe values and a compact recommendations markdown section #}
 {% set _title = title or '' %}
 {% set _sev = (severity or '') | upper %}
+{% set _id = incident_id or '' %}
+{% set _src = source or '' %}
 {# Choose body: prefer short summary text, not structured data dumps #}
 {% if intelligence is mapping %}
   {# Try to get a clean summary text from intelligence #}
@@ -54,7 +56,7 @@
 {# Compose blocks as JSON using tojson for safety #}
 {
   "blocks": [
-    {"type": "section", "text": {"type": "mrkdwn", "text": {{ ('*' ~ _title ~ '* — `' ~ _sev ~ '`') | tojson }}}},
+    {"type": "section", "text": {"type": "mrkdwn", "text": {{ ('*' ~ _title ~ '* — `' ~ _sev ~ '`' ~ (' | #' ~ _id|string if _id else '') ~ (' | ' ~ _src if _src else '')) | tojson }}}},
     {"type": "section", "text": {"type": "mrkdwn", "text": {{ (sanitize(_body)) | tojson }}}}{% if recs_md %},
     {"type": "section", "text": {"type": "mrkdwn", "text": {{ ('*Top recommendations:*\n' ~ sanitize(recs_md, 4000)) | tojson }}}}{% endif %}
   ],

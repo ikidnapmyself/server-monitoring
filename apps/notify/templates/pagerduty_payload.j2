@@ -1,23 +1,25 @@
 {%- set has_recs = recommendations and recommendations[0] is mapping and recommendations[0].title is defined -%}
+{%- set _src = (incident.source or tags.source or 'server-monitoring') if incident is mapping else (tags.source or 'server-monitoring') -%}
 {
-  "summary": "[{{ severity | upper }}] {{ title }}",
+  "summary": {{ ('[' ~ (severity | upper) ~ '] ' ~ title) | tojson }},
   "severity": "{{ severity }}",
-  "source": {{ (incident.source or tags.source or 'server-maintenance') | tojson }},
+  "source": {{ _src | tojson }},
   "component": {{ (tags.component or channel) | tojson }},
   "group": {{ (tags.group or 'default') | tojson }},
   "class": {{ (tags.class or severity) | tojson }},
   "custom_details": {
     "message": {{ message | tojson }},
-    "severity": "{{ severity }}",
-    "cpu_count": {{ incident.cpu_count | tojson }},
-    "ram_total_human": {{ incident.ram_total_human | tojson }},
-    "disk_total_human": {{ incident.disk_total_human | tojson }}{% if tags %},
+    "severity": "{{ severity }}"{% if incident.generated_at %},
+    "generated_at": {{ incident.generated_at | tojson }}{% endif %}{% if incident.cpu_count is not none and incident.cpu_count %},
+    "cpu_count": {{ incident.cpu_count | tojson }}{% endif %}{% if incident.ram_total_human %},
+    "ram_total_human": {{ incident.ram_total_human | tojson }}{% endif %}{% if incident.disk_total_human %},
+    "disk_total_human": {{ incident.disk_total_human | tojson }}{% endif %}{% if tags %},
     {% for key, value in tags.items() %}"{{ key }}": {{ value | tojson }}{% if not loop.last %},
     {% endif %}{% endfor %}{% endif %}{% if context %},
     {% for key, value in context.items() %}"{{ key }}": {{ value | tojson }}{% if not loop.last %},
     {% endif %}{% endfor %}{% endif %}{% if has_recs %},
     "recommendations": [
-      {% for r in recommendations %}{"title": {{ (r.title | default('')) | tojson }}, "description": {{ (r.description | default('')) | tojson }}}{% if not loop.last %},
+      {% for r in recommendations[:10] %}{"title": {{ (r.title | default('')) | tojson }}, "description": {{ (r.description | default('')) | tojson }}}{% if not loop.last %},
       {% endif %}{% endfor %}
     ]{% endif %}
   }
