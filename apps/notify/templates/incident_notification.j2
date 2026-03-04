@@ -8,34 +8,25 @@ Severity: **{{ severity | upper }}**
 {% if source %}Source: `{{ source }}`
 
 {% endif %}
-{% if intelligence.summary %}Summary:
+{% if incident.generated_at %}Time: {{ incident.generated_at }}
+
+{% endif %}
+{% if intelligence and intelligence.summary %}Summary:
 {{ intelligence.summary }}
 
 {% endif %}
-{% if intelligence.probable_cause %}Probable cause:
+{% if intelligence and intelligence.probable_cause %}Probable cause:
 {{ intelligence.probable_cause }}
 
 {% endif %}
-{% if intelligence.actions %}Actions:
+{% if intelligence and intelligence.actions %}Actions:
 {% for a in intelligence.actions %}- {{ a }}
 {% endfor %}
 
 {% endif %}
-{% if recommendations %}Recommendations (top {{ recommendations|length }}):
-{% for r in recommendations %}- **{{ r.title }}** ({{ r.priority|default('') }})
-  > {{ r.description|default('') }}
-  {% if r.details %}
-  Details:
-  {% if r.details.large_items %}
-  - Large items: {{ r.details.total_size_mb | default('') }} MB
-  {% endif %}
-  {% if r.details.top_processes %}
-  - Top processes:
-    {% for p in r.details.top_processes[:5] %}
-    - `{{ p.pid }}` {{ p.name }} — {{ p.cpu_percent | default(p.memory_percent) }}%
-    {% endfor %}
-  {% endif %}
-  {% endif %}
+{% if recommendations %}Recommendations (top {{ recommendations[:10]|length }}):
+{% for r in recommendations[:10] %}- **{{ r.title | default('') }}** ({{ r.priority | default('') }})
+  > {{ r.description | default('') }}
 
 {% endfor %}
 {% endif %}
@@ -43,13 +34,13 @@ Severity: **{{ severity | upper }}**
 ---
 
 _Ingest Summary:_
-{% if ingest %}
-{{ ingest }}
+{% if incident.ingest %}
+{{ incident.ingest }}
 {% else %}N/A
 {% endif %}
 
 _Check Summary:_
-{% if check %}
-{{ check }}
+{% if incident.check %}
+{{ incident.check }}
 {% else %}N/A
 {% endif %}

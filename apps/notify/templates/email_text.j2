@@ -1,11 +1,25 @@
 Alert: {{ title }}
 Severity: {{ severity | upper }}
-
+{% if incident_id %}Incident ID: {{ incident_id }}
+{% endif %}{% if source %}Source: {{ source }}
+{% endif %}{% if incident.generated_at %}Time: {{ incident.generated_at }}
+{% endif %}
 {{ message }}
 
 {% if intelligence and intelligence.summary %}
 Summary:
 {{ intelligence.summary }}
+
+{% endif %}
+{% if intelligence and intelligence.probable_cause %}
+Probable Cause:
+{{ intelligence.probable_cause }}
+
+{% endif %}
+{% if intelligence and intelligence.actions %}
+Recommended Actions:
+{% for action in intelligence.actions %}- {{ action }}
+{% endfor %}
 
 {% endif %}
 {% if recommendations %}
