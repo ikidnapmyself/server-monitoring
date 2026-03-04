@@ -404,3 +404,75 @@ class PagerDutyPayloadTemplateTests(SimpleTestCase):
         out = self._render(recommendations=recs)
         data = json.loads(out)
         self.assertEqual(len(data["custom_details"]["recommendations"]), 10)
+
+
+class IncidentNotificationTemplateTests(SimpleTestCase):
+    """Tests for incident_notification.j2 template normalization."""
+
+    def _render(self, **overrides):
+        ctx = {
+            "title": "CPU Alert",
+            "message": "CPU usage at 95%",
+            "severity": "critical",
+            "channel": "ops",
+            "tags": {},
+            "context": {},
+            "incident_id": 42,
+            "source": "local-monitor",
+            "incident": {
+                "ingest": "raw ingest data",
+                "check": "raw check data",
+                "generated_at": "2026-03-03T12:00:00+00:00",
+            },
+            "intelligence": {
+                "summary": "High CPU from runaway process",
+                "probable_cause": "Memory leak in worker",
+                "actions": ["Restart worker"],
+            },
+            "recommendations": [
+                {"title": "Restart", "description": "Restart the worker", "priority": "high"},
+            ],
+        }
+        ctx.update(overrides)
+        return render_template("file:incident_notification.j2", ctx)
+
+    def test_uses_incident_ingest_not_bare(self):
+        """Verify template uses incident.ingest, not bare ingest variable."""
+        out = self._render()
+        self.assertIn("raw ingest data", out)
+
+    def test_uses_incident_check_not_bare(self):
+        """Verify template uses incident.check, not bare check variable."""
+        out = self._render()
+        self.assertIn("raw check data", out)
+
+    def test_includes_generated_at(self):
+        out = self._render()
+        self.assertIn("2026-03-03T12:00:00", out)
+
+    def test_recommendations_capped_at_10(self):
+        recs = [
+            {"title": f"Rec {i}", "description": f"Desc {i}", "priority": "low"} for i in range(15)
+        ]
+        out = self._render(recommendations=recs)
+        self.assertIn("Rec 9", out)
+        self.assertNotIn("Rec 10", out)
+
+    def test_no_deep_nested_details_access(self):
+        """Verify simplified recommendations without r.details.large_items etc."""
+        recs = [{"title": "Clean disk", "description": "Remove old files", "priority": "high"}]
+        out = self._render(recommendations=recs)
+        self.assertIn("Clean disk", out)
+        self.assertIn("Remove old files", out)
+        self.assertNotIn("Large items", out)
+        self.assertNotIn("Top processes", out)
+
+    def test_renders_without_optional_fields(self):
+        out = self._render(
+            intelligence=None,
+            recommendations=None,
+            incident_id=None,
+            source=None,
+            incident={},
+        )
+        self.assertIn("CPU Alert", out)
