@@ -144,3 +144,64 @@ class EmailHtmlTemplateTests(SimpleTestCase):
         )
         self.assertIn("CPU Alert", out)
         self.assertIn("CPU usage at 95%", out)
+
+
+class EmailTextTemplateTests(SimpleTestCase):
+    """Tests for email_text.j2 template normalization."""
+
+    def _render(self, **overrides):
+        ctx = {
+            "title": "CPU Alert",
+            "message": "CPU usage at 95%",
+            "severity": "critical",
+            "channel": "ops@example.com",
+            "tags": {"trace_id": "abc-123"},
+            "context": {"env": "production"},
+            "incident_id": 42,
+            "source": "local-monitor",
+            "incident": {
+                "ingest": "raw ingest data",
+                "check": "raw check data",
+                "generated_at": "2026-03-03T12:00:00+00:00",
+            },
+            "intelligence": {
+                "summary": "High CPU from runaway process",
+                "probable_cause": "Memory leak in worker",
+                "actions": ["Restart worker", "Increase memory limit"],
+            },
+            "recommendations": [
+                {"title": "Restart", "description": "Restart the worker process"},
+            ],
+        }
+        ctx.update(overrides)
+        return render_template("file:email_text.j2", ctx)
+
+    def test_includes_incident_id(self):
+        out = self._render()
+        self.assertIn("42", out)
+
+    def test_includes_source(self):
+        out = self._render()
+        self.assertIn("local-monitor", out)
+
+    def test_includes_generated_at(self):
+        out = self._render()
+        self.assertIn("2026-03-03T12:00:00", out)
+
+    def test_includes_probable_cause(self):
+        out = self._render()
+        self.assertIn("Memory leak in worker", out)
+
+    def test_includes_intelligence_actions(self):
+        out = self._render()
+        self.assertIn("Restart worker", out)
+
+    def test_renders_without_optional_fields(self):
+        out = self._render(
+            intelligence=None,
+            recommendations=None,
+            incident_id=None,
+            source=None,
+            incident={},
+        )
+        self.assertIn("CPU Alert", out)
