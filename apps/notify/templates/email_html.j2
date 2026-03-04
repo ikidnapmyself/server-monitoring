@@ -3,22 +3,42 @@
 <html>
 <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px;">
   <div style="border-left: 4px solid {{ color }}; padding-left: 15px;">
-    <h2 style="margin: 0 0 10px 0; color: {{ color }};">{{ title }}</h2>
+    <h2 style="margin: 0 0 10px 0; color: {{ color }};">{{ title | e }}</h2>
     <span style="background-color: {{ color }}; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">
       {{ severity | upper }}
     </span>
+    {% if incident_id %}<span style="margin-left: 8px; font-size: 12px; color: #666;">Incident #{{ incident_id }}</span>{% endif %}
   </div>
-  <p style="margin-top: 20px; line-height: 1.6;">{{ message }}</p>
+  {% if source or incident.generated_at %}
+  <p style="margin-top: 10px; font-size: 12px; color: #888;">
+    {% if source %}Source: {{ source | e }}{% endif %}
+    {% if source and incident.generated_at %} | {% endif %}
+    {% if incident.generated_at %}{{ incident.generated_at }}{% endif %}
+  </p>
+  {% endif %}
+  <p style="margin-top: 20px; line-height: 1.6;">{{ message | e }}</p>
   {% if intelligence and intelligence.summary %}
   <h3>Summary</h3>
-  <p>{{ intelligence.summary }}</p>
+  <p>{{ intelligence.summary | e }}</p>
+  {% endif %}
+  {% if intelligence and intelligence.probable_cause %}
+  <h3>Probable Cause</h3>
+  <p>{{ intelligence.probable_cause | e }}</p>
+  {% endif %}
+  {% if intelligence and intelligence.actions %}
+  <h3>Recommended Actions</h3>
+  <ul>
+  {% for action in intelligence.actions %}
+    <li>{{ action | e }}</li>
+  {% endfor %}
+  </ul>
   {% endif %}
   {% if recommendations %}
   <div style="margin-top: 20px;">
     <strong>Recommendations:</strong>
     <ul>
-    {% for r in recommendations[:20] %}
-      <li><strong>{{ r.title | default('Recommendation') }}</strong>: {{ r.description | default('') }}</li>
+    {% for r in recommendations[:10] %}
+      <li><strong>{{ r.title | default('Recommendation') | e }}</strong>: {{ r.description | default('') | e }}</li>
     {% endfor %}
     </ul>
   </div>
@@ -26,25 +46,25 @@
   {% if tags %}
   <div style="margin-top: 20px;"><strong>Tags:</strong><ul>
   {% for key, value in tags.items() %}
-    <li><code>{{ key }}</code>: {{ value }}</li>
+    <li><code>{{ key | e }}</code>: {{ value | e }}</li>
   {% endfor %}
   </ul></div>
   {% endif %}
   {% if context %}
   <div style="margin-top: 20px;"><strong>Context:</strong><ul>
   {% for key, value in context.items() %}
-    <li><code>{{ key }}</code>: {{ value }}</li>
+    <li><code>{{ key | e }}</code>: {{ value | e }}</li>
   {% endfor %}
   </ul></div>
   {% endif %}
   {% if incident.ingest %}
   <hr>
   <h4>Ingest Summary</h4>
-  <pre>{{ incident.ingest }}</pre>
+  <pre>{{ incident.ingest | e }}</pre>
   {% endif %}
   {% if incident.check %}
   <h4>Check Summary</h4>
-  <pre>{{ incident.check }}</pre>
+  <pre>{{ incident.check | e }}</pre>
   {% endif %}
 </body>
 </html>
