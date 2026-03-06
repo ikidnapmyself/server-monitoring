@@ -15,8 +15,11 @@ from apps.orchestration.models import (
 
 
 class TestMonitoringAdminSite(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
+
     def setUp(self):
-        User.objects.create_superuser("admin", "admin@test.com", "password")
         self.client.login(username="admin", password="password")
 
     def test_custom_site_is_active(self):
@@ -40,12 +43,16 @@ class TestMonitoringAdminSite(TestCase):
 
 
 class TestDashboardContext(TestCase):
-    def setUp(self):
-        User.objects.create_superuser("admin", "admin@test.com", "password")
-        self.client.login(username="admin", password="password")
-        self._create_dashboard_data()
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
+        cls._create_dashboard_data()
 
-    def _create_dashboard_data(self):
+    def setUp(self):
+        self.client.login(username="admin", password="password")
+
+    @classmethod
+    def _create_dashboard_data(cls):
         """Create sample data for dashboard tests."""
         # Active incidents
         Incident.objects.create(
@@ -203,8 +210,11 @@ class TestPipelineTracing(TestCase):
 
 
 class TestPipelineRunObjectActions(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
+
     def setUp(self):
-        User.objects.create_superuser("admin", "admin@test.com", "password")
         self.client.login(username="admin", password="password")
 
     def test_mark_for_retry_button(self):
@@ -257,8 +267,11 @@ class TestPrettifyJson(SimpleTestCase):
 
 
 class TestJsonWidgetRendering(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
+
     def setUp(self):
-        User.objects.create_superuser("admin", "admin@test.com", "password")
         self.client.login(username="admin", password="password")
 
     def test_pipeline_definition_config_uses_json_widget(self):

@@ -7,8 +7,11 @@ from apps.orchestration.models import PipelineRun, PipelineStatus
 
 
 class TestAdminQueryOptimization(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
+
     def setUp(self):
-        User.objects.create_superuser("admin", "admin@test.com", "password")
         self.client.login(username="admin", password="password")
 
     def test_alert_list_uses_select_related(self):
@@ -38,8 +41,11 @@ class TestAdminQueryOptimization(TestCase):
 
 
 class TestBulkActions(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
+
     def setUp(self):
-        User.objects.create_superuser("admin", "admin@test.com", "password")
         self.client.login(username="admin", password="password")
 
     def test_acknowledge_selected_incidents(self):
@@ -98,8 +104,11 @@ class TestBulkActions(TestCase):
 
 
 class TestPerObjectActions(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
+
     def setUp(self):
-        User.objects.create_superuser("admin", "admin@test.com", "password")
         self.client.login(username="admin", password="password")
 
     def test_acknowledge_button_works(self):
@@ -143,8 +152,11 @@ class TestPerObjectActions(TestCase):
 
 
 class TestJsonPrettyDisplay(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
+
     def setUp(self):
-        User.objects.create_superuser("admin", "admin@test.com", "password")
         self.client.login(username="admin", password="password")
 
     def test_alert_detail_shows_pretty_json(self):
