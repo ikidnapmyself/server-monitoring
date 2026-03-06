@@ -1167,7 +1167,7 @@ class TestIntelligenceCallWithTimeout(SimpleTestCase):
         def slow_func():
             import time
 
-            time.sleep(5)
+            time.sleep(0.5)
             return "never"
 
         result = handler._call_with_timeout(slow_func, timeout=0.01)

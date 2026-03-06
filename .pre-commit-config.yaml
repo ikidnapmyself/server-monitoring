@@ -19,15 +19,15 @@ repos:
         args: [--fix, --exit-non-zero-on-fix]
 
   # pytest - run tests
-#  - repo: local
-#    hooks:
-#      - id: pytest
-#        name: pytest
-#        entry: uv run ./manage.py test
-#        language: system
-#        pass_filenames: false
-#        always_run: true
-#        stages: [pre-commit]
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: uv run pytest
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
 
   # mypy - type checking (optional, can be slow)
   - repo: local

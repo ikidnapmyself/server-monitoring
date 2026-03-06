@@ -116,19 +116,26 @@ class TestLocalRecommendationProvider(SimpleTestCase):
 
     def test_provider_disk_progress_callback(self):
         """Provider should call progress_callback during disk scanning."""
+        import tempfile
+
         progress_messages = []
 
         def capture_progress(msg):
             progress_messages.append(msg)
 
-        provider = LocalRecommendationProvider(
-            large_file_threshold_mb=1000,  # High threshold to scan without finding much
-            progress_callback=capture_progress,
-        )
-        provider._get_disk_recommendations("/tmp")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a small file so the scan has something to traverse
+            Path(tmpdir, "testfile.txt").write_text("hello")
+
+            provider = LocalRecommendationProvider(
+                large_file_threshold_mb=1000,  # High threshold to scan without finding much
+                progress_callback=capture_progress,
+                scan_paths=[tmpdir],  # Constrain _find_old_logs to tmpdir too
+            )
+            provider._get_disk_recommendations(tmpdir)
 
         assert any("Scanning" in msg for msg in progress_messages)
-        assert any("/tmp" in msg for msg in progress_messages)
+        assert any(tmpdir in msg for msg in progress_messages)
 
     @patch("apps.intelligence.providers.local.psutil")
     def test_get_top_memory_processes(self, mock_psutil):

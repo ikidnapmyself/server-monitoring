@@ -1,16 +1,19 @@
 # apps/orchestration/_tests/test_integration.py
 """Integration tests for the complete pipeline system."""
 
+from unittest.mock import patch
+
 from django.test import TestCase
 
 from apps.orchestration.definition_orchestrator import DefinitionBasedOrchestrator
 from apps.orchestration.models import PipelineDefinition, PipelineRun
 
 
+@patch("psutil.cpu_percent", return_value=42.0)
 class TestPipelineIntegration(TestCase):
     """Integration tests for complete pipelines."""
 
-    def test_context_to_intelligence_pipeline(self):
+    def test_context_to_intelligence_pipeline(self, _mock_cpu):
         """Test a pipeline that gathers context and runs intelligence."""
         definition = PipelineDefinition.objects.create(
             name="context-intelligence",
@@ -43,7 +46,7 @@ class TestPipelineIntegration(TestCase):
         assert "checks_run" in gather_output
         assert "results" in gather_output
 
-    def test_pipeline_with_optional_failing_node(self):
+    def test_pipeline_with_optional_failing_node(self, _mock_cpu):
         """Test that optional nodes don't break the pipeline."""
         definition = PipelineDefinition.objects.create(
             name="optional-fail",
@@ -76,7 +79,7 @@ class TestPipelineIntegration(TestCase):
         assert result["status"] in ("completed", "partial")
         assert "context" in result["executed_nodes"]
 
-    def test_transform_between_nodes(self):
+    def test_transform_between_nodes(self, _mock_cpu):
         """Test transform node processes data between stages."""
         definition = PipelineDefinition.objects.create(
             name="with-transform",
@@ -117,7 +120,7 @@ class TestPipelineIntegration(TestCase):
         transform_output = result["node_results"]["transform"]["output"]
         assert "transformed" in transform_output
 
-    def test_pipeline_creates_run_record(self):
+    def test_pipeline_creates_run_record(self, _mock_cpu):
         """Test that pipeline execution creates proper records."""
         definition = PipelineDefinition.objects.create(
             name="record-test",
