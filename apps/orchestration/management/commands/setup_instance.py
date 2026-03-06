@@ -710,24 +710,11 @@ class Command(BaseCommand):
         if alerts:
             env_updates["ALERTS_ENABLED_DRIVERS"] = ",".join(alerts)
 
-        if checkers:
-            from apps.checkers.checkers import CHECKER_REGISTRY
-
-            all_checkers = set(CHECKER_REGISTRY.keys())
-            enabled = set(checkers["enabled"])
-            skipped = all_checkers - enabled
-            if skipped:
-                env_updates["CHECKERS_SKIP"] = ",".join(sorted(skipped))
-
-        if intelligence:
-            env_updates["INTELLIGENCE_PROVIDER"] = intelligence["provider"]
-            if intelligence.get("api_key"):
-                env_updates["OPENAI_API_KEY"] = intelligence["api_key"]
-            if intelligence.get("model"):
-                env_updates["OPENAI_MODEL"] = intelligence["model"]
-
-        self._write_env(env_path, env_updates)
-        self.stdout.write(self.style.SUCCESS(f"✓ Updated .env with {len(env_updates)} setting(s)"))
+        if env_updates:
+            self._write_env(env_path, env_updates)
+            self.stdout.write(
+                self.style.SUCCESS(f"✓ Updated .env with {len(env_updates)} setting(s)")
+            )
 
         # Handle name collision for "add another" mode
         pipeline_name = preset["name"]
