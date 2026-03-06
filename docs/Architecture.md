@@ -60,15 +60,13 @@ Alert -> Intelligence -> Notify         (ai-analyzed)
 
 See the [Setup Guide](Setup-Guide) for step-by-step walkthroughs and the `setup_instance` wizard.
 
-### Skip Controls
+### Stage Configuration
 
-Any stage can be skipped via environment variables:
+Stage behavior is controlled through pipeline definitions and Django Admin — not environment variables:
 
-```bash
-CHECKERS_SKIP_ALL=1            # Skip all health checks
-CHECKERS_SKIP=cpu,memory       # Skip specific checkers
-NOTIFY_SKIP_ALL=1              # Skip all notifications
-```
+- **Checkers**: Pipeline definitions specify which checkers to run via `checker_names` in the context node config.
+- **Intelligence**: The `IntelligenceProvider` model (Django Admin) controls which AI provider is active.
+- **Notify**: The `NotificationChannel` model (Django Admin) controls which channels are active via `is_active`.
 
 ## Entry Points
 
@@ -269,6 +267,8 @@ Every pipeline run carries:
 
 ### Key Environment Variables
 
+Environment variables configure **infrastructure only**. Application behavior (which checkers to run, intelligence provider, notification channels) is managed through Django Admin and pipeline definitions.
+
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `DJANGO_SECRET_KEY` | Django secret key | Required in production |
@@ -276,9 +276,13 @@ Every pipeline run carries:
 | `DJANGO_ALLOWED_HOSTS` | Comma-separated allowed hosts | `*` |
 | `CELERY_BROKER_URL` | Redis broker URL | `redis://localhost:6379/0` |
 | `CELERY_TASK_ALWAYS_EAGER` | Run tasks synchronously (dev) | `False` |
-| `CHECKERS_SKIP_ALL` | Skip all health checks | `False` |
-| `CHECKERS_SKIP` | Comma-separated checkers to skip | Empty |
-| `NOTIFY_SKIP_ALL` | Skip all notifications | `False` |
+| `ORCHESTRATION_MAX_RETRIES_PER_STAGE` | Retries before pipeline failure | `3` |
+| `ORCHESTRATION_BACKOFF_FACTOR` | Exponential backoff multiplier | `2.0` |
+| `ORCHESTRATION_INTELLIGENCE_FALLBACK_ENABLED` | Continue pipeline when AI fails | `1` |
+| `ORCHESTRATION_METRICS_BACKEND` | Metrics backend (`logging` or `statsd`) | `logging` |
+| `STATSD_HOST` | StatsD server host | `localhost` |
+| `STATSD_PORT` | StatsD server port | `8125` |
+| `STATSD_PREFIX` | StatsD metric prefix | `pipeline` |
 
 ### Settings
 

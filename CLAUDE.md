@@ -99,7 +99,7 @@ All apps under `apps/` follow this layout:
 - **Driver/Provider Pattern**: All integrations inherit from abstract base classes (e.g., `BaseDriver`, `BaseChecker`, `BaseProvider`)
 - **DTOs**: Normalized data objects between stages (ParsedPayload, CheckResult, AnalysisResult)
 - **Correlation IDs**: Every pipeline run has `trace_id` and `run_id` for tracing
-- **Skip Controls**: `CHECKERS_SKIP_ALL=1` or `CHECKERS_SKIP=cpu,memory` to disable stages
+- **Stage Configuration**: Pipeline definitions control which checkers/drivers/providers run; `NotificationChannel.is_active` and `IntelligenceProvider.is_active` for DB-level enable/disable
 
 ## Code Conventions
 
