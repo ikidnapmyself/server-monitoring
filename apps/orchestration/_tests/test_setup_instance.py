@@ -1049,6 +1049,36 @@ class ApplyConfigEnvTests(TestCase):
         assert "OPENAI_API_KEY" not in env_updates
         assert "OPENAI_MODEL" not in env_updates
 
+    @patch(
+        "apps.orchestration.management.commands.setup_instance.Command._write_env",
+        return_value=None,
+    )
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "1",  # alert source: external
+            "3",  # preset: ai-analyzed
+            "1",  # alerts
+            "2",  # intelligence: openai
+            "sk-test-key",  # API key
+            "gpt-4o",  # model
+            "1",  # notify: slack
+            "https://hooks.slack.com/xxx",
+            "ops-alerts",
+            "Y",  # confirm
+        ],
+    )
+    def test_creates_intelligence_provider_record(self, _mock_input, _mock_write_env):
+        """setup_instance creates an IntelligenceProvider DB record."""
+        from apps.intelligence.models import IntelligenceProvider
+
+        call_command("setup_instance", stdout=StringIO())
+        provider = IntelligenceProvider.objects.get(name="setup-openai")
+        assert provider.provider == "openai"
+        assert provider.config["api_key"] == "sk-test-key"
+        assert provider.config["model"] == "gpt-4o"
+        assert provider.is_active is True
+
 
 class PipelineNameCollisionTests(TestCase):
     """Tests for handle() pipeline name collision in add-another mode."""

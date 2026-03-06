@@ -584,6 +584,36 @@ class Command(BaseCommand):
             created.append(channel)
         return created
 
+    def _create_intelligence_provider(self, intel_config):
+        """
+        Create an IntelligenceProvider record from collected config.
+
+        Args:
+            intel_config: Dict with 'provider' and optional 'api_key', 'model'.
+
+        Returns:
+            Created IntelligenceProvider instance.
+        """
+        from apps.intelligence.models import IntelligenceProvider
+
+        provider_name = intel_config["provider"]
+        config = {}
+        if "api_key" in intel_config:
+            config["api_key"] = intel_config["api_key"]
+        if "model" in intel_config:
+            config["model"] = intel_config["model"]
+
+        provider, _created = IntelligenceProvider.objects.update_or_create(
+            name=f"setup-{provider_name}",
+            defaults={
+                "provider": provider_name,
+                "config": config,
+                "is_active": True,
+                "description": "[setup_wizard] auto-configured provider",
+            },
+        )
+        return provider
+
     def _detect_existing(self):
         """
         Detect existing wizard-created pipeline definition.
@@ -728,6 +758,14 @@ class Command(BaseCommand):
 
         defn = self._create_pipeline_definition(config)
         self.stdout.write(self.style.SUCCESS(f'✓ Created PipelineDefinition "{defn.name}"'))
+
+        if intelligence:
+            provider_record = self._create_intelligence_provider(intelligence)
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f'✓ Created IntelligenceProvider "{provider_record.name}" ({provider_record.provider})'
+                )
+            )
 
         new_notify = [ch for ch in notify if not ch.get("existing")]
         reused_notify = [ch for ch in notify if ch.get("existing")]
