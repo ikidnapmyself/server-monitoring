@@ -1,3 +1,8 @@
+---
+title: "Checkers Test Suite Restructure Implementation Plan"
+parent: Plans
+nav_exclude: true
+---
 # Checkers Test Suite Restructure Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

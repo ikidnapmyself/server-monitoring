@@ -1,3 +1,8 @@
+---
+title: "Setup Instance Wizard — Implementation Plan"
+parent: Plans
+nav_exclude: true
+---
 # Setup Instance Wizard — Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

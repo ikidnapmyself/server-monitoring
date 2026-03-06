@@ -1,3 +1,8 @@
+---
+title: "Real Node Handlers for Definition-Based Pipeline"
+parent: Plans
+nav_exclude: true
+---
 # Real Node Handlers for Definition-Based Pipeline
 
 **Date:** 2026-02-22

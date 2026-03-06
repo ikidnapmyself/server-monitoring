@@ -1,3 +1,8 @@
+---
+title: "Architecture Documentation Restructure Design"
+parent: Plans
+nav_exclude: true
+---
 # Architecture Documentation Restructure Design
 
 ## Goal

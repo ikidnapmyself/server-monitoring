@@ -20,6 +20,7 @@ This top-level README is the entry point and documentation hub. App-specific doc
 
 ## Documentation map
 
+- **Full project wiki: [ikidnapmyself.github.io/server-monitoring](https://ikidnapmyself.github.io/server-monitoring/)**
 - Architecture: [`docs/Architecture.md`](docs/Architecture.md)
 - Installation: [`docs/Installation.md`](docs/Installation.md)
 - Security: [`docs/Security.md`](docs/Security.md)

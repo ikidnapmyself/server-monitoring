@@ -1,3 +1,8 @@
+---
+title: "System Checks Expansion — Implementation Plan"
+parent: Plans
+nav_exclude: true
+---
 # System Checks Expansion — Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

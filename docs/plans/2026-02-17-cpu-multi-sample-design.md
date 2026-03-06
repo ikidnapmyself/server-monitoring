@@ -1,3 +1,8 @@
+---
+title: "CPU Multi-Sample Measurement Design"
+parent: Plans
+nav_exclude: true
+---
 # CPU Multi-Sample Measurement Design
 
 ## Goal

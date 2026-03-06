@@ -1,3 +1,8 @@
+---
+title: "Architecture Documentation Restructure Implementation Plan"
+parent: Plans
+nav_exclude: true
+---
 # Architecture Documentation Restructure Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

@@ -1,3 +1,8 @@
+---
+title: "Database-Driven Intelligence Providers — Design"
+parent: Plans
+nav_exclude: true
+---
 # Database-Driven Intelligence Providers — Design
 
 ## Goal

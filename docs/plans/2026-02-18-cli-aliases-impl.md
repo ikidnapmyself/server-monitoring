@@ -1,3 +1,8 @@
+---
+title: "CLI Aliases & CLI-First Documentation Implementation Plan"
+parent: Plans
+nav_exclude: true
+---
 # CLI Aliases & CLI-First Documentation Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

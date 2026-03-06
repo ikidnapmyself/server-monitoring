@@ -1,3 +1,8 @@
+---
+title: "Setup Instance — Pipeline Configuration Wizard"
+parent: Plans
+nav_exclude: true
+---
 # Setup Instance — Pipeline Configuration Wizard
 
 **Date:** 2026-02-19

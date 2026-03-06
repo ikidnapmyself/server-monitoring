@@ -1,3 +1,9 @@
+---
+title: Setup Guide
+layout: default
+nav_order: 4
+---
+
 # Setup Guide
 
 This guide walks you through configuring your server-maintanence instance after installation.

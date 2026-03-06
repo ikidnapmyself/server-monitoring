@@ -1,3 +1,8 @@
+---
+title: "Interactive test_notify — Design"
+parent: Plans
+nav_exclude: true
+---
 # Interactive test_notify — Design
 
 ## Problem

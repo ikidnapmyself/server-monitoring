@@ -1,3 +1,8 @@
+---
+title: "CPU Multi-Sample Measurement Implementation Plan"
+parent: Plans
+nav_exclude: true
+---
 # CPU Multi-Sample Measurement Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

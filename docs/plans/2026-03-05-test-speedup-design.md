@@ -1,3 +1,8 @@
+---
+title: "Test Suite Speedup — Design"
+parent: Plans
+nav_exclude: true
+---
 # Test Suite Speedup — Design
 
 ## Goal

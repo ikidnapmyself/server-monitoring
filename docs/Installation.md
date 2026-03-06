@@ -1,3 +1,9 @@
+---
+title: Installation
+layout: default
+nav_order: 3
+---
+
 # Installation
 
 This repo supports **two install paths**:

@@ -1,3 +1,8 @@
+---
+title: "Installation Docs Update — Design"
+parent: Plans
+nav_exclude: true
+---
 # Installation Docs Update — Design
 
 > **Status:** Approved 2026-02-23
