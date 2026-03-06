@@ -272,21 +272,23 @@ For HTML output, use `| e` to escape user content and prevent XSS:
 
 Filters and patterns used across the built-in templates:
 
+{% raw %}
 | Pattern | Usage |
 |---------|-------|
-| `{{ "{{ var \\| upper }}" }}` | Uppercase string |
-| `{{ "{{ var \\| tojson }}" }}` | JSON-safe encoding (adds quotes, escapes) |
-| `{{ "{{ var \\| e }}" }}` | HTML entity escaping |
-| `{{ "{{ var \\| default('fallback') }}" }}` | Default for missing/falsy values |
-| `{{ "{{ var \\| trim }}" }}` | Strip whitespace |
-| `{% raw %}{% if var %}...{% endif %}{% endraw %}` | Conditional block |
-| `{% raw %}{% for item in list %}...{% endfor %}{% endraw %}` | Loop |
-| `{% raw %}{% for k, v in dict.items() %}{% endraw %}` | Dict iteration |
-| `{% raw %}{{ list[:5] }}{% endraw %}` | Slice (limit items) |
-| `{% raw %}{% if var is mapping %}{% endraw %}` | Type check (dict) |
-| `{% raw %}{% if var is string %}{% endraw %}` | Type check (string) |
-| `{% raw %}{% if var is defined %}{% endraw %}` | Check if variable exists |
-| `{% raw %}{% set x = 'value' %}{% endraw %}` | Variable assignment |
-| `{% raw %}{% macro name(arg) %}...{% endmacro %}{% endraw %}` | Reusable macro |
-| `{% raw %}{{ loop.last }}{% endraw %}` | True on last loop iteration |
-| `{% raw %}{# comment #}{% endraw %}` | Template comment (not in output) |
+| `{{ var | upper }}` | Uppercase string |
+| `{{ var | tojson }}` | JSON-safe encoding (adds quotes, escapes) |
+| `{{ var | e }}` | HTML entity escaping |
+| `{{ var | default('fallback') }}` | Default for missing/falsy values |
+| `{{ var | trim }}` | Strip whitespace |
+| `{% if var %}...{% endif %}` | Conditional block |
+| `{% for item in list %}...{% endfor %}` | Loop |
+| `{% for k, v in dict.items() %}` | Dict iteration |
+| `{{ list[:5] }}` | Slice (limit items) |
+| `{% if var is mapping %}` | Type check (dict) |
+| `{% if var is string %}` | Type check (string) |
+| `{% if var is defined %}` | Check if variable exists |
+| `{% set x = 'value' %}` | Variable assignment |
+| `{% macro name(arg) %}...{% endmacro %}` | Reusable macro |
+| `{{ loop.last }}` | True on last loop iteration |
+| `{# comment #}` | Template comment (not in output) |
+{% endraw %}
