@@ -552,13 +552,16 @@ class Command(BaseCommand):
             "nodes": nodes,
         }
 
-        return PipelineDefinition.objects.create(
+        defn, _created = PipelineDefinition.objects.update_or_create(
             name=preset["name"],
-            description=f"Pipeline created by setup_instance wizard ({preset['name']})",
-            config=pipeline_config,
-            tags=["setup_wizard"],
-            created_by="setup_instance",
+            defaults={
+                "description": f"Pipeline created by setup_instance wizard ({preset['name']})",
+                "config": pipeline_config,
+                "tags": ["setup_wizard"],
+                "created_by": "setup_instance",
+            },
         )
+        return defn
 
     def _create_notification_channels(self, channels_config):
         """
