@@ -5,7 +5,6 @@ Uses OpenAI's GPT models to analyze incidents and generate AI-driven recommendat
 Extends BaseAIProvider for shared prompt/parsing logic.
 """
 
-import os
 from typing import Any
 
 from apps.intelligence.providers.ai_base import BaseAIProvider
@@ -33,14 +32,12 @@ class OpenAIRecommendationProvider(BaseAIProvider):
         max_tokens: int | None = None,
         **kwargs: Any,
     ) -> None:
-        resolved_key = api_key or os.environ.get("OPENAI_API_KEY")
         super().__init__(
-            api_key=resolved_key or "",
-            model=model or os.environ.get("OPENAI_MODEL", ""),
-            max_tokens=max_tokens or int(os.environ.get("OPENAI_MAX_TOKENS", "0")),
+            api_key=api_key or "",
+            model=model or "",
+            max_tokens=max_tokens or 0,
         )
-        # Preserve original behaviour: api_key=None when env var not set
-        if not resolved_key:
+        if not api_key:
             self.api_key = None  # type: ignore[assignment]
         self._client = None
 
