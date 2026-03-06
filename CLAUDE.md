@@ -128,6 +128,8 @@ nav_exclude: true
 ---
 ```
 
+If the plan contains Jinja2/template syntax (`{% %}`, `{{ }}`), add `render_with_liquid: false` to the front matter to prevent Jekyll from interpreting it as Liquid tags.
+
 For top-level docs under `docs/`, use title case filenames (e.g., `Architecture.md`) and include:
 
 ```yaml

@@ -2,6 +2,7 @@
 title: "Admin Ops Console Implementation Plan"
 parent: Plans
 nav_exclude: true
+render_with_liquid: false
 ---
 # Admin Ops Console Implementation Plan
 

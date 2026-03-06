@@ -2,6 +2,7 @@
 title: "Notification Template Normalization — Implementation Plan"
 parent: Plans
 nav_exclude: true
+render_with_liquid: false
 ---
 # Notification Template Normalization — Implementation Plan
 
