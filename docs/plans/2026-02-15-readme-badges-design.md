@@ -1,3 +1,8 @@
+---
+title: "README Badges Design"
+parent: Plans
+nav_exclude: true
+---
 # README Badges Design
 
 **Goal:** Add a comprehensive badge set to the top of `README.md` to signal project health, quality, and tech stack at a glance.

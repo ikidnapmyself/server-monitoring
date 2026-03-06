@@ -1,0 +1,16 @@
+title: server-maintanence
+description: Django-based server monitoring and alerting system
+remote_theme: just-the-docs/just-the-docs
+
+url: https://ikidnapmyself.github.io
+baseurl: /server-monitoring
+
+permalink: pretty
+
+aux_links:
+  "GitHub":
+    - "https://github.com/ikidnapmyself/server-monitoring"
+
+nav_sort: order
+
+color_scheme: dark

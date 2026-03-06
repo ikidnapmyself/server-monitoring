@@ -1,3 +1,8 @@
+---
+title: "Run Pipeline Definitions CLI Implementation Plan"
+parent: Plans
+nav_exclude: true
+---
 # Run Pipeline Definitions CLI Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

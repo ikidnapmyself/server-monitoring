@@ -1,3 +1,8 @@
+---
+title: "Reusable Pipelines Implementation Plan"
+parent: Plans
+nav_exclude: true
+---
 # Reusable Pipelines Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

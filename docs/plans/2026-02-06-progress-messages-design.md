@@ -1,3 +1,8 @@
+---
+title: "Progress Messages for `get_recommendations` Command"
+parent: Plans
+nav_exclude: true
+---
 # Progress Messages for `get_recommendations` Command
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

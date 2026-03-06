@@ -1,3 +1,9 @@
+---
+title: Security
+layout: default
+nav_order: 5
+---
+
 # Security
 
 This document describes the security posture, configuration, and guidelines for the server monitoring system.

@@ -1,3 +1,8 @@
+---
+title: "JSON Widget Design"
+parent: Plans
+nav_exclude: true
+---
 # JSON Widget Design
 
 **Goal:** Beautify all JSONField displays in Django admin using `django-json-widget` for editable fields and a `prettify_json` helper for readonly fields.

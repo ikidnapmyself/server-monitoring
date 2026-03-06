@@ -1,3 +1,8 @@
+---
+title: "Orchestration App Test Restructure"
+parent: Plans
+nav_exclude: true
+---
 # Orchestration App Test Restructure
 
 ## Goal

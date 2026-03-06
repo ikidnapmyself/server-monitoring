@@ -1,3 +1,8 @@
+---
+title: "Admin Ops Console Design"
+parent: Plans
+nav_exclude: true
+---
 # Admin Ops Console Design
 
 **Date:** 2026-02-13

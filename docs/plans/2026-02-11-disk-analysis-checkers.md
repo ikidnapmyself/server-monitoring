@@ -1,3 +1,8 @@
+---
+title: "Disk Analysis Checkers"
+parent: Plans
+nav_exclude: true
+---
 # Disk Analysis Checkers
 
 **Status: Implemented** — All three checkers and tests are in place (20 tests, all passing).

@@ -1,3 +1,8 @@
+---
+title: "Admin Ops Console Implementation Plan"
+parent: Plans
+nav_exclude: true
+---
 # Admin Ops Console Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

@@ -1,3 +1,8 @@
+---
+title: "Interactive CLI for Server Maintenance"
+parent: Plans
+nav_exclude: true
+---
 # Interactive CLI for Server Maintenance
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
