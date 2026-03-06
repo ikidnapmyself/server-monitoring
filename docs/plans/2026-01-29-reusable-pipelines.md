@@ -1,7 +1,6 @@
 ---
 title: "Reusable Pipelines Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 # Reusable Pipelines Implementation Plan
 

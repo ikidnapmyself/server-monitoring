@@ -1,7 +1,6 @@
 ---
 title: "Interactive test_notify Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 # Interactive test_notify Implementation Plan
 

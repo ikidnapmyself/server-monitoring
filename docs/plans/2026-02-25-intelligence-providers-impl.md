@@ -1,7 +1,6 @@
 ---
 title: "Database-Driven Intelligence Providers — Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 # Database-Driven Intelligence Providers — Implementation Plan
 

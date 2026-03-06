@@ -1,7 +1,6 @@
 ---
 title: "System Checks Expansion — Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 # System Checks Expansion — Implementation Plan
 

@@ -1,7 +1,6 @@
 ---
 title: "Run Pipeline Definitions CLI Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 # Run Pipeline Definitions CLI Implementation Plan
 

@@ -1,7 +1,6 @@
 ---
 title: "Admin Ops Console Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 {% raw %}
 # Admin Ops Console Implementation Plan

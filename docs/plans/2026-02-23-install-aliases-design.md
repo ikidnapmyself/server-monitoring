@@ -1,7 +1,6 @@
 ---
 title: "Add setup_aliases.sh to install.sh — Design"
 parent: Plans
-nav_exclude: true
 ---
 # Add setup_aliases.sh to install.sh — Design
 

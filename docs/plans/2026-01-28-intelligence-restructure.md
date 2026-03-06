@@ -1,7 +1,6 @@
 ---
 title: "Intelligence App Restructure Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 # Intelligence App Restructure Implementation Plan
 

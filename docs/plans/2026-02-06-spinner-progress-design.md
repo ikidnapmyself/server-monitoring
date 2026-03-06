@@ -1,7 +1,6 @@
 ---
 title: "Spinner Progress for `get_recommendations` Command"
 parent: Plans
-nav_exclude: true
 ---
 # Spinner Progress for `get_recommendations` Command
 

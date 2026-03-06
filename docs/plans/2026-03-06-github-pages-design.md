@@ -1,7 +1,6 @@
 ---
 title: "GitHub Pages Design"
 parent: Plans
-nav_exclude: true
 ---
 # GitHub Pages Design
 

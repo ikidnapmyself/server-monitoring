@@ -1,7 +1,6 @@
 ---
 title: "System Checks Expansion — Design"
 parent: Plans
-nav_exclude: true
 ---
 # System Checks Expansion — Design
 

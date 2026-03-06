@@ -1,7 +1,6 @@
 ---
 title: "README Badges Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 # README Badges Implementation Plan
 

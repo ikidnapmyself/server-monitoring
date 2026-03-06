@@ -1,7 +1,6 @@
 ---
 title: "Alerts App Test Restructure"
 parent: Plans
-nav_exclude: true
 ---
 # Alerts App Test Restructure
 

@@ -1,7 +1,6 @@
 ---
 title: "GitHub Pages Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 # GitHub Pages Implementation Plan
 

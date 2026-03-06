@@ -1,7 +1,6 @@
 ---
 title: "AnalysisRun Audit Logging via `BaseProvider.run()`"
 parent: Plans
-nav_exclude: true
 ---
 # AnalysisRun Audit Logging via `BaseProvider.run()`
 

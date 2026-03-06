@@ -1,7 +1,6 @@
 ---
 title: "Notification Template Normalization — Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 {% raw %}
 # Notification Template Normalization — Implementation Plan

@@ -1,7 +1,6 @@
 ---
 title: "Notify App Test Restructure Plan"
 parent: Plans
-nav_exclude: true
 ---
 # Notify App Test Restructure Plan
 

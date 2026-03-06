@@ -1,7 +1,6 @@
 ---
 title: "Admin Ops Console Design"
 parent: Plans
-nav_exclude: true
 ---
 # Admin Ops Console Design
 

@@ -1,7 +1,6 @@
 ---
 title: "Sample Pipeline Definitions Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 # Sample Pipeline Definitions Implementation Plan
 

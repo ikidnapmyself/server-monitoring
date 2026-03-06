@@ -1,7 +1,6 @@
 ---
 title: "JSON Widget Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 # JSON Widget Implementation Plan
 

@@ -1,7 +1,6 @@
 ---
 title: "Notification Template Normalization — Design"
 parent: Plans
-nav_exclude: true
 ---
 # Notification Template Normalization — Design
 

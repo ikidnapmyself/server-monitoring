@@ -1,7 +1,6 @@
 ---
 title: "CPU Multi-Sample Measurement Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 # CPU Multi-Sample Measurement Implementation Plan
 

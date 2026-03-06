@@ -1,7 +1,6 @@
 ---
 title: "Pipeline Inspector — Design"
 parent: Plans
-nav_exclude: true
 ---
 # Pipeline Inspector — Design
 

@@ -1,7 +1,6 @@
 ---
 title: "Checkers Test Suite Restructure Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 # Checkers Test Suite Restructure Implementation Plan
 

@@ -1,7 +1,6 @@
 ---
 title: "README Badges Design"
 parent: Plans
-nav_exclude: true
 ---
 # README Badges Design
 

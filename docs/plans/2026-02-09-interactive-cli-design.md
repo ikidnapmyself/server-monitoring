@@ -1,7 +1,6 @@
 ---
 title: "Interactive CLI for Server Maintenance"
 parent: Plans
-nav_exclude: true
 ---
 # Interactive CLI for Server Maintenance
 

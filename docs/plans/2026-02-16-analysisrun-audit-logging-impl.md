@@ -1,7 +1,6 @@
 ---
 title: "AnalysisRun Audit Logging Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 # AnalysisRun Audit Logging Implementation Plan
 

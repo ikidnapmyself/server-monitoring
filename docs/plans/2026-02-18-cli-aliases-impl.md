@@ -1,7 +1,6 @@
 ---
 title: "CLI Aliases & CLI-First Documentation Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 # CLI Aliases & CLI-First Documentation Implementation Plan
 

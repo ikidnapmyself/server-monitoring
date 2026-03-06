@@ -1,7 +1,6 @@
 ---
 title: "JSON Widget Design"
 parent: Plans
-nav_exclude: true
 ---
 # JSON Widget Design
 

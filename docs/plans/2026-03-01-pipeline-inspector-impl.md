@@ -1,7 +1,6 @@
 ---
 title: "Pipeline Inspector Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 # Pipeline Inspector Implementation Plan
 

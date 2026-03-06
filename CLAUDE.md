@@ -124,7 +124,6 @@ All markdown files under `docs/` are served via GitHub Pages (Jekyll + Just the 
 ---
 title: "Plan Title Here"
 parent: Plans
-nav_exclude: true
 ---
 ```
 

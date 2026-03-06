@@ -1,7 +1,6 @@
 ---
 title: "Architecture Documentation Restructure Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 # Architecture Documentation Restructure Implementation Plan
 

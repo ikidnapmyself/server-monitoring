@@ -1,7 +1,6 @@
 ---
 title: "Node Handlers Documentation Update — Design"
 parent: Plans
-nav_exclude: true
 ---
 # Node Handlers Documentation Update — Design
 

@@ -1,7 +1,6 @@
 ---
 title: "Disk Analysis Checkers"
 parent: Plans
-nav_exclude: true
 ---
 # Disk Analysis Checkers
 

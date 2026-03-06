@@ -1,7 +1,6 @@
 ---
 title: "Setup Instance Wizard — Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 # Setup Instance Wizard — Implementation Plan
 

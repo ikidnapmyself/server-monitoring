@@ -1,7 +1,6 @@
 ---
 title: "Installation Docs Update — Design"
 parent: Plans
-nav_exclude: true
 ---
 # Installation Docs Update — Design
 

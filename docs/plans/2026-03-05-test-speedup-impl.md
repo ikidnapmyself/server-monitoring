@@ -1,7 +1,6 @@
 ---
 title: "Test Suite Speedup — Implementation Plan"
 parent: Plans
-nav_exclude: true
 ---
 # Test Suite Speedup — Implementation Plan
 

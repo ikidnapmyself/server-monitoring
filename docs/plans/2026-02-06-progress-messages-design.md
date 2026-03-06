@@ -1,7 +1,6 @@
 ---
 title: "Progress Messages for `get_recommendations` Command"
 parent: Plans
-nav_exclude: true
 ---
 # Progress Messages for `get_recommendations` Command
 
