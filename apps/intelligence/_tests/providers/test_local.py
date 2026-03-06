@@ -135,7 +135,7 @@ class TestLocalRecommendationProvider(SimpleTestCase):
             provider._get_disk_recommendations(tmpdir)
 
         assert any("Scanning" in msg for msg in progress_messages)
-        assert any(tmpdir in msg or "Scanning" in msg for msg in progress_messages)
+        assert any(tmpdir in msg for msg in progress_messages)
 
     @patch("apps.intelligence.providers.local.psutil")
     def test_get_top_memory_processes(self, mock_psutil):
