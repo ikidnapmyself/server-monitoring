@@ -32,6 +32,34 @@ The core pipeline processes events through four sequential stages, each owned by
 
 The **orchestration app** (`apps.orchestration`) controls all stage transitions. Stages never call downstream stages directly.
 
+### Use Cases
+
+Not every deployment uses all four stages. The pipeline is composable — pick the stages you need:
+
+**Local server monitoring** — You want to monitor CPU, memory, and disk on this machine and get notified when something is wrong. No external monitoring tools required. Health checks run on a cron schedule, generate alerts locally, and dispatch notifications.
+
+```
+Checkers -> Notify                      (local-monitor)
+Checkers -> Intelligence -> Notify      (local-smart, adds AI analysis)
+```
+
+**External alert processing** — You already use Grafana, AlertManager, PagerDuty, or other monitoring tools. This system receives their webhooks, optionally enriches them with local health checks and AI analysis, and forwards notifications to your preferred channels.
+
+```
+Alert -> Notify                                         (direct)
+Alert -> Checkers -> Notify                             (health-checked)
+Alert -> Intelligence -> Notify                         (ai-analyzed)
+Alert -> Checkers -> Intelligence -> Notify             (full pipeline)
+```
+
+**Central alert hub** — This server acts as an aggregation point for multiple monitored servers. It receives webhooks from various sources, runs AI analysis, and dispatches notifications. No local health checks needed.
+
+```
+Alert -> Intelligence -> Notify         (ai-analyzed)
+```
+
+See the [Setup Guide](Setup-Guide) for step-by-step walkthroughs and the `setup_instance` wizard.
+
 ### Skip Controls
 
 Any stage can be skipped via environment variables:

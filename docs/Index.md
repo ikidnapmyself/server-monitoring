@@ -49,6 +49,25 @@ This is a Django-based server monitoring and alerting system built around a stri
               +----------------------+
 ```
 
+### Who Is This For
+
+- **Server operators** who want automated health monitoring with alerts — no external tools needed, just cron and this app.
+- **Platform teams** who already use Grafana, PagerDuty, Datadog, or other monitoring tools and want to enrich alerts with AI analysis before routing notifications.
+- **Small teams** who need a central alert hub that aggregates webhooks from multiple sources, analyzes them, and dispatches to Slack, email, or PagerDuty.
+
+Pick a pipeline preset that matches your situation:
+
+| I want to... | Preset | Alert source | Pipeline |
+|---|---|---|---|
+| Monitor this server (basic) | `local-monitor` | Local crontab | Checkers -> Notify |
+| Monitor this server (with AI) | `local-smart` | Local crontab | Checkers -> Intelligence -> Notify |
+| Forward alerts to notifications | `direct` | External webhooks | Alert -> Notify |
+| Forward alerts with health context | `health-checked` | External webhooks | Alert -> Checkers -> Notify |
+| Forward alerts with AI analysis | `ai-analyzed` | External webhooks | Alert -> Intelligence -> Notify |
+| Full alert processing pipeline | `full` | External webhooks | Alert -> Checkers -> Intelligence -> Notify |
+
+See the [Setup Guide](Setup-Guide) for step-by-step walkthroughs of each use case.
+
 ### Design Principles
 
 - **One Orchestrator, One Trace**: Only `apps.orchestration` moves work between stages. Every run carries `trace_id` and `run_id` across all stages, logs, and DB records.
