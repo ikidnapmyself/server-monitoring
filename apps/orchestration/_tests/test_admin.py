@@ -131,49 +131,48 @@ class TestDashboardContext(TestCase):
 
 
 class TestPipelineTracing(TestCase):
-    def setUp(self):
-        User.objects.create_superuser("admin", "admin@test.com", "password")
-        self.client.login(username="admin", password="password")
-        self._create_pipeline_trace_data()
-
-    def _create_pipeline_trace_data(self):
-        """Create a full pipeline trace for testing."""
-        self.incident = Incident.objects.create(
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
+        cls.incident = Incident.objects.create(
             title="Test Incident",
             severity=AlertSeverity.CRITICAL,
             status=IncidentStatus.OPEN,
         )
-        self.alert = Alert.objects.create(
+        cls.alert = Alert.objects.create(
             fingerprint="fp-1",
             source="prometheus",
             name="HighCPU",
             severity=AlertSeverity.CRITICAL,
             status=AlertStatus.FIRING,
-            incident=self.incident,
+            incident=cls.incident,
             started_at=timezone.now(),
         )
-        self.run = PipelineRun.objects.create(
+        cls.pipeline_run = PipelineRun.objects.create(
             trace_id="trace-abc",
             run_id="run-abc",
             status=PipelineStatus.CHECKED,
             current_stage="check",
-            incident=self.incident,
+            incident=cls.incident,
         )
         StageExecution.objects.create(
-            pipeline_run=self.run,
+            pipeline_run=cls.pipeline_run,
             stage="ingest",
             status=StageStatus.SUCCEEDED,
             attempt=1,
         )
         StageExecution.objects.create(
-            pipeline_run=self.run,
+            pipeline_run=cls.pipeline_run,
             stage="check",
             status=StageStatus.RUNNING,
             attempt=1,
         )
 
+    def setUp(self):
+        self.client.login(username="admin", password="password")
+
     def test_pipeline_run_detail_shows_flow(self):
-        run = self.run
+        run = self.pipeline_run
         response = self.client.get(f"/admin/orchestration/pipelinerun/{run.pk}/change/")
         assert response.status_code == 200
         content = response.content.decode()
