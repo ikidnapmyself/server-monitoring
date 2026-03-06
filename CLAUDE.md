@@ -128,7 +128,7 @@ nav_exclude: true
 ---
 ```
 
-If the plan contains Jinja2/template syntax (`{% %}`, `{{ }}`), add `render_with_liquid: false` to the front matter to prevent Jekyll from interpreting it as Liquid tags.
+If the plan contains Jinja2/template syntax (`{% %}`, `{{ }}`), wrap the entire content (after front matter) in `{% raw %}...{% endraw %}` to prevent Jekyll from interpreting it as Liquid tags. GitHub Pages uses Jekyll 3.x which does not support `render_with_liquid: false`.
 
 For top-level docs under `docs/`, use title case filenames (e.g., `Architecture.md`) and include:
 

@@ -2,8 +2,8 @@
 title: "Notification Template Normalization — Implementation Plan"
 parent: Plans
 nav_exclude: true
-render_with_liquid: false
 ---
+{% raw %}
 # Notification Template Normalization — Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
@@ -966,3 +966,4 @@ Expected: All PASS — including the `test_renders_without_optional_fields` test
 git add -A
 git commit -m "chore: lint and format fixes for template normalization"
 ```
+{% endraw %}

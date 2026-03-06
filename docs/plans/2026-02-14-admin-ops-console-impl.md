@@ -2,8 +2,8 @@
 title: "Admin Ops Console Implementation Plan"
 parent: Plans
 nav_exclude: true
-render_with_liquid: false
 ---
+{% raw %}
 # Admin Ops Console Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
@@ -1284,3 +1284,4 @@ All dashboard queries run only on the index page (via `index()` override, not `e
 ### Stage Values
 
 The pipeline flow visualization uses `PipelineStage` choices. Check `apps/orchestration/models.py:11-17` for the exact string values (INGEST, CHECK, ANALYZE, NOTIFY) to ensure the display matches.
+{% endraw %}
