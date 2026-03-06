@@ -75,7 +75,7 @@ See the [Setup Guide](Setup-Guide) for step-by-step walkthroughs of each use cas
 - **Driver/Provider Pattern**: All integrations inherit from abstract base classes (`BaseDriver`, `BaseChecker`, `BaseProvider`, `BaseNotifyDriver`).
 - **Retry with Backoff**: Per-stage retries with exponential backoff (2^attempt seconds). Failed pipelines can be resumed from the last successful stage.
 - **Intelligence Fallback**: If AI analysis fails, the pipeline continues with a local fallback provider rather than failing entirely.
-- **Skip Controls**: `CHECKERS_SKIP_ALL=1` or `CHECKERS_SKIP=cpu,memory` to disable specific stages or checkers.
+- **Stage Configuration**: Pipeline definitions control which checkers/drivers/providers run; `NotificationChannel.is_active` and `IntelligenceProvider.is_active` for DB-level enable/disable.
 
 ### Key Configuration
 
@@ -85,8 +85,6 @@ See the [Setup Guide](Setup-Guide) for step-by-step walkthroughs of each use cas
 | `ORCHESTRATION_BACKOFF_FACTOR` | 2.0 | Exponential backoff multiplier |
 | `ORCHESTRATION_INTELLIGENCE_FALLBACK_ENABLED` | True | Use local fallback if AI fails |
 | `ORCHESTRATION_METRICS_BACKEND` | "logging" | Signal backend (logging or statsd) |
-| `CHECKERS_SKIP_ALL` | 0 | Disable all checkers |
-| `CHECKERS_SKIP` | "" | Comma-separated checkers to skip |
 | `ENABLE_CELERY_ORCHESTRATION` | 0 | Enable async pipeline via Celery |
 
 ---
@@ -388,9 +386,8 @@ CHECKER_REGISTRY = {
 }
 ```
 
-- `CHECKERS_SKIP_ALL=1` — skip all checkers
-- `CHECKERS_SKIP=cpu,memory` — skip specific checkers
-- `get_enabled_checkers()` — returns filtered registry
+- Pipeline definitions control which checkers run via `checker_names` config
+- `CHECKER_REGISTRY` — static registry of all available checkers
 
 ---
 

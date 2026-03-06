@@ -177,7 +177,7 @@ HTTP endpoint. You can use a service like [webhook.site](https://webhook.site) f
 The wizard creates:
 - A `PipelineDefinition` named `local-monitor` in the database
 - A `NotificationChannel` for each notification driver you configured
-- Updated `.env` with `CHECKERS_SKIP` for any disabled checkers
+- Updated `.env` with infrastructure settings
 
 ### Step 7: Test your notification channels
 
@@ -604,14 +604,6 @@ errors.
 
 | Variable | Default | Description |
 |---|---|---|
-| `CHECKERS_SKIP_ALL` | — | Set to `1` to disable all health checks |
-| `CHECKERS_SKIP` | — | Comma-separated list of checkers to skip (e.g., `network,process`) |
-| `NOTIFY_SKIP_ALL` | — | Set to `1` to disable all notifications |
-| `NOTIFY_SKIP` | — | Comma-separated list of notify drivers to skip |
-| `INTELLIGENCE_PROVIDER` | — | Active intelligence provider name |
-| `OPENAI_API_KEY` | — | OpenAI API key |
-| `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model to use |
-| `ANTHROPIC_API_KEY` | — | Anthropic API key |
 | `ORCHESTRATION_MAX_RETRIES_PER_STAGE` | `3` | Max retry attempts per stage |
 | `ORCHESTRATION_BACKOFF_FACTOR` | `2.0` | Exponential backoff multiplier |
 | `ORCHESTRATION_INTELLIGENCE_FALLBACK_ENABLED` | `1` | Continue pipeline if AI fails |
@@ -633,15 +625,9 @@ uv run python manage.py shell -c "from apps.notify.models import NotificationCha
 uv run python manage.py setup_instance
 ```
 
-### Checker is skipped
+### Checker doesn't run
 
-If a checker doesn't run, check if it's in the skip list:
-
-```bash
-grep CHECKERS_SKIP .env
-```
-
-Remove it from `CHECKERS_SKIP` or remove the variable entirely to enable all checkers.
+If a checker doesn't run, verify it's included in your pipeline definition's `checker_names` config. If `checker_names` is omitted, all registered checkers run by default.
 
 ### Intelligence provider times out
 

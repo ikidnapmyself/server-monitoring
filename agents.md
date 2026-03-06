@@ -206,7 +206,7 @@ A good plan should include:
 **Example prompts:**
 - "Implement the Slack notification driver in `apps/notify/drivers/slack.py` using the BaseDriver pattern."
 - "Add a Disk Space checker in `apps/checkers/` and include a unit test."
-- "Wire a new `INTELLIGENCE_PROVIDER=ollama` option in `apps/intelligence/providers/` and update settings."
+- "Wire a new Ollama provider in `apps/intelligence/providers/`, register it, and create an `IntelligenceProvider` record via Django Admin."
 
 ---
 

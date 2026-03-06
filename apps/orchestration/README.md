@@ -291,7 +291,7 @@ Runs real system health checkers (CPU, memory, disk, network, process) and retur
 
 | Config Key | Type | Default | Description |
 |------------|------|---------|-------------|
-| `checker_names` | list[string] | all enabled | Which checkers to run. Omit to run all enabled checkers (respects `CHECKERS_SKIP`). |
+| `checker_names` | list[string] | all registered | Which checkers to run. Omit to run all registered checkers. |
 
 **Output:**
 ```json

@@ -82,5 +82,5 @@ class ContextNodeHandler(BaseNodeHandler):
             return result
 
     def validate_config(self, config: Dict[str, Any]) -> list[str]:
-        # No required fields — empty config runs all enabled checkers
+        # No required fields — empty config runs all registered checkers
         return []
