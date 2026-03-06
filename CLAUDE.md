@@ -109,9 +109,31 @@ All apps under `apps/` follow this layout:
 - **Env vars**: Copy `.env.sample` to `.env`
 - **Test coverage**: 100% branch coverage required for every PR. Run `uv run coverage run -m pytest && uv run coverage report` to verify.
 
-## Key Documentation
+## Documentation & GitHub Pages
 
 - `docs/Architecture.md` — System architecture, all entry points, pipeline stages, data models
 - `agents.md` — AI agent roles and pipeline contracts (read this for any significant work)
 - `apps/<app>/README.md` — App-specific documentation
 - `apps/<app>/agents.md` — App-specific AI guidance
+
+### GitHub Pages Compliance
+
+All markdown files under `docs/` are served via GitHub Pages (Jekyll + Just the Docs). When creating or modifying plan documents in `docs/plans/`, always include Jekyll front matter at the top:
+
+```yaml
+---
+title: "Plan Title Here"
+parent: Plans
+nav_exclude: true
+---
+```
+
+For top-level docs under `docs/`, use title case filenames (e.g., `Architecture.md`) and include:
+
+```yaml
+---
+title: Page Title
+layout: default
+nav_order: N
+---
+```
