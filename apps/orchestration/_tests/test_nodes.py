@@ -121,13 +121,9 @@ _FAKE_REGISTRY = {
 class TestContextNodeHandler(SimpleTestCase):
     """Tests for ContextNodeHandler."""
 
-    @patch(
-        "apps.checkers.checkers.get_enabled_checkers",
-        return_value={"cpu": _OkChecker, "memory": _WarningChecker},
-    )
     @patch("apps.checkers.checkers.CHECKER_REGISTRY", _FAKE_REGISTRY)
-    def test_runs_enabled_checkers(self, _mock_enabled):
-        """Runs all enabled checkers when no checker_names in config."""
+    def test_runs_enabled_checkers(self):
+        """Runs all registered checkers when no checker_names in config."""
         from apps.orchestration.nodes import NodeContext
 
         handler = get_node_handler("context")
@@ -135,13 +131,15 @@ class TestContextNodeHandler(SimpleTestCase):
         result = handler.execute(ctx, {})
 
         assert result.node_type == "context"
-        assert result.output["checks_run"] == 2
+        assert result.output["checks_run"] == 3
         assert result.output["checks_passed"] == 1
-        assert result.output["checks_failed"] == 1
+        assert result.output["checks_failed"] == 2
         assert "cpu" in result.output["results"]
         assert "memory" in result.output["results"]
+        assert "disk" in result.output["results"]
         assert result.output["results"]["cpu"]["status"] == "ok"
         assert result.output["results"]["memory"]["status"] == "warning"
+        assert result.output["results"]["disk"]["status"] == "critical"
 
     @patch("apps.checkers.checkers.CHECKER_REGISTRY", _FAKE_REGISTRY)
     def test_runs_specific_checkers(self):
@@ -235,13 +233,9 @@ class TestContextNodeHandler(SimpleTestCase):
         assert result.output["checks_passed"] == 1
         assert result.output["checks_failed"] == 2
 
-    @patch(
-        "apps.checkers.checkers.get_enabled_checkers",
-        return_value={},
-    )
     @patch("apps.checkers.checkers.CHECKER_REGISTRY", {})
-    def test_empty_enabled_checkers_errors(self, _mock_enabled):
-        """Errors when get_enabled_checkers returns empty dict."""
+    def test_empty_enabled_checkers_errors(self):
+        """Errors when CHECKER_REGISTRY is empty."""
         from apps.orchestration.nodes import NodeContext
 
         handler = get_node_handler("context")

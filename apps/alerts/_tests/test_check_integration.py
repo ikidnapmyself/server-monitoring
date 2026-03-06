@@ -147,10 +147,6 @@ class CheckAlertBridgeTests(TestCase):
                 {"test": mock_checker_class},
                 clear=True,
             ),
-            patch(
-                "apps.alerts.check_integration.is_checker_enabled",
-                return_value=True,
-            ),
         ):
             check_result, processing_result = self.bridge.run_check_and_alert("test")
 
