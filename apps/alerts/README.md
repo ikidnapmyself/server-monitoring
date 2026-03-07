@@ -423,13 +423,6 @@ uv run python manage.py check_and_alert --warning-threshold 60 --critical-thresh
 uv run python manage.py check_and_alert --warning-threshold 85 --critical-threshold 98
 ```
 
-#### Skip list override
-
-```bash
-# Include checkers that are normally skipped via CHECKERS_SKIP
-uv run python manage.py check_and_alert --include-skipped
-```
-
 #### Combined examples
 
 ```bash
@@ -445,8 +438,8 @@ uv run python manage.py check_and_alert \
   --label env=production --label team=oncall \
   --hostname api-server-03 --json
 
-# Include all checkers even skipped ones, no incidents
-uv run python manage.py check_and_alert --include-skipped --no-incidents --json
+# All checkers, no incidents
+uv run python manage.py check_and_alert --no-incidents --json
 
 # Cron: every 5 minutes with labels and JSON log
 # */5 * * * * cd /path/to/project && uv run python manage.py check_and_alert --json --label env=production >> /var/log/health-alerts.log 2>&1
@@ -464,7 +457,6 @@ uv run python manage.py check_and_alert --include-skipped --no-incidents --json
 | `--label` | KEY=VALUE | — | Add label to all alerts (repeatable) |
 | `--warning-threshold` | float | per-checker | Override warning threshold |
 | `--critical-threshold` | float | per-checker | Override critical threshold |
-| `--include-skipped` | flag | — | Include checkers from CHECKERS_SKIP |
 
 ### Programmatic usage
 

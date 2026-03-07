@@ -34,7 +34,7 @@ Each stage emits monitoring signals (`pipeline.stage.started/succeeded/failed`) 
 - **Driver/Provider Pattern**: All integrations inherit from abstract base classes (`BaseDriver`, `BaseChecker`, `BaseProvider`). New checkers/drivers/providers must follow this pattern.
 - **DTOs**: Normalized data objects between stages (`ParsedPayload`, `CheckResult`, `AnalysisResult`).
 - **Correlation IDs**: Every pipeline run has `trace_id` and `run_id` for end-to-end tracing.
-- **Skip Controls**: `CHECKERS_SKIP_ALL=1` or `CHECKERS_SKIP=cpu,memory` to disable stages.
+- **Stage Configuration**: Pipeline definitions control which checkers/drivers/providers run; `NotificationChannel.is_active` and `IntelligenceProvider.is_active` for DB-level enable/disable.
 - **Idempotency**: Use idempotency keys for outbound notifications to prevent duplicates.
 
 ## App Structure (Required Layout)

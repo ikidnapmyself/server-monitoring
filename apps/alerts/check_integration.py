@@ -43,8 +43,6 @@ from apps.checkers.checkers import (
     CHECKER_REGISTRY,
     CheckResult,
     CheckStatus,
-    get_enabled_checkers,
-    is_checker_enabled,
 )
 
 logger = logging.getLogger(__name__)
@@ -442,9 +440,6 @@ class CheckAlertBridge:
                 f"Available: {', '.join(CHECKER_REGISTRY.keys())}"
             )
 
-        if not is_checker_enabled(checker_name):
-            raise ValueError(f"Checker '{checker_name}' is disabled (in CHECKERS_SKIP setting).")
-
         checker_class = CHECKER_REGISTRY[checker_name]
         checker = checker_class(**(checker_kwargs or {}))
         check_result = checker.run()
@@ -474,15 +469,9 @@ class CheckAlertBridge:
         checker_configs = checker_configs or {}
 
         if checker_names is None:
-            # Only run enabled checkers (respects CHECKERS_SKIP setting)
-            checker_names = list(get_enabled_checkers().keys())
+            checker_names = list(CHECKER_REGISTRY.keys())
 
         for checker_name in checker_names:
-            # Skip disabled checkers
-            if not is_checker_enabled(checker_name):
-                logger.info(f"Skipping disabled checker: {checker_name}")
-                continue
-
             try:
                 checker_kwargs = checker_configs.get(checker_name, {})
                 check_result, processing_result = self.run_check_and_alert(

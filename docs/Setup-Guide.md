@@ -174,10 +174,10 @@ HTTP endpoint. You can use a service like [webhook.site](https://webhook.site) f
 ? Apply this configuration? [Y/n]: Y
 ```
 
-The wizard creates:
+The wizard creates (or updates if re-running):
 - A `PipelineDefinition` named `local-monitor` in the database
 - A `NotificationChannel` for each notification driver you configured
-- Updated `.env` with `CHECKERS_SKIP` for any disabled checkers
+- An `IntelligenceProvider` record if an AI provider was selected (with API key and model stored in the DB)
 
 ### Step 7: Test your notification channels
 
@@ -319,19 +319,18 @@ customize.
 
 Pick your AI provider:
 
-| Provider | Requires | Best for |
-|---|---|---|
-| `local` | Nothing | Testing, no-API-key environments |
-| `openai` | `OPENAI_API_KEY` | Production AI analysis |
-| `claude` | `ANTHROPIC_API_KEY` | Production AI analysis |
-| `gemini` | `GEMINI_API_KEY` | Production AI analysis |
-| `ollama` | Local Ollama server | Air-gapped / self-hosted AI |
-| `copilot` | `COPILOT_API_KEY` | Microsoft ecosystem |
-| `grok` | `GROK_API_KEY` | xAI ecosystem |
-| `mistral` | `MISTRAL_API_KEY` | Mistral ecosystem |
+| Provider | Best for |
+|---|---|
+| `local` | Testing, no-API-key environments |
+| `openai` | Production AI analysis (GPT models) |
+| `claude` | Production AI analysis (Anthropic) |
+| `gemini` | Production AI analysis (Google) |
+| `ollama` | Air-gapped / self-hosted AI |
+| `copilot` | Microsoft ecosystem |
+| `grok` | xAI ecosystem |
+| `mistral` | Mistral ecosystem |
 
-If you pick `openai`, the wizard prompts for your API key and model (default: `gpt-4o-mini`).
-For other providers, set the appropriate environment variable in your `.env` file.
+All AI providers (except `local`) prompt for an API key and model. The wizard stores credentials in an `IntelligenceProvider` DB record — no env vars needed.
 
 **Tip:** Start with `local` to verify the pipeline works end-to-end, then switch to a real
 provider later by re-running the wizard.
@@ -567,16 +566,18 @@ errors.
 
 ### Intelligence providers
 
-| Provider | Requires | Notes |
-|---|---|---|
-| `local` | Nothing | Rule-based, no API calls. Always available. |
-| `openai` | `OPENAI_API_KEY` | GPT models |
-| `claude` | `ANTHROPIC_API_KEY` | Anthropic Claude models |
-| `gemini` | `GEMINI_API_KEY` | Google Gemini models |
-| `ollama` | Local Ollama server | Self-hosted, no API key needed |
-| `copilot` | `COPILOT_API_KEY` | Microsoft Copilot |
-| `grok` | `GROK_API_KEY` | xAI Grok |
-| `mistral` | `MISTRAL_API_KEY` | Mistral AI |
+Providers are configured via the `setup_instance` wizard or Django Admin (`IntelligenceProvider` model). API keys are stored in the DB, not environment variables.
+
+| Provider | Notes |
+|---|---|
+| `local` | Rule-based, no API calls. Always available as fallback. |
+| `openai` | GPT models (default: gpt-4o-mini) |
+| `claude` | Anthropic Claude models (default: claude-sonnet-4-20250514) |
+| `gemini` | Google Gemini models (default: gemini-2.0-flash) |
+| `ollama` | Self-hosted via local Ollama server (default: llama3.1) |
+| `copilot` | GitHub Copilot (default: gpt-4o) |
+| `grok` | xAI Grok (default: grok-3-mini) |
+| `mistral` | Mistral AI (default: mistral-small-latest) |
 
 ### Notification drivers
 
@@ -604,14 +605,6 @@ errors.
 
 | Variable | Default | Description |
 |---|---|---|
-| `CHECKERS_SKIP_ALL` | — | Set to `1` to disable all health checks |
-| `CHECKERS_SKIP` | — | Comma-separated list of checkers to skip (e.g., `network,process`) |
-| `NOTIFY_SKIP_ALL` | — | Set to `1` to disable all notifications |
-| `NOTIFY_SKIP` | — | Comma-separated list of notify drivers to skip |
-| `INTELLIGENCE_PROVIDER` | — | Active intelligence provider name |
-| `OPENAI_API_KEY` | — | OpenAI API key |
-| `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model to use |
-| `ANTHROPIC_API_KEY` | — | Anthropic API key |
 | `ORCHESTRATION_MAX_RETRIES_PER_STAGE` | `3` | Max retry attempts per stage |
 | `ORCHESTRATION_BACKOFF_FACTOR` | `2.0` | Exponential backoff multiplier |
 | `ORCHESTRATION_INTELLIGENCE_FALLBACK_ENABLED` | `1` | Continue pipeline if AI fails |
@@ -633,15 +626,9 @@ uv run python manage.py shell -c "from apps.notify.models import NotificationCha
 uv run python manage.py setup_instance
 ```
 
-### Checker is skipped
+### Checker doesn't run
 
-If a checker doesn't run, check if it's in the skip list:
-
-```bash
-grep CHECKERS_SKIP .env
-```
-
-Remove it from `CHECKERS_SKIP` or remove the variable entirely to enable all checkers.
+If a checker doesn't run, verify it's included in your pipeline definition's `checker_names` config. If `checker_names` is omitted, all registered checkers run by default.
 
 ### Intelligence provider times out
 

@@ -19,7 +19,7 @@ class ContextNodeHandler(BaseNodeHandler):
     name = "context"
 
     def execute(self, ctx: NodeContext, config: Dict[str, Any]) -> NodeResult:
-        from apps.checkers.checkers import CHECKER_REGISTRY, get_enabled_checkers
+        from apps.checkers.checkers import CHECKER_REGISTRY
         from apps.checkers.checkers.base import CheckStatus
 
         node_id = config.get("id", "context")
@@ -27,7 +27,7 @@ class ContextNodeHandler(BaseNodeHandler):
 
         with track_duration(result):
             # Determine which checkers to run
-            checker_names = config.get("checker_names") or list(get_enabled_checkers().keys())
+            checker_names = config.get("checker_names") or list(CHECKER_REGISTRY.keys())
 
             # Validate checker names against registry
             valid_names = []
@@ -82,5 +82,5 @@ class ContextNodeHandler(BaseNodeHandler):
             return result
 
     def validate_config(self, config: Dict[str, Any]) -> list[str]:
-        # No required fields — empty config runs all enabled checkers
+        # No required fields — empty config runs all registered checkers
         return []

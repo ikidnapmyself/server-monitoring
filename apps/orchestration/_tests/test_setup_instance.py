@@ -1016,12 +1016,11 @@ class ApplyConfigEnvTests(TestCase):
             "Y",  # confirm
         ],
     )
-    def test_generates_checkers_skip_env(self, _mock_input, mock_write_env):
-        """Sets CHECKERS_SKIP for unchecked checkers."""
+    def test_no_checkers_skip_env(self, _mock_input, mock_write_env):
+        """CHECKERS_SKIP is no longer written to .env (definition-based)."""
         call_command("setup_instance", stdout=StringIO())
-        # _write_env should have been called with CHECKERS_SKIP
-        env_updates = mock_write_env.call_args[0][1]
-        assert "CHECKERS_SKIP" in env_updates
+        env_updates = mock_write_env.call_args[0][1] if mock_write_env.called else {}
+        assert "CHECKERS_SKIP" not in env_updates
 
     @patch(
         "apps.orchestration.management.commands.setup_instance.Command._write_env",
@@ -1042,13 +1041,43 @@ class ApplyConfigEnvTests(TestCase):
             "Y",  # confirm
         ],
     )
-    def test_generates_openai_env_vars(self, _mock_input, mock_write_env):
-        """Sets OPENAI_API_KEY and OPENAI_MODEL for openai provider."""
+    def test_no_openai_env_vars(self, _mock_input, mock_write_env):
+        """OPENAI_* and INTELLIGENCE_PROVIDER are no longer written to .env (DB-based)."""
         call_command("setup_instance", stdout=StringIO())
-        env_updates = mock_write_env.call_args[0][1]
-        assert env_updates.get("INTELLIGENCE_PROVIDER") == "openai"
-        assert env_updates.get("OPENAI_API_KEY") == "sk-test-key"
-        assert env_updates.get("OPENAI_MODEL") == "gpt-4o"
+        env_updates = mock_write_env.call_args[0][1] if mock_write_env.called else {}
+        assert "INTELLIGENCE_PROVIDER" not in env_updates
+        assert "OPENAI_API_KEY" not in env_updates
+        assert "OPENAI_MODEL" not in env_updates
+
+    @patch(
+        "apps.orchestration.management.commands.setup_instance.Command._write_env",
+        return_value=None,
+    )
+    @patch(
+        "builtins.input",
+        side_effect=[
+            "1",  # alert source: external
+            "3",  # preset: ai-analyzed
+            "1",  # alerts
+            "2",  # intelligence: openai
+            "sk-test-key",  # API key
+            "gpt-4o",  # model
+            "1",  # notify: slack
+            "https://hooks.slack.com/xxx",
+            "ops-alerts",
+            "Y",  # confirm
+        ],
+    )
+    def test_creates_intelligence_provider_record(self, _mock_input, _mock_write_env):
+        """setup_instance creates an IntelligenceProvider DB record."""
+        from apps.intelligence.models import IntelligenceProvider
+
+        call_command("setup_instance", stdout=StringIO())
+        provider = IntelligenceProvider.objects.get(name="setup-openai")
+        assert provider.provider == "openai"
+        assert provider.config["api_key"] == "sk-test-key"
+        assert provider.config["model"] == "gpt-4o"
+        assert provider.is_active is True
 
 
 class PipelineNameCollisionTests(TestCase):
@@ -1321,9 +1350,9 @@ class SetupInstanceIntegrationTests(TestCase):
         ],
     )
     def test_all_checkers_enabled_no_skip_env(self, _mock_input, mock_write_env):
-        """When all checkers are selected, CHECKERS_SKIP is not set."""
+        """CHECKERS_SKIP is never written (definition-based)."""
         call_command("setup_instance", stdout=StringIO())
-        env_updates = mock_write_env.call_args[0][1]
+        env_updates = mock_write_env.call_args[0][1] if mock_write_env.called else {}
         assert "CHECKERS_SKIP" not in env_updates
 
     @patch(

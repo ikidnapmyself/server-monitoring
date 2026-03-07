@@ -137,40 +137,11 @@ uv run python manage.py test_notify slack --non-interactive \
 | `--endpoint` | str | — | API endpoint (generic driver) |
 | `--api-key` | str | — | API key (generic driver) |
 
-### Skipping/Disabling Drivers
+### Enabling/Disabling Drivers
 
-You can disable specific drivers globally via the `NOTIFY_SKIP` setting.
+Notification channels are managed via the `NotificationChannel` model in Django Admin. Each channel has an `is_active` flag — set it to `False` to disable a channel without deleting its configuration.
 
-#### Skip ALL drivers (helper)
-
-If you want to disable *every* notification driver (common when using the app as a pipeline controller
-without notifications), set:
-
-```bash
-export NOTIFY_SKIP_ALL=1
-```
-
-This takes precedence over `NOTIFY_SKIP`.
-
-#### Environment Variable
-
-```bash
-# Skip specific notification drivers
-export NOTIFY_SKIP=email,pagerduty
-
-# Then run pipeline - email and pagerduty notifications will be skipped
-uv run python manage.py run_pipeline --sample
-```
-
-#### Django Settings
-
-In `config/settings.py`:
-
-```python
-# Skip specific drivers
-NOTIFY_SKIP = ["email", "pagerduty"]
-```
-
+Pipeline definitions control which drivers are used per-pipeline via the `drivers` config in notify nodes.
 
 ### API endpoints
 

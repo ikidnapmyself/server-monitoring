@@ -197,26 +197,25 @@ class EnvironmentChecksTests(TestCase):
     @patch("os.path.isfile", return_value=True)
     def test_required_env_vars_warns_on_missing(self, mock_isfile):
         """Test that required env vars check warns on missing variables."""
-        sample_content = "DJANGO_DEBUG=1\nOPENAI_API_KEY=\n"
+        sample_content = "DJANGO_DEBUG=1\nSTATSD_HOST=localhost\n"
         with patch("builtins.open", mock_open(read_data=sample_content)):
             with patch.dict("os.environ", {"DJANGO_DEBUG": "1"}, clear=False):
-                # Remove OPENAI_API_KEY if it exists
                 env = os.environ.copy()
-                env.pop("OPENAI_API_KEY", None)
+                env.pop("STATSD_HOST", None)
                 with patch.dict("os.environ", env, clear=True):
                     errors = check_required_env_vars(app_configs=None)
                     warning_vars = [e.msg for e in errors]
-                    self.assertTrue(any("OPENAI_API_KEY" in msg for msg in warning_vars))
+                    self.assertTrue(any("STATSD_HOST" in msg for msg in warning_vars))
                     self.assertTrue(all(e.id == "checkers.I003" for e in errors))
 
     @patch("os.path.isfile", return_value=True)
     def test_required_env_vars_ok_when_all_set(self, mock_isfile):
         """Test that required env vars check passes when all vars are set."""
-        sample_content = "DJANGO_DEBUG=1\nOPENAI_API_KEY=\n"
+        sample_content = "DJANGO_DEBUG=1\nSTATSD_HOST=localhost\n"
         with patch("builtins.open", mock_open(read_data=sample_content)):
             with patch.dict(
                 "os.environ",
-                {"DJANGO_DEBUG": "1", "OPENAI_API_KEY": "sk-test"},
+                {"DJANGO_DEBUG": "1", "STATSD_HOST": "localhost"},
                 clear=False,
             ):
                 errors = check_required_env_vars(app_configs=None)

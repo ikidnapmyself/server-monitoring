@@ -16,20 +16,12 @@ class TestOpenAIProviderInitialization(SimpleTestCase):
     """Tests for OpenAI provider initialization."""
 
     def test_initialization_defaults(self):
-        """Test provider initializes with environment variable defaults."""
-        with patch.dict(
-            "os.environ",
-            {
-                "OPENAI_API_KEY": "test-key",
-                "OPENAI_MODEL": "gpt-4o",
-                "OPENAI_MAX_TOKENS": "2048",
-            },
-        ):
-            provider = OpenAIRecommendationProvider()
+        """Provider uses class defaults when no config provided."""
+        provider = OpenAIRecommendationProvider()
 
-            assert provider.api_key == "test-key"
-            assert provider.model == "gpt-4o"
-            assert provider.max_tokens == 2048
+        assert provider.api_key is None
+        assert provider.model == "gpt-4o-mini"
+        assert provider.max_tokens == 1024
 
     def test_initialization_custom_values(self):
         """Test provider initializes with custom values."""
@@ -42,15 +34,6 @@ class TestOpenAIProviderInitialization(SimpleTestCase):
         assert provider.api_key == "custom-key"
         assert provider.model == "gpt-4-turbo"
         assert provider.max_tokens == 4096
-
-    def test_initialization_defaults_without_env(self):
-        """Test provider uses hardcoded defaults when env vars not set."""
-        with patch.dict("os.environ", {}, clear=True):
-            provider = OpenAIRecommendationProvider()
-
-            assert provider.api_key is None
-            assert provider.model == "gpt-4o-mini"
-            assert provider.max_tokens == 1024
 
     def test_lazy_client_initialization(self):
         """Test that client is not initialized until accessed."""

@@ -270,9 +270,17 @@ class Command(BaseCommand):
 
         result = {"provider": provider}
 
-        if provider == "openai":
-            result["api_key"] = self._prompt_input("  OpenAI API key", required=True)
-            result["model"] = self._prompt_input("  OpenAI model", default="gpt-4o-mini")
+        if provider == "local":
+            return result
+
+        # All AI providers accept api_key and model
+        provider_cls = PROVIDERS[provider]
+        default_model = getattr(provider_cls, "default_model", "")
+
+        result["api_key"] = self._prompt_input(f"  {provider.capitalize()} API key", required=True)
+        result["model"] = self._prompt_input(
+            f"  {provider.capitalize()} model", default=default_model
+        )
 
         return result
 
@@ -552,13 +560,16 @@ class Command(BaseCommand):
             "nodes": nodes,
         }
 
-        return PipelineDefinition.objects.create(
+        defn, _created = PipelineDefinition.objects.update_or_create(
             name=preset["name"],
-            description=f"Pipeline created by setup_instance wizard ({preset['name']})",
-            config=pipeline_config,
-            tags=["setup_wizard"],
-            created_by="setup_instance",
+            defaults={
+                "description": f"Pipeline created by setup_instance wizard ({preset['name']})",
+                "config": pipeline_config,
+                "tags": ["setup_wizard"],
+                "created_by": "setup_instance",
+            },
         )
+        return defn
 
     def _create_notification_channels(self, channels_config):
         """
@@ -574,15 +585,47 @@ class Command(BaseCommand):
 
         created = []
         for ch in channels_config:
-            channel = NotificationChannel.objects.create(
+            channel, _created = NotificationChannel.objects.update_or_create(
                 name=ch["name"],
-                driver=ch["driver"],
-                config=ch["config"],
-                is_active=True,
-                description=f"[setup_wizard] {ch['driver']} channel",
+                defaults={
+                    "driver": ch["driver"],
+                    "config": ch["config"],
+                    "is_active": True,
+                    "description": f"[setup_wizard] {ch['driver']} channel",
+                },
             )
             created.append(channel)
         return created
+
+    def _create_intelligence_provider(self, intel_config):
+        """
+        Create an IntelligenceProvider record from collected config.
+
+        Args:
+            intel_config: Dict with 'provider' and optional 'api_key', 'model'.
+
+        Returns:
+            Created IntelligenceProvider instance.
+        """
+        from apps.intelligence.models import IntelligenceProvider
+
+        provider_name = intel_config["provider"]
+        config = {}
+        if "api_key" in intel_config:
+            config["api_key"] = intel_config["api_key"]
+        if "model" in intel_config:
+            config["model"] = intel_config["model"]
+
+        provider, _created = IntelligenceProvider.objects.update_or_create(
+            name=f"setup-{provider_name}",
+            defaults={
+                "provider": provider_name,
+                "config": config,
+                "is_active": True,
+                "description": "[setup_wizard] auto-configured provider",
+            },
+        )
+        return provider
 
     def _detect_existing(self):
         """
@@ -710,24 +753,11 @@ class Command(BaseCommand):
         if alerts:
             env_updates["ALERTS_ENABLED_DRIVERS"] = ",".join(alerts)
 
-        if checkers:
-            from apps.checkers.checkers import CHECKER_REGISTRY
-
-            all_checkers = set(CHECKER_REGISTRY.keys())
-            enabled = set(checkers["enabled"])
-            skipped = all_checkers - enabled
-            if skipped:
-                env_updates["CHECKERS_SKIP"] = ",".join(sorted(skipped))
-
-        if intelligence:
-            env_updates["INTELLIGENCE_PROVIDER"] = intelligence["provider"]
-            if intelligence.get("api_key"):
-                env_updates["OPENAI_API_KEY"] = intelligence["api_key"]
-            if intelligence.get("model"):
-                env_updates["OPENAI_MODEL"] = intelligence["model"]
-
-        self._write_env(env_path, env_updates)
-        self.stdout.write(self.style.SUCCESS(f"✓ Updated .env with {len(env_updates)} setting(s)"))
+        if env_updates:
+            self._write_env(env_path, env_updates)
+            self.stdout.write(
+                self.style.SUCCESS(f"✓ Updated .env with {len(env_updates)} setting(s)")
+            )
 
         # Handle name collision for "add another" mode
         pipeline_name = preset["name"]
@@ -741,6 +771,14 @@ class Command(BaseCommand):
 
         defn = self._create_pipeline_definition(config)
         self.stdout.write(self.style.SUCCESS(f'✓ Created PipelineDefinition "{defn.name}"'))
+
+        if intelligence:
+            provider_record = self._create_intelligence_provider(intelligence)
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f'✓ Created IntelligenceProvider "{provider_record.name}" ({provider_record.provider})'
+                )
+            )
 
         new_notify = [ch for ch in notify if not ch.get("existing")]
         reused_notify = [ch for ch in notify if ch.get("existing")]

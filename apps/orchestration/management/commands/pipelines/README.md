@@ -73,7 +73,7 @@ For a central server that receives alerts from other monitoring systems. Skips l
 
 #### pipeline-manager-openai.json — Alert Hub with OpenAI
 
-Same as `pipeline-manager.json` but uses OpenAI instead of the local provider. Requires `OPENAI_API_KEY` environment variable.
+Same as `pipeline-manager.json` but uses OpenAI instead of the local provider. Requires an active `IntelligenceProvider` record with OpenAI credentials (configured via `setup_instance` or Django Admin).
 
 #### local-monitor.json — Full Local Monitoring
 
@@ -199,11 +199,15 @@ When the pipeline processes an alert, context flows to the intelligence/analyze 
 
 For 3rd party intelligence providers (OpenAI, etc.), the provider's `analyze(incident)` method receives the complete incident, enabling context-aware analysis.
 
-## Environment Variables
+## AI Provider Setup
 
-For OpenAI-based pipelines:
+For AI-based pipelines, configure an `IntelligenceProvider` via the setup wizard or Django Admin:
+
 ```bash
-export OPENAI_API_KEY="your-api-key"
+# Interactive setup (creates IntelligenceProvider DB record with API key)
+uv run python manage.py setup_instance
+
+# Then run the pipeline
 uv run python manage.py run_pipeline --config apps/orchestration/management/commands/pipelines/pipeline-manager-openai.json --file alert.json
 ```
 
