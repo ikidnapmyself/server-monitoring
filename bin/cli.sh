@@ -672,7 +672,6 @@ notify_menu() {
     echo ""
 
     local options=(
-        "list_notify_drivers - List available notification drivers"
         "test_notify - Send a test notification"
         "Back to main menu"
     )
@@ -680,12 +679,9 @@ notify_menu() {
     select opt in "${options[@]}"; do
         case $REPLY in
             1)
-                confirm_and_run "uv run python manage.py list_notify_drivers"
-                ;;
-            2)
                 test_notify_menu
                 ;;
-            3)
+            2)
                 return
                 ;;
             *)

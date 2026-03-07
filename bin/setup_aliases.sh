@@ -101,7 +101,6 @@ alias ${prefix}-get-recommendations='cd "${PROJECT_DIR}" && uv run python manage
 alias ${prefix}-run-pipeline='cd "${PROJECT_DIR}" && uv run python manage.py run_pipeline'
 alias ${prefix}-monitor-pipeline='cd "${PROJECT_DIR}" && uv run python manage.py monitor_pipeline'
 alias ${prefix}-test-notify='cd "${PROJECT_DIR}" && uv run python manage.py test_notify'
-alias ${prefix}-list-notify-drivers='cd "${PROJECT_DIR}" && uv run python manage.py list_notify_drivers'
 alias ${prefix}-setup-instance='cd "${PROJECT_DIR}" && uv run python manage.py setup_instance'
 alias ${prefix}-cli='${SCRIPT_DIR}/cli.sh'
 ALIASES
