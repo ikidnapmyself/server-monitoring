@@ -270,9 +270,17 @@ class Command(BaseCommand):
 
         result = {"provider": provider}
 
-        if provider == "openai":
-            result["api_key"] = self._prompt_input("  OpenAI API key", required=True)
-            result["model"] = self._prompt_input("  OpenAI model", default="gpt-4o-mini")
+        if provider == "local":
+            return result
+
+        # All AI providers accept api_key and model
+        provider_cls = PROVIDERS[provider]
+        default_model = getattr(provider_cls, "default_model", "")
+
+        result["api_key"] = self._prompt_input(f"  {provider.capitalize()} API key", required=True)
+        result["model"] = self._prompt_input(
+            f"  {provider.capitalize()} model", default=default_model
+        )
 
         return result
 
@@ -577,12 +585,14 @@ class Command(BaseCommand):
 
         created = []
         for ch in channels_config:
-            channel = NotificationChannel.objects.create(
+            channel, _created = NotificationChannel.objects.update_or_create(
                 name=ch["name"],
-                driver=ch["driver"],
-                config=ch["config"],
-                is_active=True,
-                description=f"[setup_wizard] {ch['driver']} channel",
+                defaults={
+                    "driver": ch["driver"],
+                    "config": ch["config"],
+                    "is_active": True,
+                    "description": f"[setup_wizard] {ch['driver']} channel",
+                },
             )
             created.append(channel)
         return created
