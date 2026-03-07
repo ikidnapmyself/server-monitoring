@@ -1,5 +1,7 @@
-from unittest.mock import patch
+from io import StringIO
+from unittest.mock import MagicMock, patch
 
+from django.core.management import call_command
 from django.test import TestCase
 
 from apps.alerts.check_integration import CheckAlertBridge
@@ -162,6 +164,27 @@ class CheckAlertBridgeTests(TestCase):
         self.assertEqual(fp1, fp2)
         self.assertNotEqual(fp1, fp3)
 
+    def test_run_checks_and_alert_defaults_to_all_checkers(self):
+        """Test that run_checks_and_alert uses all registry checkers when none specified."""
+        from unittest.mock import MagicMock
+
+        mock_checker_class = MagicMock()
+        mock_checker_class.return_value.run.return_value = CheckResult(
+            status=CheckStatus.OK,
+            message="All good",
+            metrics={"value": 10},
+            checker_name="fake",
+        )
+
+        with patch.dict(
+            "apps.alerts.check_integration.CHECKER_REGISTRY",
+            {"fake_a": mock_checker_class, "fake_b": mock_checker_class},
+            clear=True,
+        ):
+            result = self.bridge.run_checks_and_alert()
+
+        self.assertEqual(result.checks_run, 2)
+
     def test_no_incidents_when_disabled(self):
         """Test that incidents are not created when disabled."""
         bridge = CheckAlertBridge(
@@ -181,3 +204,34 @@ class CheckAlertBridgeTests(TestCase):
         self.assertEqual(processing_result.alerts_created, 1)
         self.assertEqual(processing_result.incidents_created, 0)
         self.assertEqual(Incident.objects.count(), 0)
+
+
+class CheckAndAlertCommandTests(TestCase):
+    """Tests for the check_and_alert management command."""
+
+    def test_defaults_to_all_registry_checkers(self):
+        """Command runs all registered checkers when none specified."""
+        mock_checker_class = MagicMock()
+        mock_checker_class.return_value.run.return_value = CheckResult(
+            status=CheckStatus.OK,
+            message="OK",
+            metrics={},
+            checker_name="fake",
+        )
+
+        with (
+            patch.dict(
+                "apps.alerts.management.commands.check_and_alert.CHECKER_REGISTRY",
+                {"fake": mock_checker_class},
+                clear=True,
+            ),
+            patch.dict(
+                "apps.alerts.check_integration.CHECKER_REGISTRY",
+                {"fake": mock_checker_class},
+                clear=True,
+            ),
+        ):
+            out = StringIO()
+            call_command("check_and_alert", stdout=out)
+
+        self.assertIn("Checks run: 1", out.getvalue())
