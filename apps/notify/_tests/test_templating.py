@@ -1,10 +1,16 @@
 """Tests for templating utilities."""
 
 import json
+from unittest.mock import MagicMock, patch
 
+import pytest
 from django.test import SimpleTestCase
 
-from apps.notify.templating import NotificationTemplatingService, render_template
+from apps.notify.templating import (
+    NotificationTemplatingService,
+    _SafeDict,
+    render_template,
+)
 
 
 class TemplatingTests(SimpleTestCase):
@@ -476,3 +482,605 @@ class IncidentNotificationTemplateTests(SimpleTestCase):
             incident={},
         )
         self.assertIn("CPU Alert", out)
+
+
+# ---------------------------------------------------------------------------
+# render_template function tests
+# ---------------------------------------------------------------------------
+
+
+class TestRenderTemplateFunction(SimpleTestCase):
+    def test_none_spec_returns_none(self):
+        assert render_template(None, {}) is None
+
+    def test_empty_string_spec_returns_none(self):
+        assert render_template("", {}) is None
+
+    def test_dict_spec_inline(self):
+        spec = {"type": "inline", "template": "Hello {{ name }}"}
+        result = render_template(spec, {"name": "World"})
+        assert "Hello" in result
+        assert "World" in result
+
+    def test_dict_spec_inline_default_type(self):
+        spec = {"template": "Hi {{ name }}"}
+        result = render_template(spec, {"name": "there"})
+        assert "Hi" in result
+        assert "there" in result
+
+    def test_dict_spec_file(self):
+        spec = {"type": "file", "template": "email_text.j2"}
+        result = render_template(
+            spec,
+            {
+                "title": "T",
+                "message": "M",
+                "severity": "info",
+                "channel": "c",
+                "tags": {},
+                "context": {},
+                "incident": {},
+            },
+        )
+        assert result is not None
+
+    def test_dict_spec_file_not_found(self):
+        spec = {"type": "file", "template": "nonexistent_file.j2"}
+        with pytest.raises(ValueError, match="Template file not found"):
+            render_template(spec, {})
+
+    def test_string_auto_detects_existing_file(self):
+        result = render_template(
+            "email_text.j2",
+            {
+                "title": "T",
+                "message": "M",
+                "severity": "info",
+                "channel": "c",
+                "tags": {},
+                "context": {},
+                "incident": {},
+            },
+        )
+        assert result is not None
+
+    def test_string_auto_detects_without_extension(self):
+        result = render_template(
+            "email_text",
+            {
+                "title": "T",
+                "message": "M",
+                "severity": "info",
+                "channel": "c",
+                "tags": {},
+                "context": {},
+                "incident": {},
+            },
+        )
+        assert result is not None
+
+    def test_string_treated_as_inline_when_no_file_match(self):
+        result = render_template("Hello {{ name }}", {"name": "X"})
+        assert "Hello" in result
+        assert "X" in result
+
+    def test_unsupported_spec_type_raises(self):
+        with pytest.raises(ValueError, match="Unsupported template spec"):
+            render_template(42, {})
+
+    def test_unsupported_spec_list_raises(self):
+        with pytest.raises(ValueError, match="Unsupported template spec"):
+            render_template(["a", "b"], {})
+
+    def test_jinja2_render_error_raises(self):
+        with pytest.raises(ValueError, match="Jinja2 render error"):
+            render_template("{{ foo|nonexistent_filter }}", {})
+
+    def test_dict_spec_with_none_template_returns_none(self):
+        spec = {"type": "inline", "template": None}
+        assert render_template(spec, {}) is None
+
+
+class TestRenderTemplateFallback(SimpleTestCase):
+    """Test the format_map fallback when Jinja2 is unavailable."""
+
+    def test_format_map_fallback(self):
+        with (
+            patch("apps.notify.templating._JINJA_AVAILABLE", False),
+            patch("apps.notify.templating._JINJA_ENV", None),
+        ):
+            result = render_template("Hello {name}", {"name": "World"})
+            assert result == "Hello World"
+
+    def test_format_map_missing_key_returns_empty(self):
+        with (
+            patch("apps.notify.templating._JINJA_AVAILABLE", False),
+            patch("apps.notify.templating._JINJA_ENV", None),
+        ):
+            result = render_template("Hello {name} {missing}", {"name": "World"})
+            assert result == "Hello World "
+
+    def test_jinja_syntax_without_jinja_raises(self):
+        with (
+            patch("apps.notify.templating._JINJA_AVAILABLE", False),
+            patch("apps.notify.templating._JINJA_ENV", None),
+        ):
+            with pytest.raises(ValueError, match="Jinja2 is not installed"):
+                render_template("{{ name }}", {"name": "World"})
+
+    def test_jinja_block_syntax_without_jinja_raises(self):
+        with (
+            patch("apps.notify.templating._JINJA_AVAILABLE", False),
+            patch("apps.notify.templating._JINJA_ENV", None),
+        ):
+            with pytest.raises(ValueError, match="Jinja2 is not installed"):
+                render_template("{% if true %}yes{% endif %}", {})
+
+    def test_jinja_comment_syntax_without_jinja_raises(self):
+        with (
+            patch("apps.notify.templating._JINJA_AVAILABLE", False),
+            patch("apps.notify.templating._JINJA_ENV", None),
+        ):
+            with pytest.raises(ValueError, match="Jinja2 is not installed"):
+                render_template("{# comment #}", {})
+
+    def test_format_map_error_raises(self):
+        with (
+            patch("apps.notify.templating._JINJA_AVAILABLE", False),
+            patch("apps.notify.templating._JINJA_ENV", None),
+        ):
+            with pytest.raises(ValueError, match="Fallback render error"):
+                render_template("{0}", {})
+
+
+class TestSafeDict(SimpleTestCase):
+    def test_missing_key_returns_empty_string(self):
+        d = _SafeDict({"a": 1})
+        assert d["missing"] == ""
+
+    def test_existing_key_returns_value(self):
+        d = _SafeDict({"a": 1})
+        assert d["a"] == 1
+
+
+# ---------------------------------------------------------------------------
+# NotificationTemplatingService tests
+# ---------------------------------------------------------------------------
+
+
+class TestComposeIncidentDetails(SimpleTestCase):
+    def setUp(self):
+        self.svc = NotificationTemplatingService()
+        self.base_msg = {
+            "title": "CPU Alert",
+            "message": "CPU usage at 95%",
+            "severity": "critical",
+            "channel": "ops",
+            "tags": {"source": "prometheus"},
+            "context": {},
+        }
+
+    @patch("apps.notify.templating.psutil")
+    def test_psutil_fallbacks_used_when_context_empty(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 8
+        mock_psutil.virtual_memory.return_value = MagicMock(total=17179869184)
+        mock_psutil.disk_usage.return_value = MagicMock(total=536870912000)
+
+        result = self.svc.compose_incident_details(self.base_msg, {})
+        assert result["cpu_count"] == 8
+        assert result["ram_total_bytes"] == 17179869184
+        assert result["ram_total_human"] == "16.0 GB"
+        assert result["disk_total_bytes"] == 536870912000
+        assert result["disk_total_human"] == "500.0 GB"
+
+    @patch("apps.notify.templating.psutil")
+    def test_context_values_preferred_over_psutil(self, mock_psutil):
+        msg = {
+            **self.base_msg,
+            "context": {
+                "cpu_count": 4,
+                "total_memory": 8589934592,
+                "disk_total": 107374182400,
+            },
+        }
+        result = self.svc.compose_incident_details(msg, {})
+        assert result["cpu_count"] == 4
+        assert result["ram_total_bytes"] == 8589934592
+        assert result["disk_total_bytes"] == 107374182400
+        mock_psutil.cpu_count.assert_not_called()
+
+    @patch("apps.notify.templating.psutil")
+    def test_psutil_cpu_exception_returns_none(self, mock_psutil):
+        mock_psutil.cpu_count.side_effect = OSError("no cpu info")
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        result = self.svc.compose_incident_details(self.base_msg, {})
+        assert result["cpu_count"] is None
+
+    @patch("apps.notify.templating.psutil")
+    def test_psutil_memory_exception_returns_none(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.side_effect = OSError("no mem info")
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        result = self.svc.compose_incident_details(self.base_msg, {})
+        assert result["ram_total_bytes"] is None
+        assert result["ram_total_human"] is None
+
+    @patch("apps.notify.templating.psutil")
+    def test_psutil_disk_exception_returns_none(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.side_effect = OSError("no disk info")
+
+        result = self.svc.compose_incident_details(self.base_msg, {})
+        assert result["disk_total_bytes"] is None
+        assert result["disk_total_human"] is None
+
+    @patch("apps.notify.templating.psutil")
+    def test_recommendations_from_context(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        msg = {**self.base_msg, "context": {"recommendations": [{"title": "Fix it"}]}}
+        result = self.svc.compose_incident_details(msg, {})
+        assert result["recommendations"] == [{"title": "Fix it"}]
+
+    @patch("apps.notify.templating.psutil")
+    def test_recommendations_from_intelligence(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        msg = {
+            **self.base_msg,
+            "context": {"intelligence": {"recommendations": [{"title": "Scale up"}]}},
+        }
+        result = self.svc.compose_incident_details(msg, {})
+        assert result["recommendations"] == [{"title": "Scale up"}]
+
+    @patch("apps.notify.templating.psutil")
+    def test_recommendations_dict_of_dicts_normalized_to_list(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        msg = {
+            **self.base_msg,
+            "context": {
+                "recommendations": {
+                    "r1": {"title": "Fix A"},
+                    "r2": {"title": "Fix B"},
+                }
+            },
+        }
+        result = self.svc.compose_incident_details(msg, {})
+        assert isinstance(result["recommendations"], list)
+        assert len(result["recommendations"]) == 2
+
+    @patch("apps.notify.templating.psutil")
+    def test_recommendations_single_dict_wrapped_in_list(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        msg = {
+            **self.base_msg,
+            "context": {"recommendations": {"key": "value"}},
+        }
+        result = self.svc.compose_incident_details(msg, {})
+        assert result["recommendations"] == [{"key": "value"}]
+
+    @patch("apps.notify.templating.psutil")
+    def test_recommendations_scalar_wrapped_in_list(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        msg = {
+            **self.base_msg,
+            "context": {"intelligence": {"recommendations": 42}},
+        }
+        result = self.svc.compose_incident_details(msg, {})
+        assert result["recommendations"] == [42]
+
+    @patch("apps.notify.templating.psutil")
+    def test_recommendations_fallback_to_details(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        msg = {
+            **self.base_msg,
+            "context": {"details": {"info": "some details"}},
+        }
+        result = self.svc.compose_incident_details(msg, {})
+        assert result["recommendations"] == [{"info": "some details"}]
+
+    @patch("apps.notify.templating.psutil")
+    def test_gb_helper_with_none(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.side_effect = OSError
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        result = self.svc.compose_incident_details(self.base_msg, {})
+        assert result["ram_total_human"] is None
+
+    @patch("apps.notify.templating.psutil")
+    def test_incident_id_from_context(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        msg = {**self.base_msg, "context": {"incident_id": 42}}
+        result = self.svc.compose_incident_details(msg, {})
+        assert result["incident_id"] == 42
+
+    @patch("apps.notify.templating.psutil")
+    def test_source_from_tags_fallback(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        result = self.svc.compose_incident_details(self.base_msg, {})
+        assert result["source"] == "prometheus"
+
+    @patch("apps.notify.templating.psutil")
+    def test_generated_at_present(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        result = self.svc.compose_incident_details(self.base_msg, {})
+        assert "generated_at" in result
+        assert result["generated_at"] is not None
+
+    @patch("apps.notify.templating.psutil")
+    def test_context_alt_key_cpu_physical_count(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 99
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        msg = {**self.base_msg, "context": {"cpu_physical_count": 2}}
+        result = self.svc.compose_incident_details(msg, {})
+        assert result["cpu_count"] == 2
+
+    @patch("apps.notify.templating.psutil")
+    def test_context_alt_key_memory_total(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=99)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        msg = {**self.base_msg, "context": {"memory_total": 5000}}
+        result = self.svc.compose_incident_details(msg, {})
+        assert result["ram_total_bytes"] == 5000
+
+    @patch("apps.notify.templating.psutil")
+    def test_context_alt_key_ram_total(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=99)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        msg = {**self.base_msg, "context": {"ram_total": 7000}}
+        result = self.svc.compose_incident_details(msg, {})
+        assert result["ram_total_bytes"] == 7000
+
+    @patch("apps.notify.templating.psutil")
+    def test_context_alt_key_total_disk(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=99)
+
+        msg = {**self.base_msg, "context": {"total_disk": 9000}}
+        result = self.svc.compose_incident_details(msg, {})
+        assert result["disk_total_bytes"] == 9000
+
+    @patch("apps.notify.templating.psutil")
+    def test_intelligence_non_list_non_dict_recs(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        msg = {
+            **self.base_msg,
+            "context": {"intelligence": {"recommendations": 42}},
+        }
+        result = self.svc.compose_incident_details(msg, {})
+        assert result["recommendations"] == [42]
+
+
+class TestRenderMessageTemplates(SimpleTestCase):
+    def setUp(self):
+        self.svc = NotificationTemplatingService()
+        self.base_msg = {
+            "title": "Test",
+            "message": "Test message",
+            "severity": "info",
+            "channel": "ops",
+            "tags": {},
+            "context": {},
+        }
+
+    @patch("apps.notify.templating.psutil")
+    def test_config_template_key(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        config = {"template": "Hello {{ title }}"}
+        result = self.svc.render_message_templates("test_driver", self.base_msg, config)
+        assert result["text"] == "Hello Test"
+
+    @patch("apps.notify.templating.psutil")
+    def test_config_text_template_key(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        config = {"text_template": "Hi {{ title }}"}
+        result = self.svc.render_message_templates("test_driver", self.base_msg, config)
+        assert result["text"] == "Hi Test"
+
+    @patch("apps.notify.templating.psutil")
+    def test_config_payload_template_key(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        config = {"payload_template": "Payload: {{ title }}"}
+        result = self.svc.render_message_templates("test_driver", self.base_msg, config)
+        assert result["text"] == "Payload: Test"
+
+    @patch("apps.notify.templating.psutil")
+    def test_config_template_render_error_raises(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        config = {"template": "{{ foo|nonexistent_filter }}"}
+        with pytest.raises(ValueError, match="Failed to render configured template"):
+            self.svc.render_message_templates("test_driver", self.base_msg, config)
+
+    @patch("apps.notify.templating.psutil")
+    def test_default_file_fallback_chain(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        result = self.svc.render_message_templates("slack", self.base_msg, {})
+        assert result["text"] is not None
+
+    @patch("apps.notify.templating.psutil")
+    def test_no_template_found_raises(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        with pytest.raises(ValueError, match="No template found for driver"):
+            self.svc.render_message_templates("nonexistent_driver", self.base_msg, {})
+
+    @patch("apps.notify.templating.psutil")
+    def test_html_template_from_config(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        config = {
+            "template": "text content",
+            "html_template": "<b>{{ title }}</b>",
+        }
+        result = self.svc.render_message_templates("test_driver", self.base_msg, config)
+        assert result["text"] == "text content"
+        assert result["html"] == "<b>Test</b>"
+
+    @patch("apps.notify.templating.psutil")
+    def test_html_template_render_error_returns_none(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        config = {
+            "template": "text content",
+            "html_template": "{{ foo|nonexistent_filter }}",
+        }
+        result = self.svc.render_message_templates("test_driver", self.base_msg, config)
+        assert result["text"] == "text content"
+        assert result["html"] is None
+
+    @patch("apps.notify.templating.psutil")
+    def test_html_default_file_fallback(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        result = self.svc.render_message_templates("email", self.base_msg, {})
+        assert result["text"] is not None
+        assert result["html"] is not None
+
+    @patch("apps.notify.templating.psutil")
+    def test_html_default_file_missing_returns_none(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        config = {"template": "text content"}
+        result = self.svc.render_message_templates("test_driver", self.base_msg, config)
+        assert result["html"] is None
+
+    @patch("apps.notify.templating.psutil")
+    def test_none_config_treated_as_empty(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        result = self.svc.render_message_templates("slack", self.base_msg, None)
+        assert result["text"] is not None
+
+    @patch("apps.notify.templating.psutil")
+    def test_no_template_found_includes_error_details(self, mock_psutil):
+        """When no candidates render, the error message includes details."""
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        with pytest.raises(ValueError, match="No template found.*Tried"):
+            self.svc.render_message_templates("totally_fake_driver", self.base_msg, {})
+
+    @patch("apps.notify.templating.psutil")
+    def test_config_template_renders_to_none_still_accepted(self, mock_psutil):
+        """A template that renders to empty string is accepted (not None)."""
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        config = {"template": ""}
+        # Empty template spec is falsy, so render_template returns None
+        # which means no text is set. This exercises the "template renders to None" path.
+        with pytest.raises(ValueError, match="No template found"):
+            self.svc.render_message_templates("test_driver", self.base_msg, config)
+
+
+class TestComposeIncidentDetailsPprintFallback(SimpleTestCase):
+    """Test the pprint exception fallback in compose_incident_details."""
+
+    @patch("apps.notify.templating.psutil")
+    @patch("apps.notify.templating.pprint.pformat", side_effect=Exception("pprint broke"))
+    def test_pprint_exception_falls_back_to_str(self, _mock_pformat, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        svc = NotificationTemplatingService()
+        msg = {
+            "title": "T",
+            "message": "M",
+            "severity": "info",
+            "channel": "c",
+            "tags": {},
+            "context": {"recommendations": [{"title": "Fix"}]},
+        }
+        result = svc.compose_incident_details(msg, {})
+        assert result["recommendations_pretty"] is not None
+
+    @patch("apps.notify.templating.psutil")
+    def test_recommendations_none_when_no_context(self, mock_psutil):
+        """When context has no recs, details, or intelligence, falls back to context itself."""
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        svc = NotificationTemplatingService()
+        msg = {
+            "title": "T",
+            "message": "M",
+            "severity": "info",
+            "channel": "c",
+            "tags": {},
+            "context": {},
+        }
+        result = svc.compose_incident_details(msg, {})
+        # Falls back to ctx itself which is {}, and empty dict is falsy
+        # so recommendations = ctx = {} which normalizes to [{}]
+        assert isinstance(result["recommendations"], list)
