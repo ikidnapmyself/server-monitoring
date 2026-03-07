@@ -53,4 +53,6 @@ class TestLoadEnv(SimpleTestCase):
             load_env(None)
         call_args = mock_load_dotenv.call_args[0][0]
         assert call_args.name == ".env"
-        assert call_args.parent.name == "server-maintanence"
+        # base_dir defaults to config/../ — verify it points to the project root
+        # by checking the config package lives inside it.
+        assert (call_args.parent / "config" / "env.py").exists()
