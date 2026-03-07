@@ -17,7 +17,6 @@ All management commands and their shell aliases (set up via `setup_aliases.sh`):
 | `sm-run-pipeline` | `run_pipeline` | orchestration | Execute the full pipeline |
 | `sm-monitor-pipeline` | `monitor_pipeline` | orchestration | Monitor pipeline run history |
 | `sm-test-notify` | `test_notify` | notify | Test notification delivery |
-| `sm-list-notify-drivers` | `list_notify_drivers` | notify | List available notification drivers |
 | `sm-setup-instance` | `setup_instance` | orchestration | Interactive wizard to create pipelines and notification channels |
 | `sm-cli` | — | — | Interactive CLI menu |
 
@@ -29,7 +28,7 @@ For full flag reference per command, see the app READMEs:
 - [`apps/checkers/README.md`](../apps/checkers/README.md) — `check_health` (10 flags), `run_check` (11 flags)
 - [`apps/alerts/README.md`](../apps/alerts/README.md) — `check_and_alert` (9 flags)
 - [`apps/intelligence/README.md`](../apps/intelligence/README.md) — `get_recommendations` (11 flags)
-- [`apps/notify/README.md`](../apps/notify/README.md) — `list_notify_drivers` (1 flag), `test_notify` (14 flags)
+- [`apps/notify/README.md`](../apps/notify/README.md) — `test_notify` (14 flags)
 - [`apps/orchestration/README.md`](../apps/orchestration/README.md) — `run_pipeline` (12 flags), `monitor_pipeline` (3 flags)
 
 ---
