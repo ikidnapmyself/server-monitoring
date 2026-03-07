@@ -311,12 +311,12 @@ Runs real system health checkers (CPU, memory, disk, network, process) and retur
 
 ##### `intelligence` — AI Analysis
 
-Generates AI-powered recommendations using the configured provider (local rule-based or OpenAI).
+Generates AI-powered recommendations using the configured provider. Supports 8 providers: `local`, `openai`, `claude`, `gemini`, `copilot`, `grok`, `ollama`, `mistral`.
 
 | Config Key | Type | Default | Description |
 |------------|------|---------|-------------|
-| `provider` | string | **required** | Provider name: `local` or `openai` |
-| `provider_config` | object | `{}` | Provider-specific config (e.g., `{"model": "gpt-4o-mini"}` for OpenAI) |
+| `provider` | string | **required** | Provider name (e.g., `local`, `openai`, `claude`) |
+| `provider_config` | object | `{}` | Provider-specific config overrides. Credentials are read from the `IntelligenceProvider` DB record by default. |
 
 **Output:**
 ```json

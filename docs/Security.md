@@ -32,13 +32,17 @@ Security-sensitive variables:
 | Variable | Purpose | Required |
 |----------|---------|----------|
 | `DJANGO_SECRET_KEY` | Django cryptographic signing | Yes (enforced) |
-| `OPENAI_API_KEY` | Intelligence provider API access | When using OpenAI provider |
 | `DJANGO_DB_PASSWORD` | Database credentials | When using MySQL/PostgreSQL |
 | `CELERY_BROKER_URL` | Redis connection (may contain password) | When using Celery |
 
-### Notification Channel Secrets
+### DB-Stored Secrets
 
-`NotificationChannel.config` stores driver-specific configuration (webhook URLs, API keys) in a JSON field. In production deployments:
+API keys and credentials for notification channels and intelligence providers are stored in database JSON fields:
+
+- `NotificationChannel.config` — webhook URLs, SMTP passwords, API keys
+- `IntelligenceProvider.config` — AI provider API keys
+
+In production deployments:
 
 - Use secret references rather than raw values where possible
 - Restrict database access to the Django application user
