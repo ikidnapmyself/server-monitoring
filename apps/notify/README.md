@@ -30,20 +30,6 @@ Built-in drivers:
 
 ### Management commands
 
-#### `list_notify_drivers`
-
-```bash
-# List available notification drivers
-uv run python manage.py list_notify_drivers
-
-# Show detailed configuration requirements (required/optional fields per driver)
-uv run python manage.py list_notify_drivers --verbose
-```
-
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--verbose` | flag | — | Show required/optional config fields per driver |
-
 #### `test_notify`
 
 Send a test notification to verify driver or channel configuration.
@@ -236,17 +222,7 @@ Example channel config for Slack:
 }
 ```
 
-### 1) List available drivers
-
-```bash
-# Show available drivers
-python manage.py list_notify_drivers
-
-# Show detailed configuration requirements (required/optional fields)
-python manage.py list_notify_drivers --verbose
-```
-
-### 2) Test notification delivery
+### 1) Test notification delivery
 
 ```bash
 # Interactive wizard (recommended) — discovers channels, lets you retry
@@ -261,7 +237,7 @@ python manage.py test_notify email --non-interactive \
     --from-address alerts@example.com
 ```
 
-### 3) Creating a notification message programmatically
+### 2) Creating a notification message programmatically
 
 ```python
 from apps.notify.drivers.base import NotificationMessage
@@ -276,7 +252,7 @@ message = NotificationMessage(
 )
 ```
 
-### 4) Sending via a specific driver
+### 3) Sending via a specific driver
 
 ```python
 from apps.notify.drivers.slack import SlackNotifyDriver
@@ -311,7 +287,7 @@ or management commands
 This ordering lets you prefer centrally-managed channels (via Admin) while still
 allowing ad-hoc driver usage from scripts and management commands.
 
-### 5) Sending via email
+### 4) Sending via email
 
 ```python
 from apps.notify.drivers.email import EmailNotifyDriver
@@ -329,7 +305,7 @@ config = {
 result = driver.send(message, config)
 ```
 
-### 6) Sending via PagerDuty
+### 5) Sending via PagerDuty
 
 ```python
 from apps.notify.drivers.pagerduty import PagerDutyNotifyDriver
