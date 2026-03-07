@@ -14,7 +14,7 @@ from apps.orchestration.models import (
     PipelineStatus,
     StageExecution,
 )
-from config.admin import prettify_json
+from config.dashboard import prettify_json
 
 
 class StageExecutionInline(admin.TabularInline):

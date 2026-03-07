@@ -246,7 +246,7 @@ class TestPipelineRunObjectActions(TestCase):
 
 class TestPrettifyJson(SimpleTestCase):
     def test_prettify_json_renders_formatted(self):
-        from config.admin import prettify_json
+        from config.dashboard import prettify_json
 
         data = {"key": "value", "nested": {"a": 1}}
         result = prettify_json(data)
@@ -254,13 +254,13 @@ class TestPrettifyJson(SimpleTestCase):
         assert "<pre" in result
 
     def test_prettify_json_empty_dict(self):
-        from config.admin import prettify_json
+        from config.dashboard import prettify_json
 
         result = prettify_json({})
         assert "{}" in result
 
     def test_prettify_json_none(self):
-        from config.admin import prettify_json
+        from config.dashboard import prettify_json
 
         result = prettify_json(None)
         assert "-" in result

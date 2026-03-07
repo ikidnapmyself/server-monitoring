@@ -6,7 +6,7 @@ from django.utils.html import format_html
 from django_json_widget.widgets import JSONEditorWidget
 
 from apps.intelligence.models import AnalysisRun, IntelligenceProvider
-from config.admin import prettify_json
+from config.dashboard import prettify_json
 
 
 @admin.register(IntelligenceProvider)
