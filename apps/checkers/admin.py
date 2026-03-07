@@ -4,7 +4,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 
 from apps.checkers.models import CheckRun
-from config.admin import prettify_json
+from config.dashboard import prettify_json
 
 
 @admin.register(CheckRun)

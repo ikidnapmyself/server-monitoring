@@ -7,7 +7,7 @@ from django_object_actions import action as object_action
 
 from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus
 from apps.orchestration.models import PipelineRun
-from config.admin import prettify_json
+from config.dashboard import prettify_json
 
 
 class AlertInline(admin.TabularInline):
