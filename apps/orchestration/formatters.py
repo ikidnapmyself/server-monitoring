@@ -5,8 +5,6 @@ Extracts markdown-rendering logic from NotifyExecutor so it can be
 tested independently and keeps the executor focused on orchestration.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 
