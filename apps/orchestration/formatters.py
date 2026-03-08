@@ -8,7 +8,7 @@ tested independently and keeps the executor focused on orchestration.
 from typing import Any
 
 
-def format_ingest_summary(ingest_prev: dict[str, Any]) -> str:
+def format_ingest_summary(ingest_prev: Any) -> str:
     """Build a Markdown summary from ingest stage output."""
     if not isinstance(ingest_prev, dict):
         return "**Ingest Summary**\n```\n" + str(ingest_prev) + "\n```"
@@ -26,7 +26,7 @@ def format_ingest_summary(ingest_prev: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def format_check_summary(check_prev: dict[str, Any]) -> str:
+def format_check_summary(check_prev: Any) -> str:
     """Build a Markdown summary from check stage output."""
     if not isinstance(check_prev, dict):
         return "**Check Summary**\n```\n" + str(check_prev) + "\n```"
@@ -42,7 +42,7 @@ def format_check_summary(check_prev: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def format_intelligence_summary(intelligence_prev: dict[str, Any]) -> str:
+def format_intelligence_summary(intelligence_prev: Any) -> str:
     """Build a Markdown summary from intelligence stage output."""
     if not isinstance(intelligence_prev, dict):
         return "**Intelligence Summary**\n```\n" + str(intelligence_prev) + "\n```"
