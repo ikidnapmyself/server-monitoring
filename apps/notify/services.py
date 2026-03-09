@@ -16,7 +16,7 @@ where `selected_label` is either the channel name (if chosen from DB) or the
 provider key.
 """
 
-from typing import Dict, Optional, Tuple, Type
+from __future__ import annotations
 
 from apps.notify.models import NotificationChannel
 from apps.notify.views import DRIVER_REGISTRY
@@ -31,10 +31,10 @@ class NotifySelector:
 
     @staticmethod
     def resolve(
-        provider_arg: Optional[str],
-        payload_config: Optional[Dict] = None,
-        requested_channel: Optional[str] = None,
-    ) -> Tuple[str, Dict, str, Optional[Type], Optional[NotificationChannel], str]:
+        provider_arg: str | None,
+        payload_config: dict | None = None,
+        requested_channel: str | None = None,
+    ) -> tuple[str, dict, str, type | None, NotificationChannel | None, str]:
         """Resolve provider name, config, selected label, driver class, channel object, and final channel.
 
         Args:
@@ -47,7 +47,7 @@ class NotifySelector:
         """
         payload_config = payload_config or {}
 
-        channel_obj: Optional[NotificationChannel] = None
+        channel_obj: NotificationChannel | None = None
 
         # Try DB channel lookup when a provider arg is given
         if provider_arg:

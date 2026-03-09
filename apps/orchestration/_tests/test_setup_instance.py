@@ -1,8 +1,6 @@
 """Tests for the setup_instance management command."""
 
-import os
 import sys
-import tempfile
 from io import StringIO
 from unittest.mock import patch
 
@@ -439,87 +437,6 @@ class ConfirmApplyTests(TestCase):
     @patch("builtins.input", return_value="n")
     def test_returns_false_on_no(self, _mock_input):
         assert self.cmd._confirm_apply() is False
-
-
-class WriteEnvTests(TestCase):
-    """Tests for _write_env helper."""
-
-    def setUp(self):
-        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
-
-    def test_adds_new_keys_to_env_file(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
-            f.write("EXISTING_KEY=value\n")
-            f.flush()
-            env_path = f.name
-
-        try:
-            self.cmd._write_env(env_path, {"NEW_KEY": "new_value"})
-            with open(env_path) as f:
-                content = f.read()
-            assert "EXISTING_KEY=value" in content
-            assert "NEW_KEY=new_value" in content
-        finally:
-            os.unlink(env_path)
-
-    def test_updates_existing_keys(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
-            f.write("MY_KEY=old\nOTHER=keep\n")
-            f.flush()
-            env_path = f.name
-
-        try:
-            self.cmd._write_env(env_path, {"MY_KEY": "new"})
-            with open(env_path) as f:
-                content = f.read()
-            assert "MY_KEY=new" in content
-            assert "MY_KEY=old" not in content
-            assert "OTHER=keep" in content
-        finally:
-            os.unlink(env_path)
-
-    def test_creates_env_file_if_missing(self):
-        with tempfile.NamedTemporaryFile(suffix=".env", delete=False) as f:
-            env_path = f.name
-        os.unlink(env_path)  # Remove so _write_env creates it
-        try:
-            self.cmd._write_env(env_path, {"KEY": "val"})
-            with open(env_path) as f:
-                content = f.read()
-            assert "KEY=val" in content
-        finally:
-            if os.path.exists(env_path):
-                os.unlink(env_path)
-
-    def test_preserves_comments_and_empty_lines(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
-            f.write("# A comment\n\nKEY=value\n")
-            f.flush()
-            env_path = f.name
-
-        try:
-            self.cmd._write_env(env_path, {"NEW": "val"})
-            with open(env_path) as f:
-                content = f.read()
-            assert "# A comment" in content
-            assert "KEY=value" in content
-            assert "NEW=val" in content
-        finally:
-            os.unlink(env_path)
-
-    def test_adds_section_header_comment(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
-            f.write("")
-            f.flush()
-            env_path = f.name
-
-        try:
-            self.cmd._write_env(env_path, {"KEY": "val"})
-            with open(env_path) as f:
-                content = f.read()
-            assert "setup_instance" in content
-        finally:
-            os.unlink(env_path)
 
 
 class CreatePipelineDefinitionTests(TestCase):
@@ -993,39 +910,9 @@ class ConfigureNotifyEdgeCaseTests(TestCase):
         assert result[0]["name"] == "my-custom-ch"
 
 
-class ApplyConfigEnvTests(TestCase):
-    """Tests for handle() env var generation paths."""
+class IntelligenceProviderRecordTests(TestCase):
+    """Tests for handle() intelligence provider DB record creation."""
 
-    def setUp(self):
-        self.cmd = Command(stdout=StringIO(), stderr=StringIO())
-
-    @patch(
-        "apps.orchestration.management.commands.setup_instance.Command._write_env",
-        return_value=None,
-    )
-    @patch(
-        "builtins.input",
-        side_effect=[
-            "1",  # alert source: external
-            "2",  # preset: health-checked
-            "1",  # alerts: first driver
-            "1,2",  # checkers: cpu, memory (not all)
-            "1",  # notify: slack
-            "https://hooks.slack.com/xxx",
-            "ops-alerts",
-            "Y",  # confirm
-        ],
-    )
-    def test_no_checkers_skip_env(self, _mock_input, mock_write_env):
-        """CHECKERS_SKIP is no longer written to .env (definition-based)."""
-        call_command("setup_instance", stdout=StringIO())
-        env_updates = mock_write_env.call_args[0][1] if mock_write_env.called else {}
-        assert "CHECKERS_SKIP" not in env_updates
-
-    @patch(
-        "apps.orchestration.management.commands.setup_instance.Command._write_env",
-        return_value=None,
-    )
     @patch(
         "builtins.input",
         side_effect=[
@@ -1041,34 +928,7 @@ class ApplyConfigEnvTests(TestCase):
             "Y",  # confirm
         ],
     )
-    def test_no_openai_env_vars(self, _mock_input, mock_write_env):
-        """OPENAI_* and INTELLIGENCE_PROVIDER are no longer written to .env (DB-based)."""
-        call_command("setup_instance", stdout=StringIO())
-        env_updates = mock_write_env.call_args[0][1] if mock_write_env.called else {}
-        assert "INTELLIGENCE_PROVIDER" not in env_updates
-        assert "OPENAI_API_KEY" not in env_updates
-        assert "OPENAI_MODEL" not in env_updates
-
-    @patch(
-        "apps.orchestration.management.commands.setup_instance.Command._write_env",
-        return_value=None,
-    )
-    @patch(
-        "builtins.input",
-        side_effect=[
-            "1",  # alert source: external
-            "3",  # preset: ai-analyzed
-            "1",  # alerts
-            "2",  # intelligence: openai
-            "sk-test-key",  # API key
-            "gpt-4o",  # model
-            "1",  # notify: slack
-            "https://hooks.slack.com/xxx",
-            "ops-alerts",
-            "Y",  # confirm
-        ],
-    )
-    def test_creates_intelligence_provider_record(self, _mock_input, _mock_write_env):
+    def test_creates_intelligence_provider_record(self, _mock_input):
         """setup_instance creates an IntelligenceProvider DB record."""
         from apps.intelligence.models import IntelligenceProvider
 
@@ -1084,10 +944,6 @@ class PipelineNameCollisionTests(TestCase):
     """Tests for handle() pipeline name collision in add-another mode."""
 
     @patch(
-        "apps.orchestration.management.commands.setup_instance.Command._write_env",
-        return_value=None,
-    )
-    @patch(
         "builtins.input",
         side_effect=[
             "2",  # rerun: add another
@@ -1100,7 +956,7 @@ class PipelineNameCollisionTests(TestCase):
             "Y",  # confirm
         ],
     )
-    def test_adds_suffix_on_name_collision(self, _mock_input, _mock_write_env):
+    def test_adds_suffix_on_name_collision(self, _mock_input):
         """Appends count suffix when pipeline name already exists."""
         # Create existing wizard pipeline
         PipelineDefinition.objects.create(
@@ -1121,10 +977,6 @@ class SetupInstanceIntegrationTests(TestCase):
     """Integration tests for the full setup_instance flow."""
 
     @patch(
-        "apps.orchestration.management.commands.setup_instance.Command._write_env",
-        return_value=None,
-    )
-    @patch(
         "builtins.input",
         side_effect=[
             "1",  # alert source: external
@@ -1138,7 +990,7 @@ class SetupInstanceIntegrationTests(TestCase):
             "Y",  # confirm
         ],
     )
-    def test_full_pipeline_flow(self, _mock_input, _mock_write_env):
+    def test_full_pipeline_flow(self, _mock_input):
         out = StringIO()
         call_command("setup_instance", stdout=out)
 
@@ -1155,10 +1007,6 @@ class SetupInstanceIntegrationTests(TestCase):
         assert ch.is_active is True
 
     @patch(
-        "apps.orchestration.management.commands.setup_instance.Command._write_env",
-        return_value=None,
-    )
-    @patch(
         "builtins.input",
         side_effect=[
             "1",  # alert source: external
@@ -1170,7 +1018,7 @@ class SetupInstanceIntegrationTests(TestCase):
             "Y",  # confirm
         ],
     )
-    def test_direct_preset_skips_checkers_and_intelligence(self, _mock_input, _mock_write_env):
+    def test_direct_preset_skips_checkers_and_intelligence(self, _mock_input):
         out = StringIO()
         call_command("setup_instance", stdout=out)
 
@@ -1179,10 +1027,6 @@ class SetupInstanceIntegrationTests(TestCase):
         assert "context" not in node_types
         assert "intelligence" not in node_types
 
-    @patch(
-        "apps.orchestration.management.commands.setup_instance.Command._write_env",
-        return_value=None,
-    )
     @patch(
         "builtins.input",
         side_effect=[
@@ -1195,17 +1039,13 @@ class SetupInstanceIntegrationTests(TestCase):
             "n",  # cancel at confirmation
         ],
     )
-    def test_cancel_on_confirmation_creates_nothing(self, _mock_input, _mock_write_env):
+    def test_cancel_on_confirmation_creates_nothing(self, _mock_input):
         """When user cancels at confirmation, no DB records should be created."""
         out = StringIO()
         call_command("setup_instance", stdout=out)
         assert PipelineDefinition.objects.count() == 0
         assert NotificationChannel.objects.count() == 0
 
-    @patch(
-        "apps.orchestration.management.commands.setup_instance.Command._write_env",
-        return_value=None,
-    )
     @patch(
         "builtins.input",
         side_effect=[
@@ -1218,7 +1058,7 @@ class SetupInstanceIntegrationTests(TestCase):
             "Y",  # confirm
         ],
     )
-    def test_local_monitor_flow(self, _mock_input, _mock_write_env):
+    def test_local_monitor_flow(self, _mock_input):
         """Local monitor preset skips alerts stage and has no ingest node."""
         out = StringIO()
         call_command("setup_instance", stdout=out)
@@ -1237,10 +1077,6 @@ class SetupInstanceIntegrationTests(TestCase):
         assert "run_pipeline --definition local-monitor" in output
 
     @patch(
-        "apps.orchestration.management.commands.setup_instance.Command._write_env",
-        return_value=None,
-    )
-    @patch(
         "builtins.input",
         side_effect=[
             "1",  # alert source: external
@@ -1251,7 +1087,7 @@ class SetupInstanceIntegrationTests(TestCase):
             "Y",  # confirm
         ],
     )
-    def test_reuse_existing_channels_no_new_created(self, _mock_input, _mock_write_env):
+    def test_reuse_existing_channels_no_new_created(self, _mock_input):
         """Using existing channels does not create duplicates."""
         NotificationChannel.objects.create(
             name="ops-slack",
@@ -1267,10 +1103,6 @@ class SetupInstanceIntegrationTests(TestCase):
         assert 'Using existing NotificationChannel "ops-slack"' in output
 
     @patch(
-        "apps.orchestration.management.commands.setup_instance.Command._write_env",
-        return_value=None,
-    )
-    @patch(
         "builtins.input",
         side_effect=[
             "1",  # alert source: external
@@ -1285,7 +1117,7 @@ class SetupInstanceIntegrationTests(TestCase):
             "Y",  # confirm
         ],
     )
-    def test_both_existing_and_new_channels(self, _mock_input, _mock_write_env):
+    def test_both_existing_and_new_channels(self, _mock_input):
         """'Both' mode reuses existing and creates new channels."""
         NotificationChannel.objects.create(
             name="ops-slack",
@@ -1305,16 +1137,12 @@ class SetupInstanceIntegrationTests(TestCase):
         assert 'Created NotificationChannel "new-webhook"' in output
 
     @patch(
-        "apps.orchestration.management.commands.setup_instance.Command._write_env",
-        return_value=None,
-    )
-    @patch(
         "builtins.input",
         side_effect=[
             "3",  # rerun: cancel
         ],
     )
-    def test_cancel_on_rerun_exits_early(self, _mock_input, _mock_write_env):
+    def test_cancel_on_rerun_exits_early(self, _mock_input):
         """Cancelling on rerun prompt exits without creating anything new."""
         PipelineDefinition.objects.create(
             name="direct",
@@ -1330,36 +1158,6 @@ class SetupInstanceIntegrationTests(TestCase):
         assert PipelineDefinition.objects.filter(is_active=True).count() == 1
 
     @patch(
-        "apps.orchestration.management.commands.setup_instance.Command._write_env",
-        return_value=None,
-    )
-    @patch(
-        "apps.checkers.checkers.CHECKER_REGISTRY",
-        {"cpu": None, "memory": None},
-    )
-    @patch(
-        "builtins.input",
-        side_effect=[
-            "2",  # alert source: local
-            "1",  # preset: local-monitor
-            "1,2",  # checkers: cpu, memory (= all in mocked registry)
-            "1",  # notify: slack
-            "https://hooks.slack.com/xxx",
-            "ops-alerts",
-            "Y",  # confirm
-        ],
-    )
-    def test_all_checkers_enabled_no_skip_env(self, _mock_input, mock_write_env):
-        """CHECKERS_SKIP is never written (definition-based)."""
-        call_command("setup_instance", stdout=StringIO())
-        env_updates = mock_write_env.call_args[0][1] if mock_write_env.called else {}
-        assert "CHECKERS_SKIP" not in env_updates
-
-    @patch(
-        "apps.orchestration.management.commands.setup_instance.Command._write_env",
-        return_value=None,
-    )
-    @patch(
         "builtins.input",
         side_effect=[
             "2",  # rerun: add another
@@ -1373,7 +1171,7 @@ class SetupInstanceIntegrationTests(TestCase):
             "Y",  # confirm
         ],
     )
-    def test_add_another_no_name_collision(self, _mock_input, _mock_write_env):
+    def test_add_another_no_name_collision(self, _mock_input):
         """Add-another with different preset name needs no suffix."""
         PipelineDefinition.objects.create(
             name="full",

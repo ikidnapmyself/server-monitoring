@@ -19,7 +19,7 @@ import logging
 import pprint
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
 
 import psutil
 
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 # Declare the env with an Optional type so assigning None in the except branch
 # doesn't conflict with the Environment type during type-checking.
-_JINJA_ENV: Optional["jinja2.Environment"] = None
+_JINJA_ENV: "jinja2.Environment | None" = None
 
 try:
     import jinja2
@@ -52,7 +52,7 @@ class _SafeDict(dict):
         return ""
 
 
-def _load_template_from_file(name: str) -> Optional[str]:
+def _load_template_from_file(name: str) -> str | None:
     path = TEMPLATES_DIR / name
     if path.exists() and path.is_file():
         return path.read_text(encoding="utf-8")
@@ -63,7 +63,7 @@ def _load_template_from_file(name: str) -> Optional[str]:
     return None
 
 
-def render_template(spec: Any, context: Dict[str, Any]) -> Optional[str]:
+def render_template(spec: Any, context: dict[str, Any]) -> str | None:
     """Render a template spec with the provided context.
 
     Args:
@@ -76,8 +76,8 @@ def render_template(spec: Any, context: Dict[str, Any]) -> Optional[str]:
     if not spec:
         return None
 
-    template_str: Optional[str] = None
-    template_name: Optional[str] = None
+    template_str: str | None = None
+    template_name: str | None = None
     # normalize spec
     if isinstance(spec, dict):
         ttype = spec.get("type", "inline")
@@ -152,8 +152,8 @@ class NotificationTemplatingService:
     """
 
     def compose_incident_details(
-        self, message_dict: Dict[str, Any], config: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, message_dict: dict[str, Any], config: dict[str, Any]
+    ) -> dict[str, Any]:
         """Compose a common incident detail payload used by all drivers.
 
         Args:
@@ -272,8 +272,8 @@ class NotificationTemplatingService:
         return incident_details
 
     def build_template_context(
-        self, message_dict: Dict[str, Any], incident_details: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, message_dict: dict[str, Any], incident_details: dict[str, Any]
+    ) -> dict[str, Any]:
         """Build the template rendering context for message templates.
 
         Args:
@@ -299,8 +299,8 @@ class NotificationTemplatingService:
         }
 
     def render_message_templates(
-        self, driver_name: str, message_dict: Dict[str, Any], config: Dict[str, Any]
-    ) -> Dict[str, Optional[str]]:
+        self, driver_name: str, message_dict: dict[str, Any], config: dict[str, Any]
+    ) -> dict[str, str | None]:
         """Render per-driver templates from config.
 
         Args:
@@ -311,14 +311,14 @@ class NotificationTemplatingService:
         Returns:
             Dict with optional 'text' and 'html' keys (values or None).
         """
-        result: Dict[str, Optional[str]] = {"text": None, "html": None}
+        result: dict[str, str | None] = {"text": None, "html": None}
         config = config or {}
 
         logger.debug(
             "render_message_templates: driver=%s, config_keys=%s", driver_name, list(config.keys())
         )
         # Track which template source was used for diagnostics
-        used_template_source: Optional[str] = None
+        used_template_source: str | None = None
 
         incident_details = self.compose_incident_details(message_dict, config)
         ctx = self.build_template_context(message_dict, incident_details)
@@ -342,7 +342,7 @@ class NotificationTemplatingService:
         else:
             # If no explicit template configured, try driver-specific default files in order
             tried = []
-            errors: Dict[str, str] = {}
+            errors: dict[str, str] = {}
             candidates = [
                 f"file:{driver_name}_text.j2",
                 f"file:{driver_name}_payload.j2",

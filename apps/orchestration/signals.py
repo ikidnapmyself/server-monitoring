@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import time
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -62,14 +63,14 @@ class SignalTags:
         return base
 
 
-class MonitoringBackend:
+class MonitoringBackend(ABC):
     """
     Abstract monitoring backend.
 
     Override emit() to send signals to your preferred monitoring system.
-    Default implementation logs structured JSON.
     """
 
+    @abstractmethod
     def emit(
         self,
         signal_name: str,
@@ -78,7 +79,6 @@ class MonitoringBackend:
         extra: dict[str, Any] | None = None,
     ) -> None:
         """Emit a monitoring signal."""
-        raise NotImplementedError
 
 
 class LoggingBackend(MonitoringBackend):

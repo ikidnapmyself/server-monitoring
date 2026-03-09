@@ -15,7 +15,7 @@ import logging
 import urllib.error
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any
 
 from apps.notify.templating import NotificationTemplatingService, render_template
 
@@ -95,7 +95,7 @@ class BaseNotifyDriver(ABC):
 
     def _render_message_templates(
         self, message: "NotificationMessage", config: dict[str, Any]
-    ) -> Dict[str, Optional[str]]:
+    ) -> dict[str, str | None]:
         """Render per-driver templates from config.
 
         Looks for keys in config:

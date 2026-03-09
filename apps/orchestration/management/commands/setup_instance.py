@@ -8,7 +8,6 @@ Usage:
     python manage.py setup_instance
 """
 
-import os
 import sys
 
 from django.core.management.base import BaseCommand
@@ -458,44 +457,6 @@ class Command(BaseCommand):
         selected = self._prompt_choice("? How will you use this instance?", options)
         return selected
 
-    def _write_env(self, env_path, updates):
-        """
-        Update .env file with new key-value pairs, preserving existing content.
-
-        Args:
-            env_path: Path to .env file.
-            updates: Dict of key-value pairs to set.
-        """
-        import datetime
-
-        lines = []
-        existing_keys = set()
-
-        # Read existing file
-        if os.path.exists(env_path):
-            with open(env_path) as f:
-                for line in f:
-                    stripped = line.strip()
-                    # Check if this line sets a key we're updating
-                    if "=" in stripped and not stripped.startswith("#"):
-                        key = stripped.split("=", 1)[0].strip()
-                        if key in updates:
-                            lines.append(f"{key}={updates[key]}\n")
-                            existing_keys.add(key)
-                            continue
-                    lines.append(line)
-
-        # Append new keys that weren't already in the file
-        new_keys = {k: v for k, v in updates.items() if k not in existing_keys}
-        if new_keys:
-            today = datetime.date.today().isoformat()
-            lines.append(f"\n# --- setup_instance: Generated {today} ---\n")
-            for key, value in new_keys.items():
-                lines.append(f"{key}={value}\n")
-
-        with open(env_path, "w") as f:
-            f.writelines(lines)
-
     def _create_pipeline_definition(self, config):
         """
         Create a PipelineDefinition record from collected config.
@@ -688,8 +649,6 @@ class Command(BaseCommand):
         return action
 
     def handle(self, *args, **options):
-        from django.conf import settings
-
         self.stdout.write(
             self.style.HTTP_INFO(
                 "\n╔══════════════════════════════════════════════════╗"
@@ -747,18 +706,6 @@ class Command(BaseCommand):
             return
 
         # Step 7: Apply configuration
-        env_path = os.path.join(str(settings.BASE_DIR), ".env")
-        env_updates = {}
-
-        if alerts:
-            env_updates["ALERTS_ENABLED_DRIVERS"] = ",".join(alerts)
-
-        if env_updates:
-            self._write_env(env_path, env_updates)
-            self.stdout.write(
-                self.style.SUCCESS(f"✓ Updated .env with {len(env_updates)} setting(s)")
-            )
-
         # Handle name collision for "add another" mode
         pipeline_name = preset["name"]
         if rerun_action == "add":

@@ -1,6 +1,7 @@
 """Tests for orchestration views."""
 
 import json
+from unittest.mock import MagicMock, patch
 
 from django.test import Client, TestCase
 
@@ -187,12 +188,21 @@ class TestPipelineDefinitionExecuteView(TestCase):
             is_active=True,
         )
 
+        mock_provider = MagicMock()
+        mock_provider.run.return_value = [
+            {"title": "test-rec", "description": "test", "priority": "low"}
+        ]
+
         client = Client()
-        response = client.post(
-            "/orchestration/definitions/exec-pipeline/execute/",
-            data=json.dumps({"payload": {"test": "data"}, "source": "test"}),
-            content_type="application/json",
-        )
+        with patch(
+            "apps.intelligence.providers.get_provider",
+            return_value=mock_provider,
+        ):
+            response = client.post(
+                "/orchestration/definitions/exec-pipeline/execute/",
+                data=json.dumps({"payload": {"test": "data"}, "source": "test"}),
+                content_type="application/json",
+            )
 
         assert response.status_code in (200, 500)  # 200 if completed, 500 if failed
         data = response.json()

@@ -1,7 +1,9 @@
 """Notify node handler — sends real notifications via configured channels."""
 
+from __future__ import annotations
+
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from apps.orchestration.nodes.base import (
     BaseNodeHandler,
@@ -18,7 +20,7 @@ class NotifyNodeHandler(BaseNodeHandler):
     node_type = NodeType.NOTIFY
     name = "notify"
 
-    def execute(self, ctx: NodeContext, config: Dict[str, Any]) -> NodeResult:
+    def execute(self, ctx: NodeContext, config: dict[str, Any]) -> NodeResult:
         from apps.notify.models import NotificationChannel
         from apps.notify.views import DRIVER_REGISTRY
 
@@ -143,7 +145,7 @@ class NotifyNodeHandler(BaseNodeHandler):
 
             return result
 
-    def _build_message(self, ctx: NodeContext, config: Dict[str, Any]):
+    def _build_message(self, ctx: NodeContext, config: dict[str, Any]):
         """Build a NotificationMessage from pipeline context."""
         from apps.notify.drivers.base import NotificationMessage
 
@@ -216,7 +218,7 @@ class NotifyNodeHandler(BaseNodeHandler):
             },
         )
 
-    def validate_config(self, config: Dict[str, Any]) -> list[str]:
+    def validate_config(self, config: dict[str, Any]) -> list[str]:
         errors = []
         drivers = config.get("drivers") or []
         driver = config.get("driver")
