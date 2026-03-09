@@ -391,13 +391,6 @@ class Command(BaseCommand):
         self.stdout.write(f"  Succeeded: {d.get('channels_succeeded', 0)}")
         self.stdout.write(f"  Failed: {d.get('channels_failed', 0)}")
 
-    _stage_renderers = {
-        "INGEST": _render_ingest,
-        "CHECK": _render_check,
-        "ANALYZE": _render_analyze,
-        "NOTIFY": _render_notify,
-    }
-
     def _display_result(self, result):
         """Display pipeline result in human-readable format."""
         self.stdout.write("")
@@ -432,7 +425,13 @@ class Command(BaseCommand):
                 )
 
                 # Show key info based on stage
-                self._stage_renderers[stage_name](self, stage_dict)
+                renderer = {
+                    "INGEST": self._render_ingest,
+                    "CHECK": self._render_check,
+                    "ANALYZE": self._render_analyze,
+                    "NOTIFY": self._render_notify,
+                }[stage_name]
+                renderer(stage_dict)
 
                 # Show errors if any
                 errors = stage_dict.get("errors", [])
