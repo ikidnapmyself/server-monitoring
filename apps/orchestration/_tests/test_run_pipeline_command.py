@@ -737,6 +737,277 @@ class RunPipelineCommandTest(TestCase):
         finally:
             os.unlink(config_path)
 
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
+    def test_generic_exception_wrapped_as_command_error(self, mock_orchestrator):
+        """Non-CommandError exceptions are wrapped in CommandError."""
+        mock_orchestrator.return_value.run_pipeline.side_effect = RuntimeError("unexpected")
+        out = io.StringIO()
+        with self.assertRaises(CommandError) as ctx:
+            call_command("run_pipeline", "--sample", stdout=out)
+        self.assertIn("Pipeline failed", str(ctx.exception))
+
+    def test_run_pipeline_file_invalid_json(self):
+        """--file with invalid JSON raises CommandError."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write("{not valid json")
+            path = f.name
+        try:
+            with self.assertRaises(CommandError) as ctx:
+                call_command("run_pipeline", "--file", path, stdout=io.StringIO())
+            self.assertIn("Invalid JSON in file", str(ctx.exception))
+        finally:
+            os.unlink(path)
+
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
+    def test_display_result_notify_stage_with_to_dict_and_errors(self, mock_orchestrator):
+        """NOTIFY stage with to_dict() objects and errors displayed."""
+        mock_result = mock.Mock()
+        mock_result.status = "COMPLETED"
+        mock_result.trace_id = "t"
+        mock_result.run_id = "r"
+        mock_result.total_duration_ms = 10
+        # Use mock with to_dict() for ingest (covers line 341)
+        ingest_stage = mock.Mock()
+        ingest_stage.to_dict.return_value = {
+            "incident_id": 1,
+            "alerts_created": 1,
+            "severity": "warning",
+            "duration_ms": 5,
+        }
+        mock_result.ingest = ingest_stage
+        mock_result.check = None
+        mock_result.analyze = None
+        # NOTIFY stage as dict with errors (covers 424→432, 434)
+        mock_result.notify = {
+            "channels_attempted": 1,
+            "channels_succeeded": 0,
+            "channels_failed": 1,
+            "errors": ["Channel failed"],
+            "duration_ms": 5,
+        }
+        mock_result.errors = []
+        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+        out = io.StringIO()
+        call_command("run_pipeline", "--sample", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Channels attempted: 1", output)
+        self.assertIn("Errors:", output)
+
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
+    def test_display_result_failed_with_stack_trace(self, mock_orchestrator):
+        """Failed pipeline with final_error containing stack_trace."""
+        mock_result = mock.Mock()
+        mock_result.status = "FAILED"
+        mock_result.trace_id = "t"
+        mock_result.run_id = "r"
+        mock_result.total_duration_ms = 10
+        mock_result.ingest = None
+        mock_result.check = None
+        mock_result.analyze = None
+        mock_result.notify = None
+        mock_result.errors = ["error"]
+        final_error = mock.Mock()
+        final_error.error_type = "RuntimeError"
+        final_error.message = "something broke"
+        final_error.stack_trace = "Traceback:\n  File ..."
+        mock_result.final_error = final_error
+        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+        out = io.StringIO()
+        call_command("run_pipeline", "--sample", stdout=out)
+        output = out.getvalue()
+        self.assertIn("RuntimeError", output)
+        self.assertIn("something broke", output)
+        self.assertIn("Traceback:", output)
+
+    def test_definition_dry_run_node_without_config(self):
+        """Dry run skips config line when node has empty config."""
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.create(
+            name="test-no-config",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {"id": "ctx", "type": "context", "config": {}, "next": "notify"},
+                    {"id": "notify", "type": "notify", "config": {}},
+                ],
+            },
+        )
+        out = io.StringIO()
+        call_command("run_pipeline", "--definition", "test-no-config", "--dry-run", stdout=out)
+        output = out.getvalue()
+        self.assertIn("[context] ctx", output)
+        self.assertNotIn("Config: {}", output)
+
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.validate")
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.execute")
+    def test_display_definition_intelligence_long_summary_no_provider(
+        self, mock_execute, mock_validate
+    ):
+        """Intelligence node with long summary truncated, no provider shown."""
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.create(
+            name="test-long-summary",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {
+                        "id": "analyze",
+                        "type": "intelligence",
+                        "config": {"provider": "local"},
+                    },
+                ],
+            },
+        )
+        mock_validate.return_value = []
+        mock_execute.return_value = {
+            "trace_id": "t",
+            "run_id": "r",
+            "definition": "test-long-summary",
+            "status": "completed",
+            "executed_nodes": ["analyze"],
+            "skipped_nodes": [],
+            "node_results": {
+                "analyze": {
+                    "node_id": "analyze",
+                    "node_type": "intelligence",
+                    "output": {"summary": "A" * 150},
+                    "errors": [],
+                    "duration_ms": 10.0,
+                },
+            },
+            "duration_ms": 20.0,
+        }
+        out = io.StringIO()
+        call_command("run_pipeline", "--definition", "test-long-summary", stdout=out)
+        output = out.getvalue()
+        self.assertIn("...", output)
+        self.assertNotIn("Provider:", output)
+
+    def test_definition_dry_run_with_config_file(self):
+        """Dry run with --config shows Pipeline Config path."""
+        config = {
+            "version": "1.0",
+            "nodes": [
+                {"id": "notify", "type": "notify", "config": {"driver": "slack"}},
+            ],
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(config, f)
+            config_path = f.name
+        try:
+            out = io.StringIO()
+            call_command("run_pipeline", "--config", config_path, "--dry-run", stdout=out)
+            output = out.getvalue()
+            self.assertIn("Pipeline Config:", output)
+            self.assertIn(config_path, output)
+        finally:
+            os.unlink(config_path)
+
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
+    def test_display_result_failed_final_error_raises_exception(self, mock_orchestrator):
+        """Failed pipeline where accessing final_error attributes raises falls back to str()."""
+        mock_result = mock.Mock()
+        mock_result.status = "FAILED"
+        mock_result.trace_id = "t"
+        mock_result.run_id = "r"
+        mock_result.total_duration_ms = 10
+        mock_result.ingest = None
+        mock_result.check = None
+        mock_result.analyze = None
+        mock_result.notify = None
+        mock_result.errors = ["error"]
+
+        # final_error whose attribute access raises, falling back to str()
+        class BadError:
+            @property
+            def error_type(self):
+                raise RuntimeError("cannot access")
+
+            def __str__(self):
+                return "fallback error text"
+
+        mock_result.final_error = BadError()
+        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+        out = io.StringIO()
+        call_command("run_pipeline", "--sample", stdout=out)
+        output = out.getvalue()
+        self.assertIn("fallback error text", output)
+
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.validate")
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.execute")
+    def test_display_definition_result_transform_node_type(self, mock_execute, mock_validate):
+        """Transform node type (not in display if/elif) still shows errors and duration."""
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.create(
+            name="test-transform-type",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {"id": "xform", "type": "transform", "config": {"template": "x"}},
+                ],
+            },
+        )
+        mock_validate.return_value = []
+        mock_execute.return_value = {
+            "trace_id": "t",
+            "run_id": "r",
+            "definition": "test-transform-type",
+            "status": "completed",
+            "executed_nodes": ["xform"],
+            "skipped_nodes": [],
+            "node_results": {
+                "xform": {
+                    "node_id": "xform",
+                    "node_type": "transform",
+                    "output": {"something": "value"},
+                    "errors": ["some error"],
+                    "duration_ms": 5.0,
+                },
+            },
+            "duration_ms": 10.0,
+        }
+        out = io.StringIO()
+        call_command("run_pipeline", "--definition", "test-transform-type", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Errors:", output)
+        self.assertIn("Duration: 5.00ms", output)
+
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.validate")
+    @mock.patch("apps.orchestration.definition_orchestrator.DefinitionBasedOrchestrator.execute")
+    def test_display_definition_failed_with_error_message(self, mock_execute, mock_validate):
+        """Failed definition result shows error message."""
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.create(
+            name="test-fail-err",
+            config={
+                "version": "1.0",
+                "nodes": [
+                    {"id": "notify", "type": "notify", "config": {"driver": "slack"}},
+                ],
+            },
+        )
+        mock_validate.return_value = []
+        mock_execute.return_value = {
+            "trace_id": "t",
+            "run_id": "r",
+            "definition": "test-fail-err",
+            "status": "failed",
+            "executed_nodes": ["notify"],
+            "skipped_nodes": [],
+            "node_results": {},
+            "duration_ms": 10.0,
+            "error": "Node notify raised an exception",
+        }
+        out = io.StringIO()
+        call_command("run_pipeline", "--definition", "test-fail-err", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Pipeline failed", output)
+        self.assertIn("Node notify raised an exception", output)
+
 
 class TestSamplePipelineDefinitions(TestCase):
     """Tests for apps/orchestration/management/commands/pipelines/ sample definition files."""
