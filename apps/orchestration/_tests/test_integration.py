@@ -1,7 +1,7 @@
 # apps/orchestration/_tests/test_integration.py
 """Integration tests for the complete pipeline system."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
@@ -9,11 +9,24 @@ from apps.orchestration.definition_orchestrator import DefinitionBasedOrchestrat
 from apps.orchestration.models import PipelineDefinition, PipelineRun
 
 
+def _mock_intelligence_provider():
+    """Return a mock provider that returns a canned recommendation."""
+    provider = MagicMock()
+    provider.run.return_value = [
+        {"title": "test-rec", "description": "test recommendation", "priority": "low"}
+    ]
+    return provider
+
+
 @patch("psutil.cpu_percent", return_value=42.0)
 class TestPipelineIntegration(TestCase):
     """Integration tests for complete pipelines."""
 
-    def test_context_to_intelligence_pipeline(self, _mock_cpu):
+    @patch(
+        "apps.intelligence.providers.get_provider",
+        return_value=_mock_intelligence_provider(),
+    )
+    def test_context_to_intelligence_pipeline(self, _mock_provider, _mock_cpu):
         """Test a pipeline that gathers context and runs intelligence."""
         definition = PipelineDefinition.objects.create(
             name="context-intelligence",
@@ -79,7 +92,11 @@ class TestPipelineIntegration(TestCase):
         assert result["status"] in ("completed", "partial")
         assert "context" in result["executed_nodes"]
 
-    def test_transform_between_nodes(self, _mock_cpu):
+    @patch(
+        "apps.intelligence.providers.get_provider",
+        return_value=_mock_intelligence_provider(),
+    )
+    def test_transform_between_nodes(self, _mock_provider, _mock_cpu):
         """Test transform node processes data between stages."""
         definition = PipelineDefinition.objects.create(
             name="with-transform",
@@ -120,7 +137,11 @@ class TestPipelineIntegration(TestCase):
         transform_output = result["node_results"]["transform"]["output"]
         assert "transformed" in transform_output
 
-    def test_pipeline_creates_run_record(self, _mock_cpu):
+    @patch(
+        "apps.intelligence.providers.get_provider",
+        return_value=_mock_intelligence_provider(),
+    )
+    def test_pipeline_creates_run_record(self, _mock_provider, _mock_cpu):
         """Test that pipeline execution creates proper records."""
         definition = PipelineDefinition.objects.create(
             name="record-test",

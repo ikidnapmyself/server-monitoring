@@ -1,7 +1,9 @@
 """Context node handler — runs real system health checkers."""
 
+from __future__ import annotations
+
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from apps.orchestration.nodes.base import (
     BaseNodeHandler,
@@ -18,7 +20,7 @@ class ContextNodeHandler(BaseNodeHandler):
     node_type = NodeType.CONTEXT
     name = "context"
 
-    def execute(self, ctx: NodeContext, config: Dict[str, Any]) -> NodeResult:
+    def execute(self, ctx: NodeContext, config: dict[str, Any]) -> NodeResult:
         from apps.checkers.checkers import CHECKER_REGISTRY
         from apps.checkers.checkers.base import CheckStatus
 
@@ -81,6 +83,6 @@ class ContextNodeHandler(BaseNodeHandler):
             }
             return result
 
-    def validate_config(self, config: Dict[str, Any]) -> list[str]:
+    def validate_config(self, config: dict[str, Any]) -> list[str]:
         # No required fields — empty config runs all registered checkers
         return []

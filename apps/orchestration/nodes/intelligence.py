@@ -1,9 +1,10 @@
 """Intelligence node handler that integrates with intelligence providers."""
 
+from __future__ import annotations
+
 import concurrent.futures
 import logging
-import os
-from typing import Any, Dict
+from typing import Any
 
 from apps.orchestration.nodes.base import (
     BaseNodeHandler,
@@ -33,7 +34,7 @@ class IntelligenceNodeHandler(BaseNodeHandler):
                 logger.exception("Provider call failed")
                 return None
 
-    def execute(self, ctx: NodeContext, config: Dict[str, Any]) -> NodeResult:
+    def execute(self, ctx: NodeContext, config: dict[str, Any]) -> NodeResult:
         node_id = config.get("id", "intelligence")
         result = NodeResult(node_id=node_id, node_type="intelligence")
 
@@ -48,23 +49,6 @@ class IntelligenceNodeHandler(BaseNodeHandler):
                     return result
 
                 provider_config = config.get("provider_config", {}) or {}
-
-                # Fast-path when running in pytest to avoid heavy local scanning
-                if provider_name == "local" and os.getenv("PYTEST_CURRENT_TEST") is not None:
-                    # Return a small deterministic recommendation for tests
-                    recs_list = [
-                        {
-                            "title": "local-test",
-                            "description": "fast recommendation",
-                            "priority": "low",
-                        }
-                    ]
-                    result.output = {
-                        "provider": "local",
-                        "recommendations": recs_list,
-                        "count": len(recs_list),
-                    }
-                    return result
 
                 if provider_name not in PROVIDERS:
                     raise KeyError(f"Unknown provider: {provider_name}")
@@ -116,7 +100,7 @@ class IntelligenceNodeHandler(BaseNodeHandler):
 
             return result
 
-    def validate_config(self, config: Dict[str, Any]) -> list[str]:
+    def validate_config(self, config: dict[str, Any]) -> list[str]:
         errors: list[str] = []
         if "provider" not in config:
             errors.append("Missing required field: provider")

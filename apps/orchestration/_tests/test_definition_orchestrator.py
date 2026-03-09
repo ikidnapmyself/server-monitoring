@@ -19,6 +19,15 @@ def _patch_notify_drivers():
     return patch("apps.notify.views.DRIVER_REGISTRY", {"generic": mock_driver_cls})
 
 
+def _patch_intelligence_provider():
+    """Patch get_provider so intelligence nodes don't do real system scanning."""
+    mock_provider = MagicMock()
+    mock_provider.run.return_value = [
+        {"title": "mock-rec", "description": "mock recommendation", "priority": "low"}
+    ]
+    return patch("apps.intelligence.providers.get_provider", return_value=mock_provider)
+
+
 def _simple_pipeline_config():
     """A simple pipeline configuration for testing."""
     return {
@@ -65,7 +74,7 @@ class TestDefinitionBasedOrchestrator(TestCase):
             config=simple_pipeline_config,
         )
 
-        with _patch_notify_drivers():
+        with _patch_notify_drivers(), _patch_intelligence_provider():
             orchestrator = DefinitionBasedOrchestrator(definition)
             result = orchestrator.execute(
                 payload={"test": "data"},
@@ -95,7 +104,7 @@ class TestDefinitionBasedOrchestrator(TestCase):
             config=simple_pipeline_config,
         )
 
-        with _patch_notify_drivers():
+        with _patch_notify_drivers(), _patch_intelligence_provider():
             orchestrator = DefinitionBasedOrchestrator(definition)
             result = orchestrator.execute(
                 payload={"test": "data"},
@@ -125,7 +134,7 @@ class TestDefinitionBasedOrchestrator(TestCase):
             config=simple_pipeline_config,
         )
 
-        with _patch_notify_drivers():
+        with _patch_notify_drivers(), _patch_intelligence_provider():
             orchestrator = DefinitionBasedOrchestrator(definition)
             result = orchestrator.execute(
                 payload={"test": "data"},

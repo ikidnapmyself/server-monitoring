@@ -1,11 +1,13 @@
 """Base node handler and types for pipeline nodes."""
 
+from __future__ import annotations
+
 import time
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List
+from typing import Any
 
 
 class NodeType(Enum):
@@ -30,12 +32,12 @@ class NodeContext:
     trace_id: str
     run_id: str
     incident_id: int | None = None
-    payload: Dict[str, Any] = field(default_factory=dict)
-    previous_outputs: Dict[str, Any] = field(default_factory=dict)
+    payload: dict[str, Any] = field(default_factory=dict)
+    previous_outputs: dict[str, Any] = field(default_factory=dict)
     environment: str = "production"
     source: str = "unknown"
 
-    def get_previous(self, node_id: str) -> Dict[str, Any]:
+    def get_previous(self, node_id: str) -> dict[str, Any]:
         """Get output from a previous node."""
         return self.previous_outputs.get(node_id, {})
 
@@ -50,8 +52,8 @@ class NodeResult:
 
     node_id: str
     node_type: str
-    output: Dict[str, Any] = field(default_factory=dict)
-    errors: List[str] = field(default_factory=list)
+    output: dict[str, Any] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
     duration_ms: float = 0.0
     skipped: bool = False
     skip_reason: str = ""
@@ -60,7 +62,7 @@ class NodeResult:
     def has_errors(self) -> bool:
         return len(self.errors) > 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "node_id": self.node_id,
             "node_type": self.node_type,
@@ -94,7 +96,7 @@ class BaseNodeHandler(ABC):
     name: str = "base"
 
     @abstractmethod
-    def execute(self, ctx: NodeContext, config: Dict[str, Any]) -> NodeResult:
+    def execute(self, ctx: NodeContext, config: dict[str, Any]) -> NodeResult:
         """
         Execute the node with given context and configuration.
 
@@ -107,7 +109,7 @@ class BaseNodeHandler(ABC):
         """
         raise NotImplementedError
 
-    def validate_config(self, config: Dict[str, Any]) -> List[str]:
+    def validate_config(self, config: dict[str, Any]) -> list[str]:
         """
         Validate the node configuration.
 

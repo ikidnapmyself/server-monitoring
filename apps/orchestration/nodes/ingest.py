@@ -1,8 +1,10 @@
 # apps/orchestration/nodes/ingest.py
 """Ingest node handler for alert ingestion."""
 
+from __future__ import annotations
+
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from django.utils import timezone
 
@@ -30,7 +32,7 @@ class IngestNodeHandler(BaseNodeHandler):
     node_type = NodeType.INGEST
     name = "ingest"
 
-    def execute(self, ctx: NodeContext, config: Dict[str, Any]) -> NodeResult:
+    def execute(self, ctx: NodeContext, config: dict[str, Any]) -> NodeResult:
         """Execute alert ingestion."""
         result = NodeResult(
             node_id=config.get("id", "ingest"),
@@ -100,7 +102,7 @@ class IngestNodeHandler(BaseNodeHandler):
 
             return result
 
-    def validate_config(self, config: Dict[str, Any]) -> list[str]:
+    def validate_config(self, config: dict[str, Any]) -> list[str]:
         """Validate ingest node configuration."""
         # Ingest node has no required config - driver can come from payload
         return []

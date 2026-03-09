@@ -66,7 +66,16 @@ class TestIntelligenceNodeHandler(TestCase):
         )
         config = {"provider": "local"}
 
-        result = handler.execute(ctx, config)
+        mock_provider = MagicMock()
+        mock_provider.run.return_value = [
+            {"title": "test-rec", "description": "desc", "priority": "low"}
+        ]
+
+        with patch(
+            "apps.intelligence.providers.get_provider",
+            return_value=mock_provider,
+        ):
+            result = handler.execute(ctx, config)
 
         assert result.node_type == "intelligence"
         assert not result.has_errors
@@ -1214,22 +1223,8 @@ class TestIntelligenceRecommendationNormalization(SimpleTestCase):
                 "apps.intelligence.providers.get_provider",
                 return_value=mock_provider,
             ),
-            patch.dict("os.environ", {}, clear=False),
-            patch.dict(
-                "os.environ",
-                {"PYTEST_CURRENT_TEST": ""},
-                clear=False,
-            ),
         ):
-            # Remove PYTEST_CURRENT_TEST so we hit the non-pytest path
-            import os
-
-            old_val = os.environ.pop("PYTEST_CURRENT_TEST", None)
-            try:
-                result = handler.execute(ctx, {"provider": "mock", "id": "intel-test"})
-            finally:
-                if old_val is not None:
-                    os.environ["PYTEST_CURRENT_TEST"] = old_val
+            result = handler.execute(ctx, {"provider": "mock", "id": "intel-test"})
 
         return result
 
@@ -1308,24 +1303,17 @@ class TestIntelligenceIncidentFetching(TestCase):
         mock_provider = MagicMock()
         mock_provider.run.return_value = []
 
-        import os
-
-        old_val = os.environ.pop("PYTEST_CURRENT_TEST", None)
-        try:
-            with (
-                patch(
-                    "apps.intelligence.providers.PROVIDERS",
-                    {"mock": True},
-                ),
-                patch(
-                    "apps.intelligence.providers.get_provider",
-                    return_value=mock_provider,
-                ),
-            ):
-                result = handler.execute(ctx, {"provider": "mock", "id": "intel"})
-        finally:
-            if old_val is not None:
-                os.environ["PYTEST_CURRENT_TEST"] = old_val
+        with (
+            patch(
+                "apps.intelligence.providers.PROVIDERS",
+                {"mock": True},
+            ),
+            patch(
+                "apps.intelligence.providers.get_provider",
+                return_value=mock_provider,
+            ),
+        ):
+            result = handler.execute(ctx, {"provider": "mock", "id": "intel"})
 
         assert not result.has_errors
         # provider.run was called; the incident passed to the lambda
@@ -1341,24 +1329,17 @@ class TestIntelligenceIncidentFetching(TestCase):
         mock_provider = MagicMock()
         mock_provider.run.return_value = []
 
-        import os
-
-        old_val = os.environ.pop("PYTEST_CURRENT_TEST", None)
-        try:
-            with (
-                patch(
-                    "apps.intelligence.providers.PROVIDERS",
-                    {"mock": True},
-                ),
-                patch(
-                    "apps.intelligence.providers.get_provider",
-                    return_value=mock_provider,
-                ),
-            ):
-                result = handler.execute(ctx, {"provider": "mock", "id": "intel"})
-        finally:
-            if old_val is not None:
-                os.environ["PYTEST_CURRENT_TEST"] = old_val
+        with (
+            patch(
+                "apps.intelligence.providers.PROVIDERS",
+                {"mock": True},
+            ),
+            patch(
+                "apps.intelligence.providers.get_provider",
+                return_value=mock_provider,
+            ),
+        ):
+            result = handler.execute(ctx, {"provider": "mock", "id": "intel"})
 
         assert not result.has_errors
 
@@ -1372,26 +1353,19 @@ class TestIntelligenceIncidentFetching(TestCase):
         mock_provider = MagicMock()
         mock_provider.run.return_value = []
 
-        import os
-
-        old_val = os.environ.pop("PYTEST_CURRENT_TEST", None)
-        try:
-            with (
-                patch(
-                    "apps.intelligence.providers.PROVIDERS",
-                    {"mock": True},
-                ),
-                patch(
-                    "apps.intelligence.providers.get_provider",
-                    return_value=mock_provider,
-                ),
-                patch("apps.alerts.models.Incident.objects") as mock_objects,
-            ):
-                mock_objects.filter.side_effect = RuntimeError("DB down")
-                result = handler.execute(ctx, {"provider": "mock", "id": "intel"})
-        finally:
-            if old_val is not None:
-                os.environ["PYTEST_CURRENT_TEST"] = old_val
+        with (
+            patch(
+                "apps.intelligence.providers.PROVIDERS",
+                {"mock": True},
+            ),
+            patch(
+                "apps.intelligence.providers.get_provider",
+                return_value=mock_provider,
+            ),
+            patch("apps.alerts.models.Incident.objects") as mock_objects,
+        ):
+            mock_objects.filter.side_effect = RuntimeError("DB down")
+            result = handler.execute(ctx, {"provider": "mock", "id": "intel"})
 
         # Exception is swallowed; node still succeeds
         assert not result.has_errors
@@ -1407,31 +1381,24 @@ class TestIntelligenceUnknownProvider(SimpleTestCase):
         handler = IntelligenceNodeHandler()
         ctx = NodeContext(trace_id="t", run_id="r")
 
-        import os
-
-        old_val = os.environ.pop("PYTEST_CURRENT_TEST", None)
-        try:
-            with patch(
-                "apps.intelligence.providers.PROVIDERS",
-                {"local": True},
-            ):
-                result = handler.execute(
-                    ctx,
-                    {"provider": "nonexistent_provider", "id": "intel"},
-                )
-        finally:
-            if old_val is not None:
-                os.environ["PYTEST_CURRENT_TEST"] = old_val
+        with patch(
+            "apps.intelligence.providers.PROVIDERS",
+            {"local": True},
+        ):
+            result = handler.execute(
+                ctx,
+                {"provider": "nonexistent_provider", "id": "intel"},
+            )
 
         assert result.has_errors
         assert "Unknown provider" in result.errors[0]
 
 
-class TestIntelligenceNonPytestPath(SimpleTestCase):
-    """Test the non-pytest execution path for local provider."""
+class TestIntelligenceLocalProviderExecution(SimpleTestCase):
+    """Test local provider execution path."""
 
-    def test_local_provider_non_pytest_path(self):
-        """When PYTEST_CURRENT_TEST is not set, local provider runs normally."""
+    def test_local_provider_runs_normally(self):
+        """Local provider with mocked run returns recommendations."""
         from apps.orchestration.nodes.intelligence import IntelligenceNodeHandler
 
         handler = IntelligenceNodeHandler()
@@ -1442,24 +1409,17 @@ class TestIntelligenceNonPytestPath(SimpleTestCase):
             {"title": "real-rec", "description": "desc", "priority": "low"}
         ]
 
-        import os
-
-        old_val = os.environ.pop("PYTEST_CURRENT_TEST", None)
-        try:
-            with (
-                patch(
-                    "apps.intelligence.providers.PROVIDERS",
-                    {"local": True},
-                ),
-                patch(
-                    "apps.intelligence.providers.get_provider",
-                    return_value=mock_provider,
-                ),
-            ):
-                result = handler.execute(ctx, {"provider": "local", "id": "intel"})
-        finally:
-            if old_val is not None:
-                os.environ["PYTEST_CURRENT_TEST"] = old_val
+        with (
+            patch(
+                "apps.intelligence.providers.PROVIDERS",
+                {"local": True},
+            ),
+            patch(
+                "apps.intelligence.providers.get_provider",
+                return_value=mock_provider,
+            ),
+        ):
+            result = handler.execute(ctx, {"provider": "local", "id": "intel"})
 
         assert not result.has_errors
         assert result.output["provider"] == "local"
@@ -1987,15 +1947,7 @@ class TestIntelligenceMissingProvider(SimpleTestCase):
         handler = IntelligenceNodeHandler()
         ctx = NodeContext(trace_id="t", run_id="r")
 
-        # Remove PYTEST_CURRENT_TEST so we exercise the new guard, not the pytest fast-path
-        import os
-
-        old_val = os.environ.pop("PYTEST_CURRENT_TEST", None)
-        try:
-            result = handler.execute(ctx, {})
-        finally:
-            if old_val is not None:
-                os.environ["PYTEST_CURRENT_TEST"] = old_val
+        result = handler.execute(ctx, {})
 
         assert result.has_errors
         assert "provider" in result.errors[0].lower()
