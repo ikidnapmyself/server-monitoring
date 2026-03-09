@@ -369,6 +369,28 @@ class Command(BaseCommand):
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS("Use without --dry-run to execute"))
 
+    def _render_ingest(self, d: dict):
+        self.stdout.write(f"  Incident ID: {d.get('incident_id', 'N/A')}")
+        self.stdout.write(f"  Alerts created: {d.get('alerts_created', 0)}")
+        self.stdout.write(f"  Severity: {d.get('severity', 'N/A')}")
+
+    def _render_check(self, d: dict):
+        self.stdout.write(f"  Checks run: {d.get('checks_run', 0)}")
+        self.stdout.write(f"  Passed: {d.get('checks_passed', 0)}")
+        self.stdout.write(f"  Failed: {d.get('checks_failed', 0)}")
+
+    def _render_analyze(self, d: dict):
+        self.stdout.write(f"  Summary: {d.get('summary', 'N/A')[:100]}")
+        self.stdout.write(f"  Probable cause: {d.get('probable_cause', 'N/A')[:100]}")
+        self.stdout.write(f"  Recommendations: {len(d.get('recommendations', []))}")
+        if d.get("fallback_used"):
+            self.stdout.write(self.style.WARNING("  (Fallback used - AI unavailable)"))
+
+    def _render_notify(self, d: dict):
+        self.stdout.write(f"  Channels attempted: {d.get('channels_attempted', 0)}")
+        self.stdout.write(f"  Succeeded: {d.get('channels_succeeded', 0)}")
+        self.stdout.write(f"  Failed: {d.get('channels_failed', 0)}")
+
     def _display_result(self, result):
         """Display pipeline result in human-readable format."""
         self.stdout.write("")
@@ -403,30 +425,13 @@ class Command(BaseCommand):
                 )
 
                 # Show key info based on stage
-                if stage_name == "INGEST":
-                    self.stdout.write(f"  Incident ID: {stage_dict.get('incident_id', 'N/A')}")
-                    self.stdout.write(f"  Alerts created: {stage_dict.get('alerts_created', 0)}")
-                    self.stdout.write(f"  Severity: {stage_dict.get('severity', 'N/A')}")
-                elif stage_name == "CHECK":
-                    self.stdout.write(f"  Checks run: {stage_dict.get('checks_run', 0)}")
-                    self.stdout.write(f"  Passed: {stage_dict.get('checks_passed', 0)}")
-                    self.stdout.write(f"  Failed: {stage_dict.get('checks_failed', 0)}")
-                elif stage_name == "ANALYZE":
-                    self.stdout.write(f"  Summary: {stage_dict.get('summary', 'N/A')[:100]}")
-                    self.stdout.write(
-                        f"  Probable cause: {stage_dict.get('probable_cause', 'N/A')[:100]}"
-                    )
-                    self.stdout.write(
-                        f"  Recommendations: {len(stage_dict.get('recommendations', []))}"
-                    )
-                    if stage_dict.get("fallback_used"):
-                        self.stdout.write(self.style.WARNING("  (Fallback used - AI unavailable)"))
-                elif stage_name == "NOTIFY":
-                    self.stdout.write(
-                        f"  Channels attempted: {stage_dict.get('channels_attempted', 0)}"
-                    )
-                    self.stdout.write(f"  Succeeded: {stage_dict.get('channels_succeeded', 0)}")
-                    self.stdout.write(f"  Failed: {stage_dict.get('channels_failed', 0)}")
+                renderer = {
+                    "INGEST": self._render_ingest,
+                    "CHECK": self._render_check,
+                    "ANALYZE": self._render_analyze,
+                    "NOTIFY": self._render_notify,
+                }[stage_name]
+                renderer(stage_dict)
 
                 # Show errors if any
                 errors = stage_dict.get("errors", [])
