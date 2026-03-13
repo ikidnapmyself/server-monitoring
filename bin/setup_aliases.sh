@@ -96,7 +96,7 @@ generate_aliases() {
 
 alias ${prefix}-check-health='cd "${PROJECT_DIR}" && uv run python manage.py check_health'
 alias ${prefix}-run-check='cd "${PROJECT_DIR}" && uv run python manage.py run_check'
-alias ${prefix}-check-and-alert='cd "${PROJECT_DIR}" && uv run python manage.py check_and_alert'
+alias ${prefix}-check-and-alert='cd "${PROJECT_DIR}" && uv run python manage.py run_pipeline --checks-only'
 alias ${prefix}-get-recommendations='cd "${PROJECT_DIR}" && uv run python manage.py get_recommendations'
 alias ${prefix}-run-pipeline='cd "${PROJECT_DIR}" && uv run python manage.py run_pipeline'
 alias ${prefix}-monitor-pipeline='cd "${PROJECT_DIR}" && uv run python manage.py monitor_pipeline'

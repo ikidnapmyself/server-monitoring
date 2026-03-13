@@ -281,7 +281,7 @@ alerts_menu() {
 
     local options=(
         "run_check - Run a specific checker"
-        "check_and_alert - Run checker and create alert"
+        "check_and_alert - Run checks pipeline"
         "Back to main menu"
     )
 
@@ -349,40 +349,52 @@ run_check_menu() {
 
 check_and_alert_menu() {
     show_banner
-    echo -e "${BOLD}═══ check_and_alert ═══${NC}"
+    echo -e "${BOLD}═══ Run Checks Pipeline ═══${NC}"
     echo ""
-    echo "Run checker and create incident if threshold exceeded"
+    echo "Run health checks through the orchestrated pipeline"
     echo ""
     echo -e "${BOLD}Available options:${NC}"
-    echo "  CHECKER_NAME           Name of checker (required)"
-    echo "  --threshold=VALUE      Alert threshold (required)"
-    echo "  --severity=LEVEL       Severity: info|warning|error|critical"
-    echo "  --title=TITLE          Custom incident title"
+    echo "  --checkers NAME...     Specific checkers to run"
+    echo "  --hostname=HOST        Override hostname in labels"
+    echo "  --no-incidents         Skip incident creation"
     echo ""
 
-    read -p "Enter checker name: " checker_name
-    if [ -z "$checker_name" ]; then
-        echo -e "${RED}Checker name required${NC}"
-        return
-    fi
+    local options=(
+        "Run all checks"
+        "Run specific checkers"
+        "Run all checks (dry run)"
+        "Run all checks (JSON output)"
+        "Back"
+    )
 
-    read -p "Enter threshold value: " threshold
-    if [ -z "$threshold" ]; then
-        echo -e "${RED}Threshold required${NC}"
-        return
-    fi
-
-    read -p "Enter severity [warning]: " severity
-    severity="${severity:-warning}"
-
-    read -p "Enter custom title (optional): " title
-
-    local cmd="uv run python manage.py check_and_alert $checker_name --threshold=$threshold --severity=$severity"
-    if [ -n "$title" ]; then
-        cmd="$cmd --title=\"$title\""
-    fi
-
-    confirm_and_run "$cmd"
+    select opt in "${options[@]}"; do
+        case $REPLY in
+            1)
+                confirm_and_run "uv run python manage.py run_pipeline --checks-only"
+                ;;
+            2)
+                read -p "Enter checker names (space-separated): " checker_names
+                if [ -n "$checker_names" ]; then
+                    confirm_and_run "uv run python manage.py run_pipeline --checks-only --checkers $checker_names"
+                else
+                    echo -e "${RED}Checker names required${NC}"
+                fi
+                ;;
+            3)
+                confirm_and_run "uv run python manage.py run_pipeline --checks-only --dry-run"
+                ;;
+            4)
+                confirm_and_run "uv run python manage.py run_pipeline --checks-only --json"
+                ;;
+            5)
+                return
+                ;;
+            *)
+                echo -e "${RED}Invalid option${NC}"
+                ;;
+        esac
+        break
+    done
 }
 
 # ============================================================================
