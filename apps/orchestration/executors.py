@@ -110,8 +110,16 @@ class CheckExecutor(BaseExecutor):
         try:
             from apps.alerts.check_integration import CheckAlertBridge
 
-            bridge = CheckAlertBridge()
             payload = ctx.payload
+            hostname = payload.get("hostname")
+            no_incidents = payload.get("no_incidents", False)
+
+            bridge_kwargs = {}
+            if hostname:
+                bridge_kwargs["hostname"] = hostname
+            bridge_kwargs["auto_create_incidents"] = not no_incidents
+
+            bridge = CheckAlertBridge(**bridge_kwargs)
 
             check_names = payload.get("checker_names")
             checker_configs = payload.get("checker_configs")

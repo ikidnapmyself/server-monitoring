@@ -203,6 +203,39 @@ class TestCheckExecutorSuccess(SimpleTestCase):
         assert result.checks[0]["status"] == "ok"
 
 
+class TestCheckExecutorHostnameAndNoIncidents(SimpleTestCase):
+    def test_check_executor_passes_hostname_and_no_incidents(self):
+        """CheckExecutor passes hostname and no_incidents to CheckAlertBridge."""
+        mock_bridge = MagicMock()
+        mock_bridge.run_checks_and_alert.return_value = MagicMock(
+            checks_run=1,
+            errors=[],
+            check_results=[],
+        )
+
+        ctx = StageContext(
+            trace_id="t",
+            run_id="r",
+            payload={
+                "hostname": "web-01",
+                "no_incidents": True,
+                "checker_names": ["cpu"],
+            },
+        )
+
+        with patch(
+            "apps.alerts.check_integration.CheckAlertBridge",
+            return_value=mock_bridge,
+        ) as mock_cls:
+            executor = CheckExecutor()
+            executor.execute(ctx)
+
+        mock_cls.assert_called_once_with(
+            hostname="web-01",
+            auto_create_incidents=False,
+        )
+
+
 class TestCheckExecutorError(SimpleTestCase):
     def test_exception_captured(self):
         with patch(
