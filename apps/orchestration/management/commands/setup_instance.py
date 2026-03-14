@@ -55,7 +55,7 @@ PRESETS = [
         "has_checkers": True,
         "has_intelligence": True,
     },
-    # Local monitoring presets (crontab + check_and_alert)
+    # Local monitoring presets (crontab + run_pipeline --checks-only)
     {
         "name": "local-monitor",
         "label": "Checkers \u2192 Notify",
@@ -437,7 +437,7 @@ class Command(BaseCommand):
             "? How will alerts be generated?",
             [
                 (ALERT_SOURCE_EXTERNAL, "External webhooks  (Grafana, PagerDuty, etc.)"),
-                (ALERT_SOURCE_LOCAL, "Local crontab  (check_and_alert via cron)"),
+                (ALERT_SOURCE_LOCAL, "Local crontab  (run_pipeline --checks-only via cron)"),
             ],
         )
 

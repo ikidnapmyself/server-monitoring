@@ -339,124 +339,31 @@ The webhook view is CSRF-exempt (`@csrf_exempt`) to support external systems.
 
 The alerts app integrates with the checkers app to create alerts from health check results.
 
-### `check_and_alert` CLI reference
+### Checks via Pipeline
 
-Run health checkers and automatically create alerts/incidents for failures. All flags can be passed after aliases too (e.g., `sm-check-and-alert --dry-run`).
-
-```bash
-# Run all checks and create alerts
-uv run python manage.py check_and_alert
-
-# Run specific checkers only
-uv run python manage.py check_and_alert --checkers cpu memory
-uv run python manage.py check_and_alert --checkers cpu memory disk network process
-```
-
-#### Dry run
-
-Preview what would happen without creating any alerts or incidents:
+The health-check-to-alert workflow is now handled by the orchestrated pipeline. Use:
 
 ```bash
-uv run python manage.py check_and_alert --dry-run
+# Run all checks through the pipeline
+uv run python manage.py run_pipeline --checks-only
 
-# Dry run with specific checkers
-uv run python manage.py check_and_alert --checkers cpu disk --dry-run
+# Run specific checkers
+uv run python manage.py run_pipeline --checks-only --checkers cpu memory disk
 
-# Dry run with JSON output
-uv run python manage.py check_and_alert --dry-run --json
+# Dry run
+uv run python manage.py run_pipeline --checks-only --dry-run --json
+
+# Custom labels and hostname
+uv run python manage.py run_pipeline --checks-only --label env=production --hostname web-01
+
+# Skip incidents
+uv run python manage.py run_pipeline --checks-only --no-incidents
+
+# Threshold overrides
+uv run python manage.py run_pipeline --checks-only --warning-threshold 60 --critical-threshold 80
 ```
 
-#### Incident control
-
-```bash
-# Skip automatic incident creation (create alerts only)
-uv run python manage.py check_and_alert --no-incidents
-
-# Specific checkers without incidents
-uv run python manage.py check_and_alert --checkers cpu memory --no-incidents
-```
-
-#### Custom labels
-
-Add key=value labels to all generated alerts (repeatable):
-
-```bash
-# Single label
-uv run python manage.py check_and_alert --label env=production
-
-# Multiple labels
-uv run python manage.py check_and_alert --label env=production --label team=sre --label datacenter=us-east-1
-
-# Labels + specific checkers
-uv run python manage.py check_and_alert --checkers cpu memory --label env=staging --label service=api
-```
-
-#### Hostname override
-
-Override the auto-detected hostname in alert labels:
-
-```bash
-uv run python manage.py check_and_alert --hostname web-server-01
-
-# Hostname + labels
-uv run python manage.py check_and_alert --hostname db-primary --label env=production --label role=database
-```
-
-#### JSON output
-
-```bash
-uv run python manage.py check_and_alert --json
-
-# JSON + specific checkers
-uv run python manage.py check_and_alert --checkers cpu disk --json
-```
-
-#### Threshold overrides
-
-Override warning/critical thresholds for all checkers:
-
-```bash
-# Lower thresholds (more sensitive alerting)
-uv run python manage.py check_and_alert --warning-threshold 60 --critical-threshold 80
-
-# Higher thresholds (less noise)
-uv run python manage.py check_and_alert --warning-threshold 85 --critical-threshold 98
-```
-
-#### Combined examples
-
-```bash
-# Production cron job: all checks, JSON, custom labels
-uv run python manage.py check_and_alert --json --label env=production --hostname prod-web-01
-
-# CI smoke test: dry run, specific checkers, JSON
-uv run python manage.py check_and_alert --checkers cpu memory --dry-run --json
-
-# Sensitive alerting with full context
-uv run python manage.py check_and_alert \
-  --warning-threshold 50 --critical-threshold 75 \
-  --label env=production --label team=oncall \
-  --hostname api-server-03 --json
-
-# All checkers, no incidents
-uv run python manage.py check_and_alert --no-incidents --json
-
-# Cron: every 5 minutes with labels and JSON log
-# */5 * * * * cd /path/to/project && uv run python manage.py check_and_alert --json --label env=production >> /var/log/health-alerts.log 2>&1
-```
-
-#### Flag reference
-
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--checkers` | str... | all enabled | Specific checkers to run |
-| `--json` | flag | — | Output as JSON |
-| `--dry-run` | flag | — | Preview without creating alerts |
-| `--no-incidents` | flag | — | Create alerts but skip incident creation |
-| `--hostname` | str | auto-detected | Override hostname in alert labels |
-| `--label` | KEY=VALUE | — | Add label to all alerts (repeatable) |
-| `--warning-threshold` | float | per-checker | Override warning threshold |
-| `--critical-threshold` | float | per-checker | Override critical threshold |
+See [`apps/orchestration/README.md`](../orchestration/README.md) for full `run_pipeline` documentation.
 
 ### Programmatic usage
 
@@ -515,8 +422,8 @@ Use cron to run checks periodically:
 
 ```bash
 # Run all checks every 5 minutes
-*/5 * * * * cd /path/to/project && python manage.py check_and_alert --json >> /var/log/health-checks.log 2>&1
+*/5 * * * * cd /path/to/project && uv run python manage.py run_pipeline --checks-only --json >> /var/log/health-checks.log 2>&1
 
 # Run only critical checks every minute
-* * * * * cd /path/to/project && python manage.py check_and_alert --checkers cpu memory --json
+* * * * * cd /path/to/project && uv run python manage.py run_pipeline --checks-only --checkers cpu memory --json
 ```

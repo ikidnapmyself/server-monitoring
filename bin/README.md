@@ -12,7 +12,7 @@ All management commands and their shell aliases (set up via `setup_aliases.sh`):
 |------|------|-----|-------------|
 | `sm-check-health` | `check_health` | checkers | Run health checks (CPU, memory, disk, network, process) |
 | `sm-run-check` | `run_check` | checkers | Run a single checker with checker-specific options |
-| `sm-check-and-alert` | `check_and_alert` | alerts | Run checks and create alerts/incidents |
+| `sm-check-and-alert` | `run_pipeline --checks-only` | orchestration | Run checks through orchestrated pipeline |
 | `sm-get-recommendations` | `get_recommendations` | intelligence | Get AI-powered system recommendations |
 | `sm-run-pipeline` | `run_pipeline` | orchestration | Execute the full pipeline |
 | `sm-monitor-pipeline` | `monitor_pipeline` | orchestration | Monitor pipeline run history |
@@ -26,7 +26,7 @@ See [`docs/Installation.md`](../docs/Installation.md) for setup guide and pipeli
 
 For full flag reference per command, see the app READMEs:
 - [`apps/checkers/README.md`](../apps/checkers/README.md) — `check_health` (10 flags), `run_check` (11 flags)
-- [`apps/alerts/README.md`](../apps/alerts/README.md) — `check_and_alert` (9 flags)
+- [`apps/orchestration/README.md`](../apps/orchestration/README.md) — `run_pipeline` (includes checker flags)
 - [`apps/intelligence/README.md`](../apps/intelligence/README.md) — `get_recommendations` (11 flags)
 - [`apps/notify/README.md`](../apps/notify/README.md) — `test_notify` (14 flags)
 - [`apps/orchestration/README.md`](../apps/orchestration/README.md) — `run_pipeline` (12 flags), `monitor_pipeline` (3 flags)
@@ -127,7 +127,7 @@ Sets up scheduled health checks via cron.
 **What it does:**
 - Detects project directory
 - Lets you choose a schedule (5 min / 15 min / hourly / custom)
-- Writes crontab entry for `check_and_alert --json`
+- Writes crontab entry for `run_pipeline --checks-only --json`
 - Logs to `cron.log` in project root
 
 **Useful commands after setup:**
