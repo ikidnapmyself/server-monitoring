@@ -124,7 +124,7 @@ class CheckExecutor(BaseExecutor):
             from apps.checkers.checkers import CHECKER_REGISTRY
 
             check_names = payload.get("checker_names")
-            checker_configs = payload.get("checker_configs") or {}
+            checker_configs: dict = dict(payload.get("checker_configs") or {})
             labels = payload.get("labels")
 
             # Expand the special "__all__" key into per-checker entries so that
