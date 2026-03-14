@@ -1174,6 +1174,176 @@ class RunPipelineCommandTest(TestCase):
         self.assertEqual(payload["checker_configs"]["__all__"]["warning_threshold"], 60.0)
         self.assertEqual(payload["checker_configs"]["__all__"]["critical_threshold"], 80.0)
 
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
+    def test_checkers_with_only_warning_threshold(self, mock_orchestrator):
+        """--checkers with only --warning-threshold sets per-checker config."""
+        mock_result = mock.Mock()
+        mock_result.status = "COMPLETED"
+        mock_result.trace_id = "t"
+        mock_result.run_id = "r"
+        mock_result.total_duration_ms = 1.0
+        mock_result.ingest = None
+        mock_result.check = {
+            "checks_run": 1,
+            "checks_passed": 1,
+            "checks_failed": 0,
+            "duration_ms": 1,
+        }
+        mock_result.analyze = None
+        mock_result.notify = None
+        mock_result.errors = []
+        mock_result.to_dict.return_value = {"status": "COMPLETED"}
+        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+
+        out = io.StringIO()
+        call_command(
+            "run_pipeline",
+            "--checks-only",
+            "--checkers",
+            "cpu",
+            "--warning-threshold",
+            "70",
+            stdout=out,
+        )
+
+        call_args = mock_orchestrator.return_value.run_pipeline.call_args
+        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
+        self.assertEqual(payload["checker_configs"]["cpu"], {"warning_threshold": 70.0})
+
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
+    def test_checkers_with_only_critical_threshold(self, mock_orchestrator):
+        """--checkers with only --critical-threshold sets per-checker config."""
+        mock_result = mock.Mock()
+        mock_result.status = "COMPLETED"
+        mock_result.trace_id = "t"
+        mock_result.run_id = "r"
+        mock_result.total_duration_ms = 1.0
+        mock_result.ingest = None
+        mock_result.check = {
+            "checks_run": 1,
+            "checks_passed": 1,
+            "checks_failed": 0,
+            "duration_ms": 1,
+        }
+        mock_result.analyze = None
+        mock_result.notify = None
+        mock_result.errors = []
+        mock_result.to_dict.return_value = {"status": "COMPLETED"}
+        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+
+        out = io.StringIO()
+        call_command(
+            "run_pipeline",
+            "--checks-only",
+            "--checkers",
+            "cpu",
+            "--critical-threshold",
+            "90",
+            stdout=out,
+        )
+
+        call_args = mock_orchestrator.return_value.run_pipeline.call_args
+        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
+        self.assertEqual(payload["checker_configs"]["cpu"], {"critical_threshold": 90.0})
+
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
+    def test_checkers_without_thresholds(self, mock_orchestrator):
+        """--checkers without thresholds produces no checker_configs."""
+        mock_result = mock.Mock()
+        mock_result.status = "COMPLETED"
+        mock_result.trace_id = "t"
+        mock_result.run_id = "r"
+        mock_result.total_duration_ms = 1.0
+        mock_result.ingest = None
+        mock_result.check = {
+            "checks_run": 1,
+            "checks_passed": 1,
+            "checks_failed": 0,
+            "duration_ms": 1,
+        }
+        mock_result.analyze = None
+        mock_result.notify = None
+        mock_result.errors = []
+        mock_result.to_dict.return_value = {"status": "COMPLETED"}
+        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+
+        out = io.StringIO()
+        call_command("run_pipeline", "--checks-only", "--checkers", "cpu", "disk", stdout=out)
+
+        call_args = mock_orchestrator.return_value.run_pipeline.call_args
+        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
+        self.assertIsNone(payload["checker_configs"])
+
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
+    def test_only_warning_threshold_without_checkers(self, mock_orchestrator):
+        """--warning-threshold alone sets __all__ with only warning."""
+        mock_result = mock.Mock()
+        mock_result.status = "COMPLETED"
+        mock_result.trace_id = "t"
+        mock_result.run_id = "r"
+        mock_result.total_duration_ms = 1.0
+        mock_result.ingest = None
+        mock_result.check = {
+            "checks_run": 1,
+            "checks_passed": 1,
+            "checks_failed": 0,
+            "duration_ms": 1,
+        }
+        mock_result.analyze = None
+        mock_result.notify = None
+        mock_result.errors = []
+        mock_result.to_dict.return_value = {"status": "COMPLETED"}
+        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+
+        out = io.StringIO()
+        call_command(
+            "run_pipeline",
+            "--checks-only",
+            "--warning-threshold",
+            "65",
+            stdout=out,
+        )
+
+        call_args = mock_orchestrator.return_value.run_pipeline.call_args
+        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
+        self.assertEqual(payload["checker_configs"]["__all__"], {"warning_threshold": 65.0})
+        self.assertNotIn("critical_threshold", payload["checker_configs"]["__all__"])
+
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
+    def test_only_critical_threshold_without_checkers(self, mock_orchestrator):
+        """--critical-threshold alone sets __all__ with only critical."""
+        mock_result = mock.Mock()
+        mock_result.status = "COMPLETED"
+        mock_result.trace_id = "t"
+        mock_result.run_id = "r"
+        mock_result.total_duration_ms = 1.0
+        mock_result.ingest = None
+        mock_result.check = {
+            "checks_run": 1,
+            "checks_passed": 1,
+            "checks_failed": 0,
+            "duration_ms": 1,
+        }
+        mock_result.analyze = None
+        mock_result.notify = None
+        mock_result.errors = []
+        mock_result.to_dict.return_value = {"status": "COMPLETED"}
+        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+
+        out = io.StringIO()
+        call_command(
+            "run_pipeline",
+            "--checks-only",
+            "--critical-threshold",
+            "90",
+            stdout=out,
+        )
+
+        call_args = mock_orchestrator.return_value.run_pipeline.call_args
+        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
+        self.assertEqual(payload["checker_configs"]["__all__"], {"critical_threshold": 90.0})
+        self.assertNotIn("warning_threshold", payload["checker_configs"]["__all__"])
+
 
 class TestSamplePipelineDefinitions(TestCase):
     """Tests for apps/orchestration/management/commands/pipelines/ sample definition files."""
