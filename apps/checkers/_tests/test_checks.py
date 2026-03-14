@@ -87,7 +87,7 @@ class SystemChecksTests(TestCase):
         """Test that crontab check passes when cron job is configured."""
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = "*/5 * * * * cd /path && uv run python manage.py check_and_alert --json # server-maintanence health check"
+        mock_result.stdout = "*/5 * * * * cd /path && uv run python manage.py run_pipeline --checks-only --json # server-maintanence health check"
 
         with patch("subprocess.run", return_value=mock_result):
             errors = check_crontab_configuration(app_configs=None)

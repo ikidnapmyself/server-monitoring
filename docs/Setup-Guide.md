@@ -66,7 +66,7 @@ uv run python manage.py setup_instance
 ```
 ? How will alerts be generated?
   1) External webhooks  (Grafana, PagerDuty, etc.)
-  2) Local crontab  (check_and_alert via cron)
+  2) Local crontab  (run_pipeline --checks-only via cron)
 
 > 2
 ```
@@ -220,7 +220,7 @@ The script lets you pick a schedule (every 5 minutes, 15 minutes, hourly, or cus
 writes a crontab entry that runs:
 
 ```bash
-uv run python manage.py check_and_alert --json
+uv run python manage.py run_pipeline --checks-only --json
 ```
 
 This command runs all enabled checkers, creates alerts for any issues found, and optionally
@@ -252,7 +252,7 @@ uv run python manage.py setup_instance
 ```
 ? How will alerts be generated?
   1) External webhooks  (Grafana, PagerDuty, etc.)
-  2) Local crontab  (check_and_alert via cron)
+  2) Local crontab  (run_pipeline --checks-only via cron)
 
 > 1
 ```

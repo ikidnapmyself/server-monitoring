@@ -78,7 +78,7 @@ If you didn't enable cron during install, you can run it later:
 - Writes a `crontab` entry that runs:
 
 ```bash
-uv run python manage.py check_and_alert --json
+uv run python manage.py run_pipeline --checks-only --json
 ```
 
 - Logs output to `cron.log` in the project root
@@ -245,7 +245,7 @@ Without aliases:
 ```bash
 uv run python manage.py check_health
 uv run python manage.py check_health --list
-uv run python manage.py check_and_alert --json
+uv run python manage.py run_pipeline --checks-only --json
 uv run python manage.py get_recommendations --all
 uv run python manage.py run_pipeline --sample
 ```
