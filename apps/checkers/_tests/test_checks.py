@@ -125,6 +125,31 @@ class SystemChecksTests(TestCase):
             self.assertEqual(len(errors), 1)
             self.assertEqual(errors[0].id, "checkers.W006")
 
+    @patch("apps.checkers.checks._is_testing", return_value=False)
+    def test_crontab_check_run_pipeline_without_checks_only_warns(self, mock_is_testing):
+        """W005 is raised when crontab has run_pipeline but not --checks-only."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "*/5 * * * * python manage.py run_pipeline # server-maintanence"
+
+        with patch("subprocess.run", return_value=mock_result):
+            errors = check_crontab_configuration(app_configs=None)
+            self.assertEqual(len(errors), 1)
+            self.assertEqual(errors[0].id, "checkers.W005")
+            self.assertIn("--checks-only", errors[0].hint)
+
+    @patch("apps.checkers.checks._is_testing", return_value=False)
+    def test_crontab_check_server_maintanence_without_run_pipeline_warns(self, mock_is_testing):
+        """W005 is raised when crontab has server-maintanence but not run_pipeline."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "* * * * * server-maintanence check"
+
+        with patch("subprocess.run", return_value=mock_result):
+            errors = check_crontab_configuration(app_configs=None)
+            self.assertEqual(len(errors), 1)
+            self.assertEqual(errors[0].id, "checkers.W005")
+
 
 class SecurityChecksTests(TestCase):
     """Tests for security system checks (debug mode, secret key)."""

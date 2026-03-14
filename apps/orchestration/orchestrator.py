@@ -259,16 +259,21 @@ class PipelineOrchestrator:
             attempt=pipeline_run.total_attempts,
         )
 
+        # Determine which stages to run
+        checks_only = payload.get("checks_only", False)
+        active_stages = [PipelineStage.CHECK] if checks_only else STAGE_ORDER
+        final_status = PipelineStatus.CHECKED if checks_only else PipelineStatus.NOTIFIED
+
         # Emit pipeline started
         emit_pipeline_started(base_tags)
-        pipeline_run.mark_started(STAGE_ORDER[0])
+        pipeline_run.mark_started(active_stages[0])
 
         # Track previous stage results for context
         previous_results: dict[str, dict[str, Any]] = {}
         incident_id: int | None = None
 
         try:
-            for stage in STAGE_ORDER:
+            for stage in active_stages:
                 # Skip stages that are already completed (for resume)
                 if self._stage_completed(pipeline_run, stage):
                     # Load previous result from DB
@@ -364,7 +369,7 @@ class PipelineOrchestrator:
             result.status = "COMPLETED"
             result.incident_id = incident_id
             result.total_duration_ms = duration_ms
-            pipeline_run.mark_completed(PipelineStatus.NOTIFIED)
+            pipeline_run.mark_completed(final_status)
 
             # Emit pipeline completed
             base_tags.incident_id = incident_id

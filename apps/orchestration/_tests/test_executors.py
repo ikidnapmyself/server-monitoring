@@ -248,6 +248,101 @@ class TestCheckExecutorError(SimpleTestCase):
         assert result.duration_ms > 0
 
 
+class TestCheckExecutorAllConfigExpansion(SimpleTestCase):
+    """CheckExecutor expands the special '__all__' checker_configs key."""
+
+    def _make_bridge(self):
+        mock_bridge = MagicMock()
+        mock_bridge.run_checks_and_alert.return_value = MagicMock(
+            checks_run=2, errors=[], check_results=[]
+        )
+        return mock_bridge
+
+    def test_all_key_expands_to_per_checker_entries_for_all_registry(self):
+        """When checker_names is None, '__all__' expands to every registry checker."""
+        mock_bridge = self._make_bridge()
+        fake_registry = {"cpu": MagicMock(), "memory": MagicMock()}
+
+        ctx = _ctx(
+            payload={
+                "checker_configs": {
+                    "__all__": {"warning_threshold": 60.0, "critical_threshold": 80.0}
+                },
+            }
+        )
+
+        with (
+            patch("apps.alerts.check_integration.CheckAlertBridge", return_value=mock_bridge),
+            patch("apps.checkers.checkers.CHECKER_REGISTRY", fake_registry),
+        ):
+            CheckExecutor().execute(ctx)
+
+        _, call_kwargs = mock_bridge.run_checks_and_alert.call_args
+        configs = call_kwargs["checker_configs"]
+
+        # "__all__" must be gone; per-checker entries must be present
+        assert "__all__" not in configs
+        assert configs["cpu"] == {"warning_threshold": 60.0, "critical_threshold": 80.0}
+        assert configs["memory"] == {"warning_threshold": 60.0, "critical_threshold": 80.0}
+
+    def test_all_key_expands_only_to_specified_checker_names(self):
+        """When checker_names is given, '__all__' expands only to those checkers."""
+        mock_bridge = self._make_bridge()
+        fake_registry = {"cpu": MagicMock(), "memory": MagicMock(), "disk": MagicMock()}
+
+        ctx = _ctx(
+            payload={
+                "checker_names": ["cpu", "disk"],
+                "checker_configs": {"__all__": {"warning_threshold": 70.0}},
+            }
+        )
+
+        with (
+            patch("apps.alerts.check_integration.CheckAlertBridge", return_value=mock_bridge),
+            patch("apps.checkers.checkers.CHECKER_REGISTRY", fake_registry),
+        ):
+            CheckExecutor().execute(ctx)
+
+        _, call_kwargs = mock_bridge.run_checks_and_alert.call_args
+        configs = call_kwargs["checker_configs"]
+
+        assert "__all__" not in configs
+        assert configs["cpu"] == {"warning_threshold": 70.0}
+        assert configs["disk"] == {"warning_threshold": 70.0}
+        assert "memory" not in configs
+
+    def test_all_key_merges_with_existing_per_checker_config(self):
+        """Per-checker config overrides the __all__ defaults (checker-specific wins)."""
+        mock_bridge = self._make_bridge()
+        fake_registry = {"cpu": MagicMock(), "memory": MagicMock()}
+
+        ctx = _ctx(
+            payload={
+                "checker_configs": {
+                    "__all__": {"warning_threshold": 60.0, "critical_threshold": 80.0},
+                    "cpu": {"warning_threshold": 50.0},  # overrides __all__ for cpu
+                },
+            }
+        )
+
+        with (
+            patch("apps.alerts.check_integration.CheckAlertBridge", return_value=mock_bridge),
+            patch("apps.checkers.checkers.CHECKER_REGISTRY", fake_registry),
+        ):
+            CheckExecutor().execute(ctx)
+
+        _, call_kwargs = mock_bridge.run_checks_and_alert.call_args
+        configs = call_kwargs["checker_configs"]
+
+        assert "__all__" not in configs
+        # cpu had an existing entry; __all__ fills in critical_threshold but warning_threshold
+        # stays at 50.0 (checker-specific value wins)
+        assert configs["cpu"]["warning_threshold"] == 50.0
+        assert configs["cpu"]["critical_threshold"] == 80.0
+        # memory gets the full __all__ defaults
+        assert configs["memory"] == {"warning_threshold": 60.0, "critical_threshold": 80.0}
+
+
 class TestAnalyzeExecutorExplicitProvider(SimpleTestCase):
     """When payload contains 'provider', get_provider() is used."""
 

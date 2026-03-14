@@ -275,6 +275,7 @@ class Command(BaseCommand):
         return {
             "payload": inner_payload,
             "driver": options["source"] if options["source"] != "cli" else None,
+            "checks_only": bool(options.get("checks_only")),
             "checker_names": checker_names,
             "checker_configs": checker_configs if checker_configs else None,
             "labels": labels if labels else None,
