@@ -110,16 +110,42 @@ class CheckExecutor(BaseExecutor):
         try:
             from apps.alerts.check_integration import CheckAlertBridge
 
-            bridge = CheckAlertBridge()
             payload = ctx.payload
+            hostname = payload.get("hostname")
+            no_incidents = payload.get("no_incidents", False)
+
+            bridge_kwargs = {}
+            if hostname:
+                bridge_kwargs["hostname"] = hostname
+            bridge_kwargs["auto_create_incidents"] = not no_incidents
+
+            bridge = CheckAlertBridge(**bridge_kwargs)
+
+            from apps.checkers.checkers import CHECKER_REGISTRY
 
             check_names = payload.get("checker_names")
-            checker_configs = payload.get("checker_configs")
+            checker_configs: dict = dict(payload.get("checker_configs") or {})
             labels = payload.get("labels")
+
+            # Expand the special "__all__" key into per-checker entries so that
+            # global threshold overrides (--warning-threshold / --critical-threshold)
+            # are applied to every checker that will actually run.
+            if "__all__" in checker_configs:
+                all_config = checker_configs.pop("__all__")
+                names_to_expand = (
+                    check_names if check_names is not None else list(CHECKER_REGISTRY.keys())
+                )
+                for name in names_to_expand:
+                    if name not in checker_configs:
+                        checker_configs[name] = dict(all_config)
+                    else:
+                        merged = dict(all_config)
+                        merged.update(checker_configs[name])
+                        checker_configs[name] = merged
 
             bridge_result = bridge.run_checks_and_alert(
                 checker_names=check_names,
-                checker_configs=checker_configs,
+                checker_configs=checker_configs if checker_configs else None,
                 labels=labels,
             )
 

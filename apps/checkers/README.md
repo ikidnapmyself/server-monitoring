@@ -47,7 +47,7 @@ If `checker_names` is omitted, all registered checkers run.
 You can also specify checkers explicitly via the CLI:
 
 ```bash
-uv run python manage.py check_and_alert --checkers cpu memory disk
+uv run python manage.py run_pipeline --checks-only --checkers cpu memory disk
 ```
 
 ### Django Admin
@@ -62,7 +62,7 @@ Access the admin interface at `/admin/checkers/` to view check run history:
   - Search by checker name, hostname, message, trace ID
   - Date hierarchy by execution time
 
-> **Note:** Check runs are audit records and cannot be added/edited manually. They are created automatically when checks are run via management commands or the CheckAlertBridge.
+> **Note:** Check runs are audit records and cannot be added/edited manually. They are created automatically when checks are run via management commands or the orchestration pipeline.
 
 ### Django System Checks
 

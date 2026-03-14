@@ -102,6 +102,38 @@ class Command(BaseCommand):
             help="Output result as JSON",
         )
         parser.add_argument(
+            "--checkers",
+            nargs="+",
+            help="Specific checkers to run (e.g., cpu memory disk). Only used with --checks-only.",
+        )
+        parser.add_argument(
+            "--hostname",
+            type=str,
+            help="Override hostname in alert labels.",
+        )
+        parser.add_argument(
+            "--label",
+            action="append",
+            dest="labels",
+            metavar="KEY=VALUE",
+            help="Additional label for alerts (can be repeated).",
+        )
+        parser.add_argument(
+            "--no-incidents",
+            action="store_true",
+            help="Skip automatic incident creation.",
+        )
+        parser.add_argument(
+            "--warning-threshold",
+            type=float,
+            help="Override warning threshold for all checkers.",
+        )
+        parser.add_argument(
+            "--critical-threshold",
+            type=float,
+            help="Override critical threshold for all checkers.",
+        )
+        parser.add_argument(
             "--definition",
             type=str,
             help="Name of a PipelineDefinition to run (from database)",
@@ -207,10 +239,48 @@ class Command(BaseCommand):
                 "Must specify --sample, --payload, --file, --checks-only, --definition, or --config"
             )
 
+        # Parse labels
+        labels = {}
+        if options.get("labels"):
+            for label in options["labels"]:
+                if "=" not in label:
+                    raise CommandError(f"Invalid label format: {label}. Use KEY=VALUE.")
+                key, value = label.split("=", 1)
+                labels[key] = value
+
+        # Build checker configs from threshold overrides
+        checker_names = options.get("checkers")
+        checker_configs = {}
+        if checker_names:
+            for name in checker_names:
+                config = {}
+                if options.get("warning_threshold") is not None:
+                    config["warning_threshold"] = options["warning_threshold"]
+                if options.get("critical_threshold") is not None:
+                    config["critical_threshold"] = options["critical_threshold"]
+                if config:
+                    checker_configs[name] = config
+        else:
+            # Apply thresholds to all checkers if no specific checkers selected
+            if (
+                options.get("warning_threshold") is not None
+                or options.get("critical_threshold") is not None
+            ):
+                checker_configs["__all__"] = {}
+                if options.get("warning_threshold") is not None:
+                    checker_configs["__all__"]["warning_threshold"] = options["warning_threshold"]
+                if options.get("critical_threshold") is not None:
+                    checker_configs["__all__"]["critical_threshold"] = options["critical_threshold"]
+
         return {
             "payload": inner_payload,
             "driver": options["source"] if options["source"] != "cli" else None,
-            "checker_names": None,  # Run all checkers
+            "checks_only": bool(options.get("checks_only")),
+            "checker_names": checker_names,
+            "checker_configs": checker_configs if checker_configs else None,
+            "labels": labels if labels else None,
+            "hostname": options.get("hostname"),
+            "no_incidents": options.get("no_incidents", False),
         }
 
     def _get_sample_payload(self, source: str) -> dict[str, object]:

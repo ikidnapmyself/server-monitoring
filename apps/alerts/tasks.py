@@ -100,8 +100,8 @@ def alerts_ingest(ctx: dict[str, Any]) -> dict[str, Any]:
 def run_diagnostics(self, ctx: dict[str, Any]) -> dict[str, Any]:
     """Stage 2: run server diagnostics for the incident.
 
-    In this starter implementation, we run all checks via CheckAlertBridge.
-    This already has solid logic for executing checkers and creating alerts.
+    Runs all checks via CheckAlertBridge, which handles executing checkers
+    and creating alerts.
     """
     from apps.alerts.check_integration import CheckAlertBridge
 

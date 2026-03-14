@@ -177,14 +177,15 @@ def check_crontab_configuration(app_configs, **kwargs):
                         id="checkers.W004",
                     )
                 )
-            # If found, check that it references check_and_alert command
-            elif "check_and_alert" not in crontab_content:
+            # If found, check that it references run_pipeline --checks-only
+            elif not ("run_pipeline" in crontab_content and "--checks-only" in crontab_content):
                 errors.append(
                     CheckWarning(
                         "Cron job found but may not be running health checks with alerts",
                         hint=(
-                            "The crontab contains 'server-maintanence' but not 'check_and_alert'. "
-                            "Verify the cron job is correctly configured to create alerts."
+                            "The crontab contains 'server-maintanence' but not "
+                            "'run_pipeline --checks-only'. "
+                            "Verify the cron job is correctly configured to run the pipeline."
                         ),
                         id="checkers.W005",
                     )

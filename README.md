@@ -63,7 +63,7 @@ uv run python manage.py run_pipeline --sample
 uv run python manage.py check_health
 
 # Run checks and generate alerts
-uv run python manage.py check_and_alert
+uv run python manage.py run_pipeline --checks-only
 ```
 
 ## Environment configuration (.env / dotenv)

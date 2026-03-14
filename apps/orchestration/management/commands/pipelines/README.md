@@ -26,7 +26,7 @@ uv run python manage.py run_pipeline --config apps/orchestration/management/comm
 Flow: `ingest → context → intelligence → notify`
 
 This pipeline:
-- Ingests alerts (can be from local `check_and_alert` or external webhook)
+- Ingests alerts (can be from local `run_pipeline --checks-only` or external webhook)
 - Gathers local system context (CPU, memory, disk)
 - Analyzes with AI including local metrics
 - Sends notifications
