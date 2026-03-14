@@ -1169,6 +1169,7 @@ class RunPipelineCommandTest(TestCase):
 
         call_args = mock_orchestrator.return_value.run_pipeline.call_args
         payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
+        self.assertTrue(payload["checks_only"])
         self.assertIn("__all__", payload["checker_configs"])
         self.assertEqual(payload["checker_configs"]["__all__"]["warning_threshold"], 60.0)
         self.assertEqual(payload["checker_configs"]["__all__"]["critical_threshold"], 80.0)

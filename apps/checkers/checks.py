@@ -177,13 +177,14 @@ def check_crontab_configuration(app_configs, **kwargs):
                         id="checkers.W004",
                     )
                 )
-            # If found, check that it references run_pipeline command
-            elif "run_pipeline" not in crontab_content:
+            # If found, check that it references run_pipeline --checks-only
+            elif "run_pipeline" not in crontab_content or "--checks-only" not in crontab_content:
                 errors.append(
                     CheckWarning(
                         "Cron job found but may not be running health checks with alerts",
                         hint=(
-                            "The crontab contains 'server-maintanence' but not 'run_pipeline'. "
+                            "The crontab contains 'server-maintanence' but not "
+                            "'run_pipeline --checks-only'. "
                             "Verify the cron job is correctly configured to run the pipeline."
                         ),
                         id="checkers.W005",
