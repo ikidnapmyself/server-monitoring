@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.checks import CheckMessage, Error, Info
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase
 
 from apps.checkers.checkers.base import CheckResult, CheckStatus
@@ -12,6 +13,27 @@ from apps.checkers.checkers.base import CheckResult, CheckStatus
 
 class CheckHealthCommandTests(TestCase):
     """Tests for the check_health management command."""
+
+    REGISTRY_PATH = "apps.checkers.management.commands.check_health.CHECKER_REGISTRY"
+
+    def _make_checker(
+        self,
+        status=CheckStatus.OK,
+        message="All good",
+        metrics=None,
+        error=None,
+        checker_name="cpu",
+    ):
+        mock_checker = MagicMock()
+        mock_checker.__doc__ = "Test checker description"
+        mock_checker.return_value.run.return_value = CheckResult(
+            status=status,
+            message=message,
+            metrics=metrics or {},
+            checker_name=checker_name,
+            error=error,
+        )
+        return mock_checker
 
     def test_check_health_calls_run(self):
         mock_checker = MagicMock()
@@ -30,6 +52,356 @@ class CheckHealthCommandTests(TestCase):
             call_command("check_health", "cpu", stdout=StringIO())
 
         mock_checker.return_value.run.assert_called_once()
+
+    def test_list_flag(self):
+        mock_checker = self._make_checker()
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("check_health", "--list", stdout=out)
+        output = out.getvalue()
+        self.assertIn("cpu", output)
+        self.assertIn("Test checker description", output)
+        self.assertIn("Available checkers", output)
+
+    def test_list_flag_no_docstring(self):
+        mock_checker = self._make_checker()
+        mock_checker.__doc__ = None
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("check_health", "--list", stdout=out)
+        output = out.getvalue()
+        self.assertIn("No description", output)
+
+    def test_invalid_checker_name(self):
+        with patch.dict(self.REGISTRY_PATH, {"cpu": self._make_checker()}, clear=True):
+            with self.assertRaises(CommandError) as ctx:
+                call_command("check_health", "nonexistent", stdout=StringIO())
+        self.assertIn("Unknown checker(s): nonexistent", str(ctx.exception))
+
+    def test_json_output(self):
+        import json as json_mod
+
+        mock_checker = self._make_checker(metrics={"cpu": 10})
+        out = StringIO()
+        err = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("check_health", "cpu", "--json", stdout=out, stderr=err)
+        data = json_mod.loads(out.getvalue())
+        self.assertIn("results", data)
+        self.assertIn("summary", data)
+        self.assertEqual(data["summary"]["total"], 1)
+        self.assertEqual(data["summary"]["ok"], 1)
+        self.assertEqual(data["results"][0]["checker"], "cpu")
+        # Status message goes to stderr for json mode
+        self.assertIn("Running checkers", err.getvalue())
+
+    def test_warning_status_text_output(self):
+        mock_checker = self._make_checker(status=CheckStatus.WARNING, message="High usage")
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            with patch("sys.exit"):
+                call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("WARNING", output)
+        self.assertIn("High usage", output)
+
+    def test_critical_status_text_output(self):
+        mock_checker = self._make_checker(status=CheckStatus.CRITICAL, message="Very high")
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            with patch("sys.exit"):
+                call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("CRITICAL", output)
+
+    def test_unknown_status_text_output(self):
+        mock_checker = self._make_checker(status=CheckStatus.UNKNOWN, message="Unknown state")
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            with patch("sys.exit"):
+                call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("UNKNOWN", output)
+
+    def test_error_message_display(self):
+        mock_checker = self._make_checker(status=CheckStatus.CRITICAL, error="Something went wrong")
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            with patch("sys.exit"):
+                call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Error: Something went wrong", output)
+
+    def test_metrics_display_float(self):
+        mock_checker = self._make_checker(metrics={"cpu_percent": 95.5})
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("cpu percent: 95.5", output)
+
+    def test_metrics_display_integer(self):
+        mock_checker = self._make_checker(metrics={"count": 42})
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("count: 42", output)
+
+    def test_unknown_count_in_summary(self):
+        mock_checker = self._make_checker(status=CheckStatus.UNKNOWN)
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            with patch("sys.exit"):
+                call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Unknown: 1", output)
+
+    def test_critical_summary_styling(self):
+        mock_checker = self._make_checker(status=CheckStatus.CRITICAL)
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            with patch("sys.exit"):
+                call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Critical: 1", output)
+
+    def test_warning_summary_styling(self):
+        mock_checker = self._make_checker(status=CheckStatus.WARNING)
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            with patch("sys.exit"):
+                call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Warning: 1", output)
+
+    def test_metrics_space_hogs(self):
+        items = [{"path": f"/tmp/file{i}", "size_mb": 100.5, "age_days": 30} for i in range(12)]
+        mock_checker = self._make_checker(metrics={"space_hogs": items})
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Space Hogs:", output)
+        self.assertIn("/tmp/file0", output)
+        self.assertIn("100.5 MB", output)
+        self.assertIn("30d old", output)
+        self.assertIn("... and 2 more", output)
+
+    def test_metrics_old_files(self):
+        items = [{"path": "/tmp/old", "size_mb": 50.0}]
+        mock_checker = self._make_checker(metrics={"old_files": items})
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Old Files:", output)
+        self.assertIn("/tmp/old", output)
+        self.assertIn("50.0 MB", output)
+
+    def test_metrics_large_files(self):
+        items = [{"path": "/tmp/large", "size_mb": 200.0}]
+        mock_checker = self._make_checker(metrics={"large_files": items})
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Large Files:", output)
+
+    def test_metrics_total_recoverable_mb(self):
+        mock_checker = self._make_checker(metrics={"total_recoverable_mb": 500.0})
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Total recoverable: 500.0 MB", output)
+
+    def test_metrics_recommendations(self):
+        mock_checker = self._make_checker(metrics={"recommendations": ["clean /tmp"]})
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Recommendations:", output)
+        self.assertIn("- clean /tmp", output)
+
+    def test_metrics_nested_dict(self):
+        mock_checker = self._make_checker(
+            metrics={
+                "paths": {
+                    "/": {"total": 100, "used": 50},
+                    "free_pct": 50.0,
+                    "label": "root",
+                }
+            }
+        )
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("paths:", output)
+        self.assertIn("/: total: 100, used: 50", output)
+        self.assertIn("free_pct: 50.0", output)
+        self.assertIn("label: root", output)
+
+    def test_warning_threshold_and_critical_threshold(self):
+        mock_checker = self._make_checker()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command(
+                "check_health",
+                "cpu",
+                "--warning-threshold",
+                "80",
+                "--critical-threshold",
+                "95",
+                stdout=StringIO(),
+            )
+        mock_checker.assert_called_once_with(warning_threshold=80.0, critical_threshold=95.0)
+
+    def test_disk_paths_kwarg(self):
+        mock_checker = self._make_checker(checker_name="disk")
+        with patch.dict(self.REGISTRY_PATH, {"disk": mock_checker}, clear=True):
+            call_command(
+                "check_health",
+                "disk",
+                "--disk-paths",
+                "/",
+                "/home",
+                stdout=StringIO(),
+            )
+        mock_checker.assert_called_once_with(paths=["/", "/home"])
+
+    def test_ping_hosts_kwarg(self):
+        mock_checker = self._make_checker(checker_name="network")
+        with patch.dict(self.REGISTRY_PATH, {"network": mock_checker}, clear=True):
+            call_command(
+                "check_health",
+                "network",
+                "--ping-hosts",
+                "8.8.8.8",
+                "1.1.1.1",
+                stdout=StringIO(),
+            )
+        mock_checker.assert_called_once_with(hosts=["8.8.8.8", "1.1.1.1"])
+
+    def test_processes_kwarg(self):
+        mock_checker = self._make_checker(checker_name="process")
+        with patch.dict(self.REGISTRY_PATH, {"process": mock_checker}, clear=True):
+            call_command(
+                "check_health",
+                "process",
+                "--processes",
+                "nginx",
+                "postgres",
+                stdout=StringIO(),
+            )
+        mock_checker.assert_called_once_with(processes=["nginx", "postgres"])
+
+    def test_fail_on_critical_with_critical(self):
+        mock_checker = self._make_checker(status=CheckStatus.CRITICAL)
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            with patch("sys.exit") as mock_exit:
+                call_command("check_health", "cpu", "--fail-on-critical", stdout=StringIO())
+        mock_exit.assert_called_once_with(1)
+
+    def test_fail_on_critical_with_warning_no_exit(self):
+        mock_checker = self._make_checker(status=CheckStatus.WARNING)
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            with patch("sys.exit") as mock_exit:
+                call_command("check_health", "cpu", "--fail-on-critical", stdout=StringIO())
+        mock_exit.assert_not_called()
+
+    def test_fail_on_warning_with_warning(self):
+        mock_checker = self._make_checker(status=CheckStatus.WARNING)
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            with patch("sys.exit") as mock_exit:
+                call_command("check_health", "cpu", "--fail-on-warning", stdout=StringIO())
+        mock_exit.assert_called_once_with(1)
+
+    def test_fail_on_warning_with_ok_no_exit(self):
+        mock_checker = self._make_checker(status=CheckStatus.OK)
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            with patch("sys.exit") as mock_exit:
+                call_command("check_health", "cpu", "--fail-on-warning", stdout=StringIO())
+        mock_exit.assert_not_called()
+
+    def test_exit_code_2_for_critical_default(self):
+        mock_checker = self._make_checker(status=CheckStatus.CRITICAL)
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            with patch("sys.exit") as mock_exit:
+                call_command("check_health", "cpu", stdout=StringIO())
+        mock_exit.assert_called_once_with(2)
+
+    def test_exit_code_1_for_unknown_default(self):
+        mock_checker = self._make_checker(status=CheckStatus.UNKNOWN)
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            with patch("sys.exit") as mock_exit:
+                call_command("check_health", "cpu", stdout=StringIO())
+        mock_exit.assert_called_once_with(1)
+
+    def test_no_exit_for_ok(self):
+        mock_checker = self._make_checker(status=CheckStatus.OK)
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            with patch("sys.exit") as mock_exit:
+                call_command("check_health", "cpu", stdout=StringIO())
+        mock_exit.assert_not_called()
+
+    def test_run_all_checkers_when_none_specified(self):
+        cpu_checker = self._make_checker(checker_name="cpu")
+        mem_checker = self._make_checker(checker_name="memory")
+        out = StringIO()
+        with patch.dict(
+            self.REGISTRY_PATH, {"cpu": cpu_checker, "memory": mem_checker}, clear=True
+        ):
+            call_command("check_health", stdout=out)
+        cpu_checker.return_value.run.assert_called_once()
+        mem_checker.return_value.run.assert_called_once()
+
+    def test_json_output_with_multiple_statuses(self):
+        import json as json_mod
+
+        ok_checker = self._make_checker(status=CheckStatus.OK, checker_name="cpu")
+        warn_checker = self._make_checker(status=CheckStatus.WARNING, checker_name="memory")
+        crit_checker = self._make_checker(status=CheckStatus.CRITICAL, checker_name="disk")
+        unknown_checker = self._make_checker(status=CheckStatus.UNKNOWN, checker_name="net")
+        out = StringIO()
+        err = StringIO()
+        with patch.dict(
+            self.REGISTRY_PATH,
+            {
+                "cpu": ok_checker,
+                "memory": warn_checker,
+                "disk": crit_checker,
+                "net": unknown_checker,
+            },
+            clear=True,
+        ):
+            with patch("sys.exit"):
+                call_command("check_health", "--json", stdout=out, stderr=err)
+        data = json_mod.loads(out.getvalue())
+        self.assertEqual(data["summary"]["ok"], 1)
+        self.assertEqual(data["summary"]["warning"], 1)
+        self.assertEqual(data["summary"]["critical"], 1)
+        self.assertEqual(data["summary"]["unknown"], 1)
+
+    def test_text_output_no_metrics(self):
+        """CheckResult with empty metrics dict should not output metric lines."""
+        mock_checker = self._make_checker(metrics={})
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("OK", output)
+
+    def test_metrics_platform_skipped(self):
+        """The 'platform' key should be skipped in metrics output."""
+        mock_checker = self._make_checker(metrics={"platform": "linux", "usage": 42})
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertNotIn("platform", output)
+        self.assertIn("usage: 42", output)
 
 
 class RunCheckCommandTests(TestCase):
