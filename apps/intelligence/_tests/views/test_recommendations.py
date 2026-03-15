@@ -135,3 +135,76 @@ class TestRecommendationsPostView(TestCase):
         assert response.status_code == 400
         data = response.json()
         assert "Invalid JSON" in data["error"]
+
+    @patch("apps.intelligence.views.recommendations.get_provider")
+    def test_post_recommendations_incident_not_found(self, mock_get_provider):
+        """POST with non-existent incident_id returns 404."""
+        client = Client()
+        response = client.post(
+            "/intelligence/recommendations/",
+            data=json.dumps({"incident_id": 99999}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 404
+        data = response.json()
+        assert "not found" in data["error"]
+
+    @patch("apps.intelligence.views.recommendations.get_provider")
+    def test_post_recommendations_unknown_provider(self, mock_get_provider):
+        """POST with unknown provider returns 400."""
+        mock_get_provider.side_effect = KeyError("Unknown provider: bogus")
+
+        client = Client()
+        response = client.post(
+            "/intelligence/recommendations/",
+            data=json.dumps({"provider": "bogus"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+
+    @patch("apps.intelligence.views.recommendations.get_provider")
+    def test_post_recommendations_unexpected_error(self, mock_get_provider):
+        """POST with unexpected error returns 500."""
+        mock_provider = mock_get_provider.return_value
+        mock_provider.run.side_effect = RuntimeError("boom")
+
+        client = Client()
+        response = client.post(
+            "/intelligence/recommendations/",
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 500
+        data = response.json()
+        assert "Error generating recommendations" in data["error"]
+
+
+@pytest.mark.django_db
+class TestRecommendationsGetEdgeCases(TestCase):
+    """Edge case tests for GET /intelligence/recommendations/."""
+
+    @patch("apps.intelligence.views.recommendations.get_provider")
+    def test_get_recommendations_unknown_provider(self, mock_get_provider):
+        """GET with unknown provider returns 400."""
+        mock_get_provider.side_effect = KeyError("Unknown provider: bogus")
+
+        client = Client()
+        response = client.get("/intelligence/recommendations/?provider=bogus")
+
+        assert response.status_code == 400
+
+    @patch("apps.intelligence.views.recommendations.get_provider")
+    def test_get_recommendations_unexpected_error(self, mock_get_provider):
+        """GET with unexpected error returns 500."""
+        mock_provider = mock_get_provider.return_value
+        mock_provider.run.side_effect = RuntimeError("boom")
+
+        client = Client()
+        response = client.get("/intelligence/recommendations/")
+
+        assert response.status_code == 500
+        data = response.json()
+        assert "Error generating recommendations" in data["error"]
