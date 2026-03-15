@@ -127,14 +127,6 @@ Stage behavior is controlled through pipeline definitions and Django Admin — n
 
 ### Celery Tasks
 
-**Alert processing chain** (`apps.alerts.tasks`):
-
-```
-orchestrate_event → alerts_ingest → run_diagnostics → analyze_incident → notify_channels
-```
-
-Each stage task (except `orchestrate_event`) has `max_retries=3`.
-
 **Pipeline tasks** (`apps.orchestration.tasks`):
 
 | Task | Purpose |
