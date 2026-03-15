@@ -204,3 +204,53 @@ class DiskCommonBuildRecommendationsTests(TestCase):
         space_hogs = [{"path": "/some/unknown/path", "size_mb": 100.0}]
         recs = checker._build_recommendations(space_hogs, [], [])
         self.assertEqual(recs, [])
+
+
+class DiskCommonCoverageGapTests(TestCase):
+    """Tests covering remaining branch gaps in disk_common.py."""
+
+    def _get_checker_class(self):
+        from apps.checkers.checkers.disk_common import DiskCommonChecker
+
+        return DiskCommonChecker
+
+    @patch("apps.checkers.checkers.disk_common.os.name", "nt")
+    def test_skips_on_non_posix(self):
+        """Returns OK skip when os.name is not 'posix' (e.g., Windows)."""
+        checker = self._get_checker_class()()
+        result = checker.check()
+
+        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertIn("skipped", result.message.lower())
+
+    @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk_common.scan_directory")
+    @patch("apps.checkers.checkers.disk_common.find_old_files")
+    @patch("apps.checkers.checkers.disk_common.find_large_files")
+    def test_large_file_duplicate_path_skipped(
+        self, mock_large, mock_old, mock_scan, mock_expanduser
+    ):
+        """Large file with same path as a space_hog is skipped (seen set)."""
+        mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
+        shared_path = "/home/testuser/.cache/bigfile.bin"
+        mock_scan.return_value = [{"path": shared_path, "size_mb": 100.0}]
+        mock_old.return_value = []
+        mock_large.return_value = [{"path": shared_path, "size_mb": 100.0}]
+
+        checker = self._get_checker_class()()
+        result = checker.check()
+
+        self.assertEqual(len(result.metrics["large_files"]), 0)
+
+    @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk_common.scan_directory")
+    def test_catch_all_exception(self, mock_scan, mock_expanduser):
+        """Unexpected exception in check() returns UNKNOWN error result."""
+        mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
+        mock_scan.side_effect = RuntimeError("unexpected")
+
+        checker = self._get_checker_class()()
+        result = checker.check()
+
+        self.assertEqual(result.status, CheckStatus.UNKNOWN)
+        self.assertIn("unexpected", result.message)

@@ -169,6 +169,11 @@ class BaseCheckerRunTests(TestCase):
         self.assertEqual(result.status, CheckStatus.OK)
         self.assertEqual(result.message, "All good")
 
+    def test_enabled_override_false(self):
+        """Passing enabled=False sets self.enabled to False."""
+        checker = FakeChecker(enabled=False)
+        self.assertFalse(checker.enabled)
+
     def test_run_catches_check_exception(self):
         checker = FakeChecker(error=RuntimeError("boom"))
         result = checker.run()

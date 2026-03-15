@@ -113,3 +113,58 @@ class PingHostEdgeCaseTests(TestCase):
 
         _, kwargs = mock_run.call_args
         self.assertAlmostEqual(kwargs["timeout"], 3 * 5.0 + 1)
+
+
+class NetworkCoverageGapTests(TestCase):
+    """Tests covering remaining branch gaps in network.py."""
+
+    @patch("apps.checkers.checkers.network.sys")
+    @patch("apps.checkers.checkers.network.subprocess.run")
+    def test_ping_host_win32_command(self, mock_run, mock_sys):
+        """On win32, uses -n and -w flags for ping."""
+        mock_sys.platform = "win32"
+        mock_run.return_value = MagicMock(returncode=0, stdout="Average = 5ms")
+
+        checker = NetworkChecker(ping_count=1, timeout=5.0)
+        success, latency = checker._ping_host("8.8.8.8")
+
+        self.assertTrue(success)
+        cmd = mock_run.call_args[0][0]
+        self.assertIn("-n", cmd)
+        self.assertIn("-w", cmd)
+
+    def test_parse_latency_windows_short_parts(self):
+        """Windows output where split('=') gives < 2 parts after 'Average' line."""
+        checker = NetworkChecker()
+        # "Average" line with no "=" sign -- len(parts) will be 1
+        output = "Average 5ms\n"
+        latency = checker._parse_latency(output)
+        self.assertIsNone(latency)
+
+    def test_parse_latency_value_error(self):
+        """Malformed latency output triggers ValueError, returns None."""
+        checker = NetworkChecker()
+        # Has "avg" so enters first branch, but value is not a float
+        output = "rtt min/avg/max/mdev = abc/xyz/def/ghi ms\n"
+        latency = checker._parse_latency(output)
+        self.assertIsNone(latency)
+
+    @patch("apps.checkers.checkers.network.subprocess.run")
+    def test_all_hosts_unreachable_critical(self, mock_run):
+        """All hosts unreachable returns CRITICAL status."""
+        mock_run.return_value = MagicMock(returncode=1, stdout="")
+
+        checker = NetworkChecker(hosts=["8.8.8.8", "1.1.1.1"])
+        result = checker.check()
+
+        self.assertEqual(result.status, CheckStatus.CRITICAL)
+        self.assertEqual(result.metrics["reachable_count"], 0)
+
+    def test_check_catch_all_exception(self):
+        """Unexpected exception in check() returns UNKNOWN error result."""
+        checker = NetworkChecker(hosts=["8.8.8.8"])
+        with patch.object(checker, "_ping_host", side_effect=RuntimeError("unexpected")):
+            result = checker.check()
+
+        self.assertEqual(result.status, CheckStatus.UNKNOWN)
+        self.assertIn("unexpected", result.message)

@@ -110,3 +110,37 @@ class DiskCheckerTests(TestCase):
         self.assertEqual(result.status, CheckStatus.UNKNOWN)
         self.assertIn("/first-missing", result.message)
         self.assertNotIn("/second-missing", result.message)
+
+    @patch("apps.checkers.checkers.disk.psutil")
+    def test_disk_check_second_path_lower_usage_does_not_override_worst(self, mock_psutil):
+        """When a second path has lower usage than the first, worst stays with the first."""
+
+        def disk_usage_side_effect(path):
+            mock = MagicMock()
+            if path == "/":
+                mock.percent = 85.0
+            elif path == "/home":
+                mock.percent = 40.0  # Lower than first
+            mock.total = 500 * 1024**3
+            mock.used = mock.percent / 100 * mock.total
+            mock.free = mock.total - mock.used
+            return mock
+
+        mock_psutil.disk_usage.side_effect = disk_usage_side_effect
+
+        checker = DiskChecker(paths=["/", "/home"])
+        result = checker.check()
+
+        self.assertEqual(result.metrics["worst_path"], "/")
+        self.assertEqual(result.metrics["worst_percent"], 85.0)
+
+    @patch("apps.checkers.checkers.disk.psutil")
+    def test_disk_check_catch_all_exception(self, mock_psutil):
+        """Unexpected exception in check() returns UNKNOWN error result."""
+        mock_psutil.disk_usage.side_effect = RuntimeError("unexpected")
+
+        checker = DiskChecker(paths=["/"])
+        result = checker.check()
+
+        self.assertEqual(result.status, CheckStatus.UNKNOWN)
+        self.assertIn("unexpected", result.message)

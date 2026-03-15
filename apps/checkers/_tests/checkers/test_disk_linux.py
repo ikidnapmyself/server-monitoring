@@ -160,3 +160,40 @@ class DiskLinuxBuildRecommendationsTests(TestCase):
         space_hogs = [{"path": "/some/unknown/path", "size_mb": 100.0}]
         recs = checker._build_recommendations(space_hogs, [])
         self.assertEqual(recs, [])
+
+
+class DiskLinuxCoverageGapTests(TestCase):
+    """Tests covering remaining branch gaps in disk_linux.py."""
+
+    def _get_checker_class(self):
+        from apps.checkers.checkers.disk_linux import DiskLinuxChecker
+
+        return DiskLinuxChecker
+
+    @patch("apps.checkers.checkers.disk_linux.sys")
+    @patch("apps.checkers.checkers.disk_linux.scan_directory")
+    @patch("apps.checkers.checkers.disk_linux.find_old_files")
+    def test_old_file_duplicate_path_skipped(self, mock_old, mock_scan, mock_sys):
+        """Old file with same path as a space_hog is skipped (seen set)."""
+        mock_sys.platform = "linux"
+        shared_path = "/var/cache/apt/archives"
+        mock_scan.return_value = [{"path": shared_path, "size_mb": 100.0}]
+        mock_old.return_value = [{"path": shared_path, "size_mb": 100.0, "age_days": 10}]
+
+        checker = self._get_checker_class()()
+        result = checker.check()
+
+        self.assertEqual(len(result.metrics["old_files"]), 0)
+
+    @patch("apps.checkers.checkers.disk_linux.sys")
+    @patch("apps.checkers.checkers.disk_linux.scan_directory")
+    def test_catch_all_exception(self, mock_scan, mock_sys):
+        """Unexpected exception in check() returns UNKNOWN error result."""
+        mock_sys.platform = "linux"
+        mock_scan.side_effect = RuntimeError("unexpected")
+
+        checker = self._get_checker_class()()
+        result = checker.check()
+
+        self.assertEqual(result.status, CheckStatus.UNKNOWN)
+        self.assertIn("unexpected", result.message)
