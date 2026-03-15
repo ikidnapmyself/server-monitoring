@@ -194,3 +194,44 @@ class DiskMacOSBuildRecommendationsTests(TestCase):
         space_hogs = [{"path": "/some/unknown/path", "size_mb": 100.0}]
         recs = checker._build_recommendations(space_hogs, [])
         self.assertEqual(recs, [])
+
+
+class DiskMacOSCoverageGapTests(TestCase):
+    """Tests covering remaining branch gaps in disk_macos.py."""
+
+    def _get_checker_class(self):
+        from apps.checkers.checkers.disk_macos import DiskMacOSChecker
+
+        return DiskMacOSChecker
+
+    @patch("apps.checkers.checkers.disk_macos.sys")
+    @patch("apps.checkers.checkers.disk_macos.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk_macos.scan_directory")
+    @patch("apps.checkers.checkers.disk_macos.find_old_files")
+    def test_old_file_duplicate_path_skipped(self, mock_old, mock_scan, mock_expanduser, mock_sys):
+        """Old file with same path as a space_hog is skipped (seen set)."""
+        mock_sys.platform = "darwin"
+        mock_expanduser.side_effect = lambda p: p.replace("~", "/Users/testuser")
+        shared_path = "/Users/testuser/Library/Caches/big-app"
+        mock_scan.return_value = [{"path": shared_path, "size_mb": 100.0}]
+        mock_old.return_value = [{"path": shared_path, "size_mb": 100.0, "age_days": 60}]
+
+        checker = self._get_checker_class()()
+        result = checker.check()
+
+        self.assertEqual(len(result.metrics["old_files"]), 0)
+
+    @patch("apps.checkers.checkers.disk_macos.sys")
+    @patch("apps.checkers.checkers.disk_macos.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk_macos.scan_directory")
+    def test_catch_all_exception(self, mock_scan, mock_expanduser, mock_sys):
+        """Unexpected exception in check() returns UNKNOWN error result."""
+        mock_sys.platform = "darwin"
+        mock_expanduser.side_effect = lambda p: p.replace("~", "/Users/testuser")
+        mock_scan.side_effect = RuntimeError("unexpected")
+
+        checker = self._get_checker_class()()
+        result = checker.check()
+
+        self.assertEqual(result.status, CheckStatus.UNKNOWN)
+        self.assertIn("unexpected", result.message)

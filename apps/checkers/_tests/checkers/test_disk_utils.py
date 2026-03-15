@@ -172,6 +172,26 @@ class FindOldFilesTests(TestCase):
         results = find_old_files("/tmp")
         self.assertEqual(results, [])
 
+    @patch("apps.checkers.checkers.disk_utils.time.time")
+    @patch("apps.checkers.checkers.disk_utils.os.scandir")
+    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=True)
+    def test_find_old_files_recent_file_skipped(self, mock_isdir, mock_scandir, mock_time):
+        """Files newer than max_age_days are skipped (st_mtime >= cutoff)."""
+        now = 1_000_000.0
+        mock_time.return_value = now
+        recent_mtime = now - (2 * 86400)  # Only 2 days old, cutoff is 7
+
+        recent_file = MagicMock()
+        recent_file.is_dir.return_value = False
+        recent_file.path = "/tmp/recent_file.log"
+        recent_file.stat.return_value = MagicMock(st_size=5 * 1024 * 1024, st_mtime=recent_mtime)
+
+        mock_scandir.return_value.__enter__ = MagicMock(return_value=iter([recent_file]))
+        mock_scandir.return_value.__exit__ = MagicMock(return_value=False)
+
+        results = find_old_files("/tmp", max_age_days=7)
+        self.assertEqual(results, [])
+
 
 class FindLargeFilesTests(TestCase):
     """Tests for the find_large_files function."""

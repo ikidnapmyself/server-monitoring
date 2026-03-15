@@ -122,3 +122,23 @@ class ProcessCheckerTests(TestCase):
         info = checker._is_process_running("nginx")
 
         self.assertFalse(info["running"])
+
+    @patch("apps.checkers.checkers.process.psutil.process_iter")
+    def test_process_iter_outer_exception(self, mock_process_iter):
+        """Outer exception in _is_process_running returns not-found result."""
+        mock_process_iter.side_effect = RuntimeError("unexpected")
+
+        checker = ProcessChecker(processes=["nginx"])
+        info = checker._is_process_running("nginx")
+
+        self.assertFalse(info["running"])
+        self.assertEqual(info["status"], "not_found")
+
+    def test_check_catch_all_exception(self):
+        """Unexpected exception in check() returns UNKNOWN error result."""
+        checker = ProcessChecker(processes=["nginx"])
+        with patch.object(checker, "_is_process_running", side_effect=RuntimeError("unexpected")):
+            result = checker.check()
+
+        self.assertEqual(result.status, CheckStatus.UNKNOWN)
+        self.assertIn("unexpected", result.message)

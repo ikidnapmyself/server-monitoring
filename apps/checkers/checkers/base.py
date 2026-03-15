@@ -104,7 +104,7 @@ class BaseChecker(ABC):
         Returns:
             CheckResult with status, message, and metrics.
         """
-        ...
+        ...  # pragma: no cover
 
     def run(self, *, trace_id: str = "") -> CheckResult:
         """
