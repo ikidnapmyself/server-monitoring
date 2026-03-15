@@ -534,3 +534,36 @@ class TestProgressCallback(SimpleTestCase):
         call_kwargs = mock_get_provider.call_args[1]
         assert "progress_callback" in call_kwargs
         assert callable(call_kwargs["progress_callback"])
+
+    def test_progress_without_spinner_falls_back_to_stdout(self):
+        """Test _progress writes to stdout when spinner is None."""
+        from apps.intelligence.management.commands.get_recommendations import Command
+
+        cmd = Command()
+        cmd._json_mode = False
+        cmd._spinner = None
+        out = StringIO()
+        cmd.stdout = out
+
+        cmd._progress("some message")
+        assert "some message" in out.getvalue()
+
+    @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
+    def test_progress_routes_finish_messages(self, mock_get_provider):
+        """Test that ✓ and → prefixed messages route to spinner.finish()."""
+        mock_provider = MagicMock()
+        mock_provider.run.return_value = []
+
+        def capture_callback(*args, **kwargs):
+            cb = kwargs.get("progress_callback")
+            if cb:
+                cb("✓ Done analyzing")
+                cb("-> Step complete")
+                cb("→ Moving on")
+                cb("Just an update")
+            return mock_provider
+
+        mock_get_provider.side_effect = capture_callback
+
+        out = StringIO()
+        call_command("get_recommendations", "--memory", stdout=out)
