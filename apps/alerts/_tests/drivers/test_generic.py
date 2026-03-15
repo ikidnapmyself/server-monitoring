@@ -250,3 +250,21 @@ class GenericDriverTests(TestCase):
         }
         result = self.driver.parse(payload)
         self.assertEqual(result.alerts[0].annotations, {})
+
+    def test_fingerprint_provided_skips_auto_generate(self):
+        """When fingerprint is provided, auto-generation is skipped."""
+        payload = {
+            "name": "FP Alert",
+            "status": "firing",
+            "fingerprint": "custom-fp-123",
+        }
+        result = self.driver.parse(payload)
+        self.assertEqual(result.alerts[0].fingerprint, "custom-fp-123")
+
+    def test_parse_timestamp_non_standard_type_returns_now(self):
+        """A timestamp that is not None, datetime, int/float, or str falls to now."""
+        before = timezone.now()
+        result = self.driver._parse_timestamp({"not": "a timestamp"})
+        after = timezone.now()
+        self.assertGreaterEqual(result, before)
+        self.assertLessEqual(result, after)

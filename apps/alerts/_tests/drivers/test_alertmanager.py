@@ -127,3 +127,8 @@ class AlertManagerDriverTests(TestCase):
         result = self.driver.parse(self.sample_payload)
         alert = result.alerts[0]
         self.assertEqual(alert.description, "Summary text only")
+
+    def test_parse_invalid_payload_raises_value_error(self):
+        """parse() with a payload that fails validate() should raise ValueError."""
+        with self.assertRaises(ValueError):
+            self.driver.parse({"random": "data"})
