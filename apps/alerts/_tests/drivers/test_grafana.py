@@ -192,3 +192,33 @@ class GrafanaDriverTests(TestCase):
     def test_validate_rejects_unrelated_payload(self):
         """Payload without Grafana keys should be rejected."""
         self.assertFalse(self.driver.validate({"random": "data"}))
+
+    def test_parse_invalid_payload_raises_value_error(self):
+        """parse() with a payload that fails validate() should raise ValueError."""
+        with self.assertRaises(ValueError):
+            self.driver.parse({"random": "data"})
+
+    def test_payload_without_alerts_or_eval_matches(self):
+        """Valid Grafana payload with neither alerts nor evalMatches returns empty alerts."""
+        payload = {
+            "orgId": 1,
+            "state": "alerting",
+            "title": "Test",
+        }
+        result = self.driver.parse(payload)
+        self.assertEqual(len(result.alerts), 0)
+
+    def test_unified_alert_with_fingerprint_provided(self):
+        """When fingerprint IS provided in unified alert, skip auto-generation."""
+        self.sample_payload["alerts"][0]["fingerprint"] = "explicit-fp"
+        result = self.driver.parse(self.sample_payload)
+        self.assertEqual(result.alerts[0].fingerprint, "explicit-fp")
+
+    def test_unified_alert_with_description_in_annotations(self):
+        """When annotations.description IS present, use it directly."""
+        self.sample_payload["alerts"][0]["annotations"] = {
+            "description": "Explicit description",
+            "summary": "Should not use this",
+        }
+        result = self.driver.parse(self.sample_payload)
+        self.assertEqual(result.alerts[0].description, "Explicit description")

@@ -8,6 +8,18 @@ from django.utils import timezone
 from apps.alerts.drivers.pagerduty import PagerDutyDriver
 
 
+class PagerDutyParseEdgeCaseTests(TestCase):
+    """Edge case tests for PagerDuty parse() branch coverage."""
+
+    def test_parse_payload_with_neither_event_nor_messages(self):
+        """Payload that validates but has neither event nor messages returns empty alerts."""
+        driver = PagerDutyDriver()
+        # Mock validate to bypass normal validation logic
+        with patch.object(driver, "validate", return_value=True):
+            result = driver.parse({"some_key": "value"})
+        self.assertEqual(len(result.alerts), 0)
+
+
 class PagerDutyDriverTests(TestCase):
     """Tests for PagerDuty driver."""
 
@@ -318,3 +330,28 @@ class PagerDutyDriverTests(TestCase):
         }
         parsed = self.driver.parse(payload)
         self.assertEqual(parsed.alerts[0].severity, "warning")
+
+    def test_parse_invalid_payload_raises_value_error(self):
+        """parse() with a payload that fails validate() should raise ValueError."""
+        with self.assertRaises(ValueError):
+            self.driver.parse({"random": "data"})
+
+    def test_v3_priority_p2_medium_uses_urgency(self):
+        """V3 event with priority name 'P2' (not p1/critical/p3/low) keeps urgency mapping."""
+        payload = {
+            "event": {
+                "id": "evt_p2",
+                "event_type": "incident.triggered",
+                "resource_type": "incident",
+                "data": {
+                    "id": "inc_p2",
+                    "title": "PD: P2 Medium",
+                    "urgency": "high",
+                    "priority": {"name": "P2 - Medium"},
+                    "service": {},
+                },
+            }
+        }
+        parsed = self.driver.parse(payload)
+        # P2 doesn't match p1/critical or p3/low, so severity stays from urgency=high → critical
+        self.assertEqual(parsed.alerts[0].severity, "critical")

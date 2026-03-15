@@ -270,3 +270,16 @@ class ZabbixDriverTests(TestCase):
         }
         parsed = self.driver.parse(payload)
         self.assertEqual(parsed.alerts[0].description, "")
+
+    def test_parse_invalid_payload_raises_value_error(self):
+        """parse() with a payload that fails validate() should raise ValueError."""
+        with self.assertRaises(ValueError):
+            self.driver.parse({"random": "data"})
+
+    def test_parse_timestamp_non_int_non_string_returns_now(self):
+        """A float timestamp (not int, not str) should fall through to now."""
+        before = timezone.now()
+        result = self.driver._parse_timestamp(3.14)
+        after = timezone.now()
+        self.assertGreaterEqual(result, before)
+        self.assertLessEqual(result, after)

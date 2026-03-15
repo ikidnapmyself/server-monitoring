@@ -251,3 +251,36 @@ class NewRelicDriverTests(TestCase):
     def test_validate_rejects_unrelated_payload(self):
         """Payload without NR keys should be rejected."""
         self.assertFalse(self.driver.validate({"random": "data"}))
+
+    def test_parse_invalid_payload_raises_value_error(self):
+        """parse() with a payload that fails validate() should raise ValueError."""
+        with self.assertRaises(ValueError):
+            self.driver.parse({"random": "data"})
+
+    def test_classic_targets_non_dict_skipped(self):
+        """Non-dict entries in targets list should be skipped."""
+        payload = {
+            "account_id": 123,
+            "condition_id": 456,
+            "condition_name": "NR: non-dict target",
+            "current_state": "open",
+            "incident_id": 444,
+            "severity": "WARNING",
+            "targets": [
+                "just-a-string",
+                {"name": "valid-host", "type": "application"},
+            ],
+        }
+        parsed = self.driver.parse(payload)
+        alert = parsed.alerts[0]
+        # The string target should be skipped, dict target at index 1 should be added
+        self.assertNotIn("target_0_name", alert.labels)
+        self.assertEqual(alert.labels["target_1_name"], "valid-host")
+
+    def test_parse_timestamp_non_int_non_string_returns_now(self):
+        """A float timestamp (not int, not str) should fall through to now."""
+        before = timezone.now()
+        result = self.driver._parse_timestamp(3.14)
+        after = timezone.now()
+        self.assertGreaterEqual(result, before)
+        self.assertLessEqual(result, after)
