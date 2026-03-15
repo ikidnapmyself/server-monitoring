@@ -53,14 +53,11 @@ class AlertWebhookView(View):
 
             if os.environ.get("ENABLE_CELERY_ORCHESTRATION", "1") == "1" and not celery_eager:
                 try:
-                    from apps.alerts.tasks import orchestrate_event
+                    from apps.orchestration.tasks import run_pipeline_task
 
-                    async_res = orchestrate_event.delay(
-                        {
-                            "trigger": "webhook",
-                            "payload": payload,
-                            "driver": driver,
-                        }
+                    async_res = run_pipeline_task.delay(
+                        payload=payload,
+                        source=driver or "unknown",
                     )
                     return JsonResponse(
                         {
