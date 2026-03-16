@@ -16,8 +16,6 @@ A small, modular Django project for basic **server maintenance / monitoring** wo
 
 This top-level README is the entry point and documentation hub. App-specific docs live alongside the apps.
 
-[toc]
-
 ## Documentation map
 
 - **Full project wiki: [ikidnapmyself.github.io/server-monitoring](https://ikidnapmyself.github.io/server-monitoring/)**
@@ -109,6 +107,9 @@ uv run ruff check . --fix
 
 # Tests
 uv run pytest
+
+# Test coverage (100% branch coverage required)
+uv run coverage run -m pytest && uv run coverage report
 
 # Optional: type-check
 uv run mypy .
