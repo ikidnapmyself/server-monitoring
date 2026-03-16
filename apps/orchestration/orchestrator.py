@@ -361,7 +361,9 @@ class PipelineOrchestrator:
                     result.check = stage_result
                 elif stage == PipelineStage.ANALYZE and isinstance(stage_result, AnalyzeResult):
                     result.analyze = stage_result
-                elif stage == PipelineStage.NOTIFY and isinstance(stage_result, NotifyResult):
+                elif stage == PipelineStage.NOTIFY and isinstance(  # pragma: no branch
+                    stage_result, NotifyResult
+                ):
                     result.notify = stage_result
 
             # Pipeline completed successfully
@@ -549,10 +551,10 @@ class PipelineOrchestrator:
                 time.sleep(backoff_time)
 
         # Should not reach here, but raise last error if we do
-        if last_error:
+        if last_error:  # pragma: no cover
             raise last_error
 
-        raise RuntimeError("Stage execution failed without error")
+        raise RuntimeError("Stage execution failed without error")  # pragma: no cover
 
     def _stage_completed(self, pipeline_run: PipelineRun, stage: PipelineStage) -> bool:
         """Check if a stage has already completed successfully."""
