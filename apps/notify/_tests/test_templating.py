@@ -1084,3 +1084,149 @@ class TestComposeIncidentDetailsPprintFallback(SimpleTestCase):
         # Falls back to ctx itself which is {}, and empty dict is falsy
         # so recommendations = ctx = {} which normalizes to [{}]
         assert isinstance(result["recommendations"], list)
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap tests
+# ---------------------------------------------------------------------------
+
+
+class TestCoverageGaps(SimpleTestCase):
+    """Tests targeting specific branch coverage gaps in templating.py."""
+
+    def setUp(self):
+        self.svc = NotificationTemplatingService()
+        self.base_msg = {
+            "title": "Test",
+            "message": "Test message",
+            "severity": "info",
+            "channel": "ops",
+            "tags": {},
+            "context": {},
+        }
+
+    # L214->218: intelligence is a dict but intelligence["recommendations"] is None,
+    # so _int_recs is None, the elif is False, and we fall through to line 218.
+    # Also no "details" key, so fallback is ctx itself.
+    @patch("apps.notify.templating.psutil")
+    def test_recommendations_fallback_intelligence_recs_none(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        msg = {
+            **self.base_msg,
+            "context": {"intelligence": {"recommendations": None}},
+        }
+        result = self.svc.compose_incident_details(msg, {})
+        # recommendations is None from intelligence, falls to line 218,
+        # ctx.get("details") is None, so falls back to ctx itself
+        assert isinstance(result["recommendations"], list)
+
+    # L214->218 variant: intelligence dict with recs=None, but "details" key present
+    @patch("apps.notify.templating.psutil")
+    def test_recommendations_fallback_intelligence_none_with_details(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        msg = {
+            **self.base_msg,
+            "context": {
+                "intelligence": {"recommendations": None},
+                "details": {"info": "fallback details"},
+            },
+        }
+        result = self.svc.compose_incident_details(msg, {})
+        assert result["recommendations"] == [{"info": "fallback details"}]
+
+    # L243->248: isinstance(recs_pretty, str) is False.
+    # Mock pformat to return a non-string so the isinstance check is False.
+    @patch("apps.notify.templating.psutil")
+    @patch("apps.notify.templating.pprint.pformat", return_value=42)
+    def test_pprint_returns_non_string_skips_replace(self, _mock_pformat, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        msg = {
+            **self.base_msg,
+            "context": {"recommendations": [{"title": "Fix"}]},
+        }
+        result = self.svc.compose_incident_details(msg, {})
+        # pformat returned 42 (non-str), so recs_pretty stays 42, no .replace() call
+        assert result["recommendations_pretty"] == 42
+
+    # L334->375: config has template key, but render_template returns None.
+    # Mock render_template to return None so the `if rendered is not None:` is False,
+    # which then falls through to the html section at L375.
+    @patch("apps.notify.templating.psutil")
+    @patch("apps.notify.templating.render_template", return_value=None)
+    def test_config_template_renders_none_falls_through(self, _mock_render, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        config = {"template": "some truthy template"}
+        result = self.svc.render_message_templates("test_driver", self.base_msg, config)
+        # rendered was None, so text stays None; html also None
+        assert result["text"] is None
+        assert result["html"] is None
+
+    # L356->351: In the default file candidates loop, rendered_def is None for one
+    # candidate so the loop continues to the next. Mock render_template to return
+    # None first, then a value, to exercise the continue path.
+    @patch("apps.notify.templating.psutil")
+    @patch(
+        "apps.notify.templating.render_template",
+        side_effect=[None, "rendered text", None],
+    )
+    def test_default_candidates_loop_continues_on_none(self, _mock_render, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        config = {}  # no template keys, so enters else branch
+        result = self.svc.render_message_templates("mydriver", self.base_msg, config)
+        assert result["text"] == "rendered text"
+
+    # L379->394: html_template in config renders successfully.
+    # We need the text part to succeed first, then html_template to render.
+    @patch("apps.notify.templating.psutil")
+    def test_html_template_config_with_default_text(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        config = {"html_template": "Hello <b>{{ title }}</b>"}
+        result = self.svc.render_message_templates("slack", self.base_msg, config)
+        assert result["text"] is not None  # from default slack_text.j2
+        assert result["html"] == "Hello <b>Test</b>"
+
+    # L379->394 (False branch): html_template renders to empty string (falsy),
+    # so the if check is False and we skip setting result["html"].
+    @patch("apps.notify.templating.psutil")
+    def test_html_template_renders_empty_string(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        # Template that renders to empty string
+        config = {"template": "text", "html_template": "{{ missing_var }}"}
+        result = self.svc.render_message_templates("test_driver", self.base_msg, config)
+        assert result["text"] == "text"
+        # Jinja2 renders undefined variables to empty string, which is falsy
+        assert result["html"] is None
+
+    # L388->394: No html_template in config, default HTML file found.
+    # Using "email" which has email_html.j2.
+    @patch("apps.notify.templating.psutil")
+    def test_default_html_file_found_email(self, mock_psutil):
+        mock_psutil.cpu_count.return_value = 1
+        mock_psutil.virtual_memory.return_value = MagicMock(total=1)
+        mock_psutil.disk_usage.return_value = MagicMock(total=1)
+
+        config = {"some_other_key": "value"}
+        result = self.svc.render_message_templates("email", self.base_msg, config)
+        assert result["text"] is not None
+        assert result["html"] is not None
