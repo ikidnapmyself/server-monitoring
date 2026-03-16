@@ -565,18 +565,22 @@ class TestScanLargeFiles(SimpleTestCase):
         """When du fails, Python fallback is used."""
         mock_run.side_effect = FileNotFoundError("du not found")
 
-        # Create mock for the fallback path
-        mock_item = MagicMock(spec=Path)
-        mock_item.is_file.return_value = True
-        mock_item.stat.return_value = MagicMock(
+        # Create mock file item
+        mock_file = MagicMock(spec=Path)
+        mock_file.is_file.return_value = True
+        mock_file.stat.return_value = MagicMock(
             st_size=200 * 1024 * 1024,  # 200MB
             st_mtime=datetime.now().timestamp(),
         )
-        mock_item.__str__ = lambda self: "/fallback/bigfile"
+        mock_file.__str__ = lambda self: "/fallback/bigfile"
+
+        # Create mock directory item (should be skipped)
+        mock_dir = MagicMock(spec=Path)
+        mock_dir.is_file.return_value = False
 
         mock_scan_path = MagicMock()
         mock_scan_path.exists.return_value = True
-        mock_scan_path.rglob.return_value = [mock_item]
+        mock_scan_path.rglob.return_value = [mock_dir, mock_file]
 
         with patch(
             "apps.intelligence.providers.local.Path.expanduser",

@@ -36,6 +36,14 @@ class TestCopilotProviderInitialization(SimpleTestCase):
         assert provider.name == "copilot"
         assert provider.description == "GitHub Copilot intelligence provider"
 
+    @patch("openai.OpenAI")
+    def test_client_reused_on_second_access(self, mock_openai_class):
+        """Test that .client property returns cached client on second access."""
+        provider = CopilotRecommendationProvider(api_key="test-key")
+        _ = provider.client
+        _ = provider.client
+        mock_openai_class.assert_called_once()
+
 
 class TestCopilotCallApi(SimpleTestCase):
     """Tests for Copilot API calls."""

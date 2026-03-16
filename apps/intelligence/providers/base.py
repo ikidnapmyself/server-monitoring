@@ -92,7 +92,7 @@ class BaseProvider(ABC):
         Returns:
             List of recommendations.
         """
-        ...
+        ...  # pragma: no cover
 
     def run(
         self,
