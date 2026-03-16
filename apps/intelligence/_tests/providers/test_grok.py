@@ -36,6 +36,14 @@ class TestGrokProviderInitialization(SimpleTestCase):
         assert provider.name == "grok"
         assert provider.description == "Grok (xAI) intelligence provider"
 
+    @patch("openai.OpenAI")
+    def test_client_reused_on_second_access(self, mock_openai_class):
+        """Test that .client property returns cached client on second access."""
+        provider = GrokRecommendationProvider(api_key="test-key")
+        _ = provider.client
+        _ = provider.client
+        mock_openai_class.assert_called_once()
+
 
 class TestGrokCallApi(SimpleTestCase):
     """Tests for Grok API calls."""
