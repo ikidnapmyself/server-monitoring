@@ -42,9 +42,9 @@ try:
         loader=jinja2.FileSystemLoader(str(TEMPLATES_DIR)),
         autoescape=False,
     )
-except Exception:
-    _JINJA_AVAILABLE = False
-    _JINJA_ENV = None
+except Exception:  # pragma: no cover
+    _JINJA_AVAILABLE = False  # pragma: no cover
+    _JINJA_ENV = None  # pragma: no cover
 
 
 class _SafeDict(dict):
