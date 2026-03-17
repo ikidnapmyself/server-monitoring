@@ -144,4 +144,3 @@ class RateLimitMiddlewareTests(TestCase):
             content_type="application/json",
         )
         assert response.status_code == 429
-

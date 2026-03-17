@@ -82,7 +82,7 @@ class BaseAlertDriver(ABC):
         _SHA256_PREFIX = "sha256="
         clean_header = header_value
         if header_value.startswith(_SHA256_PREFIX):
-            clean_header = header_value[len(_SHA256_PREFIX):]
+            clean_header = header_value[len(_SHA256_PREFIX) :]
 
         return hmac_mod.compare_digest(expected, clean_header)
 
