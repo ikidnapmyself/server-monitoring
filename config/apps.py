@@ -17,6 +17,7 @@ class ConfigAppConfig(AppConfig):
     def ready(self):
         from django.contrib import admin
 
+        import config.checks  # noqa: F401 — register system checks
         from config.admin import APIKeyAdmin
         from config.models import APIKey
 

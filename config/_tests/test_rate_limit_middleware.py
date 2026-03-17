@@ -78,6 +78,7 @@ class RateLimitMiddlewareTests(TestCase):
             )
         assert response.status_code != 429
 
+    @override_settings(API_KEY_AUTH_ENABLED=True)
     def test_uses_api_key_identity(self):
         key = APIKey.objects.create(name="client-a")
         for _ in range(5):
