@@ -98,13 +98,94 @@ The webhook endpoint (`POST /alerts/webhook/`) is CSRF-exempted because external
 
 Each alert driver validates incoming payloads structurally via `validate()` and `parse()` methods. Drivers check for required keys and expected payload shapes.
 
+## API Key Authentication
+
+API endpoints require authentication via API key for non-GET requests. Keys are managed via the Django admin.
+
+### Setup
+
+1. Enable: set `API_KEY_AUTH_ENABLED=1` in your environment
+2. Create a key via admin (`/admin/config_app/apikey/`) or shell:
+
+```python
+from config.models import APIKey
+key = APIKey.objects.create(name="my-client")
+print(key.key)  # 40-char hex token
+```
+
+### Usage
+
+Include the key in every request via one of:
+
+```
+Authorization: Bearer <key>
+X-API-Key: <key>
+```
+
+### Endpoint Restrictions
+
+Keys can optionally restrict access to specific path prefixes via the `allowed_endpoints` JSON field (e.g., `["/alerts/"]`). Empty list = access all API endpoints.
+
+### Exempt Paths
+
+- `GET` requests to any API endpoint (health checks)
+- `/admin/*` (uses Django session auth)
+- `/static/*`
+
+## Webhook Signature Verification
+
+Drivers support opt-in HMAC signature verification. When a secret is configured for a driver, incoming webhooks must include a valid signature.
+
+### Configuration
+
+Set an environment variable per driver:
+
+| Variable | Driver |
+|----------|--------|
+| `WEBHOOK_SECRET_GRAFANA` | Grafana |
+| `WEBHOOK_SECRET_PAGERDUTY` | PagerDuty |
+| `WEBHOOK_SECRET_NEWRELIC` | New Relic |
+| `WEBHOOK_SECRET_GENERIC` | Generic webhook |
+
+Drivers without native signature support (Alertmanager, Datadog, OpsGenie, Zabbix) do not perform verification.
+
+### How It Works
+
+- The driver declares its signature header (e.g., `X-Grafana-Signature`)
+- On incoming POST, if the env var is set, the middleware computes `HMAC-SHA256(secret, request.body)` and compares with the header value
+- Missing or invalid signature → `403 Forbidden`
+- No env var configured → verification skipped (opt-in)
+
+## Rate Limiting
+
+Application-level rate limiting using Django cache with sliding window counters.
+
+### Configuration
+
+Enable: `RATE_LIMIT_ENABLED=1`
+
+Default limits (configurable via `RATE_LIMITS` in settings):
+
+| Path prefix | Limit |
+|-------------|-------|
+| `/alerts/` | 120 req/min |
+| `/orchestration/` | 30 req/min |
+| `/notify/` | 30 req/min |
+| `/intelligence/` | 20 req/min |
+
+### Identity
+
+Limits are tracked per API key name (if authenticated) or per client IP (via `X-Forwarded-For` or `REMOTE_ADDR`).
+
+### Cache Backend
+
+Rate limiting requires a shared cache backend (Redis or Memcached) in multi-process deployments. A Django system check (`config.W001`) warns if rate limiting is enabled with `LocMemCache`.
+
 ### Current Limitations
 
 The following are known areas for improvement:
 
-- **No webhook signature verification** — Drivers do not verify HMAC signatures. For production deployments exposed to the internet, consider adding signature verification per provider (e.g., Grafana `X-Grafana-Signature`, PagerDuty `X-PagerDuty-Signature`).
-- **No rate limiting** — The webhook endpoint has no application-level throttling. Use a reverse proxy (nginx, Cloudflare) or Django middleware for rate limiting in production.
-- **No API key authentication** — Webhook endpoints accept unauthenticated requests. Consider adding bearer token or shared secret validation for production.
+- **DB-stored secrets not encrypted** — API keys and provider credentials in JSON fields are not encrypted at rest. Consider field-level encryption for high-security environments.
 
 ## Data Handling
 

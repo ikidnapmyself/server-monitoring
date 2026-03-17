@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "apps.intelligence.apps.IntelligenceConfig",
     "apps.notify.apps.NotifyConfig",
     "apps.orchestration.apps.OrchestrationConfig",
+    "config.apps.ConfigAppConfig",
 ]
 
 MIDDLEWARE = [
@@ -70,6 +71,8 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "config.middleware.api_key_auth.APIKeyAuthMiddleware",
+    "config.middleware.rate_limit.RateLimitMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -204,3 +207,20 @@ STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "pipeline")
 # Example: SILENCED_SYSTEM_CHECKS=checkers.W009,checkers.W010,checkers.I001
 _silenced = os.environ.get("SILENCED_SYSTEM_CHECKS", "")
 SILENCED_SYSTEM_CHECKS: list[str] = [c.strip() for c in _silenced.split(",") if c.strip()]
+
+# ---------------------------------------------------------------------------
+# API Key Authentication
+# ---------------------------------------------------------------------------
+API_KEY_AUTH_ENABLED = os.environ.get("API_KEY_AUTH_ENABLED", "0") == "1"
+
+# ---------------------------------------------------------------------------
+# Rate Limiting
+# ---------------------------------------------------------------------------
+RATE_LIMIT_ENABLED = os.environ.get("RATE_LIMIT_ENABLED", "0") == "1"
+
+RATE_LIMITS = {
+    "/alerts/": 120,
+    "/orchestration/": 30,
+    "/notify/": 30,
+    "/intelligence/": 20,
+}
