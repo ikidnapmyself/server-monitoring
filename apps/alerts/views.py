@@ -42,6 +42,34 @@ class AlertWebhookView(View):
                     status=400,
                 )
 
+            # Verify webhook signature if configured
+            from apps.alerts.drivers import detect_driver, get_driver
+
+            sig_driver = None
+            if driver:
+                try:
+                    sig_driver = get_driver(driver)
+                except ValueError:
+                    pass
+            else:
+                sig_driver = detect_driver(payload)
+
+            if sig_driver and sig_driver.signature_header:
+                import os as _os
+
+                secret_env = f"WEBHOOK_SECRET_{sig_driver.name.upper()}"
+                secret = _os.environ.get(secret_env)
+                if secret:
+                    header_key = f"HTTP_{sig_driver.signature_header.upper().replace('-', '_')}"
+                    sig_value = request.META.get(header_key)
+                    if not sig_value or not sig_driver.verify_signature(
+                        request.body, sig_value, secret
+                    ):
+                        return JsonResponse(
+                            {"status": "error", "message": "Invalid webhook signature"},
+                            status=403,
+                        )
+
             # If Celery is enabled, enqueue the orchestration chain and return quickly.
             # (In tests/dev you can set CELERY_TASK_ALWAYS_EAGER=1 to run inline.)
             try:

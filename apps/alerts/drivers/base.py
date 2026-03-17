@@ -66,6 +66,22 @@ class BaseAlertDriver(ABC):
     """Abstract base class for alert source drivers."""
 
     name: str = "base"
+    signature_header: str | None = None
+    signature_algorithm: str = "sha256"
+
+    def verify_signature(self, request_body: bytes, header_value: str, secret: str) -> bool:
+        """Verify HMAC signature. Override for non-standard schemes."""
+        import hashlib
+        import hmac as hmac_mod
+
+        expected = hmac_mod.new(secret.encode(), request_body, hashlib.sha256).hexdigest()
+
+        # Handle "sha256=<hex>" prefix format used by some providers
+        clean_header = header_value
+        if header_value.startswith(("sha256=", "sha1=")):
+            clean_header = header_value.split("=", 1)[1]
+
+        return hmac_mod.compare_digest(expected, clean_header)
 
     @abstractmethod
     def validate(self, payload: dict[str, Any]) -> bool:

@@ -42,6 +42,7 @@ class GenericWebhookDriver(BaseAlertDriver):
     """
 
     name = "generic"
+    signature_header = "X-Webhook-Signature"
 
     def validate(self, payload: dict[str, Any]) -> bool:
         """
