@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "apps.intelligence.apps.IntelligenceConfig",
     "apps.notify.apps.NotifyConfig",
     "apps.orchestration.apps.OrchestrationConfig",
+    "config.apps.ConfigAppConfig",
 ]
 
 MIDDLEWARE = [
