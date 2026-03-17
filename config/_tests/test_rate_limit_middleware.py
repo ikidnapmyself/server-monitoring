@@ -124,3 +124,24 @@ class RateLimitMiddlewareTests(TestCase):
             )
         # Should be 404 not 429
         assert response.status_code != 429
+
+    @override_settings(
+        RATE_LIMITS={"/alerts/": 10, "/alerts/webhook/": 2},
+    )
+    def test_longest_prefix_wins(self):
+        """More-specific (longer) prefix limit applies over a shorter one."""
+        cache.clear()
+        # Exhaust the tighter /alerts/webhook/ limit (2 requests)
+        for _ in range(2):
+            self.client.post(
+                "/alerts/webhook/",
+                data=json.dumps({"name": "Test", "status": "firing"}),
+                content_type="application/json",
+            )
+        response = self.client.post(
+            "/alerts/webhook/",
+            data=json.dumps({"name": "Test", "status": "firing"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 429
+
