@@ -71,6 +71,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "config.middleware.api_key_auth.APIKeyAuthMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -205,3 +206,8 @@ STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "pipeline")
 # Example: SILENCED_SYSTEM_CHECKS=checkers.W009,checkers.W010,checkers.I001
 _silenced = os.environ.get("SILENCED_SYSTEM_CHECKS", "")
 SILENCED_SYSTEM_CHECKS: list[str] = [c.strip() for c in _silenced.split(",") if c.strip()]
+
+# ---------------------------------------------------------------------------
+# API Key Authentication
+# ---------------------------------------------------------------------------
+API_KEY_AUTH_ENABLED = os.environ.get("API_KEY_AUTH_ENABLED", "0") == "1"
