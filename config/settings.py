@@ -72,6 +72,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "config.middleware.api_key_auth.APIKeyAuthMiddleware",
+    "config.middleware.rate_limit.RateLimitMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -211,3 +212,15 @@ SILENCED_SYSTEM_CHECKS: list[str] = [c.strip() for c in _silenced.split(",") if 
 # API Key Authentication
 # ---------------------------------------------------------------------------
 API_KEY_AUTH_ENABLED = os.environ.get("API_KEY_AUTH_ENABLED", "0") == "1"
+
+# ---------------------------------------------------------------------------
+# Rate Limiting
+# ---------------------------------------------------------------------------
+RATE_LIMIT_ENABLED = os.environ.get("RATE_LIMIT_ENABLED", "0") == "1"
+
+RATE_LIMITS = {
+    "/alerts/": 120,
+    "/orchestration/": 30,
+    "/notify/": 30,
+    "/intelligence/": 20,
+}
