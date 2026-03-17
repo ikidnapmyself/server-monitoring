@@ -115,3 +115,47 @@ class WebhookSignatureIntegrationTests(TestCase):
             content_type="application/json",
         )
         assert response.status_code != 403
+
+    @patch.dict(os.environ, {"ENABLE_CELERY_ORCHESTRATION": "0"})
+    def test_invalid_driver_name_skips_signature_check(self):
+        """Invalid driver in URL triggers ValueError catch, skips sig check."""
+        payload = json.dumps({"name": "Test", "status": "firing"})
+
+        client = Client()
+        response = client.post(
+            "/alerts/webhook/nonexistent_driver/",
+            data=payload,
+            content_type="application/json",
+        )
+        assert response.status_code != 403
+
+    @patch.dict(os.environ, {"ENABLE_CELERY_ORCHESTRATION": "0"})
+    def test_driver_without_signature_header_skips_check(self):
+        """Alertmanager has no signature_header — verification is skipped."""
+        payload = json.dumps(
+            {
+                "version": "4",
+                "groupKey": "test",
+                "receiver": "webhook",
+                "status": "firing",
+                "alerts": [
+                    {
+                        "status": "firing",
+                        "labels": {"alertname": "Test", "severity": "warning"},
+                        "annotations": {},
+                        "startsAt": "2024-01-08T10:00:00Z",
+                        "fingerprint": "fp1",
+                    }
+                ],
+                "groupLabels": {},
+                "commonLabels": {},
+            }
+        )
+
+        client = Client()
+        response = client.post(
+            "/alerts/webhook/alertmanager/",
+            data=payload,
+            content_type="application/json",
+        )
+        assert response.status_code != 403
