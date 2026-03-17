@@ -51,7 +51,7 @@ class AlertWebhookView(View):
                     sig_driver = get_driver(driver)
                 except ValueError:
                     return JsonResponse(
-                        {"status": "error", "message": f"Unknown driver: {driver}"},
+                        {"status": "error", "message": "Unknown driver"},
                         status=400,
                     )
             else:

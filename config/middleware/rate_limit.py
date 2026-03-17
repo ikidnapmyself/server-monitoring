@@ -62,8 +62,15 @@ class RateLimitMiddleware:
         # doesn't exist yet; incr bumps it when it already exists.  Both
         # operations are atomic on all cache backends that support them, avoiding
         # the non-atomic get-then-set race that could undercount under load.
+        # If the key expires in the tiny window between add() returning False and
+        # the incr() call, incr() raises ValueError on some backends — we handle
+        # that by re-seeding the key at 1 (conservative: treats it as a fresh window).
         if not cache.add(cache_key, 1, timeout=120):
-            count = cache.incr(cache_key)
+            try:
+                count = cache.incr(cache_key)
+            except ValueError:
+                cache.add(cache_key, 1, timeout=120)
+                count = 1
         else:
             count = 1
 

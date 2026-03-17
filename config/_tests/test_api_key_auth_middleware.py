@@ -74,6 +74,11 @@ class APIKeyAuthMiddlewareTests(TestCase):
         response = self.client.get("/intelligence/health/")
         assert response.status_code == 200
 
+    def test_get_alerts_webhook_driver_subpath_requires_auth(self):
+        """GET /alerts/webhook/<driver>/ is NOT in HEALTH_CHECK_PATHS and must require auth."""
+        response = self.client.get("/alerts/webhook/grafana/")
+        assert response.status_code == 401
+
     def test_get_operational_endpoint_requires_auth(self):
         """GET /intelligence/providers/ returns operational data and must require a key."""
         response = self.client.get("/intelligence/providers/")

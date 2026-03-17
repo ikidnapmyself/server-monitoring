@@ -144,3 +144,19 @@ class RateLimitMiddlewareTests(TestCase):
             content_type="application/json",
         )
         assert response.status_code == 429
+
+    def test_incr_value_error_falls_back_gracefully(self):
+        """If cache.incr() raises ValueError (key evicted between add and incr),
+        the middleware reseeds the key at 1 and lets the request through."""
+        with patch("config.middleware.rate_limit.cache") as mock_cache:
+            mock_cache.add.return_value = False  # key appears to exist
+            mock_cache.incr.side_effect = ValueError("key not found")
+            # second add() for the fallback seed
+            mock_cache.add.side_effect = [False, True]
+            response = self.client.post(
+                "/alerts/webhook/",
+                data=json.dumps({"name": "Test", "status": "firing"}),
+                content_type="application/json",
+            )
+        # Request should pass through (count = 1, well under limit)
+        assert response.status_code != 429

@@ -41,7 +41,7 @@ class APIKeyAuthMiddleware:
         if not any(path.startswith(prefix) for prefix in API_PATH_PREFIXES):
             return self.get_response(request)
 
-        if request.method == "GET" and any(path.startswith(p) for p in HEALTH_CHECK_PATHS):
+        if request.method == "GET" and path in HEALTH_CHECK_PATHS:
             return self.get_response(request)
 
         key = self._extract_key(request)
