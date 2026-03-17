@@ -128,9 +128,14 @@ Keys can optionally restrict access to specific path prefixes via the `allowed_e
 
 ### Exempt Paths
 
-- `GET` requests to any API endpoint (health checks)
-- `/admin/*` (uses Django session auth)
+The following paths do **not** require an API key:
+
+- `/alerts/webhook/` — `GET` health check for the webhook endpoint
+- `/intelligence/health/` — `GET` service health status
+- `/admin/*` — Django session auth (not API key auth)
 - `/static/*`
+
+All other `GET` and `POST` requests on API paths (`/alerts/`, `/orchestration/`, `/notify/`, `/intelligence/`) require a valid key. In particular, data-returning endpoints such as `/orchestration/pipelines/`, `/intelligence/providers/`, and `/intelligence/recommendations/` are **not** exempt.
 
 ## Webhook Signature Verification
 
@@ -158,7 +163,7 @@ Drivers without native signature support (Alertmanager, Datadog, OpsGenie, Zabbi
 
 ## Rate Limiting
 
-Application-level rate limiting using Django cache with sliding window counters.
+Application-level rate limiting using Django cache with fixed-window counters (one bucket per UTC minute per identity/prefix).
 
 ### Configuration
 

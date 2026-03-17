@@ -64,9 +64,30 @@ class APIKeyAuthMiddlewareTests(TestCase):
         response = self.client.get("/admin/login/")
         assert response.status_code == 200
 
-    def test_get_health_check_exempt(self):
+    def test_get_alerts_webhook_health_check_exempt(self):
+        """GET /alerts/webhook/ is a health-check endpoint and is exempt from auth."""
         response = self.client.get("/alerts/webhook/")
         assert response.status_code == 200
+
+    def test_get_intelligence_health_exempt(self):
+        """GET /intelligence/health/ is a health-check endpoint and is exempt from auth."""
+        response = self.client.get("/intelligence/health/")
+        assert response.status_code == 200
+
+    def test_get_alerts_webhook_driver_subpath_requires_auth(self):
+        """GET /alerts/webhook/<driver>/ is NOT in HEALTH_CHECK_PATHS and must require auth."""
+        response = self.client.get("/alerts/webhook/grafana/")
+        assert response.status_code == 401
+
+    def test_get_operational_endpoint_requires_auth(self):
+        """GET /intelligence/providers/ returns operational data and must require a key."""
+        response = self.client.get("/intelligence/providers/")
+        assert response.status_code == 401
+
+    def test_get_orchestration_endpoint_requires_auth(self):
+        """GET /orchestration/pipelines/ returns operational data and must require a key."""
+        response = self.client.get("/orchestration/pipelines/")
+        assert response.status_code == 401
 
     @override_settings(API_KEY_AUTH_ENABLED=False)
     def test_disabled_skips_auth(self):

@@ -11,11 +11,19 @@ logger = logging.getLogger(__name__)
 EXEMPT_PATH_PREFIXES = ("/admin/", "/static/")
 API_PATH_PREFIXES = ("/alerts/", "/orchestration/", "/notify/", "/intelligence/")
 
+# Only these specific GET paths are treated as health checks and exempted from auth.
+# Other GET endpoints that return operational data still require a valid API key.
+HEALTH_CHECK_PATHS = (
+    "/alerts/webhook/",
+    "/intelligence/health/",
+)
+
 
 class APIKeyAuthMiddleware:
     """Stateless API key auth. Checks Bearer/X-API-Key header on API paths.
 
-    Admin paths use Django session auth. GET requests exempt (health checks).
+    Admin paths use Django session auth.
+    Health-check GET paths are exempt; all other requests on API paths require a key.
     """
 
     def __init__(self, get_response):
@@ -33,7 +41,7 @@ class APIKeyAuthMiddleware:
         if not any(path.startswith(prefix) for prefix in API_PATH_PREFIXES):
             return self.get_response(request)
 
-        if request.method == "GET":
+        if request.method == "GET" and path in HEALTH_CHECK_PATHS:
             return self.get_response(request)
 
         key = self._extract_key(request)

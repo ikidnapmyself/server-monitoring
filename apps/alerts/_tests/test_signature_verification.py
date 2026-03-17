@@ -38,6 +38,16 @@ class BaseDriverSignatureTests(TestCase):
         digest = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
         assert driver.verify_signature(body, f"sha256={digest}", secret) is True
 
+    def test_verify_signature_sha1_prefix_rejected(self):
+        """sha1= prefix is not stripped; comparison with SHA-256 digest always fails."""
+        driver = GenericWebhookDriver()
+        body = b'{"test": true}'
+        secret = "my-secret"
+        # Even if someone sends the correct SHA-256 hex with a sha1= prefix,
+        # we do NOT strip it and the comparison must fail.
+        digest = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        assert driver.verify_signature(body, f"sha1={digest}", secret) is False
+
 
 class DriverSignatureHeaderTests(TestCase):
     def test_grafana_header(self):
@@ -117,8 +127,8 @@ class WebhookSignatureIntegrationTests(TestCase):
         assert response.status_code != 403
 
     @patch.dict(os.environ, {"ENABLE_CELERY_ORCHESTRATION": "0"})
-    def test_invalid_driver_name_skips_signature_check(self):
-        """Invalid driver in URL triggers ValueError catch, skips sig check."""
+    def test_invalid_driver_name_returns_400(self):
+        """Invalid driver in URL path returns 400 Bad Request."""
         payload = json.dumps({"name": "Test", "status": "firing"})
 
         client = Client()
@@ -127,7 +137,8 @@ class WebhookSignatureIntegrationTests(TestCase):
             data=payload,
             content_type="application/json",
         )
-        assert response.status_code != 403
+        assert response.status_code == 400
+        assert "Unknown driver" in response.json()["message"]
 
     @patch.dict(os.environ, {"ENABLE_CELERY_ORCHESTRATION": "0"})
     def test_driver_without_signature_header_skips_check(self):
