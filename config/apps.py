@@ -13,3 +13,12 @@ class ConfigAppConfig(AppConfig):
     name = "config"
     label = "config_app"
     verbose_name = "Config"
+
+    def ready(self):
+        from django.contrib import admin
+
+        from config.admin import APIKeyAdmin
+        from config.models import APIKey
+
+        if APIKey not in admin.site._registry:
+            admin.site.register(APIKey, APIKeyAdmin)
