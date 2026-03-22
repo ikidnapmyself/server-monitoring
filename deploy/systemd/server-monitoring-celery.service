@@ -1,0 +1,18 @@
+[Unit]
+Description=Server Monitoring Celery Worker
+After=network.target redis.service
+Requires=redis.service
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/server-monitoring
+EnvironmentFile=/etc/server-monitoring/env
+ExecStart=/opt/server-monitoring/.venv/bin/celery -A config worker \
+    --loglevel=info \
+    --concurrency=2
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
