@@ -26,4 +26,4 @@ class APIKeyAdmin(admin.ModelAdmin):
 
     @admin.display(description="Key")
     def masked_key(self, obj):
-        return f"{obj.key[:8]}***"
+        return f"{obj.prefix}***"

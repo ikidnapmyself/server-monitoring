@@ -1,5 +1,6 @@
 """Models for the config app (API keys, etc.)."""
 
+import hashlib
 import secrets
 
 from django.db import models
@@ -8,7 +9,8 @@ from django.db import models
 class APIKey(models.Model):
     """API key for authenticating stateless API requests."""
 
-    key = models.CharField(max_length=40, unique=True, db_index=True, editable=False)
+    key = models.CharField(max_length=64, unique=True, db_index=True, editable=False)
+    prefix = models.CharField(max_length=8, editable=False, default="")
     name = models.CharField(max_length=100, help_text="Human-readable label for this key")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -30,7 +32,10 @@ class APIKey(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.key:
-            self.key = self.generate_key()
+            raw_key = self.generate_key()
+            self._raw_key = raw_key
+            self.prefix = raw_key[:8]
+            self.key = hashlib.sha256(raw_key.encode()).hexdigest()
         super().save(*args, **kwargs)
 
     @staticmethod
