@@ -36,6 +36,7 @@ class GrafanaDriver(BaseAlertDriver):
     """
 
     name = "grafana"
+    signature_header = "X-Grafana-Signature"
 
     def validate(self, payload: dict[str, Any]) -> bool:
         """Check if this looks like a Grafana payload."""
