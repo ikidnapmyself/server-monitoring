@@ -1,14 +1,15 @@
 """API key authentication middleware for stateless API access."""
 
+import hashlib
 import logging
 
 from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 
-logger = logging.getLogger(__name__)
+from config.middleware.constants import EXEMPT_PATH_PREFIXES
 
-EXEMPT_PATH_PREFIXES = ("/admin/", "/static/")
+logger = logging.getLogger(__name__)
 API_PATH_PREFIXES = ("/alerts/", "/orchestration/", "/notify/", "/intelligence/")
 
 # Only these specific GET paths are treated as health checks and exempted from auth.
@@ -59,7 +60,9 @@ class APIKeyAuthMiddleware:
         from config.models import APIKey
 
         try:
-            api_key = APIKey.objects.get(key=key, is_active=True)
+            api_key = APIKey.objects.get(
+                key=hashlib.sha256(key.encode()).hexdigest(), is_active=True
+            )
         except APIKey.DoesNotExist:
             return JsonResponse({"error": "Invalid or inactive API key."}, status=401)
 

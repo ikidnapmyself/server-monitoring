@@ -26,7 +26,7 @@ class APIKeyAuthMiddlewareTests(TestCase):
             "/alerts/webhook/",
             data=json.dumps({"name": "Test", "status": "firing"}),
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.api_key.key}",
+            HTTP_AUTHORIZATION=f"Bearer {self.api_key._raw_key}",
         )
         # Should not be 401 — key is valid
         assert response.status_code != 401
@@ -36,7 +36,7 @@ class APIKeyAuthMiddlewareTests(TestCase):
             "/alerts/webhook/",
             data=json.dumps({"name": "Test", "status": "firing"}),
             content_type="application/json",
-            HTTP_X_API_KEY=self.api_key.key,
+            HTTP_X_API_KEY=self.api_key._raw_key,
         )
         assert response.status_code != 401
 
@@ -56,7 +56,7 @@ class APIKeyAuthMiddlewareTests(TestCase):
             "/alerts/webhook/",
             data=json.dumps({"test": True}),
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.api_key.key}",
+            HTTP_AUTHORIZATION=f"Bearer {self.api_key._raw_key}",
         )
         assert response.status_code == 401
 
@@ -103,7 +103,7 @@ class APIKeyAuthMiddlewareTests(TestCase):
             "/alerts/webhook/",
             data=json.dumps({"name": "Test", "status": "firing"}),
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.api_key.key}",
+            HTTP_AUTHORIZATION=f"Bearer {self.api_key._raw_key}",
         )
         self.api_key.refresh_from_db()
         assert self.api_key.last_used_at is not None
@@ -116,7 +116,7 @@ class APIKeyAuthMiddlewareTests(TestCase):
             "/alerts/webhook/",
             data=json.dumps({"name": "Test", "status": "firing"}),
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.api_key.key}",
+            HTTP_AUTHORIZATION=f"Bearer {self.api_key._raw_key}",
         )
         assert response.status_code != 403
         # Disallowed
@@ -124,7 +124,7 @@ class APIKeyAuthMiddlewareTests(TestCase):
             "/notify/send/",
             data=json.dumps({"title": "T", "message": "M"}),
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.api_key.key}",
+            HTTP_AUTHORIZATION=f"Bearer {self.api_key._raw_key}",
         )
         assert response.status_code == 403
 

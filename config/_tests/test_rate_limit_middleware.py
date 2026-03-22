@@ -89,17 +89,19 @@ class RateLimitMiddlewareTests(TestCase):
                 "/alerts/webhook/",
                 data=json.dumps({"name": "Test", "status": "firing"}),
                 content_type="application/json",
-                HTTP_X_API_KEY=key.key,
+                HTTP_X_API_KEY=key._raw_key,
             )
         response = self.client.post(
             "/alerts/webhook/",
             data=json.dumps({"name": "Test", "status": "firing"}),
             content_type="application/json",
-            HTTP_X_API_KEY=key.key,
+            HTTP_X_API_KEY=key._raw_key,
         )
         assert response.status_code == 429
 
-    def test_x_forwarded_for_identity(self):
+    def test_x_forwarded_for_does_not_bypass_rate_limit(self):
+        """X-Forwarded-For is not trusted; different XFF values share the same REMOTE_ADDR bucket."""
+        # Exhaust the limit using one XFF value
         for _ in range(5):
             self.client.post(
                 "/alerts/webhook/",
@@ -107,11 +109,13 @@ class RateLimitMiddlewareTests(TestCase):
                 content_type="application/json",
                 HTTP_X_FORWARDED_FOR="1.2.3.4",
             )
+        # A request with a *different* XFF value must still be rate-limited because
+        # identity is based on REMOTE_ADDR (same for all test-client requests), not XFF.
         response = self.client.post(
             "/alerts/webhook/",
             data=json.dumps({"name": "Test", "status": "firing"}),
             content_type="application/json",
-            HTTP_X_FORWARDED_FOR="1.2.3.4",
+            HTTP_X_FORWARDED_FOR="9.9.9.9",
         )
         assert response.status_code == 429
 

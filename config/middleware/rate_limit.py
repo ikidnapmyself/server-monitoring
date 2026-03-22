@@ -7,9 +7,9 @@ from django.conf import settings
 from django.core.cache import cache
 from django.http import JsonResponse
 
-logger = logging.getLogger(__name__)
+from config.middleware.constants import EXEMPT_PATH_PREFIXES
 
-EXEMPT_PATH_PREFIXES = ("/admin/", "/static/")
+logger = logging.getLogger(__name__)
 
 DEFAULT_RATE_LIMITS = {
     "/alerts/": 120,
@@ -91,8 +91,6 @@ class RateLimitMiddleware:
         api_key = getattr(request, "api_key", None)
         if api_key:
             parts = ("key", api_key.name)
-        elif request.META.get("HTTP_X_FORWARDED_FOR"):
-            parts = ("ip", request.META["HTTP_X_FORWARDED_FOR"].split(",")[0].strip())
         else:
             parts = ("ip", request.META.get("REMOTE_ADDR", "unknown"))
         return ":".join(parts)
