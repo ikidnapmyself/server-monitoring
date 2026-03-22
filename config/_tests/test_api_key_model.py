@@ -51,6 +51,17 @@ class APIKeyModelTests(TestCase):
         key = APIKey.objects.create(name="test")
         assert key.allowed_endpoints == []
 
+    def test_resave_does_not_rehash(self):
+        """Subsequent saves must not regenerate or re-hash the key (hash-only-on-creation)."""
+        key = APIKey.objects.create(name="resave-check")
+        original_hash = key.key
+        original_prefix = key.prefix
+        key.is_active = False
+        key.save()
+        key.refresh_from_db()
+        assert key.key == original_hash
+        assert key.prefix == original_prefix
+
     def test_raw_key_not_stored_in_db(self):
         key = APIKey.objects.create(name="db-check")
         raw = key._raw_key

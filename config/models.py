@@ -7,7 +7,17 @@ from django.db import models
 
 
 class APIKey(models.Model):
-    """API key for authenticating stateless API requests."""
+    """API key for authenticating stateless API requests.
+
+    The raw token is never persisted. ``key`` stores its SHA-256 hex digest
+    (64 chars). ``prefix`` stores the first 8 chars of the raw token for safe
+    admin display.
+
+    ``_raw_key`` (str) — Transient instance attribute set only during initial
+    ``save()`` when a key is first generated. Not persisted to the database.
+    Access it immediately after ``create()``; it will be absent on any
+    subsequently fetched instance.
+    """
 
     key = models.CharField(max_length=64, unique=True, db_index=True, editable=False)
     prefix = models.CharField(max_length=8, editable=False, default="")
@@ -31,6 +41,9 @@ class APIKey(models.Model):
         return f"{self.name} ({'active' if self.is_active else 'inactive'})"
 
     def save(self, *args, **kwargs):
+        # Hash only on initial creation: once a key is stored as a SHA-256
+        # digest it must never be re-hashed.  Subsequent saves (e.g. updating
+        # is_active or last_used_at) leave ``key`` and ``prefix`` untouched.
         if not self.key:
             raw_key = self.generate_key()
             self._raw_key = raw_key
