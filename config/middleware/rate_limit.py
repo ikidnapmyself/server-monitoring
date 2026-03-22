@@ -94,5 +94,6 @@ class RateLimitMiddleware:
 
         xff = request.META.get("HTTP_X_FORWARDED_FOR")
         if xff:
-            return f"ip:{xff.split(',')[0].strip()}"
-        return f"ip:{request.META.get('REMOTE_ADDR', 'unknown')}"
+            ip = xff.split(",")[0].strip()
+            return "ip:" + ip
+        return "ip:" + request.META.get("REMOTE_ADDR", "unknown")
