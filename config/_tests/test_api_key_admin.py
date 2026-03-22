@@ -25,7 +25,7 @@ class APIKeyAdminTests(TestCase):
         key = APIKey.objects.create(name="test")
         model_admin = admin.site._registry[APIKey]
         masked = model_admin.masked_key(key)
-        assert key.key[:8] in masked
+        assert key.prefix in masked
         assert "***" in masked
 
     def test_ready_idempotent(self):
