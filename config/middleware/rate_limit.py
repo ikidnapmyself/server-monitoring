@@ -90,12 +90,9 @@ class RateLimitMiddleware:
     def _get_identity(self, request) -> str:
         api_key = getattr(request, "api_key", None)
         if api_key:
-            identity = "key:" + api_key.name
-            return identity
-
-        xff = request.META.get("HTTP_X_FORWARDED_FOR")
-        if xff:
-            identity = "ip:" + xff.split(",")[0].strip()
-            return identity
-        identity = "ip:" + request.META.get("REMOTE_ADDR", "unknown")
-        return identity
+            parts = ("key", api_key.name)
+        elif request.META.get("HTTP_X_FORWARDED_FOR"):
+            parts = ("ip", request.META["HTTP_X_FORWARDED_FOR"].split(",")[0].strip())
+        else:
+            parts = ("ip", request.META.get("REMOTE_ADDR", "unknown"))
+        return ":".join(parts)
