@@ -1,10 +1,15 @@
 # NOTE: Redis service name varies by distro:
 #   Debian/Ubuntu: redis-server.service
 #   RHEL/Fedora/Arch: redis.service
+# Adjust "After=" and "Wants=" below to match your distro's unit name.
+# "Wants=" (rather than "Requires=") allows the worker to still be activated
+# if the Redis unit name doesn't match — systemd will log a warning rather than
+# blocking startup, with Redis remaining a hard prerequisite (Celery will error on
+# connection anyway); change to "Requires=" if you want a hard dependency.
 [Unit]
 Description=Server Monitoring Celery Worker
 After=network.target redis-server.service
-Requires=redis-server.service
+Wants=redis-server.service
 
 [Service]
 User=www-data
