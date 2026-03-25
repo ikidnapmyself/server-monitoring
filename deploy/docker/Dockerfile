@@ -20,8 +20,14 @@ WORKDIR /app
 # Copy installed virtualenv from builder
 COPY --from=builder /app/.venv /app/.venv
 
+# Create non-root user for running the application
+RUN groupadd --system appuser && useradd --system --gid appuser appuser
+
 # Copy application code
 COPY . .
+
+# Create data directory and set ownership
+RUN mkdir -p /app/data && chown -R appuser:appuser /app
 
 # Ensure virtualenv is on PATH
 ENV PATH="/app/.venv/bin:$PATH"
@@ -31,5 +37,8 @@ ENV DATABASE_PATH=/app/data/db.sqlite3
 
 EXPOSE 8000
 
+# Run as non-root user
+USER appuser
+
 # collectstatic + migrate run at startup (requires DJANGO_SECRET_KEY from env)
-CMD ["sh", "-c", "mkdir -p /app/data && python manage.py collectstatic --noinput && python manage.py migrate --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers ${WEB_CONCURRENCY:-3}"]
+CMD ["sh", "-c", "python manage.py collectstatic --noinput && python manage.py migrate --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers ${WEB_CONCURRENCY:-3}"]
