@@ -1,7 +1,6 @@
 [Unit]
 Description=Server Monitoring (gunicorn)
-After=network.target redis.service
-Requires=redis.service
+After=network.target
 
 [Service]
 User=www-data

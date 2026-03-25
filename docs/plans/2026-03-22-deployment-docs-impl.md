@@ -5,8 +5,6 @@ parent: Plans
 
 # Deployment Documentation Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Add production deployment config files and documentation so users can deploy with Docker Compose or systemd + Nginx.
 
 **Architecture:** Config files in `deploy/` (Docker, systemd, Nginx), full guide in `docs/Deployment.md`, summary section added to `docs/Installation.md`. Gunicorn added as a production dependency.
@@ -20,17 +18,15 @@ parent: Plans
 **Files:**
 - Modify: `pyproject.toml`
 
-**Step 1: Add gunicorn to project dependencies**
+**Step 1: Add gunicorn as an optional production dependency**
 
-In `pyproject.toml`, add `gunicorn` to the `dependencies` list:
+In `pyproject.toml`, add a `prod` optional dependency group:
 
 ```toml
-dependencies = [
-    "celery>=5.6.2",
-    "coverage>=7.13.1",
-    "django>=5.2.10",
+[project.optional-dependencies]
+prod = [
     "gunicorn>=22.0.0",
-    ...
+]
 ```
 
 **Step 2: Sync dependencies**

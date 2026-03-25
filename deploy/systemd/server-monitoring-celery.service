@@ -1,7 +1,10 @@
+# NOTE: Redis service name varies by distro:
+#   Debian/Ubuntu: redis-server.service
+#   RHEL/Fedora/Arch: redis.service
 [Unit]
 Description=Server Monitoring Celery Worker
-After=network.target redis.service
-Requires=redis.service
+After=network.target redis-server.service
+Requires=redis-server.service
 
 [Service]
 User=www-data

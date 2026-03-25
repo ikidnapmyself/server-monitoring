@@ -65,7 +65,8 @@ cd server-monitoring
 cp .env.sample .env
 ```
 
-Edit `.env` with the production values from the table above.
+Edit `.env` with the production values from the table above. The Docker Compose file reads all
+config from `.env` — no values are hardcoded in the compose file.
 
 ### 1.2 Start the stack
 
@@ -125,7 +126,9 @@ For full control on a Linux server.
 ```bash
 # Ubuntu/Debian
 sudo apt install redis-server
-sudo systemctl enable --now redis
+# On Debian/Ubuntu the service is usually named redis-server
+# On RHEL/Fedora/Arch it's redis
+sudo systemctl enable --now redis-server
 
 # Verify
 redis-cli ping   # Should return PONG
@@ -139,11 +142,9 @@ sudo chown www-data:www-data /opt/server-monitoring
 sudo -u www-data git clone git@github.com:ikidnapmyself/server-monitoring.git /opt/server-monitoring
 cd /opt/server-monitoring
 
-# Install uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Install dependencies with gunicorn
-uv sync --frozen --no-dev --extra prod
+# Install uv and dependencies as www-data
+sudo -u www-data sh -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'
+sudo -u www-data uv sync --frozen --no-dev --extra prod
 ```
 
 ### 2.3 Configure environment
@@ -157,7 +158,8 @@ DJANGO_ALLOWED_HOSTS=monitoring.example.com
 CELERY_BROKER_URL=redis://localhost:6379/0
 ENABLE_CELERY_ORCHESTRATION=1
 EOF
-sudo chmod 600 /etc/server-monitoring/env
+sudo chown root:www-data /etc/server-monitoring/env
+sudo chmod 640 /etc/server-monitoring/env
 ```
 
 ### 2.4 Run migrations and collect static files
@@ -193,25 +195,28 @@ curl --unix-socket /run/server-monitoring/gunicorn.sock http://localhost/alerts/
 
 ## Nginx Reverse Proxy
 
-A sample config is provided at `deploy/docker/nginx.conf`. It works for both Docker and systemd deployments with minor adjustments.
+A sample config is provided at `deploy/docker/nginx.conf`. Two values must be adjusted per deployment:
+
+| Setting | Docker | systemd |
+|---------|--------|---------|
+| `upstream` | `server web:8000;` | `server unix:/run/server-monitoring/gunicorn.sock;` |
+| `location /static/ alias` | `/app/staticfiles/` (shared volume) | `/opt/server-monitoring/staticfiles/` |
 
 ### Docker setup
 
-Nginx runs on the host (or as another container) and proxies to the `web` service:
-
-```nginx
-upstream django {
-    server web:8000;        # Docker service name
-}
-```
+Nginx runs on the host (or as another container) and proxies to the `web` service. If Nginx runs as a separate container, it needs access to the same staticfiles volume or network.
 
 ### systemd setup
 
-Change the upstream to use the gunicorn unix socket:
+Change both the upstream and the static files path:
 
 ```nginx
 upstream django {
     server unix:/run/server-monitoring/gunicorn.sock;
+}
+
+location /static/ {
+    alias /opt/server-monitoring/staticfiles/;
 }
 ```
 
