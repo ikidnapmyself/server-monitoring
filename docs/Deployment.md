@@ -57,6 +57,8 @@ python -c "from django.core.management.utils import get_random_secret_key; print
 
 The fastest way to get a production stack running. Includes Django (gunicorn), Celery worker, and Redis.
 
+> **Quick start:** Run `./bin/install.sh` and select **docker** mode to automate the steps below (`.env` setup, build, start, and health verification).
+
 ### 1.1 Clone and configure
 
 ```bash
