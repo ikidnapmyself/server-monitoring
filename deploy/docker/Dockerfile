@@ -19,14 +19,13 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Copy installed virtualenv from builder
-COPY --from=builder /app/.venv /app/.venv
-
 # Create non-root user for running the application
 RUN groupadd --system appuser && useradd --system --gid appuser appuser
 
-# Copy application code
+# Copy application code first, then overlay the builder's virtualenv
+# (COPY . . must come before the .venv copy so it doesn't overwrite it)
 COPY . .
+COPY --from=builder /app/.venv /app/.venv
 
 # Create data directory and set ownership
 RUN mkdir -p /app/data && chown -R appuser:appuser /app
