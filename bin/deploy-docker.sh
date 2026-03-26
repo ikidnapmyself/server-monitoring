@@ -82,4 +82,91 @@ info "Starting Docker Compose stack..."
 docker compose -f "$COMPOSE_FILE" up -d
 success "Docker Compose stack started"
 
+# ===========================================
+#   Health Verification
+# ===========================================
+
+echo ""
+echo "============================================"
+echo "   Health Verification"
+echo "============================================"
+echo ""
+
+info "Verifying stack health (timeout: 60s)..."
+
+TIMEOUT=60
+INTERVAL=5
+ELAPSED=0
+REDIS_OK=false
+WEB_OK=false
+CELERY_OK=false
+
+while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
+    # Redis check
+    if [ "$REDIS_OK" = false ]; then
+        if docker compose -f "$COMPOSE_FILE" exec -T redis redis-cli ping 2>/dev/null | grep -q PONG; then
+            REDIS_OK=true
+            success "Redis is healthy"
+        fi
+    fi
+
+    # Web check
+    if [ "$WEB_OK" = false ]; then
+        WEB_STATE=$(docker compose -f "$COMPOSE_FILE" ps --format json web 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+if isinstance(data, list):
+    data = data[0] if data else {}
+print(data.get('State', ''))" 2>/dev/null || true)
+        if [ "$WEB_STATE" = "running" ]; then
+            WEB_OK=true
+            success "Web service is healthy"
+        fi
+    fi
+
+    # Celery check
+    if [ "$CELERY_OK" = false ]; then
+        CELERY_STATE=$(docker compose -f "$COMPOSE_FILE" ps --format json celery 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+if isinstance(data, list):
+    data = data[0] if data else {}
+print(data.get('State', ''))" 2>/dev/null || true)
+        if [ "$CELERY_STATE" = "running" ]; then
+            CELERY_OK=true
+            success "Celery service is healthy"
+        fi
+    fi
+
+    # All healthy — break early
+    if [ "$REDIS_OK" = true ] && [ "$WEB_OK" = true ] && [ "$CELERY_OK" = true ]; then
+        break
+    fi
+
+    sleep "$INTERVAL"
+    ELAPSED=$((ELAPSED + INTERVAL))
+done
+
+# Report failures
+FAILED=false
+if [ "$REDIS_OK" = false ]; then
+    error "Redis failed to become healthy. Check logs: docker compose -f $COMPOSE_FILE logs redis"
+    FAILED=true
+fi
+if [ "$WEB_OK" = false ]; then
+    error "Web service failed to become healthy. Check logs: docker compose -f $COMPOSE_FILE logs web"
+    FAILED=true
+fi
+if [ "$CELERY_OK" = false ]; then
+    error "Celery service failed to become healthy. Check logs: docker compose -f $COMPOSE_FILE logs celery"
+    FAILED=true
+fi
+
+if [ "$FAILED" = true ]; then
+    exit 1
+fi
+
+echo ""
+success "All services are healthy"
+
 echo ""
