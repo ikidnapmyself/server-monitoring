@@ -91,19 +91,9 @@ dotenv_prompt_setup() {
     echo ""
     info "This will append missing values to .env (it will not overwrite existing entries)."
 
-    local MODE=""
-    while true; do
-        read -p "Configure for [d]ev or [p]roduction? (default: dev): " -r MODE
-        MODE="${MODE:-d}"
-        case "$MODE" in
-            d|dev|Dev|DEV) MODE="dev"; break ;;
-            p|prod|production|Prod|PROD|PRODUCTION) MODE="prod"; break ;;
-            *) warn "Please enter dev or production." ;;
-        esac
-    done
-
-    # Expose selection outside this function.
-    INSTALL_MODE="$MODE"
+    # Use the mode already selected at the top-level prompt
+    local MODE="$INSTALL_MODE"
+    info "Configuring .env for $MODE mode."
 
     # Set DJANGO_ENV based on mode (only if missing)
     if [ "$MODE" = "prod" ]; then
@@ -377,12 +367,10 @@ if [ "$INSTALL_MODE" = "docker" ]; then
     # Docker mode
     # -----------------------------------------------------------------------
     info "Checking Docker daemon..."
-    if ! command_exists docker; then
-        error "Docker is not installed. Please install Docker first."
-        exit 1
-    fi
-    if ! docker info >/dev/null 2>&1; then
-        error "Docker daemon is not running. Please start Docker and try again."
+    if ! command_exists docker || ! docker info >/dev/null 2>&1; then
+        error "Docker is not running."
+        echo "  Docker is required. Install it from https://docs.docker.com/get-docker/"
+        echo "  and ensure the daemon is running."
         exit 1
     fi
     success "Docker daemon is running"

@@ -30,6 +30,33 @@ success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# Get the state of a docker compose service.
+# Handles both JSON array (Compose v2.21+) and NDJSON (older v2) formats.
+# Usage: get_service_state <service_name>
+get_service_state() {
+    local service="$1"
+    docker compose -f "$COMPOSE_FILE" ps --format json 2>/dev/null | python3 -c "
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        data = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    if isinstance(data, list):
+        for d in data:
+            if d.get('Service') == '$service':
+                print(d.get('State', ''))
+                sys.exit(0)
+    elif isinstance(data, dict):
+        if data.get('Service') == '$service':
+            print(data.get('State', ''))
+            sys.exit(0)
+" 2>/dev/null || true
+}
+
 # ===========================================
 #   Pre-flight checks
 # ===========================================
@@ -112,12 +139,7 @@ while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
 
     # Web check
     if [ "$WEB_OK" = false ]; then
-        WEB_STATE=$(docker compose -f "$COMPOSE_FILE" ps --format json web 2>/dev/null | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-if isinstance(data, list):
-    data = data[0] if data else {}
-print(data.get('State', ''))" 2>/dev/null || true)
+        WEB_STATE=$(get_service_state web)
         if [ "$WEB_STATE" = "running" ]; then
             WEB_OK=true
             success "Web service is healthy"
@@ -126,12 +148,7 @@ print(data.get('State', ''))" 2>/dev/null || true)
 
     # Celery check
     if [ "$CELERY_OK" = false ]; then
-        CELERY_STATE=$(docker compose -f "$COMPOSE_FILE" ps --format json celery 2>/dev/null | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-if isinstance(data, list):
-    data = data[0] if data else {}
-print(data.get('State', ''))" 2>/dev/null || true)
+        CELERY_STATE=$(get_service_state celery)
         if [ "$CELERY_STATE" = "running" ]; then
             CELERY_OK=true
             success "Celery service is healthy"
@@ -144,18 +161,8 @@ print(data.get('State', ''))" 2>/dev/null || true)
         sleep "$INTERVAL"
 
         # Re-check web and celery are still running (catches crash-restart loops)
-        WEB_RECHECK=$(docker compose -f "$COMPOSE_FILE" ps --format json web 2>/dev/null | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-if isinstance(data, list):
-    data = data[0] if data else {}
-print(data.get('State', ''))" 2>/dev/null || true)
-        CELERY_RECHECK=$(docker compose -f "$COMPOSE_FILE" ps --format json celery 2>/dev/null | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-if isinstance(data, list):
-    data = data[0] if data else {}
-print(data.get('State', ''))" 2>/dev/null || true)
+        WEB_RECHECK=$(get_service_state web)
+        CELERY_RECHECK=$(get_service_state celery)
 
         if [ "$WEB_RECHECK" != "running" ]; then
             WEB_OK=false
