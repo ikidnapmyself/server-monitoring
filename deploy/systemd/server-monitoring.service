@@ -1,0 +1,19 @@
+[Unit]
+Description=Server Monitoring (gunicorn)
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/server-monitoring
+EnvironmentFile=/etc/server-monitoring/env
+ExecStart=/opt/server-monitoring/.venv/bin/gunicorn config.wsgi:application \
+    --bind unix:/run/server-monitoring/gunicorn.sock \
+    --workers 3 \
+    --timeout 120
+Restart=on-failure
+RestartSec=5
+RuntimeDirectory=server-monitoring
+
+[Install]
+WantedBy=multi-user.target

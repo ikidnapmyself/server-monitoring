@@ -28,18 +28,18 @@ def hash_existing_keys(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('config_app', '0001_initial'),
+        ("config_app", "0001_initial"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='apikey',
-            name='prefix',
-            field=models.CharField(default='', editable=False, max_length=8),
+            model_name="apikey",
+            name="prefix",
+            field=models.CharField(default="", editable=False, max_length=8),
         ),
         migrations.AlterField(
-            model_name='apikey',
-            name='key',
+            model_name="apikey",
+            name="key",
             field=models.CharField(db_index=True, editable=False, max_length=64, unique=True),
         ),
         # Reverse is noop: SHA-256 hashing is one-way; raw keys cannot be recovered.

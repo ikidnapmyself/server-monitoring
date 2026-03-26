@@ -18,6 +18,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Production WSGI server — install with: uv sync --extra prod
+prod = [
+    "gunicorn>=22.0.0",
+]
 # AI provider SDKs — install with: uv sync --extra ai
 # Each SDK is guarded by a try/except ImportError in the provider registry,
 # so only the SDKs you install are available as active providers.

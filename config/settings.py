@@ -98,10 +98,18 @@ WSGI_APPLICATION = "config.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+_db_path_str = os.environ.get("DATABASE_PATH")
+_db_path: Path
+if _db_path_str:
+    _p = Path(_db_path_str)
+    _db_path = _p if _p.is_absolute() else BASE_DIR / _p
+else:
+    _db_path = BASE_DIR / "db.sqlite3"
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        "NAME": _db_path,
     }
 }
 
@@ -141,6 +149,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

@@ -310,3 +310,15 @@ uv run python manage.py run_pipeline --definition local-monitor
 ```
 
 For full pipeline documentation including node types, config options, and troubleshooting, see [`apps/orchestration/README.md`](../apps/orchestration/README.md).
+
+---
+
+## 8) Production deployment
+
+For production deployment with Celery workers, Redis, and Nginx, see the
+[Deployment Guide](Deployment.md). It covers:
+
+- **Docker Compose** — full stack with Django, Celery, and Redis (recommended for quick deploys)
+- **Bare metal / VPS** — systemd units for gunicorn and Celery worker
+- **Nginx reverse proxy** — static files, proxy headers, SSL termination
+- **Webhook ingestion** — async pipeline processing with automatic fallback

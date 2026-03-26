@@ -39,3 +39,6 @@ bin/aliases.sh
 
 # Git worktrees
 .worktrees/
+
+# Static files (collected)
+staticfiles/

@@ -1,0 +1,48 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    env_file: ../../.env
+    environment:
+      # Override broker URL so the web container uses the Compose Redis service
+      CELERY_BROKER_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - db-data:/app/data
+
+  celery:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    restart: unless-stopped
+    command: celery -A config worker -l info
+    env_file: ../../.env
+    environment:
+      # Override broker URL so the Celery worker uses the Compose Redis service
+      CELERY_BROKER_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - db-data:/app/data
+
+volumes:
+  redis-data:
+  db-data:

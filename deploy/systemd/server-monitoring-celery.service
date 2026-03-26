@@ -1,0 +1,26 @@
+# NOTE: Redis service name varies by distro:
+#   Debian/Ubuntu: redis-server.service
+#   RHEL/Fedora/Arch: redis.service
+# Both "After=" and "Wants=" below reference "redis-server.service" (Debian/Ubuntu default).
+# On RHEL/Fedora/Arch, change both to "redis.service" so that systemd ordering applies
+# correctly. "Wants=" (rather than "Requires=") avoids a hard startup failure if the unit
+# name doesn't match, but it does not fix the ordering — "After=" must also be correct for
+# the worker to start only after Redis is ready.
+[Unit]
+Description=Server Monitoring Celery Worker
+After=network.target redis-server.service
+Wants=redis-server.service
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/server-monitoring
+EnvironmentFile=/etc/server-monitoring/env
+ExecStart=/opt/server-monitoring/.venv/bin/celery -A config worker \
+    --loglevel=info \
+    --concurrency=2
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
