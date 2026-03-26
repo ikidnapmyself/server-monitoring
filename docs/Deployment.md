@@ -31,7 +31,7 @@ Create `/etc/server-monitoring/env` (systemd) or `.env` (Docker) with these valu
 | `DJANGO_DEBUG` | `1` | **Yes** (set `0`) | Disable debug mode in production |
 | `DJANGO_ALLOWED_HOSTS` | — | **Yes** | Comma-separated hostnames (e.g. `monitoring.example.com`) |
 | `CELERY_BROKER_URL` | `redis://localhost:6379/0` | No | Redis broker URL |
-| `ENABLE_CELERY_ORCHESTRATION` | `0` | No | Enable async pipeline via Celery |
+| `ENABLE_CELERY_ORCHESTRATION` | `1` | No | Enable async pipeline via Celery |
 | `API_KEY_AUTH_ENABLED` | `0` | No | Require API keys for endpoints |
 | `RATE_LIMIT_ENABLED` | `0` | No | Enable rate limiting middleware |
 | `WEBHOOK_SECRET_<DRIVER>` | — | No | Signature verification per driver (e.g. `WEBHOOK_SECRET_GRAFANA`) |
@@ -65,8 +65,10 @@ cd server-monitoring
 cp .env.sample .env
 ```
 
-Edit `.env` with the production values from the table above. The Docker Compose file reads all
-config from `.env` — no values are hardcoded in the compose file.
+Edit `.env` with the production values from the table above. The Docker Compose file reads
+config from `.env` and automatically overrides `CELERY_BROKER_URL` to use the internal
+`redis` service hostname — you do **not** need to change that value in `.env` for Docker
+deployments.
 
 ### 1.2 Start the stack
 
