@@ -277,7 +277,7 @@ check_python() {
     info "Checking Python version..."
     PYTHON_BIN=""
     for candidate in python3.13 python3.12 python3.11 python3.10 python3; do
-        if command_exists "$candidate"; then
+        if command_exists "$candidate" && "$candidate" --version >/dev/null 2>&1; then
             PYTHON_BIN="$candidate"
             break
         fi
