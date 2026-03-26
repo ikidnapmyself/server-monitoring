@@ -138,9 +138,38 @@ print(data.get('State', ''))" 2>/dev/null || true)
         fi
     fi
 
-    # All healthy — break early
+    # All healthy — confirm not in restart loop
     if [ "$REDIS_OK" = true ] && [ "$WEB_OK" = true ] && [ "$CELERY_OK" = true ]; then
-        break
+        info "All services running — confirming stability..."
+        sleep "$INTERVAL"
+
+        # Re-check web and celery are still running (catches crash-restart loops)
+        WEB_RECHECK=$(docker compose -f "$COMPOSE_FILE" ps --format json web 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+if isinstance(data, list):
+    data = data[0] if data else {}
+print(data.get('State', ''))" 2>/dev/null || true)
+        CELERY_RECHECK=$(docker compose -f "$COMPOSE_FILE" ps --format json celery 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+if isinstance(data, list):
+    data = data[0] if data else {}
+print(data.get('State', ''))" 2>/dev/null || true)
+
+        if [ "$WEB_RECHECK" != "running" ]; then
+            WEB_OK=false
+            warn "Web service was running but is now restarting (crash loop detected)"
+        fi
+        if [ "$CELERY_RECHECK" != "running" ]; then
+            CELERY_OK=false
+            warn "Celery service was running but is now restarting (crash loop detected)"
+        fi
+
+        # If still all OK after recheck, we're good
+        if [ "$WEB_OK" = true ] && [ "$CELERY_OK" = true ]; then
+            break
+        fi
     fi
 
     sleep "$INTERVAL"
