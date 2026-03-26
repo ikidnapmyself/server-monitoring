@@ -10,21 +10,22 @@ COPY --from=ghcr.io/astral-sh/uv:0.5.10 /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock ./
 
 # Install production dependencies including gunicorn
-RUN uv sync --frozen --no-dev --extra prod --no-editable
+# --no-install-project: only install dependencies, not the project itself
+# (source code isn't copied yet — that happens in the runtime stage for layer caching)
+RUN uv sync --frozen --no-dev --extra prod --no-install-project
 
 # --- Runtime stage ---
 FROM python:3.12-slim
 
 WORKDIR /app
 
-# Copy installed virtualenv from builder
-COPY --from=builder /app/.venv /app/.venv
-
 # Create non-root user for running the application
 RUN groupadd --system appuser && useradd --system --gid appuser appuser
 
-# Copy application code
+# Copy application code first, then overlay the builder's virtualenv
+# (COPY . . must come before the .venv copy so it doesn't overwrite it)
 COPY . .
+COPY --from=builder /app/.venv /app/.venv
 
 # Create data directory and set ownership
 RUN mkdir -p /app/data && chown -R appuser:appuser /app

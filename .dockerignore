@@ -1,0 +1,24 @@
+# Virtual environments
+.venv/
+
+# Git
+.git/
+.gitignore
+
+# CI/CD and docs
+.github/
+docs/
+
+# Dev and IDE
+*.pyc
+__pycache__/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+coverage.json
+.coverage
+htmlcov/
+.env
+
+# Docker (avoid recursive copy)
+deploy/docker/
