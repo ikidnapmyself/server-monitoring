@@ -70,3 +70,16 @@ success "docker compose v2 is available (v${COMPOSE_VERSION})"
 
 echo ""
 success "All pre-flight checks passed"
+
+# --- Build & Start ---
+
+info "Building Docker images..."
+docker compose -f "$COMPOSE_FILE" build
+success "Docker images built"
+
+echo ""
+info "Starting Docker Compose stack..."
+docker compose -f "$COMPOSE_FILE" up -d
+success "Docker Compose stack started"
+
+echo ""
