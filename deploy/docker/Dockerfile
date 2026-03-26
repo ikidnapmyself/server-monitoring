@@ -10,7 +10,9 @@ COPY --from=ghcr.io/astral-sh/uv:0.5.10 /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock ./
 
 # Install production dependencies including gunicorn
-RUN uv sync --frozen --no-dev --extra prod --no-editable
+# --no-install-project: only install dependencies, not the project itself
+# (source code isn't copied yet — that happens in the runtime stage for layer caching)
+RUN uv sync --frozen --no-dev --extra prod --no-install-project
 
 # --- Runtime stage ---
 FROM python:3.12-slim
