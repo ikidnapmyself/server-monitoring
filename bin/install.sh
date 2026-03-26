@@ -361,9 +361,9 @@ read -p "Enter choice [1/2/3] (default: 1): " -r MODE_INPUT
 MODE_INPUT="${MODE_INPUT:-1}"
 
 case "$MODE_INPUT" in
-    1|d|dev)    INSTALL_MODE="dev" ;;
-    2|p|prod)   INSTALL_MODE="prod" ;;
-    3|docker)   INSTALL_MODE="docker" ;;
+    1|d|dev|Dev|DEV)       INSTALL_MODE="dev" ;;
+    2|p|prod|Prod|PROD)    INSTALL_MODE="prod" ;;
+    3|docker|Docker|DOCKER) INSTALL_MODE="docker" ;;
     *)
         warn "Invalid choice '$MODE_INPUT', defaulting to dev."
         INSTALL_MODE="dev"
