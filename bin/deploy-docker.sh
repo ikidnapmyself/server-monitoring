@@ -169,4 +169,25 @@ fi
 echo ""
 success "All services are healthy"
 
+# --- Summary ---
+
+echo ""
+echo "============================================"
+echo -e "${GREEN}   Docker Stack Running!${NC}"
+echo "============================================"
+echo ""
+
+WEB_PORT=$(grep -E "^WEB_PORT=" "$PROJECT_DIR/.env" 2>/dev/null | cut -d= -f2)
+WEB_PORT="${WEB_PORT:-8000}"
+
+echo "Services:"
+echo "  - Web:    http://localhost:${WEB_PORT}"
+echo "  - Redis:  redis://localhost:6379 (internal)"
+echo "  - Celery: background worker"
+echo ""
+echo "Useful commands:"
+echo "  docker compose -f $COMPOSE_FILE logs -f       # Follow logs"
+echo "  docker compose -f $COMPOSE_FILE ps             # Service status"
+echo "  docker compose -f $COMPOSE_FILE down           # Stop stack"
+echo "  docker compose -f $COMPOSE_FILE up -d --build  # Rebuild & restart"
 echo ""
