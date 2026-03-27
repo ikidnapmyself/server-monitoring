@@ -151,3 +151,19 @@ jobs:
         env:
           DJANGO_SECRET_KEY: ci-test-key
         uses: victoriadrake/django-security-check@v1.1.1
+
+  shell-tests:
+    name: Shell Tests (BATS)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Run BATS tests
+        run: ./bin/tests/test_helper/bats-core/bin/bats bin/tests/lib/
