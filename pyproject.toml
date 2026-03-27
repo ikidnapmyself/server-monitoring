@@ -94,6 +94,7 @@ warn_unused_configs = true
 check_untyped_defs = false
 ignore_missing_imports = true
 plugins = ["mypy_django_plugin.main"]
+exclude = ["bin/"]
 
 [tool.django-stubs]
 django_settings_module = "config.settings"
