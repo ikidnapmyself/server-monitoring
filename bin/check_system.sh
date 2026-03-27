@@ -6,17 +6,12 @@
 
 set -e
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BOLD='\033[1m'
-NC='\033[0m'
-
-# Get the directory where this script is located (bin/)
+# Source shared libraries
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Project root is parent of bin/
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+source "$SCRIPT_DIR/lib/colors.sh"
+source "$SCRIPT_DIR/lib/paths.sh"
+
+cd "$PROJECT_DIR"
 
 SHELL_ONLY=false
 DJANGO_ONLY=false
