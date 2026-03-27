@@ -32,7 +32,9 @@ setup() {
 }
 
 @test "docker_preflight fails without docker" {
-    PATH="/usr/bin:/bin"
+    # Override docker command with a function that always fails
+    docker() { return 1; }
+    export -f docker
     run docker_preflight
     assert_failure
 }
