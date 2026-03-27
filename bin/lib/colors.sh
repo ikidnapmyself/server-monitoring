@@ -7,6 +7,7 @@
 [[ -n "${_LIB_COLORS_LOADED:-}" ]] && return 0
 _LIB_COLORS_LOADED=1
 
+# shellcheck disable=SC2034  # Variables used by scripts that source this file
 RED=$'\033[0;31m'
 GREEN=$'\033[0;32m'
 YELLOW=$'\033[1;33m'
