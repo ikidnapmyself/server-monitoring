@@ -338,5 +338,17 @@ else
         "$SCRIPT_DIR/setup_aliases.sh"
     fi
 
+    # Offer systemd deployment (prod only)
+    if [ "$INSTALL_MODE" = "prod" ]; then
+        echo ""
+        read -p "Would you like to deploy with systemd now? [y/N] " -n 1 -r
+        echo ""
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            info "Handing off to deploy-systemd.sh..."
+            echo "  Note: This requires root privileges."
+            exec sudo "$SCRIPT_DIR/deploy-systemd.sh"
+        fi
+    fi
+
     success "Setup complete!"
 fi
