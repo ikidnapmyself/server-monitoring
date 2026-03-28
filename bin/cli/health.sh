@@ -19,6 +19,7 @@ health_menu() {
         "Back to main menu"
     )
 
+    # shellcheck disable=SC2034
     select opt in "${options[@]}"; do
         case $REPLY in
             1)

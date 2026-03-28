@@ -11,6 +11,7 @@ alerts_menu() {
         "Back to main menu"
     )
 
+    # shellcheck disable=SC2034
     select opt in "${options[@]}"; do
         case $REPLY in
             1) run_check_menu ;;
@@ -41,6 +42,7 @@ run_check_menu() {
         "Back"
     )
 
+    # shellcheck disable=SC2034
     select opt in "${options[@]}"; do
         case $REPLY in
             1)
@@ -93,6 +95,7 @@ check_and_alert_menu() {
         "Back"
     )
 
+    # shellcheck disable=SC2034
     select opt in "${options[@]}"; do
         case $REPLY in
             1)

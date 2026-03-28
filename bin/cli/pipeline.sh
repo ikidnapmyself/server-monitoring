@@ -12,6 +12,7 @@ pipeline_menu() {
         "Back to main menu"
     )
 
+    # shellcheck disable=SC2034
     select opt in "${options[@]}"; do
         case $REPLY in
             1) show_pipeline_menu ;;
@@ -39,6 +40,7 @@ show_pipeline_menu() {
         "Back"
     )
 
+    # shellcheck disable=SC2034
     select opt in "${options[@]}"; do
         case $REPLY in
             1)
@@ -89,6 +91,7 @@ run_pipeline_menu() {
         "Back"
     )
 
+    # shellcheck disable=SC2034
     select opt in "${options[@]}"; do
         case $REPLY in
             1)
@@ -140,6 +143,7 @@ monitor_pipeline_menu() {
         "Back"
     )
 
+    # shellcheck disable=SC2034
     select opt in "${options[@]}"; do
         case $REPLY in
             1)
