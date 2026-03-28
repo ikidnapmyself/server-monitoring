@@ -91,6 +91,17 @@ An interactive menu-driven interface for all management commands. Recommended fo
 - Installation status check
 - Shell alias setup option
 
+**Module structure (`bin/cli/`):**
+
+| Module | Menu functions |
+|--------|---------------|
+| `install_menu.sh` | Install/setup, installation status |
+| `health.sh` | Health checks, environment selection |
+| `alerts.sh` | Run checks, check-and-alert pipeline |
+| `intelligence.sh` | AI recommendations, custom analysis |
+| `pipeline.sh` | Show/run/monitor pipelines |
+| `notifications.sh` | Test notifications, driver config |
+
 ---
 
 ### `install.sh` — Project Installer
