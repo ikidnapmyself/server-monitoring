@@ -185,6 +185,8 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now server-monitoring server-monitoring-celery
 ```
 
+> **Automated:** Run `sudo ./bin/deploy-systemd.sh` to automate steps 2.4-2.6 (migrations, static files, unit installation, and service startup with health verification). Or use `./bin/install.sh` in **prod** mode — it offers systemd deployment at the end.
+
 ### 2.6 Verify
 
 ```bash

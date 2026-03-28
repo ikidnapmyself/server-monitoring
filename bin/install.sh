@@ -6,80 +6,13 @@
 
 set -e
 
-# Get the directory where this script is located (bin/)
+# Source shared libraries
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Project root is parent of bin/
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+source "$SCRIPT_DIR/lib/logging.sh"
+source "$SCRIPT_DIR/lib/checks.sh"
+source "$SCRIPT_DIR/lib/dotenv.sh"
 
-# Change to project directory
 cd "$PROJECT_DIR"
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Print colored output
-info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
-error() { echo -e "${RED}[ERROR]${NC} $1"; }
-
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
-
-dotenv_ensure_file() {
-    local env_file="$PROJECT_DIR/.env"
-    local sample_file="$PROJECT_DIR/.env.sample"
-
-    if [ -f "$env_file" ]; then
-        success ".env already exists"
-        return 0
-    fi
-
-    if [ -f "$sample_file" ]; then
-        cp "$sample_file" "$env_file"
-        success "Created .env from .env.sample"
-        return 0
-    fi
-
-    warn "No .env.sample found; creating empty .env"
-    touch "$env_file"
-}
-
-dotenv_has_key() {
-    local file="$1"
-    local key="$2"
-    grep -Eq "^[[:space:]]*${key}[[:space:]]*=" "$file"
-}
-
-dotenv_set_if_missing() {
-    local file="$1"
-    local key="$2"
-    local value="$3"
-
-    if dotenv_has_key "$file" "$key"; then
-        return 0
-    fi
-
-    printf "%s=%s\n" "$key" "$value" >> "$file"
-}
-
-prompt_non_empty() {
-    local prompt="$1"
-    local value=""
-    while true; do
-        read -p "$prompt" -r value
-        if [ -n "$value" ]; then
-            echo "$value"
-            return 0
-        fi
-        echo "Value cannot be empty."
-    done
-}
 
 dotenv_prompt_setup() {
     local env_file="$PROJECT_DIR/.env"
@@ -270,68 +203,6 @@ dotenv_prompt_docker() {
 }
 
 # ---------------------------------------------------------------------------
-# Helper functions extracted from main body
-# ---------------------------------------------------------------------------
-
-check_python() {
-    info "Checking Python version..."
-    PYTHON_BIN=""
-    for candidate in python3.13 python3.12 python3.11 python3.10 python3; do
-        if command_exists "$candidate" && "$candidate" --version >/dev/null 2>&1; then
-            PYTHON_BIN="$candidate"
-            break
-        fi
-    done
-
-    if [ -z "$PYTHON_BIN" ]; then
-        error "Python 3 is not installed. Please install Python 3.10 or higher."
-        exit 1
-    fi
-
-    PYTHON_VERSION=$($PYTHON_BIN -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-    PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
-    PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
-
-    if [ "$PYTHON_MAJOR" -ge 3 ] && [ "$PYTHON_MINOR" -ge 10 ]; then
-        success "Python $PYTHON_VERSION found via $PYTHON_BIN (>= 3.10 required)"
-    else
-        error "Python 3.10+ is required, but found Python $PYTHON_VERSION ($PYTHON_BIN)"
-        info "Tip: If Python 3.10+ is installed under a different name, set PYTHON_BIN and re-run."
-        exit 1
-    fi
-}
-
-check_uv() {
-    info "Checking for uv package manager..."
-    if command_exists uv; then
-        UV_VERSION=$(uv --version 2>/dev/null | head -n1)
-        success "uv is already installed: $UV_VERSION"
-    else
-        warn "uv is not installed. Installing uv..."
-
-        if [[ "$OSTYPE" == "darwin"* ]] || [[ "$OSTYPE" == "linux"* ]]; then
-            curl -LsSf https://astral.sh/uv/install.sh | sh
-
-            if [ -f "$HOME/.cargo/env" ]; then
-                source "$HOME/.cargo/env"
-            fi
-
-            export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-
-            if command_exists uv; then
-                success "uv installed successfully"
-            else
-                error "Failed to install uv. Please install manually: https://docs.astral.sh/uv/"
-                exit 1
-            fi
-        else
-            error "Unsupported OS. Please install uv manually: https://docs.astral.sh/uv/"
-            exit 1
-        fi
-    fi
-}
-
-# ---------------------------------------------------------------------------
 # Main script body
 # ---------------------------------------------------------------------------
 
@@ -384,8 +255,8 @@ else
     # -----------------------------------------------------------------------
     # Dev / Prod mode
     # -----------------------------------------------------------------------
-    check_python
-    check_uv
+    check_python || exit 1
+    check_uv || exit 1
 
     # .env setup
     dotenv_ensure_file
@@ -465,6 +336,18 @@ else
     echo ""
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         "$SCRIPT_DIR/setup_aliases.sh"
+    fi
+
+    # Offer systemd deployment (prod only)
+    if [ "$INSTALL_MODE" = "prod" ]; then
+        echo ""
+        read -p "Would you like to deploy with systemd now? [y/N] " -n 1 -r
+        echo ""
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            info "Handing off to deploy-systemd.sh..."
+            echo "  Note: This requires root privileges."
+            exec sudo "$SCRIPT_DIR/deploy-systemd.sh"
+        fi
     fi
 
     success "Setup complete!"

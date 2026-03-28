@@ -12,24 +12,13 @@
 
 set -euo pipefail
 
-# ── Colors ───────────────────────────────────────────────────────────────────
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# ── Paths ────────────────────────────────────────────────────────────────────
+# Source shared libraries
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+source "$SCRIPT_DIR/lib/logging.sh"
+source "$SCRIPT_DIR/lib/paths.sh"
+
 ALIASES_FILE="$SCRIPT_DIR/aliases.sh"
 MARKER="# server-maintanence aliases"
-
-# ── Helpers ──────────────────────────────────────────────────────────────────
-info()    { printf "${BLUE}[info]${NC}  %s\n" "$*"; }
-success() { printf "${GREEN}[ok]${NC}    %s\n" "$*"; }
-warn()    { printf "${YELLOW}[warn]${NC}  %s\n" "$*"; }
-error()   { printf "${RED}[error]${NC} %s\n" "$*" >&2; }
 
 detect_profile() {
     local shell_name

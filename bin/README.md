@@ -116,6 +116,31 @@ See [`docs/Installation.md`](../docs/Installation.md) for full details.
 
 ---
 
+### `deploy-docker.sh` — Docker Compose Deployment
+
+Docker Compose deployment — builds images, starts stack, verifies health. Called by `install.sh` (docker mode) or run standalone.
+
+```bash
+# Standalone deployment
+./bin/deploy-docker.sh
+```
+
+---
+
+### `deploy-systemd.sh`
+
+systemd deployment — installs unit files, runs migrations/collectstatic, starts and verifies services. Called by `install.sh` (prod mode) or run standalone with sudo.
+
+```bash
+# Standalone (requires root)
+sudo ./bin/deploy-systemd.sh
+
+# Or via install.sh prod mode (offers at the end)
+./bin/install.sh   # select "prod", answer prompts, say "y" to systemd
+```
+
+---
+
 ### `setup_cron.sh` — Cron Setup
 
 Sets up scheduled health checks via cron.
