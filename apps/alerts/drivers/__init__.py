@@ -4,6 +4,7 @@ Alert drivers for ingesting alerts from various sources.
 
 from apps.alerts.drivers.alertmanager import AlertManagerDriver
 from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
+from apps.alerts.drivers.cluster import ClusterDriver
 from apps.alerts.drivers.datadog import DatadogDriver
 from apps.alerts.drivers.generic import GenericWebhookDriver
 from apps.alerts.drivers.grafana import GrafanaDriver
@@ -17,6 +18,7 @@ __all__ = [
     "ParsedAlert",
     "ParsedPayload",
     "AlertManagerDriver",
+    "ClusterDriver",
     "GrafanaDriver",
     "GenericWebhookDriver",
     "PagerDutyDriver",
@@ -40,6 +42,17 @@ DRIVER_REGISTRY: dict[str, type[BaseAlertDriver]] = {
     "zabbix": ZabbixDriver,
     "generic": GenericWebhookDriver,
 }
+
+
+# Register cluster driver only when CLUSTER_ENABLED=1
+def _register_cluster_driver():
+    from django.conf import settings
+
+    if getattr(settings, "CLUSTER_ENABLED", False):
+        DRIVER_REGISTRY["cluster"] = ClusterDriver
+
+
+_register_cluster_driver()
 
 
 def get_driver(name: str) -> BaseAlertDriver:

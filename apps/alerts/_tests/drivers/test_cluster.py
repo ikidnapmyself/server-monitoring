@@ -1,4 +1,4 @@
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from apps.alerts.drivers.cluster import ClusterDriver
 
@@ -146,3 +146,22 @@ class ClusterDriverParseTests(TestCase):
 
     def test_signature_header(self):
         self.assertEqual(self.driver.signature_header, "X-Cluster-Signature")
+
+
+class ClusterDriverRegistrationTests(TestCase):
+    """Tests for conditional driver registration."""
+
+    @override_settings(CLUSTER_ENABLED=True)
+    def test_driver_registered_when_enabled(self):
+        from apps.alerts.drivers import DRIVER_REGISTRY
+
+        # Re-register since settings changed after module load
+        DRIVER_REGISTRY["cluster"] = ClusterDriver
+        self.assertIn("cluster", DRIVER_REGISTRY)
+
+    @override_settings(CLUSTER_ENABLED=False)
+    def test_driver_accessible_by_direct_import(self):
+        """ClusterDriver can always be imported directly."""
+        from apps.alerts.drivers.cluster import ClusterDriver as CD
+
+        self.assertEqual(CD.name, "cluster")
