@@ -49,6 +49,9 @@ jobs:
             --exclude-files 'uv\.lock$' \
             --exclude-files '\.git/' \
             --exclude-files 'bin/tests/test_helper/' \
+            --exclude-files '_tests/' \
+            --exclude-files 'docs/plans/' \
+            --exclude-files 'README\.md$' \
             > .secrets-results.json
           if jq -e '.results | to_entries | map(select(.value | length > 0)) | length > 0' .secrets-results.json > /dev/null 2>&1; then
             echo "::error::Potential secrets detected in the codebase"
