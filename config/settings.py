@@ -207,6 +207,12 @@ STATSD_HOST = os.environ.get("STATSD_HOST", "localhost")
 STATSD_PORT = int(os.environ.get("STATSD_PORT", "8125"))
 STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "pipeline")
 
+# Cluster (multi-instance)
+CLUSTER_ENABLED = os.environ.get("CLUSTER_ENABLED", "0") == "1"
+HUB_URL = os.environ.get("HUB_URL", "")
+INSTANCE_ID = os.environ.get("INSTANCE_ID", "")
+WEBHOOK_SECRET_CLUSTER = os.environ.get("WEBHOOK_SECRET_CLUSTER", "")
+
 # ---------------------------------------------------------------------------
 # Django System Check Silencing
 # ---------------------------------------------------------------------------
