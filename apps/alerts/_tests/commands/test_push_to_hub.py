@@ -117,8 +117,7 @@ class PushToHubTests(TestCase):
         self.assertEqual(parsed["source"], "cluster")
 
     @override_settings(HUB_URL="https://hub.example.com")
-    @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
-    def test_checkers_flag_filters(self, mock_registry):
+    def test_checkers_flag_filters(self):
         """--checkers flag runs only specified checkers."""
         cpu_cls = MagicMock()
         cpu_cls.return_value.run.return_value = CheckResult(
@@ -128,12 +127,11 @@ class PushToHubTests(TestCase):
         mem_cls.return_value.run.return_value = CheckResult(
             status=CheckStatus.OK, message="OK", metrics={}, checker_name="memory"
         )
-        checker_items = [("cpu", cpu_cls), ("memory", mem_cls)]
-        mock_registry.items.return_value = checker_items
-        mock_registry.__contains__ = MagicMock(side_effect=lambda x: x in {k for k, _ in checker_items})
+        registry = {"cpu": cpu_cls, "memory": mem_cls}
 
         out = StringIO()
-        call_command("push_to_hub", "--dry-run", "--checkers", "cpu", stdout=out)
+        with patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY", registry):
+            call_command("push_to_hub", "--dry-run", "--checkers", "cpu", stdout=out)
         cpu_cls.assert_called_once()
         mem_cls.assert_not_called()
 

@@ -215,32 +215,18 @@ class ClusterDriverRegistrationTests(TestCase):
     def test_driver_registered_when_enabled(self):
         from apps.alerts.drivers import DRIVER_REGISTRY, _register_cluster_driver
 
-        original_cluster = DRIVER_REGISTRY.get("cluster")
-        try:
-            DRIVER_REGISTRY.pop("cluster", None)
-            _register_cluster_driver()
-            self.assertIn("cluster", DRIVER_REGISTRY)
-            self.assertEqual(DRIVER_REGISTRY["cluster"], ClusterDriver)
-        finally:
-            if original_cluster is not None:
-                DRIVER_REGISTRY["cluster"] = original_cluster
-            else:
-                DRIVER_REGISTRY.pop("cluster", None)
+        DRIVER_REGISTRY.pop("cluster", None)
+        _register_cluster_driver()
+        self.assertIn("cluster", DRIVER_REGISTRY)
+        self.assertEqual(DRIVER_REGISTRY["cluster"], ClusterDriver)
 
     @override_settings(CLUSTER_ENABLED=False)
     def test_driver_not_registered_when_disabled(self):
         from apps.alerts.drivers import DRIVER_REGISTRY, _register_cluster_driver
 
-        original_cluster = DRIVER_REGISTRY.get("cluster")
-        try:
-            DRIVER_REGISTRY.pop("cluster", None)
-            _register_cluster_driver()
-            self.assertNotIn("cluster", DRIVER_REGISTRY)
-        finally:
-            if original_cluster is not None:
-                DRIVER_REGISTRY["cluster"] = original_cluster
-            else:
-                DRIVER_REGISTRY.pop("cluster", None)
+        DRIVER_REGISTRY.pop("cluster", None)
+        _register_cluster_driver()
+        self.assertNotIn("cluster", DRIVER_REGISTRY)
 
     @override_settings(CLUSTER_ENABLED=False)
     def test_driver_accessible_by_direct_import(self):
