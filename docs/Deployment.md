@@ -315,3 +315,65 @@ For Docker:
 ```bash
 docker compose -f deploy/docker/docker-compose.yml exec celery celery -A config inspect ping
 ```
+
+---
+
+## Multi-Instance (Cluster)
+
+Deploy multiple instances across servers: **agents** monitor locally and push alerts to a **hub** that runs the full pipeline (intelligence + notifications).
+
+### Architecture
+
+```
+Agent (server-1)  ──POST──┐
+Agent (server-2)  ──POST──┤──▶  Hub  ──▶  intelligence ──▶ notify
+Agent (server-3)  ──POST──┘     (receives cluster alerts)
+```
+
+All instances run the same codebase. Role is determined by environment variables.
+
+### Agent setup
+
+On each server you want to monitor:
+
+1. Install the project normally (`./bin/install.sh` dev or prod mode)
+2. Add to `.env`:
+
+```bash
+HUB_URL=https://monitoring-hub.example.com
+WEBHOOK_SECRET_CLUSTER=your-shared-secret
+INSTANCE_ID=web-server-01
+```
+
+3. Schedule the push command via cron:
+
+```bash
+# Every 5 minutes
+*/5 * * * * cd /opt/server-monitoring && uv run python manage.py push_to_hub --json >> push.log 2>&1
+```
+
+Or run manually:
+
+```bash
+uv run python manage.py push_to_hub              # Push all checker results
+uv run python manage.py push_to_hub --dry-run    # Preview without sending
+uv run python manage.py push_to_hub --checkers cpu,memory  # Specific checkers
+```
+
+### Hub setup
+
+On the central monitoring server:
+
+1. Install the project (`./bin/install.sh` prod or docker mode)
+2. Add to `.env`:
+
+```bash
+CLUSTER_ENABLED=1
+WEBHOOK_SECRET_CLUSTER=your-shared-secret
+```
+
+The hub accepts cluster payloads at `POST /alerts/webhook/cluster/` and processes them through the full pipeline. Each alert carries `instance_id` and `hostname` labels for per-server filtering.
+
+### Standalone (default)
+
+Existing installs with neither `HUB_URL` nor `CLUSTER_ENABLED` set continue to work as standalone instances with no changes.
