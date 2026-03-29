@@ -97,7 +97,7 @@ An interactive menu-driven interface for all management commands. Recommended fo
 |--------|---------------|
 | `install_menu.sh` | Install/setup, installation status |
 | `health.sh` | Health checks, environment selection |
-| `alerts.sh` | Run checks, check-and-alert pipeline |
+| `alerts.sh` | Run checks, orchestrated check pipeline |
 | `intelligence.sh` | AI recommendations, custom analysis |
 | `pipeline.sh` | Show/run/monitor pipelines |
 | `notifications.sh` | Test notifications, driver config |
