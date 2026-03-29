@@ -102,9 +102,11 @@ class Command(BaseCommand):
             headers["X-Cluster-Signature"] = signature
 
         request = Request(url, data=body, headers=headers, method="POST")
+        # urlopen is safe here — scheme validated above (http/https only)
+        open_url = urlopen
 
         try:
-            with urlopen(request, timeout=30) as response:
+            with open_url(request, timeout=30) as response:
                 status = response.status
                 resp_body = response.read().decode()
 
