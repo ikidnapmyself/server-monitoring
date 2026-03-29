@@ -85,7 +85,7 @@ detect_mode() {
 # --- Check groups ---
 
 run_core_checks() {
-    printf "\n%b=== Core Checks ===%b\n\n" "$BOLD" "$NC"
+    [ "$_hc_json_mode" = false ] && printf "\n%b=== Core Checks ===%b\n\n" "$BOLD" "$NC"
 
     # Python 3.10+
     local py_version
@@ -146,7 +146,7 @@ run_core_checks() {
 }
 
 run_django_checks() {
-    printf "\n%b=== Django Checks ===%b\n\n" "$BOLD" "$NC"
+    [ "$_hc_json_mode" = false ] && printf "\n%b=== Django Checks ===%b\n\n" "$BOLD" "$NC"
 
     if [ ! -d "$PROJECT_DIR/.venv" ]; then
         hc_warn "django" "Skipping Django checks (.venv not found)"
@@ -169,7 +169,7 @@ run_django_checks() {
 }
 
 run_dev_checks() {
-    printf "\n%b=== Dev Checks ===%b\n\n" "$BOLD" "$NC"
+    [ "$_hc_json_mode" = false ] && printf "\n%b=== Dev Checks ===%b\n\n" "$BOLD" "$NC"
 
     # Pre-commit hooks
     if [ -f "$PROJECT_DIR/.git/hooks/pre-commit" ]; then
@@ -187,7 +187,7 @@ run_dev_checks() {
 }
 
 run_docker_checks() {
-    printf "\n%b=== Docker Checks ===%b\n\n" "$BOLD" "$NC"
+    [ "$_hc_json_mode" = false ] && printf "\n%b=== Docker Checks ===%b\n\n" "$BOLD" "$NC"
 
     local compose_file="$PROJECT_DIR/deploy/docker/docker-compose.yml"
 
@@ -222,7 +222,7 @@ run_docker_checks() {
 }
 
 run_systemd_checks() {
-    printf "\n%b=== systemd Checks ===%b\n\n" "$BOLD" "$NC"
+    [ "$_hc_json_mode" = false ] && printf "\n%b=== systemd Checks ===%b\n\n" "$BOLD" "$NC"
 
     # server-monitoring.service
     if systemctl is-active --quiet server-monitoring 2>/dev/null; then
