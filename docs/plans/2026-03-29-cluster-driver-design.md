@@ -33,9 +33,11 @@ Two env vars control behavior (both optional, both unset by default):
 | unset | 0 | **Standalone** — current behavior, zero changes |
 | set | 0 | **Agent** — runs checkers, pushes to hub |
 | unset | 1 | **Hub** — accepts cluster payloads from agents |
-| set | 1 | **Relay** — accepts from agents AND forwards upstream |
+| set | 1 | **Hub + Agent** — accepts payloads AND runs `push_to_hub` (each role is independent) |
 
 Existing installs with neither var set behave exactly as today. Zero breaking changes.
+
+> **Note:** Transparent relay forwarding (automatically re-POSTing received cluster payloads upstream) is not implemented in this version. Each instance is configured independently via its own `HUB_URL`.
 
 ## Cluster Alert Driver
 
@@ -87,11 +89,12 @@ New command at `apps/alerts/management/commands/push_to_hub.py`.
 
 **Flow:**
 1. Run all enabled checkers locally (reuses existing checker infrastructure)
-2. Create local Alert records from check results (agent audit trail)
-3. Format as cluster driver payload
-4. Sign with `WEBHOOK_SECRET_CLUSTER` (HMAC-SHA256)
-5. POST to `HUB_URL/alerts/webhook/cluster/`
-6. Report success/failure
+2. Format results as cluster driver payload
+3. Sign with `WEBHOOK_SECRET_CLUSTER` (HMAC-SHA256)
+4. POST to `HUB_URL/alerts/webhook/cluster/`
+5. Report success/failure
+
+> **Audit trail:** Local check results are not persisted as `Alert` records. The hub creates incident and alert records when it processes the incoming cluster payload via the normal pipeline.
 
 **Flags:**
 - `--dry-run` — run checkers, show payload, don't POST

@@ -56,6 +56,12 @@ class Command(BaseCommand):
         checker_names = None
         if options.get("checkers"):
             checker_names = [c.strip() for c in options["checkers"].split(",")]
+            unknown = [n for n in checker_names if n not in CHECKER_REGISTRY]
+            if unknown:
+                raise CommandError(
+                    f"Unknown checker(s): {', '.join(unknown)}. "
+                    f"Available: {', '.join(sorted(CHECKER_REGISTRY))}"
+                )
 
         # Run checkers
         alerts = []

@@ -128,7 +128,9 @@ class PushToHubTests(TestCase):
         mem_cls.return_value.run.return_value = CheckResult(
             status=CheckStatus.OK, message="OK", metrics={}, checker_name="memory"
         )
-        mock_registry.items.return_value = [("cpu", cpu_cls), ("memory", mem_cls)]
+        checker_items = [("cpu", cpu_cls), ("memory", mem_cls)]
+        mock_registry.items.return_value = checker_items
+        mock_registry.__contains__ = MagicMock(side_effect=lambda x: x in {k for k, _ in checker_items})
 
         out = StringIO()
         call_command("push_to_hub", "--dry-run", "--checkers", "cpu", stdout=out)
@@ -252,6 +254,31 @@ class PushToHubTests(TestCase):
         alert = payload["alerts"][0]
         self.assertEqual(alert["status"], "firing")
         self.assertEqual(alert["severity"], "critical")
+
+    @override_settings(HUB_URL="https://hub.example.com")
+    @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY", {"cpu": MagicMock()})
+    def test_unknown_checker_raises_command_error(self):
+        """--checkers with an unknown name raises CommandError."""
+        out = StringIO()
+        with self.assertRaises(CommandError) as ctx:
+            call_command("push_to_hub", "--checkers", "nonexistent", stdout=out)
+        self.assertIn("nonexistent", str(ctx.exception))
+        self.assertIn("Unknown checker", str(ctx.exception))
+
+    @override_settings(HUB_URL="https://hub.example.com")
+    @patch(
+        "apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY",
+        {"cpu": MagicMock(), "memory": MagicMock()},
+    )
+    def test_mixed_valid_and_invalid_checkers_raises_command_error(self):
+        """--checkers with mixed valid/invalid names reports all unknown checkers."""
+        out = StringIO()
+        with self.assertRaises(CommandError) as ctx:
+            call_command("push_to_hub", "--checkers", "cpu,bad1,memory,bad2", stdout=out)
+        error_msg = str(ctx.exception)
+        self.assertIn("bad1", error_msg)
+        self.assertIn("bad2", error_msg)
+        self.assertIn("Unknown checker", error_msg)
 
     @override_settings(HUB_URL="file:///etc/passwd")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
