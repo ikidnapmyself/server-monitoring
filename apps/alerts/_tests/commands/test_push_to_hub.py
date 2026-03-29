@@ -115,3 +115,160 @@ class PushToHubTests(TestCase):
         parsed = json.loads(output)
         self.assertIn("alerts", parsed)
         self.assertEqual(parsed["source"], "cluster")
+
+    @override_settings(HUB_URL="https://hub.example.com")
+    @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
+    def test_checkers_flag_filters(self, mock_registry):
+        """--checkers flag runs only specified checkers."""
+        cpu_cls = MagicMock()
+        cpu_cls.return_value.run.return_value = CheckResult(
+            status=CheckStatus.OK, message="OK", metrics={}, checker_name="cpu"
+        )
+        mem_cls = MagicMock()
+        mem_cls.return_value.run.return_value = CheckResult(
+            status=CheckStatus.OK, message="OK", metrics={}, checker_name="memory"
+        )
+        mock_registry.items.return_value = [("cpu", cpu_cls), ("memory", mem_cls)]
+
+        out = StringIO()
+        call_command("push_to_hub", "--dry-run", "--checkers", "cpu", stdout=out)
+        cpu_cls.assert_called_once()
+        mem_cls.assert_not_called()
+
+    @override_settings(HUB_URL="https://hub.example.com")
+    @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
+    def test_checker_exception_is_caught(self, mock_registry):
+        """A failing checker should be skipped, not crash the command."""
+        mock_checker_cls = MagicMock()
+        mock_checker_cls.return_value.run.side_effect = RuntimeError("boom")
+        mock_registry.items.return_value = [("cpu", mock_checker_cls)]
+
+        out = StringIO()
+        err = StringIO()
+        call_command("push_to_hub", "--dry-run", stdout=out, stderr=err)
+        self.assertIn("boom", err.getvalue())
+
+    @override_settings(HUB_URL="https://hub.example.com", WEBHOOK_SECRET_CLUSTER="test-secret")
+    @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
+    @patch("apps.alerts.management.commands.push_to_hub.urlopen")
+    def test_signature_header_sent_when_secret_set(self, mock_urlopen, mock_registry):
+        """When WEBHOOK_SECRET_CLUSTER is set, X-Cluster-Signature header is sent."""
+        mock_checker_cls = MagicMock()
+        mock_checker_cls.return_value.run.return_value = CheckResult(
+            status=CheckStatus.OK, message="OK", metrics={}, checker_name="cpu"
+        )
+        mock_registry.items.return_value = [("cpu", mock_checker_cls)]
+
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.read.return_value = b"{}"
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_response
+
+        out = StringIO()
+        call_command("push_to_hub", stdout=out)
+
+        request = mock_urlopen.call_args[0][0]
+        self.assertIn("X-cluster-signature", request.headers)
+
+    @override_settings(HUB_URL="https://hub.example.com")
+    @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
+    @patch("apps.alerts.management.commands.push_to_hub.urlopen")
+    def test_hub_error_raises_command_error(self, mock_urlopen, mock_registry):
+        """Hub returning non-2xx should raise CommandError."""
+        mock_checker_cls = MagicMock()
+        mock_checker_cls.return_value.run.return_value = CheckResult(
+            status=CheckStatus.OK, message="OK", metrics={}, checker_name="cpu"
+        )
+        mock_registry.items.return_value = [("cpu", mock_checker_cls)]
+
+        mock_response = MagicMock()
+        mock_response.status = 500
+        mock_response.read.return_value = b"Internal Server Error"
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_response
+
+        with self.assertRaises(CommandError) as ctx:
+            call_command("push_to_hub", stderr=StringIO())
+        self.assertIn("500", str(ctx.exception))
+
+    @override_settings(HUB_URL="https://hub.example.com")
+    @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
+    @patch("apps.alerts.management.commands.push_to_hub.urlopen")
+    def test_network_error_raises_command_error(self, mock_urlopen, mock_registry):
+        """Network failure should raise CommandError."""
+        mock_checker_cls = MagicMock()
+        mock_checker_cls.return_value.run.return_value = CheckResult(
+            status=CheckStatus.OK, message="OK", metrics={}, checker_name="cpu"
+        )
+        mock_registry.items.return_value = [("cpu", mock_checker_cls)]
+        mock_urlopen.side_effect = ConnectionError("refused")
+
+        with self.assertRaises(CommandError) as ctx:
+            call_command("push_to_hub", stderr=StringIO())
+        self.assertIn("Failed to reach hub", str(ctx.exception))
+
+    @override_settings(HUB_URL="https://hub.example.com")
+    @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
+    @patch("apps.alerts.management.commands.push_to_hub.urlopen")
+    def test_json_output_on_success(self, mock_urlopen, mock_registry):
+        """--json with successful POST outputs JSON payload."""
+        mock_checker_cls = MagicMock()
+        mock_checker_cls.return_value.run.return_value = CheckResult(
+            status=CheckStatus.OK, message="OK", metrics={}, checker_name="cpu"
+        )
+        mock_registry.items.return_value = [("cpu", mock_checker_cls)]
+
+        mock_response = MagicMock()
+        mock_response.status = 202
+        mock_response.read.return_value = b"{}"
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_response
+
+        out = StringIO()
+        call_command("push_to_hub", "--json", stdout=out)
+        parsed = json.loads(out.getvalue())
+        self.assertEqual(parsed["source"], "cluster")
+
+    @override_settings(HUB_URL="https://hub.example.com")
+    @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
+    def test_result_to_alert_critical(self, mock_registry):
+        """CRITICAL check result maps to firing/critical alert."""
+        mock_checker_cls = MagicMock()
+        mock_checker_cls.return_value.run.return_value = CheckResult(
+            status=CheckStatus.CRITICAL,
+            message="CPU at 99%",
+            metrics={"cpu_percent": 99.0},
+            checker_name="cpu",
+        )
+        mock_registry.items.return_value = [("cpu", mock_checker_cls)]
+
+        out = StringIO()
+        call_command("push_to_hub", "--dry-run", "--json", stdout=out)
+        payload = json.loads(out.getvalue())
+        alert = payload["alerts"][0]
+        self.assertEqual(alert["status"], "firing")
+        self.assertEqual(alert["severity"], "critical")
+
+    @override_settings(HUB_URL="https://hub.example.com")
+    @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
+    def test_result_to_alert_unknown_status(self, mock_registry):
+        """UNKNOWN check result maps to firing/warning alert."""
+        mock_checker_cls = MagicMock()
+        mock_checker_cls.return_value.run.return_value = CheckResult(
+            status=CheckStatus.UNKNOWN,
+            message="Check failed",
+            metrics={},
+            checker_name="cpu",
+        )
+        mock_registry.items.return_value = [("cpu", mock_checker_cls)]
+
+        out = StringIO()
+        call_command("push_to_hub", "--dry-run", "--json", stdout=out)
+        payload = json.loads(out.getvalue())
+        alert = payload["alerts"][0]
+        self.assertEqual(alert["status"], "firing")
+        self.assertEqual(alert["severity"], "warning")

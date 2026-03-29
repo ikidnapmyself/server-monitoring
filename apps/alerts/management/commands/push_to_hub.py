@@ -79,15 +79,15 @@ class Command(BaseCommand):
             "alerts": alerts,
         }
 
-        if options["json_output"]:
-            self.stdout.write(json.dumps(payload, indent=2, default=str))
-            if options["dry_run"]:
-                return
-        elif options["dry_run"]:
-            self.stdout.write(self.style.NOTICE("Dry run — payload:"))
-            self.stdout.write(json.dumps(payload, indent=2, default=str))
+        if options["dry_run"]:
+            if options["json_output"]:
+                self.stdout.write(json.dumps(payload, indent=2, default=str))
+            else:
+                self.stdout.write(self.style.NOTICE("Dry run — payload:"))
+                self.stdout.write(json.dumps(payload, indent=2, default=str))
             return
-        else:
+
+        if not options["json_output"]:
             self.stdout.write(f"Pushing {len(alerts)} alert(s) from {instance_id} to {hub_url}")
 
         # POST to hub

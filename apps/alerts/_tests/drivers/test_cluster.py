@@ -147,6 +147,66 @@ class ClusterDriverParseTests(TestCase):
     def test_signature_header(self):
         self.assertEqual(self.driver.signature_header, "X-Cluster-Signature")
 
+    def test_non_dict_labels_become_empty(self):
+        """Labels that aren't a dict should be replaced with empty dict."""
+        payload = {
+            "source": "cluster",
+            "instance_id": "web-01",
+            "alerts": [{"name": "Bad Labels", "status": "firing", "labels": "not-a-dict"}],
+        }
+        result = self.driver.parse(payload)
+        self.assertEqual(result.alerts[0].labels["instance_id"], "web-01")
+
+    def test_non_dict_annotations_become_empty(self):
+        """Annotations that aren't a dict should be replaced with empty dict."""
+        payload = {
+            "source": "cluster",
+            "instance_id": "web-01",
+            "alerts": [{"name": "Bad Annot", "status": "firing", "annotations": "not-a-dict"}],
+        }
+        result = self.driver.parse(payload)
+        self.assertIsInstance(result.alerts[0].annotations, dict)
+
+    def test_parse_timestamp_datetime_passthrough(self):
+        """A datetime value should be returned as-is."""
+        from datetime import datetime
+        from datetime import timezone as dt_tz
+
+        dt = datetime(2026, 3, 29, 12, 0, 0, tzinfo=dt_tz.utc)
+        result = self.driver._parse_timestamp(dt)
+        self.assertEqual(result, dt)
+
+    def test_parse_timestamp_invalid_string_returns_now(self):
+        """Invalid timestamp string should fall back to now."""
+        from django.utils import timezone
+
+        before = timezone.now()
+        result = self.driver._parse_timestamp("garbage")
+        after = timezone.now()
+        self.assertGreaterEqual(result, before)
+        self.assertLessEqual(result, after)
+
+    def test_parse_timestamp_non_string_returns_now(self):
+        """Non-string, non-datetime timestamp should fall back to now."""
+        from django.utils import timezone
+
+        before = timezone.now()
+        result = self.driver._parse_timestamp(12345)
+        after = timezone.now()
+        self.assertGreaterEqual(result, before)
+        self.assertLessEqual(result, after)
+
+    def test_parse_without_hostname(self):
+        """When hostname is empty, it should not be in labels."""
+        payload = {
+            "source": "cluster",
+            "instance_id": "web-01",
+            "hostname": "",
+            "alerts": [{"name": "Test", "status": "firing"}],
+        }
+        result = self.driver.parse(payload)
+        self.assertNotIn("hostname", result.alerts[0].labels)
+
 
 class ClusterDriverRegistrationTests(TestCase):
     """Tests for conditional driver registration."""
