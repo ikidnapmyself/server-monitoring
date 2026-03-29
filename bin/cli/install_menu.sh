@@ -46,41 +46,6 @@ install_project() {
 }
 
 check_installation() {
-    echo -e "${BOLD}Checking installation status...${NC}"
-    echo ""
-
-    # Check uv
-    if command -v uv &> /dev/null; then
-        echo -e "${GREEN}✓${NC} uv is installed ($(uv --version))"
-    else
-        echo -e "${RED}✗${NC} uv is not installed"
-    fi
-
-    # Check .venv
-    if [ -d ".venv" ]; then
-        echo -e "${GREEN}✓${NC} Virtual environment exists"
-    else
-        echo -e "${RED}✗${NC} Virtual environment not found"
-    fi
-
-    # Check pre-commit
-    if [ -f ".git/hooks/pre-commit" ]; then
-        echo -e "${GREEN}✓${NC} Pre-commit hooks installed"
-    else
-        echo -e "${YELLOW}!${NC} Pre-commit hooks not installed"
-    fi
-
-    # Check aliases
-    if [ -f "$SCRIPT_DIR/aliases.sh" ]; then
-        echo -e "${GREEN}✓${NC} Shell aliases configured"
-    else
-        echo -e "${YELLOW}!${NC} Shell aliases not configured (run bin/setup_aliases.sh)"
-    fi
-
-    # Check Django
-    if uv run python manage.py check &> /dev/null; then
-        echo -e "${GREEN}✓${NC} Django is configured correctly"
-    else
-        echo -e "${RED}✗${NC} Django check failed"
-    fi
+    source "$SCRIPT_DIR/lib/health_check.sh"
+    run_all_checks
 }
