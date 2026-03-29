@@ -218,8 +218,8 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
         # Join parts with arrow. Each part is already SafeString from format_html.
         # We use mark_safe only on the static arrow separator, not on dynamic content.
         # The joined result must be marked safe to preserve the SafeString nature.
-        arrow = mark_safe('<span style="color:#999;margin:0 2px;">→</span>')
-        stages_html = mark_safe(arrow.join(parts))
+        arrow = mark_safe('<span style="color:#999;margin:0 2px;">→</span>')  # nosec B308
+        stages_html = mark_safe(arrow.join(parts))  # nosec B308 B703
 
         return format_html(
             '<div style="display:flex;align-items:center;padding:8px 0;">{}</div>',

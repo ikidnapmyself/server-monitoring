@@ -46,6 +46,9 @@ dev = [
     "django-stubs>=5.0.0",
     "types-psutil>=5.9.5.20240423",
     "pre-commit>=4.0.0",
+    "pip-audit>=2.7.0",
+    "bandit>=1.7.0",
+    "detect-secrets>=1.4.0",
 ]
 
 [tool.black]
@@ -95,6 +98,19 @@ check_untyped_defs = false
 ignore_missing_imports = true
 plugins = ["mypy_django_plugin.main"]
 exclude = ["bin/"]
+
+[tool.bandit]
+exclude_dirs = [".venv", "bin/tests", "apps/alerts/_tests", "apps/checkers/_tests", "apps/intelligence/_tests", "apps/notify/_tests", "apps/orchestration/_tests", "config/_tests"]
+skips = [
+    "B101",  # assert_used — test assertions
+    "B110",  # try_except_pass — used in provider/checker fallbacks
+    "B108",  # hardcoded_tmp_directory — /tmp used in safe contexts
+    "B310",  # urlopen — notification drivers POST to configured URLs; scheme validated where needed
+    "B404",  # import_subprocess — checker modules need subprocess
+    "B603",  # subprocess_without_shell_equals_true — checkers run system commands safely
+    "B607",  # start_process_with_partial_path — checkers use standard system tools
+    "B701",  # jinja2_autoescape_false — notification templates are not user-facing HTML
+]
 
 [tool.django-stubs]
 django_settings_module = "config.settings"
