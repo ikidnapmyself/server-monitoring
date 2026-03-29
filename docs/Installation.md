@@ -6,7 +6,7 @@ nav_order: 3
 
 # Installation
 
-This repo supports **two install paths**:
+This repo supports **three install modes** — dev, production (bare metal), and Docker:
 
 [toc]
 
@@ -48,7 +48,7 @@ chmod +x ./bin/*.sh
 - Verifies Python is **3.10+**
 - Installs `uv` if missing
 - Ensures you have a `.env` (creates it from `.env.sample` if present)
-- Prompts you for **dev** or **production** configuration and appends missing `.env` keys
+- Prompts you for **dev**, **production**, or **docker** mode and appends missing `.env` keys
   - It **does not overwrite** existing values
 - Installs dependencies with `uv sync`
   - dev installs include **dev extras**
@@ -113,7 +113,7 @@ It will prompt for a prefix (default: `sm`), generate aliases, and add a `source
 | `sm-check-health` | Run health checks (CPU, memory, disk, network, process) |
 | `sm-run-pipeline` | Execute pipelines (definition-based or sample) |
 | `sm-setup-instance` | Interactive wizard to create pipelines and notification channels |
-| `sm-check-and-alert` | Run checks and create alerts/incidents |
+| `sm-check-and-alert` | Run checks through the pipeline (`run_pipeline --checks-only`) |
 | `sm-get-recommendations` | Get AI-powered system recommendations |
 | `sm-cli` | Interactive CLI menu |
 
@@ -156,7 +156,23 @@ Direct shortcuts:
 
 ---
 
-## 5) Manual installation (no scripts)
+## 5) System health check
+
+Verify your installation is working correctly:
+
+```bash
+./bin/check_system.sh
+```
+
+This auto-detects your deployment mode (dev/prod/docker/systemd) and runs the relevant checks — Python version, uv, `.env`, `.venv`, Django, migrations, pre-commit hooks, Docker containers, or systemd services.
+
+```bash
+./bin/check_system.sh --json    # JSON output (for CI/monitoring)
+```
+
+---
+
+## 6) Manual installation (no scripts)
 
 Use this if you want full control or you're running in CI.
 
@@ -228,14 +244,14 @@ uv run python manage.py runserver
 
 ---
 
-## 6) Common commands
+## 7) Common commands
 
 With aliases (after running `./bin/setup_aliases.sh`):
 
 ```bash
 sm-check-health                  # Run health checks
 sm-check-health --list           # List available checkers
-sm-check-and-alert --json        # Run checks + create alerts (cron-friendly)
+sm-check-and-alert --json        # Run checks through pipeline (cron-friendly)
 sm-get-recommendations --all     # Get system recommendations
 sm-run-pipeline --sample         # Run pipeline with sample alert
 ```
@@ -252,7 +268,7 @@ uv run python manage.py run_pipeline --sample
 
 ---
 
-## 7) Pipeline workflow with aliases
+## 8) Pipeline workflow with aliases
 
 Definition-based pipelines let you compose custom monitoring workflows. Here's the typical workflow using shell aliases:
 
@@ -313,7 +329,7 @@ For full pipeline documentation including node types, config options, and troubl
 
 ---
 
-## 8) Production deployment
+## 9) Production deployment
 
 For production deployment with Celery workers, Redis, and Nginx, see the
 [Deployment Guide](Deployment.md). It covers:
