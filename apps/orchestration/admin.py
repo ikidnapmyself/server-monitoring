@@ -2,8 +2,7 @@
 
 from django.contrib import admin
 from django.db import models as db_models
-from django.utils.html import format_html
-from django.utils.safestring import mark_safe
+from django.utils.html import format_html, format_html_join
 from django_json_widget.widgets import JSONEditorWidget
 from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
@@ -215,11 +214,14 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
             )
             parts.append(part)
 
-        # Join parts with arrow. Each part is already SafeString from format_html.
-        # We use mark_safe only on the static arrow separator, not on dynamic content.
-        # The joined result must be marked safe to preserve the SafeString nature.
-        arrow = mark_safe('<span style="color:#999;margin:0 2px;">→</span>')  # nosec B308
-        stages_html = mark_safe(arrow.join(parts))  # nosec B308 B703
+        # Join parts with format_html_join — Django's safe way to join HTML fragments.
+        # Each part is already a SafeString from format_html above.
+        # The separator uses format_html with a placeholder to avoid the no-args deprecation.
+        separator = format_html(
+            '<span style="color:#999;margin:0 2px;">{}</span>',
+            "\u2192",
+        )
+        stages_html = format_html_join(separator, "{}", ((part,) for part in parts))
 
         return format_html(
             '<div style="display:flex;align-items:center;padding:8px 0;">{}</div>',
