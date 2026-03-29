@@ -213,11 +213,21 @@ class ClusterDriverRegistrationTests(TestCase):
 
     @override_settings(CLUSTER_ENABLED=True)
     def test_driver_registered_when_enabled(self):
-        from apps.alerts.drivers import DRIVER_REGISTRY
+        from apps.alerts.drivers import DRIVER_REGISTRY, _register_cluster_driver
 
-        # Re-register since settings changed after module load
-        DRIVER_REGISTRY["cluster"] = ClusterDriver
+        # Remove if present, then re-register with enabled setting
+        DRIVER_REGISTRY.pop("cluster", None)
+        _register_cluster_driver()
         self.assertIn("cluster", DRIVER_REGISTRY)
+        self.assertEqual(DRIVER_REGISTRY["cluster"], ClusterDriver)
+
+    @override_settings(CLUSTER_ENABLED=False)
+    def test_driver_not_registered_when_disabled(self):
+        from apps.alerts.drivers import DRIVER_REGISTRY, _register_cluster_driver
+
+        DRIVER_REGISTRY.pop("cluster", None)
+        _register_cluster_driver()
+        self.assertNotIn("cluster", DRIVER_REGISTRY)
 
     @override_settings(CLUSTER_ENABLED=False)
     def test_driver_accessible_by_direct_import(self):

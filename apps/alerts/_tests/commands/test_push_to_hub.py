@@ -253,6 +253,20 @@ class PushToHubTests(TestCase):
         self.assertEqual(alert["status"], "firing")
         self.assertEqual(alert["severity"], "critical")
 
+    @override_settings(HUB_URL="file:///etc/passwd")
+    @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
+    def test_rejects_non_http_scheme(self, mock_registry):
+        """HUB_URL with file:// or other non-http scheme should be rejected."""
+        mock_checker_cls = MagicMock()
+        mock_checker_cls.return_value.run.return_value = CheckResult(
+            status=CheckStatus.OK, message="OK", metrics={}, checker_name="cpu"
+        )
+        mock_registry.items.return_value = [("cpu", mock_checker_cls)]
+
+        with self.assertRaises(CommandError) as ctx:
+            call_command("push_to_hub", stderr=StringIO())
+        self.assertIn("http", str(ctx.exception))
+
     @override_settings(HUB_URL="https://hub.example.com")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
     def test_result_to_alert_unknown_status(self, mock_registry):

@@ -92,6 +92,8 @@ class Command(BaseCommand):
 
         # POST to hub
         url = hub_url.rstrip("/") + "/alerts/webhook/cluster/"
+        if not url.startswith(("https://", "http://")):
+            raise CommandError(f"HUB_URL must use http:// or https:// scheme, got: {url}")
         body = json.dumps(payload, default=str).encode()
 
         headers = {"Content-Type": "application/json"}
