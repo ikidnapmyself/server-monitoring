@@ -1,0 +1,87 @@
+name: Security
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    paths:
+      - "**.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "deploy/docker/**"
+      - ".github/workflows/security.yml"
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  code-security:
+    name: Code Security
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Dependency audit (pip-audit)
+        run: uv run pip-audit --strict --desc
+
+      - name: Security lint (bandit)
+        run: uv run bandit -r apps/ config/ -c pyproject.toml
+
+      - name: Secret detection (detect-secrets)
+        run: |
+          uv run detect-secrets scan \
+            apps/ config/ bin/ deploy/ docs/ \
+            --exclude-files '_tests/' \
+            --exclude-files 'docs/plans/' \
+            --exclude-files 'README\.md$' \
+            --exclude-files 'bin/tests/test_helper/' \
+            > .secrets-results.json
+          if jq -e '.results | to_entries | map(select(.value | length > 0)) | length > 0' .secrets-results.json > /dev/null 2>&1; then
+            echo "::error::Potential secrets detected in the codebase"
+            jq '.results | to_entries[] | select(.value | length > 0) | {file: .key, findings: [.value[].type]}' .secrets-results.json
+            exit 1
+          fi
+          echo "No secrets detected"
+
+  docker-security:
+    name: Docker Security
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -f deploy/docker/Dockerfile -t server-monitoring:security-scan .
+
+      - name: Image vulnerability scan (trivy)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # master
+        with:
+          image-ref: "server-monitoring:security-scan"
+          format: "table"
+          exit-code: "1"
+          severity: "CRITICAL"
+          # HIGH OS-level vulns (ncurses, systemd) in python:3.12-slim have no fix yet.
+          # Report them but only block on CRITICAL.
+
+      - name: Report HIGH vulnerabilities (non-blocking)
+        if: always()
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # master
+        with:
+          image-ref: "server-monitoring:security-scan"
+          format: "table"
+          exit-code: "0"
+          severity: "HIGH"
