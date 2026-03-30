@@ -3,6 +3,7 @@
 </p>
 
 [![CI](https://github.com/ikidnapmyself/server-monitoring/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ikidnapmyself/server-monitoring/actions/workflows/ci.yml)
+[![Security](https://github.com/ikidnapmyself/server-monitoring/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/ikidnapmyself/server-monitoring/actions/workflows/security.yml)
 [![codecov](https://codecov.io/gh/ikidnapmyself/server-monitoring/graph/badge.svg)](https://codecov.io/gh/ikidnapmyself/server-monitoring)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/2926298c5268456f866ca414dd7e2cb8)](https://app.codacy.com/gh/ikidnapmyself/server-monitoring/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
 
@@ -13,6 +14,7 @@
 
 [![License: MIT](https://img.shields.io/github/license/ikidnapmyself/server-monitoring)](https://github.com/ikidnapmyself/server-monitoring/blob/main/LICENSE)
 [![Pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen.svg)](https://pre-commit.com/)
+[![Docker](https://img.shields.io/badge/docker-ready-2496ED.svg?logo=docker&logoColor=white)](deploy/docker/)
 
 # server-maintanence
 
