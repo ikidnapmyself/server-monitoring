@@ -5,6 +5,12 @@
 # Source this file — do not execute directly.
 #
 
+# Return codes for run_security_audit:
+#   0 = all checks passed
+#   1 = warnings found (no failures)
+#   2 = failures found
+# Note: this differs from health_check.sh which uses 0/1 only.
+
 [[ -n "${_LIB_SECURITY_CHECK_LOADED:-}" ]] && return 0
 _LIB_SECURITY_CHECK_LOADED=1
 
@@ -28,10 +34,19 @@ _sc_is_hub=false
 
 # --- Result helpers ---
 
+_sc_json_escape() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
+
 sc_pass() {
     local check="$1" msg="$2"
     if [ "$_sc_json_mode" = true ]; then
-        _sc_json_results+=("{\"check\":\"$check\",\"status\":\"pass\",\"message\":\"$msg\"}")
+        _sc_json_results+=("{\"check\":\"$(_sc_json_escape "$check")\",\"status\":\"pass\",\"message\":\"$(_sc_json_escape "$msg")\"}")
     else
         printf "  %bPASS%b %s\n" "$GREEN" "$NC" "$msg"
     fi
@@ -42,9 +57,9 @@ sc_warn() {
     local check="$1" msg="$2" fix="${3:-}"
     if [ "$_sc_json_mode" = true ]; then
         if [ -n "$fix" ]; then
-            _sc_json_results+=("{\"check\":\"$check\",\"status\":\"warn\",\"message\":\"$msg\",\"fix\":\"$fix\"}")
+            _sc_json_results+=("{\"check\":\"$(_sc_json_escape "$check")\",\"status\":\"warn\",\"message\":\"$(_sc_json_escape "$msg")\",\"fix\":\"$(_sc_json_escape "$fix")\"}")
         else
-            _sc_json_results+=("{\"check\":\"$check\",\"status\":\"warn\",\"message\":\"$msg\"}")
+            _sc_json_results+=("{\"check\":\"$(_sc_json_escape "$check")\",\"status\":\"warn\",\"message\":\"$(_sc_json_escape "$msg")\"}")
         fi
     else
         printf "  %bWARN%b %s\n" "$YELLOW" "$NC" "$msg"
@@ -57,9 +72,9 @@ sc_fail() {
     local check="$1" msg="$2" fix="${3:-}"
     if [ "$_sc_json_mode" = true ]; then
         if [ -n "$fix" ]; then
-            _sc_json_results+=("{\"check\":\"$check\",\"status\":\"fail\",\"message\":\"$msg\",\"fix\":\"$fix\"}")
+            _sc_json_results+=("{\"check\":\"$(_sc_json_escape "$check")\",\"status\":\"fail\",\"message\":\"$(_sc_json_escape "$msg")\",\"fix\":\"$(_sc_json_escape "$fix")\"}")
         else
-            _sc_json_results+=("{\"check\":\"$check\",\"status\":\"fail\",\"message\":\"$msg\"}")
+            _sc_json_results+=("{\"check\":\"$(_sc_json_escape "$check")\",\"status\":\"fail\",\"message\":\"$(_sc_json_escape "$msg")\"}")
         fi
     else
         printf "  %bFAIL%b %s\n" "$RED" "$NC" "$msg"
@@ -73,9 +88,13 @@ sc_fail() {
 _sc_env_val() {
     local key="$1"
     local env_file="$PROJECT_DIR/.env"
-    if [ -f "$env_file" ]; then
-        grep -E "^${key}=" "$env_file" 2>/dev/null | sed "s/^${key}=//" | head -1
-    fi
+    [ -f "$env_file" ] || return 0
+    local val
+    val=$(grep "^${key}=" "$env_file" 2>/dev/null | sed "s/^${key}=//" | head -1)
+    # Strip surrounding quotes
+    val="${val%\"}" ; val="${val#\"}"
+    val="${val%\'}" ; val="${val#\'}"
+    printf '%s' "$val"
 }
 
 # --- Mode detection ---
@@ -146,7 +165,7 @@ _sc_check_env_permissions() {
         perms=$(stat -c "%a" "$env_file" 2>/dev/null)
     fi
 
-    if [ -z "$perms" ]; then
+    if [ -z "$perms" ] || ! [[ "$perms" =~ ^[0-9]+$ ]]; then
         return 0
     fi
 
@@ -177,14 +196,17 @@ _sc_check_allowed_hosts() {
 
 _sc_check_dependencies() {
     if [ ! -d "$PROJECT_DIR/.venv" ]; then
+        sc_pass "dependencies" "Dependency audit skipped (no .venv)"
         return 0
     fi
 
     if ! command_exists uv; then
+        sc_pass "dependencies" "Dependency audit skipped (uv not installed)"
         return 0
     fi
 
     if ! uv run pip-audit --version &>/dev/null; then
+        sc_pass "dependencies" "Dependency audit skipped (pip-audit not available)"
         return 0
     fi
 
@@ -265,11 +287,20 @@ _sc_check_hub_cert() {
         return 0
     fi
 
-    if curl --max-time 5 -sf -o /dev/null "$hub_url" 2>/dev/null; then
+    local exit_code
+    curl --max-time 5 -sf -o /dev/null "$hub_url" 2>/dev/null
+    exit_code=$?
+
+    if [ "$exit_code" -eq 0 ]; then
         sc_pass "hub_cert" "TLS certificate for HUB_URL is valid"
-    else
+    elif [ "$exit_code" -eq 60 ] || [ "$exit_code" -eq 51 ]; then
+        # 60 = SSL certificate problem, 51 = SSL peer certificate or SSH remote key was not OK
         sc_warn "hub_cert" "TLS certificate issue for HUB_URL ($hub_url)" \
-            "Check certificate validity and chain of trust"
+            "Check certificate validity: curl -vI $hub_url"
+    else
+        # Other errors (timeout, DNS, connection refused) — not a cert issue
+        # Reachability is already covered by _sc_check_hub_reachable
+        return 0
     fi
 }
 
@@ -306,7 +337,7 @@ _sc_check_bind_address() {
     if command_exists ss; then
         bind_output=$(ss -tlnp 2>/dev/null | grep -E ":(8000|8080|80|443)\b" || true)
     elif command_exists netstat; then
-        bind_output=$(netstat -tlnp 2>/dev/null | grep -E ":(8000|8080|80|443)\b" || true)
+        bind_output=$(netstat -tln 2>/dev/null | grep -E ":(8000|8080|80|443)\b" || true)
     else
         return 0
     fi
