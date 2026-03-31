@@ -91,6 +91,26 @@ fi
 
 success "Cron job added successfully!"
 
+# --- Auto-update option ---
+
+echo ""
+read -p "Enable automatic updates (pulls from origin/main on same schedule)? [y/N] " -n 1 -r
+echo ""
+
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    UPDATE_CMD="cd $PROJECT_DIR && $SCRIPT_DIR/update.sh --rollback --auto-env >> $PROJECT_DIR/update.log 2>&1"
+    UPDATE_ID="# server-maintanence auto-update"
+
+    # Remove existing update job if present
+    crontab -l 2>/dev/null | grep -v -F "$UPDATE_ID" | crontab -
+
+    # Add update job on same schedule
+    (crontab -l 2>/dev/null || true; echo "$CRON_SCHEDULE $UPDATE_CMD $UPDATE_ID") | crontab -
+
+    success "Auto-update cron job added (with --rollback enabled)"
+    info "Update log: $PROJECT_DIR/update.log"
+fi
+
 echo ""
 echo "============================================"
 echo -e "${GREEN}   Cron Setup Complete!${NC}"
