@@ -30,10 +30,11 @@ git fetch origin main
   HEAD != origin/main? → continue:
     1. Save current HEAD SHA (for rollback)
     2. git pull origin main
-    3. uv sync (--all-extras --dev for dev, plain for prod/docker)
-    4. uv run python manage.py migrate
-    5. Restart services (mode-dependent)
-    6. Log result + best-effort notify
+    3. Sync .env with .env.sample (warn or auto-append)
+    4. uv sync (--all-extras --dev for dev, plain for prod/docker)
+    5. uv run python manage.py migrate
+    6. Restart services (mode-dependent)
+    7. Log result + best-effort notify
 ```
 
 ### On failure
@@ -62,6 +63,7 @@ Uses `detect_mode` from `bin/lib/health_check.sh`:
 ## Flags
 
 - `--rollback` — enable automatic revert on failure
+- `--auto-env` — auto-append new `.env.sample` keys to `.env` (default: warn only)
 - `--dry-run` — show what would happen, don't apply
 - `--json` — JSON output
 - `--help` — usage info
@@ -99,6 +101,15 @@ The `git fetch` early-exit makes this near-zero cost when there's nothing new.
 
 - `0` — up to date or update succeeded
 - `1` — update failed (with or without rollback)
+
+## Env File Sync
+
+After `git pull`, compares `.env.sample` against `.env`:
+- Keys in `.env.sample` but not in `.env` are detected
+- Default behavior: log a warning listing missing keys and their sample values
+- With `--auto-env`: auto-append missing keys to `.env` with sample values
+- Cron entry uses `--auto-env` for fully unattended operation
+- On rollback, added env keys are not reverted (defaults are harmless)
 
 ## Non-Goals
 

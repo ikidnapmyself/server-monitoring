@@ -7,7 +7,7 @@ parent: Plans
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Implement `bin/update.sh` — a shell script that auto-updates from `origin/main` with mode-aware restarts, rollback support, and notification on success/failure.
+**Goal:** Implement `bin/update.sh` — a shell script that auto-updates from `origin/main` with mode-aware restarts, rollback support, env file sync, and notification on success/failure.
 
 **Architecture:** Pure shell script sourcing `bin/lib/` helpers. A new `bin/lib/update.sh` library holds the update logic, following the pattern of `bin/lib/health_check.sh` and `bin/lib/security_check.sh`. The main script `bin/update.sh` parses flags and calls the library. `bin/setup_cron.sh` gets a new prompt for auto-updates.
 
@@ -46,6 +46,7 @@ _up_dry_run=false
 _up_rollback_enabled=false
 _up_json_mode=false
 _up_log_file="$PROJECT_DIR/update.log"
+_up_auto_env=false
 _up_saved_sha=""
 _up_new_sha=""
 _up_failed_step=""
@@ -301,7 +302,86 @@ git commit -m "feat: add update steps (pull, sync, migrate, restart)"
 
 ---
 
-### Task 4: Implement rollback
+### Task 4: Implement env file sync
+
+**Files:**
+- Modify: `bin/lib/update.sh`
+
+**Step 1: Add the env sync function after `_up_pull` and before `_up_sync_deps`**
+
+```bash
+# --- Env file sync ---
+
+_up_sync_env() {
+    local env_file="$PROJECT_DIR/.env"
+    local sample_file="$PROJECT_DIR/.env.sample"
+
+    if [ ! -f "$sample_file" ]; then
+        _up_log "INFO" "No .env.sample found — skipping env sync"
+        return 0
+    fi
+
+    if [ ! -f "$env_file" ]; then
+        _up_log "WARN" ".env not found — skipping env sync"
+        return 0
+    fi
+
+    # Find keys in .env.sample that are missing from .env
+    local missing_keys=()
+    local missing_lines=()
+    while IFS= read -r line; do
+        # Skip comments and blank lines
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$line" ]] && continue
+
+        local key
+        key=$(echo "$line" | cut -d'=' -f1 | tr -d '[:space:]')
+        [ -z "$key" ] && continue
+
+        if ! grep -q "^${key}=" "$env_file" 2>/dev/null; then
+            missing_keys+=("$key")
+            missing_lines+=("$line")
+        fi
+    done < "$sample_file"
+
+    if [ "${#missing_keys[@]}" -eq 0 ]; then
+        _up_log "INFO" ".env is up to date with .env.sample"
+        return 0
+    fi
+
+    if [ "$_up_auto_env" = true ]; then
+        _up_log "INFO" "Auto-appending ${#missing_keys[@]} missing key(s) to .env"
+        echo "" >> "$env_file"
+        echo "# --- Added by update.sh ($(date '+%Y-%m-%d %H:%M:%S')) ---" >> "$env_file"
+        for line in "${missing_lines[@]}"; do
+            echo "$line" >> "$env_file"
+            _up_log "INFO" "  Added: $line"
+        done
+    else
+        _up_log "WARN" "${#missing_keys[@]} new key(s) in .env.sample not in .env:"
+        for i in "${!missing_keys[@]}"; do
+            _up_log "WARN" "  ${missing_keys[$i]} (sample: ${missing_lines[$i]})"
+        done
+        _up_log "WARN" "Run with --auto-env to add them automatically, or add manually to .env"
+    fi
+}
+```
+
+**Step 2: Verify syntax**
+
+Run: `bash -n bin/lib/update.sh`
+Expected: no output
+
+**Step 3: Commit**
+
+```bash
+git add bin/lib/update.sh
+git commit -m "feat: add env file sync (--auto-env flag)"
+```
+
+---
+
+### Task 5: Implement rollback
 
 **Files:**
 - Modify: `bin/lib/update.sh`
@@ -349,7 +429,7 @@ git commit -m "feat: add rollback support for failed updates"
 
 ---
 
-### Task 5: Implement the orchestrator
+### Task 6: Implement the orchestrator
 
 **Files:**
 - Modify: `bin/lib/update.sh`
@@ -381,7 +461,7 @@ run_update() {
     fi
 
     # Run update steps
-    local steps=("_up_pull" "_up_sync_deps" "_up_migrate" "_up_restart")
+    local steps=("_up_pull" "_up_sync_env" "_up_sync_deps" "_up_migrate" "_up_restart")
     local failed=false
 
     for step in "${steps[@]}"; do
@@ -450,7 +530,7 @@ git commit -m "feat: add update orchestrator with JSON output and notifications"
 
 ---
 
-### Task 6: Create the main script
+### Task 7: Create the main script
 
 **Files:**
 - Create: `bin/update.sh`
@@ -476,6 +556,7 @@ cd "$PROJECT_DIR"
 for arg in "$@"; do
     case $arg in
         --rollback) _up_rollback_enabled=true ;;
+        --auto-env) _up_auto_env=true ;;
         --dry-run) _up_dry_run=true ;;
         --json) _up_json_mode=true ;;
         --help|-h)
@@ -486,6 +567,7 @@ for arg in "$@"; do
             echo ""
             echo "Options:"
             echo "  --rollback     Revert to previous version on failure"
+            echo "  --auto-env     Auto-append new .env.sample keys to .env"
             echo "  --dry-run      Show what would happen without applying"
             echo "  --json         Output as JSON"
             echo "  --help, -h     Show this help"
@@ -519,7 +601,7 @@ git commit -m "feat: add bin/update.sh entry point"
 
 ---
 
-### Task 7: Update setup_cron.sh
+### Task 8: Update setup_cron.sh
 
 **Files:**
 - Modify: `bin/setup_cron.sh`
@@ -536,7 +618,7 @@ read -p "Enable automatic updates (pulls from origin/main on same schedule)? [y/
 echo ""
 
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    UPDATE_CMD="cd $PROJECT_DIR && $BIN_DIR/update.sh --rollback >> $PROJECT_DIR/update.log 2>&1"
+    UPDATE_CMD="cd $PROJECT_DIR && $BIN_DIR/update.sh --rollback --auto-env >> $PROJECT_DIR/update.log 2>&1"
     UPDATE_ID="# server-maintanence auto-update"
 
     # Remove existing update job if present
@@ -566,7 +648,7 @@ git commit -m "feat: add auto-update option to cron setup"
 
 ---
 
-### Task 8: Write bats tests
+### Task 9: Write bats tests
 
 **Files:**
 - Create: `bin/tests/test_update.bats`
@@ -598,6 +680,7 @@ setup() {
     assert_output --partial "--rollback"
     assert_output --partial "--dry-run"
     assert_output --partial "--json"
+    assert_output --partial "--auto-env"
 }
 
 @test "update.sh --dry-run does not modify repo" {
@@ -634,7 +717,7 @@ git commit -m "test: add bats tests for update.sh"
 
 ---
 
-### Task 9: Update docs
+### Task 10: Update docs
 
 **Files:**
 - Modify: `bin/README.md`
@@ -676,6 +759,7 @@ Checks for updates from `origin/main` and applies them. Syncs dependencies, runs
 
 **Flags:**
 - `--rollback` — revert to previous version if any step fails
+- `--auto-env` — auto-append new `.env.sample` keys to `.env`
 - `--dry-run` — preview without applying
 - `--json` — JSON output
 
