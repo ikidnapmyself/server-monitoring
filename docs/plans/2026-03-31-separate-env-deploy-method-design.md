@@ -106,10 +106,11 @@ Select deployment method:
 
 ```
 1. Read DEPLOY_METHOD from PROJECT_DIR/.env  → return value if present
-2. Fallback heuristics (backward compat):
+2. Heuristic fallback (backward compat):
    a. Docker compose containers running → "docker"
-   b. systemd server-monitoring unit exists → "bare"
 3. Default → "bare"
+   (systemd is a service manager within bare-metal, not a DEPLOY_METHOD value;
+   bare-metal deployments — whether managed by systemd or not — all return "bare")
 ```
 
 #### Updated `detect_mode()`

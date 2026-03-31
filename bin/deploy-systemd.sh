@@ -57,6 +57,8 @@ success "Environment file found"
 # DEPLOY_METHOD consistency
 _deploy_method_val=$(grep -E "^DEPLOY_METHOD=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true)
 if [ -z "${_deploy_method_val:-}" ]; then
+    # systemd is a service manager within bare-metal deployment, not its own
+    # DEPLOY_METHOD value. Write "bare" so the two-axis model stays consistent.
     echo "DEPLOY_METHOD=bare" >> "$ENV_FILE"
     info "DEPLOY_METHOD=bare written to $ENV_FILE"
 elif [ "$_deploy_method_val" != "bare" ]; then

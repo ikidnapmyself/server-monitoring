@@ -46,6 +46,7 @@ dotenv_prompt_setup() {
         if [ "$django_env" = "prod" ] && [ "$deploy_method" = "bare" ]; then
             # Production bare-metal: always off
             dotenv_set_if_missing "$env_file" "DJANGO_DEBUG" "0"
+            info "DJANGO_DEBUG=0 (forced for production bare-metal)"
         else
             local default_debug="1"
             [ "$django_env" = "prod" ] && default_debug="0"
@@ -308,8 +309,8 @@ else
         "$SCRIPT_DIR/setup_aliases.sh"
     fi
 
-    # Offer systemd deployment (prod only)
-    if [ "$DJANGO_ENV" = "prod" ]; then
+    # Offer systemd deployment (prod + bare only)
+    if [ "$DJANGO_ENV" = "prod" ] && [ "$DEPLOY_METHOD" = "bare" ]; then
         echo ""
         read -p "Would you like to deploy with systemd now? [y/N] " -n 1 -r
         echo ""
