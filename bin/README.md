@@ -20,6 +20,7 @@ All management commands and their shell aliases (set up via `setup_aliases.sh`):
 | `sm-setup-instance` | `setup_instance` | orchestration | Interactive wizard to create pipelines and notification channels |
 | `sm-cli` | — | — | Interactive CLI menu |
 | `sm-check-security` | — | — | Security posture audit (agent/hub/standalone) |
+| `sm-update` | — | — | Auto-update from origin/main |
 
 Aliases pass all flags through. Example: `sm-check-health --json` = `uv run python manage.py check_health --json`.
 
@@ -166,6 +167,7 @@ Sets up scheduled health checks via cron.
 - Lets you choose a schedule (5 min / 15 min / hourly / custom)
 - Writes crontab entry for `run_pipeline --checks-only --json`
 - Logs to `cron.log` in project root
+- Optionally sets up automatic updates (`bin/update.sh --rollback --auto-env`)
 
 **Useful commands after setup:**
 ```bash
@@ -174,6 +176,46 @@ tail -f ./cron.log   # Follow cron output
 ```
 
 ---
+
+### `update.sh` — Auto-Update
+
+Checks for updates from `origin/main` and applies them. Syncs dependencies, runs migrations, and restarts services based on the detected deployment mode.
+
+```bash
+# Check and apply updates
+./bin/update.sh
+
+# Dry run (show what would happen)
+./bin/update.sh --dry-run
+
+# Enable automatic rollback on failure
+./bin/update.sh --rollback
+
+# Auto-append new env vars from .env.sample
+./bin/update.sh --auto-env
+
+# JSON output (for CI or monitoring)
+./bin/update.sh --json
+```
+
+**What it does:**
+1. `git fetch origin main` — check for new commits
+2. `git pull origin main` — apply changes
+3. Sync `.env` with `.env.sample` — warn or auto-append new keys
+4. `uv sync` — sync dependencies (mode-aware)
+5. `python manage.py migrate` — apply database migrations
+6. Restart services (systemd, docker compose, or skip for dev)
+7. Notify on success or failure (best-effort)
+
+**Flags:**
+- `--rollback` — revert to previous version if any step fails
+- `--auto-env` — auto-append new `.env.sample` keys to `.env`
+- `--dry-run` — preview without applying
+- `--json` — JSON output
+
+**Exit codes:** `0` = up to date or updated, `1` = error.
+
+**Cron:** Run `./bin/setup_cron.sh` and answer "y" to the auto-update prompt.
 
 ---
 
