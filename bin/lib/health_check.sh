@@ -55,30 +55,67 @@ hc_fail() {
 
 # --- Mode detection ---
 
-detect_mode() {
-    # 1. Docker — compose containers running for this project
+# Returns the deployment environment: "dev" or "prod".
+# Reads DJANGO_ENV from .env if present; falls back to "dev".
+detect_env() {
+    if [ -f "$PROJECT_DIR/.env" ]; then
+        local val
+        val=$(grep -E "^DJANGO_ENV=" "$PROJECT_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2-)
+        case "${val:-}" in
+            prod) echo "prod"; return 0 ;;
+            dev)  echo "dev";  return 0 ;;
+        esac
+    fi
+    echo "dev"
+}
+
+# Returns the deployment method: "docker" or "bare".
+# Reads DEPLOY_METHOD from .env when present; falls back to runtime heuristics
+# for backward compatibility.
+detect_deploy_method() {
+    if [ -f "$PROJECT_DIR/.env" ]; then
+        local val
+        val=$(grep -E "^DEPLOY_METHOD=" "$PROJECT_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2-)
+        case "${val:-}" in
+            docker) echo "docker"; return 0 ;;
+            bare)   echo "bare";   return 0 ;;
+        esac
+    fi
+
+    # Heuristic fallback (backward compatibility): Docker containers running?
     local compose_file="$PROJECT_DIR/deploy/docker/docker-compose.yml"
     if command_exists docker && docker compose -f "$compose_file" ps --format json 2>/dev/null | grep -q "running"; then
         echo "docker"
         return 0
     fi
 
-    # 2. systemd — server-monitoring.service unit exists
-    if command -v systemctl &>/dev/null && systemctl list-unit-files server-monitoring.service &>/dev/null 2>&1 && \
+    echo "bare"
+}
+
+# Returns a combined mode string for backward compatibility: dev / prod / docker / systemd.
+# Callers that only need one axis should use detect_env() or detect_deploy_method() directly.
+detect_mode() {
+    local method env
+    method=$(detect_deploy_method)
+    env=$(detect_env)
+
+    if [ "$method" = "docker" ]; then
+        echo "docker"
+        return 0
+    fi
+
+    # bare — check if systemd unit is installed
+    if command -v systemctl &>/dev/null && \
        systemctl list-unit-files server-monitoring.service 2>/dev/null | grep -q "server-monitoring"; then
         echo "systemd"
         return 0
     fi
 
-    # 3. prod — .venv exists + DJANGO_ENV=prod in .env
-    if [ -d "$PROJECT_DIR/.venv" ] && [ -f "$PROJECT_DIR/.env" ]; then
-        if grep -qE "^DJANGO_ENV=prod" "$PROJECT_DIR/.env" 2>/dev/null; then
-            echo "prod"
-            return 0
-        fi
+    if [ "$env" = "prod" ]; then
+        echo "prod"
+        return 0
     fi
 
-    # 4. dev — fallback
     echo "dev"
 }
 
@@ -256,33 +293,36 @@ run_systemd_checks() {
 # --- Orchestrator ---
 
 run_all_checks() {
-    local mode
-    mode=$(detect_mode)
+    local method env
+    method=$(detect_deploy_method)
+    env=$(detect_env)
 
     if [ "$_hc_json_mode" = false ]; then
         printf "\n%b============================================%b\n" "$BOLD" "$NC"
         printf "%b   server-maintanence Health Check%b\n" "$BOLD" "$NC"
         printf "%b============================================%b\n" "$BOLD" "$NC"
-        printf "\n  Detected mode: %b%s%b\n" "$CYAN" "$mode" "$NC"
+        printf "\n  Environment:       %b%s%b\n" "$CYAN" "$env" "$NC"
+        printf "  Deployment method: %b%s%b\n" "$CYAN" "$method" "$NC"
     fi
 
-    case "$mode" in
-        dev)
-            run_core_checks
-            run_django_checks
+    if [ "$method" = "docker" ]; then
+        run_docker_checks
+    else
+        # bare — core + Django checks always apply
+        run_core_checks
+        run_django_checks
+
+        # dev-only extras
+        if [ "$env" = "dev" ]; then
             run_dev_checks
-            ;;
-        prod)
-            run_core_checks
-            run_django_checks
-            ;;
-        docker)
-            run_docker_checks
-            ;;
-        systemd)
+        fi
+
+        # If a systemd unit is installed, verify it too
+        if command -v systemctl &>/dev/null && \
+           systemctl list-unit-files server-monitoring.service 2>/dev/null | grep -q "server-monitoring"; then
             run_systemd_checks
-            ;;
-    esac
+        fi
+    fi
 
     if [ "$_hc_json_mode" = true ]; then
         # Output JSON array

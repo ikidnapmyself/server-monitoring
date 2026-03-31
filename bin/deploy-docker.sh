@@ -34,6 +34,17 @@ if [ ! -f "$PROJECT_DIR/.env" ]; then
 fi
 success ".env file found"
 
+# Check 1b: DEPLOY_METHOD consistency
+_deploy_method_val=$(grep -E "^DEPLOY_METHOD=" "$PROJECT_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+if [ -z "${_deploy_method_val:-}" ]; then
+    # Key absent — write it now so .env is consistent
+    echo "DEPLOY_METHOD=docker" >> "$PROJECT_DIR/.env"
+    info "DEPLOY_METHOD=docker written to .env"
+elif [ "$_deploy_method_val" != "docker" ]; then
+    warn ".env has DEPLOY_METHOD=$_deploy_method_val but you are running the Docker deployer."
+    warn "Continuing anyway — update DEPLOY_METHOD=docker in .env if this is intentional."
+fi
+
 # Check 2 & 3: Docker daemon + compose v2
 docker_preflight || exit 1
 

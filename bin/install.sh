@@ -14,7 +14,17 @@ source "$SCRIPT_DIR/lib/dotenv.sh"
 
 cd "$PROJECT_DIR"
 
+# ---------------------------------------------------------------------------
+# .env setup — unified for all environment / deployment-method combinations
+#
+# Arguments:
+#   $1  DJANGO_ENV    — "dev" or "prod"
+#   $2  DEPLOY_METHOD — "bare" or "docker"
+# ---------------------------------------------------------------------------
+
 dotenv_prompt_setup() {
+    local django_env="$1"
+    local deploy_method="$2"
     local env_file="$PROJECT_DIR/.env"
 
     echo ""
@@ -23,154 +33,60 @@ dotenv_prompt_setup() {
     echo "============================================"
     echo ""
     info "This will append missing values to .env (it will not overwrite existing entries)."
+    info "Configuring .env for env=$django_env / method=$deploy_method."
 
-    # Use the mode already selected at the top-level prompt
-    local MODE="$INSTALL_MODE"
-    info "Configuring .env for $MODE mode."
+    # Write the two primary axes
+    dotenv_set_if_missing "$env_file" "DJANGO_ENV" "$django_env"
+    dotenv_set_if_missing "$env_file" "DEPLOY_METHOD" "$deploy_method"
 
-    # Set DJANGO_ENV based on mode (only if missing)
-    if [ "$MODE" = "prod" ]; then
-        dotenv_set_if_missing "$env_file" "DJANGO_ENV" "prod"
-    else
-        dotenv_set_if_missing "$env_file" "DJANGO_ENV" "dev"
+    # ------------------------------------------------------------------
+    # DJANGO_DEBUG
+    # ------------------------------------------------------------------
+    if ! dotenv_has_key "$env_file" "DJANGO_DEBUG"; then
+        if [ "$django_env" = "prod" ] && [ "$deploy_method" = "bare" ]; then
+            # Production bare-metal: always off
+            dotenv_set_if_missing "$env_file" "DJANGO_DEBUG" "0"
+        else
+            local default_debug="1"
+            [ "$django_env" = "prod" ] && default_debug="0"
+            read -p "DJANGO_DEBUG (1=on, 0=off, default: $default_debug): " -r DEBUG_INPUT
+            DEBUG_INPUT="${DEBUG_INPUT:-$default_debug}"
+            dotenv_set_if_missing "$env_file" "DJANGO_DEBUG" "$DEBUG_INPUT"
+        fi
     fi
 
-    if [ "$MODE" = "prod" ]; then
-        echo ""
-        info "Production configuration"
-
-        # DEBUG off in prod by default
-        dotenv_set_if_missing "$env_file" "DJANGO_DEBUG" "0"
-
-        # Required in prod: ALLOWED_HOSTS
-        if ! dotenv_has_key "$env_file" "DJANGO_ALLOWED_HOSTS"; then
+    # ------------------------------------------------------------------
+    # DJANGO_ALLOWED_HOSTS
+    # ------------------------------------------------------------------
+    if ! dotenv_has_key "$env_file" "DJANGO_ALLOWED_HOSTS"; then
+        if [ "$django_env" = "prod" ]; then
             local hosts
             hosts="$(prompt_non_empty "DJANGO_ALLOWED_HOSTS (comma-separated, e.g. example.com,www.example.com): ")"
             dotenv_set_if_missing "$env_file" "DJANGO_ALLOWED_HOSTS" "$hosts"
-        fi
-
-        # Required in prod: SECRET_KEY
-        if ! dotenv_has_key "$env_file" "DJANGO_SECRET_KEY"; then
-            read -p "Generate a secure DJANGO_SECRET_KEY now? [Y/n]: " -n 1 -r
-            echo ""
-            if [[ -z "${REPLY:-}" || "${REPLY:-}" =~ ^[Yy]$ ]]; then
-                if command_exists python3; then
-                    local key
-                    key="$(python3 -c 'import secrets; print(secrets.token_urlsafe(50))')"
-                    dotenv_set_if_missing "$env_file" "DJANGO_SECRET_KEY" "$key"
-                    success "DJANGO_SECRET_KEY added to .env"
-                else
-                    error "python3 not available; cannot generate DJANGO_SECRET_KEY."
-                    local manual_key
-                    manual_key="$(prompt_non_empty "Paste DJANGO_SECRET_KEY to store in .env: ")"
-                    dotenv_set_if_missing "$env_file" "DJANGO_SECRET_KEY" "$manual_key"
-                fi
-            else
-                local manual_key
-                manual_key="$(prompt_non_empty "Paste DJANGO_SECRET_KEY to store in .env: ")"
-                dotenv_set_if_missing "$env_file" "DJANGO_SECRET_KEY" "$manual_key"
-            fi
-        fi
-
-        # Celery / Redis: require broker URL in prod
-        if ! dotenv_has_key "$env_file" "CELERY_BROKER_URL"; then
-            local broker
-            broker="$(prompt_non_empty "CELERY_BROKER_URL (e.g. redis://redis:6379/0): ")"
-            dotenv_set_if_missing "$env_file" "CELERY_BROKER_URL" "$broker"
-        fi
-
-        # Results backend: optional, but common in prod
-        if ! dotenv_has_key "$env_file" "CELERY_RESULT_BACKEND"; then
-            read -p "Set CELERY_RESULT_BACKEND? [y/N]: " -n 1 -r
-            echo ""
-            if [[ "${REPLY:-}" =~ ^[Yy]$ ]]; then
-                local backend
-                backend="$(prompt_non_empty "CELERY_RESULT_BACKEND (e.g. redis://redis:6379/1): ")"
-                dotenv_set_if_missing "$env_file" "CELERY_RESULT_BACKEND" "$backend"
-            fi
-        fi
-
-        # Safety: never eager in prod
-        dotenv_set_if_missing "$env_file" "CELERY_TASK_ALWAYS_EAGER" "0"
-
-    else
-        echo ""
-        info "Development configuration"
-
-        # DJANGO_DEBUG
-        if ! dotenv_has_key "$env_file" "DJANGO_DEBUG"; then
-            read -p "Enable Django DEBUG? [Y/n]: " -n 1 -r
-            echo ""
-            if [[ -z "${REPLY:-}" || "${REPLY:-}" =~ ^[Yy]$ ]]; then
-                dotenv_set_if_missing "$env_file" "DJANGO_DEBUG" "1"
-            else
-                dotenv_set_if_missing "$env_file" "DJANGO_DEBUG" "0"
-            fi
-        fi
-
-        # DJANGO_ALLOWED_HOSTS
-        if ! dotenv_has_key "$env_file" "DJANGO_ALLOWED_HOSTS"; then
+        else
             read -p "DJANGO_ALLOWED_HOSTS (comma-separated, default: localhost,127.0.0.1): " -r ALLOWED_HOSTS_INPUT
             ALLOWED_HOSTS_INPUT="${ALLOWED_HOSTS_INPUT:-localhost,127.0.0.1}"
             dotenv_set_if_missing "$env_file" "DJANGO_ALLOWED_HOSTS" "$ALLOWED_HOSTS_INPUT"
         fi
-
-        # DJANGO_SECRET_KEY (dev: can generate or leave as-is)
-        if ! dotenv_has_key "$env_file" "DJANGO_SECRET_KEY"; then
-            read -p "Generate and set DJANGO_SECRET_KEY in .env? [y/N]: " -n 1 -r
-            echo ""
-            if [[ "${REPLY:-}" =~ ^[Yy]$ ]]; then
-                if command_exists python3; then
-                    DJANGO_SECRET_KEY_VALUE="$(python3 -c 'import secrets; print(secrets.token_urlsafe(50))')"
-                    dotenv_set_if_missing "$env_file" "DJANGO_SECRET_KEY" "$DJANGO_SECRET_KEY_VALUE"
-                    success "DJANGO_SECRET_KEY added to .env"
-                else
-                    warn "python3 not available; skipping DJANGO_SECRET_KEY generation"
-                fi
-            else
-                warn "DJANGO_SECRET_KEY not set. Set it manually before production use."
-            fi
-        fi
-
-        # Celery eager toggle (useful for local)
-        if ! dotenv_has_key "$env_file" "CELERY_TASK_ALWAYS_EAGER"; then
-            read -p "Run Celery tasks eagerly (no broker) for local dev? [y/N]: " -n 1 -r
-            echo ""
-            if [[ "${REPLY:-}" =~ ^[Yy]$ ]]; then
-                dotenv_set_if_missing "$env_file" "CELERY_TASK_ALWAYS_EAGER" "1"
-            else
-                dotenv_set_if_missing "$env_file" "CELERY_TASK_ALWAYS_EAGER" "0"
-            fi
-        fi
     fi
 
-    success ".env setup complete"
-}
-
-dotenv_prompt_docker() {
-    local env_file="$PROJECT_DIR/.env"
-
-    echo ""
-    echo "============================================"
-    echo "   Docker environment setup (.env)"
-    echo "============================================"
-    echo ""
-    info "Configuring .env for Docker Compose deployment."
-    info "CELERY_BROKER_URL is managed by Docker Compose — skipping."
-    echo ""
-
-    # DJANGO_DEBUG
-    if ! dotenv_has_key "$env_file" "DJANGO_DEBUG"; then
-        read -p "DJANGO_DEBUG (1=on, 0=off, default: 1): " -r DEBUG_INPUT
-        DEBUG_INPUT="${DEBUG_INPUT:-1}"
-        dotenv_set_if_missing "$env_file" "DJANGO_DEBUG" "$DEBUG_INPUT"
-    fi
-
+    # ------------------------------------------------------------------
     # DJANGO_SECRET_KEY
+    # ------------------------------------------------------------------
     if ! dotenv_has_key "$env_file" "DJANGO_SECRET_KEY"; then
-        read -p "Generate a secure DJANGO_SECRET_KEY now? [Y/n]: " -n 1 -r
+        local auto_prompt_default="Y/n"
+        [ "$django_env" = "dev" ] && auto_prompt_default="y/N"
+
+        read -p "Generate a secure DJANGO_SECRET_KEY now? [$auto_prompt_default]: " -n 1 -r
         echo ""
-        if [[ -z "${REPLY:-}" || "${REPLY:-}" =~ ^[Yy]$ ]]; then
+        local do_generate=false
+        if [ "$django_env" = "prod" ]; then
+            [[ -z "${REPLY:-}" || "${REPLY:-}" =~ ^[Yy]$ ]] && do_generate=true
+        else
+            [[ "${REPLY:-}" =~ ^[Yy]$ ]] && do_generate=true
+        fi
+
+        if [ "$do_generate" = true ]; then
             if command_exists python3; then
                 local key
                 key="$(python3 -c 'import secrets; print(secrets.token_urlsafe(50))')"
@@ -182,24 +98,58 @@ dotenv_prompt_docker() {
                 manual_key="$(prompt_non_empty "Paste DJANGO_SECRET_KEY to store in .env: ")"
                 dotenv_set_if_missing "$env_file" "DJANGO_SECRET_KEY" "$manual_key"
             fi
-        else
+        elif [ "$django_env" = "prod" ]; then
             local manual_key
             manual_key="$(prompt_non_empty "Paste DJANGO_SECRET_KEY to store in .env: ")"
             dotenv_set_if_missing "$env_file" "DJANGO_SECRET_KEY" "$manual_key"
+        else
+            warn "DJANGO_SECRET_KEY not set. Set it manually before production use."
         fi
     fi
 
-    # DJANGO_ALLOWED_HOSTS
-    if ! dotenv_has_key "$env_file" "DJANGO_ALLOWED_HOSTS"; then
-        read -p "DJANGO_ALLOWED_HOSTS (comma-separated, default: localhost,127.0.0.1): " -r HOSTS_INPUT
-        HOSTS_INPUT="${HOSTS_INPUT:-localhost,127.0.0.1}"
-        dotenv_set_if_missing "$env_file" "DJANGO_ALLOWED_HOSTS" "$HOSTS_INPUT"
+    # ------------------------------------------------------------------
+    # Celery / Redis — skip broker prompt for Docker (Compose provides it)
+    # ------------------------------------------------------------------
+    if [ "$deploy_method" = "docker" ]; then
+        # Docker Compose manages Redis internally
+        dotenv_set_if_missing "$env_file" "CELERY_TASK_ALWAYS_EAGER" "0"
+        info "CELERY_BROKER_URL is managed by Docker Compose — skipping."
+    else
+        # bare — prompt for broker in prod, optional in dev
+        if [ "$django_env" = "prod" ]; then
+            if ! dotenv_has_key "$env_file" "CELERY_BROKER_URL"; then
+                local broker
+                broker="$(prompt_non_empty "CELERY_BROKER_URL (e.g. redis://redis:6379/0): ")"
+                dotenv_set_if_missing "$env_file" "CELERY_BROKER_URL" "$broker"
+            fi
+
+            if ! dotenv_has_key "$env_file" "CELERY_RESULT_BACKEND"; then
+                read -p "Set CELERY_RESULT_BACKEND? [y/N]: " -n 1 -r
+                echo ""
+                if [[ "${REPLY:-}" =~ ^[Yy]$ ]]; then
+                    local backend
+                    backend="$(prompt_non_empty "CELERY_RESULT_BACKEND (e.g. redis://redis:6379/1): ")"
+                    dotenv_set_if_missing "$env_file" "CELERY_RESULT_BACKEND" "$backend"
+                fi
+            fi
+
+            # Safety: never eager in prod
+            dotenv_set_if_missing "$env_file" "CELERY_TASK_ALWAYS_EAGER" "0"
+        else
+            # dev + bare: offer eager toggle
+            if ! dotenv_has_key "$env_file" "CELERY_TASK_ALWAYS_EAGER"; then
+                read -p "Run Celery tasks eagerly (no broker) for local dev? [y/N]: " -n 1 -r
+                echo ""
+                if [[ "${REPLY:-}" =~ ^[Yy]$ ]]; then
+                    dotenv_set_if_missing "$env_file" "CELERY_TASK_ALWAYS_EAGER" "1"
+                else
+                    dotenv_set_if_missing "$env_file" "CELERY_TASK_ALWAYS_EAGER" "0"
+                fi
+            fi
+        fi
     fi
 
-    # Safety: never eager in docker (Compose provides Redis)
-    dotenv_set_if_missing "$env_file" "CELERY_TASK_ALWAYS_EAGER" "0"
-
-    success ".env setup complete (Docker mode)"
+    success ".env setup complete"
 }
 
 # ---------------------------------------------------------------------------
@@ -212,30 +162,50 @@ echo "   server-maintanence Installer"
 echo "============================================"
 echo ""
 
-# Mode selection
-echo "Select installation mode:"
-echo "  1) dev    — local development (DEBUG=1, eager tasks)"
-echo "  2) prod   — bare-metal production (systemd, gunicorn)"
-echo "  3) docker — Docker Compose stack (requires Docker running)"
-echo ""
-read -p "Enter choice [1/2/3] (default: 1): " -r MODE_INPUT
-MODE_INPUT="${MODE_INPUT:-1}"
+# --- Step 1: Select environment ---
 
-case "$MODE_INPUT" in
-    1|d|dev|Dev|DEV)       INSTALL_MODE="dev" ;;
-    2|p|prod|Prod|PROD)    INSTALL_MODE="prod" ;;
-    3|docker|Docker|DOCKER) INSTALL_MODE="docker" ;;
+echo "Select environment:"
+echo "  1) dev   — development (DEBUG=1, eager tasks)"
+echo "  2) prod  — production (DEBUG=0, real secret key)"
+echo ""
+read -p "Enter choice [1/2] (default: 1): " -r ENV_INPUT
+ENV_INPUT="${ENV_INPUT:-1}"
+
+case "$ENV_INPUT" in
+    1|d|dev|Dev|DEV)   DJANGO_ENV="dev" ;;
+    2|p|prod|Prod|PROD) DJANGO_ENV="prod" ;;
     *)
-        warn "Invalid choice '$MODE_INPUT', defaulting to dev."
-        INSTALL_MODE="dev"
+        warn "Invalid choice '$ENV_INPUT', defaulting to dev."
+        DJANGO_ENV="dev"
         ;;
 esac
 
-info "Selected mode: $INSTALL_MODE"
+info "Environment: $DJANGO_ENV"
+echo ""
 
-if [ "$INSTALL_MODE" = "docker" ]; then
+# --- Step 2: Select deployment method ---
+
+echo "Select deployment method:"
+echo "  1) bare   — bare-metal (Python + uv, systemd or runserver)"
+echo "  2) docker — Docker Compose stack (requires Docker running)"
+echo ""
+read -p "Enter choice [1/2] (default: 1): " -r METHOD_INPUT
+METHOD_INPUT="${METHOD_INPUT:-1}"
+
+case "$METHOD_INPUT" in
+    1|b|bare|Bare|BARE)     DEPLOY_METHOD="bare" ;;
+    2|d|docker|Docker|DOCKER) DEPLOY_METHOD="docker" ;;
+    *)
+        warn "Invalid choice '$METHOD_INPUT', defaulting to bare."
+        DEPLOY_METHOD="bare"
+        ;;
+esac
+
+info "Deployment method: $DEPLOY_METHOD"
+
+if [ "$DEPLOY_METHOD" = "docker" ]; then
     # -----------------------------------------------------------------------
-    # Docker mode
+    # Docker deployment
     # -----------------------------------------------------------------------
     info "Checking Docker daemon..."
     if ! command_exists docker || ! docker info >/dev/null 2>&1; then
@@ -247,23 +217,23 @@ if [ "$INSTALL_MODE" = "docker" ]; then
     success "Docker daemon is running"
 
     dotenv_ensure_file
-    dotenv_prompt_docker
+    dotenv_prompt_setup "$DJANGO_ENV" "$DEPLOY_METHOD"
 
     info "Handing off to deploy-docker.sh..."
     exec "$SCRIPT_DIR/deploy-docker.sh"
 else
     # -----------------------------------------------------------------------
-    # Dev / Prod mode
+    # Bare-metal deployment (dev or prod)
     # -----------------------------------------------------------------------
     check_python || exit 1
     check_uv || exit 1
 
     # .env setup
     dotenv_ensure_file
-    dotenv_prompt_setup
+    dotenv_prompt_setup "$DJANGO_ENV" "$DEPLOY_METHOD"
 
     # Sync dependencies
-    if [ "$INSTALL_MODE" = "dev" ]; then
+    if [ "$DJANGO_ENV" = "dev" ]; then
         info "Installing dependencies with uv sync (including development dependencies)..."
         uv sync --all-extras --dev
     else
@@ -339,7 +309,7 @@ else
     fi
 
     # Offer systemd deployment (prod only)
-    if [ "$INSTALL_MODE" = "prod" ]; then
+    if [ "$DJANGO_ENV" = "prod" ]; then
         echo ""
         read -p "Would you like to deploy with systemd now? [y/N] " -n 1 -r
         echo ""
