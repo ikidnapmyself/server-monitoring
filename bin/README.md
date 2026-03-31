@@ -19,6 +19,7 @@ All management commands and their shell aliases (set up via `setup_aliases.sh`):
 | `sm-test-notify` | `test_notify` | notify | Test notification delivery |
 | `sm-setup-instance` | `setup_instance` | orchestration | Interactive wizard to create pipelines and notification channels |
 | `sm-cli` | — | — | Interactive CLI menu |
+| `sm-check-security` | — | — | Security posture audit (agent/hub/standalone) |
 
 Aliases pass all flags through. Example: `sm-check-health --json` = `uv run python manage.py check_health --json`.
 
@@ -173,6 +174,27 @@ tail -f ./cron.log   # Follow cron output
 ```
 
 ---
+
+---
+
+### `check_security.sh` — Security Posture Audit
+
+Audits the security configuration of a deployment. Auto-detects whether this node is an agent, hub, or standalone instance.
+
+```bash
+# Run security audit
+./bin/check_security.sh
+
+# JSON output (for CI or monitoring)
+./bin/check_security.sh --json
+```
+
+**Mode detection:**
+- **Agent** (`HUB_URL` set): checks TLS, HMAC signing, hub reachability, certificate validity
+- **Hub** (`CLUSTER_ENABLED=1`): checks HMAC secret, bind address, reverse proxy, HTTPS termination
+- **Standalone**: common checks only (secret key, debug mode, .env permissions, allowed hosts, dependency audit)
+
+**Exit codes:** `0` = all pass, `1` = warnings only, `2` = failures present.
 
 ## Permissions
 
