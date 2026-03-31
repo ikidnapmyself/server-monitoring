@@ -210,8 +210,7 @@ _sc_check_dependencies() {
         return 0
     fi
 
-    local audit_output
-    if audit_output=$(uv run pip-audit 2>&1); then
+    if uv run pip-audit &>/dev/null; then
         sc_pass "dependencies" "No known vulnerabilities in dependencies"
     else
         sc_warn "dependencies" "pip-audit found potential vulnerabilities" \
