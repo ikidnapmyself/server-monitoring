@@ -58,13 +58,13 @@ _up_notify() {
     fi
 
     # Best-effort — never let notification failure break the update
-    cd "$PROJECT_DIR" && \
+    (cd "$PROJECT_DIR" && \
         uv run python manage.py test_notify \
             --non-interactive \
             --title "$title" \
             --message "$msg" \
             --severity "$severity" \
-        &>/dev/null || true
+    ) &>/dev/null || true
 }
 
 _up_short_sha() {
@@ -83,6 +83,13 @@ _up_json_escape() {
 # --- Update check ---
 
 _up_check_for_updates() {
+    local current_branch
+    current_branch="$(git -C "$PROJECT_DIR" symbolic-ref --short HEAD 2>/dev/null)"
+    if [ "$current_branch" != "main" ]; then
+        _up_log "ERROR" "Not on main branch (current: $current_branch) — skipping update"
+        return 1
+    fi
+
     _up_log "INFO" "Fetching latest changes from origin..."
 
     if ! git -C "$PROJECT_DIR" fetch origin main &>/dev/null; then
@@ -185,8 +192,6 @@ _up_sync_env() {
 }
 
 _up_sync_deps() {
-    _up_mode="$(detect_mode)"
-
     if [ "$_up_mode" = "docker" ]; then
         _up_log "INFO" "Docker mode — skipping dependency sync (handled by image build)"
         return 0
@@ -199,14 +204,12 @@ _up_sync_deps() {
         return 0
     fi
 
-    local sync_cmd
+    local sync_cmd=("uv" "sync")
     if [ "$_up_mode" = "dev" ]; then
-        sync_cmd="uv sync --all-extras --dev"
-    else
-        sync_cmd="uv sync"
+        sync_cmd=("uv" "sync" "--all-extras" "--dev")
     fi
 
-    if ! (cd "$PROJECT_DIR" && $sync_cmd); then
+    if ! (cd "$PROJECT_DIR" && "${sync_cmd[@]}"); then
         _up_failed_step="sync_deps"
         _up_log "ERROR" "Dependency sync failed"
         return 1
@@ -343,10 +346,10 @@ run_update() {
         fi
 
         if [ "$_up_json_mode" = true ]; then
-            printf '{"status":"failed","step":"%s","from":"%s","to":"%s"}\n' \
+            printf '{"status":"failed","step":"%s","from":"%s","new_sha":"%s"}\n' \
                 "$(_up_json_escape "$_up_failed_step")" \
-                "$(_up_short_sha "$_up_saved_sha")" \
-                "$(_up_short_sha "$_up_new_sha")"
+                "$_up_saved_sha" \
+                "${_up_new_sha:-$_up_saved_sha}"
         fi
 
         _up_notify \
