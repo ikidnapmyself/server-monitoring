@@ -214,8 +214,6 @@ _sc_check_dependencies() {
     if audit_output=$(uv run pip-audit 2>&1); then
         sc_pass "dependencies" "No known vulnerabilities in dependencies"
     else
-        local vuln_count
-        vuln_count=$(echo "$audit_output" | grep -cE "^[a-zA-Z]" 2>/dev/null || echo "unknown")
         sc_warn "dependencies" "pip-audit found potential vulnerabilities" \
             "Run: uv run pip-audit --fix"
     fi
