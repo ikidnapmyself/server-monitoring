@@ -85,10 +85,6 @@ _up_json_escape() {
 _up_check_for_updates() {
     _up_log "INFO" "Fetching latest changes from origin..."
 
-    if [ "$_up_dry_run" = true ]; then
-        _up_log "INFO" "Dry-run: would run git fetch"
-    fi
-
     if ! git -C "$PROJECT_DIR" fetch origin main &>/dev/null; then
         _up_log "ERROR" "git fetch failed"
         return 1
@@ -181,7 +177,7 @@ _up_sync_env() {
     else
         _up_log "WARN" "${#missing_keys[@]} key(s) in .env.sample missing from .env:"
         for entry in "${missing_keys[@]}"; do
-            _up_log "WARN" "  ${entry%%=*}"
+            _up_log "WARN" "  $entry"
         done
     fi
 
@@ -257,7 +253,7 @@ _up_restart() {
                 _up_log "INFO" "Dry-run: would run systemctl restart server-monitoring"
                 return 0
             fi
-            if ! systemctl restart server-monitoring; then
+            if ! sudo systemctl restart server-monitoring server-monitoring-celery; then
                 _up_failed_step="restart"
                 _up_log "ERROR" "Service restart failed"
                 return 1
@@ -316,7 +312,7 @@ run_update() {
     if [ "$check_rc" -eq 2 ]; then
         # Already up-to-date
         if [ "$_up_json_mode" = true ]; then
-            printf '{"status":"up-to-date","sha":"%s"}\n' "$(_up_short_sha "$_up_saved_sha")"
+            printf '{"status":"up_to_date","sha":"%s"}\n' "$(_up_short_sha "$_up_saved_sha")"
         fi
         return 0
     elif [ "$check_rc" -eq 1 ]; then
@@ -324,7 +320,7 @@ run_update() {
         if [ "$_up_json_mode" = true ]; then
             printf '{"status":"failed","step":"fetch","message":"git fetch failed"}\n'
         fi
-        _up_notify "Update Failed" "git fetch failed" "error"
+        _up_notify "Update Failed" "git fetch failed" "critical"
         return 1
     fi
 
@@ -356,7 +352,7 @@ run_update() {
         _up_notify \
             "Update Failed" \
             "Step '$_up_failed_step' failed while updating from $(_up_short_sha "$_up_saved_sha") to $(_up_short_sha "$_up_new_sha")" \
-            "error"
+            "critical"
         return 1
     fi
 
@@ -364,14 +360,17 @@ run_update() {
     _up_log "OK" "Update complete: $(_up_short_sha "$_up_saved_sha") -> $(_up_short_sha "$_up_new_sha")"
 
     if [ "$_up_json_mode" = true ]; then
-        printf '{"status":"success","from":"%s","to":"%s"}\n' \
-            "$(_up_short_sha "$_up_saved_sha")" \
-            "$(_up_short_sha "$_up_new_sha")"
+        local commit_count
+        commit_count="$(git -C "$PROJECT_DIR" rev-list "$_up_saved_sha".."$_up_new_sha" --count)"
+        printf '{"status":"updated","old_sha":"%s","new_sha":"%s","commits":%s,"mode":"%s"}\n' \
+            "$_up_saved_sha" "$_up_new_sha" "$commit_count" "$_up_mode"
     fi
 
+    local notify_commit_count
+    notify_commit_count="$(git -C "$PROJECT_DIR" rev-list "$_up_saved_sha".."$_up_new_sha" --count)"
     _up_notify \
         "Update Succeeded" \
-        "Updated from $(_up_short_sha "$_up_saved_sha") to $(_up_short_sha "$_up_new_sha")" \
+        "Updated from $(_up_short_sha "$_up_saved_sha") to $(_up_short_sha "$_up_new_sha") ($notify_commit_count commits)" \
         "info"
 
     return 0
