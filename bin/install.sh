@@ -59,7 +59,7 @@ dotenv_prompt_setup() {
     # ------------------------------------------------------------------
     # DJANGO_ALLOWED_HOSTS
     # ------------------------------------------------------------------
-    if ! dotenv_has_key "$env_file" "DJANGO_ALLOWED_HOSTS"; then
+    if ! dotenv_has_value "$env_file" "DJANGO_ALLOWED_HOSTS"; then
         if [ "$django_env" = "prod" ]; then
             local hosts
             hosts="$(prompt_non_empty "DJANGO_ALLOWED_HOSTS (comma-separated, e.g. example.com,www.example.com): ")"
@@ -74,7 +74,7 @@ dotenv_prompt_setup() {
     # ------------------------------------------------------------------
     # DJANGO_SECRET_KEY
     # ------------------------------------------------------------------
-    if ! dotenv_has_key "$env_file" "DJANGO_SECRET_KEY"; then
+    if ! dotenv_has_value "$env_file" "DJANGO_SECRET_KEY"; then
         local auto_prompt_default="Y/n"
         [ "$django_env" = "dev" ] && auto_prompt_default="y/N"
 
@@ -118,13 +118,13 @@ dotenv_prompt_setup() {
     else
         # bare — prompt for broker in prod, optional in dev
         if [ "$django_env" = "prod" ]; then
-            if ! dotenv_has_key "$env_file" "CELERY_BROKER_URL"; then
+            if ! dotenv_has_value "$env_file" "CELERY_BROKER_URL"; then
                 local broker
                 broker="$(prompt_non_empty "CELERY_BROKER_URL (e.g. redis://redis:6379/0): ")"
                 dotenv_set_if_missing "$env_file" "CELERY_BROKER_URL" "$broker"
             fi
 
-            if ! dotenv_has_key "$env_file" "CELERY_RESULT_BACKEND"; then
+            if ! dotenv_has_value "$env_file" "CELERY_RESULT_BACKEND"; then
                 read -p "Set CELERY_RESULT_BACKEND? [y/N]: " -n 1 -r
                 echo ""
                 if [[ "${REPLY:-}" =~ ^[Yy]$ ]]; then
