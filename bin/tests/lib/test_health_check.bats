@@ -43,15 +43,106 @@ setup() {
     [[ "${_hc_json_results[0]}" == *'"status":"err"'* ]]
 }
 
-# --- detect_mode ---
+# --- detect_env ---
+
+@test "detect_env returns dev as fallback (no .env)" {
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    PROJECT_DIR="$tmpdir"
+    run detect_env
+    rm -rf "$tmpdir"
+    assert_output "dev"
+}
+
+@test "detect_env returns dev when DJANGO_ENV=dev in .env" {
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    echo "DJANGO_ENV=dev" > "$tmpdir/.env"
+    PROJECT_DIR="$tmpdir"
+    run detect_env
+    rm -rf "$tmpdir"
+    assert_output "dev"
+}
+
+@test "detect_env returns prod when DJANGO_ENV=prod in .env" {
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    echo "DJANGO_ENV=prod" > "$tmpdir/.env"
+    PROJECT_DIR="$tmpdir"
+    run detect_env
+    rm -rf "$tmpdir"
+    assert_output "prod"
+}
+
+@test "detect_env returns dev for unknown DJANGO_ENV value" {
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    echo "DJANGO_ENV=staging" > "$tmpdir/.env"
+    PROJECT_DIR="$tmpdir"
+    run detect_env
+    rm -rf "$tmpdir"
+    assert_output "dev"
+}
+
+# --- detect_deploy_method ---
+
+@test "detect_deploy_method returns bare as fallback (no .env, no Docker)" {
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    PROJECT_DIR="$tmpdir"
+    docker() { return 1; }
+    export -f docker
+    run detect_deploy_method
+    rm -rf "$tmpdir"
+    assert_output "bare"
+}
+
+@test "detect_deploy_method returns bare when DEPLOY_METHOD=bare in .env" {
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    echo "DEPLOY_METHOD=bare" > "$tmpdir/.env"
+    PROJECT_DIR="$tmpdir"
+    docker() { return 1; }
+    export -f docker
+    run detect_deploy_method
+    rm -rf "$tmpdir"
+    assert_output "bare"
+}
+
+@test "detect_deploy_method returns docker when DEPLOY_METHOD=docker in .env" {
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    echo "DEPLOY_METHOD=docker" > "$tmpdir/.env"
+    PROJECT_DIR="$tmpdir"
+    run detect_deploy_method
+    rm -rf "$tmpdir"
+    assert_output "docker"
+}
+
+@test "detect_deploy_method returns bare for unknown DEPLOY_METHOD value" {
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    echo "DEPLOY_METHOD=k8s" > "$tmpdir/.env"
+    PROJECT_DIR="$tmpdir"
+    docker() { return 1; }
+    export -f docker
+    run detect_deploy_method
+    rm -rf "$tmpdir"
+    assert_output "bare"
+}
+
+# --- detect_mode (backward-compatibility) ---
 
 @test "detect_mode returns dev as fallback" {
-    # Override functions to ensure no Docker/systemd detected
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    PROJECT_DIR="$tmpdir"
     docker() { return 1; }
     export -f docker
     systemctl() { return 1; }
     export -f systemctl
     run detect_mode
+    rm -rf "$tmpdir"
     assert_success
     assert_output "dev"
 }
@@ -60,6 +151,7 @@ setup() {
     local tmpdir
     tmpdir="$(mktemp -d)"
     echo "DJANGO_ENV=dev" > "$tmpdir/.env"
+    echo "DEPLOY_METHOD=bare" >> "$tmpdir/.env"
     mkdir -p "$tmpdir/.venv"
     PROJECT_DIR="$tmpdir"
     docker() { return 1; }
@@ -71,10 +163,11 @@ setup() {
     assert_output "dev"
 }
 
-@test "detect_mode returns prod when .env has DJANGO_ENV=prod and .venv exists" {
+@test "detect_mode returns prod when .env has DJANGO_ENV=prod and DEPLOY_METHOD=bare" {
     local tmpdir
     tmpdir="$(mktemp -d)"
     echo "DJANGO_ENV=prod" > "$tmpdir/.env"
+    echo "DEPLOY_METHOD=bare" >> "$tmpdir/.env"
     mkdir -p "$tmpdir/.venv"
     PROJECT_DIR="$tmpdir"
     docker() { return 1; }
@@ -84,4 +177,14 @@ setup() {
     run detect_mode
     rm -rf "$tmpdir"
     assert_output "prod"
+}
+
+@test "detect_mode returns docker when DEPLOY_METHOD=docker in .env" {
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    echo "DEPLOY_METHOD=docker" > "$tmpdir/.env"
+    PROJECT_DIR="$tmpdir"
+    run detect_mode
+    rm -rf "$tmpdir"
+    assert_output "docker"
 }

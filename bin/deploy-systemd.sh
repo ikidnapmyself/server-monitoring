@@ -39,7 +39,7 @@ success "Running as root"
 info "Checking installation at $INSTALL_DIR..."
 if [ ! -d "$INSTALL_DIR/.venv" ]; then
     error "$INSTALL_DIR/.venv not found."
-    echo "  Run install.sh in prod mode first to set up the project."
+    echo "  Run install.sh in prod+bare mode first to set up the project."
     exit 1
 fi
 success "Installation found at $INSTALL_DIR"
@@ -53,6 +53,18 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 success "Environment file found"
+
+# DEPLOY_METHOD consistency
+_deploy_method_val=$(grep -E "^DEPLOY_METHOD=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+if [ -z "${_deploy_method_val:-}" ]; then
+    # systemd is a service manager within bare-metal deployment, not its own
+    # DEPLOY_METHOD value. Write "bare" so the two-axis model stays consistent.
+    echo "DEPLOY_METHOD=bare" >> "$ENV_FILE"
+    info "DEPLOY_METHOD=bare written to $ENV_FILE"
+elif [ "$_deploy_method_val" != "bare" ]; then
+    warn "$ENV_FILE has DEPLOY_METHOD=$_deploy_method_val but you are running the systemd deployer."
+    warn "Continuing anyway — update DEPLOY_METHOD=bare in $ENV_FILE if this is intentional."
+fi
 
 # Redis is running (check both unit names)
 info "Checking Redis service..."

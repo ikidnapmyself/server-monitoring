@@ -25,5 +25,6 @@ setup() {
 
 @test "check_system.sh detects a mode" {
     run "$BIN_DIR/check_system.sh"
-    assert_output --partial "Detected mode:"
+    assert_output --partial "Environment:"
+    assert_output --partial "Deployment method:"
 }
