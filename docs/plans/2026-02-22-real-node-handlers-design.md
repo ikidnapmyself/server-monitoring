@@ -1,7 +1,6 @@
 ---
 title: "2026-02-22 Real Node Handlers for Definition-Based Pipeline"
 parent: Plans
-nav_order: 79739777
 ---
 # Real Node Handlers for Definition-Based Pipeline
 

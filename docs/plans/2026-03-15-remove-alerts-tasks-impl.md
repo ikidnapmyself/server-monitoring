@@ -1,7 +1,6 @@
 ---
 title: "2026-03-15 Remove alerts/tasks.py Implementation Plan"
 parent: Plans
-nav_order: 79739684
 ---
 
 # Remove `apps/alerts/tasks.py` Implementation Plan

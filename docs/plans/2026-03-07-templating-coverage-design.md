@@ -1,7 +1,6 @@
 ---
 title: "2026-03-07 Templating Test Coverage Design"
 parent: Plans
-nav_order: 79739692
 ---
 
 # Templating Test Coverage Design

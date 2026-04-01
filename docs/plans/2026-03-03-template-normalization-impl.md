@@ -1,7 +1,6 @@
 ---
 title: "2026-03-03 Notification Template Normalization — Implementation Plan"
 parent: Plans
-nav_order: 79739696
 ---
 {% raw %}
 # Notification Template Normalization — Implementation Plan

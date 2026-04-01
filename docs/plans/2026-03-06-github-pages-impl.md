@@ -69,7 +69,6 @@ Prepend these lines before the existing `# Project Wiki` heading:
 ---
 title: Home
 layout: default
-nav_order: 1
 permalink: /
 ---
 ```
@@ -100,7 +99,6 @@ Prepend before `# Architecture`:
 ---
 title: Architecture
 layout: default
-nav_order: 2
 ---
 ```
 
@@ -112,7 +110,6 @@ Prepend before `# Installation`:
 ---
 title: Installation
 layout: default
-nav_order: 3
 ---
 ```
 
@@ -124,7 +121,6 @@ Prepend before `# Setup Guide`:
 ---
 title: Setup Guide
 layout: default
-nav_order: 4
 ---
 ```
 
@@ -136,7 +132,6 @@ Prepend before `# Security`:
 ---
 title: Security
 layout: default
-nav_order: 5
 ---
 ```
 
@@ -148,7 +143,6 @@ Prepend before `# Templates`:
 ---
 title: Templates
 layout: default
-nav_order: 6
 ---
 ```
 

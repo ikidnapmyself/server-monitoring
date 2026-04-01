@@ -1,7 +1,6 @@
 ---
 title: "2026-03-27 bin/ Re-engineering Phase 2 — Implementation"
 parent: Plans
-nav_order: 79739672
 ---
 
 # bin/ Re-engineering Phase 2 — Implementation Plan

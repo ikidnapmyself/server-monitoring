@@ -1,7 +1,6 @@
 ---
 title: "2026-03-30 Auto-Update Script Implementation Plan"
 parent: Plans
-nav_order: 79739669
 ---
 
 # Auto-Update Script Implementation Plan

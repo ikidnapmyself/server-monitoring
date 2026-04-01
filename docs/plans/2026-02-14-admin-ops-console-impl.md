@@ -1,7 +1,6 @@
 ---
 title: "2026-02-14 Admin Ops Console Implementation Plan"
 parent: Plans
-nav_order: 79739785
 ---
 {% raw %}
 # Admin Ops Console Implementation Plan

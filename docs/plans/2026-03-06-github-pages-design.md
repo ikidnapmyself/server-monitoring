@@ -1,7 +1,6 @@
 ---
 title: "2026-03-06 GitHub Pages Design"
 parent: Plans
-nav_order: 79739693
 ---
 # GitHub Pages Design
 

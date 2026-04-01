@@ -317,7 +317,6 @@ The document must include Jekyll front matter:
 ---
 title: Deployment
 layout: default
-nav_order: 4
 ---
 ```
 

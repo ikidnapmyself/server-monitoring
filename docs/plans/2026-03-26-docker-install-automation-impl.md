@@ -1,7 +1,6 @@
 ---
 title: "2026-03-26 Docker Install Automation — Implementation"
 parent: Plans
-nav_order: 79739673
 ---
 
 # Docker Install Automation — Implementation Plan

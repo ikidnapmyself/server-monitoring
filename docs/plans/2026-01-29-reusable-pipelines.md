@@ -1,7 +1,6 @@
 ---
 title: "2026-01-29 Reusable Pipelines Implementation Plan"
 parent: Plans
-nav_order: 79739870
 ---
 # Reusable Pipelines Implementation Plan
 

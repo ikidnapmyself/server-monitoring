@@ -1,7 +1,6 @@
 ---
 title: "2026-02-19 Setup Instance — Pipeline Configuration Wizard"
 parent: Plans
-nav_order: 79739780
 ---
 # Setup Instance — Pipeline Configuration Wizard
 

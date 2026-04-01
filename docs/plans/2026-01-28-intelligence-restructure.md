@@ -1,7 +1,6 @@
 ---
 title: "2026-01-28 Intelligence App Restructure Implementation Plan"
 parent: Plans
-nav_order: 79739871
 ---
 # Intelligence App Restructure Implementation Plan
 

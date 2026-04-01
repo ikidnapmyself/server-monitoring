@@ -1,7 +1,6 @@
 ---
 title: "2026-03-31 Separate Environment from Deployment Method"
 parent: Plans
-nav_order: 79739668
 ---
 
 # Separate Environment from Deployment Method — Design

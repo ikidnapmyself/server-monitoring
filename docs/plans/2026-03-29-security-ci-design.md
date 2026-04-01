@@ -1,7 +1,6 @@
 ---
 title: "2026-03-29 Security CI Pipeline"
 parent: Plans
-nav_order: 79739670
 ---
 
 # Security CI Pipeline — Design

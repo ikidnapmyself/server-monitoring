@@ -1,7 +1,6 @@
 ---
 title: "2026-01-26 Notify App Test Restructure Plan"
 parent: Plans
-nav_order: 79739873
 ---
 # Notify App Test Restructure Plan
 

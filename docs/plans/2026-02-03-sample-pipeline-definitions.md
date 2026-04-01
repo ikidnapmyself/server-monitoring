@@ -1,7 +1,6 @@
 ---
 title: "2026-02-03 Sample Pipeline Definitions Implementation Plan"
 parent: Plans
-nav_order: 79739796
 ---
 # Sample Pipeline Definitions Implementation Plan
 

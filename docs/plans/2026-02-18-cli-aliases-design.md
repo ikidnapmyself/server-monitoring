@@ -1,7 +1,6 @@
 ---
 title: "2026-02-18 CLI Aliases title: "CLI Aliases & CLI-First Documentation Design" CLI-First Documentation Design"
 parent: Plans
-nav_order: 79739781
 ---
 # CLI Aliases & CLI-First Documentation Design
 

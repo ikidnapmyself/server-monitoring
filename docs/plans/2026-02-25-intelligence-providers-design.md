@@ -1,7 +1,6 @@
 ---
 title: "2026-02-25 Database-Driven Intelligence Providers — Design"
 parent: Plans
-nav_order: 79739774
 ---
 # Database-Driven Intelligence Providers — Design
 

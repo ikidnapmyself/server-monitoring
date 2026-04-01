@@ -1,7 +1,6 @@
 ---
 title: "2026-03-15 Remove apps/alerts/tasks.py — Route Async to Orchestration App"
 parent: Plans
-nav_order: 79739684
 ---
 
 # Remove `apps/alerts/tasks.py`
