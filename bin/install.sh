@@ -63,11 +63,11 @@ dotenv_prompt_setup() {
         if [ "$django_env" = "prod" ]; then
             local hosts
             hosts="$(prompt_non_empty "DJANGO_ALLOWED_HOSTS (comma-separated, e.g. example.com,www.example.com): ")"
-            dotenv_set_if_missing "$env_file" "DJANGO_ALLOWED_HOSTS" "$hosts"
+            dotenv_set "$env_file" "DJANGO_ALLOWED_HOSTS" "$hosts"
         else
             read -p "DJANGO_ALLOWED_HOSTS (comma-separated, default: localhost,127.0.0.1): " -r ALLOWED_HOSTS_INPUT
             ALLOWED_HOSTS_INPUT="${ALLOWED_HOSTS_INPUT:-localhost,127.0.0.1}"
-            dotenv_set_if_missing "$env_file" "DJANGO_ALLOWED_HOSTS" "$ALLOWED_HOSTS_INPUT"
+            dotenv_set "$env_file" "DJANGO_ALLOWED_HOSTS" "$ALLOWED_HOSTS_INPUT"
         fi
     fi
 
@@ -91,18 +91,18 @@ dotenv_prompt_setup() {
             if command_exists python3; then
                 local key
                 key="$(python3 -c 'import secrets; print(secrets.token_urlsafe(50))')"
-                dotenv_set_if_missing "$env_file" "DJANGO_SECRET_KEY" "$key"
+                dotenv_set "$env_file" "DJANGO_SECRET_KEY" "$key"
                 success "DJANGO_SECRET_KEY added to .env"
             else
                 error "python3 not available; cannot generate DJANGO_SECRET_KEY."
                 local manual_key
                 manual_key="$(prompt_non_empty "Paste DJANGO_SECRET_KEY to store in .env: ")"
-                dotenv_set_if_missing "$env_file" "DJANGO_SECRET_KEY" "$manual_key"
+                dotenv_set "$env_file" "DJANGO_SECRET_KEY" "$manual_key"
             fi
         elif [ "$django_env" = "prod" ]; then
             local manual_key
             manual_key="$(prompt_non_empty "Paste DJANGO_SECRET_KEY to store in .env: ")"
-            dotenv_set_if_missing "$env_file" "DJANGO_SECRET_KEY" "$manual_key"
+            dotenv_set "$env_file" "DJANGO_SECRET_KEY" "$manual_key"
         else
             warn "DJANGO_SECRET_KEY not set. Set it manually before production use."
         fi
@@ -121,7 +121,7 @@ dotenv_prompt_setup() {
             if ! dotenv_has_value "$env_file" "CELERY_BROKER_URL"; then
                 local broker
                 broker="$(prompt_non_empty "CELERY_BROKER_URL (e.g. redis://redis:6379/0): ")"
-                dotenv_set_if_missing "$env_file" "CELERY_BROKER_URL" "$broker"
+                dotenv_set "$env_file" "CELERY_BROKER_URL" "$broker"
             fi
 
             if ! dotenv_has_value "$env_file" "CELERY_RESULT_BACKEND"; then
@@ -130,7 +130,7 @@ dotenv_prompt_setup() {
                 if [[ "${REPLY:-}" =~ ^[Yy]$ ]]; then
                     local backend
                     backend="$(prompt_non_empty "CELERY_RESULT_BACKEND (e.g. redis://redis:6379/1): ")"
-                    dotenv_set_if_missing "$env_file" "CELERY_RESULT_BACKEND" "$backend"
+                    dotenv_set "$env_file" "CELERY_RESULT_BACKEND" "$backend"
                 fi
             fi
 

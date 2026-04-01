@@ -42,6 +42,19 @@ dotenv_has_value() {
     grep -Eq "^[[:space:]]*${key}[[:space:]]*=.+" "$file"
 }
 
+dotenv_set() {
+    local file="$1"
+    local key="$2"
+    local value="$3"
+
+    if dotenv_has_key "$file" "$key"; then
+        # Replace existing line (handles empty and non-empty values)
+        sed -i'' -e "s|^[[:space:]]*${key}[[:space:]]*=.*|${key}=${value}|" "$file"
+    else
+        printf "%s=%s\n" "$key" "$value" >> "$file"
+    fi
+}
+
 dotenv_set_if_missing() {
     local file="$1"
     local key="$2"
