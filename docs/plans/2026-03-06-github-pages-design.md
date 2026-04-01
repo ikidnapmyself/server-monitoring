@@ -1,6 +1,7 @@
 ---
 title: "GitHub Pages Design"
 parent: Plans
+nav_order: 79739693
 ---
 # GitHub Pages Design
 

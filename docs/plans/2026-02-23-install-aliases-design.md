@@ -1,6 +1,7 @@
 ---
 title: "Add setup_aliases.sh to install.sh — Design"
 parent: Plans
+nav_order: 79739776
 ---
 # Add setup_aliases.sh to install.sh — Design
 

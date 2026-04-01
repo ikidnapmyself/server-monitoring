@@ -1,6 +1,7 @@
 ---
 title: "Docker Install Automation"
 parent: Plans
+nav_order: 79739673
 ---
 
 # Docker Install Automation — Design

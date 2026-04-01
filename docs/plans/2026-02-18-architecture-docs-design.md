@@ -1,6 +1,7 @@
 ---
 title: "Architecture Documentation Restructure Design"
 parent: Plans
+nav_order: 79739781
 ---
 # Architecture Documentation Restructure Design
 

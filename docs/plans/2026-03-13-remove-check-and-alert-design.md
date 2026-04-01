@@ -1,6 +1,7 @@
 ---
 title: "Remove check_and_alert, Absorb into run_pipeline"
 parent: Plans
+nav_order: 79739686
 ---
 
 # Remove `check_and_alert`, Absorb into `run_pipeline`

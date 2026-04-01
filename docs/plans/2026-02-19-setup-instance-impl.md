@@ -1,6 +1,7 @@
 ---
 title: "Setup Instance Wizard — Implementation Plan"
 parent: Plans
+nav_order: 79739780
 ---
 # Setup Instance Wizard — Implementation Plan
 

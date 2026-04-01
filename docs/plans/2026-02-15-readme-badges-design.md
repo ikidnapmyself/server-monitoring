@@ -1,6 +1,7 @@
 ---
 title: "README Badges Design"
 parent: Plans
+nav_order: 79739784
 ---
 # README Badges Design
 

@@ -1,6 +1,7 @@
 ---
 title: "Security Hardening for Internet-Exposed Deployment"
 parent: Plans
+nav_order: 79739682
 ---
 
 # Security Hardening Design

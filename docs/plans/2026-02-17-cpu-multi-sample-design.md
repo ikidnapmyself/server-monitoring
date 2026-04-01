@@ -1,6 +1,7 @@
 ---
 title: "CPU Multi-Sample Measurement Design"
 parent: Plans
+nav_order: 79739782
 ---
 # CPU Multi-Sample Measurement Design
 

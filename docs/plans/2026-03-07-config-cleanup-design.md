@@ -1,6 +1,7 @@
 ---
 title: "Config Directory Cleanup Design"
 parent: Plans
+nav_order: 79739692
 ---
 
 # Config Directory Cleanup Design

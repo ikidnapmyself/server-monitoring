@@ -1,6 +1,7 @@
 ---
 title: "Checkers Test Suite Restructure Implementation Plan"
 parent: Plans
+nav_order: 79739873
 ---
 # Checkers Test Suite Restructure Implementation Plan
 

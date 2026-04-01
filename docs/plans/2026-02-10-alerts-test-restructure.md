@@ -1,6 +1,7 @@
 ---
 title: "Alerts App Test Restructure"
 parent: Plans
+nav_order: 79739789
 ---
 # Alerts App Test Restructure
 

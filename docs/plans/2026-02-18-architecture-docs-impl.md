@@ -1,6 +1,7 @@
 ---
 title: "Architecture Documentation Restructure Implementation Plan"
 parent: Plans
+nav_order: 79739781
 ---
 # Architecture Documentation Restructure Implementation Plan
 

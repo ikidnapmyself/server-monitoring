@@ -1,6 +1,7 @@
 ---
 title: "Security CI Pipeline"
 parent: Plans
+nav_order: 79739670
 ---
 
 # Security CI Pipeline — Design

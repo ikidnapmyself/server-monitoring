@@ -1,6 +1,7 @@
 ---
 title: "bin/ Re-engineering"
 parent: Plans
+nav_order: 79739672
 ---
 
 # bin/ Re-engineering — Design

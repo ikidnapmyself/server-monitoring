@@ -1,6 +1,7 @@
 ---
 title: "Remove alerts/tasks.py Implementation Plan"
 parent: Plans
+nav_order: 79739684
 ---
 
 # Remove `apps/alerts/tasks.py` Implementation Plan

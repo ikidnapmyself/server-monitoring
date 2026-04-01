@@ -1,6 +1,7 @@
 ---
 title: "CLI Aliases & CLI-First Documentation Implementation Plan"
 parent: Plans
+nav_order: 79739781
 ---
 # CLI Aliases & CLI-First Documentation Implementation Plan
 

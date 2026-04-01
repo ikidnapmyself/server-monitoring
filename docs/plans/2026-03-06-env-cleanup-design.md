@@ -1,6 +1,7 @@
 ---
 title: "Env Cleanup Design"
 parent: Plans
+nav_order: 79739693
 ---
 
 # Environment Variable Cleanup — Design

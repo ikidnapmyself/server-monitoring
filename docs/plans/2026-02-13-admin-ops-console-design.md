@@ -1,6 +1,7 @@
 ---
 title: "Admin Ops Console Design"
 parent: Plans
+nav_order: 79739786
 ---
 # Admin Ops Console Design
 

@@ -1,6 +1,7 @@
 ---
 title: "Management Commands Coverage Design"
 parent: Plans
+nav_order: 79739690
 ---
 
 # Management Commands Coverage Design

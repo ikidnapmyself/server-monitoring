@@ -1,6 +1,7 @@
 ---
 title: "Installation Docs Update — Design"
 parent: Plans
+nav_order: 79739776
 ---
 # Installation Docs Update — Design
 

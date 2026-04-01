@@ -1,6 +1,7 @@
 ---
 title: "Notification Template Normalization — Design"
 parent: Plans
+nav_order: 79739696
 ---
 # Notification Template Normalization — Design
 

@@ -1,6 +1,7 @@
 ---
 title: "Database-Driven Intelligence Providers — Design"
 parent: Plans
+nav_order: 79739774
 ---
 # Database-Driven Intelligence Providers — Design
 

@@ -1,6 +1,7 @@
 ---
 title: "Spinner Progress for `get_recommendations` Command"
 parent: Plans
+nav_order: 79739793
 ---
 # Spinner Progress for `get_recommendations` Command
 

@@ -1,6 +1,7 @@
 ---
 title: "Pipeline Inspector — Design"
 parent: Plans
+nav_order: 79739698
 ---
 # Pipeline Inspector — Design
 

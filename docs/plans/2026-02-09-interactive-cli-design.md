@@ -1,6 +1,7 @@
 ---
 title: "Interactive CLI for Server Maintenance"
 parent: Plans
+nav_order: 79739790
 ---
 # Interactive CLI for Server Maintenance
 

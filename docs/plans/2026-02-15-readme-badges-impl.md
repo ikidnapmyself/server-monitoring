@@ -1,6 +1,7 @@
 ---
 title: "README Badges Implementation Plan"
 parent: Plans
+nav_order: 79739784
 ---
 # README Badges Implementation Plan
 

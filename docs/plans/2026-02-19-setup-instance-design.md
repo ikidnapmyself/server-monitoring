@@ -1,6 +1,7 @@
 ---
 title: "Setup Instance — Pipeline Configuration Wizard"
 parent: Plans
+nav_order: 79739780
 ---
 # Setup Instance — Pipeline Configuration Wizard
 
