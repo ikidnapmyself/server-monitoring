@@ -36,6 +36,12 @@ dotenv_has_key() {
     grep -Eq "^[[:space:]]*${key}[[:space:]]*=" "$file"
 }
 
+dotenv_has_value() {
+    local file="$1"
+    local key="$2"
+    grep -Eq "^[[:space:]]*${key}[[:space:]]*=.+" "$file"
+}
+
 dotenv_set_if_missing() {
     local file="$1"
     local key="$2"
