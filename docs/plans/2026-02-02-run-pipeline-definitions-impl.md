@@ -1,5 +1,5 @@
 ---
-title: "Run Pipeline Definitions CLI Implementation Plan"
+title: "2026-02-02 Run Pipeline Definitions CLI Implementation Plan"
 parent: Plans
 nav_order: 79739797
 ---

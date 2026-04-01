@@ -1,5 +1,5 @@
 ---
-title: "Architecture Documentation Restructure Design"
+title: "2026-02-18 Architecture Documentation Restructure Design"
 parent: Plans
 nav_order: 79739781
 ---

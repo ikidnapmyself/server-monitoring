@@ -1,5 +1,5 @@
 ---
-title: "System Checks Expansion — Design"
+title: "2026-03-02 System Checks Expansion — Design"
 parent: Plans
 nav_order: 79739697
 ---

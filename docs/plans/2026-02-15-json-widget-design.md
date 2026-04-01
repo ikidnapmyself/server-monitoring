@@ -1,5 +1,5 @@
 ---
-title: "JSON Widget Design"
+title: "2026-02-15 JSON Widget Design"
 parent: Plans
 nav_order: 79739784
 ---

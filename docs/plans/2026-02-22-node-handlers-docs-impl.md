@@ -1,5 +1,5 @@
 ---
-title: "Node Handlers Documentation Update — Implementation Plan"
+title: "2026-02-22 Node Handlers Documentation Update — Implementation Plan"
 parent: Plans
 nav_order: 79739777
 ---

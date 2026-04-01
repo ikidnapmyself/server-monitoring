@@ -1,5 +1,5 @@
 ---
-title: "Docker Install Automation"
+title: "2026-03-26 Docker Install Automation"
 parent: Plans
 nav_order: 79739673
 ---

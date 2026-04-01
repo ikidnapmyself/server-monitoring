@@ -1,5 +1,5 @@
 ---
-title: "Notification Template Normalization — Design"
+title: "2026-03-03 Notification Template Normalization — Design"
 parent: Plans
 nav_order: 79739696
 ---

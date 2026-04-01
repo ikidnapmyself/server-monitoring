@@ -1,5 +1,5 @@
 ---
-title: "Checkers Test Suite Restructure Implementation Plan"
+title: "2026-01-26 Checkers Test Suite Restructure Implementation Plan"
 parent: Plans
 nav_order: 79739873
 ---

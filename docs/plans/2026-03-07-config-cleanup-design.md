@@ -1,5 +1,5 @@
 ---
-title: "Config Directory Cleanup Design"
+title: "2026-03-07 Config Directory Cleanup Design"
 parent: Plans
 nav_order: 79739692
 ---

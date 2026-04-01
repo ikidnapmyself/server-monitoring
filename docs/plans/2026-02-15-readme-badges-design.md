@@ -1,5 +1,5 @@
 ---
-title: "README Badges Design"
+title: "2026-02-15 README Badges Design"
 parent: Plans
 nav_order: 79739784
 ---

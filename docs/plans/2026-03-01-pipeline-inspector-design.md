@@ -1,5 +1,5 @@
 ---
-title: "Pipeline Inspector — Design"
+title: "2026-03-01 Pipeline Inspector — Design"
 parent: Plans
 nav_order: 79739698
 ---

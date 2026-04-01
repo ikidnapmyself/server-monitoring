@@ -1,5 +1,5 @@
 ---
-title: "Interactive CLI for Server Maintenance"
+title: "2026-02-09 Interactive CLI for Server Maintenance"
 parent: Plans
 nav_order: 79739790
 ---

@@ -1,5 +1,5 @@
 ---
-title: "Security Hardening Implementation Plan"
+title: "2026-03-17 Security Hardening Implementation Plan"
 parent: Plans
 nav_order: 79739682
 ---

@@ -1,5 +1,5 @@
 ---
-title: "Auto-Update Script Design"
+title: "2026-03-30 Auto-Update Script Design"
 parent: Plans
 nav_order: 79739669
 ---

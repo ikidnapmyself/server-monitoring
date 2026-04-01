@@ -1,5 +1,5 @@
 ---
-title: "Spinner Progress for `get_recommendations` Command"
+title: "2026-02-06 Spinner Progress for `get_recommendations` Command"
 parent: Plans
 nav_order: 79739793
 ---

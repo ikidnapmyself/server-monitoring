@@ -1,5 +1,5 @@
 ---
-title: "GitHub Pages Implementation Plan"
+title: "2026-03-06 GitHub Pages Implementation Plan"
 parent: Plans
 ---
 # GitHub Pages Implementation Plan

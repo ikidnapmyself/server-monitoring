@@ -1,5 +1,5 @@
 ---
-title: "Remove check_and_alert Implementation Plan"
+title: "2026-03-13 Remove check_and_alert Implementation Plan"
 parent: Plans
 nav_order: 79739686
 ---

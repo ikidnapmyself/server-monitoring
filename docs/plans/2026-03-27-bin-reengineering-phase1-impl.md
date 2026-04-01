@@ -1,5 +1,5 @@
 ---
-title: "bin/ Re-engineering Phase 1 — Implementation"
+title: "2026-03-27 bin/ Re-engineering Phase 1 — Implementation"
 parent: Plans
 nav_order: 79739672
 ---

@@ -1,5 +1,5 @@
 ---
-title: "Architecture Documentation Restructure Implementation Plan"
+title: "2026-02-18 Architecture Documentation Restructure Implementation Plan"
 parent: Plans
 nav_order: 79739781
 ---
