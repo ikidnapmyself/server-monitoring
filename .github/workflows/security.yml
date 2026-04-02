@@ -4,16 +4,12 @@ on:
   push:
     branches: ["main"]
   pull_request:
-    types: [opened, synchronize, reopened]
     paths:
       - "**.py"
       - "pyproject.toml"
       - "uv.lock"
       - "deploy/docker/**"
       - ".github/workflows/security.yml"
-  # Adding "security" label to a PR triggers a full scan regardless of paths
-  pull_request_target:
-    types: [labeled]
 
 concurrency:
   group: security-${{ github.workflow }}-${{ github.ref }}
@@ -22,15 +18,10 @@ concurrency:
 jobs:
   code-security:
     name: Code Security
-    if: >-
-      github.event_name != 'pull_request_target'
-      || github.event.label.name == 'security'
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - uses: actions/setup-python@v5
         with:
@@ -68,15 +59,10 @@ jobs:
 
   docker-security:
     name: Docker Security
-    if: >-
-      github.event_name != 'pull_request_target'
-      || github.event.label.name == 'security'
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Build Docker image
         run: docker build -f deploy/docker/Dockerfile -t server-monitoring:security-scan .
