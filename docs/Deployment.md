@@ -417,11 +417,11 @@ uv run python manage.py check
 
 ### Troubleshooting
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `push_to_hub` exits with "HUB_URL not configured" | `HUB_URL` missing from `.env` | Add `HUB_URL=https://your-hub.example.com` to `.env` |
-| `push_to_hub` exits with connection refused | Hub not running or wrong URL | Verify hub is accessible: `curl -s <HUB_URL>/alerts/webhook/cluster/` |
-| `push_to_hub` returns 403 Forbidden | HMAC signature mismatch | Ensure `WEBHOOK_SECRET_CLUSTER` is identical on agent and hub |
-| `push_to_hub` returns 404 Not Found | Cluster driver not registered | Set `CLUSTER_ENABLED=1` in hub `.env` and restart |
-| Alerts arrive on hub but no notifications fire | Pipeline not configured | Run `uv run python manage.py setup_instance` on the hub |
-| `push_to_hub --dry-run` shows 0 alerts | No checkers returned results | Run `uv run python manage.py check_health` to verify checkers work |
+| Symptom                                          | Cause                        | Fix                                                                          |
+|--------------------------------------------------|------------------------------|------------------------------------------------------------------------------|
+| `push_to_hub` exits with "HUB_URL not configured" | `HUB_URL` missing from `.env` | Add `HUB_URL=https://your-hub.example.com` to `.env`                        |
+| `push_to_hub` exits with connection refused       | Hub not running or wrong URL  | Verify hub is accessible: `curl -s $HUB_URL/alerts/webhook/cluster/`        |
+| `push_to_hub` returns 403 Forbidden               | HMAC signature mismatch       | Ensure `WEBHOOK_SECRET_CLUSTER` is identical on agent and hub                |
+| `push_to_hub` returns 404 Not Found               | Cluster driver not registered | Set `CLUSTER_ENABLED=1` in hub `.env` and restart                            |
+| Alerts arrive on hub but no notifications fire     | Pipeline not configured       | Run `uv run python manage.py setup_instance` on the hub                      |
+| `push_to_hub --dry-run` shows 0 alerts             | No checkers returned results  | Run `uv run python manage.py check_health` to verify checkers work           |
