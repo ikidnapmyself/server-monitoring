@@ -218,7 +218,39 @@ The pipeline stores **references** to data rather than raw payloads to avoid lea
 
 ### Automated Checks (`.github/workflows/security.yml`)
 
-The security workflow runs on every push to `main` and on pull requests. It uses [`django-security-check`](https://github.com/victoriadrake/django-security-check) to verify Django's deployment checklist.
+The security workflow runs automatically on:
+
+- Every push to `main`
+- Pull requests that change Python files, `pyproject.toml`, `uv.lock`, Docker config, or the workflow itself
+
+**Code Security job:**
+
+| Check | Tool | What it does |
+|-------|------|-------------|
+| Dependency audit | `pip-audit` | Scans installed packages for known CVEs |
+| Security lint | `bandit` | Static analysis for common Python security issues |
+| Secret detection | `detect-secrets` | Scans for accidentally committed credentials |
+
+**Docker Security job:**
+
+| Check | Tool | What it does |
+|-------|------|-------------|
+| Image vulnerability scan | `trivy` | Scans the Docker image for OS and library CVEs (blocks on CRITICAL) |
+| HIGH vulnerability report | `trivy` | Reports HIGH-severity vulnerabilities (non-blocking) |
+
+### Addressing Security Alerts
+
+When a vulnerability is reported (by `pip-audit`, GitHub Dependabot, or manual audit):
+
+1. **Identify the package and fix version** — check the CVE details for the patched version
+2. **Bump the dependency:**
+   - Direct dependency: update version in `pyproject.toml`, then `uv lock`
+   - Transitive dependency: `uv lock --upgrade-package <package>`
+3. **Verify the fix:** `uv sync --extra dev && uv run pip-audit --strict --desc`
+4. **Create a PR** — the security workflow triggers automatically for dependency changes
+5. **Merge promptly** — security fixes should not wait in review queues
+
+For Docker image vulnerabilities (trivy), rebuild with an updated base image or pin a patched version of the affected OS package.
 
 ### CI Pipeline (`.github/workflows/ci.yml`)
 
