@@ -154,6 +154,79 @@ dotenv_prompt_setup() {
 }
 
 # ---------------------------------------------------------------------------
+# Cluster role setup
+# ---------------------------------------------------------------------------
+
+dotenv_prompt_cluster() {
+    local env_file="$PROJECT_DIR/.env"
+
+    echo ""
+    read -p "Configure this instance for multi-instance (cluster) mode? [y/N] " -n 1 -r
+    echo ""
+    if [[ ! "${REPLY:-}" =~ ^[Yy]$ ]]; then
+        return 0
+    fi
+
+    echo ""
+    echo "Select cluster role:"
+    echo "  1) agent — run checkers locally, push results to a hub"
+    echo "  2) hub   — accept alerts from remote agents"
+    echo "  3) both  — agent + hub"
+    echo ""
+    read -p "Enter choice [1/2/3]: " -r CLUSTER_ROLE
+    echo ""
+
+    case "$CLUSTER_ROLE" in
+        1|agent)  CLUSTER_ROLE="agent" ;;
+        2|hub)    CLUSTER_ROLE="hub" ;;
+        3|both)   CLUSTER_ROLE="both" ;;
+        *)
+            warn "Invalid choice '$CLUSTER_ROLE', skipping cluster setup."
+            return 0
+            ;;
+    esac
+
+    # Agent or both: prompt for HUB_URL and INSTANCE_ID
+    if [ "$CLUSTER_ROLE" = "agent" ] || [ "$CLUSTER_ROLE" = "both" ]; then
+        local hub_url
+        hub_url="$(prompt_non_empty "HUB_URL (e.g. https://monitoring-hub.example.com): ")"
+        dotenv_set "$env_file" "HUB_URL" "$hub_url"
+
+        local default_id
+        default_id="$(hostname 2>/dev/null || echo "")"
+        read -p "INSTANCE_ID (default: $default_id): " -r INSTANCE_ID_INPUT
+        INSTANCE_ID_INPUT="${INSTANCE_ID_INPUT:-$default_id}"
+        if [ -n "$INSTANCE_ID_INPUT" ]; then
+            dotenv_set "$env_file" "INSTANCE_ID" "$INSTANCE_ID_INPUT"
+        fi
+    fi
+
+    # Hub or both: enable CLUSTER_ENABLED
+    if [ "$CLUSTER_ROLE" = "hub" ] || [ "$CLUSTER_ROLE" = "both" ]; then
+        dotenv_set "$env_file" "CLUSTER_ENABLED" "1"
+        success "CLUSTER_ENABLED=1 written to .env"
+    fi
+
+    # All roles: prompt for shared secret
+    local secret
+    secret="$(prompt_non_empty "WEBHOOK_SECRET_CLUSTER (shared secret between agents and hub): ")"
+    dotenv_set "$env_file" "WEBHOOK_SECRET_CLUSTER" "$secret"
+
+    success "Cluster configuration written to .env (role: $CLUSTER_ROLE)"
+
+    # Agent or both: verify with dry-run
+    if [ "$CLUSTER_ROLE" = "agent" ] || [ "$CLUSTER_ROLE" = "both" ]; then
+        echo ""
+        info "Running push_to_hub --dry-run to verify configuration..."
+        if uv run python manage.py push_to_hub --dry-run 2>&1; then
+            success "Dry run succeeded — agent is configured correctly"
+        else
+            warn "Dry run failed — check HUB_URL and try: uv run python manage.py push_to_hub --dry-run"
+        fi
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Main script body
 # ---------------------------------------------------------------------------
 
@@ -219,6 +292,7 @@ if [ "$DEPLOY_METHOD" = "docker" ]; then
 
     dotenv_ensure_file
     dotenv_prompt_setup "$DJANGO_ENV" "$DEPLOY_METHOD"
+    dotenv_prompt_cluster
 
     info "Handing off to deploy-docker.sh..."
     exec "$SCRIPT_DIR/deploy-docker.sh"
@@ -308,6 +382,9 @@ else
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         "$SCRIPT_DIR/setup_aliases.sh"
     fi
+
+    # Cluster role setup
+    dotenv_prompt_cluster
 
     # Offer systemd deployment (prod + bare only)
     if [ "$DJANGO_ENV" = "prod" ] && [ "$DEPLOY_METHOD" = "bare" ]; then
