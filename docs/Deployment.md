@@ -336,7 +336,7 @@ All instances run the same codebase. Role is determined by environment variables
 
 On each server you want to monitor:
 
-1. Install the project normally (`./bin/install.sh` dev or prod mode)
+1. Install the project (`./bin/install.sh` — select "agent" when prompted for cluster role)
 2. Add to `.env`:
 
 ```bash
@@ -360,11 +360,13 @@ uv run python manage.py push_to_hub --dry-run    # Preview without sending
 uv run python manage.py push_to_hub --checkers cpu,memory  # Specific checkers
 ```
 
+> **Tip:** The installer and `bin/setup_cron.sh` can configure all of the above interactively. Manual `.env` editing is only needed if you skipped the prompts.
+
 ### Hub setup
 
 On the central monitoring server:
 
-1. Install the project (`./bin/install.sh` prod or docker mode)
+1. Install the project (`./bin/install.sh` — select "hub" when prompted for cluster role)
 2. Add to `.env`:
 
 ```bash
@@ -377,3 +379,49 @@ The hub accepts cluster payloads at `POST /alerts/webhook/cluster/` and processe
 ### Standalone (default)
 
 Existing installs with neither `HUB_URL` nor `CLUSTER_ENABLED` set continue to work as standalone instances with no changes.
+
+### Verification
+
+After setting up an agent or hub, verify the configuration:
+
+**Agent verification:**
+
+```bash
+# Dry-run: builds payload, shows what would be sent (no network call)
+uv run python manage.py push_to_hub --dry-run
+
+# Single push: sends one payload to the hub and reports the result
+uv run python manage.py push_to_hub
+
+# Push specific checkers only
+uv run python manage.py push_to_hub --checkers cpu,memory --dry-run
+```
+
+**Hub verification:**
+
+```bash
+# Confirm the cluster driver is registered
+uv run python manage.py shell -c "from apps.alerts.drivers import DRIVER_REGISTRY; print('cluster' in DRIVER_REGISTRY)"
+# Expected output: True
+
+# Check Django system checks pass
+uv run python manage.py check
+```
+
+### Security
+
+- **Always use HTTPS** for `HUB_URL` in production. Payloads contain server metrics and alert details.
+- **`WEBHOOK_SECRET_CLUSTER`** must be identical on agents and hub. It is used to compute an HMAC-SHA256 signature sent via the `X-Cluster-Signature` header.
+- Without a shared secret, payloads are accepted **unsigned** — acceptable for local development but not for production.
+- The shared secret is never transmitted in the payload; only the signature is sent.
+
+### Troubleshooting
+
+| Symptom                                          | Cause                        | Fix                                                                          |
+|--------------------------------------------------|------------------------------|------------------------------------------------------------------------------|
+| `push_to_hub` exits with "HUB_URL not configured" | `HUB_URL` missing from `.env` | Add `HUB_URL=https://your-hub.example.com` to `.env`                        |
+| `push_to_hub` exits with connection refused       | Hub not running or wrong URL  | Verify hub is accessible: `curl -s $HUB_URL/alerts/webhook/cluster/`        |
+| `push_to_hub` returns 403 Forbidden               | HMAC signature mismatch       | Ensure `WEBHOOK_SECRET_CLUSTER` is identical on agent and hub                |
+| `push_to_hub` returns 404 Not Found               | Cluster driver not registered | Set `CLUSTER_ENABLED=1` in hub `.env` and restart                            |
+| Alerts arrive on hub but no notifications fire     | Pipeline not configured       | Run `uv run python manage.py setup_instance` on the hub                      |
+| `push_to_hub --dry-run` shows 0 alerts             | No checkers returned results  | Run `uv run python manage.py check_health` to verify checkers work           |

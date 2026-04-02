@@ -111,6 +111,34 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     info "Update log: $PROJECT_DIR/update.log"
 fi
 
+# --- Cluster push option ---
+
+# Check if HUB_URL is set in .env (agent mode)
+_hub_url=""
+if [ -f "$PROJECT_DIR/.env" ]; then
+    _hub_url=$(grep -E "^HUB_URL=" "$PROJECT_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+fi
+
+if [ -n "$_hub_url" ]; then
+    echo ""
+    read -p "HUB_URL detected — schedule automatic push to hub? [Y/n] " -n 1 -r
+    echo ""
+
+    if [[ -z "${REPLY:-}" || "${REPLY:-}" =~ ^[Yy]$ ]]; then
+        PUSH_CMD="cd $PROJECT_DIR && $UV_PATH run python manage.py push_to_hub --json >> $PROJECT_DIR/push.log 2>&1"
+        PUSH_ID="# server-maintanence cluster push"
+
+        # Remove existing push job if present
+        crontab -l 2>/dev/null | grep -v -F "$PUSH_ID" | crontab -
+
+        # Add push job on same schedule
+        (crontab -l 2>/dev/null || true; echo "$CRON_SCHEDULE $PUSH_CMD $PUSH_ID") | crontab -
+
+        success "Cluster push cron job added"
+        info "Push log: $PROJECT_DIR/push.log"
+    fi
+fi
+
 echo ""
 echo "============================================"
 echo -e "${GREEN}   Cron Setup Complete!${NC}"
@@ -118,6 +146,9 @@ echo "============================================"
 echo ""
 info "Health checks will run: $CRON_SCHEDULE"
 info "Log file: $PROJECT_DIR/cron.log"
+if [ -n "${_hub_url:-}" ]; then
+    info "Push log: $PROJECT_DIR/push.log"
+fi
 echo ""
 echo "Useful commands:"
 echo "  - View current crontab:  crontab -l"
