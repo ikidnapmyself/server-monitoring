@@ -312,6 +312,15 @@ run_all_checks() {
         run_core_checks
         run_django_checks
 
+        # Warn if DEBUG is enabled in production
+        if [ "$env" = "prod" ] && [ -f "$PROJECT_DIR/.env" ]; then
+            local debug_val
+            debug_val=$(grep -E "^DJANGO_DEBUG=" "$PROJECT_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2-)
+            if [ "$debug_val" = "1" ]; then
+                hc_warn "debug_prod" "DEBUG is enabled in production (run: bin/set_production.sh)"
+            fi
+        fi
+
         # dev-only extras
         if [ "$env" = "dev" ]; then
             run_dev_checks
