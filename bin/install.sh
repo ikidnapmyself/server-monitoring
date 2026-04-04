@@ -25,6 +25,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/logging.sh"
 source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/dotenv.sh"
+source "$SCRIPT_DIR/lib/prompt.sh"
+source "$SCRIPT_DIR/lib/profile.sh"
 
 INSTALL_MOD_DIR="$SCRIPT_DIR/install"
 
@@ -35,6 +37,11 @@ cd "$PROJECT_DIR"
 show_usage() {
     echo ""
     echo "Usage: install.sh [step] [options]"
+    echo ""
+    echo "Options:"
+    echo "  --profile FILE         Load saved profile (pre-fills prompts from FILE)"
+    echo "  --yes, -y              Accept all defaults without prompting (secrets still prompted)"
+    echo "  --save-profile [NAME]  Save configuration to profile after install"
     echo ""
     echo "Steps:"
     echo "  env       Environment and core .env configuration"
@@ -85,6 +92,46 @@ run_all() {
     echo ""
 }
 
+# ── Flag parsing ─────────────────────────────────────────────────────────────
+
+INSTALL_PROFILE_FILE=""
+INSTALL_SAVE_PROFILE=""
+INSTALL_PROFILE_NAME=""
+export INSTALL_AUTO_ACCEPT="${INSTALL_AUTO_ACCEPT:-0}"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --profile)
+            [[ $# -lt 2 ]] && { error "--profile requires a file argument"; exit 1; }
+            INSTALL_PROFILE_FILE="$2"
+            shift 2
+            ;;
+        --yes|-y)
+            export INSTALL_AUTO_ACCEPT=1
+            shift
+            ;;
+        --save-profile)
+            INSTALL_SAVE_PROFILE=1
+            if [[ $# -ge 2 && "${2:-}" != -* && "${2:-}" != "" ]]; then
+                INSTALL_PROFILE_NAME="$2"
+                shift
+            fi
+            shift
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+# Resolve and load profile
+if [[ -n "$INSTALL_PROFILE_FILE" ]]; then
+    if [[ ! -f "$INSTALL_PROFILE_FILE" && -f "$PROJECT_DIR/.install-profile-$INSTALL_PROFILE_FILE" ]]; then
+        INSTALL_PROFILE_FILE="$PROJECT_DIR/.install-profile-$INSTALL_PROFILE_FILE"
+    fi
+    profile_load "$INSTALL_PROFILE_FILE"
+fi
+
 # ── Dispatcher ───────────────────────────────────────────────────────────────
 
 case "${1:-}" in
@@ -103,3 +150,13 @@ case "${1:-}" in
     "")       run_all                              ;;
     *)        error "Unknown step: $1"; show_usage; exit 1 ;;
 esac
+
+# ── Post-install: save profile ───────────────────────────────────────────────
+
+if [[ "${INSTALL_SAVE_PROFILE:-}" == "1" ]]; then
+    _profile_path="$PROJECT_DIR/.install-profile"
+    if [[ -n "${INSTALL_PROFILE_NAME:-}" ]]; then
+        _profile_path="$PROJECT_DIR/.install-profile-$INSTALL_PROFILE_NAME"
+    fi
+    profile_save "$_profile_path" "${INSTALL_PROFILE_NAME:-}"
+fi

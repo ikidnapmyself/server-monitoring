@@ -66,6 +66,14 @@ setup() {
     assert_output --partial "deploy"
 }
 
+@test "install.sh help mentions --profile and --yes and --save-profile" {
+    run "$BIN_DIR/install.sh" help
+    assert_success
+    assert_output --partial "--profile"
+    assert_output --partial "--yes"
+    assert_output --partial "--save-profile"
+}
+
 @test "install.sh rejects unknown subcommand" {
     run "$BIN_DIR/install.sh" foobar
     assert_failure
