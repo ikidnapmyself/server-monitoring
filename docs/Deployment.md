@@ -185,7 +185,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now server-monitoring server-monitoring-celery
 ```
 
-> **Automated:** Run `sudo ./bin/deploy-systemd.sh` to automate steps 2.4-2.6 (migrations, static files, unit installation, and service startup with health verification). Or use `./bin/install.sh` in **prod** mode — it offers systemd deployment at the end.
+> **Automated:** Run `./bin/install.sh deploy` to automate steps 2.4-2.6 (migrations, static files, unit installation, and service startup with health verification). Or use `./bin/install.sh` in **prod** mode — it offers systemd deployment at the end.
 
 ### 2.6 Verify
 
@@ -360,7 +360,7 @@ uv run python manage.py push_to_hub --dry-run    # Preview without sending
 uv run python manage.py push_to_hub --checkers cpu,memory  # Specific checkers
 ```
 
-> **Tip:** The installer and `bin/setup_cron.sh` can configure all of the above interactively. Manual `.env` editing is only needed if you skipped the prompts.
+> **Tip:** The installer and `bin/install.sh cron` can configure all of the above interactively. Manual `.env` editing is only needed if you skipped the prompts.
 
 ### Hub setup
 

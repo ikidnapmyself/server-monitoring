@@ -56,8 +56,8 @@ chmod +x ./bin/*.sh
 - Runs Django migrations
 - Runs `python manage.py check`
 - Optionally runs health checks now
-- Optionally sets up cron via `./bin/setup_cron.sh`
-- Optionally sets up shell aliases via `./bin/setup_aliases.sh`
+- Optionally sets up cron via `./bin/install.sh cron`
+- Optionally sets up shell aliases via `./bin/install.sh aliases`
 
 See the installer implementation in `bin/install.sh`.
 
@@ -68,7 +68,7 @@ See the installer implementation in `bin/install.sh`.
 If you didn't enable cron during install, you can run it later:
 
 ```bash
-./bin/setup_cron.sh
+./bin/install.sh cron
 ```
 
 ### What it does
@@ -83,7 +83,7 @@ uv run python manage.py run_pipeline --checks-only --json
 
 - Logs output to `cron.log` in the project root
 
-See the cron script in `bin/setup_cron.sh`.
+See the cron script in `bin/install.sh cron`.
 
 ### Useful commands
 
@@ -101,7 +101,7 @@ Shell aliases let you run `sm-check-health` instead of `uv run python manage.py 
 If you didn't set up aliases during install, run:
 
 ```bash
-./bin/setup_aliases.sh
+./bin/install.sh aliases
 ```
 
 It will prompt for a prefix (default: `sm`), generate aliases, and add a `source` line to your shell profile.
@@ -124,14 +124,14 @@ See [`bin/README.md`](../bin/README.md) for the full alias table and script deta
 ### Custom prefix
 
 ```bash
-./bin/setup_aliases.sh --prefix maint
+./bin/install.sh aliases --prefix maint
 # Creates: maint-check-health, maint-run-pipeline, etc.
 ```
 
 ### Remove aliases
 
 ```bash
-./bin/setup_aliases.sh --remove
+./bin/install.sh aliases --remove
 ```
 
 ---
@@ -246,7 +246,7 @@ uv run python manage.py runserver
 
 ## 7) Common commands
 
-With aliases (after running `./bin/setup_aliases.sh`):
+With aliases (after running `./bin/install.sh aliases`):
 
 ```bash
 sm-check-health                  # Run health checks
