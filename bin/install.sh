@@ -68,14 +68,30 @@ run_all() {
     echo "============================================"
     echo ""
 
+    # Core steps (always run)
     source "$INSTALL_MOD_DIR/env.sh"
-    source "$INSTALL_MOD_DIR/celery.sh"
-    source "$INSTALL_MOD_DIR/cluster.sh"
     source "$INSTALL_MOD_DIR/deps.sh"
     source "$INSTALL_MOD_DIR/migrate.sh"
-    source "$INSTALL_MOD_DIR/cron.sh"
-    source "$INSTALL_MOD_DIR/aliases.sh"
-    source "$INSTALL_MOD_DIR/deploy.sh"
+
+    # Optional steps
+    if prompt_yes_no "Configure Celery / Redis broker?"; then
+        source "$INSTALL_MOD_DIR/celery.sh"
+    fi
+
+    # Cluster has its own y/N gate with smart defaults
+    source "$INSTALL_MOD_DIR/cluster.sh"
+
+    if prompt_yes_no "Deploy now (Docker Compose or systemd)?"; then
+        source "$INSTALL_MOD_DIR/deploy.sh"
+    fi
+
+    if prompt_yes_no "Set up cron jobs for health checks?"; then
+        source "$INSTALL_MOD_DIR/cron.sh"
+    fi
+
+    if prompt_yes_no "Set up shell aliases?"; then
+        source "$INSTALL_MOD_DIR/aliases.sh"
+    fi
 
     echo ""
     echo "============================================"
