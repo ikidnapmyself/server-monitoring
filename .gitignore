@@ -42,3 +42,6 @@ bin/aliases.sh
 
 # Static files (collected)
 staticfiles/
+
+# Install profiles (may contain environment-specific config)
+.install-profile*
