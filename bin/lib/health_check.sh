@@ -219,7 +219,7 @@ run_dev_checks() {
     if [ -f "$PROJECT_DIR/bin/aliases.sh" ]; then
         hc_pass "aliases" "Shell aliases configured"
     else
-        hc_warn "aliases" "Shell aliases not configured (run: bin/setup_aliases.sh)"
+        hc_warn "aliases" "Shell aliases not configured (run: bin/install.sh aliases)"
     fi
 }
 

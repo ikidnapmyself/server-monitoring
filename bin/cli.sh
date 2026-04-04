@@ -37,7 +37,7 @@ show_banner() {
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
     if [ ! -f "$SCRIPT_DIR/aliases.sh" ]; then
-        echo -e "${YELLOW}Tip:${NC} Run ${CYAN}bin/setup_aliases.sh${NC} for quick command aliases (sm-check-health, sm-run-check, etc.)"
+        echo -e "${YELLOW}Tip:${NC} Run ${CYAN}bin/install.sh aliases${NC} for quick command aliases (sm-check-health, sm-run-check, etc.)"
         echo ""
     fi
 }
