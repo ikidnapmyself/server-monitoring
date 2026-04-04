@@ -37,3 +37,18 @@ setup() {
     run bash -n "$BIN_DIR/install/migrate.sh"
     assert_success
 }
+
+@test "install/cron.sh passes syntax check" {
+    run bash -n "$BIN_DIR/install/cron.sh"
+    assert_success
+}
+
+@test "install/deploy.sh passes syntax check" {
+    run bash -n "$BIN_DIR/install/deploy.sh"
+    assert_success
+}
+
+@test "install/aliases.sh passes syntax check" {
+    run bash -n "$BIN_DIR/install/aliases.sh"
+    assert_success
+}
