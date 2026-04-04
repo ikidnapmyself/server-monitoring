@@ -136,6 +136,42 @@ See [`bin/README.md`](../bin/README.md) for the full alias table and script deta
 
 ---
 
+## Profiles
+
+The installer supports saving and loading configuration profiles for consistent deployments across machines.
+
+### Saving a Profile
+
+After running the installer, save the configuration:
+
+```bash
+./bin/install.sh --save-profile prod-web
+```
+
+This creates `.install-profile-prod-web` containing all non-sensitive configuration values.
+
+### Loading a Profile
+
+On a new machine, load a saved profile to pre-fill all prompts:
+
+```bash
+./bin/install.sh --profile prod-web
+```
+
+Values from the profile appear as defaults — press Enter to accept or type a new value to override.
+
+### Non-Interactive Mode
+
+For automated deployments, combine `--profile` with `--yes` to accept all defaults:
+
+```bash
+./bin/install.sh --profile prod-web --yes
+```
+
+Only secrets (`DJANGO_SECRET_KEY`, `WEBHOOK_SECRET_CLUSTER`) will still be prompted since they are never stored in profiles.
+
+---
+
 ## 4) Interactive CLI (recommended)
 
 After installation, use the interactive CLI for a guided experience:

@@ -127,6 +127,23 @@ Full installation script for setting up the project.
 
 See [`docs/Installation.md`](../docs/Installation.md) for full details.
 
+### Profiles
+
+Save and load installer configurations for fleet consistency:
+
+```bash
+# Save after install
+./bin/install.sh --save-profile prod-web
+
+# Load on another machine (pre-fills all prompts)
+./bin/install.sh --profile prod-web
+
+# Fully automated (only prompts for secrets)
+./bin/install.sh --profile prod-web --yes
+```
+
+Profiles are stored as `.install-profile*` files (gitignored by default). They contain all non-sensitive `.env` values plus installer state (cron schedule, alias prefix, etc.). Secrets (`DJANGO_SECRET_KEY`, `WEBHOOK_SECRET_CLUSTER`) are never saved to profiles.
+
 ---
 
 ### `install.sh deploy` — Deployment
