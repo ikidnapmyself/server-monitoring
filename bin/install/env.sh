@@ -129,8 +129,10 @@ _configure_secret_key() {
     # Manual entry path
     if [ "$DJANGO_ENV" = "prod" ]; then
         local pasted
-        PROMPT_MASK=1 pasted=$(prompt_with_default "$_ENV_FILE" "DJANGO_SECRET_KEY" \
+        export PROMPT_MASK=1
+        pasted=$(prompt_with_default "$_ENV_FILE" "DJANGO_SECRET_KEY" \
             "Paste DJANGO_SECRET_KEY")
+        unset PROMPT_MASK
         dotenv_set "$_ENV_FILE" "DJANGO_SECRET_KEY" "$pasted"
         success "DJANGO_SECRET_KEY saved."
     else

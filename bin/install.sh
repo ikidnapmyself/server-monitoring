@@ -96,8 +96,7 @@ case "${1:-}" in
     cron)     source "$INSTALL_MOD_DIR/cron.sh"    ;;
     aliases)
         shift
-        INSTALL_STEP_ARGS=("$@")
-        source "$INSTALL_MOD_DIR/aliases.sh"
+        source "$INSTALL_MOD_DIR/aliases.sh" "$@"
         ;;
     deploy)   source "$INSTALL_MOD_DIR/deploy.sh"  ;;
     help|-h|--help) show_usage                     ;;

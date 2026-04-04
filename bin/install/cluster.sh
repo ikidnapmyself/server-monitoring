@@ -91,9 +91,11 @@ fi
 # 5. All roles: shared webhook secret
 # ---------------------------------------------------------------------------
 
-WEBHOOK_SECRET_CLUSTER=$(PROMPT_MASK=1 prompt_with_default "$_ENV_FILE" \
+export PROMPT_MASK=1
+WEBHOOK_SECRET_CLUSTER=$(prompt_with_default "$_ENV_FILE" \
     "WEBHOOK_SECRET_CLUSTER" \
     "WEBHOOK_SECRET_CLUSTER (shared secret between agents and hub)")
+unset PROMPT_MASK
 dotenv_set "$_ENV_FILE" "WEBHOOK_SECRET_CLUSTER" "$WEBHOOK_SECRET_CLUSTER"
 
 # ---------------------------------------------------------------------------

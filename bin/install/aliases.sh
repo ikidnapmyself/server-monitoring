@@ -3,7 +3,7 @@
 # Installer module: shell aliases for server-maintanence management commands.
 #
 # When sourced from install.sh, operates in interactive mode by default.
-# Supports sub-flags via INSTALL_STEP_ARGS or positional parameters:
+# Supports sub-flags via positional parameters:
 #
 #   --remove          Remove aliases file + source line from profile
 #   --list            Show current aliases
@@ -213,13 +213,7 @@ _aliases_main() {
     local prefix=""
     local action="setup"
 
-    # Collect args: use INSTALL_STEP_ARGS if set, otherwise fall back to "$@"
-    local -a args=()
-    if [[ ${#INSTALL_STEP_ARGS[@]:-0} -gt 0 ]]; then
-        args=("${INSTALL_STEP_ARGS[@]}")
-    else
-        args=("$@")
-    fi
+    local -a args=("$@")
 
     # Parse arguments
     local i=0
