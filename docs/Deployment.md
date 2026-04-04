@@ -185,7 +185,9 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now server-monitoring server-monitoring-celery
 ```
 
-> **Automated:** Run `./bin/install.sh deploy` to automate steps 2.4-2.6 (migrations, static files, unit installation, and service startup with health verification). Or use `./bin/install.sh` in **prod** mode — it offers systemd deployment at the end.
+> **Automated:** Run `sudo ./bin/install.sh deploy` to automate steps 2.4-2.6 (migrations, static files, unit installation, and service startup with health verification). Or use `sudo ./bin/install.sh` in **prod** mode when selecting the systemd deployment option.
+>
+> **Security note:** Running the installer with `sudo` executes all shell code as root. Review the deploy module (`bin/install/deploy.sh`) before running and ensure the repository has not been tampered with. Prefer running only `install.sh deploy` with `sudo` rather than the full installer to minimize the root-privileged surface.
 
 ### 2.6 Verify
 
