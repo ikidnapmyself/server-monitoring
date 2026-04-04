@@ -52,3 +52,22 @@ setup() {
     run bash -n "$BIN_DIR/install/aliases.sh"
     assert_success
 }
+
+@test "install.sh help shows available subcommands" {
+    run "$BIN_DIR/install.sh" help
+    assert_success
+    assert_output --partial "env"
+    assert_output --partial "celery"
+    assert_output --partial "cluster"
+    assert_output --partial "deps"
+    assert_output --partial "migrate"
+    assert_output --partial "cron"
+    assert_output --partial "aliases"
+    assert_output --partial "deploy"
+}
+
+@test "install.sh rejects unknown subcommand" {
+    run "$BIN_DIR/install.sh" foobar
+    assert_failure
+    assert_output --partial "Unknown step"
+}
