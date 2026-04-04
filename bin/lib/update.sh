@@ -250,8 +250,8 @@ _up_restart() {
             _up_log "INFO" "Dev mode — no service restart needed"
             return 0
             ;;
-        prod|systemd)
-            _up_log "INFO" "Restarting systemd service..."
+        systemd)
+            _up_log "INFO" "Restarting systemd services..."
             if [ "$_up_dry_run" = true ]; then
                 _up_log "INFO" "Dry-run: would run systemctl restart server-monitoring"
                 return 0
@@ -261,7 +261,13 @@ _up_restart() {
                 _up_log "ERROR" "Service restart failed"
                 return 1
             fi
-            _up_log "OK" "Service restarted"
+            _up_log "OK" "Services restarted"
+            ;;
+        prod)
+            # Bare-metal prod without systemd units — nothing to restart
+            _up_log "INFO" "Bare-metal prod — no systemd units installed, skipping restart"
+            _up_log "INFO" "Restart your application server manually if needed"
+            return 0
             ;;
         docker)
             _up_log "INFO" "Rebuilding Docker containers..."
