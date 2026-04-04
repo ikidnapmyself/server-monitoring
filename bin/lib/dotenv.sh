@@ -42,6 +42,13 @@ dotenv_has_value() {
     grep -Eq "^[[:space:]]*${key}[[:space:]]*=.+" "$file"
 }
 
+dotenv_get() {
+    local file="$1"
+    local key="$2"
+    grep -E "^[[:space:]]*${key}[[:space:]]*=" "$file" 2>/dev/null \
+        | tail -1 | sed "s/^[[:space:]]*${key}[[:space:]]*=//"
+}
+
 dotenv_set() {
     local file="$1"
     local key="$2"
