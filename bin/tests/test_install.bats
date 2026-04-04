@@ -18,3 +18,22 @@ setup() {
     run bash -n "$BIN_DIR/install/env.sh"
     assert_success
 }
+
+@test "install/celery.sh passes syntax check" {
+    run bash -n "$BIN_DIR/install/celery.sh"
+    assert_success
+}
+
+@test "install/cluster.sh passes syntax check" {
+    run bash -n "$BIN_DIR/install/cluster.sh"
+    assert_success
+}
+
+@test "install/deps.sh passes syntax check" {
+    run bash -n "$BIN_DIR/install/deps.sh"
+    assert_success
+}
+@test "install/migrate.sh passes syntax check" {
+    run bash -n "$BIN_DIR/install/migrate.sh"
+    assert_success
+}
