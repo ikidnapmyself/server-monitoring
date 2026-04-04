@@ -213,7 +213,7 @@ are collected, and a notification is sent through your configured channel.
 To run checks automatically on a schedule:
 
 ```bash
-./bin/setup_cron.sh
+./bin/install.sh cron
 ```
 
 The script lets you pick a schedule (every 5 minutes, 15 minutes, hourly, or custom) and

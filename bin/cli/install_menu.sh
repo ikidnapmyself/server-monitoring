@@ -29,7 +29,7 @@ install_project() {
                 run_command "uv run pre-commit install" "Installing pre-commit hooks"
                 ;;
             4)
-                run_command "$SCRIPT_DIR/setup_aliases.sh" "Setting up shell aliases"
+                run_command "$SCRIPT_DIR/install.sh aliases" "Setting up shell aliases"
                 ;;
             5)
                 check_installation
