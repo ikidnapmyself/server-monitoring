@@ -130,3 +130,39 @@ teardown() {
     run bash -c 'source "'"$LIB_DIR"'/prompt.sh"; printf "m\ny\n" | prompt_yes_no "Continue?"'
     assert_success
 }
+
+# --- INSTALL_AUTO_ACCEPT ---
+
+@test "prompt_with_default auto-accepts existing value when INSTALL_AUTO_ACCEPT=1" {
+    echo "MY_KEY=auto_val" > "$TEST_TMPDIR/.env"
+    result="$(INSTALL_AUTO_ACCEPT=1 prompt_with_default "$TEST_TMPDIR/.env" "MY_KEY" "Enter value")"
+    [ "$result" = "auto_val" ]
+}
+
+@test "prompt_with_default auto-accepts fallback when INSTALL_AUTO_ACCEPT=1 and key missing" {
+    touch "$TEST_TMPDIR/.env"
+    result="$(INSTALL_AUTO_ACCEPT=1 prompt_with_default "$TEST_TMPDIR/.env" "MY_KEY" "Enter value" "fb")"
+    [ "$result" = "fb" ]
+}
+
+@test "prompt_with_default still prompts when INSTALL_AUTO_ACCEPT=1 but no default exists" {
+    touch "$TEST_TMPDIR/.env"
+    result="$(echo "typed" | INSTALL_AUTO_ACCEPT=1 prompt_with_default "$TEST_TMPDIR/.env" "MY_KEY" "Enter value")"
+    [ "$result" = "typed" ]
+}
+
+@test "prompt_choice auto-accepts current value when INSTALL_AUTO_ACCEPT=1" {
+    echo "ROLE=worker" > "$TEST_TMPDIR/.env"
+    result="$(INSTALL_AUTO_ACCEPT=1 prompt_choice "$TEST_TMPDIR/.env" "ROLE" "Select role" "master:Master node" "worker:Worker node")"
+    [ "$result" = "worker" ]
+}
+
+@test "prompt_yes_no auto-accepts default_y when INSTALL_AUTO_ACCEPT=1" {
+    run bash -c 'source "'"$LIB_DIR"'/prompt.sh"; INSTALL_AUTO_ACCEPT=1 prompt_yes_no "Continue?" "default_y"'
+    assert_success
+}
+
+@test "prompt_yes_no auto-accepts default_n when INSTALL_AUTO_ACCEPT=1" {
+    run bash -c 'source "'"$LIB_DIR"'/prompt.sh"; INSTALL_AUTO_ACCEPT=1 prompt_yes_no "Continue?"'
+    assert_failure
+}

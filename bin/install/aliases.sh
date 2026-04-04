@@ -291,6 +291,7 @@ _aliases_main() {
 
             info "Using prefix: $prefix"
             _aliases_generate "$prefix"
+            export ALIAS_PREFIX="$prefix"
             _aliases_install_source_line
             ;;
     esac

@@ -62,6 +62,7 @@ if [[ "$CRON_SCHEDULE" == "custom" ]]; then
         "Enter custom cron schedule (e.g. '*/10 * * * *')" "*/5 * * * *")
 fi
 
+export CRON_SCHEDULE
 info "Using schedule: $CRON_SCHEDULE"
 
 # ---------------------------------------------------------------------------
@@ -106,6 +107,9 @@ if prompt_yes_no "Enable automatic updates?"; then
 
     success "Auto-update cron job added (with --rollback enabled)"
     info "Update log: $PROJECT_DIR/update.log"
+    export CRON_AUTO_UPDATE=1
+else
+    export CRON_AUTO_UPDATE=0
 fi
 
 # ---------------------------------------------------------------------------
@@ -130,7 +134,12 @@ if [ -n "$_hub_url" ]; then
 
         success "Cluster push cron job added"
         info "Push log: $PROJECT_DIR/push.log"
+        export CRON_PUSH_TO_HUB=1
+    else
+        export CRON_PUSH_TO_HUB=0
     fi
+else
+    export CRON_PUSH_TO_HUB=0
 fi
 
 # ---------------------------------------------------------------------------
