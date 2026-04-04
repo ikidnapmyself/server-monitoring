@@ -31,6 +31,13 @@ prompt_with_default() {
     fi
 
     local default="${current:-$fallback}"
+
+    # Auto-accept: return default without prompting
+    if [[ "${INSTALL_AUTO_ACCEPT:-0}" == "1" ]] && [[ -n "$default" ]]; then
+        printf '%s\n' "$default"
+        return 0
+    fi
+
     local display_default="$default"
 
     if [[ "${PROMPT_MASK:-0}" == "1" ]] && [[ -n "$default" ]]; then
@@ -78,6 +85,12 @@ prompt_choice() {
     local current=""
     if [ -f "$env_file" ] && dotenv_has_value "$env_file" "$key"; then
         current="$(dotenv_get "$env_file" "$key")"
+    fi
+
+    # Auto-accept: return current value without prompting
+    if [[ "${INSTALL_AUTO_ACCEPT:-0}" == "1" ]] && [[ -n "$current" ]]; then
+        printf '%s\n' "$current"
+        return 0
     fi
 
     # Display menu header
@@ -151,6 +164,11 @@ prompt_choice() {
 prompt_yes_no() {
     local question="$1"
     local default="${2:-default_n}"
+
+    # Auto-accept: return default without prompting
+    if [[ "${INSTALL_AUTO_ACCEPT:-0}" == "1" ]]; then
+        if [[ "$default" == "default_y" ]]; then return 0; else return 1; fi
+    fi
 
     local hint
     if [[ "$default" == "default_y" ]]; then
