@@ -251,6 +251,13 @@ _up_restart() {
             return 0
             ;;
         systemd)
+            # Verify units exist before attempting restart
+            if ! systemctl list-unit-files server-monitoring.service 2>/dev/null | grep -q "server-monitoring\.service"; then
+                _up_log "WARN" "Mode is systemd but units not found — skipping restart"
+                _up_log "INFO" "Run 'install.sh deploy' to install systemd units"
+                return 0
+            fi
+
             _up_log "INFO" "Restarting systemd services..."
             if [ "$_up_dry_run" = true ]; then
                 _up_log "INFO" "Dry-run: would run systemctl restart server-monitoring"
