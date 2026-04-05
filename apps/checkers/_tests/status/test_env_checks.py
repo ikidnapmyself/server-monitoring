@@ -144,6 +144,22 @@ class RunEnvChecksTests(TestCase):
         self.assertTrue(any("UNDOCUMENTED_VAR" in r.message for r in warns))
 
     @patch("apps.checkers.status.env_checks._read_file")
+    def test_sample_key_unreferenced_in_settings(self, mock_read):
+        def side_effect(path):
+            if path.name == ".env":
+                return "FOO=bar\nSTALE=val\n"
+            if path.name == ".env.sample":
+                return "FOO=bar\nSTALE=old\n"
+            if path.name == "settings.py":
+                return 'x = os.environ.get("FOO", "")\n'
+            return None
+
+        mock_read.side_effect = side_effect
+        results = run(base_dir=Path("/fake"))
+        warns = [r for r in results if r.level == "warn"]
+        self.assertTrue(any("STALE" in r.message for r in warns))
+
+    @patch("apps.checkers.status.env_checks._read_file")
     def test_all_consistent_returns_ok(self, mock_read):
         def side_effect(path):
             if path.name == ".env":
