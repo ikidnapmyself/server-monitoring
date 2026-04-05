@@ -4,18 +4,14 @@ health_menu() {
     show_banner
     echo -e "${BOLD}═══ Health & Monitoring ═══${NC}"
     echo ""
-    echo -e "${CYAN}Command: check_health${NC}"
-    echo "Check system health metrics (CPU, memory, disk)"
-    echo ""
-    echo -e "${BOLD}Available options:${NC}"
-    echo "  --environment=ENV  Environment name (default: development)"
-    echo "  --json             Output as JSON"
-    echo ""
 
     local options=(
-        "Run health check (default)"
-        "Run with JSON output"
-        "Specify environment"
+        "Run all health checks"
+        "Run specific checkers"
+        "List available checkers"
+        "JSON output"
+        "Fail on warning (CI mode)"
+        "Fail on critical only (CI mode)"
         "Back to main menu"
     )
 
@@ -26,14 +22,29 @@ health_menu() {
                 confirm_and_run "uv run python manage.py check_health"
                 ;;
             2)
-                confirm_and_run "uv run python manage.py check_health --json"
+                echo ""
+                run_command "uv run python manage.py check_health --list" "Listing checkers"
+                echo ""
+                read -p "Enter checker names (space-separated): " checker_names
+                if [ -n "$checker_names" ]; then
+                    confirm_and_run "uv run python manage.py check_health $checker_names"
+                else
+                    echo -e "${RED}No checkers specified${NC}"
+                fi
                 ;;
             3)
-                read -p "Enter environment name [development]: " env_name
-                env_name="${env_name:-development}"
-                confirm_and_run "uv run python manage.py check_health --environment=$env_name"
+                run_command "uv run python manage.py check_health --list" "Available checkers"
                 ;;
             4)
+                confirm_and_run "uv run python manage.py check_health --json"
+                ;;
+            5)
+                confirm_and_run "uv run python manage.py check_health --fail-on-warning"
+                ;;
+            6)
+                confirm_and_run "uv run python manage.py check_health --fail-on-critical"
+                ;;
+            7)
                 return
                 ;;
             *)

@@ -12,6 +12,8 @@
 #   intel        Jump to intelligence menu
 #   pipeline     Jump to pipeline menu
 #   notify       Jump to notifications menu
+#   update       Jump to updates menu
+#   system       Jump to system & security menu
 #
 
 set -e
@@ -56,6 +58,8 @@ show_help() {
     echo "  intel        Jump to intelligence menu"
     echo "  pipeline     Jump to pipeline menu"
     echo "  notify       Jump to notifications menu"
+    echo "  update       Jump to updates menu"
+    echo "  system       Jump to system & security menu"
     echo ""
 }
 
@@ -104,6 +108,8 @@ source "$SCRIPT_DIR/cli/alerts.sh"
 source "$SCRIPT_DIR/cli/intelligence.sh"
 source "$SCRIPT_DIR/cli/pipeline.sh"
 source "$SCRIPT_DIR/cli/notifications.sh"
+source "$SCRIPT_DIR/cli/update.sh"
+source "$SCRIPT_DIR/cli/system.sh"
 
 # ============================================================================
 # Main Menu
@@ -120,6 +126,8 @@ show_main_menu() {
         "Intelligence & Recommendations"
         "Pipeline Orchestration"
         "Notifications"
+        "Updates"
+        "System & Security"
         "Exit"
     )
 
@@ -131,7 +139,9 @@ show_main_menu() {
             4) intelligence_menu ;;
             5) pipeline_menu ;;
             6) notify_menu ;;
-            7) echo -e "${GREEN}Goodbye!${NC}"; exit 0 ;;
+            7) update_menu ;;
+            8) system_menu ;;
+            9) echo -e "${GREEN}Goodbye!${NC}"; exit 0 ;;
             *) echo -e "${RED}Invalid option${NC}" ;;
         esac
         break
@@ -181,6 +191,18 @@ main() {
         notify)
             show_banner
             notify_menu
+            echo ""
+            read -p "Press Enter to continue..."
+            ;;
+        update)
+            show_banner
+            update_menu
+            echo ""
+            read -p "Press Enter to continue..."
+            ;;
+        system)
+            show_banner
+            system_menu
             echo ""
             read -p "Press Enter to continue..."
             ;;
