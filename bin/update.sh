@@ -14,14 +14,18 @@ cd "$PROJECT_DIR"
 
 # Parse flags
 _up_check_only=false
+_up_history=false
+_up_history_limit=20
 
-for arg in "$@"; do
-    case $arg in
+while [ $# -gt 0 ]; do
+    case $1 in
         --check) _up_check_only=true ;;
         --rollback) _up_rollback_enabled=true ;;
         --auto-env) _up_auto_env=true ;;
         --dry-run) _up_dry_run=true ;;
         --json) _up_json_mode=true ;;
+        --history) _up_history=true ;;
+        -n) _up_history_limit="$2"; shift ;;
         --help|-h)
             echo "Usage: bin/update.sh [OPTIONS]"
             echo ""
@@ -34,11 +38,20 @@ for arg in "$@"; do
             echo "  --auto-env     Auto-append new .env.sample keys to .env"
             echo "  --dry-run      Show what would happen without applying"
             echo "  --json         Output as JSON"
+            echo "  --history      Show update history"
+            echo "  -n N           Limit history to last N entries (default: 20)"
             echo "  --help, -h     Show this help"
             exit 0
             ;;
     esac
+    shift
 done
+
+if [ "$_up_history" = true ]; then
+    _up_mode="$(detect_mode)"
+    _up_show_history "$_up_history_limit"
+    exit 0
+fi
 
 if [ "$_up_check_only" = true ]; then
     _up_mode="$(detect_mode)"
