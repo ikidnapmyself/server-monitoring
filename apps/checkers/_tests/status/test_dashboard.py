@@ -87,6 +87,27 @@ class GetProfileTests(TestCase):
         self.assertTrue(profile["debug"])
         self.assertTrue(profile["celery_eager"])
 
+    @override_settings(
+        HUB_URL="https://hub.example.com",
+        CLUSTER_ENABLED=True,
+        DEBUG=False,
+        DATABASES={
+            "default": {
+                "ENGINE": "django.db.backends.sqlite3",
+                "NAME": "/tmp/db.sqlite3",
+            }
+        },
+        CELERY_BROKER_URL="redis://localhost:6379/0",
+        CELERY_TASK_ALWAYS_EAGER=False,
+        ORCHESTRATION_METRICS_BACKEND="logging",
+        INSTANCE_ID="",
+        LOGS_DIR="/tmp/logs",
+    )
+    @patch.dict(os.environ, {"DJANGO_ENV": "prod", "DEPLOY_METHOD": "bare"})
+    def test_conflict_profile(self):
+        profile = get_profile()
+        self.assertEqual(profile["role"], "conflict")
+
 
 class GetPipelineStateTests(TestCase):
     def test_empty_state(self):
@@ -142,6 +163,42 @@ class RenderDefinitionChainTests(TestCase):
         self.assertIn("cpu", chain)
         self.assertIn("notify", chain)
         self.assertIn("\u2192", chain)
+
+    def test_renders_drivers_and_channels(self):
+        defn = PipelineDefinition.objects.create(
+            name="multi",
+            config={
+                "nodes": [
+                    {
+                        "id": "ingest",
+                        "type": "alerts",
+                        "config": {"drivers": ["webhook", "email"]},
+                    },
+                    {
+                        "id": "notify",
+                        "type": "notify",
+                        "config": {"channels": ["slack", "pagerduty"]},
+                    },
+                ]
+            },
+            is_active=True,
+        )
+        chain = render_definition_chain(defn)
+        self.assertIn("webhook,email", chain)
+        self.assertIn("slack,pagerduty", chain)
+
+    def test_node_without_config_details(self):
+        defn = PipelineDefinition.objects.create(
+            name="bare",
+            config={
+                "nodes": [
+                    {"id": "transform", "type": "transform", "config": {}},
+                ]
+            },
+            is_active=True,
+        )
+        chain = render_definition_chain(defn)
+        self.assertEqual(chain, "transform")
 
     def test_empty_config(self):
         defn = PipelineDefinition.objects.create(name="empty", config={}, is_active=True)
