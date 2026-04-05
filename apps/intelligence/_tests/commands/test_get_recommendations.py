@@ -189,11 +189,11 @@ class TestRecommendationTypes(SimpleTestCase):
         out = StringIO()
         call_command("get_recommendations", "--disk", "--provider=local", stdout=out)
 
-        mock_provider.run.assert_called_once_with(analysis_type="disk")
+        mock_provider.run.assert_called_once_with(analysis_type="disk", path="/")
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
     def test_disk_recommendations_with_path(self, mock_get_provider):
-        """Test --disk with --path option calls run with analysis_type=disk."""
+        """Test --disk with --path passes path to provider.run()."""
         mock_provider = MagicMock()
         mock_provider.run.return_value = []
         mock_get_provider.return_value = mock_provider
@@ -207,7 +207,43 @@ class TestRecommendationTypes(SimpleTestCase):
             stdout=out,
         )
 
-        mock_provider.run.assert_called_once_with(analysis_type="disk")
+        mock_provider.run.assert_called_once_with(analysis_type="disk", path="/var/log")
+
+    @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
+    def test_disk_default_path_is_root(self, mock_get_provider):
+        """Test --disk without --path defaults to /."""
+        mock_provider = MagicMock()
+        mock_provider.run.return_value = []
+        mock_get_provider.return_value = mock_provider
+
+        out = StringIO()
+        call_command(
+            "get_recommendations",
+            "--disk",
+            "--provider=local",
+            stdout=out,
+        )
+
+        mock_provider.run.assert_called_once_with(analysis_type="disk", path="/")
+
+    @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
+    def test_all_recommendations_passes_path(self, mock_get_provider):
+        """Test --all with --path passes path to disk analysis."""
+        mock_provider = MagicMock()
+        mock_provider.run.return_value = []
+        mock_get_provider.return_value = mock_provider
+
+        out = StringIO()
+        call_command(
+            "get_recommendations",
+            "--all",
+            "--path=/tmp",
+            "--provider=local",
+            stdout=out,
+        )
+
+        mock_provider.run.assert_any_call(analysis_type="memory")
+        mock_provider.run.assert_any_call(analysis_type="disk", path="/tmp")
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
     def test_all_recommendations(self, mock_get_provider):
@@ -221,7 +257,7 @@ class TestRecommendationTypes(SimpleTestCase):
 
         assert mock_provider.run.call_count == 2
         mock_provider.run.assert_any_call(analysis_type="memory")
-        mock_provider.run.assert_any_call(analysis_type="disk")
+        mock_provider.run.assert_any_call(analysis_type="disk", path="/")
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
     def test_default_calls_run(self, mock_get_provider):

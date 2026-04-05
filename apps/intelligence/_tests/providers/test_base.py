@@ -31,7 +31,7 @@ class FakeProvider(BaseProvider):
         ]
         self._error = error
 
-    def analyze(self, incident=None, analysis_type=""):
+    def analyze(self, incident=None, analysis_type="", path="/"):
         if self._error:
             raise self._error
         return self._recommendations
@@ -158,14 +158,21 @@ class BaseProviderRunTests(TestCase):
         provider = FakeProvider()
         with patch.object(provider, "analyze", wraps=provider.analyze) as mock_analyze:
             provider.run(incident="fake_incident")
-            mock_analyze.assert_called_once_with("fake_incident", "")
+            mock_analyze.assert_called_once_with("fake_incident", "", "/")
 
     def test_run_passes_analysis_type_to_analyze(self):
         """Verify run(analysis_type='memory') passes it to analyze()."""
         provider = FakeProvider()
         with patch.object(provider, "analyze", wraps=provider.analyze) as mock_analyze:
             provider.run(analysis_type="memory")
-            mock_analyze.assert_called_once_with(None, "memory")
+            mock_analyze.assert_called_once_with(None, "memory", "/")
+
+    def test_run_passes_path_to_analyze(self):
+        """Verify run(path='/var/log') passes it to analyze()."""
+        provider = FakeProvider()
+        with patch.object(provider, "analyze", wraps=provider.analyze) as mock_analyze:
+            provider.run(analysis_type="disk", path="/var/log")
+            mock_analyze.assert_called_once_with(None, "disk", "/var/log")
 
     def test_run_returns_recommendations_when_db_fails(self):
         """DB failure -> recommendations still returned."""

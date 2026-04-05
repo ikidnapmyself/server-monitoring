@@ -32,7 +32,7 @@ class DiskAnalysisView(JSONResponseMixin, View):
                 large_file_threshold_mb=threshold_mb,
                 old_file_days=old_days,
             )
-            recommendations = provider.run(analysis_type="disk")
+            recommendations = provider.run(analysis_type="disk", path=path)
 
             return self.json_response(
                 {

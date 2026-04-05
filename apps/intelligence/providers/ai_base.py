@@ -69,7 +69,9 @@ class BaseAIProvider(BaseProvider):
     # Public API
     # ------------------------------------------------------------------
 
-    def analyze(self, incident: Any | None = None, analysis_type: str = "") -> list[Recommendation]:
+    def analyze(
+        self, incident: Any | None = None, analysis_type: str = "", path: str = "/"
+    ) -> list[Recommendation]:
         if incident is None:
             return []
 
