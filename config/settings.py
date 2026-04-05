@@ -244,7 +244,7 @@ RATE_LIMITS = {
 # Logging
 # ---------------------------------------------------------------------------
 
-LOGS_DIR = BASE_DIR / "logs"
+LOGS_DIR = Path(os.environ.get("LOGS_DIR", BASE_DIR / "logs"))
 LOGS_DIR.mkdir(exist_ok=True)
 
 LOGGING = {
