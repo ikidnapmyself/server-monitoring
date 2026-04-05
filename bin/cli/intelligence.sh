@@ -20,6 +20,8 @@ intelligence_menu() {
     echo "  --list-providers   List available providers"
     echo ""
 
+    local default_path="$PROJECT_DIR"
+
     local options=(
         "Memory analysis"
         "Disk analysis"
@@ -36,12 +38,14 @@ intelligence_menu() {
                 confirm_and_run "uv run python manage.py get_recommendations --memory"
                 ;;
             2)
-                read -p "Enter path to analyze [/var/log]: " disk_path
-                disk_path="${disk_path:-/var/log}"
+                read -p "Enter path to analyze [$default_path]: " disk_path
+                disk_path="${disk_path:-$default_path}"
                 confirm_and_run "uv run python manage.py get_recommendations --disk --path=$disk_path"
                 ;;
             3)
-                confirm_and_run "uv run python manage.py get_recommendations --all"
+                read -p "Enter path for disk analysis [$default_path]: " disk_path
+                disk_path="${disk_path:-$default_path}"
+                confirm_and_run "uv run python manage.py get_recommendations --all --path=$disk_path"
                 ;;
             4)
                 custom_recommendations
@@ -74,10 +78,9 @@ custom_recommendations() {
     read -p "Include disk analysis? (y/n) [y]: " inc_disk
     if [[ "${inc_disk:-y}" =~ ^[Yy]$ ]]; then
         cmd="$cmd --disk"
-        read -p "  Path to analyze [/]: " disk_path
-        if [ -n "$disk_path" ]; then
-            cmd="$cmd --path=$disk_path"
-        fi
+        read -p "  Path to analyze [$PROJECT_DIR]: " disk_path
+        disk_path="${disk_path:-$PROJECT_DIR}"
+        cmd="$cmd --path=$disk_path"
     fi
 
     read -p "Top N processes [10]: " top_n
