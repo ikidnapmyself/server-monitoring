@@ -1476,6 +1476,28 @@ class TestGetDiskRecommendations(SimpleTestCase):
         assert result[0].title == "Old Logs and Temporary Files Found"
         assert result[0].priority == RecommendationPriority.MEDIUM
 
+    @patch("apps.intelligence.providers.local.psutil.disk_usage")
+    def test_empty_path_defaults_to_root(self, mock_usage):
+        """Empty or whitespace-only path is normalized to '/'."""
+        mock_usage.return_value = MagicMock(percent=40)
+
+        provider = LocalRecommendationProvider()
+        with patch.object(provider, "_scan_large_files", return_value=[]) as mock_scan:
+            with patch.object(provider, "_find_old_logs", return_value=[]):
+                provider._get_disk_recommendations("")
+                mock_scan.assert_called_once_with("/")
+
+    @patch("apps.intelligence.providers.local.psutil.disk_usage")
+    def test_whitespace_path_defaults_to_root(self, mock_usage):
+        """Whitespace path is normalized to '/'."""
+        mock_usage.return_value = MagicMock(percent=40)
+
+        provider = LocalRecommendationProvider()
+        with patch.object(provider, "_scan_large_files", return_value=[]) as mock_scan:
+            with patch.object(provider, "_find_old_logs", return_value=[]):
+                provider._get_disk_recommendations("   ")
+                mock_scan.assert_called_once_with("/")
+
 
 class TestGetTopMemoryProcessesExceptions(SimpleTestCase):
     """Tests for psutil exceptions in _get_top_memory_processes."""

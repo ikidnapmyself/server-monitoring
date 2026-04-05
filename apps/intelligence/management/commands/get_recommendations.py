@@ -161,12 +161,12 @@ class Command(BaseCommand):
 
         # Disk-specific analysis
         elif options["disk"]:
-            recommendations = provider.run(analysis_type="disk")
+            recommendations = provider.run(analysis_type="disk", path=options["path"])
 
         # All recommendations
         elif options["all"]:
             recommendations.extend(provider.run(analysis_type="memory"))
-            recommendations.extend(provider.run(analysis_type="disk"))
+            recommendations.extend(provider.run(analysis_type="disk", path=options["path"]))
 
         # General recommendations based on current state
         else:

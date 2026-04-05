@@ -106,7 +106,9 @@ class LocalRecommendationProvider(BaseProvider):
         self.scan_paths = scan_paths or self.LOG_DIRECTORIES
         self._progress = progress_callback or (lambda msg: None)
 
-    def analyze(self, incident: Any | None = None, analysis_type: str = "") -> list[Recommendation]:
+    def analyze(
+        self, incident: Any | None = None, analysis_type: str = "", path: str = "/"
+    ) -> list[Recommendation]:
         """
         Analyze an incident and generate targeted recommendations.
 
@@ -114,6 +116,7 @@ class LocalRecommendationProvider(BaseProvider):
             incident: An Incident object from apps.alerts.models.
             analysis_type: Optional type hint for targeted analysis
                 (e.g. "memory", "disk"). Bypasses incident detection.
+            path: Filesystem path to constrain disk analysis to.
 
         Returns:
             List of recommendations relevant to the incident.
@@ -122,7 +125,7 @@ class LocalRecommendationProvider(BaseProvider):
         if analysis_type == "memory":
             return self._get_memory_recommendations()
         elif analysis_type == "disk":
-            return self._get_disk_recommendations()
+            return self._get_disk_recommendations(path)
 
         if incident is None:
             # General system scan (was get_recommendations)
@@ -291,12 +294,16 @@ class LocalRecommendationProvider(BaseProvider):
 
         Scans for large files, old logs, and directories that can be cleaned.
         """
+        path = path.strip() if path else "/"
+        if not path:
+            path = "/"
+
         recommendations = []
 
         self._progress(f"Scanning {path}...")
         # Get large files and directories
         large_items = self._scan_large_files(path)
-        old_files = self._find_old_logs()
+        old_files = self._find_old_logs(path)
         self._progress(f"-> Scanned {path}, found {len(large_items)} large items")
 
         # Large files recommendation
@@ -624,12 +631,19 @@ class LocalRecommendationProvider(BaseProvider):
         large_items.sort(key=lambda x: x.size_mb, reverse=True)
         return large_items[:50]
 
-    def _find_old_logs(self) -> list[OldFileInfo]:
-        """Find old log files and temporary files that can be cleaned up."""
+    def _find_old_logs(self, path: str = "/") -> list[OldFileInfo]:
+        """Find old log files and temporary files that can be cleaned up.
+
+        When a specific path is given (not "/"), scans only that path.
+        When path is "/", scans the default log directories.
+        """
         old_files = []
         cutoff_date = datetime.now() - timedelta(days=self.old_file_days)
 
-        for scan_dir in self.scan_paths:
+        # Use the given path if specific, otherwise fall back to default scan dirs
+        scan_dirs = [path] if path != "/" else self.scan_paths
+
+        for scan_dir in scan_dirs:
             try:
                 scan_path = Path(scan_dir).expanduser()
                 if not scan_path.exists():

@@ -40,7 +40,7 @@ class TestDiskAnalysisView(SimpleTestCase):
         mock_get_provider.assert_called_once_with(
             "local", large_file_threshold_mb=100.0, old_file_days=30
         )
-        mock_provider.run.assert_called_once_with(analysis_type="disk")
+        mock_provider.run.assert_called_once_with(analysis_type="disk", path="/")
 
     @patch("apps.intelligence.views.disk.get_provider")
     def test_get_disk_analysis_custom_params(self, mock_get_provider):
@@ -55,6 +55,18 @@ class TestDiskAnalysisView(SimpleTestCase):
         mock_get_provider.assert_called_once_with(
             "local", large_file_threshold_mb=50.0, old_file_days=7
         )
+
+    @patch("apps.intelligence.views.disk.get_provider")
+    def test_get_disk_analysis_with_path(self, mock_get_provider):
+        """GET with path param passes it to provider.run()."""
+        mock_provider = mock_get_provider.return_value
+        mock_provider.run.return_value = []
+
+        client = Client()
+        response = client.get("/intelligence/disk/?path=/var/log")
+
+        assert response.status_code == 200
+        mock_provider.run.assert_called_once_with(analysis_type="disk", path="/var/log")
 
     @patch("apps.intelligence.views.disk.get_provider")
     def test_get_disk_analysis_provider_error(self, mock_get_provider):

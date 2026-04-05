@@ -81,13 +81,16 @@ class BaseProvider(ABC):
     description: str = "Base intelligence provider"
 
     @abstractmethod
-    def analyze(self, incident: Any | None = None, analysis_type: str = "") -> list[Recommendation]:
+    def analyze(
+        self, incident: Any | None = None, analysis_type: str = "", path: str = "/"
+    ) -> list[Recommendation]:
         """
         Analyze system state and/or incident to generate recommendations.
 
         Args:
             incident: Optional incident object to analyze.
             analysis_type: Optional type hint for analysis.
+            path: Filesystem path to constrain disk analysis to.
 
         Returns:
             List of recommendations.
@@ -99,6 +102,7 @@ class BaseProvider(ABC):
         *,
         incident: Any | None = None,
         analysis_type: str = "",
+        path: str = "/",
         trace_id: str = "",
         pipeline_run_id: str = "",
         provider_config: dict | None = None,
@@ -142,7 +146,7 @@ class BaseProvider(ABC):
                 analysis_run = None
 
         try:
-            recommendations = self.analyze(incident, analysis_type)
+            recommendations = self.analyze(incident, analysis_type, path)
         except Exception as exc:
             if analysis_run is not None:
                 try:
