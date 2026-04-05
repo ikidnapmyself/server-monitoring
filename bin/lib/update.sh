@@ -21,7 +21,8 @@ _up_dry_run=false
 _up_rollback_enabled=false
 _up_json_mode=false
 _up_auto_env=false
-_up_log_file="$PROJECT_DIR/update.log"
+_up_log_file="${LOG_DIR:-$PROJECT_DIR/logs}/update.log"
+_up_history_file="${LOG_DIR:-$PROJECT_DIR/logs}/update-history.jsonl"
 _up_saved_sha=""
 _up_new_sha=""
 _up_failed_step=""
@@ -78,6 +79,79 @@ _up_json_escape() {
     s="${s//$'\n'/\\n}"
     s="${s//$'\t'/\\t}"
     printf '%s' "$s"
+}
+
+# --- History ---
+
+_up_record_history() {
+    local status="$1"
+    local commits="${2:-0}"
+    local rolled_back="${3:-false}"
+
+    local timestamp
+    timestamp="$(date -u +%Y-%m-%dT%H:%M:%S%z 2>/dev/null || date +%Y-%m-%dT%H:%M:%S)"
+
+    local old_sha="${_up_saved_sha:-}"
+    local new_sha="${_up_new_sha:-$old_sha}"
+    local failed="${_up_failed_step:-null}"
+    local auto="false"
+    [ "$_up_auto_env" = true ] && auto="true"
+
+    # Quote strings, leave null/false/true/numbers unquoted
+    local failed_json="null"
+    [ -n "$failed" ] && [ "$failed" != "null" ] && failed_json="\"$(_up_json_escape "$failed")\""
+
+    printf '{"timestamp":"%s","old_sha":"%s","new_sha":"%s","status":"%s","commits":%s,"mode":"%s","auto_update":%s,"failed_step":%s,"rolled_back":%s}\n' \
+        "$(_up_json_escape "$timestamp")" \
+        "$(_up_short_sha "$old_sha")" \
+        "$(_up_short_sha "$new_sha")" \
+        "$(_up_json_escape "$status")" \
+        "$commits" \
+        "$(_up_json_escape "$_up_mode")" \
+        "$auto" \
+        "$failed_json" \
+        "$rolled_back" \
+        >> "$_up_history_file"
+}
+
+_up_show_history() {
+    local limit="${1:-20}"
+
+    if [ ! -f "$_up_history_file" ]; then
+        echo "No update history found."
+        return 0
+    fi
+
+    if [ "$_up_json_mode" = true ]; then
+        tail -n "$limit" "$_up_history_file"
+        return 0
+    fi
+
+    tail -n "$limit" "$_up_history_file" | python3 -c "
+import sys, json
+
+lines = [json.loads(line) for line in sys.stdin if line.strip()]
+if not lines:
+    print('No update history found.')
+    sys.exit(0)
+
+print(f'\nUpdate History (last {len(lines)}):')
+print(f'{\"DATE\":<20} {\"FROM\":<9} {\"TO\":<9} {\"STATUS\":<12} {\"COMMITS\":<8} {\"MODE\":<8} AUTO')
+print('-' * 80)
+
+for d in lines:
+    ts = d['timestamp'][:19].replace('T', ' ')
+    auto = 'yes' if d.get('auto_update') else 'no'
+    if d.get('rolled_back'):
+        auto += ' (rolled back)'
+    status = d.get('status', '?')
+    failed = d.get('failed_step')
+    if failed:
+        status += f' ({failed})'
+    print(f'{ts:<20} {d[\"old_sha\"]:<9} {d[\"new_sha\"]:<9} {status:<12} {d.get(\"commits\", 0):<8} {d.get(\"mode\", \"?\"):<8} {auto}')
+
+print()
+"
 }
 
 # --- Update check ---
@@ -330,6 +404,7 @@ run_update() {
         if [ "$_up_json_mode" = true ]; then
             printf '{"status":"up_to_date","sha":"%s"}\n' "$(_up_short_sha "$_up_saved_sha")"
         fi
+        [ "$_up_dry_run" = false ] && _up_record_history "up_to_date"
         return 0
     elif [ "$check_rc" -eq 1 ]; then
         # Fetch failed
@@ -356,6 +431,9 @@ run_update() {
 
         if [ "$_up_rollback_enabled" = true ] && [ "$_up_dry_run" = false ]; then
             _up_rollback
+            _up_record_history "failed" "0" "true"
+        elif [ "$_up_dry_run" = false ]; then
+            _up_record_history "failed"
         fi
 
         if [ "$_up_json_mode" = true ]; then
@@ -375,9 +453,12 @@ run_update() {
     # Success
     _up_log "OK" "Update complete: $(_up_short_sha "$_up_saved_sha") -> $(_up_short_sha "$_up_new_sha")"
 
+    local commit_count
+    commit_count="$(git -C "$PROJECT_DIR" rev-list "$_up_saved_sha".."$_up_new_sha" --count)"
+
+    [ "$_up_dry_run" = false ] && _up_record_history "success" "$commit_count"
+
     if [ "$_up_json_mode" = true ]; then
-        local commit_count
-        commit_count="$(git -C "$PROJECT_DIR" rev-list "$_up_saved_sha".."$_up_new_sha" --count)"
         printf '{"status":"updated","old_sha":"%s","new_sha":"%s","commits":%s,"mode":"%s"}\n' \
             "$_up_saved_sha" "$_up_new_sha" "$commit_count" "$_up_mode"
     fi

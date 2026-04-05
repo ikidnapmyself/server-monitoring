@@ -69,7 +69,7 @@ info "Using schedule: $CRON_SCHEDULE"
 # 2. Build cron command
 # ---------------------------------------------------------------------------
 
-CRON_CMD="cd $PROJECT_DIR && $UV_PATH run python manage.py run_pipeline --checks-only --json >> $PROJECT_DIR/cron.log 2>&1"
+CRON_CMD="cd $PROJECT_DIR && $UV_PATH run python manage.py run_pipeline --checks-only --json >> ${LOG_DIR:-$PROJECT_DIR/logs}/cron.log 2>&1"
 CRON_ID="# server-maintanence health check"
 
 # ---------------------------------------------------------------------------
@@ -96,7 +96,7 @@ success "Cron job added successfully!"
 # ---------------------------------------------------------------------------
 
 if prompt_yes_no "Enable automatic updates?"; then
-    UPDATE_CMD="cd $PROJECT_DIR && $_BIN_DIR/update.sh --rollback --auto-env >> $PROJECT_DIR/update.log 2>&1"
+    UPDATE_CMD="cd $PROJECT_DIR && $_BIN_DIR/update.sh --rollback --auto-env >> ${LOG_DIR:-$PROJECT_DIR/logs}/update.log 2>&1"
     UPDATE_ID="# server-maintanence auto-update"
 
     # Remove existing update job if present
@@ -106,7 +106,7 @@ if prompt_yes_no "Enable automatic updates?"; then
     (crontab -l 2>/dev/null || true; echo "$CRON_SCHEDULE $UPDATE_CMD $UPDATE_ID") | crontab -
 
     success "Auto-update cron job added (with --rollback enabled)"
-    info "Update log: $PROJECT_DIR/update.log"
+    info "Update log: ${LOG_DIR:-$PROJECT_DIR/logs}/update.log"
     export CRON_AUTO_UPDATE=1
 else
     export CRON_AUTO_UPDATE=0
@@ -123,7 +123,7 @@ fi
 
 if [ -n "$_hub_url" ]; then
     if prompt_yes_no "Schedule automatic push to hub?" "default_y"; then
-        PUSH_CMD="cd $PROJECT_DIR && $UV_PATH run python manage.py push_to_hub --json >> $PROJECT_DIR/push.log 2>&1"
+        PUSH_CMD="cd $PROJECT_DIR && $UV_PATH run python manage.py push_to_hub --json >> ${LOG_DIR:-$PROJECT_DIR/logs}/push.log 2>&1"
         PUSH_ID="# server-maintanence cluster push"
 
         # Remove existing push job if present
@@ -133,7 +133,7 @@ if [ -n "$_hub_url" ]; then
         (crontab -l 2>/dev/null || true; echo "$CRON_SCHEDULE $PUSH_CMD $PUSH_ID") | crontab -
 
         success "Cluster push cron job added"
-        info "Push log: $PROJECT_DIR/push.log"
+        info "Push log: ${LOG_DIR:-$PROJECT_DIR/logs}/push.log"
         export CRON_PUSH_TO_HUB=1
     else
         export CRON_PUSH_TO_HUB=0
@@ -152,15 +152,15 @@ echo -e "${GREEN}   Cron Setup Complete!${NC}"
 echo "============================================"
 echo ""
 info "Health checks will run: $CRON_SCHEDULE"
-info "Log file: $PROJECT_DIR/cron.log"
+info "Log file: ${LOG_DIR:-$PROJECT_DIR/logs}/cron.log"
 if [ -n "${_hub_url:-}" ]; then
-    info "Push log: $PROJECT_DIR/push.log"
+    info "Push log: ${LOG_DIR:-$PROJECT_DIR/logs}/push.log"
 fi
 echo ""
 echo "Useful commands:"
 echo "  - View current crontab:  crontab -l"
 echo "  - Edit crontab:          crontab -e"
-echo "  - View logs:             tail -f $PROJECT_DIR/cron.log"
+echo "  - View logs:             tail -f ${LOG_DIR:-$PROJECT_DIR/logs}/cron.log"
 echo "  - Remove cron job:       Run this script and choose to remove"
 echo ""
 

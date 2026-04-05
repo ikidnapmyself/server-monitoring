@@ -25,6 +25,7 @@ wheels/
 Thumbs.db
 
 # Logs and databases
+logs/
 *.log
 *.sqlite3
 .coverage
