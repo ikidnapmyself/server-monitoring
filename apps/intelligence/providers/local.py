@@ -294,6 +294,10 @@ class LocalRecommendationProvider(BaseProvider):
 
         Scans for large files, old logs, and directories that can be cleaned.
         """
+        path = path.strip() if path else "/"
+        if not path:
+            path = "/"
+
         recommendations = []
 
         self._progress(f"Scanning {path}...")
