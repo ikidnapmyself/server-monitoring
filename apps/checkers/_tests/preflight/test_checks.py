@@ -101,7 +101,7 @@ class CheckCrontabTests(TestCase):
 
     @patch(
         "apps.checkers.preflight.checks.subprocess.run",
-        side_effect=subprocess.TimeoutExpired(cmd="crontab", timeout=5),
+        side_effect=subprocess.TimeoutExpired(["crontab", "-l"], 5),
     )
     def test_timeout(self, _mock_run):
         self.assertFalse(_check_crontab())
@@ -906,7 +906,7 @@ class CheckDeploymentTests(TestCase):
     @patch.dict(os.environ, {"DEPLOY_METHOD": "docker"})
     @patch("apps.checkers.preflight.checks.subprocess.run")
     def test_docker_daemon_timeout(self, mock_run):
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd="docker", timeout=10)
+        mock_run.side_effect = subprocess.TimeoutExpired(["docker", "info"], 10)
         results = check_deployment(Path("/fake"))
         self.assertEqual(results[0].level, "error")
         self.assertIn("Docker daemon", results[0].message)
@@ -1008,7 +1008,7 @@ class CheckDeploymentTests(TestCase):
     @patch("apps.checkers.preflight.checks._systemd_unit_exists", return_value=True)
     @patch(
         "apps.checkers.preflight.checks.subprocess.run",
-        side_effect=subprocess.TimeoutExpired(cmd="systemctl", timeout=5),
+        side_effect=subprocess.TimeoutExpired(["systemctl"], 5),
     )
     def test_systemd_timeout(self, _mock_run, _mock_systemd):
         with patch.object(Path, "exists", return_value=False):
@@ -1054,7 +1054,7 @@ class SystemdUnitExistsTests(TestCase):
 
     @patch(
         "apps.checkers.preflight.checks.subprocess.run",
-        side_effect=subprocess.TimeoutExpired(cmd="systemctl", timeout=5),
+        side_effect=subprocess.TimeoutExpired(["systemctl"], 5),
     )
     def test_timeout(self, _mock):
         from apps.checkers.preflight.checks import _systemd_unit_exists
