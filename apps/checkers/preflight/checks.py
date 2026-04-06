@@ -694,12 +694,8 @@ def _check_systemd() -> list[CheckResult]:
 
 def check_django_system() -> list[CheckResult]:
     """Run Django's registered system checks and map results to CheckResult."""
-    from django.core.checks import (
-        ERROR as DJANGO_ERROR,
-    )
-    from django.core.checks import (
-        WARNING as DJANGO_WARNING,
-    )
+    from django.core.checks import ERROR as DJANGO_ERROR
+    from django.core.checks import WARNING as DJANGO_WARNING
 
     messages = run_checks()
     if not messages:
