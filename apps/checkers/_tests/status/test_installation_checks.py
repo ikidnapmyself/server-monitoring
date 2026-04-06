@@ -1,12 +1,18 @@
 """Tests for installation state checks."""
 
 import os
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 
-from apps.checkers.status.installation_checks import run
+from apps.checkers.status.installation_checks import (
+    _check_crontab,
+    _is_writable,
+    _path_exists,
+    run,
+)
 
 
 class InstallationChecksTests(TestCase):
@@ -110,3 +116,38 @@ class InstallationChecksTests(TestCase):
         mock_writable.return_value = True
         results = run(base_dir=Path("/fake"))
         self.assertFalse(any("database" in r.message.lower() for r in results))
+
+
+class HelperFunctionTests(TestCase):
+    """Tests for the I/O helper functions."""
+
+    def test_path_exists_true(self):
+        with tempfile.NamedTemporaryFile() as f:
+            self.assertTrue(_path_exists(Path(f.name)))
+
+    def test_path_exists_false(self):
+        self.assertFalse(_path_exists(Path("/nonexistent/path")))
+
+    def test_is_writable_true(self):
+        with tempfile.NamedTemporaryFile() as f:
+            self.assertTrue(_is_writable(Path(f.name)))
+
+    def test_is_writable_false(self):
+        self.assertFalse(_is_writable(Path("/nonexistent/path")))
+
+    @patch("apps.checkers.status.installation_checks.subprocess.run")
+    def test_check_crontab_finds_project(self, mock_run):
+        mock_run.return_value.stdout = "* * * * * cd /opt/server-maintanence && manage.py"
+        self.assertTrue(_check_crontab())
+
+    @patch("apps.checkers.status.installation_checks.subprocess.run")
+    def test_check_crontab_no_match(self, mock_run):
+        mock_run.return_value.stdout = "* * * * * some_other_cron_job"
+        self.assertFalse(_check_crontab())
+
+    @patch(
+        "apps.checkers.status.installation_checks.subprocess.run",
+        side_effect=FileNotFoundError,
+    )
+    def test_check_crontab_no_crontab_command(self, _mock_run):
+        self.assertFalse(_check_crontab())

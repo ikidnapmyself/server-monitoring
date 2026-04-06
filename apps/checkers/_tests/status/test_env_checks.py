@@ -1,11 +1,13 @@
 """Tests for env file consistency checks."""
 
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
 from django.test import TestCase
 
 from apps.checkers.status.env_checks import (
+    _read_file,
     parse_env_keys,
     parse_sample_keys,
     parse_settings_env_refs,
@@ -37,6 +39,14 @@ class ParseEnvKeysTests(TestCase):
     def test_empty_content(self):
         self.assertEqual(parse_env_keys(""), set())
 
+    def test_line_without_equals(self):
+        content = "FOO=bar\nno_equals_here\nBAZ=qux\n"
+        self.assertEqual(parse_env_keys(content), {"FOO", "BAZ"})
+
+    def test_empty_key_before_equals(self):
+        content = "=value\nFOO=bar\n"
+        self.assertEqual(parse_env_keys(content), {"FOO"})
+
 
 class ParseSampleKeysTests(TestCase):
     def test_parses_active_and_commented_keys(self):
@@ -56,6 +66,35 @@ class ParseSampleKeysTests(TestCase):
         active, commented = parse_sample_keys(content)
         self.assertEqual(active, set())
         self.assertEqual(commented, {"OPTIONAL_KEY"})
+
+    def test_blank_lines_in_sample(self):
+        content = "\nFOO=bar\n\n"
+        active, commented = parse_sample_keys(content)
+        self.assertEqual(active, {"FOO"})
+        self.assertEqual(commented, set())
+
+    def test_empty_key_in_sample(self):
+        content = "=value\nFOO=bar\n"
+        active, commented = parse_sample_keys(content)
+        self.assertEqual(active, {"FOO"})
+
+    def test_commented_lowercase_key_ignored(self):
+        content = "# some description with equals=sign\n# VALID_KEY=val\n"
+        active, commented = parse_sample_keys(content)
+        self.assertEqual(commented, {"VALID_KEY"})
+
+
+class ReadFileTests(TestCase):
+    def test_reads_existing_file(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
+            f.write("FOO=bar\n")
+            f.flush()
+            result = _read_file(Path(f.name))
+        self.assertEqual(result, "FOO=bar\n")
+
+    def test_returns_none_for_missing_file(self):
+        result = _read_file(Path("/nonexistent/path/.env"))
+        self.assertIsNone(result)
 
 
 class ParseSettingsEnvRefsTests(TestCase):
