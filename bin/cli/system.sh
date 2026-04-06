@@ -6,6 +6,7 @@ system_menu() {
     echo ""
 
     local options=(
+        "System status (config consistency)"
         "System check (full preflight)"
         "Security audit"
         "Set production mode"
@@ -16,15 +17,18 @@ system_menu() {
     select opt in "${options[@]}"; do
         case $REPLY in
             1)
-                confirm_and_run "$SCRIPT_DIR/check_system.sh"
+                confirm_and_run "uv run python manage.py system_status"
                 ;;
             2)
-                security_menu
+                confirm_and_run "$SCRIPT_DIR/check_system.sh"
                 ;;
             3)
-                confirm_and_run "$SCRIPT_DIR/set_production.sh"
+                security_menu
                 ;;
             4)
+                confirm_and_run "$SCRIPT_DIR/set_production.sh"
+                ;;
+            5)
                 return
                 ;;
             *)
