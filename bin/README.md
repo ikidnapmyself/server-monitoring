@@ -19,7 +19,6 @@ All management commands and their shell aliases (set up via `install.sh aliases`
 | `sm-test-notify` | `test_notify` | notify | Test notification delivery |
 | `sm-setup-instance` | `setup_instance` | orchestration | Interactive wizard to create pipelines and notification channels |
 | `sm-cli` | — | — | Interactive CLI menu |
-| `sm-check-security` | — | — | Security posture audit (agent/hub/standalone) |
 | `sm-update` | — | — | Auto-update from origin/main |
 
 Aliases pass all flags through. Example: `sm-check-health --json` = `uv run python manage.py check_health --json`.
