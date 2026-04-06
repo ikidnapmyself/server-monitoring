@@ -153,9 +153,11 @@ class SystemStatusCommandTests(TestCase):
         self.assertIn("old-pipe", output)
         self.assertIn("inactive", output)
 
+    @patch("apps.checkers.status.installation_checks._is_writable", return_value=True)
+    @patch("apps.checkers.status.installation_checks._path_exists", return_value=True)
     @patch("apps.checkers.status.env_checks._read_file")
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
-    def test_all_checks_passed_message(self, mock_read):
+    def test_all_checks_passed_message(self, mock_read, _mock_exists, _mock_writable):
         """When all checks return ok, non-verbose mode shows 'All checks passed'."""
 
         def side_effect(path):
@@ -209,6 +211,8 @@ class SystemStatusCommandTests(TestCase):
         # Should have warnings but no errors from cluster/runtime
         self.assertIn("warning(s)", output)
 
+    @patch("apps.checkers.status.installation_checks._is_writable", return_value=True)
+    @patch("apps.checkers.status.installation_checks._path_exists", return_value=True)
     @patch("apps.checkers.status.env_checks._read_file")
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
     @override_settings(
@@ -216,7 +220,7 @@ class SystemStatusCommandTests(TestCase):
         CLUSTER_ENABLED=False,
         WEBHOOK_SECRET_CLUSTER="",
     )
-    def test_summary_clean_no_errors_no_warnings(self, mock_read):
+    def test_summary_clean_no_errors_no_warnings(self, mock_read, _mock_exists, _mock_writable):
         """When all checks pass, summary line uses success style."""
 
         def side_effect(path):
