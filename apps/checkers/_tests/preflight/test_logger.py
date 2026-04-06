@@ -26,6 +26,7 @@ class LogResultsTests(TestCase):
             self.assertEqual(data["passed"], 1)
             self.assertEqual(data["warnings"], 1)
             self.assertEqual(data["errors"], 0)
+            self.assertEqual(data["info"], 0)
             self.assertEqual(len(data["checks"]), 2)
 
     def test_appends_multiple_runs(self):
@@ -43,6 +44,22 @@ class LogResultsTests(TestCase):
             log_path = Path(tmpdir) / "subdir" / "checks.log"
             log_results([], log_path)
             self.assertTrue(log_path.exists())
+
+    def test_info_field_counted_separately(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "checks.log"
+            checks = [
+                CheckResult(level="ok", message="ok"),
+                CheckResult(level="info", message="info msg"),
+                CheckResult(level="warn", message="warn msg"),
+                CheckResult(level="error", message="error msg"),
+            ]
+            log_results(checks, log_path)
+            data = json.loads(log_path.read_text().strip())
+            self.assertEqual(data["passed"], 1)
+            self.assertEqual(data["info"], 1)
+            self.assertEqual(data["warnings"], 1)
+            self.assertEqual(data["errors"], 1)
 
     def test_handles_write_error_gracefully(self):
         checks = [CheckResult(level="ok", message="ok")]

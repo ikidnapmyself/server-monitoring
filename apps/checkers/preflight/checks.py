@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from django.conf import settings
+from django.core.checks import run_checks
 
 from apps.checkers.preflight import CheckResult
 
@@ -440,7 +441,7 @@ def check_celery_eager() -> list[CheckResult]:
                 hint="Set CELERY_TASK_ALWAYS_EAGER=0.",
             )
         ]
-    return []
+    return [CheckResult(level="ok", message="Celery task execution mode is correct")]
 
 
 def check_metrics_config() -> list[CheckResult]:
@@ -463,7 +464,7 @@ def check_metrics_config() -> list[CheckResult]:
                 hint="Set STATSD_HOST to your StatsD server.",
             )
         ]
-    return []
+    return [CheckResult(level="ok", message=f"Metrics backend '{backend}' is configured correctly")]
 
 
 # ---------------------------------------------------------------------------
@@ -608,7 +609,7 @@ def check_deployment(base_dir: Path) -> list[CheckResult]:
     if _systemd_unit_exists():
         return _check_systemd()
 
-    return []
+    return [CheckResult(level="ok", message="No deployment checks (dev/bare)")]
 
 
 def _check_docker(base_dir: Path) -> list[CheckResult]:
@@ -687,6 +688,37 @@ def _check_systemd() -> list[CheckResult]:
 
 
 # ---------------------------------------------------------------------------
+# Django system checks
+# ---------------------------------------------------------------------------
+
+
+def check_django_system() -> list[CheckResult]:
+    """Run Django's registered system checks and map results to CheckResult."""
+    from django.core.checks import (
+        ERROR as DJANGO_ERROR,
+    )
+    from django.core.checks import (
+        WARNING as DJANGO_WARNING,
+    )
+
+    messages = run_checks()
+    if not messages:
+        return [CheckResult(level="ok", message="Django system checks passed")]
+
+    results: list[CheckResult] = []
+    for msg in messages:
+        if msg.level >= DJANGO_ERROR:
+            level = "error"
+        elif msg.level >= DJANGO_WARNING:
+            level = "warn"
+        else:
+            level = "info"
+        label = f"[{msg.id}] {msg.msg}" if msg.id else msg.msg
+        results.append(CheckResult(level=level, message=label, hint=msg.hint or ""))
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Run all checks in order
 # ---------------------------------------------------------------------------
 
@@ -718,6 +750,9 @@ def run_all(base_dir: Path) -> list[CheckResult]:
     results.extend(check_cluster_coherence())
     results.extend(check_celery_eager())
     results.extend(check_metrics_config())
+
+    # Django system checks
+    results.extend(check_django_system())
 
     # Pipeline state
     results.extend(check_pipeline_state())

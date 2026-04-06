@@ -37,18 +37,18 @@ class Command(BaseCommand):
         json_output = options["json_output"]
 
         profile = get_profile()
-        pipeline = get_pipeline_state()
         definitions = get_definitions()
 
         all_checks = run_all(base_dir=BASE_DIR)
 
         log_results(all_checks, CHECKS_LOG)
 
-        passed = sum(1 for c in all_checks if c.level == "ok")
+        passed = sum(1 for c in all_checks if c.level in {"ok", "info"})
         warnings = sum(1 for c in all_checks if c.level == "warn")
         errors = sum(1 for c in all_checks if c.level == "error")
 
         if json_output:
+            pipeline = get_pipeline_state()
             self._output_json(profile, pipeline, definitions, all_checks, passed, warnings, errors)
         else:
             self._output_human(profile, definitions, all_checks, passed, warnings, errors)

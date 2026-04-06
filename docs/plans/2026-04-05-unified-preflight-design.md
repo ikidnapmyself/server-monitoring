@@ -149,15 +149,13 @@ apps/checkers/_tests/preflight/                 # Tests mirror source
 - `apps/checkers/management/commands/check_health.py` — runtime metrics, separate concern
 - `bin/cli/health.sh` — unchanged
 
-### Shell Script Wrappers
+### Shell Script Removal
 
-`bin/check_system.sh` and `bin/check_security.sh` become thin wrappers:
+`bin/check_system.sh` and `bin/check_security.sh` have been removed. All checks are now performed
+exclusively through `manage.py preflight`. Users should run:
 
 ```bash
-#!/bin/bash
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR/.."
-uv run python manage.py preflight "$@"
+uv run python manage.py preflight
 ```
 
 ### CLI Menu Simplification

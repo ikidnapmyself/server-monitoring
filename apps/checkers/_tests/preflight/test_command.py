@@ -166,10 +166,13 @@ class PreflightCommandTests(TestCase):
     @patch("apps.checkers.preflight.checks._read_file")
     @patch("apps.checkers.preflight.checks._path_exists", return_value=True)
     @patch("apps.checkers.preflight.checks._is_writable", return_value=True)
+    @patch("apps.checkers.preflight.checks.run_checks", return_value=[])
     @patch("apps.checkers.preflight.logger.log_results")
     @override_settings(SECRET_KEY="a" * 50)
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
-    def test_clean_summary_styling(self, mock_log, mock_writable, mock_exists, mock_read):
+    def test_clean_summary_styling(
+        self, mock_log, mock_run_checks, mock_writable, mock_exists, mock_read
+    ):
         def side_effect(path):
             if path.name == ".env":
                 return "DJANGO_SECRET_KEY=test\n"

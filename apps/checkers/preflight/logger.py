@@ -17,6 +17,7 @@ def log_results(checks: list[CheckResult], log_path: Path) -> None:
         "passed": sum(1 for c in checks if c.level == "ok"),
         "warnings": sum(1 for c in checks if c.level == "warn"),
         "errors": sum(1 for c in checks if c.level == "error"),
+        "info": sum(1 for c in checks if c.level == "info"),
         "checks": [{"level": c.level, "message": c.message, "hint": c.hint} for c in checks],
     }
     try:

@@ -25,6 +25,7 @@ from apps.checkers.preflight.checks import (
     check_debug_mode,
     check_deployment,
     check_disk_space,
+    check_django_system,
     check_env_consistency,
     check_env_file_exists,
     check_env_file_permissions,
@@ -679,13 +680,15 @@ class CheckCeleryEagerTests(TestCase):
     @patch.dict(os.environ, {"DJANGO_ENV": "dev"})
     def test_eager_in_dev_ok(self):
         results = check_celery_eager()
-        self.assertEqual(results, [])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].level, "ok")
 
     @override_settings(CELERY_TASK_ALWAYS_EAGER=False)
     @patch.dict(os.environ, {"DJANGO_ENV": "prod"})
     def test_not_eager_in_prod_ok(self):
         results = check_celery_eager()
-        self.assertEqual(results, [])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].level, "ok")
 
 
 class CheckMetricsConfigTests(TestCase):
@@ -713,7 +716,8 @@ class CheckMetricsConfigTests(TestCase):
     )
     def test_default_config_ok(self):
         results = check_metrics_config()
-        self.assertEqual(results, [])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].level, "ok")
 
     @override_settings(
         ORCHESTRATION_METRICS_BACKEND="statsd",
@@ -721,7 +725,85 @@ class CheckMetricsConfigTests(TestCase):
     )
     def test_statsd_properly_configured(self):
         results = check_metrics_config()
-        self.assertEqual(results, [])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].level, "ok")
+
+
+# ---------------------------------------------------------------------------
+# Django system check tests
+# ---------------------------------------------------------------------------
+
+
+class CheckDjangoSystemTests(TestCase):
+    @patch("apps.checkers.preflight.checks.run_checks", return_value=[])
+    def test_no_issues_returns_ok(self, mock_run):
+        results = check_django_system()
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].level, "ok")
+        self.assertIn("passed", results[0].message.lower())
+
+    @patch("apps.checkers.preflight.checks.run_checks")
+    def test_warning_mapped_to_warn(self, mock_run):
+        from django.core.checks import WARNING as DJANGO_WARNING
+        from django.core.checks import CheckMessage
+
+        msg = CheckMessage(DJANGO_WARNING, "some warning", hint="fix it", id="test.W001")
+        mock_run.return_value = [msg]
+        results = check_django_system()
+        self.assertEqual(results[0].level, "warn")
+        self.assertIn("test.W001", results[0].message)
+
+    @patch("apps.checkers.preflight.checks.run_checks")
+    def test_error_mapped_to_error(self, mock_run):
+        from django.core.checks import ERROR as DJANGO_ERROR
+        from django.core.checks import CheckMessage
+
+        msg = CheckMessage(DJANGO_ERROR, "some error", hint="fix this", id="test.E001")
+        mock_run.return_value = [msg]
+        results = check_django_system()
+        self.assertEqual(results[0].level, "error")
+        self.assertIn("test.E001", results[0].message)
+
+    @patch("apps.checkers.preflight.checks.run_checks")
+    def test_info_mapped_to_info(self, mock_run):
+        from django.core.checks import INFO as DJANGO_INFO
+        from django.core.checks import CheckMessage
+
+        msg = CheckMessage(DJANGO_INFO, "some info", id="test.I001")
+        mock_run.return_value = [msg]
+        results = check_django_system()
+        self.assertEqual(results[0].level, "info")
+
+    @patch("apps.checkers.preflight.checks.run_checks")
+    def test_debug_mapped_to_info(self, mock_run):
+        from django.core.checks import DEBUG as DJANGO_DEBUG
+        from django.core.checks import CheckMessage
+
+        msg = CheckMessage(DJANGO_DEBUG, "debug msg")
+        mock_run.return_value = [msg]
+        results = check_django_system()
+        self.assertEqual(results[0].level, "info")
+
+    @patch("apps.checkers.preflight.checks.run_checks")
+    def test_message_without_id_omits_id_prefix(self, mock_run):
+        from django.core.checks import WARNING as DJANGO_WARNING
+        from django.core.checks import CheckMessage
+
+        msg = CheckMessage(DJANGO_WARNING, "plain warning")
+        mock_run.return_value = [msg]
+        results = check_django_system()
+        self.assertNotIn("[", results[0].message)
+        self.assertIn("plain warning", results[0].message)
+
+    @patch("apps.checkers.preflight.checks.run_checks")
+    def test_critical_mapped_to_error(self, mock_run):
+        from django.core.checks import CRITICAL as DJANGO_CRITICAL
+        from django.core.checks import CheckMessage
+
+        msg = CheckMessage(DJANGO_CRITICAL, "critical error", id="test.C001")
+        mock_run.return_value = [msg]
+        results = check_django_system()
+        self.assertEqual(results[0].level, "error")
 
 
 # ---------------------------------------------------------------------------
@@ -891,9 +973,11 @@ class CheckInstallationStateTests(TestCase):
 class CheckDeploymentTests(TestCase):
     @patch.dict(os.environ, {"DEPLOY_METHOD": "bare"})
     @patch("apps.checkers.preflight.checks._systemd_unit_exists", return_value=False)
-    def test_bare_no_systemd_returns_empty(self, _mock):
+    def test_bare_no_systemd_returns_ok(self, _mock):
         results = check_deployment(Path("/fake"))
-        self.assertEqual(results, [])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].level, "ok")
+        self.assertIn("dev/bare", results[0].message)
 
     @patch.dict(os.environ, {"DEPLOY_METHOD": "docker"})
     @patch("apps.checkers.preflight.checks.subprocess.run")
@@ -1086,6 +1170,10 @@ class RunAllTests(TestCase):
         "apps.checkers.preflight.checks.check_pipeline_state",
         return_value=[CheckResult(level="ok", message="pipeline ok")],
     )
+    @patch(
+        "apps.checkers.preflight.checks.check_django_system",
+        return_value=[CheckResult(level="ok", message="django ok")],
+    )
     @patch("apps.checkers.preflight.checks.check_metrics_config", return_value=[])
     @patch("apps.checkers.preflight.checks.check_celery_eager", return_value=[])
     @patch(
@@ -1158,6 +1246,10 @@ class RunAllTests(TestCase):
     @patch(
         "apps.checkers.preflight.checks.check_pipeline_state",
         return_value=[CheckResult(level="ok", message="pipeline ok")],
+    )
+    @patch(
+        "apps.checkers.preflight.checks.check_django_system",
+        return_value=[CheckResult(level="ok", message="django ok")],
     )
     @patch("apps.checkers.preflight.checks.check_metrics_config", return_value=[])
     @patch("apps.checkers.preflight.checks.check_celery_eager", return_value=[])
