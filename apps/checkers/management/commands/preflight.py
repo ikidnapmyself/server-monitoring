@@ -1,172 +1,141 @@
 """
-Management command for comprehensive system preflight checks.
+Unified preflight checks — one command, one output, everything visible.
 
 Usage:
-    python manage.py preflight                    # All checks, human output
-    python manage.py preflight --only security    # Filter by tag(s)
-    python manage.py preflight --json             # JSON output for CI
-    python manage.py preflight --verbosity 0      # Errors only
-    python manage.py preflight --verbosity 1      # Errors + warnings (default)
-    python manage.py preflight --verbosity 2      # All (errors + warnings + info)
-
-Verbosity can also be set via PREFLIGHT_VERBOSITY in .env (0, 1, or 2).
-The --verbosity flag overrides the env var.
+    python manage.py preflight          # Dashboard + all checks
+    python manage.py preflight --json   # Full JSON for CI
 """
 
 import json
-import os
-from typing import Any
+from pathlib import Path
 
-from django.core.checks import Error, Info, run_checks
-from django.core.checks import Warning as CheckWarning
+from django.conf import settings
 from django.core.management.base import BaseCommand
 
-# Tag groups in display order
-TAG_GROUPS: list[tuple[str, str]] = [
-    ("security", "Security"),
-    ("environment", "Environment"),
-    ("pipeline", "Pipeline"),
-    ("crontab", "Crontab"),
-    ("migrations", "Migrations"),
-    ("database", "Database"),
-]
+from apps.checkers.preflight.checks import run_all
+from apps.checkers.preflight.dashboard import get_definitions, get_pipeline_state, get_profile
+from apps.checkers.preflight.logger import log_results
 
-# Verbosity levels: which check severities to display
-# 0 = errors only, 1 = errors + warnings, 2 = all (errors + warnings + info)
-LEVEL_PRIORITY = {"error": 0, "warning": 1, "info": 2, "ok": 2}
+BASE_DIR = Path(settings.BASE_DIR)
+CHECKS_LOG = Path(settings.LOGS_DIR) / "checks.log"
 
 
 class Command(BaseCommand):
-    help = "Run comprehensive system preflight checks"
+    help = "Run all preflight checks and show system status"
     requires_system_checks: list[str] = []
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            "--only",
-            type=str,
-            default=None,
-            help="Comma-separated list of check groups to run (e.g., security,environment)",
-        )
         parser.add_argument(
             "--json",
             action="store_true",
             default=False,
             dest="json_output",
-            help="Output results as JSON",
+            help="Output as JSON",
         )
-        # Configure verbosity default from env var, allowing CLI --verbosity to override.
-        parser.set_defaults(verbosity=int(os.environ.get("PREFLIGHT_VERBOSITY", "1")))
 
     def handle(self, *args, **options):
-        only = options.get("only")
-        json_output = options.get("json_output", False)
+        json_output = options["json_output"]
 
-        # Determine verbosity: parser default (from env) overridden by CLI --verbosity
-        verbosity = int(options.get("verbosity", 1))
+        profile = get_profile()
+        pipeline = get_pipeline_state()
+        definitions = get_definitions()
 
-        # Determine which tag groups to run
-        if only:
-            requested = {t.strip() for t in only.split(",")}
-            groups = [(tag, label) for tag, label in TAG_GROUPS if tag in requested]
-        else:
-            groups = list(TAG_GROUPS)
+        all_checks = run_all(base_dir=BASE_DIR)
 
-        results: dict[str, dict[str, Any]] = {}
-        total_passed = 0
-        total_warnings = 0
-        total_errors = 0
+        log_results(all_checks, CHECKS_LOG)
 
-        for tag, label in groups:
-            checks = run_checks(tags=[tag])
-            group_errors = sum(1 for c in checks if isinstance(c, Error))
-            group_warnings = sum(1 for c in checks if isinstance(c, CheckWarning))
-
-            results[tag] = {
-                "label": label,
-                "checks": [
-                    {
-                        "level": _level(c),
-                        "message": c.msg,
-                        "hint": c.hint or "",
-                        "id": c.id,
-                    }
-                    for c in checks
-                ],
-                "errors": group_errors,
-                "warnings": group_warnings,
-            }
-
-            total_errors += group_errors
-            total_warnings += group_warnings
-            total_passed += len(checks) - group_errors - group_warnings
+        passed = sum(1 for c in all_checks if c.level == "ok")
+        warnings = sum(1 for c in all_checks if c.level == "warn")
+        errors = sum(1 for c in all_checks if c.level == "error")
 
         if json_output:
-            self.stdout.write(
-                json.dumps(
-                    {
-                        "groups": results,
-                        "summary": {
-                            "passed": total_passed,
-                            "warnings": total_warnings,
-                            "errors": total_errors,
-                        },
-                    },
-                    indent=2,
-                )
-            )
+            self._output_json(profile, pipeline, definitions, all_checks, passed, warnings, errors)
         else:
-            self._display_human(results, total_passed, total_warnings, total_errors, verbosity)
+            self._output_human(profile, definitions, all_checks, passed, warnings, errors)
 
-    def _display_human(
-        self,
-        results: dict[str, dict[str, Any]],
-        passed: int,
-        warnings: int,
-        errors: int,
-        verbosity: int = 1,
-    ) -> None:
-        self.stdout.write(self.style.MIGRATE_HEADING("=== Preflight Check ===\n"))
+    def _output_json(self, profile, pipeline, definitions, checks, passed, warnings, errors):
+        data = {
+            "profile": profile,
+            "pipeline": pipeline,
+            "definitions": definitions,
+            "checks": [{"level": c.level, "message": c.message, "hint": c.hint} for c in checks],
+            "summary": {"passed": passed, "warnings": warnings, "errors": errors},
+        }
+        self.stdout.write(json.dumps(data, indent=2, default=str))
 
-        for tag, group in results.items():
-            visible = [c for c in group["checks"] if LEVEL_PRIORITY.get(c["level"], 2) <= verbosity]
-            if not visible and not group["checks"]:
-                self.stdout.write(self.style.MIGRATE_LABEL(group["label"]))
-                self.stdout.write("  (no checks registered)")
-                self.stdout.write("")
-                continue
-            if not visible:
-                continue
+    def _output_human(self, profile, definitions, checks, passed, warnings, errors):
+        self._render_dashboard(profile, definitions)
+        self._render_checks(checks)
+        self._render_summary(passed, warnings, errors)
 
-            self.stdout.write(self.style.MIGRATE_LABEL(group["label"]))
-            for check in visible:
-                level = check["level"]
-                msg = check["message"]
-                if level == "error":
-                    self.stdout.write(self.style.ERROR(f"  ERR  {msg}"))
-                elif level == "warning":
-                    self.stdout.write(self.style.WARNING(f"  WARN {msg}"))
-                elif level == "info":
-                    self.stdout.write(f"  \033[34mINFO\033[0m {msg}")
-                else:
-                    self.stdout.write(self.style.SUCCESS(f"  OK   {msg}"))
-                if check["hint"]:
-                    self.stdout.write(f"         {check['hint']}")
+    def _render_dashboard(self, profile, definitions):
+        self.stdout.write(
+            self.style.MIGRATE_HEADING("\n═══ System ══════════════════════════════════\n")
+        )
+
+        role_str = profile["role"]
+        if role_str == "agent":
+            role_str = f"agent → hub at {profile['hub_url']}"
+        elif role_str == "hub":
+            role_str = "hub (accepting cluster payloads)"
+        elif role_str == "conflict":
+            role_str = "CONFLICT (both agent and hub)"
+
+        debug_str = "on" if profile["debug"] else "off"
+        eager_str = "eager" if profile["celery_eager"] else "async"
+
+        lines = [
+            ("Role:", role_str),
+            ("Environment:", f"{profile['environment']} (DEBUG={debug_str})"),
+            ("Deploy:", profile["deploy_method"]),
+            ("Database:", profile["database"]),
+            ("Celery:", f"{profile['celery_broker']} ({eager_str})"),
+            ("Metrics:", profile["metrics_backend"]),
+            ("Logging:", profile["logs_dir"]),
+        ]
+        if profile["instance_id"]:
+            lines.append(("Instance ID:", profile["instance_id"]))
+
+        for label, value in lines:
+            self.stdout.write(f"  {label:<14} {value}")
+
+        if definitions:
             self.stdout.write("")
+            for defn in definitions:
+                status = "active" if defn["active"] else "inactive"
+                name_line = f"  {defn['name']} ({status})"
+                if defn["active"]:
+                    self.stdout.write(self.style.SUCCESS(name_line))
+                else:
+                    self.stdout.write(f"\033[2m{name_line}\033[0m")
+                self.stdout.write(f"    {defn['chain']}")
 
-        summary = f"Summary: {passed} passed, {warnings} warning(s), {errors} error(s)"
+        self.stdout.write("")
+
+    def _render_checks(self, checks):
+        self.stdout.write(
+            self.style.MIGRATE_HEADING("═══ Checks ══════════════════════════════════\n")
+        )
+
+        for check in checks:
+            if check.level == "error":
+                self.stdout.write(self.style.ERROR(f"  ERR  {check.message}"))
+            elif check.level == "warn":
+                self.stdout.write(self.style.WARNING(f"  WARN {check.message}"))
+            elif check.level == "info":
+                self.stdout.write(f"  \033[34mINFO\033[0m {check.message}")
+            else:
+                self.stdout.write(self.style.SUCCESS(f"  OK   {check.message}"))
+            if check.hint:
+                self.stdout.write(f"         {check.hint}")
+        self.stdout.write("")
+
+    def _render_summary(self, passed, warnings, errors):
+        total = passed + warnings + errors
+        summary = f"  {total} checks: {passed} passed, {warnings} warning(s), {errors} error(s)"
         if errors > 0:
             self.stdout.write(self.style.ERROR(summary))
         elif warnings > 0:
             self.stdout.write(self.style.WARNING(summary))
         else:
             self.stdout.write(self.style.SUCCESS(summary))
-
-
-def _level(check) -> str:
-    if isinstance(check, Error):
-        return "error"
-    if isinstance(check, CheckWarning):
-        return "warning"
-    if isinstance(check, Info):
-        return "info"
-    return "ok"
