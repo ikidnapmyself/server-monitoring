@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 
-from apps.checkers.status.dashboard import (
+from apps.checkers.preflight.dashboard import (
     get_definitions,
     get_pipeline_state,
     get_profile,

@@ -106,7 +106,6 @@ for change in "${CHANGES[@]}"; do
 done
 echo ""
 info "Next steps:"
-echo "  - Run health check:  uv run python manage.py check_health"
-echo "  - Run system check:  bin/check_system.sh"
+echo "  - Run preflight:     uv run python manage.py preflight"
 echo "  - Deploy systemd:    sudo bin/install.sh deploy"
 echo ""

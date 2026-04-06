@@ -2,7 +2,7 @@
 
 from django.test import TestCase
 
-from apps.checkers.status import CheckResult
+from apps.checkers.preflight import CheckResult
 
 
 class CheckResultTests(TestCase):
@@ -11,18 +11,10 @@ class CheckResultTests(TestCase):
         self.assertEqual(r.level, "warn")
         self.assertEqual(r.message, "something")
         self.assertEqual(r.hint, "")
-        self.assertEqual(r.category, "")
 
     def test_all_fields(self):
-        r = CheckResult(
-            level="error",
-            message="bad config",
-            hint="fix it",
-            category="cluster",
-        )
-        self.assertEqual(r.level, "error")
+        r = CheckResult(level="error", message="bad", hint="fix it")
         self.assertEqual(r.hint, "fix it")
-        self.assertEqual(r.category, "cluster")
 
     def test_valid_levels(self):
         for level in ("ok", "info", "warn", "error"):

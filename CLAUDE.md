@@ -58,9 +58,8 @@ uv run python manage.py check_health --list
 uv run python manage.py run_check cpu      # Single checker
 
 # System preflight
-uv run python manage.py preflight          # All system checks, grouped output
+uv run python manage.py preflight          # Dashboard + all checks
 uv run python manage.py preflight --json   # JSON output for CI
-bin/check_system.sh                        # Full system check (shell + Django)
 
 # Pipeline testing
 uv run python manage.py run_pipeline --sample
