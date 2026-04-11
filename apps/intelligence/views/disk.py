@@ -6,6 +6,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from apps.intelligence.providers import get_provider
 from apps.intelligence.views._mixins import JSONResponseMixin
+from config.security import PathNotAllowedError, resolve_safe_path
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -22,7 +23,10 @@ class DiskAnalysisView(JSONResponseMixin, View):
 
     def get(self, request):
         """Get disk analysis and recommendations."""
-        path = request.GET.get("path", "/")
+        try:
+            path = resolve_safe_path(request.GET.get("path", "/"))
+        except PathNotAllowedError as e:
+            return self.error_response(str(e), status=400)
         threshold_mb = float(request.GET.get("threshold_mb", 100))
         old_days = int(request.GET.get("old_days", 30))
 

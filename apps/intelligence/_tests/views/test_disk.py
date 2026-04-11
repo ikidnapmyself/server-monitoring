@@ -1,8 +1,8 @@
 """Tests for the disk analysis view."""
 
+from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 from django.test import Client, SimpleTestCase
 
 from apps.intelligence.providers.base import (
@@ -12,7 +12,6 @@ from apps.intelligence.providers.base import (
 )
 
 
-@pytest.mark.django_db
 class TestDiskAnalysisView(SimpleTestCase):
     """Tests for GET /intelligence/disk/."""
 
@@ -66,7 +65,41 @@ class TestDiskAnalysisView(SimpleTestCase):
         response = client.get("/intelligence/disk/?path=/var/log")
 
         assert response.status_code == 200
-        mock_provider.run.assert_called_once_with(analysis_type="disk", path="/var/log")
+        mock_provider.run.assert_called_once_with(
+            analysis_type="disk", path=str(Path("/var/log").resolve())
+        )
+
+    def test_get_disk_analysis_path_traversal_rejected(self):
+        """GET with path traversal attempt returns 400."""
+        client = Client()
+        response = client.get("/intelligence/disk/?path=/../../../etc/shadow")
+
+        assert response.status_code == 400
+        data = response.json()
+        assert "not allowed" in data["error"].lower()
+
+    def test_get_disk_analysis_disallowed_path_rejected(self):
+        """GET with path outside allowed roots returns 400."""
+        client = Client()
+        response = client.get("/intelligence/disk/?path=/root/.ssh")
+
+        assert response.status_code == 400
+        data = response.json()
+        assert "not allowed" in data["error"].lower()
+
+    @patch("apps.intelligence.views.disk.get_provider")
+    def test_get_disk_analysis_allowed_root_accepted(self, mock_get_provider):
+        """GET with exact allowed root path succeeds."""
+        mock_provider = mock_get_provider.return_value
+        mock_provider.run.return_value = []
+
+        client = Client()
+        response = client.get("/intelligence/disk/?path=/tmp")
+
+        assert response.status_code == 200
+        mock_provider.run.assert_called_once_with(
+            analysis_type="disk", path=str(Path("/tmp").resolve())
+        )
 
     @patch("apps.intelligence.views.disk.get_provider")
     def test_get_disk_analysis_provider_error(self, mock_get_provider):
