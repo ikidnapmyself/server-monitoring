@@ -58,7 +58,7 @@ def _load_template_from_file(name: str) -> str | None:
     try:
         name = resolve_safe_name(name)
     except PathNotAllowedError:
-        return None
+        raise ValueError("Invalid template filename") from None
     path = TEMPLATES_DIR / name
     if path.exists() and path.is_file():
         return path.read_text(encoding="utf-8")
@@ -99,8 +99,13 @@ def render_template(spec: Any, context: dict[str, Any]) -> str | None:
             # or "slack_text") and a file exists in TEMPLATES_DIR, treat it as a file
             # reference so DB-stored template names work without requiring the "file:" prefix.
             maybe = spec
-            # try exact match and with .j2
-            if _load_template_from_file(maybe) is not None:
+            # try exact match and with .j2; if the name is invalid (e.g. inline HTML
+            # containing slashes) treat it as an inline template — no filesystem access.
+            try:
+                loaded = _load_template_from_file(maybe)
+            except ValueError:
+                loaded = None
+            if loaded is not None:
                 template_name = maybe
             else:
                 template_str = spec

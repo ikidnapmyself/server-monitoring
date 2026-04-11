@@ -529,6 +529,17 @@ class TestRenderTemplateFunction(SimpleTestCase):
         with pytest.raises(ValueError, match="Template file not found"):
             render_template(spec, {})
 
+    def test_dict_spec_file_traversal_rejected(self):
+        """Traversal names via dict spec raise ValueError, not a file-not-found error."""
+        spec = {"type": "file", "template": "../../../etc/passwd"}
+        with pytest.raises(ValueError, match="Invalid template filename"):
+            render_template(spec, {})
+
+    def test_file_prefix_traversal_rejected(self):
+        """Traversal names via 'file:' string spec raise ValueError."""
+        with pytest.raises(ValueError, match="Invalid template filename"):
+            render_template("file:../../../etc/passwd", {})
+
     def test_string_auto_detects_existing_file(self):
         result = render_template(
             "email_text.j2",

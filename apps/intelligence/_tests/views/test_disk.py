@@ -76,7 +76,7 @@ class TestDiskAnalysisView(SimpleTestCase):
 
         assert response.status_code == 400
         data = response.json()
-        assert "not allowed" in data["error"].lower()
+        assert data["error"].lower() == "invalid path"
 
     def test_get_disk_analysis_disallowed_path_rejected(self):
         """GET with path outside allowed roots returns 400."""
@@ -85,7 +85,7 @@ class TestDiskAnalysisView(SimpleTestCase):
 
         assert response.status_code == 400
         data = response.json()
-        assert "not allowed" in data["error"].lower()
+        assert data["error"].lower() == "invalid path"
 
     @patch("apps.intelligence.views.disk.get_provider")
     def test_get_disk_analysis_allowed_root_accepted(self, mock_get_provider):

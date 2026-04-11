@@ -14,12 +14,24 @@ def resolve_safe_path(
     allowed_roots: tuple[str, ...] = ALLOWED_FILESYSTEM_ROOTS,
 ) -> str:
     """Resolve to absolute and validate against allowlist. Raises PathNotAllowedError."""
-    resolved = str(Path(user_input).resolve())
-    if any(resolved == root or resolved.startswith(root + "/") for root in allowed_roots):
-        return resolved
+    path = Path(user_input)
+    if not path.is_absolute():
+        raise PathNotAllowedError(
+            f"Path not allowed: {user_input!r}. Must be an absolute path under one of: "
+            f"{', '.join(allowed_roots)}"
+        )
+    resolved_path = path.resolve()
+    normalized_roots = tuple(Path(root).resolve() for root in allowed_roots)
+
+    if any(
+        resolved_path == root or resolved_path.is_relative_to(root) for root in normalized_roots
+    ):
+        return str(resolved_path)
+
+    resolved = str(resolved_path)
     raise PathNotAllowedError(
         f"Path not allowed: {user_input!r} (resolved to {resolved!r}). "
-        f"Must be under one of: {', '.join(allowed_roots)}"
+        f"Must be under one of: {', '.join(str(root) for root in normalized_roots)}"
     )
 
 
