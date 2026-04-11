@@ -58,7 +58,7 @@ def _load_template_from_file(name: str) -> str | None:
     try:
         name = resolve_safe_name(name)
     except PathNotAllowedError:
-        raise ValueError("Invalid template filename") from None
+        raise ValueError("Invalid template filename: contains invalid path components") from None
     path = TEMPLATES_DIR / name
     if path.exists() and path.is_file():
         return path.read_text(encoding="utf-8")
