@@ -395,6 +395,15 @@ class CheckHealthCommandTests(TestCase):
         output = out.getvalue()
         self.assertIn("OK", output)
 
+    def test_disk_paths_rejected_outside_allowed_roots(self):
+        """PathNotAllowedError is caught and re-raised as CommandError."""
+        mock_checker = self._make_checker(checker_name="disk")
+        with patch.dict(self.REGISTRY_PATH, {"disk": mock_checker}, clear=True):
+            with self.assertRaises(CommandError):
+                call_command(
+                    "check_health", "disk", "--disk-paths", "/root/.ssh", stdout=StringIO()
+                )
+
     def test_metrics_platform_skipped(self):
         """The 'platform' key should be skipped in metrics output."""
         mock_checker = self._make_checker(metrics={"platform": "linux", "usage": 42})
@@ -633,5 +642,12 @@ class RunCheckCommandTests(TestCase):
         output = out.getvalue()
         self.assertIn("hosts:", output)
         self.assertIn("8.8.8.8: {'latency': 5}", output)
+
+    def test_disk_paths_rejected_outside_allowed_roots(self):
+        """PathNotAllowedError is caught and re-raised as CommandError."""
+        mock_checker = self._make_checker(checker_name="disk")
+        with patch.dict(self.REGISTRY_PATH, {"disk": mock_checker}, clear=True):
+            with self.assertRaises(CommandError):
+                call_command("run_check", "disk", "--paths", "/root/.ssh", stdout=StringIO())
 
     # Preflight command tests moved to apps/checkers/_tests/preflight/test_command.py

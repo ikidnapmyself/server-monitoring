@@ -6,6 +6,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import SimpleTestCase, TestCase
 
 from apps.intelligence.providers import (
@@ -609,3 +610,29 @@ class TestProgressCallback(SimpleTestCase):
 
         out = StringIO()
         call_command("get_recommendations", "--memory", stdout=out)
+
+
+class TestPathTraversalProtection(SimpleTestCase):
+    """Tests for PathNotAllowedError handling in disk/all paths."""
+
+    def test_disk_path_rejected_outside_allowed_roots(self):
+        """--disk --path with disallowed path raises CommandError."""
+        with self.assertRaises(CommandError):
+            call_command(
+                "get_recommendations",
+                "--disk",
+                "--path=/root/.ssh",
+                "--provider=local",
+                stdout=StringIO(),
+            )
+
+    def test_all_path_rejected_outside_allowed_roots(self):
+        """--all --path with disallowed path raises CommandError."""
+        with self.assertRaises(CommandError):
+            call_command(
+                "get_recommendations",
+                "--all",
+                "--path=/root/.ssh",
+                "--provider=local",
+                stdout=StringIO(),
+            )

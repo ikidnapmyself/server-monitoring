@@ -494,6 +494,25 @@ class TestScanLargeFiles(SimpleTestCase):
     @patch("apps.intelligence.providers.local.os.path.isdir")
     @patch("apps.intelligence.providers.local.os.stat")
     @patch("apps.intelligence.providers.local.subprocess.run")
+    def test_scan_root_path_skips_resolve(self, mock_run, mock_stat, mock_isdir):
+        """Passing '/' skips resolve_safe_path (the if root_path != '/' branch)."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="204800\t/bigfile.log\n",
+        )
+        mock_stat.return_value = MagicMock(
+            st_mtime=(datetime.now() - timedelta(days=5)).timestamp()
+        )
+        mock_isdir.return_value = False
+
+        provider = LocalRecommendationProvider()
+        result = provider._scan_large_files("/")
+
+        assert len(result) == 1
+
+    @patch("apps.intelligence.providers.local.os.path.isdir")
+    @patch("apps.intelligence.providers.local.os.stat")
+    @patch("apps.intelligence.providers.local.subprocess.run")
     def test_du_command_success(self, mock_run, mock_stat, mock_isdir):
         """du command succeeds and returns large files."""
         mock_run.return_value = MagicMock(
