@@ -23,10 +23,14 @@ class DiskAnalysisView(JSONResponseMixin, View):
 
     def get(self, request):
         """Get disk analysis and recommendations."""
-        try:
-            path = resolve_safe_path(request.GET.get("path", "/"))
-        except PathNotAllowedError as e:
-            return self.error_response(str(e), status=400)
+        raw_path = request.GET.get("path", "/")
+        if raw_path == "/":
+            path = "/"
+        else:
+            try:
+                path = resolve_safe_path(raw_path)
+            except PathNotAllowedError as e:
+                return self.error_response(str(e), status=400)
         threshold_mb = float(request.GET.get("threshold_mb", 100))
         old_days = int(request.GET.get("old_days", 30))
 

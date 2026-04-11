@@ -70,7 +70,7 @@ class TestDiskAnalysisView(SimpleTestCase):
         )
 
     def test_get_disk_analysis_path_traversal_rejected(self):
-        """GET with path traversal attempt returns 400."""
+        """GET with path resolving outside allowed roots returns 400."""
         client = Client()
         response = client.get("/intelligence/disk/?path=/../../../etc/shadow")
 

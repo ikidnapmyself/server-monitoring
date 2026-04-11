@@ -1,7 +1,7 @@
 from pathlib import Path
 
 ALLOWED_FILESYSTEM_ROOTS = tuple(
-    str(Path(p).resolve()) for p in ("/", "/var", "/tmp", "/home", "/opt", "/srv", "/usr")
+    str(Path(p).resolve()) for p in ("/var", "/tmp", "/home", "/opt", "/srv", "/usr")
 )
 
 
@@ -15,9 +15,7 @@ def resolve_safe_path(
 ) -> str:
     """Resolve to absolute and validate against allowlist. Raises PathNotAllowedError."""
     resolved = str(Path(user_input).resolve())
-    if any(
-        resolved == root or root == "/" or resolved.startswith(root + "/") for root in allowed_roots
-    ):
+    if any(resolved == root or resolved.startswith(root + "/") for root in allowed_roots):
         return resolved
     raise PathNotAllowedError(
         f"Path not allowed: {user_input!r} (resolved to {resolved!r}). "

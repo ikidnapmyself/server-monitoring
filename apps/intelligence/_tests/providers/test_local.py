@@ -587,7 +587,7 @@ class TestScanLargeFiles(SimpleTestCase):
             return_value=mock_scan_path,
         ):
             provider = LocalRecommendationProvider()
-            result = provider._scan_large_files("/some/path")
+            result = provider._scan_large_files("/var/test")
 
         assert len(result) == 1
         assert result[0].path == "/fallback/bigfile"
@@ -609,7 +609,7 @@ class TestScanLargeFiles(SimpleTestCase):
             return_value=mock_scan_path,
         ):
             provider = LocalRecommendationProvider()
-            result = provider._scan_large_files("/some/path")
+            result = provider._scan_large_files("/var/test")
 
         assert result == []
 
@@ -626,7 +626,7 @@ class TestScanLargeFiles(SimpleTestCase):
             return_value=mock_scan_path,
         ):
             provider = LocalRecommendationProvider()
-            result = provider._scan_large_files("/nonexistent")
+            result = provider._scan_large_files("/var/nonexistent")
 
         assert result == []
 
@@ -686,7 +686,7 @@ class TestScanLargeFiles(SimpleTestCase):
             return_value=mock_scan_path,
         ):
             provider = LocalRecommendationProvider()
-            result = provider._scan_large_files("/some/path")
+            result = provider._scan_large_files("/var/test")
 
         assert result == []
 
@@ -716,7 +716,7 @@ class TestScanLargeFiles(SimpleTestCase):
             provider = LocalRecommendationProvider(
                 progress_callback=lambda m: progress_messages.append(m),
             )
-            result = provider._scan_large_files("/some/path")
+            result = provider._scan_large_files("/var/test")
 
         assert len(result) == 1
         assert any("days old" in m for m in progress_messages)
@@ -734,7 +734,7 @@ class TestScanLargeFiles(SimpleTestCase):
             return_value=mock_scan_path,
         ):
             provider = LocalRecommendationProvider()
-            result = provider._scan_large_files("/some/path")
+            result = provider._scan_large_files("/var/test")
 
         assert result == []
 
@@ -767,7 +767,7 @@ class TestScanLargeFiles(SimpleTestCase):
             provider = LocalRecommendationProvider(
                 progress_callback=lambda m: progress_messages.append(m),
             )
-            result = provider._scan_large_files("/some/path")
+            result = provider._scan_large_files("/var/test")
 
         assert any("Scanning... 100 files" in m for m in progress_messages)
         assert result == []
@@ -782,7 +782,7 @@ class TestScanLargeFiles(SimpleTestCase):
             side_effect=RuntimeError("unexpected"),
         ):
             provider = LocalRecommendationProvider()
-            result = provider._scan_large_files("/some/path")
+            result = provider._scan_large_files("/var/test")
 
         assert result == []
 

@@ -15,17 +15,20 @@ class TestResolveSafePath:
         result = resolve_safe_path("/var/log", ALLOWED_FILESYSTEM_ROOTS)
         assert result == str(Path("/var/log").resolve())
 
-    def test_root_path_allowed(self):
-        result = resolve_safe_path("/", ALLOWED_FILESYSTEM_ROOTS)
-        assert result == str(Path("/").resolve())
+    def test_root_path_rejected_by_default(self):
+        """/ is not in the default allowlist — callers must handle it explicitly."""
+        with pytest.raises(PathNotAllowedError):
+            resolve_safe_path("/")
 
     def test_traversal_rejected(self):
+        """Traversal resolves to /etc/shadow which is not under any allowed root."""
         with pytest.raises(PathNotAllowedError, match="not allowed"):
-            resolve_safe_path("/../../../etc/shadow", ALLOWED_FILESYSTEM_ROOTS)
+            resolve_safe_path("/../../../etc/shadow")
 
     def test_disallowed_path_rejected(self):
+        """/root/.ssh is not under any allowed root."""
         with pytest.raises(PathNotAllowedError, match="not allowed"):
-            resolve_safe_path("/root/.ssh", ALLOWED_FILESYSTEM_ROOTS)
+            resolve_safe_path("/root/.ssh")
 
     def test_relative_path_rejected(self):
         with pytest.raises(PathNotAllowedError, match="not allowed"):
