@@ -494,6 +494,25 @@ class TestScanLargeFiles(SimpleTestCase):
     @patch("apps.intelligence.providers.local.os.path.isdir")
     @patch("apps.intelligence.providers.local.os.stat")
     @patch("apps.intelligence.providers.local.subprocess.run")
+    def test_scan_root_path_skips_resolve(self, mock_run, mock_stat, mock_isdir):
+        """Passing '/' skips resolve_safe_path (the if root_path != '/' branch)."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="204800\t/bigfile.log\n",
+        )
+        mock_stat.return_value = MagicMock(
+            st_mtime=(datetime.now() - timedelta(days=5)).timestamp()
+        )
+        mock_isdir.return_value = False
+
+        provider = LocalRecommendationProvider()
+        result = provider._scan_large_files("/")
+
+        assert len(result) == 1
+
+    @patch("apps.intelligence.providers.local.os.path.isdir")
+    @patch("apps.intelligence.providers.local.os.stat")
+    @patch("apps.intelligence.providers.local.subprocess.run")
     def test_du_command_success(self, mock_run, mock_stat, mock_isdir):
         """du command succeeds and returns large files."""
         mock_run.return_value = MagicMock(
@@ -587,7 +606,7 @@ class TestScanLargeFiles(SimpleTestCase):
             return_value=mock_scan_path,
         ):
             provider = LocalRecommendationProvider()
-            result = provider._scan_large_files("/some/path")
+            result = provider._scan_large_files("/var/test")
 
         assert len(result) == 1
         assert result[0].path == "/fallback/bigfile"
@@ -609,7 +628,7 @@ class TestScanLargeFiles(SimpleTestCase):
             return_value=mock_scan_path,
         ):
             provider = LocalRecommendationProvider()
-            result = provider._scan_large_files("/some/path")
+            result = provider._scan_large_files("/var/test")
 
         assert result == []
 
@@ -626,7 +645,7 @@ class TestScanLargeFiles(SimpleTestCase):
             return_value=mock_scan_path,
         ):
             provider = LocalRecommendationProvider()
-            result = provider._scan_large_files("/nonexistent")
+            result = provider._scan_large_files("/var/nonexistent")
 
         assert result == []
 
@@ -686,7 +705,7 @@ class TestScanLargeFiles(SimpleTestCase):
             return_value=mock_scan_path,
         ):
             provider = LocalRecommendationProvider()
-            result = provider._scan_large_files("/some/path")
+            result = provider._scan_large_files("/var/test")
 
         assert result == []
 
@@ -716,7 +735,7 @@ class TestScanLargeFiles(SimpleTestCase):
             provider = LocalRecommendationProvider(
                 progress_callback=lambda m: progress_messages.append(m),
             )
-            result = provider._scan_large_files("/some/path")
+            result = provider._scan_large_files("/var/test")
 
         assert len(result) == 1
         assert any("days old" in m for m in progress_messages)
@@ -734,7 +753,7 @@ class TestScanLargeFiles(SimpleTestCase):
             return_value=mock_scan_path,
         ):
             provider = LocalRecommendationProvider()
-            result = provider._scan_large_files("/some/path")
+            result = provider._scan_large_files("/var/test")
 
         assert result == []
 
@@ -767,7 +786,7 @@ class TestScanLargeFiles(SimpleTestCase):
             provider = LocalRecommendationProvider(
                 progress_callback=lambda m: progress_messages.append(m),
             )
-            result = provider._scan_large_files("/some/path")
+            result = provider._scan_large_files("/var/test")
 
         assert any("Scanning... 100 files" in m for m in progress_messages)
         assert result == []
@@ -782,7 +801,7 @@ class TestScanLargeFiles(SimpleTestCase):
             side_effect=RuntimeError("unexpected"),
         ):
             provider = LocalRecommendationProvider()
-            result = provider._scan_large_files("/some/path")
+            result = provider._scan_large_files("/var/test")
 
         assert result == []
 

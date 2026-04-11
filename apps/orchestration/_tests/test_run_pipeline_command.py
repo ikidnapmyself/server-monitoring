@@ -162,7 +162,7 @@ class RunPipelineCommandTest(TestCase):
     def test_run_pipeline_config_file_not_found(self):
         out = io.StringIO()
         with self.assertRaises(CommandError) as ctx:
-            call_command("run_pipeline", "--config", "missing.json", stdout=out)
+            call_command("run_pipeline", "--config", "/tmp/missing.json", stdout=out)
         self.assertIn("Config file not found", str(ctx.exception))
 
     def test_run_pipeline_definition_and_config_mutually_exclusive(self):
@@ -1415,3 +1415,32 @@ class TestSamplePipelineDefinitions(TestCase):
         # Verify ingest has source_hint
         ingest_node = definition.get_nodes()[0]
         assert ingest_node["config"].get("source_hint") == "pagerduty"
+
+
+class RunPipelinePathTraversalTest(TestCase):
+    """Tests for PathNotAllowedError handling in run_pipeline."""
+
+    def test_file_path_rejected_outside_allowed_roots(self):
+        """--file with disallowed path raises CommandError."""
+        with self.assertRaises(CommandError):
+            call_command("run_pipeline", "--file=/root/.ssh/id_rsa", stdout=io.StringIO())
+
+    def test_file_not_found_raises_command_error(self):
+        """--file with a valid but nonexistent path raises CommandError."""
+        with self.assertRaises(CommandError) as ctx:
+            call_command(
+                "run_pipeline",
+                "--file=/tmp/nonexistent_pipeline_payload.json",
+                stdout=io.StringIO(),
+            )
+        self.assertIn("File not found", str(ctx.exception))
+
+    def test_config_path_rejected_outside_allowed_roots(self):
+        """--config with disallowed path raises CommandError."""
+        with self.assertRaises(CommandError):
+            call_command(
+                "run_pipeline",
+                "--sample",
+                "--config=/root/.ssh/config",
+                stdout=io.StringIO(),
+            )

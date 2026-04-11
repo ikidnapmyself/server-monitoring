@@ -40,6 +40,7 @@ from django.core.management.base import BaseCommand, CommandError
 from apps.orchestration.definition_orchestrator import DefinitionBasedOrchestrator
 from apps.orchestration.models import PipelineDefinition
 from apps.orchestration.orchestrator import PipelineOrchestrator
+from config.security import PathNotAllowedError, resolve_safe_path
 
 
 class Command(BaseCommand):
@@ -221,7 +222,11 @@ class Command(BaseCommand):
                 raise CommandError(f"Invalid JSON payload: {e}")
         elif options["file"]:
             try:
-                with open(options["file"]) as f:
+                file_path = resolve_safe_path(options["file"])
+            except PathNotAllowedError as e:
+                raise CommandError(str(e))
+            try:
+                with open(file_path) as f:
                     inner_payload = json.load(f)
             except FileNotFoundError:
                 raise CommandError(f"File not found: {options['file']}")
@@ -358,7 +363,10 @@ class Command(BaseCommand):
                 raise CommandError(f"Pipeline definition not found: {name}")
 
         if options.get("config"):
-            config_path = options["config"]
+            try:
+                config_path = resolve_safe_path(options["config"])
+            except PathNotAllowedError as e:
+                raise CommandError(str(e))
             try:
                 with open(config_path) as f:
                     config = json.load(f)
