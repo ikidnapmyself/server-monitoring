@@ -29,6 +29,8 @@ logs/
 *.log
 *.sqlite3
 .coverage
+coverage.json
+.secrets-results.json
 
 # Testing and linting caches
 .mypy_cache/
