@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING, Any
 
 import psutil
 
+from config.security import PathNotAllowedError, resolve_safe_name
+
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,10 @@ class _SafeDict(dict):
 
 
 def _load_template_from_file(name: str) -> str | None:
+    try:
+        name = resolve_safe_name(name)
+    except PathNotAllowedError:
+        return None
     path = TEMPLATES_DIR / name
     if path.exists() and path.is_file():
         return path.read_text(encoding="utf-8")
