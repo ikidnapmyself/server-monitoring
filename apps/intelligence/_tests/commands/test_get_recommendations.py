@@ -207,7 +207,10 @@ class TestRecommendationTypes(SimpleTestCase):
             stdout=out,
         )
 
-        mock_provider.run.assert_called_once_with(analysis_type="disk", path="/var/log")
+        from pathlib import Path
+
+        resolved = str(Path("/var/log").resolve())
+        mock_provider.run.assert_called_once_with(analysis_type="disk", path=resolved)
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
     def test_disk_default_path_is_root(self, mock_get_provider):
@@ -242,8 +245,11 @@ class TestRecommendationTypes(SimpleTestCase):
             stdout=out,
         )
 
+        from pathlib import Path
+
+        resolved_tmp = str(Path("/tmp").resolve())
         mock_provider.run.assert_any_call(analysis_type="memory")
-        mock_provider.run.assert_any_call(analysis_type="disk", path="/tmp")
+        mock_provider.run.assert_any_call(analysis_type="disk", path=resolved_tmp)
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
     def test_all_recommendations(self, mock_get_provider):

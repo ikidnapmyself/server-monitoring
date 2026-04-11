@@ -162,7 +162,7 @@ class RunPipelineCommandTest(TestCase):
     def test_run_pipeline_config_file_not_found(self):
         out = io.StringIO()
         with self.assertRaises(CommandError) as ctx:
-            call_command("run_pipeline", "--config", "missing.json", stdout=out)
+            call_command("run_pipeline", "--config", "/tmp/missing.json", stdout=out)
         self.assertIn("Config file not found", str(ctx.exception))
 
     def test_run_pipeline_definition_and_config_mutually_exclusive(self):

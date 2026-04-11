@@ -14,6 +14,7 @@ import json
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.checkers.checkers import CHECKER_REGISTRY, CheckStatus
+from config.security import PathNotAllowedError, resolve_safe_path
 
 
 class Command(BaseCommand):
@@ -108,7 +109,12 @@ class Command(BaseCommand):
                 kwargs["include_swap"] = True
         elif checker_name == "disk":
             if options.get("paths"):
-                kwargs["paths"] = options["paths"]
+                try:
+                    kwargs["paths"] = [
+                        p if p == "/" else resolve_safe_path(p) for p in options["paths"]
+                    ]
+                except PathNotAllowedError as e:
+                    raise CommandError(str(e))
         elif checker_name == "network":
             if options.get("hosts"):
                 kwargs["hosts"] = options["hosts"]
