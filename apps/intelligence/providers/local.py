@@ -22,6 +22,7 @@ from apps.intelligence.providers.base import (
     RecommendationPriority,
     RecommendationType,
 )
+from config.security import resolve_safe_path
 
 
 @dataclass
@@ -526,6 +527,8 @@ class LocalRecommendationProvider(BaseProvider):
 
         Uses 'du' command for efficiency when available, falls back to Python.
         """
+        if root_path != "/":
+            root_path = resolve_safe_path(root_path)
         large_items = []
         threshold_bytes = self.large_file_threshold_mb * 1024 * 1024
         now = datetime.now()
@@ -637,6 +640,8 @@ class LocalRecommendationProvider(BaseProvider):
         When a specific path is given (not "/"), scans only that path.
         When path is "/", scans the default log directories.
         """
+        if path != "/":
+            path = resolve_safe_path(path)
         old_files = []
         cutoff_date = datetime.now() - timedelta(days=self.old_file_days)
 
