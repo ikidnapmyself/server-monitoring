@@ -197,11 +197,11 @@ class TestRedactUrl:
         result = _redact_url("https://example.com:8443/path")
         assert result == "https://example.com:8443"
 
-    def test_handles_invalid_url(self):
+    def test_handles_empty_url(self):
         from config.security.url_validation import _redact_url
 
         result = _redact_url("")
-        assert result == "://"
+        assert result == "<invalid URL>"
 
     def test_http_scheme_preserved(self):
         from config.security.url_validation import _redact_url

@@ -13,8 +13,11 @@ def _redact_url(url: str) -> str:
     """Return a redacted URL string containing only scheme, hostname, and port.
 
     Path, query, and fragment are omitted to avoid leaking tokens or secrets
-    that may appear in webhook URLs or signed endpoints.
+    that may appear in webhook URLs or signed endpoints. Returns "<invalid URL>"
+    if the URL is empty or cannot be parsed.
     """
+    if not url:
+        return "<invalid URL>"
     try:
         parsed = urllib.parse.urlparse(url)
         netloc = parsed.hostname or ""
