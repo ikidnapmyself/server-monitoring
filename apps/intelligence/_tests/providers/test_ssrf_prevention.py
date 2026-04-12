@@ -40,6 +40,16 @@ class TestGrokSSRF:
             with pytest.raises(URLNotAllowedError):
                 GrokRecommendationProvider(base_url="http://10.0.0.1/v1")
 
+    def test_allows_configured_host(self):
+        with patch(
+            "apps.intelligence.providers.grok.validate_safe_url",
+            return_value="https://api.x.ai/v1",
+        ):
+            from apps.intelligence.providers.grok import GrokRecommendationProvider
+
+            provider = GrokRecommendationProvider(base_url="https://api.x.ai/v1")
+            assert provider.base_url == "https://api.x.ai/v1"
+
 
 class TestCopilotSSRF:
     def test_rejects_private_base_url(self):
@@ -51,3 +61,13 @@ class TestCopilotSSRF:
 
             with pytest.raises(URLNotAllowedError):
                 CopilotRecommendationProvider(base_url="http://10.0.0.1/api")
+
+    def test_allows_configured_host(self):
+        with patch(
+            "apps.intelligence.providers.copilot.validate_safe_url",
+            return_value="https://api.githubcopilot.com",
+        ):
+            from apps.intelligence.providers.copilot import CopilotRecommendationProvider
+
+            provider = CopilotRecommendationProvider(base_url="https://api.githubcopilot.com")
+            assert provider.base_url == "https://api.githubcopilot.com"
