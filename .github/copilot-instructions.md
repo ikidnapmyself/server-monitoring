@@ -151,6 +151,7 @@ Required tags: `trace_id/run_id`, `incident_id`, `stage`, `source`, `alert_finge
 - Handle retries/backoff for outbound calls
 - Input validation for all external payloads
 - Redact secrets in admin displays (show refs, not values)
+- **Always use absolute paths**: Resolve all file/directory paths to absolute form using `pathlib.Path.resolve()` before use. Never pass user-supplied relative paths directly to file operations, subprocess calls, or provider methods. Validate that resolved paths fall within allowed directories to prevent path traversal attacks.
 
 ## Definition of Done
 

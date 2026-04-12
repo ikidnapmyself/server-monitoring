@@ -31,6 +31,7 @@ Output contract (to orchestrator):
   - Requirements: timeouts, retries/backoff, clear failure modes, and no secret leakage in logs.
   - These integrations must **not** create incidents/alerts/notifications directly; they only enrich checker output.
 - Prefer small, deterministic checkers; isolate external I/O and enforce timeouts.
+- **Always use absolute paths**: Resolve all file/directory paths to absolute form via `pathlib.Path.resolve()` before use. Validate resolved paths against allowed directories when accepting user input.
 
 ## Django Admin expectations
 

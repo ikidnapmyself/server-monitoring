@@ -107,6 +107,7 @@ All apps under `apps/` follow this layout:
 - **Settings**: `config/settings.py`
 - **Env vars**: Copy `.env.sample` to `.env`
 - **Test coverage**: 100% branch coverage required for every PR. Run `uv run coverage run -m pytest && uv run coverage report` to verify.
+- **Always use absolute paths**: Resolve all file/directory paths to absolute form using `pathlib.Path.resolve()` before use. Never pass user-supplied relative paths directly to file operations, subprocess calls, or provider methods. Validate resolved paths fall within allowed directories to prevent path traversal.
 
 ## Documentation & GitHub Pages
 

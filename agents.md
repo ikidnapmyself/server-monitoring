@@ -291,6 +291,7 @@ A good plan should include:
    - Lint/sort imports with **Ruff**: `uv run ruff check . --fix`
 8. **Prefer small, testable units:** Parse/validate payloads separately from side effects (DB writes, network calls).
 9. **Be safe with external I/O:** Always set timeouts; handle retries; avoid leaking secrets in logs.
+10. **Always use absolute paths:** Resolve all file/directory paths to absolute form using `pathlib.Path.resolve()` before use. Never pass user-supplied relative paths directly to file operations, subprocess calls, or provider methods. Validate that resolved paths fall within allowed directories to prevent path traversal attacks.
 
 ---
 

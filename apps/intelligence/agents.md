@@ -39,6 +39,7 @@ Output contract (to orchestrator):
   - Only `apps.orchestration` coordinates stage execution.
 - Prompts, payloads, and provider outputs must avoid leaking secrets.
   - Store **redacted refs** rather than raw content.
+- **Always use absolute paths**: Any user-supplied path (HTTP params, CLI args) must be resolved to absolute form via `pathlib.Path.resolve()` and validated against an allowlist before use. See `views/disk.py` for the reference implementation.
 
 ## Django Admin expectations
 
