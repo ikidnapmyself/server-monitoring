@@ -6,7 +6,10 @@ Uses OpenAI SDK with GitHub Copilot's API endpoint.
 
 from typing import Any
 
+from django.conf import settings
+
 from apps.intelligence.providers.ai_base import BaseAIProvider
+from config.security.url_validation import validate_safe_url
 
 
 class CopilotRecommendationProvider(BaseAIProvider):
@@ -22,6 +25,7 @@ class CopilotRecommendationProvider(BaseAIProvider):
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
+        validate_safe_url(base_url, allowed_hosts=settings.SSRF_ALLOWED_HOSTS)
         self.base_url = base_url
         self._client = None
 
