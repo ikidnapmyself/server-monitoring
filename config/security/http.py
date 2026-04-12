@@ -25,4 +25,4 @@ def safe_urlopen(request, *, allowed_hosts=(), timeout=30):
     """
     url = request.full_url if hasattr(request, "full_url") else str(request)
     validate_safe_url(url, allowed_hosts=allowed_hosts)
-    return urllib.request.urlopen(request, timeout=timeout)
+    return urllib.request.urlopen(request, timeout=timeout)  # noqa: TID251
