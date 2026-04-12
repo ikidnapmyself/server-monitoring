@@ -6,7 +6,11 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from django.conf import settings
+
 from apps.notify.drivers.base import BaseNotifyDriver, NotificationMessage
+from config.security.http import safe_urlopen
+from config.security.url_validation import URLNotAllowedError
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +90,9 @@ class GenericNotifyDriver(BaseNotifyDriver):
                 method=method,
             )
 
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with safe_urlopen(
+                request, allowed_hosts=settings.SSRF_ALLOWED_HOSTS, timeout=timeout
+            ) as response:
                 response_body = response.read().decode("utf-8")
                 status_code = response.getcode()
 
@@ -108,6 +114,8 @@ class GenericNotifyDriver(BaseNotifyDriver):
                     },
                 }
 
+        except URLNotAllowedError as e:
+            return {"success": False, "error": f"URL not allowed: {e}"}
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8") if e.fp else str(e)
             logger.error(f"Generic HTTP error {e.code}: {error_body}")
