@@ -87,7 +87,7 @@ ignore = ["E501"]
 known-first-party = ["apps", "config"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-"urllib.request.urlopen".msg = "Use safe_urlopen from config.security.http instead for SSRF protection"
+"urllib.request".msg = "Use safe_urlopen from config.security.http instead of urllib.request for SSRF protection"
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"

@@ -129,7 +129,7 @@ class TestValidateSafeURLIPv6ULA:
 class TestValidateSafeURLDNSFailure:
     @patch(_PATCH_TARGET, side_effect=OSError("Name resolution failed"))
     def test_dns_failure_rejected(self, mock_dns):
-        with pytest.raises(URLNotAllowedError, match="Could not resolve"):
+        with pytest.raises(URLNotAllowedError, match="could not resolve hostname"):
             validate_safe_url("https://nonexistent.invalid")
 
 

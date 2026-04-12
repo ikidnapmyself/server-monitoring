@@ -8,9 +8,16 @@ from django.test import SimpleTestCase
 from apps.intelligence.providers import RecommendationType
 from apps.intelligence.providers.grok import GrokRecommendationProvider
 
+_PATCH_VALIDATE = "apps.intelligence.providers.grok.validate_safe_url"
+
 
 class TestGrokProviderInitialization(SimpleTestCase):
     """Tests for Grok provider initialization."""
+
+    def setUp(self):
+        patcher = patch(_PATCH_VALIDATE)
+        self.mock_validate_url = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_initialization_defaults(self):
         provider = GrokRecommendationProvider(api_key="test-key")
@@ -47,6 +54,11 @@ class TestGrokProviderInitialization(SimpleTestCase):
 
 class TestGrokCallApi(SimpleTestCase):
     """Tests for Grok API calls."""
+
+    def setUp(self):
+        patcher = patch(_PATCH_VALIDATE)
+        self.mock_validate_url = patcher.start()
+        self.addCleanup(patcher.stop)
 
     @patch("openai.OpenAI")
     def test_call_api_success(self, mock_openai_class):
@@ -105,6 +117,11 @@ class TestGrokCallApi(SimpleTestCase):
 
 class TestGrokAnalyze(SimpleTestCase):
     """Tests for end-to-end analysis."""
+
+    def setUp(self):
+        patcher = patch(_PATCH_VALIDATE)
+        self.mock_validate_url = patcher.start()
+        self.addCleanup(patcher.stop)
 
     @patch.object(GrokRecommendationProvider, "_call_api")
     def test_analyze_success(self, mock_call_api):

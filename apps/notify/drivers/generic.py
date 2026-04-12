@@ -3,8 +3,8 @@
 import json
 import logging
 import urllib.error
-import urllib.request
 from typing import Any
+from urllib.request import Request  # noqa: TID251 — Request is a data object, not urlopen
 
 from django.conf import settings
 
@@ -83,7 +83,7 @@ class GenericNotifyDriver(BaseNotifyDriver):
             }
             request_headers.update(headers)
 
-            request = urllib.request.Request(
+            request = Request(
                 str(endpoint),
                 data=payload_json if method in ("POST", "PUT", "PATCH") else None,
                 headers=request_headers,
@@ -114,8 +114,8 @@ class GenericNotifyDriver(BaseNotifyDriver):
                     },
                 }
 
-        except URLNotAllowedError as e:
-            return {"success": False, "error": f"URL not allowed: {e}"}
+        except URLNotAllowedError:
+            return {"success": False, "error": "Endpoint URL not allowed by security policy"}
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8") if e.fp else str(e)
             logger.error(f"Generic HTTP error {e.code}: {error_body}")

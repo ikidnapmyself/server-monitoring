@@ -9,6 +9,22 @@ class URLNotAllowedError(ValueError):
     """Raised when a URL targets a private/reserved network address."""
 
 
+def _redact_url(url: str) -> str:
+    """Return a redacted URL string containing only scheme, hostname, and port.
+
+    Path, query, and fragment are omitted to avoid leaking tokens or secrets
+    that may appear in webhook URLs or signed endpoints.
+    """
+    try:
+        parsed = urllib.parse.urlparse(url)
+        netloc = parsed.hostname or ""
+        if parsed.port:
+            netloc = f"{netloc}:{parsed.port}"
+        return f"{parsed.scheme}://{netloc}"
+    except Exception:
+        return "<invalid URL>"
+
+
 def validate_safe_url(
     url: str,
     allowed_hosts: tuple[str, ...] = (),
@@ -25,12 +41,12 @@ def validate_safe_url(
 
     if parsed.scheme not in ("http", "https"):
         raise URLNotAllowedError(
-            f"URL not allowed: {url!r}. scheme must be http or https," f" got {parsed.scheme!r}"
+            f"URL not allowed: scheme must be http or https, got {parsed.scheme!r}"
         )
 
     hostname = parsed.hostname
     if not hostname:
-        raise URLNotAllowedError(f"URL not allowed: {url!r}. hostname is missing")
+        raise URLNotAllowedError("URL not allowed: hostname is missing")
 
     # Allowlist bypass — trusted internal hosts
     if hostname in allowed_hosts:
@@ -41,7 +57,7 @@ def validate_safe_url(
         addr_infos = socket.getaddrinfo(hostname, parsed.port or 443)
     except OSError as exc:
         raise URLNotAllowedError(
-            f"URL not allowed: {url!r}. Could not resolve hostname: {exc}"
+            f"URL not allowed: could not resolve hostname {hostname!r}: {exc}"
         ) from exc
 
     for _family, _type, _proto, _canonname, sockaddr in addr_infos:
@@ -50,7 +66,7 @@ def validate_safe_url(
 
         if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
             raise URLNotAllowedError(
-                f"URL not allowed: {url!r}. Hostname {hostname!r} resolves to "
+                f"URL not allowed: hostname {hostname!r} resolves to "
                 f"private/reserved address {ip_str}"
             )
 

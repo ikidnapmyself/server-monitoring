@@ -3,9 +3,9 @@
 import json
 import logging
 import urllib.error
-import urllib.request
 import uuid
 from typing import Any
+from urllib.request import Request  # noqa: TID251 — Request is a data object, not urlopen
 
 from django.conf import settings
 
@@ -69,7 +69,7 @@ class SlackNotifyDriver(BaseNotifyDriver):
 
             payload_json = json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
-            request = urllib.request.Request(
+            request = Request(
                 webhook_url,
                 data=payload_json,
                 headers={"Content-Type": "application/json"},
@@ -98,8 +98,8 @@ class SlackNotifyDriver(BaseNotifyDriver):
                         "error": f"Unexpected Slack response: {response_body}",
                     }
 
-        except URLNotAllowedError as e:
-            return {"success": False, "error": f"URL not allowed: {e}"}
+        except URLNotAllowedError:
+            return {"success": False, "error": "Slack webhook URL not allowed by security policy"}
         except urllib.error.HTTPError as e:
             return self._handle_http_error(e, "Slack")
         except urllib.error.URLError as e:

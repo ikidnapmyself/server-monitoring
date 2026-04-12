@@ -13,7 +13,7 @@ import hmac
 import json
 import socket
 from datetime import datetime, timezone
-from urllib.request import Request
+from urllib.request import Request  # noqa: TID251 — Request is a data object, not urlopen
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -126,8 +126,8 @@ class Command(BaseCommand):
             else:
                 raise CommandError(f"Hub returned HTTP {status}: {resp_body}")
 
-        except URLNotAllowedError as e:
-            raise CommandError(f"HUB_URL not allowed: {e}")
+        except URLNotAllowedError:
+            raise CommandError("HUB_URL not allowed by security policy")
         except Exception as e:
             if isinstance(e, CommandError):
                 raise

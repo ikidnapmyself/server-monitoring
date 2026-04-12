@@ -3,8 +3,8 @@
 import json
 import logging
 import urllib.error
-import urllib.request
 from typing import Any
+from urllib.request import Request  # noqa: TID251 — Request is a data object, not urlopen
 
 from django.conf import settings
 
@@ -96,7 +96,7 @@ class PagerDutyNotifyDriver(BaseNotifyDriver):
             payload = self._build_payload(message, config)
             payload_json = json.dumps(payload).encode("utf-8")
 
-            request = urllib.request.Request(
+            request = Request(
                 self.EVENTS_API_URL,
                 data=payload_json,
                 headers={"Content-Type": "application/json"},
@@ -130,8 +130,11 @@ class PagerDutyNotifyDriver(BaseNotifyDriver):
                         "error": f"PagerDuty error: {error_msg}",
                     }
 
-        except URLNotAllowedError as e:
-            return {"success": False, "error": f"URL not allowed: {e}"}
+        except URLNotAllowedError:
+            return {
+                "success": False,
+                "error": "PagerDuty URL not allowed by security policy",
+            }
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8") if e.fp else str(e)
             try:
