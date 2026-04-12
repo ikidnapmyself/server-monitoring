@@ -7,7 +7,11 @@ import urllib.request
 import uuid
 from typing import Any
 
+from django.conf import settings
+
 from apps.notify.drivers.base import BaseNotifyDriver, NotificationMessage
+from config.security.http import safe_urlopen
+from config.security.url_validation import URLNotAllowedError
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +76,9 @@ class SlackNotifyDriver(BaseNotifyDriver):
                 method="POST",
             )
 
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with safe_urlopen(
+                request, allowed_hosts=settings.SSRF_ALLOWED_HOSTS, timeout=timeout
+            ) as response:
                 response_body = response.read().decode("utf-8")
 
                 if response_body == "ok":
@@ -92,6 +98,8 @@ class SlackNotifyDriver(BaseNotifyDriver):
                         "error": f"Unexpected Slack response: {response_body}",
                     }
 
+        except URLNotAllowedError as e:
+            return {"success": False, "error": f"URL not allowed: {e}"}
         except urllib.error.HTTPError as e:
             return self._handle_http_error(e, "Slack")
         except urllib.error.URLError as e:
