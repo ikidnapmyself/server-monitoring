@@ -12,10 +12,11 @@ Usage:
 import json
 from typing import Any
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from apps.intelligence.providers import get_provider, list_providers
 from apps.intelligence.utils.spinner import SpinnerProgress
+from config.security import PathNotAllowedError, resolve_safe_path
 
 
 class Command(BaseCommand):
@@ -161,12 +162,24 @@ class Command(BaseCommand):
 
         # Disk-specific analysis
         elif options["disk"]:
-            recommendations = provider.run(analysis_type="disk", path=options["path"])
+            disk_path = options["path"]
+            if disk_path != "/":
+                try:
+                    disk_path = resolve_safe_path(disk_path)
+                except PathNotAllowedError as e:
+                    raise CommandError(str(e))
+            recommendations = provider.run(analysis_type="disk", path=disk_path)
 
         # All recommendations
         elif options["all"]:
+            disk_path = options["path"]
+            if disk_path != "/":
+                try:
+                    disk_path = resolve_safe_path(disk_path)
+                except PathNotAllowedError as e:
+                    raise CommandError(str(e))
             recommendations.extend(provider.run(analysis_type="memory"))
-            recommendations.extend(provider.run(analysis_type="disk", path=options["path"]))
+            recommendations.extend(provider.run(analysis_type="disk", path=disk_path))
 
         # General recommendations based on current state
         else:

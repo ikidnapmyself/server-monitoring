@@ -192,6 +192,72 @@ The following are known areas for improvement:
 
 - **DB-stored secrets not encrypted** — API keys and provider credentials in JSON fields are not encrypted at rest. Consider field-level encryption for high-security environments.
 
+## Path Traversal Protection
+
+All user-supplied file and directory paths (HTTP query parameters, CLI arguments) must be resolved to absolute form before use. This prevents path traversal attacks where an attacker submits paths like `../../etc/shadow` to access sensitive system files.
+
+### Centralized Utility
+
+Path traversal prevention is centralized in `config/security/path_traversal.py`. The package is organized by attack type so future security checks (injection, secret redaction, etc.) slot in naturally.
+
+```
+config/security/
+  __init__.py              # Re-exports all public APIs
+  path_traversal.py        # Path traversal prevention
+```
+
+### API
+
+**`resolve_safe_path(user_input, allowed_roots)`** — Resolves a path to absolute form via `pathlib.Path.resolve()` and validates it against an allowlist. Raises `PathNotAllowedError` if outside all allowed roots.
+
+```python
+from config.security import resolve_safe_path, PathNotAllowedError
+
+# In a Django view:
+try:
+    path = resolve_safe_path(request.GET.get("path", "/var/log"))
+except PathNotAllowedError as e:
+    return error_response(str(e), status=400)
+
+# In a management command:
+try:
+    path = resolve_safe_path(options["path"])
+except PathNotAllowedError as e:
+    raise CommandError(str(e))
+```
+
+**`resolve_safe_name(name)`** — Validates a filename or template name. Rejects names containing slashes, backslashes, leading dots, or `..` sequences. Used for template loading where names come from DB config.
+
+```python
+from config.security import resolve_safe_name, PathNotAllowedError
+
+try:
+    name = resolve_safe_name(template_name)
+except PathNotAllowedError:
+    return None  # treat as "template not found"
+```
+
+**Default allowlist** (`ALLOWED_FILESYSTEM_ROOTS`): `/var`, `/tmp`, `/home`, `/opt`, `/srv`, `/usr` (resolved at import time to handle OS symlinks like macOS `/tmp` -> `/private/tmp`). The root path `/` is intentionally excluded — if included, any path would pass validation.
+
+### Protected Entry Points
+
+| Entry Point | Protection | Error Handling |
+|-------------|-----------|----------------|
+| `GET /intelligence/disk/?path=...` | `resolve_safe_path()` | 400 JSON error |
+| `intelligence/providers/local.py` subprocess | `resolve_safe_path()` | Propagates to caller |
+| `notify/templating.py` template loading | `resolve_safe_name()` | Returns None |
+| `get_recommendations --path` | `resolve_safe_path()` | CommandError |
+| `run_pipeline --file`, `--config` | `resolve_safe_path()` | CommandError |
+| `check_health --disk-paths` | `resolve_safe_path()` | CommandError |
+| `run_check --paths` | `resolve_safe_path()` | CommandError |
+
+### Rules for New Code
+
+- **Always use the utility**: Import from `config.security`, do not write inline validation
+- **Resolve before use**: Never pass user-supplied paths directly to file operations or subprocess calls
+- **No `/` in allowlists**: Including `/` makes the allowlist meaningless
+- **Handle defaults explicitly**: If a command defaults to `/`, skip validation for that specific default value
+
 ## Data Handling
 
 ### Redacted References

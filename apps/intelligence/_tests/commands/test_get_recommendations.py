@@ -6,6 +6,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import SimpleTestCase, TestCase
 
 from apps.intelligence.providers import (
@@ -207,7 +208,10 @@ class TestRecommendationTypes(SimpleTestCase):
             stdout=out,
         )
 
-        mock_provider.run.assert_called_once_with(analysis_type="disk", path="/var/log")
+        from pathlib import Path
+
+        resolved = str(Path("/var/log").resolve())
+        mock_provider.run.assert_called_once_with(analysis_type="disk", path=resolved)
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
     def test_disk_default_path_is_root(self, mock_get_provider):
@@ -242,8 +246,11 @@ class TestRecommendationTypes(SimpleTestCase):
             stdout=out,
         )
 
+        from pathlib import Path
+
+        resolved_tmp = str(Path("/tmp").resolve())
         mock_provider.run.assert_any_call(analysis_type="memory")
-        mock_provider.run.assert_any_call(analysis_type="disk", path="/tmp")
+        mock_provider.run.assert_any_call(analysis_type="disk", path=resolved_tmp)
 
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
     def test_all_recommendations(self, mock_get_provider):
@@ -603,3 +610,29 @@ class TestProgressCallback(SimpleTestCase):
 
         out = StringIO()
         call_command("get_recommendations", "--memory", stdout=out)
+
+
+class TestPathTraversalProtection(SimpleTestCase):
+    """Tests for PathNotAllowedError handling in disk/all paths."""
+
+    def test_disk_path_rejected_outside_allowed_roots(self):
+        """--disk --path with disallowed path raises CommandError."""
+        with self.assertRaises(CommandError):
+            call_command(
+                "get_recommendations",
+                "--disk",
+                "--path=/root/.ssh",
+                "--provider=local",
+                stdout=StringIO(),
+            )
+
+    def test_all_path_rejected_outside_allowed_roots(self):
+        """--all --path with disallowed path raises CommandError."""
+        with self.assertRaises(CommandError):
+            call_command(
+                "get_recommendations",
+                "--all",
+                "--path=/root/.ssh",
+                "--provider=local",
+                stdout=StringIO(),
+            )

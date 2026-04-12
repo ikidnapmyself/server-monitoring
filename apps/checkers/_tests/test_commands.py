@@ -258,6 +258,8 @@ class CheckHealthCommandTests(TestCase):
         mock_checker.assert_called_once_with(warning_threshold=80.0, critical_threshold=95.0)
 
     def test_disk_paths_kwarg(self):
+        from pathlib import Path as _Path
+
         mock_checker = self._make_checker(checker_name="disk")
         with patch.dict(self.REGISTRY_PATH, {"disk": mock_checker}, clear=True):
             call_command(
@@ -265,10 +267,11 @@ class CheckHealthCommandTests(TestCase):
                 "disk",
                 "--disk-paths",
                 "/",
-                "/home",
+                "/var",
                 stdout=StringIO(),
             )
-        mock_checker.assert_called_once_with(paths=["/", "/home"])
+        resolved_var = str(_Path("/var").resolve())
+        mock_checker.assert_called_once_with(paths=["/", resolved_var])
 
     def test_ping_hosts_kwarg(self):
         mock_checker = self._make_checker(checker_name="network")
@@ -391,6 +394,15 @@ class CheckHealthCommandTests(TestCase):
             call_command("check_health", "cpu", stdout=out)
         output = out.getvalue()
         self.assertIn("OK", output)
+
+    def test_disk_paths_rejected_outside_allowed_roots(self):
+        """PathNotAllowedError is caught and re-raised as CommandError."""
+        mock_checker = self._make_checker(checker_name="disk")
+        with patch.dict(self.REGISTRY_PATH, {"disk": mock_checker}, clear=True):
+            with self.assertRaises(CommandError):
+                call_command(
+                    "check_health", "disk", "--disk-paths", "/root/.ssh", stdout=StringIO()
+                )
 
     def test_metrics_platform_skipped(self):
         """The 'platform' key should be skipped in metrics output."""
@@ -519,10 +531,13 @@ class RunCheckCommandTests(TestCase):
         mock_checker.assert_called_once_with(include_swap=True)
 
     def test_disk_paths(self):
+        from pathlib import Path as _Path
+
         mock_checker = self._make_checker(checker_name="disk")
         with patch.dict(self.REGISTRY_PATH, {"disk": mock_checker}, clear=True):
-            call_command("run_check", "disk", "--paths", "/", "/data", stdout=StringIO())
-        mock_checker.assert_called_once_with(paths=["/", "/data"])
+            call_command("run_check", "disk", "--paths", "/", "/tmp", stdout=StringIO())
+        resolved_tmp = str(_Path("/tmp").resolve())
+        mock_checker.assert_called_once_with(paths=["/", resolved_tmp])
 
     def test_network_hosts(self):
         mock_checker = self._make_checker(checker_name="network")
@@ -627,5 +642,12 @@ class RunCheckCommandTests(TestCase):
         output = out.getvalue()
         self.assertIn("hosts:", output)
         self.assertIn("8.8.8.8: {'latency': 5}", output)
+
+    def test_disk_paths_rejected_outside_allowed_roots(self):
+        """PathNotAllowedError is caught and re-raised as CommandError."""
+        mock_checker = self._make_checker(checker_name="disk")
+        with patch.dict(self.REGISTRY_PATH, {"disk": mock_checker}, clear=True):
+            with self.assertRaises(CommandError):
+                call_command("run_check", "disk", "--paths", "/root/.ssh", stdout=StringIO())
 
     # Preflight command tests moved to apps/checkers/_tests/preflight/test_command.py

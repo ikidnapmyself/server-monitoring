@@ -16,6 +16,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.checkers.checkers import CHECKER_REGISTRY, CheckStatus
+from config.security import PathNotAllowedError, resolve_safe_path
 
 
 class Command(BaseCommand):
@@ -128,7 +129,12 @@ class Command(BaseCommand):
             kwargs["critical_threshold"] = options["critical_threshold"]
 
         if name == "disk" and options["disk_paths"]:
-            kwargs["paths"] = options["disk_paths"]
+            try:
+                kwargs["paths"] = [
+                    p if p == "/" else resolve_safe_path(p) for p in options["disk_paths"]
+                ]
+            except PathNotAllowedError as e:
+                raise CommandError(str(e))
         elif name == "network" and options["ping_hosts"]:
             kwargs["hosts"] = options["ping_hosts"]
         elif name == "process" and options["processes"]:
