@@ -13,13 +13,15 @@ import hmac
 import json
 import socket
 from datetime import datetime, timezone
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.checkers.checkers import CHECKER_REGISTRY
 from apps.checkers.checkers.base import CheckStatus
+from config.security.http import safe_urlopen
+from config.security.url_validation import URLNotAllowedError
 
 
 class Command(BaseCommand):
@@ -108,11 +110,11 @@ class Command(BaseCommand):
             headers["X-Cluster-Signature"] = signature
 
         request = Request(url, data=body, headers=headers, method="POST")
-        # urlopen is safe here — scheme validated above (http/https only)
-        open_url = urlopen
 
         try:
-            with open_url(request, timeout=30) as response:
+            with safe_urlopen(
+                request, allowed_hosts=settings.SSRF_ALLOWED_HOSTS, timeout=30
+            ) as response:
                 status = response.status
                 resp_body = response.read().decode()
 
@@ -124,6 +126,8 @@ class Command(BaseCommand):
             else:
                 raise CommandError(f"Hub returned HTTP {status}: {resp_body}")
 
+        except URLNotAllowedError as e:
+            raise CommandError(f"HUB_URL not allowed: {e}")
         except Exception as e:
             if isinstance(e, CommandError):
                 raise

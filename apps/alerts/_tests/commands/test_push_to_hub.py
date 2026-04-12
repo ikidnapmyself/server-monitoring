@@ -7,6 +7,7 @@ from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 
 from apps.checkers.checkers.base import CheckResult, CheckStatus
+from config.security.url_validation import URLNotAllowedError
 
 
 class PushToHubTests(TestCase):
@@ -40,7 +41,7 @@ class PushToHubTests(TestCase):
 
     @override_settings(HUB_URL="https://hub.example.com")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
-    @patch("apps.alerts.management.commands.push_to_hub.urlopen")
+    @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
     def test_posts_to_hub_url(self, mock_urlopen, mock_registry):
         """Command POSTs checker results to HUB_URL."""
         mock_checker_cls = MagicMock()
@@ -70,7 +71,7 @@ class PushToHubTests(TestCase):
 
     @override_settings(HUB_URL="https://hub.example.com", INSTANCE_ID="test-agent")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
-    @patch("apps.alerts.management.commands.push_to_hub.urlopen")
+    @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
     def test_uses_instance_id_from_settings(self, mock_urlopen, mock_registry):
         """Command uses INSTANCE_ID from settings."""
         mock_checker_cls = MagicMock()
@@ -150,7 +151,7 @@ class PushToHubTests(TestCase):
 
     @override_settings(HUB_URL="https://hub.example.com", WEBHOOK_SECRET_CLUSTER="test-secret")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
-    @patch("apps.alerts.management.commands.push_to_hub.urlopen")
+    @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
     def test_signature_header_sent_when_secret_set(self, mock_urlopen, mock_registry):
         """When WEBHOOK_SECRET_CLUSTER is set, X-Cluster-Signature header is sent."""
         mock_checker_cls = MagicMock()
@@ -174,7 +175,7 @@ class PushToHubTests(TestCase):
 
     @override_settings(HUB_URL="https://hub.example.com")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
-    @patch("apps.alerts.management.commands.push_to_hub.urlopen")
+    @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
     def test_hub_error_raises_command_error(self, mock_urlopen, mock_registry):
         """Hub returning non-2xx should raise CommandError."""
         mock_checker_cls = MagicMock()
@@ -196,7 +197,7 @@ class PushToHubTests(TestCase):
 
     @override_settings(HUB_URL="https://hub.example.com")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
-    @patch("apps.alerts.management.commands.push_to_hub.urlopen")
+    @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
     def test_network_error_raises_command_error(self, mock_urlopen, mock_registry):
         """Network failure should raise CommandError."""
         mock_checker_cls = MagicMock()
@@ -212,7 +213,7 @@ class PushToHubTests(TestCase):
 
     @override_settings(HUB_URL="https://hub.example.com")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
-    @patch("apps.alerts.management.commands.push_to_hub.urlopen")
+    @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
     def test_json_output_on_success(self, mock_urlopen, mock_registry):
         """--json with successful POST outputs JSON payload."""
         mock_checker_cls = MagicMock()
@@ -311,3 +312,29 @@ class PushToHubTests(TestCase):
         alert = payload["alerts"][0]
         self.assertEqual(alert["status"], "firing")
         self.assertEqual(alert["severity"], "warning")
+
+
+MOCK_REGISTRY = {
+    "cpu": MagicMock(
+        return_value=MagicMock(
+            run=MagicMock(
+                return_value=CheckResult(
+                    status=CheckStatus.OK, message="OK", metrics={}, checker_name="cpu"
+                )
+            )
+        )
+    )
+}
+
+
+@patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY", MOCK_REGISTRY)
+class TestPushToHubSSRF(TestCase):
+    @override_settings(HUB_URL="http://10.0.0.1")
+    @patch(
+        "apps.alerts.management.commands.push_to_hub.safe_urlopen",
+        side_effect=URLNotAllowedError("private"),
+    )
+    def test_private_hub_url_rejected(self, _mock_urlopen):
+        with self.assertRaises(CommandError) as ctx:
+            call_command("push_to_hub")
+        self.assertIn("not allowed", str(ctx.exception).lower())
