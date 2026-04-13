@@ -21,3 +21,19 @@ def check_rate_limit_cache(app_configs, **kwargs):
             )
         )
     return errors
+
+
+@checks.register()
+def check_auth_enabled(app_configs, **kwargs):
+    errors = []
+    if not getattr(settings, "API_KEY_AUTH_ENABLED", True):
+        if not getattr(settings, "DEBUG", False):
+            errors.append(
+                checks.Warning(
+                    "API key authentication is disabled (API_KEY_AUTH_ENABLED=False) "
+                    "in a non-DEBUG environment. All API endpoints are unauthenticated. "
+                    "Set API_KEY_AUTH_ENABLED=1 for production deployments.",
+                    id="config.W002",
+                )
+            )
+    return errors
