@@ -48,6 +48,27 @@ class TestProviderRegistry(SimpleTestCase):
         with pytest.raises(KeyError):
             get_provider("unknown_provider")
 
+    def test_get_provider_strips_blocked_host_kwarg(self):
+        """URL-controlling kwargs are stripped to prevent SSRF."""
+        from apps.intelligence.providers import get_provider
+
+        provider = get_provider("local", host="http://evil.com")
+        assert isinstance(provider, LocalRecommendationProvider)
+
+    def test_get_provider_strips_blocked_base_url_kwarg(self):
+        """base_url kwarg is stripped to prevent SSRF."""
+        from apps.intelligence.providers import get_provider
+
+        provider = get_provider("local", base_url="http://evil.com")
+        assert isinstance(provider, LocalRecommendationProvider)
+
+    def test_get_provider_passes_safe_kwargs(self):
+        """Non-blocked kwargs like top_n_processes still pass through."""
+        from apps.intelligence.providers import get_provider
+
+        provider = get_provider("local", top_n_processes=3)
+        assert provider.top_n_processes == 3
+
 
 class TestRecommendation(SimpleTestCase):
     """Tests for the Recommendation dataclass."""

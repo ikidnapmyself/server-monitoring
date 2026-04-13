@@ -93,7 +93,6 @@ class RecommendationsView(JSONResponseMixin, View):
                 {
                     "provider": provider_name,
                     "incident_id": incident_id,
-                    "config": provider_config,
                     "recommendations": [r.to_dict() for r in recommendations],
                     "count": len(recommendations),
                 }

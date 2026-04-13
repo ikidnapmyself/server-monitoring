@@ -74,6 +74,11 @@ except ImportError:
     MistralRecommendationProvider = None  # type: ignore[misc, assignment]
 
 
+# URL-controlling kwargs that must not be set by API callers.
+# These come from server-side config only (DB IntelligenceProvider or Django settings).
+BLOCKED_CONFIG_KEYS = frozenset({"host", "base_url"})
+
+
 def get_provider(
     name: str = "local",
     progress_callback: Callable[[str], None] | None = None,
@@ -85,7 +90,8 @@ def get_provider(
     Args:
         name: Provider name (e.g., 'local').
         progress_callback: Optional callback function for progress messages.
-        **kwargs: Provider-specific configuration.
+        **kwargs: Provider-specific configuration. URL-controlling keys
+            (host, base_url) are stripped to prevent SSRF via user input.
 
     Returns:
         Configured provider instance.
@@ -93,6 +99,9 @@ def get_provider(
     Raises:
         KeyError: If provider name is not registered.
     """
+    for key in BLOCKED_CONFIG_KEYS:
+        kwargs.pop(key, None)
+
     if name not in PROVIDERS:
         raise KeyError(f"Unknown provider: {name}. Available: {list(PROVIDERS.keys())}")
     provider_class = PROVIDERS[name]

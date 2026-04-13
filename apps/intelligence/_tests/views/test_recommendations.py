@@ -153,6 +153,23 @@ class TestRecommendationsPostView(TestCase):
         assert "not found" in data["error"]
 
     @patch("apps.intelligence.views.recommendations.get_provider")
+    def test_post_response_does_not_include_config(self, mock_get_provider):
+        """POST response must not echo back caller-supplied config."""
+        mock_provider = mock_get_provider.return_value
+        mock_provider.run.return_value = SAMPLE_RECOMMENDATIONS
+
+        client = Client()
+        response = client.post(
+            "/intelligence/recommendations/",
+            data=json.dumps({"config": {"host": "http://evil.com"}}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "config" not in data
+
+    @patch("apps.intelligence.views.recommendations.get_provider")
     def test_post_recommendations_unknown_provider(self, mock_get_provider):
         """POST with unknown provider returns 400."""
         mock_get_provider.side_effect = KeyError("Unknown provider: bogus")
