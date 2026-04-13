@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from django.test import Client, SimpleTestCase
+from django.test import Client, SimpleTestCase, override_settings
 
 from apps.intelligence.providers.base import (
     Recommendation,
@@ -12,6 +12,7 @@ from apps.intelligence.providers.base import (
 )
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class TestDiskAnalysisView(SimpleTestCase):
     """Tests for GET /intelligence/disk/."""
 
