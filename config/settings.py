@@ -226,7 +226,7 @@ SILENCED_SYSTEM_CHECKS: list[str] = [c.strip() for c in _silenced.split(",") if 
 # ---------------------------------------------------------------------------
 # API Key Authentication
 # ---------------------------------------------------------------------------
-API_KEY_AUTH_ENABLED = os.environ.get("API_KEY_AUTH_ENABLED", "0") == "1"
+API_KEY_AUTH_ENABLED = os.environ.get("API_KEY_AUTH_ENABLED", "1") == "1"
 
 # ---------------------------------------------------------------------------
 # Rate Limiting
