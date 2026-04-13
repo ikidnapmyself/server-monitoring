@@ -3,9 +3,10 @@
 import json
 from unittest.mock import MagicMock, patch
 
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class NotifyViewPostTest(TestCase):
     """Tests for NotifyView.post (POST /notify/send/)."""
 
@@ -215,6 +216,7 @@ class NotifyViewPostTest(TestCase):
         self.assertEqual(response.status_code, 200)
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class NotifyViewGetTest(TestCase):
     """Tests for NotifyView.get (GET /notify/send/)."""
 
@@ -244,6 +246,7 @@ class NotifyViewGetTest(TestCase):
         self.assertIn("available_drivers", data)
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class NotifyBatchViewPostTest(TestCase):
     """Tests for NotifyBatchView.post (POST /notify/batch/)."""
 
@@ -497,6 +500,7 @@ class NotifyBatchViewPostTest(TestCase):
         self.assertEqual(response.json()["status"], "success")
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class NotifyBatchViewGetTest(TestCase):
     """Tests for NotifyBatchView.get (GET /notify/batch/)."""
 
@@ -511,6 +515,7 @@ class NotifyBatchViewGetTest(TestCase):
         self.assertIn("available_drivers", data)
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class DriversViewTest(TestCase):
     """Tests for DriversView.get (GET /notify/drivers/)."""
 
