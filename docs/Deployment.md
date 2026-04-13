@@ -32,7 +32,7 @@ Create `/etc/server-monitoring/env` (systemd) or `.env` (Docker) with these valu
 | `DJANGO_ALLOWED_HOSTS` | — | **Yes** | Comma-separated hostnames (e.g. `monitoring.example.com`) |
 | `CELERY_BROKER_URL` | `redis://localhost:6379/0` | No | Redis broker URL |
 | `ENABLE_CELERY_ORCHESTRATION` | `1` | No | Enable async pipeline via Celery |
-| `API_KEY_AUTH_ENABLED` | `0` | No | Require API keys for endpoints |
+| `API_KEY_AUTH_ENABLED` | `1` | No | API key auth (enabled by default; set `0` to disable for dev) |
 | `RATE_LIMIT_ENABLED` | `0` | No | Enable rate limiting middleware |
 | `WEBHOOK_SECRET_<DRIVER>` | — | No | Signature verification per driver (e.g. `WEBHOOK_SECRET_GRAFANA`) |
 

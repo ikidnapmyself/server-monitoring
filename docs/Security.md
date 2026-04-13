@@ -104,7 +104,7 @@ API endpoints require authentication via API key for non-GET requests. Keys are 
 
 ### Setup
 
-1. Enable: set `API_KEY_AUTH_ENABLED=1` in your environment
+1. API key authentication is **enabled by default**. To disable for local development, set `API_KEY_AUTH_ENABLED=0`.
 2. Create a key via admin (`/admin/config_app/apikey/`) or shell:
 
 ```python
