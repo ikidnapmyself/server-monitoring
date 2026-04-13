@@ -39,6 +39,8 @@ def get_profile() -> dict:
         "metrics_backend": getattr(settings, "ORCHESTRATION_METRICS_BACKEND", "logging"),
         "instance_id": getattr(settings, "INSTANCE_ID", ""),
         "logs_dir": str(getattr(settings, "LOGS_DIR", "")),
+        "api_key_auth": getattr(settings, "API_KEY_AUTH_ENABLED", True),
+        "rate_limiting": getattr(settings, "RATE_LIMIT_ENABLED", False),
     }
 
 
