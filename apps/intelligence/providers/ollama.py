@@ -6,7 +6,10 @@ Uses the Ollama Python SDK to call a locally-hosted LLM.
 
 from typing import Any
 
+from django.conf import settings
+
 from apps.intelligence.providers.ai_base import BaseAIProvider
+from config.security.url_validation import validate_safe_url
 
 
 class OllamaRecommendationProvider(BaseAIProvider):
@@ -22,6 +25,7 @@ class OllamaRecommendationProvider(BaseAIProvider):
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
+        validate_safe_url(host, allowed_hosts=settings.SSRF_ALLOWED_HOSTS)
         self.host = host
 
     def _call_api(self, prompt: str) -> str:

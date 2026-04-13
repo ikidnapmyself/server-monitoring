@@ -258,6 +258,76 @@ except PathNotAllowedError:
 - **No `/` in allowlists**: Including `/` makes the allowlist meaningless
 - **Handle defaults explicitly**: If a command defaults to `/`, skip validation for that specific default value
 
+## SSRF Prevention
+
+All outbound HTTP requests must be validated against private/reserved IP ranges before execution. This prevents Server-Side Request Forgery (SSRF) attacks where an attacker-controlled URL redirects the server to internal services, cloud metadata endpoints, or loopback addresses.
+
+### Centralized Utility
+
+SSRF prevention is centralized in `config/security/`, following the same pattern as path traversal prevention:
+
+```
+config/security/
+  __init__.py              # Re-exports all public APIs
+  path_traversal.py        # Path traversal prevention
+  url_validation.py        # SSRF URL/IP validation
+  http.py                  # safe_urlopen wrapper
+```
+
+### API
+
+**`safe_urlopen(request, *, allowed_hosts, timeout)`** — Drop-in replacement for `urllib.request.urlopen`. Validates the request URL against private/reserved IP ranges before making the HTTP request. Use this in all application code instead of raw `urlopen`.
+
+```python
+from config.security.http import safe_urlopen
+
+# In a notify driver — replaces urllib.request.urlopen:
+with safe_urlopen(request, allowed_hosts=settings.SSRF_ALLOWED_HOSTS, timeout=30) as response:
+    response_body = response.read().decode("utf-8")
+```
+
+**`validate_safe_url(url, allowed_hosts)`** — Low-level validator for URLs passed to third-party SDK constructors (ollama, openai) that have their own HTTP stacks. Parses the URL, resolves the hostname via DNS, and rejects any URL whose resolved IP falls in private, loopback, link-local, reserved, or multicast ranges.
+
+```python
+from config.security import validate_safe_url, URLNotAllowedError
+
+# In a provider __init__:
+validate_safe_url(base_url, allowed_hosts=settings.SSRF_ALLOWED_HOSTS)
+```
+
+### Configuration
+
+`SSRF_ALLOWED_HOSTS` — comma-separated list of hostnames/IPs that bypass the private-IP check. Default: empty (no exceptions).
+
+```bash
+# Allow Ollama on local network and internal hub
+SSRF_ALLOWED_HOSTS=ollama.internal,10.0.1.50
+```
+
+### Enforcement
+
+A ruff lint rule (`TID251`) bans direct `urllib.request.urlopen` imports. Violations are caught in the editor (red squiggly), at pre-commit hook time, and in CI — before code reaches production. The `config/security/http.py` wrapper is the only file exempt via `# noqa: TID251`.
+
+### Protected Call Sites
+
+| Call Site | Method | Error Handling |
+|-----------|--------|----------------|
+| `notify/drivers/generic.py` | `safe_urlopen` | Returns `{"success": False}` |
+| `notify/drivers/slack.py` | `safe_urlopen` | Returns `{"success": False}` |
+| `notify/drivers/pagerduty.py` | `safe_urlopen` | Returns `{"success": False}` |
+| `intelligence/providers/ollama.py` | `validate_safe_url` | Raises `URLNotAllowedError` |
+| `intelligence/providers/grok.py` | `validate_safe_url` | Raises `URLNotAllowedError` |
+| `intelligence/providers/copilot.py` | `validate_safe_url` | Raises `URLNotAllowedError` |
+| `alerts/commands/push_to_hub.py` | `safe_urlopen` | Raises `CommandError` |
+
+### Rules for New Code
+
+- **Use `safe_urlopen`**: For any code using `urllib.request`, import `safe_urlopen` from `config.security.http` — never use raw `urlopen`
+- **Use `validate_safe_url`**: For URLs passed to third-party SDK constructors
+- **Pass the allowlist**: Always pass `allowed_hosts=settings.SSRF_ALLOWED_HOSTS` so operators can configure exceptions
+- **Fail closed**: If DNS resolution fails, the URL is rejected
+- **Lint enforcement**: Ruff `TID251` flags any raw `urlopen` import — fix before committing
+
 ## Data Handling
 
 ### Redacted References

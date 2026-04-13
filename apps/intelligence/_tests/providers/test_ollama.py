@@ -3,10 +3,22 @@
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
 from django.test import SimpleTestCase
 
 from apps.intelligence.providers import RecommendationType
 from apps.intelligence.providers.ollama import OllamaRecommendationProvider
+
+pytestmark = pytest.mark.usefixtures("_bypass_ssrf_validation")
+
+
+@pytest.fixture(autouse=False)
+def _bypass_ssrf_validation():
+    with patch(
+        "apps.intelligence.providers.ollama.validate_safe_url",
+        side_effect=lambda url, **kw: url,
+    ):
+        yield
 
 
 class TestOllamaProviderInitialization(SimpleTestCase):

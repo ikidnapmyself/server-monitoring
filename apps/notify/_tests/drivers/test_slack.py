@@ -9,6 +9,7 @@ from django.test import SimpleTestCase
 
 from apps.notify.drivers.base import NotificationMessage
 from apps.notify.drivers.slack import SlackNotifyDriver
+from config.security.url_validation import URLNotAllowedError
 
 
 def _make_msg(**kwargs):
@@ -67,7 +68,7 @@ class SlackSendPayloadBranchTests(SimpleTestCase):
         mock_resp.__exit__ = MagicMock(return_value=False)
         return mock_resp
 
-    @patch("apps.notify.drivers.slack.urllib.request.urlopen")
+    @patch("apps.notify.drivers.slack.safe_urlopen")
     def test_send_json_dict_payload(self, mock_urlopen):
         """When template renders valid JSON dict, it becomes the payload directly."""
         mock_urlopen.return_value = self._mock_urlopen("ok")
@@ -87,7 +88,7 @@ class SlackSendPayloadBranchTests(SimpleTestCase):
         self.assertEqual(sent_data["text"], "Hello from template")
         self.assertEqual(sent_data["channel"], "#alerts")
 
-    @patch("apps.notify.drivers.slack.urllib.request.urlopen")
+    @patch("apps.notify.drivers.slack.safe_urlopen")
     def test_send_json_list_payload(self, mock_urlopen):
         """When template renders a JSON list, it becomes blocks."""
         mock_urlopen.return_value = self._mock_urlopen("ok")
@@ -105,7 +106,7 @@ class SlackSendPayloadBranchTests(SimpleTestCase):
         sent_data = json.loads(call_args[0][0].data.decode("utf-8"))
         self.assertEqual(sent_data["blocks"], blocks)
 
-    @patch("apps.notify.drivers.slack.urllib.request.urlopen")
+    @patch("apps.notify.drivers.slack.safe_urlopen")
     def test_send_plain_text_payload(self, mock_urlopen):
         """When template renders plain text, it becomes {"text": ...}."""
         mock_urlopen.return_value = self._mock_urlopen("ok")
@@ -122,7 +123,7 @@ class SlackSendPayloadBranchTests(SimpleTestCase):
         sent_data = json.loads(call_args[0][0].data.decode("utf-8"))
         self.assertEqual(sent_data["text"], "Just a plain text message")
 
-    @patch("apps.notify.drivers.slack.urllib.request.urlopen")
+    @patch("apps.notify.drivers.slack.safe_urlopen")
     def test_send_invalid_json_starting_with_brace(self, mock_urlopen):
         """When template renders text starting with { but not valid JSON, falls to plain text."""
         mock_urlopen.return_value = self._mock_urlopen("ok")
@@ -155,7 +156,7 @@ class SlackSendResponseTests(SimpleTestCase):
         mock_resp.__exit__ = MagicMock(return_value=False)
         return mock_resp
 
-    @patch("apps.notify.drivers.slack.urllib.request.urlopen")
+    @patch("apps.notify.drivers.slack.safe_urlopen")
     def test_send_ok_response(self, mock_urlopen):
         """When Slack responds with 'ok', return success."""
         mock_urlopen.return_value = self._mock_urlopen("ok")
@@ -172,7 +173,7 @@ class SlackSendResponseTests(SimpleTestCase):
         self.assertIn("metadata", result)
         self.assertEqual(result["metadata"]["severity"], "warning")
 
-    @patch("apps.notify.drivers.slack.urllib.request.urlopen")
+    @patch("apps.notify.drivers.slack.safe_urlopen")
     def test_send_non_ok_response(self, mock_urlopen):
         """When Slack responds with something other than 'ok', return failure."""
         mock_urlopen.return_value = self._mock_urlopen("invalid_token")
@@ -187,7 +188,7 @@ class SlackSendResponseTests(SimpleTestCase):
         self.assertFalse(result["success"])
         self.assertIn("Unexpected Slack response", result["error"])
 
-    @patch("apps.notify.drivers.slack.urllib.request.urlopen")
+    @patch("apps.notify.drivers.slack.safe_urlopen")
     def test_send_empty_rendered_text_raises_valueerror(self, mock_urlopen):
         """When _render_message_templates returns no text, send catches the ValueError."""
         with patch.object(
@@ -209,7 +210,7 @@ class SlackSendErrorHandlerTests(SimpleTestCase):
         self.driver = SlackNotifyDriver()
         self.config = {"webhook_url": VALID_WEBHOOK}
 
-    @patch("apps.notify.drivers.slack.urllib.request.urlopen")
+    @patch("apps.notify.drivers.slack.safe_urlopen")
     def test_send_http_error(self, mock_urlopen):
         """HTTPError is handled via _handle_http_error."""
         error_body = io.BytesIO(b"rate_limited")
@@ -233,7 +234,7 @@ class SlackSendErrorHandlerTests(SimpleTestCase):
         self.assertIn("429", result["error"])
         self.assertIn("rate_limited", result["error"])
 
-    @patch("apps.notify.drivers.slack.urllib.request.urlopen")
+    @patch("apps.notify.drivers.slack.safe_urlopen")
     def test_send_url_error(self, mock_urlopen):
         """URLError is handled via _handle_url_error."""
         mock_urlopen.side_effect = urllib.error.URLError("Connection refused")
@@ -248,7 +249,7 @@ class SlackSendErrorHandlerTests(SimpleTestCase):
         self.assertFalse(result["success"])
         self.assertIn("Failed to connect to Slack", result["error"])
 
-    @patch("apps.notify.drivers.slack.urllib.request.urlopen")
+    @patch("apps.notify.drivers.slack.safe_urlopen")
     def test_send_generic_exception(self, mock_urlopen):
         """Generic Exception is handled via _handle_exception."""
         mock_urlopen.side_effect = RuntimeError("unexpected failure")
@@ -263,7 +264,7 @@ class SlackSendErrorHandlerTests(SimpleTestCase):
         self.assertFalse(result["success"])
         self.assertIn("unexpected failure", result["error"])
 
-    @patch("apps.notify.drivers.slack.urllib.request.urlopen")
+    @patch("apps.notify.drivers.slack.safe_urlopen")
     def test_send_with_custom_timeout(self, mock_urlopen):
         """Custom timeout from config is passed through."""
         mock_resp = MagicMock()
@@ -285,7 +286,7 @@ class SlackSendErrorHandlerTests(SimpleTestCase):
         call_kwargs = mock_urlopen.call_args
         self.assertEqual(call_kwargs[1]["timeout"], 10)
 
-    @patch("apps.notify.drivers.slack.urllib.request.urlopen")
+    @patch("apps.notify.drivers.slack.safe_urlopen")
     def test_send_invalid_json_starting_with_bracket(self, mock_urlopen):
         """Text starting with [ but invalid JSON falls through to plain text."""
         mock_resp = MagicMock()
@@ -306,7 +307,7 @@ class SlackSendErrorHandlerTests(SimpleTestCase):
         sent_data = json.loads(call_args[0][0].data.decode("utf-8"))
         self.assertEqual(sent_data["text"], "[not valid json")
 
-    @patch("apps.notify.drivers.slack.urllib.request.urlopen")
+    @patch("apps.notify.drivers.slack.safe_urlopen")
     def test_send_message_id_is_unique_uuid(self, mock_urlopen):
         """Each successful send produces a unique UUID message_id."""
         mock_resp = MagicMock()
@@ -330,3 +331,16 @@ class SlackSendErrorHandlerTests(SimpleTestCase):
         uuid.UUID(result2["message_id"])
         # And unique across calls
         self.assertNotEqual(result1["message_id"], result2["message_id"])
+
+
+class TestSlackDriverSSRF(SimpleTestCase):
+    def test_send_rejects_ssrf_webhook(self):
+        driver = SlackNotifyDriver()
+        msg = NotificationMessage(title="test", message="body", severity="info")
+        config = {"webhook_url": "https://hooks.slack.com/services/xxx"}
+        with patch(
+            "apps.notify.drivers.slack.safe_urlopen",
+            side_effect=URLNotAllowedError("private"),
+        ):
+            result = driver.send(msg, config)
+            assert result["success"] is False

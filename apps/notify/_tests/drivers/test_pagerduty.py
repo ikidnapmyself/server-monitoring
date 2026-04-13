@@ -9,6 +9,7 @@ from django.test import SimpleTestCase
 
 from apps.notify.drivers.base import NotificationMessage
 from apps.notify.drivers.pagerduty import PagerDutyNotifyDriver
+from config.security.url_validation import URLNotAllowedError
 
 
 def _make_msg(**kwargs):
@@ -196,7 +197,7 @@ class PagerDutySendTests(SimpleTestCase):
         self.assertFalse(result["success"])
         self.assertIn("Invalid PagerDuty configuration", result["error"])
 
-    @patch("apps.notify.drivers.pagerduty.urllib.request.urlopen")
+    @patch("apps.notify.drivers.pagerduty.safe_urlopen")
     def test_send_success_response(self, mock_urlopen):
         """Successful PagerDuty response returns success with dedup_key."""
         resp_body = json.dumps(
@@ -215,7 +216,7 @@ class PagerDutySendTests(SimpleTestCase):
         self.assertEqual(result["metadata"]["dedup_key"], "dedup-abc")
         self.assertEqual(result["metadata"]["event_action"], "trigger")
 
-    @patch("apps.notify.drivers.pagerduty.urllib.request.urlopen")
+    @patch("apps.notify.drivers.pagerduty.safe_urlopen")
     def test_send_error_response(self, mock_urlopen):
         """Non-success status in response body returns error."""
         resp_body = json.dumps(
@@ -232,7 +233,7 @@ class PagerDutySendTests(SimpleTestCase):
         self.assertIn("PagerDuty error", result["error"])
         self.assertIn("Event object is invalid", result["error"])
 
-    @patch("apps.notify.drivers.pagerduty.urllib.request.urlopen")
+    @patch("apps.notify.drivers.pagerduty.safe_urlopen")
     def test_send_error_response_unknown_message(self, mock_urlopen):
         """Non-success status with no message field defaults to 'Unknown error'."""
         resp_body = json.dumps({"status": "error"})
@@ -243,7 +244,7 @@ class PagerDutySendTests(SimpleTestCase):
         self.assertFalse(result["success"])
         self.assertIn("Unknown error", result["error"])
 
-    @patch("apps.notify.drivers.pagerduty.urllib.request.urlopen")
+    @patch("apps.notify.drivers.pagerduty.safe_urlopen")
     def test_send_http_error_with_json_body(self, mock_urlopen):
         """HTTPError with JSON body extracts message."""
         error_body = io.BytesIO(json.dumps({"message": "Invalid routing key"}).encode())
@@ -262,7 +263,7 @@ class PagerDutySendTests(SimpleTestCase):
         self.assertIn("400", result["error"])
         self.assertIn("Invalid routing key", result["error"])
 
-    @patch("apps.notify.drivers.pagerduty.urllib.request.urlopen")
+    @patch("apps.notify.drivers.pagerduty.safe_urlopen")
     def test_send_http_error_with_non_json_body(self, mock_urlopen):
         """HTTPError with non-JSON body uses raw text."""
         error_body = io.BytesIO(b"Service Unavailable")
@@ -281,7 +282,7 @@ class PagerDutySendTests(SimpleTestCase):
         self.assertIn("503", result["error"])
         self.assertIn("Service Unavailable", result["error"])
 
-    @patch("apps.notify.drivers.pagerduty.urllib.request.urlopen")
+    @patch("apps.notify.drivers.pagerduty.safe_urlopen")
     def test_send_http_error_no_fp(self, mock_urlopen):
         """HTTPError with fp=None uses str(e)."""
         http_error = urllib.error.HTTPError(
@@ -298,7 +299,7 @@ class PagerDutySendTests(SimpleTestCase):
         self.assertFalse(result["success"])
         self.assertIn("500", result["error"])
 
-    @patch("apps.notify.drivers.pagerduty.urllib.request.urlopen")
+    @patch("apps.notify.drivers.pagerduty.safe_urlopen")
     def test_send_url_error(self, mock_urlopen):
         """URLError is handled via _handle_url_error."""
         mock_urlopen.side_effect = urllib.error.URLError("DNS resolution failed")
@@ -308,7 +309,7 @@ class PagerDutySendTests(SimpleTestCase):
         self.assertFalse(result["success"])
         self.assertIn("Failed to connect to PagerDuty", result["error"])
 
-    @patch("apps.notify.drivers.pagerduty.urllib.request.urlopen")
+    @patch("apps.notify.drivers.pagerduty.safe_urlopen")
     def test_send_generic_exception(self, mock_urlopen):
         """Generic Exception is handled via _handle_exception."""
         mock_urlopen.side_effect = RuntimeError("something broke")
@@ -319,7 +320,7 @@ class PagerDutySendTests(SimpleTestCase):
         self.assertIn("something broke", result["error"])
 
     @patch("apps.notify.drivers.pagerduty.logger")
-    @patch("apps.notify.drivers.pagerduty.urllib.request.urlopen")
+    @patch("apps.notify.drivers.pagerduty.safe_urlopen")
     def test_send_http_error_logs_error(self, mock_urlopen, mock_logger):
         """HTTPError is logged before returning the error response."""
         error_body = io.BytesIO(json.dumps({"message": "Forbidden"}).encode())
@@ -347,7 +348,7 @@ class PagerDutyAcknowledgeResolveTests(SimpleTestCase):
         self.driver = PagerDutyNotifyDriver()
         self.config = {"integration_key": VALID_KEY}
 
-    @patch("apps.notify.drivers.pagerduty.urllib.request.urlopen")
+    @patch("apps.notify.drivers.pagerduty.safe_urlopen")
     def test_acknowledge_sends_acknowledge_action(self, mock_urlopen):
         """acknowledge() calls send with event_action=acknowledge."""
         resp_body = json.dumps(
@@ -368,7 +369,7 @@ class PagerDutyAcknowledgeResolveTests(SimpleTestCase):
         self.assertEqual(sent_data["event_action"], "acknowledge")
         self.assertEqual(sent_data["dedup_key"], "dedup-ack")
 
-    @patch("apps.notify.drivers.pagerduty.urllib.request.urlopen")
+    @patch("apps.notify.drivers.pagerduty.safe_urlopen")
     def test_resolve_sends_resolve_action(self, mock_urlopen):
         """resolve() calls send with event_action=resolve."""
         resp_body = json.dumps(
@@ -387,3 +388,16 @@ class PagerDutyAcknowledgeResolveTests(SimpleTestCase):
         sent_data = json.loads(call_args[0][0].data.decode("utf-8"))
         self.assertEqual(sent_data["event_action"], "resolve")
         self.assertEqual(sent_data["dedup_key"], "dedup-res")
+
+
+class TestPagerDutyDriverSSRF(SimpleTestCase):
+    def test_send_validates_api_url(self):
+        driver = PagerDutyNotifyDriver()
+        msg = NotificationMessage(title="test", message="body", severity="critical")
+        config = {"integration_key": "a" * 32}
+        with patch(
+            "apps.notify.drivers.pagerduty.safe_urlopen",
+            side_effect=URLNotAllowedError("DNS spoofed to private IP"),
+        ):
+            result = driver.send(msg, config)
+            assert result["success"] is False

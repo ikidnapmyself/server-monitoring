@@ -39,7 +39,7 @@ dev = [
     "mistralai>=1.12.4",
     "black>=24.0.0",
     "ruff>=0.6.0",
-    "pytest>=8.0.0",
+    "pytest>=9.0.3",
     "pytest-django>=4.8.0",
     "pytest-cov>=4.0.0",
     "mypy>=1.8.0",
@@ -79,12 +79,15 @@ extend-exclude = [
 
 [tool.ruff.lint]
 # Start small: pyflakes + pycodestyle + import sorting.
-select = ["F", "E", "W", "I"]
+select = ["F", "E", "W", "I", "TID"]
 # Black handles line wrapping; avoid fighting over E501.
 ignore = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["apps", "config"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"urllib.request".msg = "Use safe_urlopen from config.security.http instead of urllib.request for SSRF protection"
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"

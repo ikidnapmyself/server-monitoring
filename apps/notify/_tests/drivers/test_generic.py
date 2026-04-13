@@ -9,6 +9,7 @@ from django.test import SimpleTestCase
 
 from apps.notify.drivers.base import NotificationMessage
 from apps.notify.drivers.generic import GenericNotifyDriver
+from config.security.url_validation import URLNotAllowedError
 
 
 def _make_msg(**kwargs):
@@ -162,7 +163,7 @@ class GenericSendTests(SimpleTestCase):
         self.assertFalse(result["success"])
         self.assertIn("Invalid configuration", result["error"])
 
-    @patch("apps.notify.drivers.generic.urllib.request.urlopen")
+    @patch("apps.notify.drivers.generic.safe_urlopen")
     def test_send_post_with_json_response(self, mock_urlopen):
         """Successful POST with JSON response body."""
         resp = json.dumps({"status": "received"})
@@ -181,7 +182,7 @@ class GenericSendTests(SimpleTestCase):
         self.assertEqual(result["metadata"]["endpoint"], ENDPOINT)
         self.assertEqual(result["metadata"]["response"]["status"], "received")
 
-    @patch("apps.notify.drivers.generic.urllib.request.urlopen")
+    @patch("apps.notify.drivers.generic.safe_urlopen")
     def test_send_post_with_non_json_response(self, mock_urlopen):
         """Successful POST with non-JSON response body wraps in raw key."""
         mock_urlopen.return_value = _mock_urlopen("OK")
@@ -196,7 +197,7 @@ class GenericSendTests(SimpleTestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["metadata"]["response"]["raw"], "OK")
 
-    @patch("apps.notify.drivers.generic.urllib.request.urlopen")
+    @patch("apps.notify.drivers.generic.safe_urlopen")
     def test_send_get_method_no_body(self, mock_urlopen):
         """GET method does not send request body (data=None)."""
         mock_urlopen.return_value = _mock_urlopen("{}")
@@ -215,7 +216,7 @@ class GenericSendTests(SimpleTestCase):
         self.assertIsNone(request_obj.data)
         self.assertEqual(request_obj.method, "GET")
 
-    @patch("apps.notify.drivers.generic.urllib.request.urlopen")
+    @patch("apps.notify.drivers.generic.safe_urlopen")
     def test_send_put_method_sends_body(self, mock_urlopen):
         """PUT method sends request body."""
         mock_urlopen.return_value = _mock_urlopen("{}")
@@ -234,7 +235,7 @@ class GenericSendTests(SimpleTestCase):
         self.assertIsNotNone(request_obj.data)
         self.assertEqual(request_obj.method, "PUT")
 
-    @patch("apps.notify.drivers.generic.urllib.request.urlopen")
+    @patch("apps.notify.drivers.generic.safe_urlopen")
     def test_send_custom_headers(self, mock_urlopen):
         """Custom headers from config are merged with defaults."""
         mock_urlopen.return_value = _mock_urlopen("{}")
@@ -258,7 +259,7 @@ class GenericSendTests(SimpleTestCase):
         # Default headers should still be present
         self.assertEqual(request_obj.get_header("Content-type"), "application/json")
 
-    @patch("apps.notify.drivers.generic.urllib.request.urlopen")
+    @patch("apps.notify.drivers.generic.safe_urlopen")
     def test_send_uses_webhook_url_fallback(self, mock_urlopen):
         """When endpoint is missing, webhook_url is used."""
         mock_urlopen.return_value = _mock_urlopen("{}")
@@ -275,7 +276,7 @@ class GenericSendTests(SimpleTestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["metadata"]["endpoint"], alt_url)
 
-    @patch("apps.notify.drivers.generic.urllib.request.urlopen")
+    @patch("apps.notify.drivers.generic.safe_urlopen")
     def test_send_http_error(self, mock_urlopen):
         """HTTPError is handled with custom error message."""
         error_body = io.BytesIO(b"Bad Request: invalid payload")
@@ -299,7 +300,7 @@ class GenericSendTests(SimpleTestCase):
         self.assertIn("400", result["error"])
         self.assertIn("Bad Request: invalid payload", result["error"])
 
-    @patch("apps.notify.drivers.generic.urllib.request.urlopen")
+    @patch("apps.notify.drivers.generic.safe_urlopen")
     def test_send_http_error_no_fp(self, mock_urlopen):
         """HTTPError with fp=None uses str(e) for error body."""
         http_error = urllib.error.HTTPError(
@@ -321,7 +322,7 @@ class GenericSendTests(SimpleTestCase):
         self.assertFalse(result["success"])
         self.assertIn("500", result["error"])
 
-    @patch("apps.notify.drivers.generic.urllib.request.urlopen")
+    @patch("apps.notify.drivers.generic.safe_urlopen")
     def test_send_url_error(self, mock_urlopen):
         """URLError is handled via _handle_url_error."""
         mock_urlopen.side_effect = urllib.error.URLError("Connection refused")
@@ -336,7 +337,7 @@ class GenericSendTests(SimpleTestCase):
         self.assertFalse(result["success"])
         self.assertIn("Failed to connect to Generic", result["error"])
 
-    @patch("apps.notify.drivers.generic.urllib.request.urlopen")
+    @patch("apps.notify.drivers.generic.safe_urlopen")
     def test_send_generic_exception(self, mock_urlopen):
         """Generic Exception is handled via _handle_exception."""
         mock_urlopen.side_effect = RuntimeError("unexpected error")
@@ -378,10 +379,24 @@ class GenericSendDisabledTests(SimpleTestCase):
         self.assertTrue(result["metadata"]["disabled"])
 
 
+class TestGenericDriverSSRF(SimpleTestCase):
+    def test_send_rejects_ssrf_url(self):
+        driver = GenericNotifyDriver()
+        msg = NotificationMessage(title="test", message="body", severity="info")
+        config = {"endpoint": "http://169.254.169.254/latest/meta-data/"}
+        with patch(
+            "apps.notify.drivers.generic.safe_urlopen",
+            side_effect=URLNotAllowedError("private"),
+        ):
+            result = driver.send(msg, config)
+            assert result["success"] is False
+            assert "not allowed" in result["error"].lower() or "private" in result["error"].lower()
+
+
 class GenericUserAgentTests(SimpleTestCase):
     """Tests that the correct User-Agent header is sent."""
 
-    @patch("apps.notify.drivers.generic.urllib.request.urlopen")
+    @patch("apps.notify.drivers.generic.safe_urlopen")
     def test_user_agent_header_is_server_monitoring(self, mock_urlopen):
         """User-Agent header must be 'ServerMonitoring/1.0'."""
         mock_urlopen.return_value = _mock_urlopen("{}")
