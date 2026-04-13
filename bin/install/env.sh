@@ -3,7 +3,8 @@
 # Installer module: environment and core .env configuration.
 #
 # Configures: DJANGO_ENV, DEPLOY_METHOD, DJANGO_DEBUG,
-#             DJANGO_ALLOWED_HOSTS, DJANGO_SECRET_KEY
+#             DJANGO_ALLOWED_HOSTS, DJANGO_SECRET_KEY,
+#             API_KEY_AUTH_ENABLED
 #
 # Source this file from install.sh, or run directly for standalone use.
 #
@@ -141,6 +142,20 @@ _configure_secret_key() {
 }
 
 _configure_secret_key
+
+# ---------------------------------------------------------------------------
+# 6. API_KEY_AUTH_ENABLED
+# ---------------------------------------------------------------------------
+
+if [ "$DJANGO_ENV" = "dev" ]; then
+    dotenv_set "$_ENV_FILE" "API_KEY_AUTH_ENABLED" "0"
+    info "API_KEY_AUTH_ENABLED=0 (disabled for development)"
+else
+    if ! dotenv_has_value "$_ENV_FILE" "API_KEY_AUTH_ENABLED"; then
+        dotenv_set "$_ENV_FILE" "API_KEY_AUTH_ENABLED" "1"
+        info "API_KEY_AUTH_ENABLED=1 (enabled for production)"
+    fi
+fi
 
 # ---------------------------------------------------------------------------
 # Done

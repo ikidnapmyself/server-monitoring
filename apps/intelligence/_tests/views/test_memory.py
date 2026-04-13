@@ -3,7 +3,7 @@
 from unittest.mock import patch
 
 import pytest
-from django.test import Client, SimpleTestCase
+from django.test import Client, SimpleTestCase, override_settings
 
 from apps.intelligence.providers.base import (
     Recommendation,
@@ -13,6 +13,7 @@ from apps.intelligence.providers.base import (
 
 
 @pytest.mark.django_db
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class TestMemoryAnalysisView(SimpleTestCase):
     """Tests for GET /intelligence/memory/."""
 

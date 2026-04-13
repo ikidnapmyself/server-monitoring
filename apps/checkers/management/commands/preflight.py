@@ -83,6 +83,8 @@ class Command(BaseCommand):
 
         debug_str = "on" if profile["debug"] else "off"
         eager_str = "eager" if profile["celery_eager"] else "async"
+        auth_str = "enabled" if profile["api_key_auth"] else "DISABLED"
+        rate_str = "enabled" if profile["rate_limiting"] else "DISABLED"
 
         lines = [
             ("Role:", role_str),
@@ -90,6 +92,7 @@ class Command(BaseCommand):
             ("Deploy:", profile["deploy_method"]),
             ("Database:", profile["database"]),
             ("Celery:", f"{profile['celery_broker']} ({eager_str})"),
+            ("Auth:", f"API key auth {auth_str}, rate limiting {rate_str}"),
             ("Metrics:", profile["metrics_backend"]),
             ("Logging:", profile["logs_dir"]),
         ]

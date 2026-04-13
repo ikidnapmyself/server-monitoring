@@ -3,7 +3,7 @@
 import json
 from unittest.mock import MagicMock, patch
 
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 
 
 def _simple_pipeline_config():
@@ -31,6 +31,7 @@ def _simple_pipeline_config():
     }
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class TestPipelineDefinitionListView(TestCase):
     """Tests for PipelineDefinitionListView."""
 
@@ -95,6 +96,7 @@ class TestPipelineDefinitionListView(TestCase):
         assert data["count"] == 2
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class TestPipelineDefinitionDetailView(TestCase):
     """Tests for PipelineDefinitionDetailView."""
 
@@ -127,6 +129,7 @@ class TestPipelineDefinitionDetailView(TestCase):
         assert response.status_code == 404
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class TestPipelineDefinitionValidateView(TestCase):
     """Tests for PipelineDefinitionValidateView."""
 
@@ -173,6 +176,7 @@ class TestPipelineDefinitionValidateView(TestCase):
         assert len(data["errors"]) > 0
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class TestPipelineDefinitionExecuteView(TestCase):
     """Tests for PipelineDefinitionExecuteView."""
 
@@ -243,6 +247,7 @@ class TestPipelineDefinitionExecuteView(TestCase):
         assert response.status_code == 404
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class TestPipelineView(TestCase):
     """Tests for PipelineView (POST /orchestration/pipeline/)."""
 
@@ -295,6 +300,7 @@ class TestPipelineView(TestCase):
         mock_orch_cls.return_value.run_pipeline.assert_called_once()
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class TestPipelineStatusView(TestCase):
     """Tests for PipelineStatusView (GET /orchestration/pipeline/<run_id>/)."""
 
@@ -328,6 +334,7 @@ class TestPipelineStatusView(TestCase):
         assert "not found" in response.json()["error"]
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class TestPipelineListView(TestCase):
     """Tests for PipelineListView (GET /orchestration/pipelines/)."""
 
@@ -376,6 +383,7 @@ class TestPipelineListView(TestCase):
             assert run["source"] == "grafana"
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class TestPipelineResumeView(TestCase):
     """Tests for PipelineResumeView (POST /orchestration/pipeline/<run_id>/resume/)."""
 
@@ -442,6 +450,7 @@ class TestPipelineResumeView(TestCase):
         assert response.json()["error"] == "Invalid JSON body"
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class TestPipelineDefinitionValidateView404(TestCase):
     """Test 404 case for PipelineDefinitionValidateView."""
 
@@ -453,6 +462,7 @@ class TestPipelineDefinitionValidateView404(TestCase):
         assert response.status_code == 404
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class TestPipelineDefinitionExecuteViewInvalidJSON(TestCase):
     """Test invalid JSON case for PipelineDefinitionExecuteView."""
 

@@ -1,10 +1,11 @@
 """Tests for the providers list view."""
 
 import pytest
-from django.test import Client, SimpleTestCase
+from django.test import Client, SimpleTestCase, override_settings
 
 
 @pytest.mark.django_db
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class TestProvidersListView(SimpleTestCase):
     """Tests for ProvidersListView."""
 

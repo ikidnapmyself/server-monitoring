@@ -4,7 +4,7 @@ import json
 from unittest.mock import patch
 
 import pytest
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 
 from apps.intelligence.providers.base import (
     Recommendation,
@@ -24,6 +24,7 @@ SAMPLE_RECOMMENDATIONS = [
 
 
 @pytest.mark.django_db
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class TestRecommendationsGetView(TestCase):
     """Tests for GET /intelligence/recommendations/."""
 
@@ -76,6 +77,7 @@ class TestRecommendationsGetView(TestCase):
 
 
 @pytest.mark.django_db
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class TestRecommendationsPostView(TestCase):
     """Tests for POST /intelligence/recommendations/."""
 
@@ -183,6 +185,7 @@ class TestRecommendationsPostView(TestCase):
 
 
 @pytest.mark.django_db
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class TestRecommendationsGetEdgeCases(TestCase):
     """Edge case tests for GET /intelligence/recommendations/."""
 

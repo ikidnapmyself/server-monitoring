@@ -6,7 +6,7 @@ import json
 import os
 from unittest.mock import patch
 
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 
 from apps.alerts.drivers.base import BaseAlertDriver
 from apps.alerts.drivers.generic import GenericWebhookDriver
@@ -15,6 +15,7 @@ from apps.alerts.drivers.newrelic import NewRelicDriver
 from apps.alerts.drivers.pagerduty import PagerDutyDriver
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class BaseDriverSignatureTests(TestCase):
     def test_base_driver_defaults(self):
         assert BaseAlertDriver.signature_header is None
@@ -49,6 +50,7 @@ class BaseDriverSignatureTests(TestCase):
         assert driver.verify_signature(body, f"sha1={digest}", secret) is False
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class DriverSignatureHeaderTests(TestCase):
     def test_grafana_header(self):
         assert GrafanaDriver.signature_header == "X-Grafana-Signature"
@@ -63,6 +65,7 @@ class DriverSignatureHeaderTests(TestCase):
         assert GenericWebhookDriver.signature_header == "X-Webhook-Signature"
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class WebhookSignatureIntegrationTests(TestCase):
     @patch.dict(
         os.environ,

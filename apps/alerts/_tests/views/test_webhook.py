@@ -2,12 +2,13 @@ import json
 import os
 from unittest.mock import patch
 
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from apps.alerts.services import ProcessingResult
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class WebhookViewTests(TestCase):
     """Tests for the webhook views."""
 
@@ -73,6 +74,7 @@ class WebhookViewTests(TestCase):
         self.assertIn(response.status_code, [200, 202])
 
 
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class WebhookViewPartialResponseTests(TestCase):
     """Tests for webhook partial responses when orchestrator reports errors."""
 
