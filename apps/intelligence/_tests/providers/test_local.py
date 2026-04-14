@@ -48,6 +48,79 @@ class TestProviderRegistry(SimpleTestCase):
         with pytest.raises(KeyError):
             get_provider("unknown_provider")
 
+    def test_get_provider_strips_blocked_host_kwarg(self):
+        """URL-controlling kwargs are stripped to prevent SSRF."""
+        from apps.intelligence.providers import get_provider
+
+        provider = get_provider("local", host="http://evil.com")
+        assert isinstance(provider, LocalRecommendationProvider)
+
+    def test_get_provider_strips_blocked_base_url_kwarg(self):
+        """base_url kwarg is stripped to prevent SSRF."""
+        from apps.intelligence.providers import get_provider
+
+        provider = get_provider("local", base_url="http://evil.com")
+        assert isinstance(provider, LocalRecommendationProvider)
+
+    def test_get_provider_passes_safe_kwargs(self):
+        """Non-blocked kwargs like top_n_processes still pass through."""
+        from apps.intelligence.providers import get_provider
+
+        provider = get_provider("local", top_n_processes=3)
+        assert provider.top_n_processes == 3
+
+    def test_get_provider_strips_host_from_url_accepting_provider(self):
+        """Strong proof: a provider that *does* accept `host` never sees the
+        malicious value, because get_provider strips it before construction.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from apps.intelligence.providers import PROVIDERS, get_provider
+
+        dummy_cls = MagicMock()
+        with patch.dict(PROVIDERS, {"dummy_url_provider": dummy_cls}):
+            get_provider(
+                "dummy_url_provider",
+                host="http://169.254.169.254",
+                base_url="http://evil.com",
+                model="safe-model",
+            )
+
+        # Dummy provider was constructed — but without host/base_url kwargs
+        dummy_cls.assert_called_once()
+        call_kwargs = dummy_cls.call_args.kwargs
+        assert "host" not in call_kwargs
+        assert "base_url" not in call_kwargs
+        assert call_kwargs.get("model") == "safe-model"
+
+    def test_get_active_provider_strips_blocked_kwargs(self):
+        """get_active_provider also strips URL-controlling kwargs."""
+        from unittest.mock import MagicMock, patch
+
+        from apps.intelligence.providers import PROVIDERS, get_active_provider
+
+        dummy_cls = MagicMock()
+        mock_db_provider = MagicMock()
+        mock_db_provider.provider = "dummy_url_provider"
+        mock_db_provider.config = {"base_url": "https://server-configured.example.com"}
+
+        with patch.dict(PROVIDERS, {"dummy_url_provider": dummy_cls}):
+            with patch("apps.intelligence.models.IntelligenceProvider.objects") as mock_objects:
+                mock_objects.filter.return_value.first.return_value = mock_db_provider
+                get_active_provider(
+                    host="http://169.254.169.254",
+                    base_url="http://evil.com",
+                    model="safe-model",
+                )
+
+        call_kwargs = dummy_cls.call_args.kwargs
+        # Server-side DB config retains its URL
+        assert call_kwargs.get("base_url") == "https://server-configured.example.com"
+        # Caller-supplied host is stripped
+        assert "host" not in call_kwargs
+        # Safe kwargs pass through
+        assert call_kwargs.get("model") == "safe-model"
+
 
 class TestRecommendation(SimpleTestCase):
     """Tests for the Recommendation dataclass."""

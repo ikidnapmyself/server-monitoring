@@ -153,6 +153,61 @@ class TestRecommendationsPostView(TestCase):
         assert "not found" in data["error"]
 
     @patch("apps.intelligence.views.recommendations.get_provider")
+    def test_post_response_does_not_include_config(self, mock_get_provider):
+        """POST response must not echo back caller-supplied config."""
+        mock_provider = mock_get_provider.return_value
+        mock_provider.run.return_value = SAMPLE_RECOMMENDATIONS
+
+        client = Client()
+        response = client.post(
+            "/intelligence/recommendations/",
+            data=json.dumps({"config": {"host": "http://evil.com"}}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "config" not in data
+
+    def test_post_end_to_end_strips_blocked_kwargs(self):
+        """Integration test: the full view -> get_provider chain strips
+        host/base_url before constructing the provider. Uses a real
+        get_provider call with a dummy URL-accepting provider to prove the
+        blocked keys never reach the constructor.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from apps.intelligence.providers import PROVIDERS
+
+        dummy_cls = MagicMock()
+        dummy_cls.return_value.run.return_value = SAMPLE_RECOMMENDATIONS
+
+        with patch.dict(PROVIDERS, {"dummy_url_provider": dummy_cls}):
+            client = Client()
+            response = client.post(
+                "/intelligence/recommendations/",
+                data=json.dumps(
+                    {
+                        "provider": "dummy_url_provider",
+                        "config": {
+                            "host": "http://169.254.169.254",
+                            "base_url": "http://evil.com",
+                            "model": "safe-model",
+                        },
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200
+        # The provider was constructed — verify blocked keys were stripped
+        dummy_cls.assert_called_once()
+        call_kwargs = dummy_cls.call_args.kwargs
+        assert "host" not in call_kwargs
+        assert "base_url" not in call_kwargs
+        assert call_kwargs.get("model") == "safe-model"
+
+    @patch("apps.intelligence.views.recommendations.get_provider")
     def test_post_recommendations_unknown_provider(self, mock_get_provider):
         """POST with unknown provider returns 400."""
         mock_get_provider.side_effect = KeyError("Unknown provider: bogus")
