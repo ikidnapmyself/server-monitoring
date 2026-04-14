@@ -118,12 +118,19 @@ def get_active_provider(**kwargs) -> BaseProvider:
     Queries IntelligenceProvider for an active record.  If found and its
     driver class is available, returns a configured instance.  Otherwise
     falls back to the local provider.
+
+    URL-controlling kwargs (host, base_url) are stripped from the caller-
+    supplied kwargs to prevent SSRF via pipeline payload. Server-side
+    DB config retains its URL values.
     """
     import logging
 
     from django.db import OperationalError, ProgrammingError
 
     logger = logging.getLogger(__name__)
+
+    for key in BLOCKED_CONFIG_KEYS:
+        kwargs.pop(key, None)
 
     try:
         from apps.intelligence.models import IntelligenceProvider as ProviderModel
