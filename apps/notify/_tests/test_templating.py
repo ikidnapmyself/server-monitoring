@@ -15,7 +15,10 @@ from apps.notify.templating import (
 
 class TemplatingTests(SimpleTestCase):
     def test_render_inline_template(self):
-        out = render_template("Hello {{ name }}", {"name": "World"})
+        out = render_template(
+            {"type": "inline", "template": "Hello {{ name }}"},
+            {"name": "World"},
+        )
         self.assertIn("Hello", out)
         self.assertIn("World", out)
 
@@ -570,10 +573,17 @@ class TestRenderTemplateFunction(SimpleTestCase):
         )
         assert result is not None
 
-    def test_string_treated_as_inline_when_no_file_match(self):
-        result = render_template("Hello {{ name }}", {"name": "X"})
-        assert "Hello" in result
-        assert "X" in result
+    def test_string_with_jinja_syntax_raises(self):
+        """Bare strings containing Jinja syntax are rejected to prevent SSTI
+        via untrusted payload data.
+
+        This test validates the reverse of the pre-hardening behavior: bare
+        strings used to be treated as inline templates; now they must either
+        be a filename (matching the restrictive pattern) or an explicit dict
+        spec.
+        """
+        with pytest.raises(ValueError, match="bare strings must be a filename"):
+            render_template("Hello {{ name }}", {"name": "X"})
 
     def test_unsupported_spec_type_raises(self):
         with pytest.raises(ValueError, match="Unsupported template spec"):
@@ -585,7 +595,10 @@ class TestRenderTemplateFunction(SimpleTestCase):
 
     def test_jinja2_render_error_raises(self):
         with pytest.raises(ValueError, match="Jinja2 render error"):
-            render_template("{{ foo|nonexistent_filter }}", {})
+            render_template(
+                {"type": "inline", "template": "{{ foo|nonexistent_filter }}"},
+                {},
+            )
 
     def test_dict_spec_with_none_template_returns_none(self):
         spec = {"type": "inline", "template": None}
@@ -600,7 +613,10 @@ class TestRenderTemplateFallback(SimpleTestCase):
             patch("apps.notify.templating._JINJA_AVAILABLE", False),
             patch("apps.notify.templating._JINJA_ENV", None),
         ):
-            result = render_template("Hello {name}", {"name": "World"})
+            result = render_template(
+                {"type": "inline", "template": "Hello {name}"},
+                {"name": "World"},
+            )
             assert result == "Hello World"
 
     def test_format_map_missing_key_returns_empty(self):
@@ -608,7 +624,10 @@ class TestRenderTemplateFallback(SimpleTestCase):
             patch("apps.notify.templating._JINJA_AVAILABLE", False),
             patch("apps.notify.templating._JINJA_ENV", None),
         ):
-            result = render_template("Hello {name} {missing}", {"name": "World"})
+            result = render_template(
+                {"type": "inline", "template": "Hello {name} {missing}"},
+                {"name": "World"},
+            )
             assert result == "Hello World "
 
     def test_jinja_syntax_without_jinja_raises(self):
@@ -617,7 +636,10 @@ class TestRenderTemplateFallback(SimpleTestCase):
             patch("apps.notify.templating._JINJA_ENV", None),
         ):
             with pytest.raises(ValueError, match="Jinja2 is not installed"):
-                render_template("{{ name }}", {"name": "World"})
+                render_template(
+                    {"type": "inline", "template": "{{ name }}"},
+                    {"name": "World"},
+                )
 
     def test_jinja_block_syntax_without_jinja_raises(self):
         with (
@@ -625,7 +647,10 @@ class TestRenderTemplateFallback(SimpleTestCase):
             patch("apps.notify.templating._JINJA_ENV", None),
         ):
             with pytest.raises(ValueError, match="Jinja2 is not installed"):
-                render_template("{% if true %}yes{% endif %}", {})
+                render_template(
+                    {"type": "inline", "template": "{% if true %}yes{% endif %}"},
+                    {},
+                )
 
     def test_jinja_comment_syntax_without_jinja_raises(self):
         with (
@@ -633,7 +658,10 @@ class TestRenderTemplateFallback(SimpleTestCase):
             patch("apps.notify.templating._JINJA_ENV", None),
         ):
             with pytest.raises(ValueError, match="Jinja2 is not installed"):
-                render_template("{# comment #}", {})
+                render_template(
+                    {"type": "inline", "template": "{# comment #}"},
+                    {},
+                )
 
     def test_format_map_error_raises(self):
         with (
@@ -641,7 +669,7 @@ class TestRenderTemplateFallback(SimpleTestCase):
             patch("apps.notify.templating._JINJA_ENV", None),
         ):
             with pytest.raises(ValueError, match="Fallback render error"):
-                render_template("{0}", {})
+                render_template({"type": "inline", "template": "{0}"}, {})
 
 
 class TestSafeDict(SimpleTestCase):
@@ -920,7 +948,7 @@ class TestRenderMessageTemplates(SimpleTestCase):
         mock_psutil.virtual_memory.return_value = MagicMock(total=1)
         mock_psutil.disk_usage.return_value = MagicMock(total=1)
 
-        config = {"template": "Hello {{ title }}"}
+        config = {"template": {"type": "inline", "template": "Hello {{ title }}"}}
         result = self.svc.render_message_templates("test_driver", self.base_msg, config)
         assert result["text"] == "Hello Test"
 
@@ -930,7 +958,7 @@ class TestRenderMessageTemplates(SimpleTestCase):
         mock_psutil.virtual_memory.return_value = MagicMock(total=1)
         mock_psutil.disk_usage.return_value = MagicMock(total=1)
 
-        config = {"text_template": "Hi {{ title }}"}
+        config = {"text_template": {"type": "inline", "template": "Hi {{ title }}"}}
         result = self.svc.render_message_templates("test_driver", self.base_msg, config)
         assert result["text"] == "Hi Test"
 
@@ -940,7 +968,7 @@ class TestRenderMessageTemplates(SimpleTestCase):
         mock_psutil.virtual_memory.return_value = MagicMock(total=1)
         mock_psutil.disk_usage.return_value = MagicMock(total=1)
 
-        config = {"payload_template": "Payload: {{ title }}"}
+        config = {"payload_template": {"type": "inline", "template": "Payload: {{ title }}"}}
         result = self.svc.render_message_templates("test_driver", self.base_msg, config)
         assert result["text"] == "Payload: Test"
 
@@ -950,7 +978,7 @@ class TestRenderMessageTemplates(SimpleTestCase):
         mock_psutil.virtual_memory.return_value = MagicMock(total=1)
         mock_psutil.disk_usage.return_value = MagicMock(total=1)
 
-        config = {"template": "{{ foo|nonexistent_filter }}"}
+        config = {"template": {"type": "inline", "template": "{{ foo|nonexistent_filter }}"}}
         with pytest.raises(ValueError, match="Failed to render configured template"):
             self.svc.render_message_templates("test_driver", self.base_msg, config)
 
@@ -979,11 +1007,13 @@ class TestRenderMessageTemplates(SimpleTestCase):
         mock_psutil.disk_usage.return_value = MagicMock(total=1)
 
         config = {
-            "template": "text content",
-            "html_template": "<b>{{ title }}</b>",
+            "template": {"type": "inline", "template": "text content"},
+            "html_template": {"type": "inline", "template": "<b>{{ title }}</b>"},
         }
         result = self.svc.render_message_templates("test_driver", self.base_msg, config)
         assert result["text"] == "text content"
+        # Literal <b> in the template source is NOT escaped; only variable
+        # interpolations are escaped under autoescape=True.
         assert result["html"] == "<b>Test</b>"
 
     @patch("apps.notify.templating.psutil")
@@ -993,8 +1023,8 @@ class TestRenderMessageTemplates(SimpleTestCase):
         mock_psutil.disk_usage.return_value = MagicMock(total=1)
 
         config = {
-            "template": "text content",
-            "html_template": "{{ foo|nonexistent_filter }}",
+            "template": {"type": "inline", "template": "text content"},
+            "html_template": {"type": "inline", "template": "{{ foo|nonexistent_filter }}"},
         }
         result = self.svc.render_message_templates("test_driver", self.base_msg, config)
         assert result["text"] == "text content"
@@ -1016,7 +1046,7 @@ class TestRenderMessageTemplates(SimpleTestCase):
         mock_psutil.virtual_memory.return_value = MagicMock(total=1)
         mock_psutil.disk_usage.return_value = MagicMock(total=1)
 
-        config = {"template": "text content"}
+        config = {"template": {"type": "inline", "template": "text content"}}
         result = self.svc.render_message_templates("test_driver", self.base_msg, config)
         assert result["html"] is None
 
@@ -1209,9 +1239,11 @@ class TestCoverageGaps(SimpleTestCase):
         mock_psutil.virtual_memory.return_value = MagicMock(total=1)
         mock_psutil.disk_usage.return_value = MagicMock(total=1)
 
-        config = {"html_template": "Hello <b>{{ title }}</b>"}
+        config = {"html_template": {"type": "inline", "template": "Hello <b>{{ title }}</b>"}}
         result = self.svc.render_message_templates("slack", self.base_msg, config)
         assert result["text"] is not None  # from default slack_text.j2
+        # Literal <b> in template source is not escaped; only variable
+        # substitutions are escaped under autoescape=True.
         assert result["html"] == "Hello <b>Test</b>"
 
     # L379->394 (False branch): html_template renders to empty string (falsy),
@@ -1223,7 +1255,10 @@ class TestCoverageGaps(SimpleTestCase):
         mock_psutil.disk_usage.return_value = MagicMock(total=1)
 
         # Template that renders to empty string
-        config = {"template": "text", "html_template": "{{ missing_var }}"}
+        config = {
+            "template": {"type": "inline", "template": "text"},
+            "html_template": {"type": "inline", "template": "{{ missing_var }}"},
+        }
         result = self.svc.render_message_templates("test_driver", self.base_msg, config)
         assert result["text"] == "text"
         # Jinja2 renders undefined variables to empty string, which is falsy
@@ -1241,3 +1276,83 @@ class TestCoverageGaps(SimpleTestCase):
         result = self.svc.render_message_templates("email", self.base_msg, config)
         assert result["text"] is not None
         assert result["html"] is not None
+
+
+# ---------------------------------------------------------------------------
+# SSTI regression tests
+#
+# These tests guard the two hardening invariants of render_template:
+#   1. Bare strings are never treated as inline Jinja2 source. The only way
+#      to execute Jinja2 source through render_template is via an explicit
+#      {"type": "inline", "template": "..."} dict — which callers only use
+#      for trusted, DB-sourced configuration.
+#   2. Even trusted inline templates run through jinja2.sandbox's
+#      ImmutableSandboxedEnvironment, which blocks the attribute-access
+#      primitives (``__class__``, ``__globals__``, etc.) that every known
+#      Jinja SSTI payload relies on.
+# ---------------------------------------------------------------------------
+
+
+class TestSSTIRegression(SimpleTestCase):
+    """Regression tests for the SSTI hardening in apps/notify/templating.py."""
+
+    def test_bare_string_with_jinja_expression_rejected(self):
+        """A bare string containing ``{{ ... }}`` must be rejected outright."""
+        with pytest.raises(ValueError, match="bare strings must be a filename"):
+            render_template("{{ 7*7 }}", {})
+
+    def test_bare_string_with_jinja_block_rejected(self):
+        """A bare string containing ``{% ... %}`` must be rejected outright."""
+        with pytest.raises(ValueError, match="bare strings must be a filename"):
+            render_template("{% import os %}", {})
+
+    def test_sandbox_blocks_dunder_class_mro_access(self):
+        """Classic SSTI gadget ``''.__class__.__mro__`` must be blocked.
+
+        ImmutableSandboxedEnvironment rejects dunder attribute access and
+        raises ``jinja2.sandbox.SecurityError``. ``render_template`` wraps all
+        Jinja exceptions in ``ValueError(f"Jinja2 render error: {e}")``, so
+        callers see a ValueError whose message contains the sandbox's
+        "unsafe" text.
+
+        Note: bare ``''.__class__`` does NOT raise — Jinja2 silently returns
+        an Undefined value. The sandbox only fires when something *uses* the
+        forbidden attribute, e.g. walks into ``__mro__``. All known SSTI
+        gadgets dereference at least one dunder chain, so this is what we
+        must block.
+        """
+        with pytest.raises(ValueError, match="Jinja2 render error") as excinfo:
+            render_template(
+                {"type": "inline", "template": "{{ ''.__class__.__mro__ }}"},
+                {},
+            )
+        assert "unsafe" in str(excinfo.value).lower()
+
+    def test_sandbox_blocks_subclasses_gadget(self):
+        """Full ``__class__.__mro__[...]__subclasses__`` gadget must be blocked."""
+        with pytest.raises(ValueError, match="Jinja2 render error") as excinfo:
+            render_template(
+                {
+                    "type": "inline",
+                    "template": "{{ ''.__class__.__mro__[1].__subclasses__() }}",
+                },
+                {},
+            )
+        assert "unsafe" in str(excinfo.value).lower()
+
+    def test_inline_dict_form_renders_safely(self):
+        """The dict form is the trusted path and must still work."""
+        out = render_template(
+            {"type": "inline", "template": "Hello {{ name }}"},
+            {"name": "world"},
+        )
+        assert out == "Hello world"
+
+    def test_autoescape_escapes_variable_html(self):
+        """``autoescape=True`` must escape HTML in variable interpolations."""
+        out = render_template(
+            {"type": "inline", "template": "{{ x }}"},
+            {"x": "<script>alert(1)</script>"},
+        )
+        assert "<script>" not in out
+        assert "&lt;script&gt;" in out

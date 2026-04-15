@@ -712,7 +712,11 @@ class TestNotifyExecutorTemplateRendering(TestCase):
     def test_template_from_channel_config(self):
         driver_cls, _ = _mock_driver_cls()
         channel_obj = MagicMock()
-        channel_obj.config = {"template": "Hello {{ title }}"}
+        # Channel config templates are trusted (DB-sourced) but must use the
+        # dict form to be rendered as an inline Jinja2 template.
+        channel_obj.config = {
+            "template": {"type": "inline", "template": "Hello {{ title }}"},
+        }
 
         resolve_ret = ("slack", {}, "slack", driver_cls, channel_obj, "default")
 
@@ -726,7 +730,14 @@ class TestNotifyExecutorTemplateRendering(TestCase):
         msg = result.messages[0]
         assert "Hello Incident Analysis" in msg["message"]
 
-    def test_template_from_payload_config(self):
+    def test_payload_config_template_is_ignored(self):
+        """Templates passed in pipeline payload.notify_config are IGNORED.
+
+        SSTI hardening: only DB-sourced channel config may provide a template.
+        Untrusted payload templates must never be rendered. When payload
+        contains a template but no channel_obj does, the executor falls back
+        to the default ``build_notification_body`` output.
+        """
         driver_cls, _ = _mock_driver_cls()
 
         with patch(
@@ -736,6 +747,8 @@ class TestNotifyExecutorTemplateRendering(TestCase):
             result = NotifyExecutor().execute(
                 _ctx(
                     payload={
+                        # This template must NOT be rendered; the executor
+                        # ignores payload-sourced templates entirely.
                         "notify_config": {"template": "Payload: {{ title }}"},
                     },
                     previous_results={"analyze": {}},
@@ -744,12 +757,22 @@ class TestNotifyExecutorTemplateRendering(TestCase):
 
         assert not result.errors
         msg = result.messages[0]
-        assert "Payload: Incident Analysis" in msg["message"]
+        # The payload-supplied literal string must not appear anywhere; the
+        # executor must use the default build_notification_body output.
+        assert "Payload: {{ title }}" not in msg["message"]
+        assert "Payload: Incident Analysis" not in msg["message"]
+        # Default body is produced from build_notification_body; assert it
+        # produced non-empty content so we know the fallback path ran.
+        assert msg["message"]
 
     def test_template_render_error_falls_back(self):
         driver_cls, _ = _mock_driver_cls()
         channel_obj = MagicMock()
-        channel_obj.config = {"template": "{{ bad }"}
+        # Broken inline template in channel config: render error should be
+        # swallowed and the executor should fall back to the default body.
+        channel_obj.config = {
+            "template": {"type": "inline", "template": "{{ bad }"},
+        }
 
         resolve_ret = ("slack", {}, "slack", driver_cls, channel_obj, "default")
 
@@ -763,6 +786,35 @@ class TestNotifyExecutorTemplateRendering(TestCase):
         assert not result.errors
         msg = result.messages[0]
         assert msg["message"]  # non-empty fallback
+
+    def test_payload_ssti_attempt_ignored(self):
+        """SSTI regression: a malicious inline template in payload is ignored.
+
+        This is the positive security test that complements
+        ``test_payload_config_template_is_ignored``. An attacker-controlled
+        payload with a Jinja2 expression must never be rendered.
+        """
+        driver_cls, _ = _mock_driver_cls()
+
+        with patch(
+            "apps.notify.services.NotifySelector.resolve",
+            return_value=_resolve_return(driver_cls),
+        ):
+            result = NotifyExecutor().execute(
+                _ctx(
+                    payload={
+                        "notify_config": {"template": "{{ 7*7 }}"},
+                    },
+                    previous_results={"analyze": {}},
+                )
+            )
+
+        assert not result.errors
+        msg = result.messages[0]
+        # The expression must not be evaluated: '49' must not appear, nor the
+        # raw template source.
+        assert "49" not in msg["message"]
+        assert "{{ 7*7 }}" not in msg["message"]
 
 
 class TestNotifyExecutorError(SimpleTestCase):

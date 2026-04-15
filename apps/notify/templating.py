@@ -1,13 +1,15 @@
 """Simple templating utility for notify channels.
 
-Supports Jinja2 when available (recommended). Falls back to Python's
-str.format_map for basic templating if Jinja2 is not installed.
+Uses Jinja2 with a sandboxed environment to prevent SSTI. Falls back to
+Python's str.format_map for basic templating if Jinja2 is not installed.
 
 Template spec accepted by render_template:
 - None or empty -> returns None
 - string starting with "file:<name>" -> loads file from apps/notify/templates/<name>
+- bare string matching a filename pattern -> treated as "file:<name>" (backcompat)
 - dict: {"type": "inline"|"file", "template": "..."}
-- string (default) -> treated as inline template
+- any other bare string -> ValueError (inline templates must use dict form;
+  this prevents untrusted request payloads from injecting raw Jinja2 source)
 
 The render_template function returns a rendered string or raises a
 ValueError on invalid template.
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import pprint
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -29,6 +32,12 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 logger = logging.getLogger(__name__)
 
+# A bare string is accepted as a file reference only if it matches this
+# restrictive filename pattern. Anything else (e.g. a string containing Jinja
+# syntax, spaces, slashes) is rejected so untrusted payloads cannot inject
+# inline Jinja2 source via the bare-string form.
+_FILENAME_PATTERN = re.compile(r"^[\w-]+(\.[\w]+)?$")
+
 if TYPE_CHECKING:
     import jinja2
 
@@ -38,11 +47,16 @@ _JINJA_ENV: "jinja2.Environment | None" = None
 
 try:
     import jinja2
+    from jinja2.sandbox import ImmutableSandboxedEnvironment
 
     _JINJA_AVAILABLE = True
-    _JINJA_ENV = jinja2.Environment(
+    # ImmutableSandboxedEnvironment blocks access to dunder attributes
+    # (__class__, __globals__, __init__, __mro__, __subclasses__) which are
+    # the building blocks of all known Jinja SSTI gadgets. autoescape=True
+    # provides XSS protection for HTML notifications.
+    _JINJA_ENV = ImmutableSandboxedEnvironment(
         loader=jinja2.FileSystemLoader(str(TEMPLATES_DIR)),
-        autoescape=False,
+        autoescape=True,
     )
 except Exception:  # pragma: no cover
     _JINJA_AVAILABLE = False  # pragma: no cover
@@ -94,21 +108,17 @@ def render_template(spec: Any, context: dict[str, Any]) -> str | None:
     elif isinstance(spec, str):
         if spec.startswith("file:"):
             template_name = spec.split(":", 1)[1]
+        elif _FILENAME_PATTERN.match(spec):
+            # Bare string matching a filename pattern is treated as a file
+            # reference (backcompat for DB configs). Anything containing Jinja
+            # syntax, spaces, newlines, or path separators is rejected below.
+            template_name = spec
         else:
-            # If the provided string looks like a template filename (e.g. "slack_text.j2"
-            # or "slack_text") and a file exists in TEMPLATES_DIR, treat it as a file
-            # reference so DB-stored template names work without requiring the "file:" prefix.
-            maybe = spec
-            # try exact match and with .j2; if the name is invalid (e.g. inline HTML
-            # containing slashes) treat it as an inline template — no filesystem access.
-            try:
-                loaded = _load_template_from_file(maybe)
-            except ValueError:
-                loaded = None
-            if loaded is not None:
-                template_name = maybe
-            else:
-                template_str = spec
+            raise ValueError(
+                "Invalid template spec: bare strings must be a filename. "
+                "Use dict form {'type': 'inline', 'template': '...'} for inline "
+                "templates, or 'file:<name>' to reference a file."
+            )
     else:
         # unsupported spec
         raise ValueError("Unsupported template spec")

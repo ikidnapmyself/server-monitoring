@@ -383,13 +383,12 @@ class NotifyExecutor(BaseExecutor):
             from apps.notify.templating import render_template
 
             template_spec = None
-            # Priority: DB channel config -> payload.notify_config
+            # Only DB-sourced channel config may supply a template. Untrusted
+            # pipeline payload templates are rejected to prevent SSTI — see
+            # docs/plans/2026-04-15-ssti-notify-template-design.md.
             if channel_obj and (channel_obj.config or {}).get("template"):
                 template_spec = (channel_obj.config or {}).get("template")
                 logger.debug("NotifyExecutor: using channel_obj.config.template=%r", template_spec)
-            elif payload_config.get("template"):
-                template_spec = payload_config.get("template")
-                logger.debug("NotifyExecutor: using payload_config.template=%r", template_spec)
 
             # Build the rendering context
             render_ctx = {
