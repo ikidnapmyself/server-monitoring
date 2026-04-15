@@ -28,6 +28,13 @@ from apps.orchestration.formatters import (
 
 logger = logging.getLogger(__name__)
 
+# Template keys that must never be accepted from untrusted pipeline payloads.
+# Stripping these before NotifySelector.resolve() ensures drivers cannot pick
+# up attacker-supplied Jinja2 source when config falls back to payload_config.
+_PAYLOAD_TEMPLATE_KEYS: frozenset[str] = frozenset(
+    {"template", "payload_template", "html_template", "text_template"}
+)
+
 
 class BaseExecutor(ABC):
     """Base class for stage executors."""
@@ -337,9 +344,6 @@ class NotifyExecutor(BaseExecutor):
             # Strip template keys so untrusted payloads cannot inject Jinja2
             # source into driver config. Templates must only originate from
             # DB-sourced channel_obj.config (staff-auth gated) or on-disk files.
-            _PAYLOAD_TEMPLATE_KEYS = frozenset(
-                {"template", "payload_template", "html_template", "text_template"}
-            )
             payload_config = {
                 k: v for k, v in payload_config.items() if k not in _PAYLOAD_TEMPLATE_KEYS
             }
