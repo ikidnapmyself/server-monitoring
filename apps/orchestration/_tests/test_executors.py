@@ -816,6 +816,47 @@ class TestNotifyExecutorTemplateRendering(TestCase):
         assert "49" not in msg["message"]
         assert "{{ 7*7 }}" not in msg["message"]
 
+    def test_payload_config_template_keys_stripped_before_resolve(self):
+        """Template keys are removed from payload_config before NotifySelector.resolve().
+
+        Drivers receive a config dict without template keys when config originates
+        from the payload (no DB channel). This closes the path where a driver
+        calling render_message_templates() could pick up payload-supplied template
+        values and render attacker-controlled Jinja2 source.
+        """
+        driver_cls, _ = _mock_driver_cls()
+        captured_payload_config = {}
+
+        def _capture_resolve(provider_arg, payload_config=None, requested_channel=None):
+            captured_payload_config.update(payload_config or {})
+            return _resolve_return(driver_cls)
+
+        with patch(
+            "apps.notify.services.NotifySelector.resolve",
+            side_effect=_capture_resolve,
+        ):
+            NotifyExecutor().execute(
+                _ctx(
+                    payload={
+                        "notify_config": {
+                            "template": "{{ 7*7 }}",
+                            "payload_template": "bad",
+                            "html_template": "<b>evil</b>",
+                            "text_template": "also bad",
+                            "webhook_url": "http://legit.example.com",
+                        },
+                    },
+                    previous_results={"analyze": {}},
+                )
+            )
+
+        # Template keys must have been stripped; non-template keys must be kept
+        assert "template" not in captured_payload_config
+        assert "payload_template" not in captured_payload_config
+        assert "html_template" not in captured_payload_config
+        assert "text_template" not in captured_payload_config
+        assert captured_payload_config.get("webhook_url") == "http://legit.example.com"
+
 
 class TestNotifyExecutorError(SimpleTestCase):
     def test_outer_exception_captured(self):

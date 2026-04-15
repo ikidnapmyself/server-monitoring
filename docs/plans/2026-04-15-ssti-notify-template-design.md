@@ -25,11 +25,17 @@ from jinja2.sandbox import ImmutableSandboxedEnvironment
 
 _JINJA_ENV = ImmutableSandboxedEnvironment(
     loader=jinja2.FileSystemLoader(str(TEMPLATES_DIR)),
-    autoescape=True,
+    autoescape=False,
 )
 ```
 
-`ImmutableSandboxedEnvironment` blocks attribute access to dunder names (`__class__`, `__globals__`, `__init__`, `__mro__`, `__subclasses__`), neutralizing all known SSTI gadgets. `autoescape=True` adds XSS protection for HTML notifications — orthogonal to SSTI but cheap to enable now.
+`ImmutableSandboxedEnvironment` blocks attribute access to dunder names (`__class__`, `__globals__`, `__init__`, `__mro__`, `__subclasses__`), neutralizing all known SSTI gadgets.
+
+`autoescape` is intentionally **disabled** globally — templates are responsible for their own output escaping. All templates in `apps/notify/templates/` follow this contract:
+- HTML templates (e.g. `email_html.j2`) use explicit `|e` on every user-controlled variable.
+- JSON templates (Slack, PagerDuty, generic) use `|tojson` which handles JSON-safe encoding.
+
+Enabling global autoescape would silently break Slack/text/JSON templates: any variable containing `<`, `>`, or `&` (e.g. Slack's `<url|text>` link syntax) would be HTML-entity-encoded, corrupting the rendered payload.
 
 ### Layer 2: Templating API rejects arbitrary inline strings
 
@@ -41,9 +47,9 @@ Change `render_template()`:
 
 ### Layer 3: Executor drops payload-supplied templates
 
-`apps/orchestration/executors.py:390-391` — remove the `payload_config.get("template")` branch entirely. Template sources are:
+Remove the `payload_config.get("template")` branch from the executor body. Additionally, strip template keys (`template`, `payload_template`, `html_template`, `text_template`) from `payload_config` before passing it to `NotifySelector.resolve()`. This ensures that when no DB channel is found and `config = payload_config`, drivers cannot pick up attacker-supplied template strings. Template sources are:
 
-1. DB `channel_obj.config.template` (staff-auth gated)
+1. DB `channel_obj.config` (staff-auth gated)
 2. On-disk template files under `apps/notify/templates/`
 
 Pipeline payload callers cannot supply templates at all.

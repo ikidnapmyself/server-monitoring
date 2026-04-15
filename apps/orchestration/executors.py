@@ -334,6 +334,16 @@ class NotifyExecutor(BaseExecutor):
             requested = payload.get("notify_driver")
             payload_config = payload.get("notify_config", {}) or {}
 
+            # Strip template keys so untrusted payloads cannot inject Jinja2
+            # source into driver config. Templates must only originate from
+            # DB-sourced channel_obj.config (staff-auth gated) or on-disk files.
+            _PAYLOAD_TEMPLATE_KEYS = frozenset(
+                {"template", "payload_template", "html_template", "text_template"}
+            )
+            payload_config = {
+                k: v for k, v in payload_config.items() if k not in _PAYLOAD_TEMPLATE_KEYS
+            }
+
             (
                 provider_name,
                 config,

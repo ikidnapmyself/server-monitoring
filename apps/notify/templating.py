@@ -52,11 +52,15 @@ try:
     _JINJA_AVAILABLE = True
     # ImmutableSandboxedEnvironment blocks access to dunder attributes
     # (__class__, __globals__, __init__, __mro__, __subclasses__) which are
-    # the building blocks of all known Jinja SSTI gadgets. autoescape=True
-    # provides XSS protection for HTML notifications.
+    # the building blocks of all known Jinja SSTI gadgets.
+    # autoescape is intentionally disabled globally: templates are responsible
+    # for their own escaping. HTML templates (e.g. email_html.j2) use the |e
+    # filter on every variable; JSON templates use |tojson. Enabling global
+    # autoescape would silently break Slack/text/JSON templates that contain
+    # angle-bracket content (e.g. Slack's <url|text> link syntax).
     _JINJA_ENV = ImmutableSandboxedEnvironment(
         loader=jinja2.FileSystemLoader(str(TEMPLATES_DIR)),
-        autoescape=True,
+        autoescape=False,
     )
 except Exception:  # pragma: no cover
     _JINJA_AVAILABLE = False  # pragma: no cover

@@ -1012,8 +1012,8 @@ class TestRenderMessageTemplates(SimpleTestCase):
         }
         result = self.svc.render_message_templates("test_driver", self.base_msg, config)
         assert result["text"] == "text content"
-        # Literal <b> in the template source is NOT escaped; only variable
-        # interpolations are escaped under autoescape=True.
+        # Literal <b> tags in the template source are preserved as-is; variable
+        # output is also unescaped. The template itself is responsible for safety.
         assert result["html"] == "<b>Test</b>"
 
     @patch("apps.notify.templating.psutil")
@@ -1242,8 +1242,7 @@ class TestCoverageGaps(SimpleTestCase):
         config = {"html_template": {"type": "inline", "template": "Hello <b>{{ title }}</b>"}}
         result = self.svc.render_message_templates("slack", self.base_msg, config)
         assert result["text"] is not None  # from default slack_text.j2
-        # Literal <b> in template source is not escaped; only variable
-        # substitutions are escaped under autoescape=True.
+        # Literal <b> tags and variable output are both unescaped; no global autoescape.
         assert result["html"] == "Hello <b>Test</b>"
 
     # L379->394 (False branch): html_template renders to empty string (falsy),
@@ -1348,10 +1347,25 @@ class TestSSTIRegression(SimpleTestCase):
         )
         assert out == "Hello world"
 
-    def test_autoescape_escapes_variable_html(self):
-        """``autoescape=True`` must escape HTML in variable interpolations."""
+    def test_inline_template_does_not_autoescape_variables(self):
+        """Inline templates do NOT autoescape variable output.
+
+        Global autoescape is disabled so Slack/JSON/text templates are not
+        silently broken by HTML entity encoding (e.g. Slack's ``<url|text>``
+        link syntax would become ``&lt;url|text&gt;``). HTML safety is the
+        responsibility of individual templates via explicit ``|e`` or ``|tojson``.
+        """
         out = render_template(
             {"type": "inline", "template": "{{ x }}"},
+            {"x": "<b>bold</b>"},
+        )
+        # No global autoescape: raw angle brackets are preserved in output
+        assert "<b>bold</b>" in out
+
+    def test_explicit_e_filter_escapes_html(self):
+        """The ``|e`` filter provides explicit HTML escaping for HTML templates."""
+        out = render_template(
+            {"type": "inline", "template": "{{ x | e }}"},
             {"x": "<script>alert(1)</script>"},
         )
         assert "<script>" not in out
