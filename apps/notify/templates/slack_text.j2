@@ -33,7 +33,9 @@
 {%- endmacro %}
 
 {# Build compact recommendations markdown - only include items with actual content #}
-{% set ns = namespace(lines=[]) %}
+{# Note: ImmutableSandboxedEnvironment blocks list.append(), so we concatenate #}
+{# strings directly instead of accumulating lines in a list. #}
+{% set ns = namespace(out='') %}
 {% if recommendations %}
   {% for r in recommendations[:5] %}
     {% if r is mapping and (r.title is defined or r.description is defined or r.name is defined or r.detail is defined) %}
@@ -44,14 +46,14 @@
         {% if t %}{% set line = line ~ '*' ~ (t|trim) ~ '*' %}{% endif %}
         {% if t and d %}{% set line = line ~ ': ' %}{% endif %}
         {% if d %}{% set line = line ~ (d|trim) %}{% endif %}
-        {% set _ = ns.lines.append(line) %}
+        {% set ns.out = (ns.out ~ ('\n' if ns.out else '') ~ line) %}
       {% endif %}
     {% elif r is string and r|trim %}
-      {% set _ = ns.lines.append('• ' ~ (r|trim)) %}
+      {% set ns.out = (ns.out ~ ('\n' if ns.out else '') ~ '• ' ~ (r|trim)) %}
     {% endif %}
   {% endfor %}
 {% endif %}
-{% set recs_md = ns.lines | join('\n') %}
+{% set recs_md = ns.out %}
 
 {# Compose blocks as JSON using tojson for safety #}
 {
