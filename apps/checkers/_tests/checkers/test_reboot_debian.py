@@ -260,3 +260,24 @@ class IsDebianFamilyTests(TestCase):
 
         self.assertTrue(is_debian)
         self.assertEqual(distro_id, "ubuntu")
+
+
+class RebootDebianCheckerErrorTests(TestCase):
+    """Tests for the UNKNOWN error path."""
+
+    @patch("apps.checkers.checkers.reboot_debian.sys")
+    @patch("apps.checkers.checkers.reboot_debian._is_debian_family")
+    @patch("apps.checkers.checkers.reboot_debian._flag_present")
+    def test_unexpected_exception_returns_unknown(self, mock_flag, mock_distro, mock_sys):
+        from apps.checkers.checkers.base import CheckStatus
+        from apps.checkers.checkers.reboot_debian import RebootDebianChecker
+
+        mock_sys.platform = "linux"
+        mock_distro.return_value = (True, "ubuntu")
+        mock_flag.side_effect = RuntimeError("boom")
+
+        result = RebootDebianChecker().run()  # .run(), not .check()
+
+        self.assertEqual(result.status, CheckStatus.UNKNOWN)
+        self.assertIn("boom", result.message)
+        self.assertEqual(result.error, "boom")
