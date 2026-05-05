@@ -53,26 +53,41 @@ class RebootDebianChecker(BaseChecker):
 
     def check(self) -> CheckResult:
         if sys.platform != "linux":
-            return self._make_result(
-                status=CheckStatus.OK,
-                message="Skipped: not Linux",
-                metrics={
-                    "platform": sys.platform,
-                    "distro_id": "",
-                    "reboot_required": False,
-                    "pending_packages": [],
-                    "pending_package_count": 0,
-                },
-            )
-        # Linux path implemented in subsequent tasks.
+            return self._skip(reason="not Linux", distro_id="")
+
+        is_debian, distro_id = _is_debian_family()
+        if not is_debian:
+            if distro_id:
+                reason = f"not Debian-family ({distro_id})"
+            else:
+                reason = "cannot determine distro"
+            return self._skip(reason=reason, distro_id=distro_id)
+
+        # Reboot-required path implemented in subsequent tasks.
         return self._make_result(
             status=CheckStatus.OK,
             message="No reboot required",
-            metrics={
-                "platform": sys.platform,
-                "distro_id": "",
-                "reboot_required": False,
-                "pending_packages": [],
-                "pending_package_count": 0,
-            },
+            metrics=self._metrics(distro_id=distro_id, reboot_required=False, packages=[]),
         )
+
+    def _skip(self, *, reason: str, distro_id: str) -> CheckResult:
+        return self._make_result(
+            status=CheckStatus.OK,
+            message=f"Skipped: {reason}",
+            metrics=self._metrics(distro_id=distro_id, reboot_required=False, packages=[]),
+        )
+
+    def _metrics(
+        self,
+        *,
+        distro_id: str,
+        reboot_required: bool,
+        packages: list[str],
+    ) -> dict:
+        return {
+            "platform": sys.platform,
+            "distro_id": distro_id,
+            "reboot_required": reboot_required,
+            "pending_packages": packages,
+            "pending_package_count": len(packages),
+        }

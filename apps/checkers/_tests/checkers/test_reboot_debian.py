@@ -51,6 +51,33 @@ class RebootDebianCheckerPlatformTests(TestCase):
         self.assertIn("not Linux", result.message)
         self.assertEqual(result.metrics["platform"], "win32")
 
+    @patch("apps.checkers.checkers.reboot_debian.sys")
+    @patch("apps.checkers.checkers.reboot_debian._is_debian_family")
+    def test_skipped_on_non_debian_linux(self, mock_distro, mock_sys):
+        from apps.checkers.checkers.base import CheckStatus
+
+        mock_sys.platform = "linux"
+        mock_distro.return_value = (False, "fedora")
+        result = self._get_checker().check()
+
+        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertIn("not Debian-family", result.message)
+        self.assertIn("fedora", result.message)
+        self.assertEqual(result.metrics["distro_id"], "fedora")
+
+    @patch("apps.checkers.checkers.reboot_debian.sys")
+    @patch("apps.checkers.checkers.reboot_debian._is_debian_family")
+    def test_skipped_when_os_release_undetected(self, mock_distro, mock_sys):
+        from apps.checkers.checkers.base import CheckStatus
+
+        mock_sys.platform = "linux"
+        mock_distro.return_value = (False, "")
+        result = self._get_checker().check()
+
+        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertIn("cannot determine distro", result.message)
+        self.assertEqual(result.metrics["distro_id"], "")
+
 
 class IsDebianFamilyTests(TestCase):
     """Tests for the _is_debian_family() helper."""
