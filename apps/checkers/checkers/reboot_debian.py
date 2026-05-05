@@ -8,6 +8,7 @@ auto-resolve) is handled by apps.alerts.check_integration.CheckAlertBridge.
 See docs/plans/2026-05-05-reboot-debian-checker-design.md for the rationale.
 """
 
+import sys
 from pathlib import Path
 
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
@@ -23,9 +24,27 @@ class RebootDebianChecker(BaseChecker):
     name = "reboot_debian"
 
     def check(self) -> CheckResult:
-        # Implemented incrementally in subsequent tasks.
+        if sys.platform != "linux":
+            return self._make_result(
+                status=CheckStatus.OK,
+                message="Skipped: not Linux",
+                metrics={
+                    "platform": sys.platform,
+                    "distro_id": "",
+                    "reboot_required": False,
+                    "pending_packages": [],
+                    "pending_package_count": 0,
+                },
+            )
+        # Linux path implemented in subsequent tasks.
         return self._make_result(
             status=CheckStatus.OK,
             message="No reboot required",
-            metrics={"reboot_required": False},
+            metrics={
+                "platform": sys.platform,
+                "distro_id": "",
+                "reboot_required": False,
+                "pending_packages": [],
+                "pending_package_count": 0,
+            },
         )
