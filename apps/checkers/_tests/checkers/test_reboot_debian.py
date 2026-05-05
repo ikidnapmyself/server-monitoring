@@ -281,3 +281,66 @@ class RebootDebianCheckerErrorTests(TestCase):
         self.assertEqual(result.status, CheckStatus.UNKNOWN)
         self.assertIn("boom", result.message)
         self.assertEqual(result.error, "boom")
+
+
+class RebootDebianAlertIntegrationTests(TestCase):
+    """End-to-end test of the alert lifecycle through CheckAlertBridge."""
+
+    @patch("apps.checkers.checkers.reboot_debian.sys")
+    @patch("apps.checkers.checkers.reboot_debian._is_debian_family")
+    @patch("apps.checkers.checkers.reboot_debian._flag_present")
+    @patch("apps.checkers.checkers.reboot_debian._read_pkgs")
+    def test_warning_then_resolved_keeps_started_at_stable(
+        self, mock_pkgs, mock_flag, mock_distro, mock_sys
+    ):
+        """Three sequential runs: open -> update -> resolve.
+
+        Asserts:
+        - First WARNING run opens an Alert with started_at = T1.
+        - Second WARNING run (still pending, packages changed) updates the
+          same Alert; started_at stays at T1; annotations refresh.
+        - OK run (post-reboot) resolves the Alert; ended_at populated;
+          parent Incident auto-resolves.
+        """
+        from apps.alerts.check_integration import CheckAlertBridge
+        from apps.alerts.models import Alert, AlertStatus, Incident, IncidentStatus
+        from apps.checkers.checkers.reboot_debian import RebootDebianChecker
+
+        mock_sys.platform = "linux"
+        mock_distro.return_value = (True, "ubuntu")
+
+        bridge = CheckAlertBridge(hostname="test-host")
+        checker = RebootDebianChecker()
+
+        # Run 1: reboot becomes pending.
+        mock_flag.return_value = True
+        mock_pkgs.return_value = ["linux-image-generic"]
+        bridge.process_check_result(checker.check())
+
+        alert = Alert.objects.get()
+        self.assertEqual(alert.status, AlertStatus.FIRING)
+        original_started_at = alert.started_at
+        self.assertIn("linux-image-generic", str(alert.annotations))
+        incident = Incident.objects.get()
+        self.assertEqual(incident.status, IncidentStatus.OPEN)
+
+        # Run 2: still pending, follow-up upgrade adds another package.
+        mock_pkgs.return_value = ["linux-image-generic", "libc6"]
+        bridge.process_check_result(checker.check())
+
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, AlertStatus.FIRING)
+        self.assertEqual(alert.started_at, original_started_at)  # stable
+        self.assertIn("libc6", str(alert.annotations))  # current pkg list
+        self.assertEqual(Alert.objects.count(), 1)  # no duplicate
+
+        # Run 3: reboot completes, flag file gone.
+        mock_flag.return_value = False
+        mock_pkgs.return_value = []
+        bridge.process_check_result(checker.check())
+
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, AlertStatus.RESOLVED)
+        self.assertIsNotNone(alert.ended_at)
+        incident.refresh_from_db()
+        self.assertEqual(incident.status, IncidentStatus.RESOLVED)
