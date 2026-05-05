@@ -8,6 +8,7 @@ from apps.checkers.checkers.disk_macos import DiskMacOSChecker
 from apps.checkers.checkers.memory import MemoryChecker
 from apps.checkers.checkers.network import NetworkChecker
 from apps.checkers.checkers.process import ProcessChecker
+from apps.checkers.checkers.reboot_debian import RebootDebianChecker
 
 __all__ = [
     "BaseChecker",
@@ -21,6 +22,7 @@ __all__ = [
     "DiskMacOSChecker",
     "NetworkChecker",
     "ProcessChecker",
+    "RebootDebianChecker",
     "CHECKER_REGISTRY",
 ]
 
@@ -34,4 +36,5 @@ CHECKER_REGISTRY = {
     "disk_macos": DiskMacOSChecker,
     "network": NetworkChecker,
     "process": ProcessChecker,
+    "reboot_debian": RebootDebianChecker,
 }
