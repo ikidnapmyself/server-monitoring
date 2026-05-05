@@ -46,6 +46,11 @@ def _is_debian_family() -> tuple[bool, str]:
     return is_debian, distro_id
 
 
+def _flag_present() -> bool:
+    """Return True iff /var/run/reboot-required exists."""
+    return REBOOT_FLAG.exists()
+
+
 class RebootDebianChecker(BaseChecker):
     """Report WARNING when a Debian-family host has a pending reboot."""
 
@@ -63,7 +68,14 @@ class RebootDebianChecker(BaseChecker):
                 reason = "cannot determine distro"
             return self._skip(reason=reason, distro_id=distro_id)
 
-        # Reboot-required path implemented in subsequent tasks.
+        if not _flag_present():
+            return self._make_result(
+                status=CheckStatus.OK,
+                message="No reboot required",
+                metrics=self._metrics(distro_id=distro_id, reboot_required=False, packages=[]),
+            )
+
+        # WARNING path implemented in the next task.
         return self._make_result(
             status=CheckStatus.OK,
             message="No reboot required",

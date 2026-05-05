@@ -79,6 +79,31 @@ class RebootDebianCheckerPlatformTests(TestCase):
         self.assertEqual(result.metrics["distro_id"], "")
 
 
+class RebootDebianCheckerStatusTests(TestCase):
+    """Tests for the OK / WARNING result paths."""
+
+    def _get_checker(self):
+        from apps.checkers.checkers.reboot_debian import RebootDebianChecker
+
+        return RebootDebianChecker()
+
+    @patch("apps.checkers.checkers.reboot_debian.sys")
+    @patch("apps.checkers.checkers.reboot_debian._is_debian_family")
+    @patch("apps.checkers.checkers.reboot_debian._flag_present")
+    def test_ok_when_flag_absent(self, mock_flag, mock_distro, mock_sys):
+        from apps.checkers.checkers.base import CheckStatus
+
+        mock_sys.platform = "linux"
+        mock_distro.return_value = (True, "ubuntu")
+        mock_flag.return_value = False
+        result = self._get_checker().check()
+
+        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertIn("No reboot required", result.message)
+        self.assertEqual(result.metrics["reboot_required"], False)
+        self.assertEqual(result.metrics["distro_id"], "ubuntu")
+
+
 class IsDebianFamilyTests(TestCase):
     """Tests for the _is_debian_family() helper."""
 
