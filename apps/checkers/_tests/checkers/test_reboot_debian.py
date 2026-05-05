@@ -103,6 +103,25 @@ class RebootDebianCheckerStatusTests(TestCase):
         self.assertEqual(result.metrics["reboot_required"], False)
         self.assertEqual(result.metrics["distro_id"], "ubuntu")
 
+    @patch("apps.checkers.checkers.reboot_debian.sys")
+    @patch("apps.checkers.checkers.reboot_debian._is_debian_family")
+    @patch("apps.checkers.checkers.reboot_debian._flag_present")
+    @patch("apps.checkers.checkers.reboot_debian._read_pkgs")
+    def test_warning_when_flag_present_no_pkgs(self, mock_pkgs, mock_flag, mock_distro, mock_sys):
+        from apps.checkers.checkers.base import CheckStatus
+
+        mock_sys.platform = "linux"
+        mock_distro.return_value = (True, "debian")
+        mock_flag.return_value = True
+        mock_pkgs.return_value = []
+        result = self._get_checker().check()
+
+        self.assertEqual(result.status, CheckStatus.WARNING)
+        self.assertEqual(result.message, "Reboot required")
+        self.assertEqual(result.metrics["reboot_required"], True)
+        self.assertEqual(result.metrics["pending_packages"], [])
+        self.assertEqual(result.metrics["pending_package_count"], 0)
+
 
 class IsDebianFamilyTests(TestCase):
     """Tests for the _is_debian_family() helper."""

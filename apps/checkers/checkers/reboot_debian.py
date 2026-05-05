@@ -51,6 +51,18 @@ def _flag_present() -> bool:
     return REBOOT_FLAG.exists()
 
 
+def _read_pkgs() -> list[str]:
+    """Return pending package names from /var/run/reboot-required.pkgs.
+
+    Returns [] when the file is missing or unreadable. Strips whitespace
+    and skips blank lines.
+    """
+    if not PKGS_FILE.exists():
+        return []
+    # Reading + filtering implemented in the next task.
+    return []
+
+
 class RebootDebianChecker(BaseChecker):
     """Report WARNING when a Debian-family host has a pending reboot."""
 
@@ -75,11 +87,20 @@ class RebootDebianChecker(BaseChecker):
                 metrics=self._metrics(distro_id=distro_id, reboot_required=False, packages=[]),
             )
 
-        # WARNING path implemented in the next task.
+        pending_packages = _read_pkgs()
+        if pending_packages:
+            message = f"Reboot required ({len(pending_packages)} pending packages)"
+        else:
+            message = "Reboot required"
+
         return self._make_result(
-            status=CheckStatus.OK,
-            message="No reboot required",
-            metrics=self._metrics(distro_id=distro_id, reboot_required=False, packages=[]),
+            status=CheckStatus.WARNING,
+            message=message,
+            metrics=self._metrics(
+                distro_id=distro_id,
+                reboot_required=True,
+                packages=pending_packages,
+            ),
         )
 
     def _skip(self, *, reason: str, distro_id: str) -> CheckResult:
