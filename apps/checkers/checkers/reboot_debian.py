@@ -18,6 +18,34 @@ PKGS_FILE = Path("/var/run/reboot-required.pkgs")
 OS_RELEASE = Path("/etc/os-release")
 
 
+def _is_debian_family() -> tuple[bool, str]:
+    """Return (is_debian_family, distro_id) by reading /etc/os-release.
+
+    Detects Debian, Ubuntu, and any derivative that sets ID_LIKE=debian
+    (Mint, Pop!_OS, Kali, Raspbian, etc.). Returns (False, "") on missing
+    or unreadable os-release — the caller should treat that as "not
+    applicable, skip with OK".
+    """
+    if not OS_RELEASE.exists():
+        return False, ""
+    try:
+        content = OS_RELEASE.read_text()
+    except OSError:
+        return False, ""
+
+    fields: dict[str, str] = {}
+    for line in content.splitlines():
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        fields[key.strip()] = value.strip().strip('"').strip("'")
+
+    distro_id = fields.get("ID", "").lower()
+    id_like = fields.get("ID_LIKE", "").lower().split()
+    is_debian = distro_id in {"debian", "ubuntu"} or "debian" in id_like
+    return is_debian, distro_id
+
+
 class RebootDebianChecker(BaseChecker):
     """Report WARNING when a Debian-family host has a pending reboot."""
 

@@ -50,3 +50,89 @@ class RebootDebianCheckerPlatformTests(TestCase):
         self.assertEqual(result.status, CheckStatus.OK)
         self.assertIn("not Linux", result.message)
         self.assertEqual(result.metrics["platform"], "win32")
+
+
+class IsDebianFamilyTests(TestCase):
+    """Tests for the _is_debian_family() helper."""
+
+    @patch("apps.checkers.checkers.reboot_debian.OS_RELEASE")
+    def test_missing_os_release(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _is_debian_family
+
+        mock_path.exists.return_value = False
+        is_debian, distro_id = _is_debian_family()
+
+        self.assertFalse(is_debian)
+        self.assertEqual(distro_id, "")
+
+    @patch("apps.checkers.checkers.reboot_debian.OS_RELEASE")
+    def test_unreadable_os_release(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _is_debian_family
+
+        mock_path.exists.return_value = True
+        mock_path.read_text.side_effect = OSError("permission denied")
+        is_debian, distro_id = _is_debian_family()
+
+        self.assertFalse(is_debian)
+        self.assertEqual(distro_id, "")
+
+    @patch("apps.checkers.checkers.reboot_debian.OS_RELEASE")
+    def test_debian_via_id(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _is_debian_family
+
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = 'ID=debian\nVERSION="12 (bookworm)"\n'
+        is_debian, distro_id = _is_debian_family()
+
+        self.assertTrue(is_debian)
+        self.assertEqual(distro_id, "debian")
+
+    @patch("apps.checkers.checkers.reboot_debian.OS_RELEASE")
+    def test_ubuntu_via_id(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _is_debian_family
+
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = "ID=ubuntu\nID_LIKE=debian\n"
+        is_debian, distro_id = _is_debian_family()
+
+        self.assertTrue(is_debian)
+        self.assertEqual(distro_id, "ubuntu")
+
+    @patch("apps.checkers.checkers.reboot_debian.OS_RELEASE")
+    def test_derivative_via_id_like(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _is_debian_family
+
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = 'ID=linuxmint\nID_LIKE="ubuntu debian"\n'
+        is_debian, distro_id = _is_debian_family()
+
+        self.assertTrue(is_debian)
+        self.assertEqual(distro_id, "linuxmint")
+
+    @patch("apps.checkers.checkers.reboot_debian.OS_RELEASE")
+    def test_non_debian(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _is_debian_family
+
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = 'ID=fedora\nID_LIKE="rhel"\n'
+        is_debian, distro_id = _is_debian_family()
+
+        self.assertFalse(is_debian)
+        self.assertEqual(distro_id, "fedora")
+
+    @patch("apps.checkers.checkers.reboot_debian.OS_RELEASE")
+    def test_handles_quoted_values_and_blank_lines(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _is_debian_family
+
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = (
+            "\n"
+            'NAME="Ubuntu"\n'
+            "ID='ubuntu'\n"
+            "# comment-style line without =\n"
+            'PRETTY_NAME="Ubuntu 22.04"\n'
+        )
+        is_debian, distro_id = _is_debian_family()
+
+        self.assertTrue(is_debian)
+        self.assertEqual(distro_id, "ubuntu")
