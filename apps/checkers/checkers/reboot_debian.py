@@ -59,8 +59,11 @@ def _read_pkgs() -> list[str]:
     """
     if not PKGS_FILE.exists():
         return []
-    # Reading + filtering implemented in the next task.
-    return []
+    try:
+        content = PKGS_FILE.read_text()
+    except OSError:
+        return []
+    return [line.strip() for line in content.splitlines() if line.strip()]
 
 
 class RebootDebianChecker(BaseChecker):

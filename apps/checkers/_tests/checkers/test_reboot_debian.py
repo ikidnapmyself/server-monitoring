@@ -122,6 +122,59 @@ class RebootDebianCheckerStatusTests(TestCase):
         self.assertEqual(result.metrics["pending_packages"], [])
         self.assertEqual(result.metrics["pending_package_count"], 0)
 
+    @patch("apps.checkers.checkers.reboot_debian.sys")
+    @patch("apps.checkers.checkers.reboot_debian._is_debian_family")
+    @patch("apps.checkers.checkers.reboot_debian._flag_present")
+    @patch("apps.checkers.checkers.reboot_debian._read_pkgs")
+    def test_warning_with_packages(self, mock_pkgs, mock_flag, mock_distro, mock_sys):
+        from apps.checkers.checkers.base import CheckStatus
+
+        mock_sys.platform = "linux"
+        mock_distro.return_value = (True, "ubuntu")
+        mock_flag.return_value = True
+        mock_pkgs.return_value = ["linux-image-generic", "libc6"]
+        result = self._get_checker().check()
+
+        self.assertEqual(result.status, CheckStatus.WARNING)
+        self.assertIn("2 pending packages", result.message)
+        self.assertEqual(result.metrics["pending_packages"], ["linux-image-generic", "libc6"])
+        self.assertEqual(result.metrics["pending_package_count"], 2)
+
+
+class ReadPkgsTests(TestCase):
+    """Tests for the _read_pkgs() helper."""
+
+    @patch("apps.checkers.checkers.reboot_debian.PKGS_FILE")
+    def test_returns_empty_when_file_missing(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _read_pkgs
+
+        mock_path.exists.return_value = False
+        self.assertEqual(_read_pkgs(), [])
+
+    @patch("apps.checkers.checkers.reboot_debian.PKGS_FILE")
+    def test_parses_package_list(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _read_pkgs
+
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = "linux-image-generic\nlibc6\n"
+        self.assertEqual(_read_pkgs(), ["linux-image-generic", "libc6"])
+
+    @patch("apps.checkers.checkers.reboot_debian.PKGS_FILE")
+    def test_strips_blank_lines_and_whitespace(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _read_pkgs
+
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = "linux-image\n\n  libc6  \n\n"
+        self.assertEqual(_read_pkgs(), ["linux-image", "libc6"])
+
+    @patch("apps.checkers.checkers.reboot_debian.PKGS_FILE")
+    def test_returns_empty_on_oserror(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _read_pkgs
+
+        mock_path.exists.return_value = True
+        mock_path.read_text.side_effect = OSError("permission denied")
+        self.assertEqual(_read_pkgs(), [])
+
 
 class IsDebianFamilyTests(TestCase):
     """Tests for the _is_debian_family() helper."""
