@@ -159,8 +159,11 @@ class Command(BaseCommand):
         if result.error:
             self.stdout.write(self.style.ERROR(f"  Error: {result.error}"))
 
+        # Skip metrics block for skipped checks — the placeholder values are noise.
+        skipped = result.status == CheckStatus.OK and result.message.startswith("Skipped:")
+
         # Show key metrics
-        if result.metrics:
+        if result.metrics and not skipped:
             self.stdout.write("")
             self.stdout.write("  Metrics:")
             for key, value in result.metrics.items():

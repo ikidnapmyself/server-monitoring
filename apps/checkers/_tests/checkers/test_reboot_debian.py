@@ -1,0 +1,364 @@
+"""Tests for the Debian reboot-required checker."""
+
+from unittest.mock import patch
+
+from django.test import TestCase
+
+
+class RebootDebianRegistryTests(TestCase):
+    """Tests that the checker is wired into the registry."""
+
+    def test_registered_in_checker_registry(self):
+        from apps.checkers.checkers import CHECKER_REGISTRY
+        from apps.checkers.checkers.reboot_debian import RebootDebianChecker
+
+        self.assertIs(CHECKER_REGISTRY["reboot_debian"], RebootDebianChecker)
+
+    def test_exported_from_package(self):
+        from apps.checkers.checkers import RebootDebianChecker
+
+        self.assertEqual(RebootDebianChecker.name, "reboot_debian")
+
+
+class RebootDebianCheckerPlatformTests(TestCase):
+    """Platform gating tests."""
+
+    def _get_checker(self):
+        from apps.checkers.checkers.reboot_debian import RebootDebianChecker
+
+        return RebootDebianChecker()
+
+    @patch("apps.checkers.checkers.reboot_debian.sys")
+    def test_skipped_on_macos(self, mock_sys):
+        from apps.checkers.checkers.base import CheckStatus
+
+        mock_sys.platform = "darwin"
+        result = self._get_checker().check()
+
+        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertIn("not Linux", result.message)
+        self.assertEqual(result.metrics["platform"], "darwin")
+        self.assertEqual(result.metrics["reboot_required"], False)
+
+    @patch("apps.checkers.checkers.reboot_debian.sys")
+    def test_skipped_on_windows(self, mock_sys):
+        from apps.checkers.checkers.base import CheckStatus
+
+        mock_sys.platform = "win32"
+        result = self._get_checker().check()
+
+        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertIn("not Linux", result.message)
+        self.assertEqual(result.metrics["platform"], "win32")
+
+    @patch("apps.checkers.checkers.reboot_debian.sys")
+    @patch("apps.checkers.checkers.reboot_debian._is_debian_family")
+    def test_skipped_on_non_debian_linux(self, mock_distro, mock_sys):
+        from apps.checkers.checkers.base import CheckStatus
+
+        mock_sys.platform = "linux"
+        mock_distro.return_value = (False, "fedora")
+        result = self._get_checker().check()
+
+        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertIn("not Debian-family", result.message)
+        self.assertIn("fedora", result.message)
+        self.assertEqual(result.metrics["distro_id"], "fedora")
+
+    @patch("apps.checkers.checkers.reboot_debian.sys")
+    @patch("apps.checkers.checkers.reboot_debian._is_debian_family")
+    def test_skipped_when_os_release_undetected(self, mock_distro, mock_sys):
+        from apps.checkers.checkers.base import CheckStatus
+
+        mock_sys.platform = "linux"
+        mock_distro.return_value = (False, "")
+        result = self._get_checker().check()
+
+        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertIn("cannot determine distro", result.message)
+        self.assertEqual(result.metrics["distro_id"], "")
+
+
+class RebootDebianCheckerStatusTests(TestCase):
+    """Tests for the OK / WARNING result paths."""
+
+    def _get_checker(self):
+        from apps.checkers.checkers.reboot_debian import RebootDebianChecker
+
+        return RebootDebianChecker()
+
+    @patch("apps.checkers.checkers.reboot_debian.sys")
+    @patch("apps.checkers.checkers.reboot_debian._is_debian_family")
+    @patch("apps.checkers.checkers.reboot_debian._flag_present")
+    def test_ok_when_flag_absent(self, mock_flag, mock_distro, mock_sys):
+        from apps.checkers.checkers.base import CheckStatus
+
+        mock_sys.platform = "linux"
+        mock_distro.return_value = (True, "ubuntu")
+        mock_flag.return_value = False
+        result = self._get_checker().check()
+
+        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertIn("No reboot required", result.message)
+        self.assertEqual(result.metrics["reboot_required"], False)
+        self.assertEqual(result.metrics["distro_id"], "ubuntu")
+
+    @patch("apps.checkers.checkers.reboot_debian.sys")
+    @patch("apps.checkers.checkers.reboot_debian._is_debian_family")
+    @patch("apps.checkers.checkers.reboot_debian._flag_present")
+    @patch("apps.checkers.checkers.reboot_debian._read_pkgs")
+    def test_warning_when_flag_present_no_pkgs(self, mock_pkgs, mock_flag, mock_distro, mock_sys):
+        from apps.checkers.checkers.base import CheckStatus
+
+        mock_sys.platform = "linux"
+        mock_distro.return_value = (True, "debian")
+        mock_flag.return_value = True
+        mock_pkgs.return_value = []
+        result = self._get_checker().check()
+
+        self.assertEqual(result.status, CheckStatus.WARNING)
+        self.assertEqual(result.message, "Reboot required")
+        self.assertEqual(result.metrics["reboot_required"], True)
+        self.assertEqual(result.metrics["pending_packages"], [])
+        self.assertEqual(result.metrics["pending_package_count"], 0)
+
+    @patch("apps.checkers.checkers.reboot_debian.sys")
+    @patch("apps.checkers.checkers.reboot_debian._is_debian_family")
+    @patch("apps.checkers.checkers.reboot_debian._flag_present")
+    @patch("apps.checkers.checkers.reboot_debian._read_pkgs")
+    def test_warning_with_packages(self, mock_pkgs, mock_flag, mock_distro, mock_sys):
+        from apps.checkers.checkers.base import CheckStatus
+
+        mock_sys.platform = "linux"
+        mock_distro.return_value = (True, "ubuntu")
+        mock_flag.return_value = True
+        mock_pkgs.return_value = ["linux-image-generic", "libc6"]
+        result = self._get_checker().check()
+
+        self.assertEqual(result.status, CheckStatus.WARNING)
+        self.assertIn("2 pending packages", result.message)
+        self.assertEqual(result.metrics["pending_packages"], ["linux-image-generic", "libc6"])
+        self.assertEqual(result.metrics["pending_package_count"], 2)
+
+
+class FlagPresentTests(TestCase):
+    """Tests for the _flag_present() helper."""
+
+    @patch("apps.checkers.checkers.reboot_debian.REBOOT_FLAG")
+    def test_returns_true_when_flag_exists(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _flag_present
+
+        mock_path.exists.return_value = True
+        self.assertTrue(_flag_present())
+
+    @patch("apps.checkers.checkers.reboot_debian.REBOOT_FLAG")
+    def test_returns_false_when_flag_absent(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _flag_present
+
+        mock_path.exists.return_value = False
+        self.assertFalse(_flag_present())
+
+
+class ReadPkgsTests(TestCase):
+    """Tests for the _read_pkgs() helper."""
+
+    @patch("apps.checkers.checkers.reboot_debian.PKGS_FILE")
+    def test_returns_empty_when_file_missing(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _read_pkgs
+
+        mock_path.exists.return_value = False
+        self.assertEqual(_read_pkgs(), [])
+
+    @patch("apps.checkers.checkers.reboot_debian.PKGS_FILE")
+    def test_parses_package_list(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _read_pkgs
+
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = "linux-image-generic\nlibc6\n"
+        self.assertEqual(_read_pkgs(), ["linux-image-generic", "libc6"])
+
+    @patch("apps.checkers.checkers.reboot_debian.PKGS_FILE")
+    def test_strips_blank_lines_and_whitespace(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _read_pkgs
+
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = "linux-image\n\n  libc6  \n\n"
+        self.assertEqual(_read_pkgs(), ["linux-image", "libc6"])
+
+    @patch("apps.checkers.checkers.reboot_debian.PKGS_FILE")
+    def test_returns_empty_on_oserror(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _read_pkgs
+
+        mock_path.exists.return_value = True
+        mock_path.read_text.side_effect = OSError("permission denied")
+        self.assertEqual(_read_pkgs(), [])
+
+
+class IsDebianFamilyTests(TestCase):
+    """Tests for the _is_debian_family() helper."""
+
+    @patch("apps.checkers.checkers.reboot_debian.OS_RELEASE")
+    def test_missing_os_release(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _is_debian_family
+
+        mock_path.exists.return_value = False
+        is_debian, distro_id = _is_debian_family()
+
+        self.assertFalse(is_debian)
+        self.assertEqual(distro_id, "")
+
+    @patch("apps.checkers.checkers.reboot_debian.OS_RELEASE")
+    def test_unreadable_os_release(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _is_debian_family
+
+        mock_path.exists.return_value = True
+        mock_path.read_text.side_effect = OSError("permission denied")
+        is_debian, distro_id = _is_debian_family()
+
+        self.assertFalse(is_debian)
+        self.assertEqual(distro_id, "")
+
+    @patch("apps.checkers.checkers.reboot_debian.OS_RELEASE")
+    def test_debian_via_id(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _is_debian_family
+
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = 'ID=debian\nVERSION="12 (bookworm)"\n'
+        is_debian, distro_id = _is_debian_family()
+
+        self.assertTrue(is_debian)
+        self.assertEqual(distro_id, "debian")
+
+    @patch("apps.checkers.checkers.reboot_debian.OS_RELEASE")
+    def test_ubuntu_via_id(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _is_debian_family
+
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = "ID=ubuntu\nID_LIKE=debian\n"
+        is_debian, distro_id = _is_debian_family()
+
+        self.assertTrue(is_debian)
+        self.assertEqual(distro_id, "ubuntu")
+
+    @patch("apps.checkers.checkers.reboot_debian.OS_RELEASE")
+    def test_derivative_via_id_like(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _is_debian_family
+
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = 'ID=linuxmint\nID_LIKE="ubuntu debian"\n'
+        is_debian, distro_id = _is_debian_family()
+
+        self.assertTrue(is_debian)
+        self.assertEqual(distro_id, "linuxmint")
+
+    @patch("apps.checkers.checkers.reboot_debian.OS_RELEASE")
+    def test_non_debian(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _is_debian_family
+
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = 'ID=fedora\nID_LIKE="rhel"\n'
+        is_debian, distro_id = _is_debian_family()
+
+        self.assertFalse(is_debian)
+        self.assertEqual(distro_id, "fedora")
+
+    @patch("apps.checkers.checkers.reboot_debian.OS_RELEASE")
+    def test_handles_quoted_values_and_blank_lines(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _is_debian_family
+
+        mock_path.exists.return_value = True
+        mock_path.read_text.return_value = (
+            "\n"
+            'NAME="Ubuntu"\n'
+            "ID='ubuntu'\n"
+            "# comment-style line without =\n"
+            'PRETTY_NAME="Ubuntu 22.04"\n'
+        )
+        is_debian, distro_id = _is_debian_family()
+
+        self.assertTrue(is_debian)
+        self.assertEqual(distro_id, "ubuntu")
+
+
+class RebootDebianCheckerErrorTests(TestCase):
+    """Tests for the UNKNOWN error path."""
+
+    @patch("apps.checkers.checkers.reboot_debian.sys")
+    @patch("apps.checkers.checkers.reboot_debian._is_debian_family")
+    @patch("apps.checkers.checkers.reboot_debian._flag_present")
+    def test_unexpected_exception_returns_unknown(self, mock_flag, mock_distro, mock_sys):
+        from apps.checkers.checkers.base import CheckStatus
+        from apps.checkers.checkers.reboot_debian import RebootDebianChecker
+
+        mock_sys.platform = "linux"
+        mock_distro.return_value = (True, "ubuntu")
+        mock_flag.side_effect = RuntimeError("boom")
+
+        result = RebootDebianChecker().run()  # .run(), not .check()
+
+        self.assertEqual(result.status, CheckStatus.UNKNOWN)
+        self.assertIn("boom", result.message)
+        self.assertEqual(result.error, "boom")
+
+
+class RebootDebianAlertIntegrationTests(TestCase):
+    """End-to-end test of the alert lifecycle through CheckAlertBridge."""
+
+    @patch("apps.checkers.checkers.reboot_debian.sys")
+    @patch("apps.checkers.checkers.reboot_debian._is_debian_family")
+    @patch("apps.checkers.checkers.reboot_debian._flag_present")
+    @patch("apps.checkers.checkers.reboot_debian._read_pkgs")
+    def test_warning_then_resolved_keeps_started_at_stable(
+        self, mock_pkgs, mock_flag, mock_distro, mock_sys
+    ):
+        """Three sequential runs: open -> update -> resolve.
+
+        Asserts:
+        - First WARNING run opens an Alert with started_at = T1.
+        - Second WARNING run (still pending, packages changed) updates the
+          same Alert; started_at stays at T1; annotations refresh.
+        - OK run (post-reboot) resolves the Alert; ended_at populated;
+          parent Incident auto-resolves.
+        """
+        from apps.alerts.check_integration import CheckAlertBridge
+        from apps.alerts.models import Alert, AlertStatus, Incident, IncidentStatus
+        from apps.checkers.checkers.reboot_debian import RebootDebianChecker
+
+        mock_sys.platform = "linux"
+        mock_distro.return_value = (True, "ubuntu")
+
+        bridge = CheckAlertBridge(hostname="test-host")
+        checker = RebootDebianChecker()
+
+        # Run 1: reboot becomes pending.
+        mock_flag.return_value = True
+        mock_pkgs.return_value = ["linux-image-generic"]
+        bridge.process_check_result(checker.check())
+
+        alert = Alert.objects.get()
+        self.assertEqual(alert.status, AlertStatus.FIRING)
+        original_started_at = alert.started_at
+        self.assertIn("linux-image-generic", str(alert.annotations))
+        incident = Incident.objects.get()
+        self.assertEqual(incident.status, IncidentStatus.OPEN)
+
+        # Run 2: still pending, follow-up upgrade adds another package.
+        mock_pkgs.return_value = ["linux-image-generic", "libc6"]
+        bridge.process_check_result(checker.check())
+
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, AlertStatus.FIRING)
+        self.assertEqual(alert.started_at, original_started_at)  # stable
+        self.assertIn("libc6", str(alert.annotations))  # current pkg list
+        self.assertEqual(Alert.objects.count(), 1)  # no duplicate
+
+        # Run 3: reboot completes, flag file gone.
+        mock_flag.return_value = False
+        mock_pkgs.return_value = []
+        bridge.process_check_result(checker.check())
+
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, AlertStatus.RESOLVED)
+        self.assertIsNotNone(alert.ended_at)
+        incident.refresh_from_db()
+        self.assertEqual(incident.status, IncidentStatus.RESOLVED)
