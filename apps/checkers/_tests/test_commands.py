@@ -603,6 +603,35 @@ class RunCheckCommandTests(TestCase):
         output = out.getvalue()
         self.assertNotIn("Metrics:", output)
 
+    def test_skipped_check_hides_metrics(self):
+        mock_checker = self._make_checker(
+            status=CheckStatus.OK,
+            message="Skipped: not Linux",
+            metrics={"platform": "darwin", "reboot_required": False},
+        )
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"reboot_debian": mock_checker}, clear=True):
+            call_command("run_check", "reboot_debian", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Skipped: not Linux", output)
+        self.assertNotIn("Metrics:", output)
+        self.assertNotIn("platform: darwin", output)
+
+    def test_skipped_check_keeps_metrics_in_json(self):
+        import json as json_mod
+
+        mock_checker = self._make_checker(
+            status=CheckStatus.OK,
+            message="Skipped: not Linux",
+            metrics={"platform": "darwin", "reboot_required": False},
+        )
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"reboot_debian": mock_checker}, clear=True):
+            call_command("run_check", "reboot_debian", "--json", stdout=out)
+        data = json_mod.loads(out.getvalue())
+        self.assertEqual(data["metrics"]["platform"], "darwin")
+        self.assertEqual(data["metrics"]["reboot_required"], False)
+
     def test_memory_no_swap(self):
         mock_checker = self._make_checker(checker_name="memory")
         with patch.dict(self.REGISTRY_PATH, {"memory": mock_checker}, clear=True):
