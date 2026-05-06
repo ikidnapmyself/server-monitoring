@@ -141,6 +141,24 @@ class RebootDebianCheckerStatusTests(TestCase):
         self.assertEqual(result.metrics["pending_package_count"], 2)
 
 
+class FlagPresentTests(TestCase):
+    """Tests for the _flag_present() helper."""
+
+    @patch("apps.checkers.checkers.reboot_debian.REBOOT_FLAG")
+    def test_returns_true_when_flag_exists(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _flag_present
+
+        mock_path.exists.return_value = True
+        self.assertTrue(_flag_present())
+
+    @patch("apps.checkers.checkers.reboot_debian.REBOOT_FLAG")
+    def test_returns_false_when_flag_absent(self, mock_path):
+        from apps.checkers.checkers.reboot_debian import _flag_present
+
+        mock_path.exists.return_value = False
+        self.assertFalse(_flag_present())
+
+
 class ReadPkgsTests(TestCase):
     """Tests for the _read_pkgs() helper."""
 
