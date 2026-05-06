@@ -181,11 +181,74 @@ class CheckHealthCommandTests(TestCase):
         with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
             call_command("check_health", "cpu", stdout=out)
         output = out.getvalue()
-        self.assertIn("Space Hogs:", output)
+        self.assertIn("Space Hogs: 1206.0 MB (12 items, top 10 shown)", output)
         self.assertIn("/tmp/file0", output)
         self.assertIn("100.5 MB", output)
         self.assertIn("30d old", output)
-        self.assertIn("... and 2 more", output)
+        self.assertIn("... and 2 more  (201.0 MB)", output)
+
+    def test_metrics_section_all_shown_when_under_cap(self):
+        items = [{"path": f"/tmp/file{i}", "size_mb": 10.0} for i in range(5)]
+        mock_checker = self._make_checker(metrics={"space_hogs": items})
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Space Hogs: 50.0 MB (5 items, all shown)", output)
+        self.assertNotIn("... and", output)
+
+    def test_metrics_largest_section_shown_in_full(self):
+        # space_hogs: 12 × 5 MB = 60 MB (smaller, truncated)
+        # old_files: 12 × 50 MB = 600 MB (larger → full output)
+        space_hogs = [{"path": f"/tmp/s{i}", "size_mb": 5.0} for i in range(12)]
+        old_files = [{"path": f"/tmp/o{i}", "size_mb": 50.0, "age_days": 7} for i in range(12)]
+        mock_checker = self._make_checker(
+            metrics={"space_hogs": space_hogs, "old_files": old_files}
+        )
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Space Hogs: 60.0 MB (12 items, top 10 shown)", output)
+        self.assertIn("... and 2 more  (10.0 MB)", output)
+        self.assertIn("Old Files: 600.0 MB (12 items, all shown)", output)
+        self.assertIn("/tmp/o11", output)  # 12th old_files item must be visible
+
+    def test_metrics_three_sections_largest_wins(self):
+        # space_hogs: 11 × 1 MB = 11 MB
+        # old_files: 11 × 2 MB = 22 MB
+        # large_files: 11 × 100 MB = 1100 MB (largest → full)
+        space_hogs = [{"path": f"/v/s{i}", "size_mb": 1.0} for i in range(11)]
+        old_files = [{"path": f"/v/o{i}", "size_mb": 2.0, "age_days": 5} for i in range(11)]
+        large_files = [{"path": f"/h/l{i}", "size_mb": 100.0} for i in range(11)]
+        mock_checker = self._make_checker(
+            metrics={
+                "space_hogs": space_hogs,
+                "old_files": old_files,
+                "large_files": large_files,
+            }
+        )
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Space Hogs: 11.0 MB (11 items, top 10 shown)", output)
+        self.assertIn("Old Files: 22.0 MB (11 items, top 10 shown)", output)
+        self.assertIn("Large Files: 1100.0 MB (11 items, all shown)", output)
+        self.assertIn("/h/l10", output)  # only large_files 11th item visible
+        self.assertNotIn("/v/s10", output)
+        self.assertNotIn("/v/o10", output)
+
+    def test_metrics_no_disk_sections(self):
+        mock_checker = self._make_checker(metrics={"cpu_percent": 12.5})
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("check_health", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertNotIn("Space Hogs", output)
+        self.assertNotIn("Old Files", output)
+        self.assertNotIn("Large Files", output)
+        self.assertIn("cpu percent: 12.5", output)
 
     def test_metrics_old_files(self):
         items = [{"path": "/tmp/old", "size_mb": 50.0}]

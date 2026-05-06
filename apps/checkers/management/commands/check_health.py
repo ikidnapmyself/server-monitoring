@@ -195,18 +195,41 @@ class Command(BaseCommand):
         """Print key metrics below the checker result line."""
         indent = "       "
 
-        # Disk analysis checkers: space_hogs, old_files, large_files, recommendations
+        # Disk analysis checkers: space_hogs, old_files, large_files, recommendations.
+        # Display rule: when 2+ sections are non-empty, the section with the largest
+        # subtotal is shown in full so the user can see where the weight is.
+        # Other sections (and the single-section case) keep the 10-item cap with a
+        # trailer that includes the omitted byte weight, so the printed values
+        # always reconcile against the grand total.
+        sections = []
         for key in ("space_hogs", "old_files", "large_files"):
             items = metrics.get(key)
             if items:
-                label = key.replace("_", " ").title()
-                self.stdout.write(f"{indent}{label}:")
-                for item in items[:10]:
-                    size = f"{item['size_mb']:.1f} MB"
-                    extra = f" ({item['age_days']}d old)" if "age_days" in item else ""
-                    self.stdout.write(f"{indent}  - {item['path']}  {size}{extra}")
-                if len(items) > 10:
-                    self.stdout.write(f"{indent}  ... and {len(items) - 10} more")
+                subtotal = sum(item["size_mb"] for item in items)
+                sections.append((key, items, subtotal))
+
+        largest_key = None
+        if len(sections) >= 2:
+            largest_key = max(sections, key=lambda s: s[2])[0]
+
+        cap = 10
+        for key, items, subtotal in sections:
+            label = key.replace("_", " ").title()
+            show_all = key == largest_key
+            shown = items if show_all else items[:cap]
+            count_note = "all shown" if show_all or len(items) <= cap else f"top {cap} shown"
+            self.stdout.write(
+                f"{indent}{label}: {subtotal:.1f} MB ({len(items)} items, {count_note})"
+            )
+            for item in shown:
+                size = f"{item['size_mb']:.1f} MB"
+                extra = f" ({item['age_days']}d old)" if "age_days" in item else ""
+                self.stdout.write(f"{indent}  - {item['path']}  {size}{extra}")
+            if not show_all and len(items) > cap:
+                omitted_weight = sum(it["size_mb"] for it in items[cap:])
+                self.stdout.write(
+                    f"{indent}  ... and {len(items) - cap} more  ({omitted_weight:.1f} MB)"
+                )
 
         total = metrics.get("total_recoverable_mb")
         if total is not None:
