@@ -14,6 +14,7 @@ import json
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.checkers.checkers import CHECKER_REGISTRY, CheckStatus
+from apps.checkers.management.commands._metrics_format import write_metrics
 from config.security import PathNotAllowedError, resolve_safe_path
 
 
@@ -162,16 +163,11 @@ class Command(BaseCommand):
         # Skip metrics block for skipped checks — the placeholder values are noise.
         skipped = result.status == CheckStatus.OK and result.message.startswith("Skipped:")
 
-        # Show key metrics
+        # Show key metrics — disk checkers get readable section headers,
+        # subtotals, and trailers via the shared helper.
         if result.metrics and not skipped:
             self.stdout.write("")
             self.stdout.write("  Metrics:")
-            for key, value in result.metrics.items():
-                if isinstance(value, dict):
-                    self.stdout.write(f"    {key}:")
-                    for k, v in value.items():
-                        self.stdout.write(f"      {k}: {v}")
-                else:
-                    self.stdout.write(f"    {key}: {value}")
+            write_metrics(self.stdout, result.metrics, indent="    ")
 
         self.stdout.write("")
