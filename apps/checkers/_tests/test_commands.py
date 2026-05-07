@@ -595,7 +595,7 @@ class RunCheckCommandTests(TestCase):
             call_command("run_check", "cpu", stdout=out)
         output = out.getvalue()
         self.assertIn("hosts:", output)
-        self.assertIn("8.8.8.8: {'latency': 5}", output)
+        self.assertIn("8.8.8.8: latency: 5", output)
 
     def test_disk_paths_rejected_outside_allowed_roots(self):
         """PathNotAllowedError is caught and re-raised as CommandError."""
@@ -603,5 +603,36 @@ class RunCheckCommandTests(TestCase):
         with patch.dict(self.REGISTRY_PATH, {"disk": mock_checker}, clear=True):
             with self.assertRaises(CommandError):
                 call_command("run_check", "disk", "--paths", "/root/.ssh", stdout=StringIO())
+
+    def test_run_check_wraps_metrics_with_label(self):
+        """The metrics block is preceded by a 'Metrics:' header line."""
+        mock_checker = self._make_checker(metrics={"cpu_percent": 15.5})
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("run_check", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("  Metrics:", output)
+
+    def test_run_check_disk_metrics_use_section_format(self):
+        """Disk space_hogs render through the shared helper, not as repr()."""
+        items = [{"path": f"/tmp/file{i}", "size_mb": 100.5, "age_days": 30} for i in range(12)]
+        mock_checker = self._make_checker(metrics={"space_hogs": items}, checker_name="disk_common")
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"disk_common": mock_checker}, clear=True):
+            call_command("run_check", "disk_common", stdout=out)
+        output = out.getvalue()
+        self.assertIn("Space Hogs: 1206.0 MB (12 items, top 10 shown)", output)
+        self.assertIn("... and 2 more  (201.0 MB)", output)
+        self.assertNotIn("[{", output)
+
+    def test_run_check_flat_metric_uses_helper_format(self):
+        """Flat keys render with underscore-to-space and float :.1f formatting."""
+        mock_checker = self._make_checker(metrics={"cpu_percent": 15.5})
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            call_command("run_check", "cpu", stdout=out)
+        output = out.getvalue()
+        self.assertIn("cpu percent: 15.5", output)
+        self.assertNotIn("cpu_percent:", output)
 
     # Preflight command tests moved to apps/checkers/_tests/preflight/test_command.py
