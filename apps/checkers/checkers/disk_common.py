@@ -39,6 +39,7 @@ class DiskCommonChecker(BaseChecker):
                     if item["path"] not in seen:
                         seen.add(item["path"])
                         space_hogs.append(item)
+            space_hogs.sort(key=lambda x: x["size_mb"], reverse=True)
 
             old_files = []
             for target in old_file_targets:
@@ -47,6 +48,7 @@ class DiskCommonChecker(BaseChecker):
                     if item["path"] not in seen:
                         seen.add(item["path"])
                         old_files.append(item)
+            old_files.sort(key=lambda x: x["size_mb"], reverse=True)
 
             # Build set of already-scanned paths to exclude from large file walk
             # This prevents double-counting (e.g., ~/.cache files counted both as space_hogs and large_files)
@@ -62,6 +64,7 @@ class DiskCommonChecker(BaseChecker):
                     if item["path"] not in seen:
                         seen.add(item["path"])
                         large_files.append(item)
+            large_files.sort(key=lambda x: x["size_mb"], reverse=True)
 
             total = (
                 sum(h["size_mb"] for h in space_hogs)

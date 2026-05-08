@@ -142,6 +142,36 @@ class DiskMacOSCheckerTests(TestCase):
         self.assertEqual(len(result.metrics["old_files"]), 1)
         self.assertEqual(result.metrics["old_files"][0]["age_days"], 90)
 
+    @patch("apps.checkers.checkers.disk_macos.sys")
+    @patch("apps.checkers.checkers.disk_macos.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk_macos.scan_directory")
+    @patch("apps.checkers.checkers.disk_macos.find_old_files")
+    def test_space_hogs_globally_sorted_across_scan_targets(
+        self, mock_old, mock_scan, mock_expanduser, mock_sys
+    ):
+        """space_hogs is sorted desc across the four macOS scan targets."""
+        mock_sys.platform = "darwin"
+        mock_expanduser.side_effect = lambda p: p.replace("~", "/Users/testuser")
+
+        def fake_scan(path, timeout=None):
+            if path == "/Users/testuser/Library/Caches":
+                return [{"path": f"{path}/small", "size_mb": 5.0}]
+            if path == "/Library/Caches":
+                return [{"path": f"{path}/big", "size_mb": 800.0}]
+            if path == "/Users/testuser/Library/Logs":
+                return [{"path": f"{path}/medium", "size_mb": 100.0}]
+            return []
+
+        mock_scan.side_effect = fake_scan
+        mock_old.return_value = []
+
+        checker = self._get_checker_class()()
+        result = checker.check()
+
+        sizes = [item["size_mb"] for item in result.metrics["space_hogs"]]
+        self.assertEqual(sizes, sorted(sizes, reverse=True))
+        self.assertEqual(sizes[0], 800.0)
+
 
 class DiskMacOSBuildRecommendationsTests(TestCase):
     """Tests for DiskMacOSChecker._build_recommendations() branch coverage."""

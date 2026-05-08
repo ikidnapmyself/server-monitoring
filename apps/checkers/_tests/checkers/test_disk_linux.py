@@ -110,6 +110,32 @@ class DiskLinuxCheckerTests(TestCase):
 
         self.assertEqual(result.status, CheckStatus.OK)
 
+    @patch("apps.checkers.checkers.disk_linux.sys")
+    @patch("apps.checkers.checkers.disk_linux.scan_directory")
+    @patch("apps.checkers.checkers.disk_linux.find_old_files")
+    def test_space_hogs_globally_sorted_across_scan_targets(self, mock_old, mock_scan, mock_sys):
+        """space_hogs is sorted desc across the four Linux scan targets."""
+        mock_sys.platform = "linux"
+
+        def fake_scan(path, timeout=None):
+            if path == "/var/cache/apt/archives":
+                return [{"path": f"{path}/small", "size_mb": 50.0}]
+            if path == "/var/log/journal":
+                return [{"path": f"{path}/big", "size_mb": 900.0}]
+            if path == "/var/lib/docker":
+                return [{"path": f"{path}/medium", "size_mb": 300.0}]
+            return []
+
+        mock_scan.side_effect = fake_scan
+        mock_old.return_value = []
+
+        checker = self._get_checker_class()()
+        result = checker.check()
+
+        sizes = [item["size_mb"] for item in result.metrics["space_hogs"]]
+        self.assertEqual(sizes, sorted(sizes, reverse=True))
+        self.assertEqual(sizes[0], 900.0)
+
 
 class DiskLinuxBuildRecommendationsTests(TestCase):
     """Tests for DiskLinuxChecker._build_recommendations() branch coverage."""
