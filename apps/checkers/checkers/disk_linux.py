@@ -40,6 +40,7 @@ class DiskLinuxChecker(BaseChecker):
                     if item["path"] not in seen:
                         seen.add(item["path"])
                         space_hogs.append(item)
+            space_hogs.sort(key=lambda x: x["size_mb"], reverse=True)
 
             old_files = []
             for target in old_file_targets:
@@ -47,6 +48,7 @@ class DiskLinuxChecker(BaseChecker):
                     if item["path"] not in seen:
                         seen.add(item["path"])
                         old_files.append(item)
+            old_files.sort(key=lambda x: x["size_mb"], reverse=True)
 
             total = sum(h["size_mb"] for h in space_hogs) + sum(f["size_mb"] for f in old_files)
             recs = self._build_recommendations(space_hogs, old_files)

@@ -140,6 +140,86 @@ class DiskCommonCheckerTests(TestCase):
 
         self.assertIn("platform", result.metrics)
 
+    @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk_common.scan_directory")
+    @patch("apps.checkers.checkers.disk_common.find_old_files")
+    @patch("apps.checkers.checkers.disk_common.find_large_files")
+    def test_space_hogs_globally_sorted_across_scan_targets(
+        self, mock_large, mock_old, mock_scan, mock_expanduser
+    ):
+        """space_hogs is sorted desc by size_mb across /var/log and ~/.cache."""
+        mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
+
+        def fake_scan(path, timeout=None):
+            if path == "/var/log":
+                return [
+                    {"path": "/var/log/a", "size_mb": 5.0},
+                    {"path": "/var/log/b", "size_mb": 3.0},
+                ]
+            if path == "/home/testuser/.cache":
+                return [{"path": "/home/testuser/.cache/big", "size_mb": 500.0}]
+            return []
+
+        mock_scan.side_effect = fake_scan
+        mock_old.return_value = []
+        mock_large.return_value = []
+
+        checker = self._get_checker_class()()
+        result = checker.check()
+
+        sizes = [item["size_mb"] for item in result.metrics["space_hogs"]]
+        self.assertEqual(sizes, sorted(sizes, reverse=True))
+        self.assertEqual(sizes[0], 500.0)
+
+    @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk_common.scan_directory")
+    @patch("apps.checkers.checkers.disk_common.find_old_files")
+    @patch("apps.checkers.checkers.disk_common.find_large_files")
+    def test_old_files_globally_sorted_across_targets(
+        self, mock_large, mock_old, mock_scan, mock_expanduser
+    ):
+        """old_files is sorted desc by size_mb across /tmp and /var/tmp."""
+        mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
+        mock_scan.return_value = []
+
+        def fake_old(path, max_age_days=7, timeout=None):
+            if path == "/tmp":
+                return [{"path": "/tmp/small", "size_mb": 2.0, "age_days": 10}]
+            if path == "/var/tmp":
+                return [{"path": "/var/tmp/big", "size_mb": 200.0, "age_days": 15}]
+            return []
+
+        mock_old.side_effect = fake_old
+        mock_large.return_value = []
+
+        checker = self._get_checker_class()()
+        result = checker.check()
+
+        sizes = [item["size_mb"] for item in result.metrics["old_files"]]
+        self.assertEqual(sizes, sorted(sizes, reverse=True))
+        self.assertEqual(sizes[0], 200.0)
+
+    @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk_common.scan_directory")
+    @patch("apps.checkers.checkers.disk_common.find_old_files")
+    @patch("apps.checkers.checkers.disk_common.find_large_files")
+    def test_large_files_sorted_descending(self, mock_large, mock_old, mock_scan, mock_expanduser):
+        """large_files is sorted desc — single-target today, locks invariant for the future."""
+        mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
+        mock_scan.return_value = []
+        mock_old.return_value = []
+        mock_large.return_value = [
+            {"path": "/home/testuser/small.iso", "size_mb": 150.0},
+            {"path": "/home/testuser/big.iso", "size_mb": 800.0},
+            {"path": "/home/testuser/medium.iso", "size_mb": 400.0},
+        ]
+
+        checker = self._get_checker_class()()
+        result = checker.check()
+
+        sizes = [item["size_mb"] for item in result.metrics["large_files"]]
+        self.assertEqual(sizes, sorted(sizes, reverse=True))
+
 
 class DiskCommonBuildRecommendationsTests(TestCase):
     """Tests for DiskCommonChecker._build_recommendations() branch coverage."""
