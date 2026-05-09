@@ -16,7 +16,7 @@ class _StubAnalyzer(BaseDiskAnalyzer):
     old_file_targets = ["/test/old"]
     large_file_targets = ["/test/large"]
     old_max_age_days = 7
-    recommendation_rules = [(["match_keyword"], "matched advice")]
+    recommendation_rules = [(["match_keyword"], ["matched advice"])]
     old_files_advice = "old advice"
     large_files_advice = "large advice"
 
@@ -79,7 +79,7 @@ class BaseDiskAnalyzerTests(TestCase):
 
         result = _StubAnalyzer().check()
 
-        self.assertIn("matched advice", result.metrics["recommendations"])
+        self.assertIn(["matched advice"], result.metrics["recommendations"])
 
     @patch("apps.checkers.checkers.disk.base.find_large_files")
     @patch("apps.checkers.checkers.disk.base.find_old_files")
@@ -91,7 +91,7 @@ class BaseDiskAnalyzerTests(TestCase):
 
         result = _StubAnalyzer().check()
 
-        self.assertNotIn("matched advice", result.metrics["recommendations"])
+        self.assertNotIn(["matched advice"], result.metrics["recommendations"])
 
     @patch("apps.checkers.checkers.disk.base.find_large_files")
     @patch("apps.checkers.checkers.disk.base.find_old_files")
@@ -103,7 +103,7 @@ class BaseDiskAnalyzerTests(TestCase):
 
         result = _StubAnalyzer().check()
 
-        self.assertIn("old advice", result.metrics["recommendations"])
+        self.assertIn(["old advice"], result.metrics["recommendations"])
 
     @patch("apps.checkers.checkers.disk.base.find_large_files")
     @patch("apps.checkers.checkers.disk.base.find_old_files")
@@ -117,7 +117,7 @@ class BaseDiskAnalyzerTests(TestCase):
 
         result = _StubAnalyzer().check()
 
-        self.assertIn("large advice", result.metrics["recommendations"])
+        self.assertIn(["large advice"], result.metrics["recommendations"])
 
     @patch("apps.checkers.checkers.disk.base.find_large_files")
     @patch("apps.checkers.checkers.disk.base.find_old_files")
@@ -129,8 +129,8 @@ class BaseDiskAnalyzerTests(TestCase):
 
         result = _StubAnalyzer().check()
 
-        self.assertNotIn("old advice", result.metrics["recommendations"])
-        self.assertNotIn("large advice", result.metrics["recommendations"])
+        self.assertNotIn(["old advice"], result.metrics["recommendations"])
+        self.assertNotIn(["large advice"], result.metrics["recommendations"])
 
     @patch("apps.checkers.checkers.disk.base.scan_directory")
     def test_scanner_exception_returns_unknown(self, mock_scan):
@@ -153,6 +153,68 @@ class BaseDiskAnalyzerTests(TestCase):
         result = _StubAnalyzer().check()
         sizes = [item["size_mb"] for item in result.metrics["space_hogs"]]
         self.assertEqual(sizes, sorted(sizes, reverse=True))
+
+    @patch("apps.checkers.checkers.disk.base.find_large_files", return_value=[])
+    @patch("apps.checkers.checkers.disk.base.find_old_files", return_value=[])
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    def test_multi_line_rule_returns_list_of_lines(self, mock_scan, _old, _large):
+        """A rule with multiple lines yields one list-of-lines entry."""
+
+        class _MultiLineStub(BaseDiskAnalyzer):
+            name = "_multiline"
+            scan_targets = ["/test"]
+            old_file_targets = []
+            large_file_targets = []
+            recommendation_rules = [
+                (["match"], ["Title:", "step one", "step two"]),
+            ]
+
+            def _is_applicable(self) -> bool:
+                return True
+
+        mock_scan.return_value = [{"path": "/test/match/x", "size_mb": 10.0}]
+        result = _MultiLineStub().check()
+        self.assertIn(["Title:", "step one", "step two"], result.metrics["recommendations"])
+
+    @patch("apps.checkers.checkers.disk.base.find_large_files", return_value=[])
+    @patch("apps.checkers.checkers.disk.base.find_old_files", return_value=[])
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    def test_single_line_rule_returns_one_element_list(self, mock_scan, _old, _large):
+        """A rule with a single-line list yields a 1-element list."""
+
+        class _SingleLineStub(BaseDiskAnalyzer):
+            name = "_singleline"
+            scan_targets = ["/test"]
+            old_file_targets = []
+            large_file_targets = []
+            recommendation_rules = [(["match"], ["solo line"])]
+
+            def _is_applicable(self) -> bool:
+                return True
+
+        mock_scan.return_value = [{"path": "/test/match/x", "size_mb": 10.0}]
+        result = _SingleLineStub().check()
+        self.assertIn(["solo line"], result.metrics["recommendations"])
+
+    @patch("apps.checkers.checkers.disk.base.find_large_files", return_value=[])
+    @patch("apps.checkers.checkers.disk.base.find_old_files", return_value=[])
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    def test_empty_lines_rule_silently_dropped(self, mock_scan, _old, _large):
+        """A rule with an empty lines list never produces a recommendation."""
+
+        class _EmptyLinesStub(BaseDiskAnalyzer):
+            name = "_emptylines"
+            scan_targets = ["/test"]
+            old_file_targets = []
+            large_file_targets = []
+            recommendation_rules = [(["match"], [])]
+
+            def _is_applicable(self) -> bool:
+                return True
+
+        mock_scan.return_value = [{"path": "/test/match/x", "size_mb": 10.0}]
+        result = _EmptyLinesStub().check()
+        self.assertEqual(result.metrics["recommendations"], [])
 
 
 class _MultiTargetStub(BaseDiskAnalyzer):

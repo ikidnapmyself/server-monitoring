@@ -31,7 +31,7 @@ class BaseDiskAnalyzer(BaseChecker):
     old_file_targets: list[str] = []
     large_file_targets: list[str] = []
     old_max_age_days: int = 7
-    recommendation_rules: list[tuple[list[str], str]] = []
+    recommendation_rules: list[tuple[list[str], list[str]]] = []
     old_files_advice: str = ""
     large_files_advice: str = ""
 
@@ -96,14 +96,16 @@ class BaseDiskAnalyzer(BaseChecker):
         results.sort(key=lambda x: x["size_mb"], reverse=True)
         return results
 
-    def _build_recommendations(self, space_hogs, old_files, large_files) -> list[str]:
-        recs: list[str] = []
+    def _build_recommendations(self, space_hogs, old_files, large_files) -> list[list[str]]:
+        recs: list[list[str]] = []
         paths = [h["path"] for h in space_hogs]
-        for keywords, advice in self.recommendation_rules:
+        for keywords, lines in self.recommendation_rules:
+            if not lines:
+                continue
             if any(kw in p for kw in keywords for p in paths):
-                recs.append(advice)
+                recs.append(list(lines))
         if old_files and self.old_files_advice:
-            recs.append(self.old_files_advice)
+            recs.append([self.old_files_advice])
         if large_files and self.large_files_advice:
-            recs.append(self.large_files_advice)
+            recs.append([self.large_files_advice])
         return recs

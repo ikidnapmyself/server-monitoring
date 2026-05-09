@@ -21,10 +21,10 @@ class DiskLinuxChecker(BaseDiskAnalyzer):
     old_max_age_days = 7
 
     recommendation_rules = [
-        (["apt"], "Run 'sudo apt clean' to clear APT package cache"),
-        (["journal"], "Run 'sudo journalctl --vacuum-size=100M' to trim journal logs"),
-        (["docker"], "Run 'docker system prune' to clean unused Docker data"),
-        (["snap"], "Remove old snap package revisions"),
+        (["apt"], ["Run 'sudo apt clean' to clear APT package cache"]),
+        (["journal"], ["Run 'sudo journalctl --vacuum-size=100M' to trim journal logs"]),
+        (["docker"], ["Run 'docker system prune' to clean unused Docker data"]),
+        (["snap"], ["Remove old snap package revisions"]),
     ]
     old_files_advice = "Remove old temporary files from /tmp"
     large_files_advice = "Review and remove large files in /srv and /opt"

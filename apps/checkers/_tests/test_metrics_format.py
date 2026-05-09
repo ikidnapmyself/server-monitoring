@@ -85,9 +85,22 @@ class WriteMetricsTests(SimpleTestCase):
         self.assertIn("Total recoverable: 500.0 MB", output)
 
     def test_recommendations(self):
-        output = self._render({"recommendations": ["clean /tmp"]})
+        output = self._render({"recommendations": [["clean /tmp"]]})
         self.assertIn("Recommendations:", output)
         self.assertIn("- clean /tmp", output)
+
+    def test_recommendation_with_multiline_renders_indented(self):
+        output = self._render({"recommendations": [["Title:", "step one", "step two"]]})
+        self.assertIn("Recommendations:", output)
+        self.assertIn("- Title:", output)
+        self.assertIn("    step one", output)
+        self.assertIn("    step two", output)
+
+    def test_empty_recommendation_skipped(self):
+        output = self._render({"recommendations": [[], ["Real title"]]})
+        self.assertIn("- Real title", output)
+        # Should not produce stray "- " bullets from the empty entry
+        self.assertNotIn("- \n", output)
 
     def test_nested_dict(self):
         output = self._render(

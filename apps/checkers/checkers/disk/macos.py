@@ -21,12 +21,12 @@ class DiskMacOSChecker(BaseDiskAnalyzer):
     old_max_age_days = 30
 
     recommendation_rules = [
-        (["Homebrew"], "Run 'brew cleanup --prune=all' to free Homebrew cache"),
+        (["Homebrew"], ["Run 'brew cleanup --prune=all' to free Homebrew cache"]),
         (
             ["DerivedData", "Xcode"],
-            "Remove ~/Library/Developer/Xcode/DerivedData to free build cache",
+            ["Remove ~/Library/Developer/Xcode/DerivedData to free build cache"],
         ),
-        (["Caches"], "Clear application caches in ~/Library/Caches"),
+        (["Caches"], ["Clear application caches in ~/Library/Caches"]),
     ]
     old_files_advice = "Remove old files from ~/Downloads"
     large_files_advice = (

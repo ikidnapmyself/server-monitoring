@@ -50,7 +50,11 @@ def write_metrics(stdout, metrics: dict, indent: str) -> None:
     if recs:
         stdout.write(f"{indent}Recommendations:")
         for rec in recs:
-            stdout.write(f"{indent}  - {rec}")
+            if not rec:
+                continue
+            stdout.write(f"{indent}  - {rec[0]}")
+            for line in rec[1:]:
+                stdout.write(f"{indent}    {line}")
 
     # Standard checkers: flat key-value pairs (percent, paths, etc.)
     skip = {
