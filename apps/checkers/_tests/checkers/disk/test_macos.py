@@ -11,14 +11,16 @@ class DiskMacOSCheckerTests(TestCase):
     """Tests for DiskMacOSChecker."""
 
     def _get_checker_class(self):
-        from apps.checkers.checkers.disk_macos import DiskMacOSChecker
+        from apps.checkers.checkers.disk.macos import DiskMacOSChecker
 
         return DiskMacOSChecker
 
-    @patch("apps.checkers.checkers.disk_macos.sys")
-    def test_skips_on_linux(self, mock_sys):
+    @patch("apps.checkers.checkers.disk.base.sys")
+    @patch("apps.checkers.checkers.disk.macos.sys")
+    def test_skips_on_linux(self, mock_sys, mock_base_sys):
         """Checker returns OK skip on non-darwin platforms."""
         mock_sys.platform = "linux"
+        mock_base_sys.platform = "linux"
         checker = self._get_checker_class()()
         result = checker.check()
 
@@ -26,9 +28,9 @@ class DiskMacOSCheckerTests(TestCase):
         self.assertIn("skipped", result.message.lower())
         self.assertEqual(result.metrics.get("platform"), "linux")
 
-    @patch("apps.checkers.checkers.disk_macos.sys")
-    @patch("apps.checkers.checkers.disk_macos.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_macos.scan_directory")
+    @patch("apps.checkers.checkers.disk.macos.sys")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
     def test_scans_library_caches(self, mock_scan, mock_expanduser, mock_sys):
         """Checker scans ~/Library/Caches on macOS."""
         mock_sys.platform = "darwin"
@@ -44,10 +46,10 @@ class DiskMacOSCheckerTests(TestCase):
         self.assertIn("space_hogs", result.metrics)
         self.assertGreater(len(result.metrics["space_hogs"]), 0)
 
-    @patch("apps.checkers.checkers.disk_macos.sys")
-    @patch("apps.checkers.checkers.disk_macos.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_macos.scan_directory")
-    @patch("apps.checkers.checkers.disk_macos.find_old_files")
+    @patch("apps.checkers.checkers.disk.macos.sys")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
     def test_warning_when_recoverable_exceeds_threshold(
         self, mock_old_files, mock_scan, mock_expanduser, mock_sys
     ):
@@ -65,10 +67,10 @@ class DiskMacOSCheckerTests(TestCase):
         self.assertEqual(result.status, CheckStatus.WARNING)
         self.assertGreaterEqual(result.metrics["total_recoverable_mb"], 5000.0)
 
-    @patch("apps.checkers.checkers.disk_macos.sys")
-    @patch("apps.checkers.checkers.disk_macos.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_macos.scan_directory")
-    @patch("apps.checkers.checkers.disk_macos.find_old_files")
+    @patch("apps.checkers.checkers.disk.macos.sys")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
     def test_critical_when_recoverable_exceeds_critical(
         self, mock_old_files, mock_scan, mock_expanduser, mock_sys
     ):
@@ -85,10 +87,10 @@ class DiskMacOSCheckerTests(TestCase):
 
         self.assertEqual(result.status, CheckStatus.CRITICAL)
 
-    @patch("apps.checkers.checkers.disk_macos.sys")
-    @patch("apps.checkers.checkers.disk_macos.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_macos.scan_directory")
-    @patch("apps.checkers.checkers.disk_macos.find_old_files")
+    @patch("apps.checkers.checkers.disk.macos.sys")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
     def test_includes_recommendations(self, mock_old_files, mock_scan, mock_expanduser, mock_sys):
         """Checker includes cleanup recommendations."""
         mock_sys.platform = "darwin"
@@ -104,10 +106,10 @@ class DiskMacOSCheckerTests(TestCase):
         self.assertIn("recommendations", result.metrics)
         self.assertIsInstance(result.metrics["recommendations"], list)
 
-    @patch("apps.checkers.checkers.disk_macos.sys")
-    @patch("apps.checkers.checkers.disk_macos.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_macos.scan_directory")
-    @patch("apps.checkers.checkers.disk_macos.find_old_files")
+    @patch("apps.checkers.checkers.disk.macos.sys")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
     def test_ok_when_below_thresholds(self, mock_old_files, mock_scan, mock_expanduser, mock_sys):
         """Checker returns OK when recoverable is below warning threshold."""
         mock_sys.platform = "darwin"
@@ -122,10 +124,10 @@ class DiskMacOSCheckerTests(TestCase):
 
         self.assertEqual(result.status, CheckStatus.OK)
 
-    @patch("apps.checkers.checkers.disk_macos.sys")
-    @patch("apps.checkers.checkers.disk_macos.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_macos.scan_directory")
-    @patch("apps.checkers.checkers.disk_macos.find_old_files")
+    @patch("apps.checkers.checkers.disk.macos.sys")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
     def test_old_files_in_downloads(self, mock_old_files, mock_scan, mock_expanduser, mock_sys):
         """Checker finds old files in ~/Downloads."""
         mock_sys.platform = "darwin"
@@ -142,10 +144,10 @@ class DiskMacOSCheckerTests(TestCase):
         self.assertEqual(len(result.metrics["old_files"]), 1)
         self.assertEqual(result.metrics["old_files"][0]["age_days"], 90)
 
-    @patch("apps.checkers.checkers.disk_macos.sys")
-    @patch("apps.checkers.checkers.disk_macos.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_macos.scan_directory")
-    @patch("apps.checkers.checkers.disk_macos.find_old_files")
+    @patch("apps.checkers.checkers.disk.macos.sys")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
     def test_space_hogs_globally_sorted_across_scan_targets(
         self, mock_old, mock_scan, mock_expanduser, mock_sys
     ):
@@ -172,12 +174,26 @@ class DiskMacOSCheckerTests(TestCase):
         self.assertEqual(sizes, sorted(sizes, reverse=True))
         self.assertEqual(sizes[0], 800.0)
 
+    @patch("apps.checkers.checkers.disk.macos.sys")
+    @patch("apps.checkers.checkers.disk.base.scan_directory", return_value=[])
+    @patch("apps.checkers.checkers.disk.base.find_old_files", return_value=[])
+    @patch("apps.checkers.checkers.disk.base.find_large_files")
+    def test_walks_application_support_for_large_files(self, mock_large, _old, _scan, mock_sys):
+        """macOS large_file_targets includes /Library/Application Support."""
+        mock_sys.platform = "darwin"
+        mock_large.return_value = [
+            {"path": "/Library/Application Support/foo/big.db", "size_mb": 500.0},
+        ]
+        result = self._get_checker_class()().check()
+        self.assertGreater(len(result.metrics["large_files"]), 0)
+        self.assertEqual(result.metrics["large_files"][0]["size_mb"], 500.0)
+
 
 class DiskMacOSBuildRecommendationsTests(TestCase):
     """Tests for DiskMacOSChecker._build_recommendations() branch coverage."""
 
     def _make_checker(self):
-        from apps.checkers.checkers.disk_macos import DiskMacOSChecker
+        from apps.checkers.checkers.disk.macos import DiskMacOSChecker
 
         return DiskMacOSChecker()
 
@@ -185,7 +201,7 @@ class DiskMacOSBuildRecommendationsTests(TestCase):
         """Recommends brew cleanup when Homebrew appears in space_hogs."""
         checker = self._make_checker()
         space_hogs = [{"path": "/Users/user/Library/Caches/Homebrew", "size_mb": 2000.0}]
-        recs = checker._build_recommendations(space_hogs, [])
+        recs = checker._build_recommendations(space_hogs, [], [])
         self.assertTrue(any("brew cleanup" in r for r in recs))
 
     def test_derived_data_recommendation(self):
@@ -194,50 +210,50 @@ class DiskMacOSBuildRecommendationsTests(TestCase):
         space_hogs = [
             {"path": "/Users/user/Library/Developer/Xcode/DerivedData", "size_mb": 8000.0}
         ]
-        recs = checker._build_recommendations(space_hogs, [])
+        recs = checker._build_recommendations(space_hogs, [], [])
         self.assertTrue(any("DerivedData" in r for r in recs))
 
     def test_xcode_recommendation(self):
         """Recommends removing DerivedData when Xcode appears in space_hogs."""
         checker = self._make_checker()
         space_hogs = [{"path": "/Users/user/Library/Developer/Xcode/Archives", "size_mb": 3000.0}]
-        recs = checker._build_recommendations(space_hogs, [])
+        recs = checker._build_recommendations(space_hogs, [], [])
         self.assertTrue(any("DerivedData" in r for r in recs))
 
     def test_caches_recommendation(self):
         """Recommends clearing caches when Caches appears in space_hogs."""
         checker = self._make_checker()
         space_hogs = [{"path": "/Users/user/Library/Caches/com.apple.Safari", "size_mb": 500.0}]
-        recs = checker._build_recommendations(space_hogs, [])
+        recs = checker._build_recommendations(space_hogs, [], [])
         self.assertTrue(any("~/Library/Caches" in r for r in recs))
 
     def test_old_files_recommendation(self):
         """Recommends removing old files when old_files is non-empty."""
         checker = self._make_checker()
         old_files = [{"path": "/Users/user/Downloads/old.zip", "size_mb": 500.0, "age_days": 60}]
-        recs = checker._build_recommendations([], old_files)
+        recs = checker._build_recommendations([], old_files, [])
         self.assertTrue(any("~/Downloads" in r for r in recs))
 
     def test_no_matches_empty_recommendations(self):
         """Returns empty list when no patterns match and no old files."""
         checker = self._make_checker()
         space_hogs = [{"path": "/some/unknown/path", "size_mb": 100.0}]
-        recs = checker._build_recommendations(space_hogs, [])
+        recs = checker._build_recommendations(space_hogs, [], [])
         self.assertEqual(recs, [])
 
 
 class DiskMacOSCoverageGapTests(TestCase):
-    """Tests covering remaining branch gaps in disk_macos.py."""
+    """Tests covering remaining branch gaps in disk/macos.py."""
 
     def _get_checker_class(self):
-        from apps.checkers.checkers.disk_macos import DiskMacOSChecker
+        from apps.checkers.checkers.disk.macos import DiskMacOSChecker
 
         return DiskMacOSChecker
 
-    @patch("apps.checkers.checkers.disk_macos.sys")
-    @patch("apps.checkers.checkers.disk_macos.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_macos.scan_directory")
-    @patch("apps.checkers.checkers.disk_macos.find_old_files")
+    @patch("apps.checkers.checkers.disk.macos.sys")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
     def test_old_file_duplicate_path_skipped(self, mock_old, mock_scan, mock_expanduser, mock_sys):
         """Old file with same path as a space_hog is skipped (seen set)."""
         mock_sys.platform = "darwin"
@@ -251,9 +267,9 @@ class DiskMacOSCoverageGapTests(TestCase):
 
         self.assertEqual(len(result.metrics["old_files"]), 0)
 
-    @patch("apps.checkers.checkers.disk_macos.sys")
-    @patch("apps.checkers.checkers.disk_macos.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_macos.scan_directory")
+    @patch("apps.checkers.checkers.disk.macos.sys")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
     def test_catch_all_exception(self, mock_scan, mock_expanduser, mock_sys):
         """Unexpected exception in check() returns UNKNOWN error result."""
         mock_sys.platform = "darwin"

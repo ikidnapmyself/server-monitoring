@@ -11,14 +11,14 @@ class DiskCommonCheckerTests(TestCase):
     """Tests for DiskCommonChecker."""
 
     def _get_checker_class(self):
-        from apps.checkers.checkers.disk_common import DiskCommonChecker
+        from apps.checkers.checkers.disk.common import DiskCommonChecker
 
         return DiskCommonChecker
 
-    @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.scan_directory")
-    @patch("apps.checkers.checkers.disk_common.find_old_files")
-    @patch("apps.checkers.checkers.disk_common.find_large_files")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
+    @patch("apps.checkers.checkers.disk.base.find_large_files")
     def test_scans_var_log(self, mock_large, mock_old, mock_scan, mock_expanduser):
         """Checker scans /var/log."""
         mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
@@ -33,10 +33,10 @@ class DiskCommonCheckerTests(TestCase):
 
         self.assertIn("space_hogs", result.metrics)
 
-    @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.scan_directory")
-    @patch("apps.checkers.checkers.disk_common.find_old_files")
-    @patch("apps.checkers.checkers.disk_common.find_large_files")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
+    @patch("apps.checkers.checkers.disk.base.find_large_files")
     def test_finds_large_files_in_home(self, mock_large, mock_old, mock_scan, mock_expanduser):
         """Checker finds large files in the home directory."""
         mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
@@ -52,10 +52,10 @@ class DiskCommonCheckerTests(TestCase):
         self.assertIn("large_files", result.metrics)
         self.assertEqual(len(result.metrics["large_files"]), 1)
 
-    @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.scan_directory")
-    @patch("apps.checkers.checkers.disk_common.find_old_files")
-    @patch("apps.checkers.checkers.disk_common.find_large_files")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
+    @patch("apps.checkers.checkers.disk.base.find_large_files")
     def test_warning_above_threshold(self, mock_large, mock_old, mock_scan, mock_expanduser):
         """Returns WARNING when total recoverable exceeds a threshold."""
         mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
@@ -71,10 +71,10 @@ class DiskCommonCheckerTests(TestCase):
 
         self.assertEqual(result.status, CheckStatus.WARNING)
 
-    @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.scan_directory")
-    @patch("apps.checkers.checkers.disk_common.find_old_files")
-    @patch("apps.checkers.checkers.disk_common.find_large_files")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
+    @patch("apps.checkers.checkers.disk.base.find_large_files")
     def test_includes_recommendations(self, mock_large, mock_old, mock_scan, mock_expanduser):
         """Includes cleanup recommendations."""
         mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
@@ -90,10 +90,10 @@ class DiskCommonCheckerTests(TestCase):
         self.assertIn("recommendations", result.metrics)
         self.assertIsInstance(result.metrics["recommendations"], list)
 
-    @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.scan_directory")
-    @patch("apps.checkers.checkers.disk_common.find_old_files")
-    @patch("apps.checkers.checkers.disk_common.find_large_files")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
+    @patch("apps.checkers.checkers.disk.base.find_large_files")
     def test_old_temp_files(self, mock_large, mock_old, mock_scan, mock_expanduser):
         """Finds old files in /tmp and /var/tmp."""
         mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
@@ -108,10 +108,10 @@ class DiskCommonCheckerTests(TestCase):
 
         self.assertIn("old_files", result.metrics)
 
-    @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.scan_directory")
-    @patch("apps.checkers.checkers.disk_common.find_old_files")
-    @patch("apps.checkers.checkers.disk_common.find_large_files")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
+    @patch("apps.checkers.checkers.disk.base.find_large_files")
     def test_ok_when_clean(self, mock_large, mock_old, mock_scan, mock_expanduser):
         """Returns OK when nothing significant found."""
         mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
@@ -124,10 +124,10 @@ class DiskCommonCheckerTests(TestCase):
 
         self.assertEqual(result.status, CheckStatus.OK)
 
-    @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.scan_directory")
-    @patch("apps.checkers.checkers.disk_common.find_old_files")
-    @patch("apps.checkers.checkers.disk_common.find_large_files")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
+    @patch("apps.checkers.checkers.disk.base.find_large_files")
     def test_metrics_include_platform(self, mock_large, mock_old, mock_scan, mock_expanduser):
         """Metrics always include platform info."""
         mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
@@ -140,10 +140,10 @@ class DiskCommonCheckerTests(TestCase):
 
         self.assertIn("platform", result.metrics)
 
-    @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.scan_directory")
-    @patch("apps.checkers.checkers.disk_common.find_old_files")
-    @patch("apps.checkers.checkers.disk_common.find_large_files")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
+    @patch("apps.checkers.checkers.disk.base.find_large_files")
     def test_space_hogs_globally_sorted_across_scan_targets(
         self, mock_large, mock_old, mock_scan, mock_expanduser
     ):
@@ -171,10 +171,10 @@ class DiskCommonCheckerTests(TestCase):
         self.assertEqual(sizes, sorted(sizes, reverse=True))
         self.assertEqual(sizes[0], 500.0)
 
-    @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.scan_directory")
-    @patch("apps.checkers.checkers.disk_common.find_old_files")
-    @patch("apps.checkers.checkers.disk_common.find_large_files")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
+    @patch("apps.checkers.checkers.disk.base.find_large_files")
     def test_old_files_globally_sorted_across_targets(
         self, mock_large, mock_old, mock_scan, mock_expanduser
     ):
@@ -199,10 +199,10 @@ class DiskCommonCheckerTests(TestCase):
         self.assertEqual(sizes, sorted(sizes, reverse=True))
         self.assertEqual(sizes[0], 200.0)
 
-    @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.scan_directory")
-    @patch("apps.checkers.checkers.disk_common.find_old_files")
-    @patch("apps.checkers.checkers.disk_common.find_large_files")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
+    @patch("apps.checkers.checkers.disk.base.find_large_files")
     def test_large_files_sorted_descending(self, mock_large, mock_old, mock_scan, mock_expanduser):
         """large_files is sorted desc — single-target today, locks invariant for the future."""
         mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
@@ -225,7 +225,7 @@ class DiskCommonBuildRecommendationsTests(TestCase):
     """Tests for DiskCommonChecker._build_recommendations() branch coverage."""
 
     def _make_checker(self):
-        from apps.checkers.checkers.disk_common import DiskCommonChecker
+        from apps.checkers.checkers.disk.common import DiskCommonChecker
 
         return DiskCommonChecker()
 
@@ -287,14 +287,14 @@ class DiskCommonBuildRecommendationsTests(TestCase):
 
 
 class DiskCommonCoverageGapTests(TestCase):
-    """Tests covering remaining branch gaps in disk_common.py."""
+    """Tests covering remaining branch gaps in disk/common.py."""
 
     def _get_checker_class(self):
-        from apps.checkers.checkers.disk_common import DiskCommonChecker
+        from apps.checkers.checkers.disk.common import DiskCommonChecker
 
         return DiskCommonChecker
 
-    @patch("apps.checkers.checkers.disk_common.os.name", "nt")
+    @patch("apps.checkers.checkers.disk.common.os.name", "nt")
     def test_skips_on_non_posix(self):
         """Returns OK skip when os.name is not 'posix' (e.g., Windows)."""
         checker = self._get_checker_class()()
@@ -303,10 +303,10 @@ class DiskCommonCoverageGapTests(TestCase):
         self.assertEqual(result.status, CheckStatus.OK)
         self.assertIn("skipped", result.message.lower())
 
-    @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.scan_directory")
-    @patch("apps.checkers.checkers.disk_common.find_old_files")
-    @patch("apps.checkers.checkers.disk_common.find_large_files")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
+    @patch("apps.checkers.checkers.disk.base.find_large_files")
     def test_large_file_duplicate_path_skipped(
         self, mock_large, mock_old, mock_scan, mock_expanduser
     ):
@@ -322,8 +322,8 @@ class DiskCommonCoverageGapTests(TestCase):
 
         self.assertEqual(len(result.metrics["large_files"]), 0)
 
-    @patch("apps.checkers.checkers.disk_common.os.path.expanduser")
-    @patch("apps.checkers.checkers.disk_common.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
     def test_catch_all_exception(self, mock_scan, mock_expanduser):
         """Unexpected exception in check() returns UNKNOWN error result."""
         mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
