@@ -3,6 +3,19 @@
 import os
 
 from apps.checkers.checkers.disk.base import BaseDiskAnalyzer
+from apps.checkers.checkers.disk.recommendations import (
+    CARGO,
+    COMPOSER,
+    GO_MODULES,
+    GRADLE,
+    LOG_ROTATE,
+    MAVEN,
+    NPM,
+    PIP,
+    PNPM,
+    USER_CACHE,
+    YARN,
+)
 
 
 class DiskCommonChecker(BaseDiskAnalyzer):
@@ -16,10 +29,17 @@ class DiskCommonChecker(BaseDiskAnalyzer):
     old_max_age_days = 7
 
     recommendation_rules = [
-        (["/var/log"], ["Compress or rotate old log files in /var/log"]),
-        (["pip"], ["Run 'pip cache purge' to clear pip cache"]),
-        (["npm", ".npm"], ["Run 'npm cache clean --force' to clear npm cache"]),
-        ([".cache"], ["Clear user caches in ~/.cache"]),
+        LOG_ROTATE,
+        PIP,
+        NPM,
+        YARN,
+        PNPM,
+        COMPOSER,
+        GRADLE,
+        MAVEN,
+        CARGO,
+        GO_MODULES,
+        USER_CACHE,
     ]
     old_files_advice = "Remove old temporary files from /tmp and /var/tmp"
     large_files_advice = "Review and remove large files in home directory"

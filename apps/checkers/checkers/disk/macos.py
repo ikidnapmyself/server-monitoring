@@ -3,6 +3,18 @@
 import sys
 
 from apps.checkers.checkers.disk.base import BaseDiskAnalyzer
+from apps.checkers.checkers.disk.recommendations import (
+    APPLE_CACHES,
+    CARGO,
+    COMPOSER,
+    GRADLE,
+    HOMEBREW,
+    JETBRAINS,
+    MAVEN,
+    PNPM,
+    XCODE,
+    YARN,
+)
 
 
 class DiskMacOSChecker(BaseDiskAnalyzer):
@@ -21,12 +33,16 @@ class DiskMacOSChecker(BaseDiskAnalyzer):
     old_max_age_days = 30
 
     recommendation_rules = [
-        (["Homebrew"], ["Run 'brew cleanup --prune=all' to free Homebrew cache"]),
-        (
-            ["DerivedData", "Xcode"],
-            ["Remove ~/Library/Developer/Xcode/DerivedData to free build cache"],
-        ),
-        (["Caches"], ["Clear application caches in ~/Library/Caches"]),
+        HOMEBREW,
+        XCODE,
+        APPLE_CACHES,
+        JETBRAINS,
+        COMPOSER,
+        YARN,
+        PNPM,
+        GRADLE,
+        MAVEN,
+        CARGO,
     ]
     old_files_advice = "Remove old files from ~/Downloads"
     large_files_advice = (

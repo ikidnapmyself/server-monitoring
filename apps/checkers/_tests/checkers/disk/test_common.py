@@ -285,6 +285,46 @@ class DiskCommonBuildRecommendationsTests(TestCase):
         recs = checker._build_recommendations(space_hogs, [], [])
         self.assertEqual(recs, [])
 
+    def test_yarn_cache_recommendation(self):
+        from apps.checkers.checkers.disk.common import DiskCommonChecker
+
+        checker = DiskCommonChecker()
+        space_hogs = [{"path": "/home/me/.cache/yarn/v6/abc", "size_mb": 200.0}]
+        recs = checker._build_recommendations(space_hogs, [], [])
+        self.assertTrue(any("yarn cache clean" in line for r in recs for line in r))
+
+    def test_pnpm_cache_recommendation(self):
+        from apps.checkers.checkers.disk.common import DiskCommonChecker
+
+        checker = DiskCommonChecker()
+        space_hogs = [{"path": "/home/me/.cache/pnpm/store/v3", "size_mb": 200.0}]
+        recs = checker._build_recommendations(space_hogs, [], [])
+        self.assertTrue(any("pnpm store prune" in line for r in recs for line in r))
+
+    def test_composer_cache_recommendation(self):
+        from apps.checkers.checkers.disk.common import DiskCommonChecker
+
+        checker = DiskCommonChecker()
+        space_hogs = [{"path": "/home/me/.cache/composer/repo", "size_mb": 200.0}]
+        recs = checker._build_recommendations(space_hogs, [], [])
+        self.assertTrue(any("composer clear-cache" in line for r in recs for line in r))
+
+    def test_gradle_cache_recommendation(self):
+        from apps.checkers.checkers.disk.common import DiskCommonChecker
+
+        checker = DiskCommonChecker()
+        space_hogs = [{"path": "/home/me/.gradle/caches/old-version", "size_mb": 800.0}]
+        recs = checker._build_recommendations(space_hogs, [], [])
+        self.assertTrue(any("gradle --stop" in line for r in recs for line in r))
+
+    def test_cargo_cache_recommendation(self):
+        from apps.checkers.checkers.disk.common import DiskCommonChecker
+
+        checker = DiskCommonChecker()
+        space_hogs = [{"path": "/home/me/.cargo/registry/cache", "size_mb": 200.0}]
+        recs = checker._build_recommendations(space_hogs, [], [])
+        self.assertTrue(any("cargo cache --autoclean" in line for r in recs for line in r))
+
 
 class DiskCommonCoverageGapTests(TestCase):
     """Tests covering remaining branch gaps in disk/common.py."""

@@ -241,6 +241,30 @@ class DiskMacOSBuildRecommendationsTests(TestCase):
         recs = checker._build_recommendations(space_hogs, [], [])
         self.assertEqual(recs, [])
 
+    def test_jetbrains_recommendation(self):
+        from apps.checkers.checkers.disk.macos import DiskMacOSChecker
+
+        checker = DiskMacOSChecker()
+        space_hogs = [{"path": "/Users/me/Library/Caches/JetBrains/PyCharm", "size_mb": 3000.0}]
+        recs = checker._build_recommendations(space_hogs, [], [])
+        self.assertTrue(any("Invalidate Caches" in line for r in recs for line in r))
+
+    def test_composer_recommendation(self):
+        from apps.checkers.checkers.disk.macos import DiskMacOSChecker
+
+        checker = DiskMacOSChecker()
+        space_hogs = [{"path": "/Users/me/Library/Caches/composer/repo", "size_mb": 3000.0}]
+        recs = checker._build_recommendations(space_hogs, [], [])
+        self.assertTrue(any("composer clear-cache" in line for r in recs for line in r))
+
+    def test_yarn_recommendation(self):
+        from apps.checkers.checkers.disk.macos import DiskMacOSChecker
+
+        checker = DiskMacOSChecker()
+        space_hogs = [{"path": "/Users/me/Library/Caches/Yarn/v6/abc", "size_mb": 500.0}]
+        recs = checker._build_recommendations(space_hogs, [], [])
+        self.assertTrue(any("yarn cache clean" in line for r in recs for line in r))
+
 
 class DiskMacOSCoverageGapTests(TestCase):
     """Tests covering remaining branch gaps in disk/macos.py."""

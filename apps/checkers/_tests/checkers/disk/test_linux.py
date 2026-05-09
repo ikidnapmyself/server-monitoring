@@ -205,6 +205,14 @@ class DiskLinuxBuildRecommendationsTests(TestCase):
         recs = checker._build_recommendations(space_hogs, [], [])
         self.assertEqual(recs, [])
 
+    def test_jetbrains_recommendation(self):
+        from apps.checkers.checkers.disk.linux import DiskLinuxChecker
+
+        checker = DiskLinuxChecker()
+        space_hogs = [{"path": "/home/me/.cache/JetBrains/PyCharm", "size_mb": 2000.0}]
+        recs = checker._build_recommendations(space_hogs, [], [])
+        self.assertTrue(any("Invalidate Caches" in line for r in recs for line in r))
+
 
 class DiskLinuxCoverageGapTests(TestCase):
     """Tests covering remaining branch gaps in disk/linux.py."""
