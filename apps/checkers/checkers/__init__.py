@@ -1,7 +1,7 @@
 # Checker modules
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
 from apps.checkers.checkers.cpu import CPUChecker
-from apps.checkers.checkers.disk import DiskChecker
+from apps.checkers.checkers.disk.usage import DiskChecker
 from apps.checkers.checkers.disk_common import DiskCommonChecker
 from apps.checkers.checkers.disk_linux import DiskLinuxChecker
 from apps.checkers.checkers.disk_macos import DiskMacOSChecker

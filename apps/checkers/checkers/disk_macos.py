@@ -4,7 +4,7 @@ import os
 import sys
 
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
-from apps.checkers.checkers.disk_utils import (
+from apps.checkers.checkers.disk.utils import (
     find_old_files,
     scan_directory,
 )
