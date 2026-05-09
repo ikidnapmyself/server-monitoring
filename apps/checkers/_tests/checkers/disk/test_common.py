@@ -234,49 +234,49 @@ class DiskCommonBuildRecommendationsTests(TestCase):
         checker = self._make_checker()
         space_hogs = [{"path": "/var/log/syslog", "size_mb": 500.0}]
         recs = checker._build_recommendations(space_hogs, [], [])
-        self.assertTrue(any("/var/log" in r for r in recs))
+        self.assertTrue(any("/var/log" in line for r in recs for line in r))
 
     def test_pip_cache_recommendation(self):
         """Recommends pip cache purge when pip appears in space_hogs."""
         checker = self._make_checker()
         space_hogs = [{"path": "/home/user/.cache/pip/wheels", "size_mb": 300.0}]
         recs = checker._build_recommendations(space_hogs, [], [])
-        self.assertTrue(any("pip cache purge" in r for r in recs))
+        self.assertTrue(any("pip cache purge" in line for r in recs for line in r))
 
     def test_npm_cache_recommendation(self):
         """Recommends npm cache clean when npm appears in space_hogs."""
         checker = self._make_checker()
         space_hogs = [{"path": "/home/user/.npm/_cacache", "size_mb": 200.0}]
         recs = checker._build_recommendations(space_hogs, [], [])
-        self.assertTrue(any("npm cache clean" in r for r in recs))
+        self.assertTrue(any("npm cache clean" in line for r in recs for line in r))
 
     def test_dot_npm_cache_recommendation(self):
         """Recommends npm cache clean when .npm appears in space_hogs."""
         checker = self._make_checker()
         space_hogs = [{"path": "/home/user/.npm", "size_mb": 200.0}]
         recs = checker._build_recommendations(space_hogs, [], [])
-        self.assertTrue(any("npm cache clean" in r for r in recs))
+        self.assertTrue(any("npm cache clean" in line for r in recs for line in r))
 
     def test_dot_cache_recommendation(self):
         """Recommends clearing ~/.cache when .cache appears in space_hogs."""
         checker = self._make_checker()
         space_hogs = [{"path": "/home/user/.cache/thumbnails", "size_mb": 150.0}]
         recs = checker._build_recommendations(space_hogs, [], [])
-        self.assertTrue(any("~/.cache" in r for r in recs))
+        self.assertTrue(any("~/.cache" in line for r in recs for line in r))
 
     def test_old_files_recommendation(self):
         """Recommends removing old temp files when old_files is non-empty."""
         checker = self._make_checker()
         old_files = [{"path": "/tmp/stale", "size_mb": 50.0, "age_days": 30}]
         recs = checker._build_recommendations([], old_files, [])
-        self.assertTrue(any("/tmp" in r for r in recs))
+        self.assertTrue(any("/tmp" in line for r in recs for line in r))
 
     def test_large_files_recommendation(self):
         """Recommends reviewing large files when large_files is non-empty."""
         checker = self._make_checker()
         large_files = [{"path": "/home/user/bigfile.tar", "size_mb": 5000.0}]
         recs = checker._build_recommendations([], [], large_files)
-        self.assertTrue(any("large files" in r.lower() for r in recs))
+        self.assertTrue(any("large files" in line.lower() for r in recs for line in r))
 
     def test_no_matches_empty_recommendations(self):
         """Returns empty list when no patterns match and no old/large files."""
@@ -284,6 +284,46 @@ class DiskCommonBuildRecommendationsTests(TestCase):
         space_hogs = [{"path": "/some/unknown/path", "size_mb": 100.0}]
         recs = checker._build_recommendations(space_hogs, [], [])
         self.assertEqual(recs, [])
+
+    def test_yarn_cache_recommendation(self):
+        from apps.checkers.checkers.disk.common import DiskCommonChecker
+
+        checker = DiskCommonChecker()
+        space_hogs = [{"path": "/home/me/.cache/yarn/v6/abc", "size_mb": 200.0}]
+        recs = checker._build_recommendations(space_hogs, [], [])
+        self.assertTrue(any("yarn cache clean" in line for r in recs for line in r))
+
+    def test_pnpm_cache_recommendation(self):
+        from apps.checkers.checkers.disk.common import DiskCommonChecker
+
+        checker = DiskCommonChecker()
+        space_hogs = [{"path": "/home/me/.cache/pnpm/store/v3", "size_mb": 200.0}]
+        recs = checker._build_recommendations(space_hogs, [], [])
+        self.assertTrue(any("pnpm store prune" in line for r in recs for line in r))
+
+    def test_composer_cache_recommendation(self):
+        from apps.checkers.checkers.disk.common import DiskCommonChecker
+
+        checker = DiskCommonChecker()
+        space_hogs = [{"path": "/home/me/.cache/composer/repo", "size_mb": 200.0}]
+        recs = checker._build_recommendations(space_hogs, [], [])
+        self.assertTrue(any("composer clear-cache" in line for r in recs for line in r))
+
+    def test_gradle_cache_recommendation(self):
+        from apps.checkers.checkers.disk.common import DiskCommonChecker
+
+        checker = DiskCommonChecker()
+        space_hogs = [{"path": "/home/me/.gradle/caches/old-version", "size_mb": 800.0}]
+        recs = checker._build_recommendations(space_hogs, [], [])
+        self.assertTrue(any("gradle --stop" in line for r in recs for line in r))
+
+    def test_cargo_cache_recommendation(self):
+        from apps.checkers.checkers.disk.common import DiskCommonChecker
+
+        checker = DiskCommonChecker()
+        space_hogs = [{"path": "/home/me/.cargo/registry/cache", "size_mb": 200.0}]
+        recs = checker._build_recommendations(space_hogs, [], [])
+        self.assertTrue(any("cargo cache --autoclean" in line for r in recs for line in r))
 
 
 class DiskCommonCoverageGapTests(TestCase):

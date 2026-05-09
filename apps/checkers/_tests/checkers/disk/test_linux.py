@@ -77,7 +77,7 @@ class DiskLinuxCheckerTests(TestCase):
 
         self.assertIn("recommendations", result.metrics)
         recs = result.metrics["recommendations"]
-        self.assertTrue(any("apt" in r.lower() for r in recs))
+        self.assertTrue(any("apt" in line.lower() for r in recs for line in r))
 
     @patch("apps.checkers.checkers.disk.linux.sys")
     @patch("apps.checkers.checkers.disk.base.scan_directory")
@@ -168,35 +168,35 @@ class DiskLinuxBuildRecommendationsTests(TestCase):
         checker = self._make_checker()
         space_hogs = [{"path": "/var/cache/apt/archives", "size_mb": 1500.0}]
         recs = checker._build_recommendations(space_hogs, [], [])
-        self.assertTrue(any("apt clean" in r for r in recs))
+        self.assertTrue(any("apt clean" in line for r in recs for line in r))
 
     def test_journal_logs_recommendation(self):
         """Recommends journalctl vacuum when journal appears in space_hogs."""
         checker = self._make_checker()
         space_hogs = [{"path": "/var/log/journal", "size_mb": 800.0}]
         recs = checker._build_recommendations(space_hogs, [], [])
-        self.assertTrue(any("journalctl" in r for r in recs))
+        self.assertTrue(any("journalctl" in line for r in recs for line in r))
 
     def test_docker_recommendation(self):
         """Recommends docker system prune when docker appears in space_hogs."""
         checker = self._make_checker()
         space_hogs = [{"path": "/var/lib/docker/overlay2", "size_mb": 5000.0}]
         recs = checker._build_recommendations(space_hogs, [], [])
-        self.assertTrue(any("docker system prune" in r for r in recs))
+        self.assertTrue(any("docker system prune" in line for r in recs for line in r))
 
     def test_snap_cache_recommendation(self):
         """Recommends removing old snap revisions when snap appears."""
         checker = self._make_checker()
         space_hogs = [{"path": "/var/lib/snapd/snaps", "size_mb": 2000.0}]
         recs = checker._build_recommendations(space_hogs, [], [])
-        self.assertTrue(any("snap" in r.lower() for r in recs))
+        self.assertTrue(any("snap" in line.lower() for r in recs for line in r))
 
     def test_old_files_recommendation(self):
         """Recommends removing old temp files when old_files is non-empty."""
         checker = self._make_checker()
         old_files = [{"path": "/tmp/old-build", "size_mb": 100.0, "age_days": 14}]
         recs = checker._build_recommendations([], old_files, [])
-        self.assertTrue(any("/tmp" in r for r in recs))
+        self.assertTrue(any("/tmp" in line for r in recs for line in r))
 
     def test_no_matches_empty_recommendations(self):
         """Returns empty list when no patterns match and no old files."""
@@ -204,6 +204,14 @@ class DiskLinuxBuildRecommendationsTests(TestCase):
         space_hogs = [{"path": "/some/unknown/path", "size_mb": 100.0}]
         recs = checker._build_recommendations(space_hogs, [], [])
         self.assertEqual(recs, [])
+
+    def test_jetbrains_recommendation(self):
+        from apps.checkers.checkers.disk.linux import DiskLinuxChecker
+
+        checker = DiskLinuxChecker()
+        space_hogs = [{"path": "/home/me/.cache/JetBrains/PyCharm", "size_mb": 2000.0}]
+        recs = checker._build_recommendations(space_hogs, [], [])
+        self.assertTrue(any("Invalidate Caches" in line for r in recs for line in r))
 
 
 class DiskLinuxCoverageGapTests(TestCase):

@@ -202,7 +202,7 @@ class DiskMacOSBuildRecommendationsTests(TestCase):
         checker = self._make_checker()
         space_hogs = [{"path": "/Users/user/Library/Caches/Homebrew", "size_mb": 2000.0}]
         recs = checker._build_recommendations(space_hogs, [], [])
-        self.assertTrue(any("brew cleanup" in r for r in recs))
+        self.assertTrue(any("brew cleanup" in line for r in recs for line in r))
 
     def test_derived_data_recommendation(self):
         """Recommends removing DerivedData when it appears in space_hogs."""
@@ -211,28 +211,28 @@ class DiskMacOSBuildRecommendationsTests(TestCase):
             {"path": "/Users/user/Library/Developer/Xcode/DerivedData", "size_mb": 8000.0}
         ]
         recs = checker._build_recommendations(space_hogs, [], [])
-        self.assertTrue(any("DerivedData" in r for r in recs))
+        self.assertTrue(any("DerivedData" in line for r in recs for line in r))
 
     def test_xcode_recommendation(self):
         """Recommends removing DerivedData when Xcode appears in space_hogs."""
         checker = self._make_checker()
         space_hogs = [{"path": "/Users/user/Library/Developer/Xcode/Archives", "size_mb": 3000.0}]
         recs = checker._build_recommendations(space_hogs, [], [])
-        self.assertTrue(any("DerivedData" in r for r in recs))
+        self.assertTrue(any("DerivedData" in line for r in recs for line in r))
 
     def test_caches_recommendation(self):
         """Recommends clearing caches when Caches appears in space_hogs."""
         checker = self._make_checker()
         space_hogs = [{"path": "/Users/user/Library/Caches/com.apple.Safari", "size_mb": 500.0}]
         recs = checker._build_recommendations(space_hogs, [], [])
-        self.assertTrue(any("~/Library/Caches" in r for r in recs))
+        self.assertTrue(any("~/Library/Caches" in line for r in recs for line in r))
 
     def test_old_files_recommendation(self):
         """Recommends removing old files when old_files is non-empty."""
         checker = self._make_checker()
         old_files = [{"path": "/Users/user/Downloads/old.zip", "size_mb": 500.0, "age_days": 60}]
         recs = checker._build_recommendations([], old_files, [])
-        self.assertTrue(any("~/Downloads" in r for r in recs))
+        self.assertTrue(any("~/Downloads" in line for r in recs for line in r))
 
     def test_no_matches_empty_recommendations(self):
         """Returns empty list when no patterns match and no old files."""
@@ -240,6 +240,30 @@ class DiskMacOSBuildRecommendationsTests(TestCase):
         space_hogs = [{"path": "/some/unknown/path", "size_mb": 100.0}]
         recs = checker._build_recommendations(space_hogs, [], [])
         self.assertEqual(recs, [])
+
+    def test_jetbrains_recommendation(self):
+        from apps.checkers.checkers.disk.macos import DiskMacOSChecker
+
+        checker = DiskMacOSChecker()
+        space_hogs = [{"path": "/Users/me/Library/Caches/JetBrains/PyCharm", "size_mb": 3000.0}]
+        recs = checker._build_recommendations(space_hogs, [], [])
+        self.assertTrue(any("Invalidate Caches" in line for r in recs for line in r))
+
+    def test_composer_recommendation(self):
+        from apps.checkers.checkers.disk.macos import DiskMacOSChecker
+
+        checker = DiskMacOSChecker()
+        space_hogs = [{"path": "/Users/me/Library/Caches/composer/repo", "size_mb": 3000.0}]
+        recs = checker._build_recommendations(space_hogs, [], [])
+        self.assertTrue(any("composer clear-cache" in line for r in recs for line in r))
+
+    def test_yarn_recommendation(self):
+        from apps.checkers.checkers.disk.macos import DiskMacOSChecker
+
+        checker = DiskMacOSChecker()
+        space_hogs = [{"path": "/Users/me/Library/Caches/Yarn/v6/abc", "size_mb": 500.0}]
+        recs = checker._build_recommendations(space_hogs, [], [])
+        self.assertTrue(any("yarn cache clean" in line for r in recs for line in r))
 
 
 class DiskMacOSCoverageGapTests(TestCase):

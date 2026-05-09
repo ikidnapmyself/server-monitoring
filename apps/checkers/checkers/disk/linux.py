@@ -3,6 +3,13 @@
 import sys
 
 from apps.checkers.checkers.disk.base import BaseDiskAnalyzer
+from apps.checkers.checkers.disk.recommendations import (
+    APT,
+    DOCKER,
+    JETBRAINS,
+    JOURNAL,
+    SNAP,
+)
 
 
 class DiskLinuxChecker(BaseDiskAnalyzer):
@@ -21,10 +28,11 @@ class DiskLinuxChecker(BaseDiskAnalyzer):
     old_max_age_days = 7
 
     recommendation_rules = [
-        (["apt"], "Run 'sudo apt clean' to clear APT package cache"),
-        (["journal"], "Run 'sudo journalctl --vacuum-size=100M' to trim journal logs"),
-        (["docker"], "Run 'docker system prune' to clean unused Docker data"),
-        (["snap"], "Remove old snap package revisions"),
+        APT,
+        JOURNAL,
+        DOCKER,
+        SNAP,
+        JETBRAINS,
     ]
     old_files_advice = "Remove old temporary files from /tmp"
     large_files_advice = "Review and remove large files in /srv and /opt"
