@@ -22,8 +22,9 @@ GRADLE = (
 MAVEN = (
     ["maven", ".m2"],
     [
-        "Clear Maven local repository (large; consider keeping recent artifacts):",
-        "rm -rf ~/.m2/repository (will re-download on next build)",
+        "Clear stale Maven artifacts:",
+        "mvn dependency:purge-local-repository (re-resolves managed deps)",
+        "Or delete old SNAPSHOTs only: find ~/.m2/repository -name '*-SNAPSHOT' -mtime +90 -exec rm -rf {} +",
     ],
 )
 CARGO = (
