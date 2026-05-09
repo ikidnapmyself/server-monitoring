@@ -10,7 +10,7 @@ from apps.checkers.checkers import CheckStatus, DiskChecker
 class DiskCheckerTests(TestCase):
     """Tests for the DiskChecker."""
 
-    @patch("apps.checkers.checkers.disk.psutil")
+    @patch("apps.checkers.checkers.disk.usage.psutil")
     def test_disk_check_ok(self, mock_psutil):
         mock_usage = MagicMock()
         mock_usage.percent = 60.0
@@ -25,7 +25,7 @@ class DiskCheckerTests(TestCase):
         self.assertEqual(result.status, CheckStatus.OK)
         self.assertEqual(result.metrics["worst_percent"], 60.0)
 
-    @patch("apps.checkers.checkers.disk.psutil")
+    @patch("apps.checkers.checkers.disk.usage.psutil")
     def test_disk_check_multiple_paths(self, mock_psutil):
         def disk_usage_side_effect(path):
             mock = MagicMock()
@@ -46,7 +46,7 @@ class DiskCheckerTests(TestCase):
         self.assertEqual(result.status, CheckStatus.CRITICAL)
         self.assertEqual(result.metrics["worst_path"], "/data")
 
-    @patch("apps.checkers.checkers.disk.psutil")
+    @patch("apps.checkers.checkers.disk.usage.psutil")
     def test_disk_check_file_not_found_returns_unknown(self, mock_psutil):
         """FileNotFoundError for a path sets UNKNOWN status."""
         mock_psutil.disk_usage.side_effect = FileNotFoundError("not found")
@@ -62,7 +62,7 @@ class DiskCheckerTests(TestCase):
             {"error": "not found"},
         )
 
-    @patch("apps.checkers.checkers.disk.psutil")
+    @patch("apps.checkers.checkers.disk.usage.psutil")
     def test_disk_check_permission_error_returns_unknown(self, mock_psutil):
         """PermissionError for a path sets UNKNOWN status instead of aborting."""
         mock_psutil.disk_usage.side_effect = PermissionError("permission denied")
@@ -77,7 +77,7 @@ class DiskCheckerTests(TestCase):
             {"error": "permission denied"},
         )
 
-    @patch("apps.checkers.checkers.disk.psutil")
+    @patch("apps.checkers.checkers.disk.usage.psutil")
     def test_disk_check_unknown_not_overwritten_by_valid_path(self, mock_psutil):
         """UNKNOWN from a missing path is not overwritten by a subsequent valid path."""
 
@@ -99,7 +99,7 @@ class DiskCheckerTests(TestCase):
         self.assertEqual(result.status, CheckStatus.UNKNOWN)
         self.assertIn("/nonexistent", result.message)
 
-    @patch("apps.checkers.checkers.disk.psutil")
+    @patch("apps.checkers.checkers.disk.usage.psutil")
     def test_disk_check_first_error_path_reported_when_multiple_fail(self, mock_psutil):
         """When multiple paths fail, only the first error path is reported."""
         mock_psutil.disk_usage.side_effect = FileNotFoundError("not found")
@@ -111,7 +111,7 @@ class DiskCheckerTests(TestCase):
         self.assertIn("/first-missing", result.message)
         self.assertNotIn("/second-missing", result.message)
 
-    @patch("apps.checkers.checkers.disk.psutil")
+    @patch("apps.checkers.checkers.disk.usage.psutil")
     def test_disk_check_second_path_lower_usage_does_not_override_worst(self, mock_psutil):
         """When a second path has lower usage than the first, worst stays with the first."""
 
@@ -134,7 +134,7 @@ class DiskCheckerTests(TestCase):
         self.assertEqual(result.metrics["worst_path"], "/")
         self.assertEqual(result.metrics["worst_percent"], 85.0)
 
-    @patch("apps.checkers.checkers.disk.psutil")
+    @patch("apps.checkers.checkers.disk.usage.psutil")
     def test_disk_check_catch_all_exception(self, mock_psutil):
         """Unexpected exception in check() returns UNKNOWN error result."""
         mock_psutil.disk_usage.side_effect = RuntimeError("unexpected")

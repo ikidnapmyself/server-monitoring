@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
-from apps.checkers.checkers.disk_utils import (
+from apps.checkers.checkers.disk.utils import (
     dir_size,
     find_large_files,
     find_old_files,
@@ -15,9 +15,9 @@ from apps.checkers.checkers.disk_utils import (
 class ScanDirectoryTests(TestCase):
     """Tests for the scan_directory function."""
 
-    @patch("apps.checkers.checkers.disk_utils.dir_size", return_value=10 * 1024 * 1024)
-    @patch("apps.checkers.checkers.disk_utils.os.scandir")
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=True)
+    @patch("apps.checkers.checkers.disk.utils.dir_size", return_value=10 * 1024 * 1024)
+    @patch("apps.checkers.checkers.disk.utils.os.scandir")
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=True)
     def test_scan_directory_normal_with_dir_and_file(self, mock_isdir, mock_scandir, mock_dir_size):
         """Normal operation: scans directories and files, returns sorted results."""
         mock_dir_entry = MagicMock()
@@ -43,14 +43,14 @@ class ScanDirectoryTests(TestCase):
         self.assertEqual(results[1]["path"], "/tmp/bigfile.bin")
         self.assertAlmostEqual(results[1]["size_mb"], 5.0, places=1)
 
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=False)
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=False)
     def test_scan_directory_not_a_directory(self, mock_isdir):
         """Returns empty list when path is not a directory."""
         results = scan_directory("/nonexistent")
         self.assertEqual(results, [])
 
-    @patch("apps.checkers.checkers.disk_utils.os.scandir")
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=True)
+    @patch("apps.checkers.checkers.disk.utils.os.scandir")
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=True)
     def test_scan_directory_permission_error_on_scandir(self, mock_isdir, mock_scandir):
         """Returns empty list when scandir raises PermissionError."""
         mock_scandir.return_value.__enter__ = MagicMock(side_effect=PermissionError)
@@ -61,8 +61,8 @@ class ScanDirectoryTests(TestCase):
         results = scan_directory("/secret")
         self.assertEqual(results, [])
 
-    @patch("apps.checkers.checkers.disk_utils.os.scandir")
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=True)
+    @patch("apps.checkers.checkers.disk.utils.os.scandir")
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=True)
     def test_scan_directory_entry_permission_error_skips_entry(self, mock_isdir, mock_scandir):
         """Skips individual entries that raise PermissionError."""
         bad_entry = MagicMock()
@@ -74,8 +74,8 @@ class ScanDirectoryTests(TestCase):
         results = scan_directory("/tmp")
         self.assertEqual(results, [])
 
-    @patch("apps.checkers.checkers.disk_utils.os.scandir")
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=True)
+    @patch("apps.checkers.checkers.disk.utils.os.scandir")
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=True)
     def test_scan_directory_filters_small_entries(self, mock_isdir, mock_scandir):
         """Entries smaller than 1 MB are filtered out."""
         small_file = MagicMock()
@@ -93,10 +93,10 @@ class ScanDirectoryTests(TestCase):
 class FindOldFilesTests(TestCase):
     """Tests for the find_old_files function."""
 
-    @patch("apps.checkers.checkers.disk_utils.dir_size", return_value=20 * 1024 * 1024)
-    @patch("apps.checkers.checkers.disk_utils.time.time")
-    @patch("apps.checkers.checkers.disk_utils.os.scandir")
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=True)
+    @patch("apps.checkers.checkers.disk.utils.dir_size", return_value=20 * 1024 * 1024)
+    @patch("apps.checkers.checkers.disk.utils.time.time")
+    @patch("apps.checkers.checkers.disk.utils.os.scandir")
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=True)
     def test_find_old_files_normal(self, mock_isdir, mock_scandir, mock_time, mock_dir_size):
         """Finds files older than max_age_days."""
         now = 1_000_000.0
@@ -117,14 +117,14 @@ class FindOldFilesTests(TestCase):
         self.assertEqual(results[0]["path"], "/tmp/old_file.log")
         self.assertEqual(results[0]["age_days"], 10)
 
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=False)
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=False)
     def test_find_old_files_not_a_directory(self, mock_isdir):
         """Returns empty list when path is not a directory."""
         results = find_old_files("/nonexistent")
         self.assertEqual(results, [])
 
-    @patch("apps.checkers.checkers.disk_utils.os.scandir")
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=True)
+    @patch("apps.checkers.checkers.disk.utils.os.scandir")
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=True)
     def test_find_old_files_permission_error(self, mock_isdir, mock_scandir):
         """Returns empty list when scandir raises PermissionError."""
         mock_scandir.side_effect = PermissionError("denied")
@@ -132,10 +132,10 @@ class FindOldFilesTests(TestCase):
         results = find_old_files("/secret")
         self.assertEqual(results, [])
 
-    @patch("apps.checkers.checkers.disk_utils.dir_size", return_value=5 * 1024 * 1024)
-    @patch("apps.checkers.checkers.disk_utils.time.time")
-    @patch("apps.checkers.checkers.disk_utils.os.scandir")
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=True)
+    @patch("apps.checkers.checkers.disk.utils.dir_size", return_value=5 * 1024 * 1024)
+    @patch("apps.checkers.checkers.disk.utils.time.time")
+    @patch("apps.checkers.checkers.disk.utils.os.scandir")
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=True)
     def test_find_old_files_old_directory(self, mock_isdir, mock_scandir, mock_time, mock_dir_size):
         """Finds old directories and uses dir_size for their size."""
         now = 1_000_000.0
@@ -156,9 +156,9 @@ class FindOldFilesTests(TestCase):
         self.assertEqual(results[0]["path"], "/tmp/old_dir")
         mock_dir_size.assert_called_once_with("/tmp/old_dir", timeout=None)
 
-    @patch("apps.checkers.checkers.disk_utils.time.time")
-    @patch("apps.checkers.checkers.disk_utils.os.scandir")
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=True)
+    @patch("apps.checkers.checkers.disk.utils.time.time")
+    @patch("apps.checkers.checkers.disk.utils.os.scandir")
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=True)
     def test_find_old_files_entry_permission_error(self, mock_isdir, mock_scandir, mock_time):
         """Skips entries that raise PermissionError on stat."""
         mock_time.return_value = 1_000_000.0
@@ -172,9 +172,9 @@ class FindOldFilesTests(TestCase):
         results = find_old_files("/tmp")
         self.assertEqual(results, [])
 
-    @patch("apps.checkers.checkers.disk_utils.time.time")
-    @patch("apps.checkers.checkers.disk_utils.os.scandir")
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=True)
+    @patch("apps.checkers.checkers.disk.utils.time.time")
+    @patch("apps.checkers.checkers.disk.utils.os.scandir")
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=True)
     def test_find_old_files_recent_file_skipped(self, mock_isdir, mock_scandir, mock_time):
         """Files newer than max_age_days are skipped (st_mtime >= cutoff)."""
         now = 1_000_000.0
@@ -196,10 +196,10 @@ class FindOldFilesTests(TestCase):
 class FindLargeFilesTests(TestCase):
     """Tests for the find_large_files function."""
 
-    @patch("apps.checkers.checkers.disk_utils.os.path.getsize")
-    @patch("apps.checkers.checkers.disk_utils.os.path.islink", return_value=False)
-    @patch("apps.checkers.checkers.disk_utils.os.walk")
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=True)
+    @patch("apps.checkers.checkers.disk.utils.os.path.getsize")
+    @patch("apps.checkers.checkers.disk.utils.os.path.islink", return_value=False)
+    @patch("apps.checkers.checkers.disk.utils.os.walk")
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=True)
     def test_find_large_files_normal(self, mock_isdir, mock_walk, mock_islink, mock_getsize):
         """Finds files larger than min_size_mb."""
         mock_walk.return_value = [("/data", [], ["big.iso", "small.txt"])]
@@ -210,15 +210,15 @@ class FindLargeFilesTests(TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["path"], "/data/big.iso")
 
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=False)
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=False)
     def test_find_large_files_not_a_directory(self, mock_isdir):
         """Returns empty list when path is not a directory."""
         results = find_large_files("/nonexistent")
         self.assertEqual(results, [])
 
-    @patch("apps.checkers.checkers.disk_utils.time.monotonic")
-    @patch("apps.checkers.checkers.disk_utils.os.walk")
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=True)
+    @patch("apps.checkers.checkers.disk.utils.time.monotonic")
+    @patch("apps.checkers.checkers.disk.utils.os.walk")
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=True)
     def test_find_large_files_timeout_at_directory_level(
         self, mock_isdir, mock_walk, mock_monotonic
     ):
@@ -233,11 +233,11 @@ class FindLargeFilesTests(TestCase):
         results = find_large_files("/data", timeout=5.0)
         self.assertEqual(results, [])
 
-    @patch("apps.checkers.checkers.disk_utils.os.path.islink", return_value=False)
-    @patch("apps.checkers.checkers.disk_utils.os.path.getsize")
-    @patch("apps.checkers.checkers.disk_utils.time.monotonic")
-    @patch("apps.checkers.checkers.disk_utils.os.walk")
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=True)
+    @patch("apps.checkers.checkers.disk.utils.os.path.islink", return_value=False)
+    @patch("apps.checkers.checkers.disk.utils.os.path.getsize")
+    @patch("apps.checkers.checkers.disk.utils.time.monotonic")
+    @patch("apps.checkers.checkers.disk.utils.os.walk")
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=True)
     def test_find_large_files_timeout_at_file_level(
         self, mock_isdir, mock_walk, mock_monotonic, mock_getsize, mock_islink
     ):
@@ -251,8 +251,8 @@ class FindLargeFilesTests(TestCase):
         # Should only get a.bin before timeout on b.bin
         self.assertEqual(len(results), 1)
 
-    @patch("apps.checkers.checkers.disk_utils.os.walk")
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=True)
+    @patch("apps.checkers.checkers.disk.utils.os.walk")
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=True)
     def test_find_large_files_exclude_paths(self, mock_isdir, mock_walk):
         """Excluded paths are pruned from the walk."""
         mock_walk.return_value = [
@@ -262,9 +262,9 @@ class FindLargeFilesTests(TestCase):
         results = find_large_files("/data", exclude_paths={"/data/cache"})
         self.assertEqual(results, [])
 
-    @patch("apps.checkers.checkers.disk_utils.os.path.islink", return_value=True)
-    @patch("apps.checkers.checkers.disk_utils.os.walk")
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=True)
+    @patch("apps.checkers.checkers.disk.utils.os.path.islink", return_value=True)
+    @patch("apps.checkers.checkers.disk.utils.os.walk")
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=True)
     def test_find_large_files_skips_symlinks(self, mock_isdir, mock_walk, mock_islink):
         """Symlinks are skipped."""
         mock_walk.return_value = [("/data", [], ["link.bin"])]
@@ -272,10 +272,10 @@ class FindLargeFilesTests(TestCase):
         results = find_large_files("/data", min_size_mb=1.0)
         self.assertEqual(results, [])
 
-    @patch("apps.checkers.checkers.disk_utils.os.path.getsize")
-    @patch("apps.checkers.checkers.disk_utils.os.path.islink", return_value=False)
-    @patch("apps.checkers.checkers.disk_utils.os.walk")
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=True)
+    @patch("apps.checkers.checkers.disk.utils.os.path.getsize")
+    @patch("apps.checkers.checkers.disk.utils.os.path.islink", return_value=False)
+    @patch("apps.checkers.checkers.disk.utils.os.walk")
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=True)
     def test_find_large_files_file_permission_error(
         self, mock_isdir, mock_walk, mock_islink, mock_getsize
     ):
@@ -286,8 +286,8 @@ class FindLargeFilesTests(TestCase):
         results = find_large_files("/data", min_size_mb=1.0)
         self.assertEqual(results, [])
 
-    @patch("apps.checkers.checkers.disk_utils.os.walk")
-    @patch("apps.checkers.checkers.disk_utils.os.path.isdir", return_value=True)
+    @patch("apps.checkers.checkers.disk.utils.os.walk")
+    @patch("apps.checkers.checkers.disk.utils.os.path.isdir", return_value=True)
     def test_find_large_files_walk_permission_error(self, mock_isdir, mock_walk):
         """Returns empty list when os.walk raises PermissionError."""
         mock_walk.side_effect = PermissionError("denied")
@@ -299,9 +299,9 @@ class FindLargeFilesTests(TestCase):
 class DirSizeTests(TestCase):
     """Tests for the dir_size function."""
 
-    @patch("apps.checkers.checkers.disk_utils.os.path.getsize")
-    @patch("apps.checkers.checkers.disk_utils.os.path.islink", return_value=False)
-    @patch("apps.checkers.checkers.disk_utils.os.walk")
+    @patch("apps.checkers.checkers.disk.utils.os.path.getsize")
+    @patch("apps.checkers.checkers.disk.utils.os.path.islink", return_value=False)
+    @patch("apps.checkers.checkers.disk.utils.os.walk")
     def test_dir_size_normal(self, mock_walk, mock_islink, mock_getsize):
         """Calculates total size of directory recursively."""
         mock_walk.return_value = [
@@ -313,8 +313,8 @@ class DirSizeTests(TestCase):
         result = dir_size("/dir")
         self.assertEqual(result, 3000)
 
-    @patch("apps.checkers.checkers.disk_utils.time.monotonic")
-    @patch("apps.checkers.checkers.disk_utils.os.walk")
+    @patch("apps.checkers.checkers.disk.utils.time.monotonic")
+    @patch("apps.checkers.checkers.disk.utils.os.walk")
     def test_dir_size_timeout_at_directory_level(self, mock_walk, mock_monotonic):
         """Stops when timeout expires at directory level."""
         mock_monotonic.side_effect = [0.0, 10.0]
@@ -326,10 +326,10 @@ class DirSizeTests(TestCase):
         result = dir_size("/dir", timeout=5.0)
         self.assertEqual(result, 0)
 
-    @patch("apps.checkers.checkers.disk_utils.os.path.islink", return_value=False)
-    @patch("apps.checkers.checkers.disk_utils.os.path.getsize")
-    @patch("apps.checkers.checkers.disk_utils.time.monotonic")
-    @patch("apps.checkers.checkers.disk_utils.os.walk")
+    @patch("apps.checkers.checkers.disk.utils.os.path.islink", return_value=False)
+    @patch("apps.checkers.checkers.disk.utils.os.path.getsize")
+    @patch("apps.checkers.checkers.disk.utils.time.monotonic")
+    @patch("apps.checkers.checkers.disk.utils.os.walk")
     def test_dir_size_timeout_at_file_level(
         self, mock_walk, mock_monotonic, mock_getsize, mock_islink
     ):
@@ -343,8 +343,8 @@ class DirSizeTests(TestCase):
         # Only first file counted before timeout on second
         self.assertEqual(result, 500)
 
-    @patch("apps.checkers.checkers.disk_utils.os.path.islink", return_value=True)
-    @patch("apps.checkers.checkers.disk_utils.os.walk")
+    @patch("apps.checkers.checkers.disk.utils.os.path.islink", return_value=True)
+    @patch("apps.checkers.checkers.disk.utils.os.walk")
     def test_dir_size_skips_symlinks(self, mock_walk, mock_islink):
         """Symlinks are skipped and not counted."""
         mock_walk.return_value = [("/dir", [], ["link.txt"])]
@@ -352,9 +352,9 @@ class DirSizeTests(TestCase):
         result = dir_size("/dir")
         self.assertEqual(result, 0)
 
-    @patch("apps.checkers.checkers.disk_utils.os.path.getsize")
-    @patch("apps.checkers.checkers.disk_utils.os.path.islink", return_value=False)
-    @patch("apps.checkers.checkers.disk_utils.os.walk")
+    @patch("apps.checkers.checkers.disk.utils.os.path.getsize")
+    @patch("apps.checkers.checkers.disk.utils.os.path.islink", return_value=False)
+    @patch("apps.checkers.checkers.disk.utils.os.walk")
     def test_dir_size_permission_error_on_file(self, mock_walk, mock_islink, mock_getsize):
         """Skips files that raise PermissionError."""
         mock_walk.return_value = [("/dir", [], ["secret.txt"])]
@@ -363,7 +363,7 @@ class DirSizeTests(TestCase):
         result = dir_size("/dir")
         self.assertEqual(result, 0)
 
-    @patch("apps.checkers.checkers.disk_utils.os.walk")
+    @patch("apps.checkers.checkers.disk.utils.os.walk")
     def test_dir_size_walk_permission_error(self, mock_walk):
         """Returns 0 when os.walk raises PermissionError."""
         mock_walk.side_effect = PermissionError("denied")
