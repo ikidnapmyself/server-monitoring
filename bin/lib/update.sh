@@ -265,6 +265,61 @@ _up_sync_env() {
     return 0
 }
 
+_up_aliases_read_prefix() {
+    local aliases_file="$1"
+    local line=""
+
+    line="$(grep -m1 '^# Prefix:' "$aliases_file" 2>/dev/null || true)"
+    if [ -n "$line" ]; then
+        line="${line#*:}"
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        printf '%s' "$line"
+        return 0
+    fi
+
+    line="$(grep -m1 '^alias [^=]*-check-health=' "$aliases_file" 2>/dev/null || true)"
+    if [ -n "$line" ]; then
+        line="${line#alias }"
+        line="${line%%=*}"
+        printf '%s' "${line%-check-health}"
+        return 0
+    fi
+
+    printf ''
+}
+
+_up_sync_aliases() {
+    local aliases_file="$BIN_DIR/aliases.sh"
+
+    if [ ! -f "$aliases_file" ]; then
+        _up_log "INFO" "Aliases not configured, skipping aliases sync"
+        return 0
+    fi
+
+    local prefix
+    prefix="$(_up_aliases_read_prefix "$aliases_file")"
+    if [ -z "$prefix" ]; then
+        _up_log "WARN" "Could not detect alias prefix from $aliases_file, skipping aliases sync"
+        return 0
+    fi
+
+    _up_log "INFO" "Regenerating aliases from install template (prefix: $prefix)"
+
+    if [ "$_up_dry_run" = true ]; then
+        _up_log "INFO" "Dry-run: would run install.sh aliases --prefix $prefix"
+        return 0
+    fi
+
+    if ! (cd "$PROJECT_DIR" && "$BIN_DIR/install.sh" aliases --prefix "$prefix" </dev/null); then
+        _up_log "WARN" "Alias regeneration failed; keeping existing aliases"
+        return 0
+    fi
+
+    _up_log "OK" "Aliases regenerated from install template"
+    return 0
+}
+
 _up_sync_deps() {
     if [ "$_up_mode" = "docker" ]; then
         _up_log "INFO" "Docker mode — skipping dependency sync (handled by image build)"
@@ -415,8 +470,8 @@ run_update() {
         return 1
     fi
 
-    # Step 2: Pull → sync_env → sync_deps → migrate → restart
-    local steps=("_up_pull" "_up_sync_env" "_up_sync_deps" "_up_migrate" "_up_restart")
+    # Step 2: Pull → sync_env → sync_aliases → sync_deps → migrate → restart
+    local steps=("_up_pull" "_up_sync_env" "_up_sync_aliases" "_up_sync_deps" "_up_migrate" "_up_restart")
     local failed=false
 
     for step in "${steps[@]}"; do
