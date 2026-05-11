@@ -70,3 +70,19 @@ setup() {
 @test "bin/cli/cluster.sh exists" {
     [ -f "$BIN_DIR/cli/cluster.sh" ]
 }
+
+@test "aliases template generates new commands (preflight, show-pipeline, push-to-hub)" {
+    run grep -cE '^alias \$\{prefix\}-(preflight|show-pipeline|push-to-hub)=' "$BIN_DIR/install/aliases.sh"
+    assert_success
+    [ "$output" -eq 3 ]
+}
+
+@test "aliases template renamed check-and-alert to run-checks-only" {
+    run grep -F 'alias ${prefix}-run-checks-only=' "$BIN_DIR/install/aliases.sh"
+    assert_success
+}
+
+@test "aliases template no longer contains check-and-alert" {
+    run grep -F 'alias ${prefix}-check-and-alert=' "$BIN_DIR/install/aliases.sh"
+    assert_failure
+}
