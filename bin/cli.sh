@@ -7,13 +7,12 @@
 #   (no args)    Start interactive mode
 #   help         Show help message
 #   install      Jump to installation menu
-#   health       Jump to health monitoring
-#   alerts       Jump to alerts menu
-#   intel        Jump to intelligence menu
+#   health       Jump to health menu
 #   pipeline     Jump to pipeline menu
+#   intel        Jump to intelligence menu
 #   notify       Jump to notifications menu
+#   cluster      Jump to cluster menu
 #   update       Jump to updates menu
-#   system       Jump to system & security menu
 #
 
 set -e
@@ -53,13 +52,12 @@ show_help() {
     echo "  (no args)    Start interactive mode"
     echo "  help         Show this help message"
     echo "  install      Jump to installation menu"
-    echo "  health       Jump to health monitoring"
-    echo "  alerts       Jump to alerts menu"
-    echo "  intel        Jump to intelligence menu"
+    echo "  health       Jump to health menu"
     echo "  pipeline     Jump to pipeline menu"
+    echo "  intel        Jump to intelligence menu"
     echo "  notify       Jump to notifications menu"
+    echo "  cluster      Jump to cluster menu"
     echo "  update       Jump to updates menu"
-    echo "  system       Jump to system & security menu"
     echo ""
 }
 
@@ -104,12 +102,11 @@ run_command() {
 
 source "$SCRIPT_DIR/cli/install_menu.sh"
 source "$SCRIPT_DIR/cli/health.sh"
-source "$SCRIPT_DIR/cli/alerts.sh"
-source "$SCRIPT_DIR/cli/intelligence.sh"
 source "$SCRIPT_DIR/cli/pipeline.sh"
+source "$SCRIPT_DIR/cli/intelligence.sh"
 source "$SCRIPT_DIR/cli/notifications.sh"
+source "$SCRIPT_DIR/cli/cluster.sh"
 source "$SCRIPT_DIR/cli/update.sh"
-source "$SCRIPT_DIR/cli/system.sh"
 
 # ============================================================================
 # Main Menu
@@ -120,14 +117,13 @@ show_main_menu() {
     echo ""
 
     local options=(
-        "Install / Setup Project"
-        "Health & Monitoring"
-        "Alerts & Incidents"
-        "Intelligence & Recommendations"
-        "Pipeline Orchestration"
+        "Install / Setup"
+        "Health"
+        "Pipeline"
+        "Intelligence"
         "Notifications"
+        "Cluster"
         "Updates"
-        "System & Security"
         "Exit"
     )
 
@@ -135,13 +131,12 @@ show_main_menu() {
         case $REPLY in
             1) install_project ;;
             2) health_menu ;;
-            3) alerts_menu ;;
+            3) pipeline_menu ;;
             4) intelligence_menu ;;
-            5) pipeline_menu ;;
-            6) notify_menu ;;
+            5) notify_menu ;;
+            6) cluster_menu ;;
             7) update_menu ;;
-            8) system_menu ;;
-            9) echo -e "${GREEN}Goodbye!${NC}"; exit 0 ;;
+            8) echo -e "${GREEN}Goodbye!${NC}"; exit 0 ;;
             *) echo -e "${RED}Invalid option${NC}" ;;
         esac
         break
@@ -170,9 +165,9 @@ main() {
             echo ""
             read -p "Press Enter to continue..."
             ;;
-        alerts)
+        pipeline)
             show_banner
-            alerts_menu
+            pipeline_menu
             echo ""
             read -p "Press Enter to continue..."
             ;;
@@ -182,27 +177,21 @@ main() {
             echo ""
             read -p "Press Enter to continue..."
             ;;
-        pipeline)
-            show_banner
-            pipeline_menu
-            echo ""
-            read -p "Press Enter to continue..."
-            ;;
         notify)
             show_banner
             notify_menu
             echo ""
             read -p "Press Enter to continue..."
             ;;
-        update)
+        cluster)
             show_banner
-            update_menu
+            cluster_menu
             echo ""
             read -p "Press Enter to continue..."
             ;;
-        system)
+        update)
             show_banner
-            system_menu
+            update_menu
             echo ""
             read -p "Press Enter to continue..."
             ;;

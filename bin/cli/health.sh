@@ -2,16 +2,18 @@
 
 health_menu() {
     show_banner
-    echo -e "${BOLD}═══ Health & Monitoring ═══${NC}"
+    echo -e "${BOLD}═══ Health ═══${NC}"
     echo ""
 
     local options=(
         "Run all health checks"
         "Run specific checkers"
+        "Run a single checker"
         "List available checkers"
-        "JSON output"
-        "Fail on warning (CI mode)"
-        "Fail on critical only (CI mode)"
+        "Preflight dashboard"
+        "JSON output (all checks)"
+        "CI mode: fail on warning"
+        "CI mode: fail on critical only"
         "Back to main menu"
     )
 
@@ -33,18 +35,32 @@ health_menu() {
                 fi
                 ;;
             3)
+                echo ""
                 run_command "uv run python manage.py check_health --list" "Available checkers"
+                echo ""
+                read -p "Enter checker name: " checker_name
+                if [ -n "$checker_name" ]; then
+                    confirm_and_run "uv run python manage.py run_check $checker_name"
+                else
+                    echo -e "${RED}Checker name required${NC}"
+                fi
                 ;;
             4)
-                confirm_and_run "uv run python manage.py check_health --json"
+                run_command "uv run python manage.py check_health --list" "Available checkers"
                 ;;
             5)
-                confirm_and_run "uv run python manage.py check_health --fail-on-warning"
+                confirm_and_run "uv run python manage.py preflight"
                 ;;
             6)
-                confirm_and_run "uv run python manage.py check_health --fail-on-critical"
+                confirm_and_run "uv run python manage.py check_health --json"
                 ;;
             7)
+                confirm_and_run "uv run python manage.py check_health --fail-on-warning"
+                ;;
+            8)
+                confirm_and_run "uv run python manage.py check_health --fail-on-critical"
+                ;;
+            9)
                 return
                 ;;
             *)
