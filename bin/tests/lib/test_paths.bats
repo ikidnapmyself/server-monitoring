@@ -27,3 +27,14 @@ setup() {
     assert_success
     assert_output "$PROJECT_DIR"
 }
+
+@test "caller-provided BIN_DIR is preserved" {
+    local custom_bin="$BATS_TEST_TMPDIR/custom/bin"
+    mkdir -p "$custom_bin"
+
+    run env BIN_DIR="$custom_bin" bash -c \
+        'source "'"$LIB_DIR/paths.sh"'" && printf "%s\n%s\n" "$BIN_DIR" "$PROJECT_DIR"'
+    assert_success
+    assert_line --index 0 "$custom_bin"
+    assert_line --index 1 "$(dirname "$custom_bin")"
+}
