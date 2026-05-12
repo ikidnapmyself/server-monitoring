@@ -32,9 +32,31 @@ setup() {
     local custom_bin="$BATS_TEST_TMPDIR/custom/bin"
     mkdir -p "$custom_bin"
 
-    run env BIN_DIR="$custom_bin" bash -c \
+    run env -u PROJECT_DIR -u LOG_DIR BIN_DIR="$custom_bin" bash -c \
         'source "'"$LIB_DIR/paths.sh"'" && printf "%s\n%s\n" "$BIN_DIR" "$PROJECT_DIR"'
     assert_success
     assert_line --index 0 "$custom_bin"
     assert_line --index 1 "$(dirname "$custom_bin")"
+}
+
+@test "caller-provided PROJECT_DIR is preserved (independent of BIN_DIR)" {
+    local custom_bin="$BATS_TEST_TMPDIR/custom/bin"
+    local custom_proj="$BATS_TEST_TMPDIR/somewhere/else"
+    mkdir -p "$custom_bin" "$custom_proj"
+
+    run env BIN_DIR="$custom_bin" PROJECT_DIR="$custom_proj" bash -c \
+        'source "'"$LIB_DIR/paths.sh"'" && printf "%s\n%s\n" "$BIN_DIR" "$PROJECT_DIR"'
+    assert_success
+    assert_line --index 0 "$custom_bin"
+    assert_line --index 1 "$custom_proj"
+}
+
+@test "caller-provided LOG_DIR is preserved" {
+    local custom_log="$BATS_TEST_TMPDIR/custom/logs"
+    mkdir -p "$custom_log"
+
+    run env LOG_DIR="$custom_log" bash -c \
+        'source "'"$LIB_DIR/paths.sh"'" && echo "$LOG_DIR"'
+    assert_success
+    assert_output "$custom_log"
 }
