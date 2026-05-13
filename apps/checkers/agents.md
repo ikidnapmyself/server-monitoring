@@ -78,7 +78,11 @@ Authoritative source: [`docs/plans/2026-05-12-iso-27003-security-audit-notes.md`
 
 ### Rules for new checkers
 - **List-form argv only for subprocess.** Every `subprocess.run` / `subprocess.Popen` call MUST pass a list (e.g. `["du", "-sh", path]`), never a string. `shell=True` is forbidden.
-- **Validate host / path constructor arguments.** If a checker accepts `host`, `path`, or any URL in `__init__`, call `validate_safe_url(host, allowed_hosts=settings.SSRF_ALLOWED_HOSTS)` and `resolve_safe_path(path)` from `config.security` at construction time. Fail closed on invalid input.
+- **Validate constructor inputs by type:**
+  - **Full URLs / `base_url`** (`http://...`, `https://...`) → `validate_safe_url(url, allowed_hosts=settings.SSRF_ALLOWED_HOSTS)` from `config.security`.
+  - **Bare hostnames / IPs** (e.g. `NetworkChecker.hosts = ["8.8.8.8", "1.1.1.1"]`) → `ipaddress.ip_address(value)` for numeric IPs, or a hostname regex for DNS names. `validate_safe_url` will reject these because it requires a scheme.
+  - **Filesystem paths** → `resolve_safe_path(path)` from `config.security`.
+  - Fail closed on invalid input.
 - **Class-level `scan_targets` / `LOG_DIRECTORIES` constants are intentionally not kwargs.** If you need an admin to customise targets, route through the `IntelligenceProvider`/`CHECKER_CONFIG` DB layer or Django settings — never accept these as caller-supplied kwargs that would flow through `provider_config` (see [Finding 1](../../docs/plans/2026-05-12-iso-27003-security-audit-notes.md) for the `scan_paths` precedent).
 - **External API integrations** (StatusCake, PagerDuty, etc.) MUST use `safe_urlopen` from `config.security.http`; raw `urllib.request` is banned by ruff `TID251`.
 - **Timeouts on every outbound call.** No bare `urlopen(req)` without `timeout=`.
