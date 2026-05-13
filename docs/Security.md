@@ -8,6 +8,24 @@ nav_order: 5
 
 This document describes the security posture, configuration, and guidelines for the server monitoring system.
 
+## Security Audit History
+
+Every security control documented below was introduced or hardened through a tracked design/implementation pair under `docs/plans/`. These plans are the historical record — read them to understand *why* a control exists, not just *how* it behaves today.
+
+| Date | Plan | What it added |
+|------|------|---------------|
+| 2026-03-17 | [`2026-03-17-security-hardening-design.md`](plans/2026-03-17-security-hardening-design.html) / [`-impl.md`](plans/2026-03-17-security-hardening-impl.html) | Baseline hardening: secret-key enforcement, debug-mode rules, security middleware stack |
+| 2026-03-29 | [`2026-03-29-security-ci-design.md`](plans/2026-03-29-security-ci-design.html) | CI security workflow: `pip-audit`, `bandit`, `detect-secrets`, `trivy` |
+| 2026-03-30 | [`2026-03-30-security-check-script-design.md`](plans/2026-03-30-security-check-script-design.html) / [`-implementation.md`](plans/2026-03-30-security-check-implementation.html) | `bin/check_security.sh` runtime posture check |
+| 2026-04-11 | [`2026-04-11-path-traversal-prevention-design.md`](plans/2026-04-11-path-traversal-prevention-design.html) / [`-impl.md`](plans/2026-04-11-path-traversal-prevention-impl.html) | `config/security/path_traversal.py` (`resolve_safe_path`, `resolve_safe_name`, `ALLOWED_FILESYSTEM_ROOTS`) |
+| 2026-04-12 | [`2026-04-12-ssrf-prevention-design.md`](plans/2026-04-12-ssrf-prevention-design.html) / [`-impl.md`](plans/2026-04-12-ssrf-prevention-impl.html) | `config/security/url_validation.py` + `http.py` (`safe_urlopen`, `validate_safe_url`, ruff `TID251` ban) |
+| 2026-04-13 | [`2026-04-13-auth-enabled-by-default-design.md`](plans/2026-04-13-auth-enabled-by-default-design.html) / [`-impl.md`](plans/2026-04-13-auth-enabled-by-default-impl.html) | `API_KEY_AUTH_ENABLED=1` default; `config.W002` warning |
+| 2026-04-13 | [`2026-04-13-provider-kwargs-ssrf-design.md`](plans/2026-04-13-provider-kwargs-ssrf-design.html) | `BLOCKED_CONFIG_KEYS` filter on `get_provider`/`get_active_provider` |
+| 2026-04-15 | [`2026-04-15-ssti-notify-template-design.md`](plans/2026-04-15-ssti-notify-template-design.html) | SSTI protection in `apps/notify/templating.py` (`resolve_safe_name`, `ImmutableSandboxedEnvironment`, bare-Jinja rejection) |
+| 2026-05-12 | [`2026-05-12-iso-27003-security-audit-notes.md`](plans/2026-05-12-iso-27003-security-audit-notes.html) | **End-to-end ISO 27001:2022 / 27003 audit pass** covering `bin/`, every `apps/*`, and `config/`. Per-module sinks, threat models, findings, sub-thresholds, and ISO Annex A control mapping. Recorded one MEDIUM finding (Finding 1, `scan_paths` config bypass) — **fixed 2026-05-13**. |
+
+**Authoritative reference:** when writing or reviewing security-sensitive code, [`2026-05-12-iso-27003-security-audit-notes.md`](plans/2026-05-12-iso-27003-security-audit-notes.html) is the most recent end-to-end view of trust boundaries, sinks reviewed, and per-module rules. Each app's `agents.md` carries the developer-facing distillation of that audit.
+
 ## Secret Management
 
 ### Django Secret Key
@@ -137,6 +155,14 @@ The following paths do **not** require an API key:
 
 All other `GET` and `POST` requests on API paths (`/alerts/`, `/orchestration/`, `/notify/`, `/intelligence/`) require a valid key. In particular, data-returning endpoints such as `/orchestration/pipelines/`, `/intelligence/providers/`, and `/intelligence/recommendations/` are **not** exempt.
 
+The two health-check paths (`/alerts/webhook/`, `/intelligence/health/`) use an exact-equality match (`path in HEALTH_CHECK_PATHS`), so a suffix like `/alerts/webhook/data` does not bypass auth. The admin and static prefixes use a `startswith` match; both assume admin lives at the default `/admin/` path. **If `ROOT_URLCONF` ever relocates admin to a non-default path, `EXEMPT_PATH_PREFIXES` (`config/middleware/constants.py`) must be updated in lockstep.**
+
+### API Key Disclosure Model
+
+`APIKey.prefix` stores the first 8 hex characters of the raw key for safe admin display (`{prefix}***` in the list view). Remaining entropy after prefix disclosure is 128 bits — well outside brute-force range — but treat the admin list view as a trust-bearing surface (screenshots, logs).
+
+The raw key itself is **never** persisted: only its SHA-256 digest is stored (`APIKey.key`, 64 hex chars) and the digest field is `editable=False`. Operators see the raw key exactly once at creation time.
+
 ## Webhook Signature Verification
 
 Drivers support opt-in HMAC signature verification. When a secret is configured for a driver, incoming webhooks must include a valid signature.
@@ -157,9 +183,15 @@ Drivers without native signature support (Alertmanager, Datadog, OpsGenie, Zabbi
 ### How It Works
 
 - The driver declares its signature header (e.g., `X-Grafana-Signature`)
-- On incoming POST, if the env var is set, the middleware computes `HMAC-SHA256(secret, request.body)` and compares with the header value
+- On incoming POST, if the env var is set, the middleware computes `HMAC-SHA256(secret, request.body)` and compares with the header value using `hmac.compare_digest` (constant-time)
 - Missing or invalid signature → `403 Forbidden`
 - No env var configured → verification skipped (opt-in)
+
+### Auto-Detection Fallback
+
+When `driver=` is omitted from the request, the alerts ingestor probes drivers in registry order and uses the first that successfully `validate()`s the payload. If the matched driver has **no** `WEBHOOK_SECRET_<NAME>` env var configured, HMAC verification is silently skipped — this is the documented opt-in model.
+
+**Operator rule:** for any inbound driver you trust in production, set the corresponding `WEBHOOK_SECRET_*` env var. Auto-detect plus an unset secret means the endpoint is reachable by any caller who can hit it; combine with `APIKey.allowed_endpoints` and rate-limiting to bound the surface.
 
 ## Rate Limiting
 
@@ -180,7 +212,13 @@ Default limits (configurable via `RATE_LIMITS` in settings):
 
 ### Identity
 
-Limits are tracked per API key name (if authenticated) or per client IP (via `X-Forwarded-For` or `REMOTE_ADDR`).
+Limits are tracked per API key name (if authenticated) or per client IP (`REMOTE_ADDR`).
+
+**Reverse-proxy caveat:** `RateLimitMiddleware._get_identity` reads `request.META["REMOTE_ADDR"]` directly. Behind a proxy (nginx, Cloudflare, ALB), `REMOTE_ADDR` is the proxy's IP — every external client shares one bucket and the limiter becomes a global throttle. When deploying behind a proxy, either (a) configure a proxy-aware `REMOTE_ADDR` setter middleware **before** `RateLimitMiddleware`, or (b) rely solely on per-API-key bucketing (named keys side-step the IP collapse). Most operational deployments fall into (b).
+
+### Scope: Mutating Requests Only
+
+`GET` requests are exempt from rate limiting (`RateLimitMiddleware.__call__` line 41). Read endpoints like `/orchestration/pipelines/`, `/notify/channels/`, `/intelligence/providers/` are not rate-paced by this middleware. Per-API-key `allowed_endpoints` already gate which read endpoints a key can hit; if you need read-side pacing (e.g., to bound enumeration cost), terminate that at the upstream proxy.
 
 ### Cache Backend
 
@@ -257,6 +295,19 @@ except PathNotAllowedError:
 - **Resolve before use**: Never pass user-supplied paths directly to file operations or subprocess calls
 - **No `/` in allowlists**: Including `/` makes the allowlist meaningless
 - **Handle defaults explicitly**: If a command defaults to `/`, skip validation for that specific default value
+- **Filter path-bearing config kwargs:** any provider/driver kwarg accepting a host, URL, filesystem path, command, or template name **must** be added to the relevant allowlist-by-omission filter (`apps.intelligence.providers.BLOCKED_CONFIG_KEYS`, `apps.orchestration.executors._PAYLOAD_TEMPLATE_KEYS`) **or** validated at the constructor via `resolve_safe_path` / `validate_safe_url`. See [`Finding 1`](plans/2026-05-12-iso-27003-security-audit-notes.html#finding-1--path-traversal--information-disclosure-via-scan_paths-config-medium-confidence-810--fixed-2026-05-13) in the ISO 27003 audit for the worked example (`scan_paths` bypass).
+
+### Pipeline Stat-Only Sinks
+
+`apps/intelligence/providers/local.py` walks the configured `scan_paths` via `Path.rglob("*")` and reports filename / size / mtime metadata only — no file contents are returned. The path validation contract still requires every entry in `scan_paths` to originate from admin-controlled DB config (the API caller cannot supply `scan_paths` because it is in `BLOCKED_CONFIG_KEYS`). Symlink following is the default behaviour of `rglob`, which compounds the impact of any path-validation gap; this is intentional for cleanup-recommendation use cases but means any future code reading file *contents* from these walks must add per-entry `resolve_safe_path` validation.
+
+### Resolve-vs-Open TOCTOU
+
+`Path.resolve()` validates the path at validation time. If the path is replaced with a symlink (pointing out-of-tree) *after* `resolve_safe_path` returns but *before* the caller `open()`s it, the open follows the new symlink. Defending against this requires `os.open(path, O_NOFOLLOW)` or `os.O_PATH`-based fd handling — neither is currently used. In single-user / single-tenant deployments the attacker would already need filesystem-write access to exploit; for shared-host or multi-tenant deployments this becomes a real concern and should be hardened before deploying.
+
+### Allowlist Hygiene for Operators
+
+`ALLOWED_FILESYSTEM_ROOTS = (/var, /tmp, /home, /opt, /srv, /usr)` is the default. The `/home` entry covers **all** user home directories; for a multi-user host you should narrow this to `/home/<service-user>` either by overriding the constant or by setting tighter custom roots in the calling code. `/tmp` is world-writable; rely on per-process tempdirs (Python `tempfile`) when storing sensitive data.
 
 ## SSRF Prevention
 
@@ -327,6 +378,94 @@ A ruff lint rule (`TID251`) bans direct `urllib.request.urlopen` imports. Violat
 - **Pass the allowlist**: Always pass `allowed_hosts=settings.SSRF_ALLOWED_HOSTS` so operators can configure exceptions
 - **Fail closed**: If DNS resolution fails, the URL is rejected
 - **Lint enforcement**: Ruff `TID251` flags any raw `urlopen` import — fix before committing
+
+### Residual Risk: DNS Rebinding
+
+`validate_safe_url` resolves DNS once at validation time; the actual `urlopen` later re-resolves DNS at connect time. An attacker who controls a DNS record (TTL=0) could serve a public IP on the validation lookup and a private/internal IP on the connect lookup, bypassing the private-IP check. `_SSRFRedirectHandler` closes this for redirects but **not** for the initial connection.
+
+**In the current codebase, no API path lets the caller choose the URL** — every reachable outbound HTTP destination originates from admin-controlled DB config (`NotificationChannel.config`, `IntelligenceProvider.config`) or a hardcoded constant (PagerDuty). The practical attack therefore requires either:
+
+1. An attacker who has compromised DNS for a hostname the admin already configured (e.g., `hooks.slack.com`), or
+2. `SSRF_ALLOWED_HOSTS` to include a hostname whose DNS the attacker controls.
+
+Both are extreme scenarios for single-tenant deployments. If the deployment ever permits caller-supplied URLs to flow into `safe_urlopen` / `validate_safe_url`, harden by either pinning the resolved IP through to connect time, or routing outbound traffic through an egress proxy that re-validates at the network layer. See the ISO 27003 audit, [`config` Sub-threshold #3](plans/2026-05-12-iso-27003-security-audit-notes.html#sub-threshold-observations-3).
+
+### Generic Driver Response Echo
+
+`apps/notify/drivers/generic.py` returns the remote response body back to the API caller. Documented behaviour, useful for debugging webhook integrations — but it means the SSRF allowlist (`SSRF_ALLOWED_HOSTS`) is the **gating** control, not a defense-in-depth layer. If allowlist policy ever loosens, this driver becomes a half-blind SSRF read primitive. Keep `SSRF_ALLOWED_HOSTS` narrow.
+
+## Pipeline Orchestration
+
+The orchestration layer (`apps.orchestration`) is the only stage controller and is the entry point for `/orchestration/pipeline/*` and `/orchestration/definitions/*/execute/`. Treat **every** field of the request body as untrusted after API-key auth: `payload`, `provider`, `provider_config`, `notify_driver`, `notify_config`, `notify_channel`, `incident_id`, `trace_id`, `checker_configs`, `labels`, etc.
+
+### `run_id` and `trace_id`
+
+`run_id` is **always** server-generated (`uuid.uuid4()`) in `PipelineOrchestrator.start_pipeline` and `DefinitionBasedOrchestrator.execute`. A caller-supplied `run_id` in the body is ignored. Do not introduce code paths that accept caller-chosen run IDs — attackers could collide existing records or forge `idempotency_key`s.
+
+`trace_id` **is** caller-controllable. It is a log-correlation hint, **not** an authorization token. Never use it to gate access, identity, or routing decisions.
+
+### `incident_id` Trust Assumption (single-tenant)
+
+`PipelineDefinitionExecuteView` accepts `incident_id` from the request body and writes it directly onto `PipelineRun.incident_id`. Downstream stages then fetch the linked `Incident` and feed it to the AI provider / notification template. **In the current single-tenant deployment model this is not a vulnerability** — every API key has access to every incident. **In any future multi-tenant deployment** this becomes a cross-tenant information-disclosure primitive and must be re-gated with per-actor authorization.
+
+### Pipeline Resume Authorization
+
+`PipelineResumeView` only requires the pipeline's status to be `FAILED` or `RETRYING`. Any API key holder whose `allowed_endpoints` covers `/orchestration/pipeline/` can resume any failed pipeline. Acceptable for single-tenant; revisit before any per-tenant separation.
+
+### `_should_skip` Discipline (definition-based pipelines)
+
+`DefinitionBasedOrchestrator._should_skip()` supports a `skip_if_condition` string with a fixed `.has_errors` pattern matcher. **This is a fixed-pattern matcher by design.** Do not extend it into a real expression language using `eval`, `exec`, `compile`, `ast.literal_eval` over attacker data, or Jinja2 — any of those opens code-execution / SSTI on attacker-controlled `PipelineDefinition.config`. If a richer condition language is genuinely needed, route it through an explicit safe-expression parser with no name resolution and no attribute access.
+
+## Operator Tooling (`bin/`)
+
+The `bin/` toolchain (`install.sh`, `cli.sh`, `update.sh`, `check_security.sh`, etc.) is **admin/operator-only**. It is invoked from a shell session by a user with login access and never consumes HTTP, webhook, or task-queue input.
+
+**Invariants for new code in `bin/`:**
+- Never read or trust input that originated from the API, webhook, or Celery surface. If you need data from the Django application, run a `manage.py` command and parse its output.
+- `confirm_and_run` and similar interactive helpers consume `read`/`stdin` from the operator session only.
+- Subprocess spawning uses list-form argv; never interpolate user input into a shell string.
+- No `sudo`, setuid, or privilege-escalation paths are introduced.
+
+## Supply Chain
+
+The auto-update flow in `bin/lib/update.sh` performs `git fetch origin main` and applies updates from `origin/main`. **This intentionally trusts `origin/main`** — the operator's chosen remote is the trust root for code updates. Implications:
+
+- Anyone who can push to `origin/main` can ship code that executes with the privileges of the application user.
+- Branch protection on `main` (required reviews, status checks) is the actual control.
+- Operators running self-hosted clones must understand which remote they have configured.
+
+When introducing new auto-update behaviour (signed commits, signed releases, version pinning), document the trust model alongside the change.
+
+## Production Hardening Checklist
+
+The following are **operator-set in production** — `config/settings.py` does not impose them so that local development stays low-friction. Set these (env vars or a production settings module) before deploying with `DEBUG=0`:
+
+```python
+DJANGO_DEBUG = 0
+ALLOWED_HOSTS = ["your.host.example", "..."]  # never use ['*']
+
+SECURE_SSL_REDIRECT = True
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+SECURE_HSTS_SECONDS = 31536000
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "same-origin"
+# If behind a proxy that terminates TLS:
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+```
+
+Additional operator tasks:
+
+- **Rate limiting:** `RATE_LIMIT_ENABLED=1` and use Redis/Memcached cache backend (locmem warns with `config.W001`).
+- **API key auth:** `API_KEY_AUTH_ENABLED=1` (default since [2026-04-13](plans/2026-04-13-auth-enabled-by-default-design.html)); `config.W002` warns if disabled in non-DEBUG.
+- **SSRF allowlist:** keep `SSRF_ALLOWED_HOSTS` narrow; every entry expands the residual DNS-rebinding surface.
+- **Log rotation:** the default `LOGGING` config uses a plain `FileHandler` with no rotation. Either switch to `RotatingFileHandler` / `TimedRotatingFileHandler` in your production settings, or wire `logrotate` against `LOGS_DIR/django.log`.
+- **Filesystem allowlist:** narrow `ALLOWED_FILESYSTEM_ROOTS` to the directories the service genuinely needs to read; the default `/home` covers every user.
+- **Reverse-proxy header trust:** if you depend on per-IP rate-limit identity, install a proxy-aware `REMOTE_ADDR` setter ahead of `RateLimitMiddleware`.
+- **Branch protection on `main`:** the auto-update flow trusts `origin/main`; protect that branch.
+- **Run `manage.py preflight --json` in CI** for the deployed environment; it surfaces every system check including `config.W001`, `config.W002`.
 
 ## Data Handling
 
@@ -406,3 +545,27 @@ The Django admin (`/admin/`) is the primary operations surface:
 ## Reporting Vulnerabilities
 
 If you discover a security vulnerability, please report it responsibly by opening a private issue or contacting the maintainer directly. Do not disclose vulnerabilities in public issues.
+
+## Appendix: ISO 27001:2022 Annex A Statement of Applicability
+
+Mapping derived from the [2026-05-12 ISO 27003 audit](plans/2026-05-12-iso-27003-security-audit-notes.html). Each control lists where the mitigation lives in the codebase.
+
+| Control | Title | Codebase mitigation |
+|---|---|---|
+| A.5.15 | Access control | `config/middleware/api_key_auth.py` (per-endpoint API keys, `allowed_endpoints` allowlists); Django staff/superuser auth on `/admin/` |
+| A.5.17 | Authentication information | `APIKey` model: `secrets.token_hex(20)` raw, SHA-256 digest at rest, never re-displayed; `DJANGO_SECRET_KEY` env-only with startup check; `WEBHOOK_SECRET_<DRIVER>` env vars |
+| A.5.23 | Information security for use of cloud services | `validate_safe_url` on intelligence-provider base URLs; `BLOCKED_CONFIG_KEYS` filter on API-callable provider config |
+| A.8.2 | Privileged access rights | `bin/` toolchain confirmed not to grant sudo or install setuid; Django admin actions gated by `is_staff` |
+| A.8.3 | Information access restriction | `APIKey.allowed_endpoints` path-prefix gating; admin actions outside webhook surface |
+| A.8.5 | Secure authentication | Bearer / `X-API-Key` header model; constant-time digest comparison via DB lookup on hashed digest |
+| A.8.9 | Configuration management | `.env` / `.env.sample` split; `bin/check_security.sh` runtime posture check; Django system checks `config.W001`/`config.W002` |
+| A.8.11 | Data masking | Pipeline stores *references* (`normalized_payload_ref`, `checker_output_ref`, `intelligence_output_ref`, `notify_output_ref`) — not raw payloads |
+| A.8.12 | Data leakage prevention | Logging rules — no raw webhook payloads, tokens, or URLs in logs; `_redact_config` in `apps/intelligence/providers/base.py` |
+| A.8.20 | Networks security | `validate_safe_url` private/reserved-IP allowlist on outbound HTTP destinations |
+| A.8.21 | Security of network services | `safe_urlopen` with redirect re-validation; ruff `TID251` ban as compile-time gate |
+| A.8.24 | Use of cryptography | `hmac.compare_digest` on webhook signature verification; SHA-256 on API key digests; Celery JSON-only serializer; no TLS bypass anywhere |
+| A.8.25 | Secure development lifecycle | Ruff banned-API rule encodes the SSRF contract at lint time; SSTI regression tests under `apps/notify/_tests/`; ISO 27003 audit pass with per-module sinks review |
+| A.8.26 | Application security requirements | Central `config.security` package; admin uses `format_html` placeholders consistently; allowlist-by-omission patterns (`BLOCKED_CONFIG_KEYS`, `_PAYLOAD_TEMPLATE_KEYS`, `EXEMPT_PATH_PREFIXES`) |
+| A.8.28 | Secure coding | `secrets.token_hex` for key generation; `hashlib.sha256` for storage; no `mark_safe` on user data; HTML output via `format_html` placeholders; sandboxed Jinja for templates |
+
+This table is the input for any external ISO certification or internal security review. When adding a new control surface (e.g., field-level DB encryption), add the row here and link to the implementing plan in `docs/plans/`.

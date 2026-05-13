@@ -50,3 +50,24 @@ For `apps.alerts`, admin should make it easy to:
 ## Doc vs code status
 
 Tests have been migrated to `_tests/` (completed). Some apps still use monolithic `views.py`; migrate to `views/` package when touching related code.
+
+## Security standards (audit-enforced)
+
+Authoritative source for the security threat model: [`docs/plans/2026-05-12-iso-27003-security-audit-notes.md`](../../docs/plans/2026-05-12-iso-27003-security-audit-notes.md), `apps/alerts/` section. The webhook endpoint is the **only external trust boundary** in the system — any change in this app gets audited against the rules below.
+
+### Rules for new drivers
+- **Implement `signature_header`** as a class attribute. The framework reads `WEBHOOK_SECRET_<DRIVER>` and verifies `HMAC-SHA256(secret, request.body)` against this header. Drivers without a `signature_header` get no signature verification — that is the documented opt-in fallback, but it means the endpoint is publicly reachable unless gated by API key + rate limit.
+- **Use `hmac.compare_digest`** for any constant-time comparison the driver performs locally. Never use `==` on signature bytes.
+- **`validate()` and `parse()` must be pure** — no DB writes, no outbound HTTP, no subprocess. Driver auto-detection probes every registered `validate()` against an unknown payload; side effects in `validate()` become reachable by any caller who can hit `/alerts/webhook/`.
+- **Never `str(e)` an exception into a production error response.** Use a fixed error string; log the full exception with `logger.exception()` keyed by `trace_id`. Echoing exception messages back to the caller is an information-disclosure vector (stack details, internal paths).
+
+### Trust boundary discipline
+- Webhook payloads are the canonical **external/untrusted** input. Treat every field as attacker-supplied even after auto-detect picks a driver — auto-detection only confirms the *shape* matches a known driver, not that the *sender* is authentic.
+- Never log raw payloads or signature header values; per-field logging is fine for fingerprint/severity/source.
+- Stored `Alert.payload_ref` and `Incident.normalized_payload_ref` are **references**, not raw payloads.
+
+### Audit checks before merging
+- [ ] New driver added: `signature_header` declared and `WEBHOOK_SECRET_<NAME>` env var documented in `docs/Security.md`.
+- [ ] No `mark_safe` / `format_html` without `{}` placeholders in admin code.
+- [ ] No `str(e)` returned in HTTP response bodies.
+- [ ] Run `uv run pytest apps/alerts/_tests/` and confirm signature-verification tests still pass.

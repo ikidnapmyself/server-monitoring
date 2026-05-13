@@ -71,3 +71,25 @@ Tag groups (in display order): security, environment, pipeline, crontab, migrati
 ## Doc vs code status
 
 Tests have been migrated to `_tests/` (completed). Some code still uses monolithic `views.py`; migrate to `views/` package when touching related code.
+
+## Security standards (audit-enforced)
+
+Authoritative source: [`docs/plans/2026-05-12-iso-27003-security-audit-notes.md`](../../docs/plans/2026-05-12-iso-27003-security-audit-notes.md), `apps/checkers/` section.
+
+### Rules for new checkers
+- **List-form argv only for subprocess.** Every `subprocess.run` / `subprocess.Popen` call MUST pass a list (e.g. `["du", "-sh", path]`), never a string. `shell=True` is forbidden.
+- **Validate host / path constructor arguments.** If a checker accepts `host`, `path`, or any URL in `__init__`, call `validate_safe_url(host, allowed_hosts=settings.SSRF_ALLOWED_HOSTS)` and `resolve_safe_path(path)` from `config.security` at construction time. Fail closed on invalid input.
+- **Class-level `scan_targets` / `LOG_DIRECTORIES` constants are intentionally not kwargs.** If you need an admin to customise targets, route through the `IntelligenceProvider`/`CHECKER_CONFIG` DB layer or Django settings — never accept these as caller-supplied kwargs that would flow through `provider_config` (see [Finding 1](../../docs/plans/2026-05-12-iso-27003-security-audit-notes.md) for the `scan_paths` precedent).
+- **External API integrations** (StatusCake, PagerDuty, etc.) MUST use `safe_urlopen` from `config.security.http`; raw `urllib.request` is banned by ruff `TID251`.
+- **Timeouts on every outbound call.** No bare `urlopen(req)` without `timeout=`.
+
+### Trust boundary discipline
+- Pipeline-mode checker inputs (`hostname`, `checker_configs`, `labels`, `checks_only`) arrive from `/orchestration/pipeline/*` — treat them as untrusted even after API-key auth.
+- Standalone CLI inputs (`run_check --paths`) are admin-trusted but still routed through `resolve_safe_path` for defence in depth.
+- Never echo raw exception messages into HTTP responses; log via `logger.exception(..., extra={"trace_id": ...})`.
+
+### Audit checks before merging
+- [ ] No new `subprocess` call without list-form argv and an explicit `timeout=`.
+- [ ] Any new constructor-accepted path/host validated through `config.security`.
+- [ ] No new path-bearing kwarg added that flows from `provider_config` without being added to `apps.intelligence.providers.BLOCKED_CONFIG_KEYS`.
+- [ ] Run `uv run pytest apps/checkers/_tests/` and confirm scope-narrowing tests still pass.
