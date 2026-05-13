@@ -74,9 +74,12 @@ except ImportError:
     MistralRecommendationProvider = None  # type: ignore[misc, assignment]
 
 
-# URL-controlling kwargs that must not be set by API callers.
+# URL- and path-controlling kwargs that must not be set by API callers.
 # These come from server-side config only (DB IntelligenceProvider or Django settings).
-BLOCKED_CONFIG_KEYS = frozenset({"host", "base_url"})
+# Any new provider kwarg that names a host, URL, filesystem path, command, or
+# template must be added here (or validated at the constructor); see
+# docs/plans/2026-05-12-iso-27003-security-audit-notes.md (Finding 1).
+BLOCKED_CONFIG_KEYS = frozenset({"host", "base_url", "scan_paths"})
 
 
 def get_provider(
@@ -90,8 +93,9 @@ def get_provider(
     Args:
         name: Provider name (e.g., 'local').
         progress_callback: Optional callback function for progress messages.
-        **kwargs: Provider-specific configuration. URL-controlling keys
-            (host, base_url) are stripped to prevent SSRF via user input.
+        **kwargs: Provider-specific configuration. URL- and path-controlling
+            keys (see BLOCKED_CONFIG_KEYS) are stripped to prevent SSRF and
+            path-traversal via user input.
 
     Returns:
         Configured provider instance.

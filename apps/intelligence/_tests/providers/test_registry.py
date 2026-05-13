@@ -10,6 +10,7 @@ from apps.intelligence.models import IntelligenceProvider
 from apps.intelligence.providers import (
     PROVIDERS,
     get_active_provider,
+    get_provider,
     list_providers,
 )
 from apps.intelligence.providers.local import LocalRecommendationProvider
@@ -148,3 +149,55 @@ class TestGetActiveProvider(TestCase):
         )
         provider = get_active_provider(model="gpt-4o")
         assert provider.model == "gpt-4o"
+
+
+class TestBlockedConfigKeys(TestCase):
+    """Regression tests for BLOCKED_CONFIG_KEYS filtering in get_provider /
+    get_active_provider.
+
+    Caller-supplied kwargs that name a host, URL, or filesystem path must be
+    stripped before reaching the provider constructor. DB-side admin config
+    is still trusted to set the same keys (see test_db_scan_paths_still_honored).
+    """
+
+    def test_scan_paths_stripped_from_get_provider_kwargs(self):
+        provider = get_provider("local", scan_paths=["/etc", "/root"])
+        assert isinstance(provider, LocalRecommendationProvider)
+        assert provider.scan_paths == LocalRecommendationProvider.LOG_DIRECTORIES
+
+    def test_scan_paths_stripped_from_get_active_provider_kwargs(self):
+        provider = get_active_provider(scan_paths=["/etc", "/root"])
+        assert isinstance(provider, LocalRecommendationProvider)
+        assert provider.scan_paths == LocalRecommendationProvider.LOG_DIRECTORIES
+
+    def test_db_scan_paths_still_honored(self):
+        IntelligenceProvider.objects.create(
+            name="test-local",
+            provider="local",
+            config={"scan_paths": ["/var/log/app"]},
+            is_active=True,
+        )
+        provider = get_active_provider()
+        assert isinstance(provider, LocalRecommendationProvider)
+        assert provider.scan_paths == ["/var/log/app"]
+
+    def test_db_scan_paths_not_overridden_by_kwargs(self):
+        IntelligenceProvider.objects.create(
+            name="test-local",
+            provider="local",
+            config={"scan_paths": ["/var/log/app"]},
+            is_active=True,
+        )
+        provider = get_active_provider(scan_paths=["/etc"])
+        assert isinstance(provider, LocalRecommendationProvider)
+        assert provider.scan_paths == ["/var/log/app"]
+
+    def test_direct_constructor_still_accepts_scan_paths(self):
+        provider = LocalRecommendationProvider(scan_paths=["/var/log/app"])
+        assert provider.scan_paths == ["/var/log/app"]
+
+    def test_host_and_base_url_still_stripped(self):
+        from apps.intelligence.providers import BLOCKED_CONFIG_KEYS
+
+        assert "host" in BLOCKED_CONFIG_KEYS
+        assert "base_url" in BLOCKED_CONFIG_KEYS
