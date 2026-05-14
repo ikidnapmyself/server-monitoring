@@ -3,8 +3,6 @@ title: "2026-05-12 ISO 27003 Security Audit Notes"
 parent: Plans
 ---
 
-{% raw %}
-
 # ISO 27003 Security Audit Notes
 
 **Started:** 2026-05-12
@@ -375,7 +373,7 @@ Stage 4 of the pipeline. Delivers notifications via Email (SMTP), Slack webhook,
 - `safe_urlopen` is invoked at every outbound HTTP call site: `drivers/slack.py:79`, `drivers/pagerduty.py:106`, `drivers/generic.py:93`. Redirect targets are re-validated by `safe_urlopen` against the allowlist.
 - Slack `webhook_url` is additionally prefix-validated to `https://hooks.slack.com/` (the trailing slash blocks userinfo-host bypass like `https://hooks.slack.com@evil/`).
 - PagerDuty endpoint is a hardcoded constant `https://events.pagerduty.com/v2/enqueue` — no URL surface.
-- Templates are loaded via `resolve_safe_name` + `_FILENAME_PATTERN` regex; bare-string Jinja syntax (`{{`, `{%`, `{#`) is explicitly rejected at `notify/templating.py:115-125` before name resolution.
+- Templates are loaded via `resolve_safe_name` + `_FILENAME_PATTERN` regex; bare-string Jinja syntax ({% raw %}`{{`, `{%`, `{#`{% endraw %}) is explicitly rejected at `notify/templating.py:115-125` before name resolution.
 - Inline templates run in `jinja2.sandbox.ImmutableSandboxedEnvironment`, blocking standard SSTI gadgets (`__class__`, `__mro__`, `__subclasses__`). Explicit regression tests under `apps/notify/_tests/` cover these gadgets.
 - Email headers go through Python's `email.header.Header.encode()` which raises `HeaderParseError` on CRLF-embedded values.
 - Outbound JSON payloads are built via `json.dumps` (not concatenation); templates can use the `|tojson` filter.
@@ -415,7 +413,7 @@ Stage 4 of the pipeline. Delivers notifications via Email (SMTP), Slack webhook,
 None.
 
 ### Sub-threshold observations
-- **`format_map` fallback path in `notify/templating.py`.** Activates only if Jinja2 fails to import; Jinja2 is a hard dependency (`jinja2>=3.1.2` in `pyproject.toml`), so the path is unreachable today. The fallback rejects `{{`/`{%`/`{#` substrings, blocking obvious SSTI vectors, but `{x.__class__}`-style `format_map` exploits would technically work if the branch ever ran. Defense-in-depth: remove the fallback entirely or raise on missing Jinja2 at import time. (Confidence too low to flag as a finding; documenting here in case dependency strategy changes.)
+- **`format_map` fallback path in `notify/templating.py`.** Activates only if Jinja2 fails to import; Jinja2 is a hard dependency (`jinja2>=3.1.2` in `pyproject.toml`), so the path is unreachable today. The fallback rejects {% raw %}`{{`/`{%`/`{#`{% endraw %} substrings, blocking obvious SSTI vectors, but {% raw %}`{x.__class__}`{% endraw %}-style `format_map` exploits would technically work if the branch ever ran. Defense-in-depth: remove the fallback entirely or raise on missing Jinja2 at import time. (Confidence too low to flag as a finding; documenting here in case dependency strategy changes.)
 - **Generic driver echoes remote response body back to the API caller.** Documented behavior; the SSRF allowlist (`SSRF_ALLOWED_HOSTS`) is the gating control. If allowlist policy ever loosens, this becomes a half-blind SSRF read primitive — note this dependency explicitly in `Security.md`.
 - **Slack `webhook_url` prefix validation** depends on Slack never adding an open-redirect at `hooks.slack.com`. Currently no such redirect exists; `safe_urlopen`'s redirect re-validation closes the gap defensively.
 - **Email driver's SMTP host has no `validate_safe_url` equivalent.** Acceptable because SMTP is not HTTP — the standard SSRF model does not apply — and `email.message_from_string`-style internal exfil channels are not present. Worth one-line acknowledgment in the email driver's docstring.
@@ -754,5 +752,3 @@ Per-module audit is complete; the following doc / `agents.md` / test follow-ups 
 ### 9. Code fix (Finding 1, intelligence) — DONE 2026-05-13
 - Option A applied: `scan_paths` added to `BLOCKED_CONFIG_KEYS` in `apps/intelligence/providers/__init__.py:79`.
 - Regression tests added: `apps/intelligence/_tests/providers/test_registry.py::TestBlockedConfigKeys` (6 tests covering get_provider strip, get_active_provider strip, DB-config still honored, DB-not-overridden, direct constructor still works, host/base_url still blocked).
-
-{% endraw %}
