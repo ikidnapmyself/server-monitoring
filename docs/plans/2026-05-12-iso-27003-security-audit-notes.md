@@ -3,6 +3,8 @@ title: "2026-05-12 ISO 27003 Security Audit Notes"
 parent: Plans
 ---
 
+{% raw %}
+
 # ISO 27003 Security Audit Notes
 
 **Started:** 2026-05-12
@@ -752,3 +754,5 @@ Per-module audit is complete; the following doc / `agents.md` / test follow-ups 
 ### 9. Code fix (Finding 1, intelligence) — DONE 2026-05-13
 - Option A applied: `scan_paths` added to `BLOCKED_CONFIG_KEYS` in `apps/intelligence/providers/__init__.py:79`.
 - Regression tests added: `apps/intelligence/_tests/providers/test_registry.py::TestBlockedConfigKeys` (6 tests covering get_provider strip, get_active_provider strip, DB-config still honored, DB-not-overridden, direct constructor still works, host/base_url still blocked).
+
+{% endraw %}
