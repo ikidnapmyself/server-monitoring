@@ -65,3 +65,42 @@ For `apps.intelligence`, admin should make it easy to:
 ## Doc vs code status
 
 Tests have been migrated to `_tests/` (completed). Some code still uses monolithic `views.py`; migrate to `views/` package when touching related code.
+
+## Security standards (audit-enforced)
+
+Authoritative source: [`docs/plans/2026-05-12-iso-27003-security-audit-notes.md`](../../docs/plans/2026-05-12-iso-27003-security-audit-notes.md), `apps/intelligence/` section. This module produced the audit's only MEDIUM finding ([Finding 1](../../docs/plans/2026-05-12-iso-27003-security-audit-notes.md), `scan_paths` config bypass, fixed 2026-05-13). The rules below codify what the fix protects.
+
+### Rules for new provider kwargs
+
+`apps.intelligence.providers.get_provider` / `get_active_provider` accept caller-supplied `**kwargs` from API payloads via `provider_config`. The `BLOCKED_CONFIG_KEYS` frozenset (`apps/intelligence/providers/__init__.py:79`) strips dangerous kwargs before they reach the provider constructor. **Any new kwarg added to a provider's `__init__` requires one of:**
+
+1. **Constructor-time validation** with `validate_safe_url(value, allowed_hosts=settings.SSRF_ALLOWED_HOSTS)` (for URL / host kwargs), `resolve_safe_path(value)` (for path kwargs), or a project-specific validator.
+2. **Adding the key to `BLOCKED_CONFIG_KEYS`** so the registry strips it before it can reach the constructor from an API caller. DB-side admin-configured values still flow through.
+
+Current `BLOCKED_CONFIG_KEYS`: `{"host", "base_url", "scan_paths"}`. **Audit checklist for new kwargs:**
+
+| Kwarg accepts… | Required mitigation |
+|---|---|
+| URL or hostname | `validate_safe_url` at `__init__` (see `ollama.py`, `grok.py`, `copilot.py`); add to `BLOCKED_CONFIG_KEYS` if defaults are server-controlled |
+| Filesystem path | `resolve_safe_path` at `__init__` **or** add to `BLOCKED_CONFIG_KEYS` (the `scan_paths` precedent) |
+| Shell command / argv | Reject at `__init__`; commands MUST be hardcoded class constants |
+| Template name or path | `resolve_safe_name` (or sandbox via `apps/notify/templating.py`) |
+| API key / secret | Allowed; keep out of `__init__` log lines and the admin display |
+
+### Other rules
+- **`_redact_config` (`apps/intelligence/providers/base.py:208`) must stay in sync with provider config shape.** When you add a new sensitive config key (api keys, tokens, secrets), add it to the redaction list. The `_redact_config` is shallow — flat dicts only; if a provider grows nested config, the redaction must become recursive.
+- **LLM output is parsed only by `json.loads`** in `ai_base.py:137`. Never route LLM output into `eval`, `exec`, `subprocess`, or `os.system`. Prompt-injection is treated as an untrusted-content concern, not a code-execution concern, **because** of this rule — keep it that way.
+- **Provider dispatch is via the fixed `PROVIDERS` dict.** Do not introduce string-based dynamic import (`importlib.import_module(payload["provider"])`).
+- **Path-walking sinks (`Path.rglob`, `os.walk`)** in `LocalRecommendationProvider` follow symlinks by default — acceptable because callers cannot supply `scan_paths` (post-Finding 1 fix). Any code that reads file *contents* from these walks must add per-entry `resolve_safe_path` validation.
+
+### Trust boundary discipline
+- `provider_config` from `/intelligence/recommendations/` and `/orchestration/*` request bodies is **external/untrusted** (post-API-key). Audit every kwarg it touches.
+- `IntelligenceProvider.config` (DB) is **admin-trusted**. The DB-vs-payload split is enforced by `BLOCKED_CONFIG_KEYS` stripping caller kwargs while leaving DB config intact.
+- Never log raw `provider_config`, prompts, completions, or API keys. Use `trace_id`-keyed structured logs only.
+
+### Audit checks before merging
+- [ ] New provider added: `validate_safe_url` called in `__init__` if it accepts a URL/host; key added to `BLOCKED_CONFIG_KEYS` if `IntelligenceProvider.config` should be the only source.
+- [ ] New `__init__` kwarg added: classified per the table above; mitigation applied.
+- [ ] `_redact_config` updated to cover any new sensitive key.
+- [ ] No new path-walking code without `resolve_safe_path` per-entry validation if attacker reach is possible.
+- [ ] Run `uv run pytest apps/intelligence/_tests/providers/test_registry.py::TestBlockedConfigKeys` — this is the Finding 1 regression suite.

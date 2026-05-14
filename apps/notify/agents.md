@@ -166,3 +166,39 @@ If rendering raises a message about Jinja2 syntax, install Jinja2 in the environ
 
 - If you see `ValueError: No template found for driver '...'`, add a template file (e.g. `apps/notify/templates/<driver>_text.j2`) or set `template`/`payload_template` in the `NotificationChannel.config` for that channel.
 - Keep templates under version control and avoid embedding secrets inside templates.
+
+## Security standards (audit-enforced)
+
+Authoritative source: [`docs/plans/2026-05-12-iso-27003-security-audit-notes.md`](../../docs/plans/2026-05-12-iso-27003-security-audit-notes.md), `apps/notify/` section. This module is clean (no findings) but carries three high-leverage rules: outbound HTTP must be SSRF-checked, templates must be sandboxed, and config-supplied template source must never come from an API payload.
+
+### Rules for new outbound HTTP drivers
+- **`safe_urlopen` from `config.security.http` is the only allowed urlopen path.** Raw `urllib.request` is banned by ruff `TID251`. Pass `allowed_hosts=settings.SSRF_ALLOWED_HOSTS` to every call so operators can configure exceptions.
+- **Redirect handling re-validates each target.** `safe_urlopen` does this for you via `_SSRFRedirectHandler` — do not roll your own redirect handler.
+- **Hardcoded URL constants are preferred** when the destination is fixed (see PagerDuty driver). No URL-injection class if there is no URL to inject.
+- **Generic-driver response-body echo:** the generic driver returns the upstream response body to the API caller. This makes `SSRF_ALLOWED_HOSTS` the **gating** control, not a defense-in-depth layer. Keep that allowlist narrow; do not loosen it in code.
+- **Slack URL prefix check** (`https://hooks.slack.com/`) blocks userinfo-host smuggling. Trailing slash is intentional and load-bearing.
+
+### Template handling (SSTI prevention)
+- **Templates render in `jinja2.sandbox.ImmutableSandboxedEnvironment`** — never the default `Environment`. The sandbox blocks `__class__`, `__mro__`, `__subclasses__` and the standard SSTI gadgets. Regression tests in `apps/notify/_tests/` cover these.
+- **DB-stored template names are routed through `resolve_safe_name`** (`apps/notify/templating.py`). Path traversal on filenames is closed.
+- **Bare-string Jinja syntax (`{{`, `{%`, `{#`) is explicitly rejected** by `templating.py:115-125` when used as a template *name* (not a body). This is a deliberate rejection of attempts to smuggle Jinja source through template-name fields.
+- **Pipeline payload `template` keys are stripped** by `apps/orchestration/executors.py:_PAYLOAD_TEMPLATE_KEYS` before reaching `NotifySelector.resolve()`. Templates may originate only from on-disk files or DB `NotificationChannel.config` (staff-auth gated). If you add a new template-bearing config key, **add it to `_PAYLOAD_TEMPLATE_KEYS`**.
+
+### Email driver
+- `email.header.Header.encode()` raises on CRLF-embedded values — this is the email-header-injection mitigation. Do not bypass it by building headers as plain strings.
+- SMTP host is not URL-shaped; no `validate_safe_url` equivalent for it. Trust comes from admin-configured `NotificationChannel.config`.
+
+### Logging rules
+- **No `channel.config` in logs.** It contains secrets (SMTP passwords, integration keys, webhook URLs). Log channel `name` and `driver` only.
+- **Log remote `error_body` strings, not request bodies.** Upstream error responses are useful for ops; request bodies may contain payload-derived secrets.
+- **Log endpoint URLs but not query strings.** Webhook tokens sometimes live in query strings.
+
+### Payload construction
+- **Outbound JSON via `json.dumps`** — never string concatenation. Templates can use the `|tojson` filter for inline field interpolation.
+
+### Audit checks before merging
+- [ ] New driver: uses `safe_urlopen` (or hardcoded constant URL); calls `validate_config(config)` before `send()`.
+- [ ] New template-bearing config key: added to `apps.orchestration.executors._PAYLOAD_TEMPLATE_KEYS` so it cannot be supplied from API payloads.
+- [ ] No `logger.*` call includes `config`, `webhook_url`, `api_key`, or `routing_key`.
+- [ ] Templates render in `ImmutableSandboxedEnvironment` only — no `jinja2.Environment` import in driver code.
+- [ ] Run `uv run pytest apps/notify/_tests/` and confirm SSTI sandbox-bypass regression tests still pass.
