@@ -1,5 +1,5 @@
 ---
-title: "Disk Checker Output Reconciliation Implementation Plan"
+title: "2026-05-06 Disk Checker Output Reconciliation Implementation Plan"
 parent: Plans
 ---
 

@@ -1,5 +1,5 @@
 ---
-title: "Disk Checkers: Global Sort Implementation Plan"
+title: "2026-05-07 Disk Checkers: Global Sort Implementation Plan"
 parent: Plans
 ---
 

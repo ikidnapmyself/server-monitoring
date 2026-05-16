@@ -1,5 +1,5 @@
 ---
-title: "Disk Checkers: Global Sort Across Scan Targets Design"
+title: "2026-05-07 Disk Checkers: Global Sort Across Scan Targets Design"
 parent: Plans
 ---
 

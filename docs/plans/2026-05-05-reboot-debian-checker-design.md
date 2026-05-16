@@ -1,5 +1,5 @@
 ---
-title: "Reboot Required Checker (Debian Family) Design"
+title: "2026-05-05 Reboot Required Checker (Debian Family) Design"
 parent: Plans
 ---
 

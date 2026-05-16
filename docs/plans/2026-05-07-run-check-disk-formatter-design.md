@@ -1,5 +1,5 @@
 ---
-title: "run_check Disk Formatter Design"
+title: "2026-05-07 run_check Disk Formatter Design"
 parent: Plans
 ---
 
