@@ -98,6 +98,7 @@ Installer, operator CLI, auto-update, and cluster setup scripts. Runs locally un
 - HTTPS-only fetch of the official `uv` installer (`lib/checks.sh:63`).
 
 ### Sinks reviewed
+
 | Sink | Locations | Verdict |
 |---|---|---|
 | `eval` | `cli.sh:74,90` | Inputs are admin-typed at `read -p` prompts; not crossing a trust boundary. |
@@ -151,6 +152,7 @@ Webhook ingestion: receives alert payloads from 8 vendor drivers (Alertmanager, 
 - Signature verification tests at `apps/alerts/_tests/test_signature_verification.py`.
 
 ### Sinks reviewed
+
 | Sink | Locations | Verdict |
 |---|---|---|
 | HMAC compare | `drivers/base.py:87` | `hmac.compare_digest`; non-`sha256=` prefixes fail closed. |
@@ -204,6 +206,7 @@ Stage 2 of the pipeline. Runs system health checks (CPU, memory, disk variants, 
 - CLI flows route paths through `config.security.resolve_safe_path` (`check_health.py:135`, `run_check.py:115`).
 
 ### Sinks reviewed
+
 | Sink | Locations | Verdict |
 |---|---|---|
 | `subprocess.run([...])` with externally-influenceable arg | `checkers/network.py:62` (`["ping", "-c", N, "-W", T, host]`) | `shell=False`, list-form. `ping` does not shell-interpret its host arg; flags do not enable code exec. |
@@ -260,6 +263,7 @@ Stage 3 of the pipeline. Consumes upstream alert + checker output, calls AI prov
 - `format_html` in admin uses `{}` placeholders only.
 
 ### Sinks reviewed
+
 | Sink | Locations | Verdict |
 |---|---|---|
 | `validate_safe_url` | `ollama.py:28`, `grok.py:28`, `copilot.py:28` | Correctly invoked with `SSRF_ALLOWED_HOSTS`. |
@@ -384,6 +388,7 @@ Stage 4 of the pipeline. Delivers notifications via Email (SMTP), Slack webhook,
 - Logs include endpoint, status code, dedup key, message title, and remote error bodies — **not** raw API keys, SMTP passwords, integration keys, or routing keys.
 
 ### Sinks reviewed
+
 | Sink | Locations | Verdict |
 |---|---|---|
 | Outbound HTTP | `drivers/slack.py:79`, `drivers/pagerduty.py:106`, `drivers/generic.py:93` | `safe_urlopen` with `SSRF_ALLOWED_HOSTS`. Slack: additional prefix validation. PagerDuty: hardcoded URL. |
@@ -475,6 +480,7 @@ Pipeline state machine and stage dispatcher. Owns the `PipelineRun` / `StageExec
 - `mark_for_retry` and `mark_failed` admin actions are gated by Django staff (admin app default).
 
 ### Sinks reviewed
+
 | Sink | Locations | Verdict |
 |---|---|---|
 | `subprocess` / `os.system` / `Popen` | grep across `apps/orchestration/**/*.py` | **None.** |
@@ -590,6 +596,7 @@ The cross-cutting security and infrastructure layer. Owns:
 - **Django CSRF + admin:** `CsrfViewMiddleware` is present in `MIDDLEWARE` (`settings.py:70`); API views use `@csrf_exempt` (stateless API pattern); admin uses Django's session-CSRF flow. `XFrameOptionsMiddleware` is enabled (clickjacking protection on admin).
 
 ### Sinks reviewed
+
 | Sink | Location | Verdict |
 |---|---|---|
 | `subprocess` / `os.system` / `Popen` | grep `config/**/*.py` | **None.** |
