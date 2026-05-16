@@ -1,5 +1,5 @@
 ---
-title: "SSRF Prevention Design"
+title: "2026-04-12 SSRF Prevention Design"
 parent: Plans
 ---
 

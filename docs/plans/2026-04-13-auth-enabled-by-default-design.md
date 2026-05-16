@@ -1,5 +1,5 @@
 ---
-title: "Auth Enabled by Default Design"
+title: "2026-04-13 Auth Enabled by Default Design"
 parent: Plans
 ---
 

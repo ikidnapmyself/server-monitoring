@@ -1,5 +1,5 @@
 ---
-title: "Disk Checker Consolidation Design"
+title: "2026-05-09 Disk Checker Consolidation Design"
 parent: Plans
 ---
 

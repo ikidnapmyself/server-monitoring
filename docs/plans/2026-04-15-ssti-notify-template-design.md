@@ -1,5 +1,5 @@
 ---
-title: "SSTI Notify Template Fix Design"
+title: "2026-04-15 SSTI Notify Template Fix Design"
 parent: Plans
 ---
 

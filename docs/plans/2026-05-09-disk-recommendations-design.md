@@ -1,5 +1,5 @@
 ---
-title: "Disk Cleanup Recommendations: Richer Format + More Rules Design"
+title: "2026-05-09 Disk Cleanup Recommendations: Richer Format + More Rules Design"
 parent: Plans
 ---
 

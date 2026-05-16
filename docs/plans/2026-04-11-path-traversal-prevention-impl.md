@@ -1,5 +1,5 @@
 ---
-title: "Path Traversal Prevention Implementation Plan"
+title: "2026-04-11 Path Traversal Prevention Implementation Plan"
 parent: Plans
 ---
 

@@ -1,5 +1,5 @@
 ---
-title: "Disk Cleanup Recommendations Implementation Plan"
+title: "2026-05-09 Disk Cleanup Recommendations Implementation Plan"
 parent: Plans
 ---
 

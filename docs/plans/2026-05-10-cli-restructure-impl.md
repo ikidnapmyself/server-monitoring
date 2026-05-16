@@ -1,5 +1,5 @@
 ---
-title: "Interactive CLI Restructure Implementation Plan"
+title: "2026-05-10 Interactive CLI Restructure Implementation Plan"
 parent: Plans
 ---
 

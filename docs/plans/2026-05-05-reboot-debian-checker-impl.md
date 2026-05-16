@@ -1,5 +1,5 @@
 ---
-title: "Reboot Debian Checker Implementation Plan"
+title: "2026-05-05 Reboot Debian Checker Implementation Plan"
 parent: Plans
 ---
 

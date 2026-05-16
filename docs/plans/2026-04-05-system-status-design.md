@@ -1,5 +1,5 @@
 ---
-title: "System Status Command Design"
+title: "2026-04-05 System Status Command Design"
 parent: Plans
 ---
 
