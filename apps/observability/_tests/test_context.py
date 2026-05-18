@@ -3,6 +3,8 @@
 import asyncio
 import threading
 
+import pytest
+
 from apps.observability import context
 
 
@@ -78,3 +80,10 @@ def test_asyncio_tasks_have_isolated_context():
 
     result = asyncio.run(parent())
     assert result == "parent"
+
+
+def test_bind_unknown_field_raises_keyerror_and_rolls_back():
+    # Dict insertion order: trace_id is bound first, then the unknown name fails
+    with pytest.raises(KeyError, match="unknown context field"):
+        context.bind(trace_id="leaked", bogus="x")
+    assert context.snapshot()["trace_id"] is None

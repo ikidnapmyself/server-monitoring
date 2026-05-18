@@ -30,7 +30,7 @@ _VARS: dict[str, ContextVar[Any]] = {
 class BindToken:
     """Opaque token returned from bind(); pass to restore() to undo."""
 
-    tokens: dict[str, Token]
+    tokens: tuple[tuple[str, Token], ...]
 
 
 def bind(**fields: Any) -> BindToken:
@@ -39,19 +39,19 @@ def bind(**fields: Any) -> BindToken:
     Unknown field names raise KeyError — keeps typos from silently bloating
     the log schema.
     """
-    tokens: dict[str, Token] = {}
+    bound: list[tuple[str, Token]] = []
     for name, value in fields.items():
         if name not in _VARS:
             # Restore anything we already bound before raising
-            for n, t in tokens.items():
+            for n, t in bound:
                 _VARS[n].reset(t)
             raise KeyError(f"unknown context field: {name!r}")
-        tokens[name] = _VARS[name].set(value)
-    return BindToken(tokens=tokens)
+        bound.append((name, _VARS[name].set(value)))
+    return BindToken(tokens=tuple(bound))
 
 
 def restore(token: BindToken) -> None:
-    for name, t in token.tokens.items():
+    for name, t in token.tokens:
         _VARS[name].reset(t)
 
 
