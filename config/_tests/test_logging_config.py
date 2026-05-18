@@ -40,3 +40,22 @@ def test_observability_size_settings_have_sane_defaults():
     assert settings.OBSERVABILITY_EVENTS_BACKUPS >= 1
     assert settings.OBSERVABILITY_HEARTBEATS_MAX_BYTES >= 1024
     assert settings.OBSERVABILITY_HEARTBEATS_BACKUPS >= 1
+
+
+def test_observability_env_var_empty_string_falls_back_to_default(monkeypatch):
+    monkeypatch.setenv("OBSERVABILITY_EVENTS_BACKUPS", "")
+    # Reload the helper directly to avoid full settings re-import gymnastics
+    from config.settings import _int_env
+
+    assert _int_env("OBSERVABILITY_EVENTS_BACKUPS", 5) == 5
+
+
+def test_observability_env_var_non_numeric_raises_improperly_configured(monkeypatch):
+    import pytest
+    from django.core.exceptions import ImproperlyConfigured
+
+    monkeypatch.setenv("OBSERVABILITY_EVENTS_BACKUPS", "fifty")
+    from config.settings import _int_env
+
+    with pytest.raises(ImproperlyConfigured, match="not a valid integer"):
+        _int_env("OBSERVABILITY_EVENTS_BACKUPS", 5)
