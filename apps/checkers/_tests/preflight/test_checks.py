@@ -1342,3 +1342,30 @@ class IsProductionTests(TestCase):
         from apps.checkers.preflight.checks import _is_production
 
         self.assertFalse(_is_production())
+
+
+# ---------------------------------------------------------------------------
+# Anti-regression: W015 / W016 cron.log checks must stay retired
+# ---------------------------------------------------------------------------
+
+
+def test_w015_is_removed():
+    """The cron.log staleness check (W015) is replaced by observability.H001."""
+    from apps.checkers import checks as checkers_checks
+    from apps.checkers.preflight import checks as preflight_checks
+
+    assert not any(name.startswith("check_cron_log") for name in dir(preflight_checks))
+    assert not any(name.startswith("check_cron_log") for name in dir(checkers_checks))
+
+
+def test_w016_is_removed():
+    """The cron.log size check (W016) is replaced by observability."""
+    from apps.checkers import checks as checkers_checks
+    from apps.checkers.preflight import checks as preflight_checks
+
+    # No symbol referencing W015 or W016 should remain in either module
+    for module in (preflight_checks, checkers_checks):
+        with open(module.__file__) as fh:
+            src = fh.read()
+        assert "W015" not in src
+        assert "W016" not in src
