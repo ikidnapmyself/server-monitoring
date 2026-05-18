@@ -16,6 +16,9 @@ SCHEMA_VERSION = 1
 
 # Keys present on every LogRecord that we must NOT pass through into `extra`.
 # Anything else on record.__dict__ is treated as caller-supplied extra.
+# Reserved LogRecord keys (standard fields) AND fields we promote to top-level
+# (category, trace_id, run_id, incident_id, stage, source). Caller-supplied
+# `extra={"trace_id": ...}` is silently dropped — context wins. Tested below.
 _RESERVED_RECORD_KEYS = frozenset(
     {
         "args",
@@ -74,11 +77,14 @@ def _resolve_category(logger_name: str, record_dict: dict) -> str:
     return "internal"
 
 
+_INSTANCE_ID: str | None = None
+
+
 def _resolve_instance_id() -> str:
-    name = getattr(settings, "INSTANCE_ID", "") or ""
-    if name:
-        return name
-    return socket.gethostname()
+    global _INSTANCE_ID
+    if _INSTANCE_ID is None:
+        _INSTANCE_ID = getattr(settings, "INSTANCE_ID", "") or socket.gethostname()
+    return _INSTANCE_ID
 
 
 def _utc_iso(ts: float) -> str:

@@ -116,6 +116,30 @@ def test_unserialisable_object_stringifies_not_raises():
 def test_instance_id_falls_back_to_hostname(monkeypatch):
     monkeypatch.setattr("django.conf.settings.INSTANCE_ID", "", raising=False)
     monkeypatch.setattr("socket.gethostname", lambda: "test-host")
+    import apps.observability.formatter as fmt_mod
+
+    fmt_mod._INSTANCE_ID = None  # reset memo
     fmt = JsonLineFormatter()
     obj = json.loads(fmt.format(make_record()))
     assert obj["instance_id"] == "test-host"
+
+
+def test_instance_id_uses_settings_when_set(monkeypatch):
+    monkeypatch.setattr("django.conf.settings.INSTANCE_ID", "prod-instance-7", raising=False)
+    # Reset the memo cache if Fix 2 is applied; otherwise the assignment alone is enough
+    import apps.observability.formatter as fmt_mod
+
+    fmt_mod._INSTANCE_ID = None  # safe even before Fix 2 — attr just doesn't exist yet
+    fmt = JsonLineFormatter()
+    obj = json.loads(fmt.format(make_record()))
+    assert obj["instance_id"] == "prod-instance-7"
+
+
+def test_caller_supplied_context_keys_in_extra_are_dropped():
+    fmt = JsonLineFormatter()
+    obj = json.loads(fmt.format(make_record(trace_id="caller-supplied", count=5)))
+    # trace_id from extra is dropped (no top-level emission because context unset, no extra echo)
+    assert "trace_id" not in obj
+    assert obj.get("extra", {}).get("trace_id") is None
+    # Genuine extras still appear
+    assert obj["extra"]["count"] == 5
