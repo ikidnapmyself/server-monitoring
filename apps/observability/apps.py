@@ -7,3 +7,6 @@ class ObservabilityConfig(AppConfig):
     verbose_name = "Observability"
 
     default_auto_field = "django.db.models.BigAutoField"
+
+    def ready(self):
+        from apps.observability import checks  # noqa: F401  (register side-effect)
