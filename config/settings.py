@@ -249,41 +249,72 @@ SSRF_ALLOWED_HOSTS: tuple[str, ...] = tuple(
 )
 
 # ---------------------------------------------------------------------------
+# Observability
+# ---------------------------------------------------------------------------
+OBSERVABILITY_EVENTS_MAX_BYTES = int(
+    os.environ.get("OBSERVABILITY_EVENTS_MAX_BYTES", str(50 * 1024 * 1024))
+)
+OBSERVABILITY_EVENTS_BACKUPS = int(os.environ.get("OBSERVABILITY_EVENTS_BACKUPS", "5"))
+OBSERVABILITY_HEARTBEATS_MAX_BYTES = int(
+    os.environ.get("OBSERVABILITY_HEARTBEATS_MAX_BYTES", str(5 * 1024 * 1024))
+)
+OBSERVABILITY_HEARTBEATS_BACKUPS = int(os.environ.get("OBSERVABILITY_HEARTBEATS_BACKUPS", "3"))
+OBSERVABILITY_CLUSTER_MAX_BODY_BYTES = int(
+    os.environ.get("OBSERVABILITY_CLUSTER_MAX_BODY_BYTES", str(10 * 1024 * 1024))
+)
+OBSERVABILITY_CLUSTER_MAX_AGE = int(os.environ.get("OBSERVABILITY_CLUSTER_MAX_AGE", "900"))
+
+# ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
-
 LOGS_DIR = Path(os.environ.get("LOGS_DIR", BASE_DIR / "logs"))
 LOGS_DIR.mkdir(exist_ok=True)
+
+_console_formatter = "pretty" if sys.stderr.isatty() and DEBUG else "json"
 
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "verbose": {
-            "format": "{asctime} [{levelname}] {name}: {message}",
-            "style": "{",
-        },
+        "json": {"()": "apps.observability.formatter.JsonLineFormatter"},
+        "pretty": {"()": "apps.observability.formatter.PrettyConsoleFormatter"},
     },
     "handlers": {
-        "file": {
-            "class": "logging.FileHandler",
-            "filename": LOGS_DIR / "django.log",
-            "formatter": "verbose",
+        "events_file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": str(LOGS_DIR / "events.jsonl"),
+            "maxBytes": OBSERVABILITY_EVENTS_MAX_BYTES,
+            "backupCount": OBSERVABILITY_EVENTS_BACKUPS,
+            "formatter": "json",
+            "encoding": "utf-8",
+        },
+        "heartbeat_file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": str(LOGS_DIR / "heartbeats.jsonl"),
+            "maxBytes": OBSERVABILITY_HEARTBEATS_MAX_BYTES,
+            "backupCount": OBSERVABILITY_HEARTBEATS_BACKUPS,
+            "formatter": "json",
+            "encoding": "utf-8",
         },
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "verbose",
+            "formatter": _console_formatter,
         },
-    },
-    "root": {
-        "handlers": ["console", "file"],
-        "level": "INFO",
     },
     "loggers": {
         "apps": {
-            "handlers": ["console", "file"],
+            "handlers": ["events_file", "console"],
             "level": "INFO",
             "propagate": False,
         },
+        "apps.observability.heartbeat": {
+            "handlers": ["heartbeat_file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+    "root": {
+        "handlers": ["events_file", "console"],
+        "level": "INFO",
     },
 }
