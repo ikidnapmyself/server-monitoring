@@ -4,7 +4,7 @@ import json
 import logging
 
 from apps.observability import context
-from apps.observability.formatter import JsonLineFormatter
+from apps.observability.formatter import JsonLineFormatter, PrettyConsoleFormatter
 
 
 def make_record(name="apps.alerts.services", level=logging.INFO, msg="hello", **extra):
@@ -143,3 +143,51 @@ def test_caller_supplied_context_keys_in_extra_are_dropped():
     assert obj.get("extra", {}).get("trace_id") is None
     # Genuine extras still appear
     assert obj["extra"]["count"] == 5
+
+
+def test_pretty_formatter_renders_human_readable_line():
+    fmt = PrettyConsoleFormatter()
+    out = fmt.format(make_record())
+    # Sample expected shape: "14:23:01  INFO  apps.alerts.services  hello"
+    assert "INFO" in out
+    assert "apps.alerts.services" in out
+    assert "hello" in out
+
+
+def test_pretty_formatter_includes_trace_run_when_present():
+    fmt = PrettyConsoleFormatter()
+    token = context.bind(trace_id="1234abcd-deadbeef", run_id="abcd1234-feedface")
+    try:
+        out = fmt.format(make_record())
+    finally:
+        context.restore(token)
+    # First 8 chars of trace/run id
+    assert "1234abcd" in out
+    assert "abcd1234" in out
+
+
+def test_pretty_formatter_omits_trace_when_unset():
+    fmt = PrettyConsoleFormatter()
+    out = fmt.format(make_record())
+    assert "trace=" not in out
+    assert "run=" not in out
+
+
+def test_pretty_formatter_renders_exception_block():
+    try:
+        raise RuntimeError("nope")
+    except RuntimeError:
+        import sys
+
+        record = logging.LogRecord(
+            name="x",
+            level=logging.ERROR,
+            pathname="x.py",
+            lineno=1,
+            msg="oops",
+            args=None,
+            exc_info=sys.exc_info(),
+        )
+    fmt = PrettyConsoleFormatter()
+    out = fmt.format(record)
+    assert "RuntimeError: nope" in out

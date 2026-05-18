@@ -129,3 +129,26 @@ class JsonLineFormatter(logging.Formatter):
             obj["exc_stack"] = "".join(traceback.format_exception(exc_type, exc_val, exc_tb))
 
         return json.dumps(obj, default=str, ensure_ascii=False)
+
+
+class PrettyConsoleFormatter(logging.Formatter):
+    """Human-readable single line for TTY consoles.
+
+    Used only when stderr is a TTY and DEBUG=1; non-TTY contexts use the
+    JSON formatter on the stream handler as well so container logs stay
+    machine-readable.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        ts = _utc_iso(record.created)[11:19]  # HH:MM:SS slice
+        snap = context.snapshot()
+        parts = [ts, f"{record.levelname:<5}", record.name, record.getMessage()]
+        if snap.get("trace_id"):
+            parts.append(f"trace={snap['trace_id'][:8]}")
+        if snap.get("run_id"):
+            parts.append(f"run={snap['run_id'][:8]}")
+        line = "  ".join(parts)
+        if record.exc_info:
+            exc_type, exc_val, exc_tb = record.exc_info
+            line += "\n" + "".join(traceback.format_exception(exc_type, exc_val, exc_tb))
+        return line
