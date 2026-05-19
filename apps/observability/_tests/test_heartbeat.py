@@ -53,12 +53,12 @@ def test_emit_heartbeat_writes_one_record(tmp_path, settings):
     recs = _read_heartbeats(tmp_path)
     assert len(recs) == 1
     r = recs[0]
-    # Heartbeat fields land in the `extra` block per the JsonLineFormatter contract.
-    extra = r.get("extra", {})
-    assert extra["hb_name"] == "check_health.hourly"
-    assert extra["status"] == "ok"
-    assert extra["duration_ms"] == 12.3
-    assert extra["metrics"] == {"checks_run": 5}
+    # The formatter promotes heartbeat fields to top-level; this is the
+    # contract that latest_heartbeats() in Task 3.3 depends on.
+    assert r["name"] == "check_health.hourly"
+    assert r["status"] == "ok"
+    assert r["duration_ms"] == 12.3
+    assert r["metrics"] == {"checks_run": 5}
 
 
 def test_emit_heartbeat_never_raises_on_disk_error(monkeypatch, settings, tmp_path):
@@ -77,9 +77,8 @@ def test_heartbeat_ctx_manager_emits_running_then_ok(tmp_path, settings):
     with heartbeat("test.job"):
         pass
     recs = _read_heartbeats(tmp_path)
-    statuses = [r.get("extra", {}).get("status") for r in recs]
-    assert statuses == ["running", "ok"]
-    assert recs[1]["extra"]["duration_ms"] is not None
+    assert [r["status"] for r in recs] == ["running", "ok"]
+    assert recs[1]["duration_ms"] is not None
 
 
 def test_heartbeat_ctx_manager_emits_fail_and_reraises(tmp_path, settings):
@@ -88,5 +87,5 @@ def test_heartbeat_ctx_manager_emits_fail_and_reraises(tmp_path, settings):
         with heartbeat("test.job"):
             raise RuntimeError("oops")
     recs = _read_heartbeats(tmp_path)
-    assert recs[-1]["extra"]["status"] == "fail"
-    assert recs[-1]["extra"]["metrics"]["error_type"] == "RuntimeError"
+    assert recs[-1]["status"] == "fail"
+    assert recs[-1]["metrics"]["error_type"] == "RuntimeError"

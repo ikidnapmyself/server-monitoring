@@ -50,8 +50,27 @@ _RESERVED_RECORD_KEYS = frozenset(
         "incident_id",
         "stage",
         "source",
+        # Heartbeat fields (promoted to top-level by the formatter; not echoed to extra)
+        "_hb_name",
+        "_hb_status",
+        "_hb_duration_ms",
+        "_hb_metrics",
     }
 )
+
+# Fields that are promoted to top-level when the record originates from
+# the apps.observability.heartbeat logger. The heartbeat logger sets these
+# via extra={"_hb_name": ..., "_hb_status": ..., ...} to avoid colliding
+# with Python's LogRecord reserved keys; the formatter unpacks them back
+# into the canonical top-level form (name / status / duration_ms / metrics)
+# that downstream consumers (latest_heartbeats reader, CLI heartbeats view,
+# freshness checker) expect.
+_HEARTBEAT_PROMOTED_KEYS: dict[str, str] = {
+    "_hb_name": "name",
+    "_hb_status": "status",
+    "_hb_duration_ms": "duration_ms",
+    "_hb_metrics": "metrics",
+}
 
 # Logger-prefix -> category mapping. First matching prefix wins.
 _CATEGORY_MAP: tuple[tuple[str, str], ...] = (
@@ -115,6 +134,13 @@ class JsonLineFormatter(logging.Formatter):
 
         # Category
         obj["category"] = _resolve_category(record.name, record.__dict__)
+
+        # Promote heartbeat-specific fields to top-level so downstream
+        # consumers (heartbeat_reader, freshness checker, CLI heartbeats view)
+        # can read them as documented.
+        for src_key, dest_key in _HEARTBEAT_PROMOTED_KEYS.items():
+            if src_key in record.__dict__:
+                obj[dest_key] = record.__dict__[src_key]
 
         # Extra keys: anything on record.__dict__ that's not a reserved key
         extra = {k: v for k, v in record.__dict__.items() if k not in _RESERVED_RECORD_KEYS}

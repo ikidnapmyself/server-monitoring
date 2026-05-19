@@ -20,14 +20,18 @@ def emit_heartbeat(
     duration_ms: float | None = None,
     metrics: dict | None = None,
 ) -> None:
-    # Use `hb_name` instead of `name` because `name` is a reserved
-    # LogRecord attribute (it's the logger name) and passing it via
-    # `extra=` raises KeyError in Python's logging machinery.
+    # Use underscored keys (`_hb_name`, etc.) on `extra` because `name` is a
+    # reserved LogRecord attribute (it's the logger name) and passing it via
+    # `extra=` raises KeyError in Python's logging machinery. The
+    # JsonLineFormatter unpacks `_hb_*` back into the canonical top-level
+    # `name`/`status`/`duration_ms`/`metrics` fields that downstream
+    # consumers (latest_heartbeats reader, freshness checker, CLI heartbeats
+    # view) expect.
     extra = {
-        "hb_name": name,
-        "status": status,
-        "duration_ms": duration_ms,
-        "metrics": metrics or {},
+        "_hb_name": name,
+        "_hb_status": status,
+        "_hb_duration_ms": duration_ms,
+        "_hb_metrics": metrics or {},
     }
     try:
         _logger.info("heartbeat", extra=extra)

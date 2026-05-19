@@ -145,6 +145,25 @@ def test_caller_supplied_context_keys_in_extra_are_dropped():
     assert obj["extra"]["count"] == 5
 
 
+def test_heartbeat_promoted_keys_appear_at_top_level():
+    fmt = JsonLineFormatter()
+    record = make_record(
+        name="apps.observability.heartbeat",
+        msg="heartbeat",
+        _hb_name="check_health.hourly",
+        _hb_status="ok",
+        _hb_duration_ms=12.3,
+        _hb_metrics={"checks_run": 5},
+    )
+    obj = json.loads(fmt.format(record))
+    assert obj["name"] == "check_health.hourly"
+    assert obj["status"] == "ok"
+    assert obj["duration_ms"] == 12.3
+    assert obj["metrics"] == {"checks_run": 5}
+    # And the underscore-prefixed keys must NOT appear in extra (they're reserved)
+    assert "_hb_name" not in obj.get("extra", {})
+
+
 def test_pretty_formatter_renders_human_readable_line():
     fmt = PrettyConsoleFormatter()
     out = fmt.format(make_record())
