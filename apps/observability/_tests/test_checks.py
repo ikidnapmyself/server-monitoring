@@ -154,10 +154,7 @@ def test_h_check_quiet_when_all_heartbeats_fresh_and_ok(tmp_path, settings):
     from apps.observability.checks import check_heartbeats_fresh
 
     errs = check_heartbeats_fresh(None)
-    # No warnings for any of the non-agent_only specs.
-    for e in errs:
-        assert "push_to_hub" in e.msg or "cluster_push.events" not in e.msg or True
-    # Specifically, no warnings whatsoever in non-agent mode for these names.
+    # No warnings whatsoever in non-agent mode for these names.
     names_in_msgs = " ".join(e.msg for e in errs)
     assert "check_health.hourly" not in names_in_msgs
     assert "check_health.daily" not in names_in_msgs
@@ -165,12 +162,9 @@ def test_h_check_quiet_when_all_heartbeats_fresh_and_ok(tmp_path, settings):
 
 
 def test_h_check_handles_malformed_ts(tmp_path, settings):
-    """Covers the ValueError except branch when ts is unparseable."""
+    """Malformed ts → H001 fires (treat as maximally stale, not silently fresh)."""
     settings.LOGS_DIR = tmp_path
     settings.HUB_URL = ""
-    # Write a heartbeat with a non-empty but unparseable timestamp so
-    # latest_heartbeats() returns the record and the check exercises the
-    # `except ValueError` branch when calling datetime.fromisoformat.
     line = json.dumps(
         {
             "ts": "not-a-real-timestamp",
@@ -187,10 +181,7 @@ def test_h_check_handles_malformed_ts(tmp_path, settings):
     from apps.observability.checks import check_heartbeats_fresh
 
     errs = check_heartbeats_fresh(None)
-    # On parse failure ts defaults to now() → age ≈ 0 → no H001 for this name.
-    assert not any(e.id == "observability.H001" and "check_health.hourly" in e.msg for e in errs)
-    # And no H003 since status is ok.
-    assert not any(e.id == "observability.H003" and "check_health.hourly" in e.msg for e in errs)
+    assert any(e.id == "observability.H001" and "check_health.hourly" in e.msg for e in errs)
 
 
 def test_h_check_evaluates_agent_only_specs_in_agent_mode(tmp_path, settings):
@@ -205,3 +196,16 @@ def test_h_check_evaluates_agent_only_specs_in_agent_mode(tmp_path, settings):
     # In agent mode, agent_only specs ARE evaluated → H002 for them.
     assert "push_to_hub" in msgs
     assert "cluster_push.events" in msgs
+
+
+def test_h001_message_uses_compact_duration_format():
+    """H001 message uses _fmt_td (e.g. '2h00m' instead of '2:00:00.000000')."""
+    from datetime import timedelta
+
+    from apps.observability.checks import _fmt_td
+
+    assert _fmt_td(timedelta(hours=2, minutes=14, seconds=37, microseconds=182943)) == "2h14m"
+    assert _fmt_td(timedelta(minutes=7, seconds=23)) == "7m23s"
+    assert _fmt_td(timedelta(seconds=45)) == "45s"
+    assert _fmt_td(timedelta(seconds=0)) == "0s"
+    assert _fmt_td(timedelta(seconds=-5)) == "0s"  # negative clamped

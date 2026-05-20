@@ -7,7 +7,7 @@ freshness checks (H001/H002/H003) are added in Phase 3.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from django.conf import settings
@@ -43,6 +43,20 @@ def _is_agent_mode() -> bool:
     return bool(getattr(settings, "HUB_URL", ""))
 
 
+def _fmt_td(td: timedelta) -> str:
+    """Compact human duration: '12h05m', '7m23s', or '45s' for shorter."""
+    total = int(td.total_seconds())
+    if total < 0:
+        total = 0
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}h{m:02d}m"
+    if m:
+        return f"{m}m{s:02d}s"
+    return f"{s}s"
+
+
 @checks.register()
 def check_heartbeats_fresh(app_configs, **kwargs):
     errs = []
@@ -66,12 +80,12 @@ def check_heartbeats_fresh(app_configs, **kwargs):
         try:
             ts = datetime.fromisoformat(ts_s).replace(tzinfo=timezone.utc)
         except ValueError:
-            ts = datetime.now(tz=timezone.utc)
+            ts = datetime.min.replace(tzinfo=timezone.utc)
         age = datetime.now(tz=timezone.utc) - ts
         if age > spec.max_age:
             errs.append(
                 checks.Warning(
-                    f"heartbeat {name} is {age} old (max {spec.max_age}) — {spec.desc}",
+                    f"heartbeat {name} is {_fmt_td(age)} old (max {_fmt_td(spec.max_age)}) — {spec.desc}",
                     hint="Check the job's cron entry or its last-run logs.",
                     id="observability.H001",
                 )
