@@ -20,6 +20,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from apps.checkers.checkers import CHECKER_REGISTRY
 from apps.checkers.checkers.base import CheckStatus
+from apps.observability.heartbeat import heartbeat
 from config.security.http import safe_urlopen
 from config.security.url_validation import URLNotAllowedError
 
@@ -46,92 +47,95 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        hub_url = getattr(settings, "HUB_URL", "")
-        if not hub_url:
-            raise CommandError("HUB_URL is not configured. Set it in .env to enable agent mode.")
-
-        instance_id = getattr(settings, "INSTANCE_ID", "") or socket.gethostname()
-        hostname = socket.gethostname()
-        secret = getattr(settings, "WEBHOOK_SECRET_CLUSTER", "")
-
-        # Determine which checkers to run
-        checker_names = None
-        if options.get("checkers"):
-            checker_names = [c.strip() for c in options["checkers"].split(",")]
-            unknown = [n for n in checker_names if n not in CHECKER_REGISTRY]
-            if unknown:
+        with heartbeat("push_to_hub"):
+            hub_url = getattr(settings, "HUB_URL", "")
+            if not hub_url:
                 raise CommandError(
-                    f"Unknown checker(s): {', '.join(unknown)}. "
-                    f"Available: {', '.join(sorted(CHECKER_REGISTRY))}"
+                    "HUB_URL is not configured. Set it in .env to enable agent mode."
                 )
 
-        # Run checkers
-        alerts = []
-        for name, checker_cls in CHECKER_REGISTRY.items():
-            if checker_names and name not in checker_names:
-                continue
-            try:
-                checker = checker_cls()
-                result = checker.run()
-                alert = self._result_to_alert(result, instance_id, hostname)
-                alerts.append(alert)
-            except Exception as e:
-                self.stderr.write(self.style.WARNING(f"Checker {name} failed: {e}"))
+            instance_id = getattr(settings, "INSTANCE_ID", "") or socket.gethostname()
+            hostname = socket.gethostname()
+            secret = getattr(settings, "WEBHOOK_SECRET_CLUSTER", "")
 
-        # Build payload
-        payload = {
-            "source": "cluster",
-            "instance_id": instance_id,
-            "hostname": hostname,
-            "version": "1.0",
-            "alerts": alerts,
-        }
+            # Determine which checkers to run
+            checker_names = None
+            if options.get("checkers"):
+                checker_names = [c.strip() for c in options["checkers"].split(",")]
+                unknown = [n for n in checker_names if n not in CHECKER_REGISTRY]
+                if unknown:
+                    raise CommandError(
+                        f"Unknown checker(s): {', '.join(unknown)}. "
+                        f"Available: {', '.join(sorted(CHECKER_REGISTRY))}"
+                    )
 
-        if options["dry_run"]:
-            if options["json_output"]:
-                self.stdout.write(json.dumps(payload, indent=2, default=str))
-            else:
-                self.stdout.write(self.style.NOTICE("Dry run — payload:"))
-                self.stdout.write(json.dumps(payload, indent=2, default=str))
-            return
+            # Run checkers
+            alerts = []
+            for name, checker_cls in CHECKER_REGISTRY.items():
+                if checker_names and name not in checker_names:
+                    continue
+                try:
+                    checker = checker_cls()
+                    result = checker.run()
+                    alert = self._result_to_alert(result, instance_id, hostname)
+                    alerts.append(alert)
+                except Exception as e:
+                    self.stderr.write(self.style.WARNING(f"Checker {name} failed: {e}"))
 
-        if not options["json_output"]:
-            self.stdout.write(f"Pushing {len(alerts)} alert(s) from {instance_id} to {hub_url}")
+            # Build payload
+            payload = {
+                "source": "cluster",
+                "instance_id": instance_id,
+                "hostname": hostname,
+                "version": "1.0",
+                "alerts": alerts,
+            }
 
-        # POST to hub
-        url = hub_url.rstrip("/") + "/alerts/webhook/cluster/"
-        if not url.startswith(("https://", "http://")):
-            raise CommandError(f"HUB_URL must use http:// or https:// scheme, got: {url}")
-        body = json.dumps(payload, default=str).encode()
-
-        headers = {"Content-Type": "application/json"}
-        if secret:
-            signature = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-            headers["X-Cluster-Signature"] = signature
-
-        request = Request(url, data=body, headers=headers, method="POST")
-
-        try:
-            with safe_urlopen(
-                request, allowed_hosts=settings.SSRF_ALLOWED_HOSTS, timeout=30
-            ) as response:
-                status = response.status
-                resp_body = response.read().decode()
-
-            if status in (200, 201, 202):
+            if options["dry_run"]:
                 if options["json_output"]:
                     self.stdout.write(json.dumps(payload, indent=2, default=str))
                 else:
-                    self.stdout.write(self.style.SUCCESS(f"Hub accepted: HTTP {status}"))
-            else:
-                raise CommandError(f"Hub returned HTTP {status}: {resp_body}")
+                    self.stdout.write(self.style.NOTICE("Dry run — payload:"))
+                    self.stdout.write(json.dumps(payload, indent=2, default=str))
+                return
 
-        except URLNotAllowedError:
-            raise CommandError("HUB_URL not allowed by security policy")
-        except Exception as e:
-            if isinstance(e, CommandError):
-                raise
-            raise CommandError(f"Failed to reach hub at {url}: {e}")
+            if not options["json_output"]:
+                self.stdout.write(f"Pushing {len(alerts)} alert(s) from {instance_id} to {hub_url}")
+
+            # POST to hub
+            url = hub_url.rstrip("/") + "/alerts/webhook/cluster/"
+            if not url.startswith(("https://", "http://")):
+                raise CommandError(f"HUB_URL must use http:// or https:// scheme, got: {url}")
+            body = json.dumps(payload, default=str).encode()
+
+            headers = {"Content-Type": "application/json"}
+            if secret:
+                signature = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+                headers["X-Cluster-Signature"] = signature
+
+            request = Request(url, data=body, headers=headers, method="POST")
+
+            try:
+                with safe_urlopen(
+                    request, allowed_hosts=settings.SSRF_ALLOWED_HOSTS, timeout=30
+                ) as response:
+                    status = response.status
+                    resp_body = response.read().decode()
+
+                if status in (200, 201, 202):
+                    if options["json_output"]:
+                        self.stdout.write(json.dumps(payload, indent=2, default=str))
+                    else:
+                        self.stdout.write(self.style.SUCCESS(f"Hub accepted: HTTP {status}"))
+                else:
+                    raise CommandError(f"Hub returned HTTP {status}: {resp_body}")
+
+            except URLNotAllowedError:
+                raise CommandError("HUB_URL not allowed by security policy")
+            except Exception as e:
+                if isinstance(e, CommandError):
+                    raise
+                raise CommandError(f"Failed to reach hub at {url}: {e}")
 
     def _result_to_alert(self, result, instance_id: str, hostname: str) -> dict:
         """Convert a CheckResult to a cluster alert dict."""

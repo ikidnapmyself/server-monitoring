@@ -17,6 +17,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from apps.checkers.checkers import CHECKER_REGISTRY, CheckStatus
 from apps.checkers.management.commands._metrics_format import write_metrics
+from apps.observability.heartbeat import heartbeat
 from config.security import PathNotAllowedError, resolve_safe_path
 
 
@@ -78,40 +79,46 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        if options["list"]:
-            self._list_checkers()
-            return
+        # `options.get("all")` is forward-compatible: the command currently has
+        # no `--all` flag, so this resolves to None → "check_health.hourly",
+        # which matches the existing hourly cron entry. If a future `--all`
+        # daily-sweep flag lands, it'll automatically emit `.daily`.
+        hb_name = "check_health.daily" if options.get("all") else "check_health.hourly"
+        with heartbeat(hb_name):
+            if options["list"]:
+                self._list_checkers()
+                return
 
-        checker_names = options["checkers"] or list(CHECKER_REGISTRY.keys())
+            checker_names = options["checkers"] or list(CHECKER_REGISTRY.keys())
 
-        invalid = [name for name in checker_names if name not in CHECKER_REGISTRY]
-        if invalid:
-            raise CommandError(
-                f"Unknown checker(s): {', '.join(invalid)}. "
-                f"Available: {', '.join(CHECKER_REGISTRY.keys())}"
-            )
+            invalid = [name for name in checker_names if name not in CHECKER_REGISTRY]
+            if invalid:
+                raise CommandError(
+                    f"Unknown checker(s): {', '.join(invalid)}. "
+                    f"Available: {', '.join(CHECKER_REGISTRY.keys())}"
+                )
 
-        if options["json_output"]:
-            self.stderr.write(f"Running checkers: {', '.join(checker_names)}\n")
-        else:
-            self.stdout.write(f"Running checkers: {', '.join(checker_names)}\n")
+            if options["json_output"]:
+                self.stderr.write(f"Running checkers: {', '.join(checker_names)}\n")
+            else:
+                self.stdout.write(f"Running checkers: {', '.join(checker_names)}\n")
 
-        results = []
-        for name in checker_names:
-            checker_class = CHECKER_REGISTRY[name]
-            checker_kwargs = self._build_checker_kwargs(name, options)
-            checker = checker_class(**checker_kwargs)
-            result = checker.run()
-            results.append(result)
+            results = []
+            for name in checker_names:
+                checker_class = CHECKER_REGISTRY[name]
+                checker_kwargs = self._build_checker_kwargs(name, options)
+                checker = checker_class(**checker_kwargs)
+                result = checker.run()
+                results.append(result)
 
-        if options["json_output"]:
-            self._output_json(results)
-        else:
-            self._output_text(results)
+            if options["json_output"]:
+                self._output_json(results)
+            else:
+                self._output_text(results)
 
-        exit_code = self._determine_exit_code(results, options)
-        if exit_code != 0:
-            sys.exit(exit_code)
+            exit_code = self._determine_exit_code(results, options)
+            if exit_code != 0:
+                sys.exit(exit_code)
 
     def _list_checkers(self):
         self.stdout.write(self.style.SUCCESS("Available checkers:\n"))

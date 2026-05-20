@@ -1,45 +1,16 @@
-"""Tests for emit_heartbeat() and heartbeat() context manager."""
+"""Tests for emit_heartbeat() and heartbeat() context manager.
+
+The shared ``redirect_heartbeat_handler`` fixture (autouse, in
+``conftest.py``) rebinds the heartbeat logger's handlers to write into
+``tmp_path`` for every test in this package.
+"""
 
 import json
-import logging
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import pytest
 
-from apps.observability.formatter import JsonLineFormatter
 from apps.observability.heartbeat import emit_heartbeat, heartbeat
-
-
-@pytest.fixture(autouse=True)
-def redirect_heartbeat_handler(tmp_path, settings):
-    """Swap the heartbeat logger's handlers to write into tmp_path.
-
-    The LOGGING config wires `apps.observability.heartbeat` to a
-    RotatingFileHandler whose `filename` is captured at startup. Just
-    setting `settings.LOGS_DIR = tmp_path` won't redirect that handler,
-    so we replace the logger's handlers with a fresh handler bound to
-    `tmp_path / heartbeats.jsonl` for the duration of the test.
-    """
-    settings.LOGS_DIR = tmp_path
-    handler = RotatingFileHandler(
-        tmp_path / "heartbeats.jsonl",
-        maxBytes=5 * 1024 * 1024,
-        backupCount=3,
-        encoding="utf-8",
-    )
-    handler.setFormatter(JsonLineFormatter())
-    logger = logging.getLogger("apps.observability.heartbeat")
-    old_handlers = logger.handlers[:]
-    old_propagate = logger.propagate
-    logger.handlers = [handler]
-    logger.propagate = False
-    try:
-        yield
-    finally:
-        logger.handlers = old_handlers
-        logger.propagate = old_propagate
-        handler.close()
 
 
 def _read_heartbeats(logs_dir: Path) -> list[dict]:
