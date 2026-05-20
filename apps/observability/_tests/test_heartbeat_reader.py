@@ -165,18 +165,43 @@ def test_blank_line_is_skipped(tmp_path):
     assert "job.blank" in latest
 
 
-def test_ts_dt_returns_datetime(tmp_path):
-    """Coverage: HeartbeatRecord.ts_dt property parses ISO-8601 timestamp."""
-    from datetime import datetime as _dt
+def test_ts_dt_returns_datetime():
+    """HeartbeatRecord.ts_dt must return an aware UTC datetime whose wall-clock
+    matches the input (regardless of the host's local timezone)."""
+    from datetime import datetime, timezone
 
-    _write(
-        tmp_path / "heartbeats.jsonl",
-        [{"ts": "2026-05-17T10:00:00Z", "name": "job.ts", "status": "ok"}],
-    )
-    latest = latest_heartbeats(tmp_path)
-    parsed = latest["job.ts"].ts_dt
-    assert isinstance(parsed, _dt)
+    rec = HeartbeatRecord(name="x", ts="2026-05-17T10:00:00Z", status="ok")
+    parsed = rec.ts_dt
+    assert isinstance(parsed, datetime)
+    assert parsed.utcoffset() == timezone.utc.utcoffset(None)
+    # And the wall-clock matches the UTC input
     assert parsed.year == 2026
     assert parsed.month == 5
     assert parsed.day == 17
     assert parsed.hour == 10
+    assert parsed.minute == 0
+
+
+def test_record_with_no_metrics_is_hashable(tmp_path):
+    """HeartbeatRecord must stay hashable so it can be used in sets / as dict keys
+    even though the dataclass is frozen. Storing `{}` (the prior behaviour) would
+    silently make the record unhashable."""
+    (tmp_path / "heartbeats.jsonl").write_text(
+        json.dumps(
+            {
+                "ts": "2026-05-17T10:00:00Z",
+                "name": "j",
+                "status": "ok",
+                "level": "INFO",
+                "v": 1,
+                "logger": "h",
+                "msg": "h",
+                "instance_id": "x",
+            }
+        )
+        + "\n"
+    )
+    latest = latest_heartbeats(tmp_path)
+    # No `metrics` in input → dataclass default `None` preserved → hashable
+    hash(latest["j"])  # must not raise
+    assert latest["j"].metrics is None

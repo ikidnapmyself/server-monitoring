@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from django.conf import settings
@@ -23,9 +23,9 @@ class HeartbeatRecord:
 
     @property
     def ts_dt(self) -> datetime:
-        # Parse trailing Z manually since fromisoformat doesn't accept it before py3.11 in all cases
-        s = self.ts.rstrip("Z")
-        return datetime.fromisoformat(s).replace(tzinfo=datetime.now().astimezone().tzinfo)
+        # All heartbeat timestamps are emitted as UTC + trailing Z by JsonLineFormatter._utc_iso.
+        # Strip the Z and stamp UTC explicitly so consumers get an aware UTC datetime.
+        return datetime.fromisoformat(self.ts.rstrip("Z")).replace(tzinfo=timezone.utc)
 
 
 def latest_heartbeats(logs_dir: Path | None = None) -> dict[str, HeartbeatRecord]:
@@ -54,7 +54,7 @@ def latest_heartbeats(logs_dir: Path | None = None) -> dict[str, HeartbeatRecord
                     ts=ts,
                     status=obj.get("status", "ok"),
                     duration_ms=obj.get("duration_ms"),
-                    metrics=obj.get("metrics") or {},
+                    metrics=obj.get("metrics"),
                 )
                 prev = latest.get(name)
                 if prev is None or rec.ts > prev.ts:
