@@ -69,19 +69,36 @@ def _register_cluster_driver():
 _register_cluster_driver()
 
 
-def get_driver(name: str) -> BaseAlertDriver:
+def get_driver(name: str, *, allow_internal: bool = False) -> BaseAlertDriver:
     """
     Get a driver instance by name.
 
+    Webhook-reachable callers (HTTP views, pipeline executors that ingest
+    untrusted payloads) MUST NOT pass ``allow_internal=True``. The kwarg is
+    only for trusted in-process call sites (e.g., the heartbeat freshness
+    command in Task 4.2) that need to dispatch through the in-process-only
+    ``InternalDriver``. Without the opt-in, asking for a non-webhook driver
+    by name raises ``ValueError`` exactly as if the driver did not exist,
+    closing the explicit-driver bypass of :data:`WEBHOOK_DRIVERS`.
+
     Args:
         name: Driver name (e.g., "alertmanager", "grafana", "generic", "internal").
+        allow_internal: When False (default), names listed in
+            ``_NON_WEBHOOK_DRIVERS`` are refused. Trusted in-process callers
+            must set this to ``True`` explicitly.
 
     Returns:
         Driver instance.
 
     Raises:
-        ValueError: If driver name is not found.
+        ValueError: If the driver name is unknown, or if the name refers to
+            a non-webhook driver and ``allow_internal`` is False.
     """
+    if not allow_internal and name in _NON_WEBHOOK_DRIVERS:
+        raise ValueError(
+            f"Driver '{name}' is not webhook-reachable. "
+            "Pass allow_internal=True from a trusted in-process caller."
+        )
     if name not in DRIVER_REGISTRY:
         raise ValueError(f"Unknown driver: {name}. Available: {', '.join(DRIVER_REGISTRY.keys())}")
     return DRIVER_REGISTRY[name]()

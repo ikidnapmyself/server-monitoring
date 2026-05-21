@@ -90,11 +90,13 @@ def test_internal_driver_not_under_webhook_dispatch():
 
 
 def test_internal_driver_registered_for_in_process_lookup():
-    """It is still in DRIVER_REGISTRY so ``get_driver("internal")`` works."""
+    """It is still in DRIVER_REGISTRY so trusted in-process callers can opt in
+    via ``get_driver("internal", allow_internal=True)``. The default (no opt-in)
+    must refuse — that is verified separately in ``test_webhook_security``."""
     from apps.alerts.drivers import DRIVER_REGISTRY, get_driver
 
     assert "internal" in DRIVER_REGISTRY
-    assert isinstance(get_driver("internal"), InternalDriver)
+    assert isinstance(get_driver("internal", allow_internal=True), InternalDriver)
 
 
 def test_detect_driver_never_returns_internal():
