@@ -84,6 +84,7 @@ class Command(BaseCommand):
         # which matches the existing hourly cron entry. If a future `--all`
         # daily-sweep flag lands, it'll automatically emit `.daily`.
         hb_name = "check_health.daily" if options.get("all") else "check_health.hourly"
+        exit_code = 0
         with heartbeat(hb_name):
             if options["list"]:
                 self._list_checkers()
@@ -117,8 +118,19 @@ class Command(BaseCommand):
                 self._output_text(results)
 
             exit_code = self._determine_exit_code(results, options)
-            if exit_code != 0:
-                sys.exit(exit_code)
+
+        # NOTE: `sys.exit` must run OUTSIDE the `with heartbeat(...)` block.
+        # `SystemExit` inherits from `BaseException`, not `Exception`, so the
+        # heartbeat context manager's `except Exception` clause does not catch
+        # it — exiting inside the block would skip the `ok` emission and leave
+        # the heartbeat stream stuck at `status=running` (exactly the failure
+        # mode the freshness check is designed to detect). The job completing
+        # with a non-zero exit code is still a successful run from the
+        # heartbeat's perspective: the heartbeat tracks "did the job finish",
+        # not "did the job find issues". Health failures are surfaced
+        # separately via the alert pipeline.
+        if exit_code != 0:
+            sys.exit(exit_code)
 
     def _list_checkers(self):
         self.stdout.write(self.style.SUCCESS("Available checkers:\n"))
