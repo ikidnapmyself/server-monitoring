@@ -80,22 +80,24 @@ def test_category_resolved_from_logger_prefix():
 
 
 def test_exception_serialized_into_three_fields():
+    import sys
+
     fmt = JsonLineFormatter()
+    exc_info = None
     try:
         raise ValueError("boom")
     except ValueError:
-        import sys
-
-        record = logging.LogRecord(
-            name="x",
-            level=logging.ERROR,
-            pathname="x.py",
-            lineno=1,
-            msg="failed",
-            args=None,
-            exc_info=sys.exc_info(),
-        )
-        obj = json.loads(fmt.format(record))
+        exc_info = sys.exc_info()
+    record = logging.LogRecord(
+        name="x",
+        level=logging.ERROR,
+        pathname="x.py",
+        lineno=1,
+        msg="failed",
+        args=None,
+        exc_info=exc_info,
+    )
+    obj = json.loads(fmt.format(record))
     assert obj["exc_type"] == "ValueError"
     assert obj["exc_msg"] == "boom"
     assert "Traceback" in obj["exc_stack"]
@@ -193,20 +195,22 @@ def test_pretty_formatter_omits_trace_when_unset():
 
 
 def test_pretty_formatter_renders_exception_block():
+    import sys
+
+    exc_info = None
     try:
         raise RuntimeError("nope")
     except RuntimeError:
-        import sys
-
-        record = logging.LogRecord(
-            name="x",
-            level=logging.ERROR,
-            pathname="x.py",
-            lineno=1,
-            msg="oops",
-            args=None,
-            exc_info=sys.exc_info(),
-        )
-        fmt = PrettyConsoleFormatter()
-        out = fmt.format(record)
+        exc_info = sys.exc_info()
+    record = logging.LogRecord(
+        name="x",
+        level=logging.ERROR,
+        pathname="x.py",
+        lineno=1,
+        msg="oops",
+        args=None,
+        exc_info=exc_info,
+    )
+    fmt = PrettyConsoleFormatter()
+    out = fmt.format(record)
     assert "RuntimeError: nope" in out
