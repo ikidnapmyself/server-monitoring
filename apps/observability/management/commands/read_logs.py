@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from apps.observability.log_reader import LogFilter, iter_events
 
@@ -31,7 +31,12 @@ class Command(BaseCommand):
             p.add_argument("--since")
             p.add_argument("--until")
             p.add_argument("--grep")
-            p.add_argument("--last", type=int, default=200)
+            p.add_argument(
+                "--last",
+                type=int,
+                default=None,
+                help="Cap output to the most recent N records (default: unlimited).",
+            )
             p.add_argument("--stream", choices=["events", "heartbeats"], default="events")
             p.add_argument("--instance", help="Read from LOGS_DIR/cluster/<instance>/ instead.")
             p.add_argument("--json", action="store_true")
@@ -45,10 +50,16 @@ class Command(BaseCommand):
         raise NotImplementedError(action)
 
     def _logs_dir(self, instance: str | None) -> Path:
-        base = Path(settings.LOGS_DIR)
-        if instance:
-            return base / "cluster" / instance
-        return base
+        base = Path(settings.LOGS_DIR).resolve()
+        if not instance:
+            return base
+        cluster_root = (base / "cluster").resolve()
+        target = (cluster_root / instance).resolve()
+        if not target.is_relative_to(cluster_root):
+            raise CommandError(
+                f"--instance must be a simple name inside {cluster_root}; got {instance!r}"
+            )
+        return target
 
     def _view(self, options):
         flt = LogFilter(
