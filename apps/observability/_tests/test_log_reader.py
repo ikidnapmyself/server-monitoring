@@ -112,6 +112,16 @@ def test_parse_since_iso_absolute():
     assert parsed == datetime(2026, 5, 17, 10, 0, 0, tzinfo=timezone.utc)
 
 
+def test_parse_since_iso_naive_assumed_utc():
+    # Naive ISO datetime (no Z, no offset) takes the `tzinfo is None` branch
+    # and is treated as UTC. Documents the contract that the reader does not
+    # silently shift naive timestamps into local time.
+    from apps.observability.log_reader import _parse_since
+
+    parsed = _parse_since("2026-05-17T10:00:00")
+    assert parsed == datetime(2026, 5, 17, 10, 0, 0, tzinfo=timezone.utc)
+
+
 def test_filter_since_iso_absolute(tmp_path):
     _write(
         tmp_path,

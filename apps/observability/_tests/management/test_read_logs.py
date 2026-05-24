@@ -2,7 +2,9 @@
 
 import json
 
+import pytest
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 
 def _write(tmp_path, records):
@@ -97,6 +99,22 @@ def test_view_instance_directory(tmp_path, settings, capsys):
     )
     out = capsys.readouterr().out.strip().splitlines()
     assert json.loads(out[0])["msg"] == "from-node-a"
+
+
+def test_view_instance_path_traversal_rejected(tmp_path, settings):
+    # `--instance "../etc"` resolves outside LOGS_DIR/cluster/ and must be
+    # refused by the path-traversal guard rather than silently reading from
+    # an attacker-chosen directory.
+    settings.LOGS_DIR = tmp_path
+    with pytest.raises(CommandError, match="--instance must be a simple name"):
+        call_command(
+            "read_logs",
+            "view",
+            "--instance",
+            "../etc",
+            "--json",
+            "--no-pager",
+        )
 
 
 def test_unknown_action_raises(tmp_path, settings):

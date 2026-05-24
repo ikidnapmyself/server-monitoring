@@ -62,8 +62,7 @@ def _register_cluster_driver():
 
     if getattr(settings, "CLUSTER_ENABLED", False):
         DRIVER_REGISTRY["cluster"] = ClusterDriver
-        if "cluster" not in _NON_WEBHOOK_DRIVERS:
-            WEBHOOK_DRIVERS.add("cluster")
+        WEBHOOK_DRIVERS.add("cluster")
 
 
 _register_cluster_driver()
@@ -130,10 +129,9 @@ def detect_driver(payload: dict) -> BaseAlertDriver | None:
         if driver.validate(payload):
             return driver
 
-    # Fall back to generic driver (also webhook-reachable).
-    if "generic" in WEBHOOK_DRIVERS:
-        generic = GenericWebhookDriver()
-        if generic.validate(payload):
-            return generic
+    # Fall back to generic driver (always webhook-reachable by construction).
+    generic = GenericWebhookDriver()
+    if generic.validate(payload):
+        return generic
 
     return None
