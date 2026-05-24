@@ -14,6 +14,17 @@ _DURATION_RE = re.compile(r"^(\d+)([smhdw])$")
 _UNIT_TO_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
 
+def _iso_to_utc(spec: str) -> datetime:
+    # Treat trailing Z as +00:00 (Python 3.11+ accepts Z natively but we
+    # target 3.10+). Naive datetimes are stamped UTC; aware datetimes are
+    # converted to UTC. Raises ValueError on unparseable input.
+    normalised = spec.replace("Z", "+00:00") if spec.endswith("Z") else spec
+    dt = datetime.fromisoformat(normalised)
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _parse_since(spec: str | None) -> datetime | None:
     if not spec:
         return None
@@ -21,16 +32,20 @@ def _parse_since(spec: str | None) -> datetime | None:
     if m:
         n, unit = int(m.group(1)), m.group(2)
         return datetime.now(tz=timezone.utc) - timedelta(seconds=n * _UNIT_TO_SECONDS[unit])
-    # ISO-8601 absolute. Treat trailing Z as +00:00 (Python 3.11+ accepts Z
-    # natively but we target 3.10+). Otherwise the explicit offset is preserved
-    # via fromisoformat. Naive datetimes are assumed UTC.
-    normalised = spec.replace("Z", "+00:00") if spec.endswith("Z") else spec
-    dt = datetime.fromisoformat(normalised)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    else:
-        dt = dt.astimezone(timezone.utc)
-    return dt
+    return _iso_to_utc(spec)
+
+
+def _parse_record_ts(obj: dict) -> datetime | None:
+    # Resilient parser for a record's `ts` field: returns None on missing,
+    # non-string, or unparseable values so a single bad line does not
+    # crash the reader.
+    raw = obj.get("ts")
+    if not isinstance(raw, str):
+        return None
+    try:
+        return _iso_to_utc(raw)
+    except ValueError:
+        return None
 
 
 @dataclass
@@ -64,38 +79,14 @@ class LogFilter:
             if not re.search(self.grep, haystack):
                 return False
         since = _parse_since(self.since)
-        ts: datetime | None = None
-        if since:
-            raw_ts = obj.get("ts")
-            if not isinstance(raw_ts, str):
-                return False
-            normalised = raw_ts.replace("Z", "+00:00") if raw_ts.endswith("Z") else raw_ts
-            try:
-                ts = datetime.fromisoformat(normalised)
-            except ValueError:
-                return False
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-            else:
-                ts = ts.astimezone(timezone.utc)
-            if ts < since:
-                return False
         until = _parse_since(self.until)
-        if until:
+        if since or until:
+            ts = _parse_record_ts(obj)
             if ts is None:
-                raw_ts = obj.get("ts")
-                if not isinstance(raw_ts, str):
-                    return False
-                normalised = raw_ts.replace("Z", "+00:00") if raw_ts.endswith("Z") else raw_ts
-                try:
-                    ts = datetime.fromisoformat(normalised)
-                except ValueError:
-                    return False
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
-                else:
-                    ts = ts.astimezone(timezone.utc)
-            if ts > until:
+                return False
+            if since and ts < since:
+                return False
+            if until and ts > until:
                 return False
         return True
 

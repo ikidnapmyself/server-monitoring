@@ -218,3 +218,12 @@ def test_filter_since_skips_record_with_invalid_ts(tmp_path):
     out = list(iter_events(tmp_path, LogFilter(since="2026-05-17T10:00:00Z")))
     assert len(out) == 1
     assert out[0]["ts"] == "2026-05-17T11:00:00.000Z"
+
+
+def test_filter_until_skips_record_with_invalid_ts(tmp_path):
+    # Mirror of the `since` case: malformed ts is filtered out regardless of
+    # which time bound triggered the parse.
+    _write(tmp_path, [_rec(ts="not-a-timestamp"), _rec(ts="2026-05-17T09:00:00.000Z")])
+    out = list(iter_events(tmp_path, LogFilter(until="2026-05-17T10:00:00Z")))
+    assert len(out) == 1
+    assert out[0]["ts"] == "2026-05-17T09:00:00.000Z"
