@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -20,8 +21,16 @@ def _parse_since(spec: str | None) -> datetime | None:
     if m:
         n, unit = int(m.group(1)), m.group(2)
         return datetime.now(tz=timezone.utc) - timedelta(seconds=n * _UNIT_TO_SECONDS[unit])
-    # Assume ISO-8601 absolute timestamp
-    return datetime.fromisoformat(spec.rstrip("Z")).replace(tzinfo=timezone.utc)
+    # ISO-8601 absolute. Treat trailing Z as +00:00 (Python 3.11+ accepts Z
+    # natively but we target 3.10+). Otherwise the explicit offset is preserved
+    # via fromisoformat. Naive datetimes are assumed UTC.
+    normalised = spec.replace("Z", "+00:00") if spec.endswith("Z") else spec
+    dt = datetime.fromisoformat(normalised)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt
 
 
 @dataclass
@@ -95,11 +104,7 @@ def _stream_files(logs_dir: Path, basename: str) -> Iterator[dict]:
 def iter_events(logs_dir: Path, flt: LogFilter, basename: str = "events.jsonl") -> Iterable[dict]:
     matched = (r for r in _stream_files(logs_dir, basename) if flt.matches(r))
     if flt.last:
-        # Buffer last N matching
-        buf: list[dict] = []
-        for r in matched:
-            buf.append(r)
-            if len(buf) > flt.last:
-                buf.pop(0)
-        return buf
+        buf: deque[dict] = deque(maxlen=flt.last)
+        buf.extend(matched)
+        return list(buf)
     return list(matched)
