@@ -16,14 +16,17 @@ def test_w001_passes_when_logs_dir_is_writable(tmp_path, settings):
 
 def test_w001_fails_when_logs_dir_is_not_writable(tmp_path, settings):
     settings.LOGS_DIR = tmp_path
-    os.chmod(tmp_path, 0o555)
+    # nosec B103: intentional read-only mode on isolated tmp_path to exercise
+    # the W001 non-writable branch; restored in the finally clause below.
+    os.chmod(tmp_path, 0o555)  # nosec B103
     try:
         from apps.observability.checks import check_logs_dir_writable
 
         errs = check_logs_dir_writable(None)
         assert any(e.id == "observability.W001" for e in errs)
     finally:
-        os.chmod(tmp_path, 0o755)
+        # nosec B103: restore default tmp_path mode so pytest can clean up.
+        os.chmod(tmp_path, 0o755)  # nosec B103
 
 
 def test_w001_short_circuits_when_logs_dir_is_falsy(settings):
