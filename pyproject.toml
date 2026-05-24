@@ -15,6 +15,9 @@ dependencies = [
     "jinja2>=3.1.2",
     "django-object-actions>=4.3.0",
     "django-json-widget>=2.0.1",
+    # CVE-2026-45409 floor — idna is transitive (requests/httpx/anyio);
+    # pinned explicitly so future `uv lock --upgrade` cannot regress.
+    "idna>=3.15",
 ]
 
 [project.optional-dependencies]
