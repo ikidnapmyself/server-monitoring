@@ -31,13 +31,10 @@ def test_w001_fails_when_logs_dir_is_not_writable(tmp_path, settings):
 
 
 def test_w001_short_circuits_when_logs_dir_is_falsy(settings):
-    """Guard branch: if Path() evaluates falsy, return [] without touching disk."""
-    from apps.observability import checks as obs_checks
+    settings.LOGS_DIR = ""
+    from apps.observability.checks import check_logs_dir_writable
 
-    with patch.object(obs_checks, "Path") as mock_path:
-        mock_path.return_value = False  # force `if not logs_dir:` to be True
-        settings.LOGS_DIR = ""
-        errs = obs_checks.check_logs_dir_writable(None)
+    errs = check_logs_dir_writable(None)
     assert errs == []
 
 

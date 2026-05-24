@@ -19,9 +19,10 @@ from apps.observability.heartbeat_registry import HEARTBEAT_REGISTRY
 
 @checks.register()
 def check_logs_dir_writable(app_configs, **kwargs):
-    logs_dir = Path(getattr(settings, "LOGS_DIR", ""))
-    if not logs_dir:
+    raw_logs_dir = getattr(settings, "LOGS_DIR", "")
+    if not raw_logs_dir:
         return []
+    logs_dir = Path(raw_logs_dir)
     try:
         if not logs_dir.exists():
             logs_dir.mkdir(parents=True, exist_ok=True)

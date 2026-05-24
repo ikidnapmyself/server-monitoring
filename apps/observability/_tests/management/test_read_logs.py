@@ -1,6 +1,7 @@
 """Tests for `manage.py read_logs view`."""
 
 import json
+from unittest.mock import patch
 
 import pytest
 from django.core.management import call_command
@@ -68,10 +69,10 @@ def test_view_pretty_output_no_trace(tmp_path, settings, capsys):
 
 def test_view_plain_output(tmp_path, settings, capsys):
     settings.LOGS_DIR = tmp_path
-    _write(tmp_path, [_rec(msg="plain-msg")])
+    _write(tmp_path, [_rec(msg="plain-msg", logger="apps.alerts.svc")])
     call_command("read_logs", "view", "--plain", "--no-pager")
-    out = capsys.readouterr().out
-    assert "plain-msg" in out
+    out = capsys.readouterr().out.strip()
+    assert out == "plain-msg"
 
 
 def test_view_heartbeats_stream(tmp_path, settings, capsys):
@@ -128,3 +129,12 @@ def test_unknown_action_raises(tmp_path, settings):
         assert "bogus" in str(exc)
     else:
         raise AssertionError("expected NotImplementedError")
+
+
+def test_view_uses_pager_when_no_pager_flag_absent(tmp_path, settings):
+    settings.LOGS_DIR = tmp_path
+    _write(tmp_path, [_rec(msg="via-pager")])
+    with patch("apps.observability.management.commands.read_logs.pydoc.pager") as mock_pager:
+        call_command("read_logs", "view")
+    mock_pager.assert_called_once()
+    assert "via-pager" in mock_pager.call_args.args[0]

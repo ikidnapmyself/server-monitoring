@@ -204,3 +204,17 @@ def test_iter_events_no_last_returns_list(tmp_path):
     result = iter_events(tmp_path, LogFilter())
     assert isinstance(result, list)
     assert len(result) == 2
+
+
+def test_filter_since_skips_record_with_missing_ts(tmp_path):
+    _write(tmp_path, [{"msg": "missing-ts"}, _rec(ts="2026-05-17T11:00:00.000Z")])
+    out = list(iter_events(tmp_path, LogFilter(since="2026-05-17T10:00:00Z")))
+    assert len(out) == 1
+    assert out[0]["ts"] == "2026-05-17T11:00:00.000Z"
+
+
+def test_filter_since_skips_record_with_invalid_ts(tmp_path):
+    _write(tmp_path, [_rec(ts="not-a-timestamp"), _rec(ts="2026-05-17T11:00:00.000Z")])
+    out = list(iter_events(tmp_path, LogFilter(since="2026-05-17T10:00:00Z")))
+    assert len(out) == 1
+    assert out[0]["ts"] == "2026-05-17T11:00:00.000Z"

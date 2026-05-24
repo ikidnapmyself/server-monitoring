@@ -285,8 +285,8 @@ OBSERVABILITY_CLUSTER_MAX_AGE = _int_env("OBSERVABILITY_CLUSTER_MAX_AGE", 900)
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
-LOGS_DIR = Path(os.environ.get("LOGS_DIR", BASE_DIR / "logs"))
-LOGS_DIR.mkdir(exist_ok=True)
+LOGS_DIR = Path(os.environ.get("LOGS_DIR", BASE_DIR / "logs")).resolve()
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 _console_formatter = "pretty" if sys.stderr.isatty() and DEBUG else "json"
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import pydoc
 from pathlib import Path
 
 from django.conf import settings
@@ -79,13 +80,23 @@ class Command(BaseCommand):
         logs_dir = self._logs_dir(options.get("instance"))
 
         records = iter_events(logs_dir, flt, basename=basename)
+        lines = []
         for rec in records:
             if options.get("json"):
-                self.stdout.write(json.dumps(rec, ensure_ascii=False))
+                lines.append(json.dumps(rec, ensure_ascii=False))
             else:
-                self.stdout.write(self._fmt_pretty(rec, plain=options.get("plain", False)))
+                lines.append(self._fmt_pretty(rec, plain=options.get("plain", False)))
+
+        if options.get("no_pager"):
+            for line in lines:
+                self.stdout.write(line)
+            return
+
+        pydoc.pager("\n".join(lines))
 
     def _fmt_pretty(self, rec: dict, plain: bool) -> str:
+        if plain:
+            return rec.get("msg", "")
         time_part = rec.get("ts", "")[11:19]
         level = rec.get("level", "")
         logger = rec.get("logger", "")

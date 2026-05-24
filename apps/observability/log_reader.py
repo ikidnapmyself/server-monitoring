@@ -64,13 +64,37 @@ class LogFilter:
             if not re.search(self.grep, haystack):
                 return False
         since = _parse_since(self.since)
+        ts: datetime | None = None
         if since:
-            ts = datetime.fromisoformat(obj["ts"].rstrip("Z")).replace(tzinfo=timezone.utc)
+            raw_ts = obj.get("ts")
+            if not isinstance(raw_ts, str):
+                return False
+            normalised = raw_ts.replace("Z", "+00:00") if raw_ts.endswith("Z") else raw_ts
+            try:
+                ts = datetime.fromisoformat(normalised)
+            except ValueError:
+                return False
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            else:
+                ts = ts.astimezone(timezone.utc)
             if ts < since:
                 return False
         until = _parse_since(self.until)
         if until:
-            ts = datetime.fromisoformat(obj["ts"].rstrip("Z")).replace(tzinfo=timezone.utc)
+            if ts is None:
+                raw_ts = obj.get("ts")
+                if not isinstance(raw_ts, str):
+                    return False
+                normalised = raw_ts.replace("Z", "+00:00") if raw_ts.endswith("Z") else raw_ts
+                try:
+                    ts = datetime.fromisoformat(normalised)
+                except ValueError:
+                    return False
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                else:
+                    ts = ts.astimezone(timezone.utc)
             if ts > until:
                 return False
         return True

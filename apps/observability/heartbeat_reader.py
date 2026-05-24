@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -19,7 +19,7 @@ class HeartbeatRecord:
     ts: str
     status: str
     duration_ms: float | None = None
-    metrics: dict | None = None
+    metrics: dict | None = field(default=None, hash=False)
 
     @property
     def ts_dt(self) -> datetime:

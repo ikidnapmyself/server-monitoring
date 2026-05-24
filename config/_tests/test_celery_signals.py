@@ -87,23 +87,15 @@ def test_prerun_generates_trace_id_when_headers_missing():
 
 
 def test_prerun_without_task_id_does_not_store_token():
-    """Coverage: exercise the `if task_id is not None` False branch in prerun."""
+    """Coverage: task_id=None should be a no-op (no bind, no stored token)."""
     task = MagicMock()
     task.request.headers = {}
 
     before = dict(_BIND_TOKENS)
     _obs_task_prerun(sender=None, task_id=None, task=task)
-    # No new entry should be added.
     assert dict(_BIND_TOKENS) == before
-    # Context was bound — manually clear it (no token retained by us).
-    # snapshot still shows the bind because we lost the token; reset vars.
-    from apps.observability.context import _VARS
-
-    for var in _VARS.values():
-        try:
-            var.set(None)
-        except LookupError:  # pragma: no cover - defensive
-            pass
+    assert context.snapshot()["trace_id"] is None
+    assert context.snapshot()["source"] is None
 
 
 def test_postrun_without_matching_prerun_is_noop():

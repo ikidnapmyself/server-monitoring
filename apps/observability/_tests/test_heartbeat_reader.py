@@ -205,3 +205,19 @@ def test_record_with_no_metrics_is_hashable(tmp_path):
     # No `metrics` in input → dataclass default `None` preserved → hashable
     hash(latest["j"])  # must not raise
     assert latest["j"].metrics is None
+
+
+def test_record_with_metrics_dict_is_hashable(tmp_path):
+    (tmp_path / "heartbeats.jsonl").write_text(
+        json.dumps(
+            {
+                "ts": "2026-05-17T10:00:00Z",
+                "name": "j",
+                "status": "ok",
+                "metrics": {"processed": 10},
+            }
+        )
+        + "\n"
+    )
+    latest = latest_heartbeats(tmp_path)
+    hash(latest["j"])  # must not raise when metrics is a dict

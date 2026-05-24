@@ -41,11 +41,12 @@ _BIND_TOKENS: dict[str, object] = {}
 
 @task_prerun.connect
 def _obs_task_prerun(sender=None, task_id=None, task=None, args=None, kwargs=None, **_):
-    headers = getattr(task.request, "headers", None) or {}
+    if task_id is None:
+        return
+    headers = getattr(getattr(task, "request", None), "headers", None) or {}
     trace_id = headers.get("trace_id") or str(uuid.uuid4())
     token = context.bind(trace_id=trace_id, source="celery")
-    if task_id is not None:
-        _BIND_TOKENS[task_id] = token
+    _BIND_TOKENS[task_id] = token
 
 
 @task_postrun.connect
