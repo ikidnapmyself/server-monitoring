@@ -25,8 +25,8 @@ def test_w001_fails_when_logs_dir_is_not_writable(tmp_path, settings):
         errs = check_logs_dir_writable(None)
         assert any(e.id == "observability.W001" for e in errs)
     finally:
-        # nosec B103: restore default tmp_path mode so pytest can clean up.
-        os.chmod(tmp_path, 0o755)  # nosec B103
+        # Owner-only mode is enough for pytest's tmp_path cleanup.
+        os.chmod(tmp_path, 0o700)  # nosec B103
 
 
 def test_w001_short_circuits_when_logs_dir_is_falsy(settings):

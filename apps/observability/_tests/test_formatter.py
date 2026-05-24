@@ -95,7 +95,7 @@ def test_exception_serialized_into_three_fields():
             args=None,
             exc_info=sys.exc_info(),
         )
-    obj = json.loads(fmt.format(record))
+        obj = json.loads(fmt.format(record))
     assert obj["exc_type"] == "ValueError"
     assert obj["exc_msg"] == "boom"
     assert "Traceback" in obj["exc_stack"]
@@ -207,6 +207,6 @@ def test_pretty_formatter_renders_exception_block():
             args=None,
             exc_info=sys.exc_info(),
         )
-    fmt = PrettyConsoleFormatter()
-    out = fmt.format(record)
+        fmt = PrettyConsoleFormatter()
+        out = fmt.format(record)
     assert "RuntimeError: nope" in out
