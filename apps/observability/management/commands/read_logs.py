@@ -98,14 +98,17 @@ class Command(BaseCommand):
         # flows as records are parsed and the pager exits cleanly if the
         # result fits one screen. Skip the pager on non-TTY (CI, redirected
         # stdout) or when `less` is not installed — fall back to direct
-        # stdout writes in those cases.
+        # stdout writes in those cases. argv[0] is always the fully resolved
+        # absolute path returned by shutil.which, never a bare name.
         pager_path = shutil.which("less") if use_pager and sys.stdout.isatty() else None
         if pager_path is None:
             for line in lines:
                 self.stdout.write(line)
             return
 
-        pager = subprocess.Popen(  # nosec B603: argv is fixed; pager_path is shutil.which result.
+        # nosec B603: argv is a fixed two-element list; pager_path is the
+        # resolved absolute path from shutil.which (no PATH lookup at exec).
+        pager = subprocess.Popen(  # nosec B603
             [pager_path, "-FRX"],
             stdin=subprocess.PIPE,
             text=True,
