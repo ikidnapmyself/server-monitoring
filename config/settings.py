@@ -16,6 +16,27 @@ from pathlib import Path
 
 from config.env import load_env
 
+
+def _int_env(name: str, default: int) -> int:
+    """Read an integer-valued env var.
+
+    Empty / whitespace-only values are treated as unset and fall back to default.
+    Non-numeric values raise ImproperlyConfigured with a clear message rather than
+    a cryptic ``int()`` ValueError at module-import time.
+    """
+    raw = os.environ.get(name, "")
+    if raw.strip() == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError as exc:
+        from django.core.exceptions import ImproperlyConfigured
+
+        raise ImproperlyConfigured(
+            f"Environment variable {name}={raw!r} is not a valid integer"
+        ) from exc
+
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -60,6 +81,7 @@ INSTALLED_APPS = [
     "apps.intelligence.apps.IntelligenceConfig",
     "apps.notify.apps.NotifyConfig",
     "apps.orchestration.apps.OrchestrationConfig",
+    "apps.observability.apps.ObservabilityConfig",
     "config.apps.ConfigAppConfig",
 ]
 
@@ -72,6 +94,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "config.middleware.api_key_auth.APIKeyAuthMiddleware",
+    "config.middleware.observability.ObservabilityMiddleware",
     "config.middleware.rate_limit.RateLimitMiddleware",
 ]
 
@@ -248,41 +271,68 @@ SSRF_ALLOWED_HOSTS: tuple[str, ...] = tuple(
 )
 
 # ---------------------------------------------------------------------------
+# Observability
+# ---------------------------------------------------------------------------
+OBSERVABILITY_EVENTS_MAX_BYTES = _int_env("OBSERVABILITY_EVENTS_MAX_BYTES", 50 * 1024 * 1024)
+OBSERVABILITY_EVENTS_BACKUPS = _int_env("OBSERVABILITY_EVENTS_BACKUPS", 5)
+OBSERVABILITY_HEARTBEATS_MAX_BYTES = _int_env("OBSERVABILITY_HEARTBEATS_MAX_BYTES", 5 * 1024 * 1024)
+OBSERVABILITY_HEARTBEATS_BACKUPS = _int_env("OBSERVABILITY_HEARTBEATS_BACKUPS", 3)
+OBSERVABILITY_CLUSTER_MAX_BODY_BYTES = _int_env(
+    "OBSERVABILITY_CLUSTER_MAX_BODY_BYTES", 10 * 1024 * 1024
+)
+OBSERVABILITY_CLUSTER_MAX_AGE = _int_env("OBSERVABILITY_CLUSTER_MAX_AGE", 900)
+
+# ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
+LOGS_DIR = Path(os.environ.get("LOGS_DIR", BASE_DIR / "logs")).resolve()
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
-LOGS_DIR = Path(os.environ.get("LOGS_DIR", BASE_DIR / "logs"))
-LOGS_DIR.mkdir(exist_ok=True)
+_console_formatter = "pretty" if sys.stderr.isatty() and DEBUG else "json"
 
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "verbose": {
-            "format": "{asctime} [{levelname}] {name}: {message}",
-            "style": "{",
-        },
+        "json": {"()": "apps.observability.formatter.JsonLineFormatter"},
+        "pretty": {"()": "apps.observability.formatter.PrettyConsoleFormatter"},
     },
     "handlers": {
-        "file": {
-            "class": "logging.FileHandler",
-            "filename": LOGS_DIR / "django.log",
-            "formatter": "verbose",
+        "events_file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": str(LOGS_DIR / "events.jsonl"),
+            "maxBytes": OBSERVABILITY_EVENTS_MAX_BYTES,
+            "backupCount": OBSERVABILITY_EVENTS_BACKUPS,
+            "formatter": "json",
+            "encoding": "utf-8",
+        },
+        "heartbeat_file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": str(LOGS_DIR / "heartbeats.jsonl"),
+            "maxBytes": OBSERVABILITY_HEARTBEATS_MAX_BYTES,
+            "backupCount": OBSERVABILITY_HEARTBEATS_BACKUPS,
+            "formatter": "json",
+            "encoding": "utf-8",
         },
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "verbose",
+            "formatter": _console_formatter,
         },
-    },
-    "root": {
-        "handlers": ["console", "file"],
-        "level": "INFO",
     },
     "loggers": {
         "apps": {
-            "handlers": ["console", "file"],
+            "handlers": ["events_file", "console"],
             "level": "INFO",
             "propagate": False,
         },
+        "apps.observability.heartbeat": {
+            "handlers": ["heartbeat_file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+    "root": {
+        "handlers": ["events_file", "console"],
+        "level": "INFO",
     },
 }
