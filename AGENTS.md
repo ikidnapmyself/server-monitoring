@@ -88,7 +88,7 @@ Each stage emits monitoring signals (`pipeline.stage.started`, `pipeline.stage.s
 
 ### App structure
 
-All apps under `apps/` follow this layout:
+Apps under `apps/` should follow this layout (with some legacy `views.py` modules still present):
 
 - `views/` — a package (not a monolithic `views.py`), organised by endpoint (e.g. `views/webhook.py`, `views/health.py`).
 - `_tests/` — a package mirroring the source structure (e.g. `_tests/views/test_webhook.py`).
@@ -117,7 +117,7 @@ All apps under `apps/` follow this layout:
 
 - ingest: `apps/alerts/AGENTS.md`
 - diagnose: `apps/checkers/AGENTS.md`
-- analyse: `apps/intelligence/AGENTS.md`
+- analyze: `apps/intelligence/AGENTS.md`
 - communicate: `apps/notify/AGENTS.md`
 - orchestration rules / state machine / node handlers: `apps/orchestration/AGENTS.md`
 

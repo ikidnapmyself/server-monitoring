@@ -164,7 +164,7 @@ Required tags: `trace_id/run_id`, `incident_id`, `stage`, `source`, `alert_finge
 
 ## Key Documentation
 
-- `CLAUDE.md` — Essential commands and architecture overview for Claude Code
+- `CLAUDE.md` — Claude Code entry shim (`@AGENTS.md` import + Skills table)
 - `AGENTS.md` — AI agent roles, pipeline contracts, and conventions
 - `docs/Architecture.md` — System architecture, all entry points, pipeline stages, data models
 - `apps/<app>/README.md` — App-specific documentation
