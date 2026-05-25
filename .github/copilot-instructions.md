@@ -39,7 +39,7 @@ Each stage emits monitoring signals (`pipeline.stage.started/succeeded/failed`) 
 
 ## App Structure (Required Layout)
 
-All apps under `apps/` follow this layout:
+Apps under `apps/` should follow this layout (a few legacy `views.py` modules — `apps/alerts/views.py`, `apps/notify/views.py`, `apps/orchestration/views.py` — are pending migration to the `views/` package form):
 
 ```
 apps/<app_name>/
@@ -165,7 +165,7 @@ Required tags: `trace_id/run_id`, `incident_id`, `stage`, `source`, `alert_finge
 ## Key Documentation
 
 - `CLAUDE.md` — Claude Code entry shim (`@AGENTS.md` import + Skills table)
-- `AGENTS.md` — AI agent roles, pipeline contracts, and conventions
+- `AGENTS.md` — canonical, tool-agnostic project guide (project overview, essential commands, architecture, pipeline contracts, agent roles, conventions, GitHub Pages, definition of done)
 - `docs/Architecture.md` — System architecture, all entry points, pipeline stages, data models
 - `apps/<app>/README.md` — App-specific documentation
 - App-level AI guidance (stage-specific contracts):

@@ -12,11 +12,11 @@ Use these skills via `/skill-name` commands for disciplined workflows.
 
 | Skill | When to use |
 |---|---|
-| `/brainstorming` | **Before any creative work** — new features, components, behaviour changes |
+| `/brainstorming` | **Before any creative work** — new features, components, behavior changes |
 | `/writing-plans` | When you have requirements for a multi-step task |
 | `/executing-plans` | Execute a written plan in a separate session |
 | `/test-driven-development` | Before writing implementation code |
-| `/systematic-debugging` | When encountering bugs, test failures, unexpected behaviour |
+| `/systematic-debugging` | When encountering bugs, test failures, unexpected behavior |
 | `/verification-before-completion` | Before claiming work is done — run tests, confirm output |
 | `/requesting-code-review` | After completing tasks or major features |
 | `/receiving-code-review` | When receiving review feedback |

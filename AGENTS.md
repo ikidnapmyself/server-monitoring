@@ -88,9 +88,9 @@ Each stage emits monitoring signals (`pipeline.stage.started`, `pipeline.stage.s
 
 ### App structure
 
-Apps under `apps/` should follow this layout (with some legacy `views.py` modules still present):
+Apps under `apps/` should follow this layout. A few legacy `views.py` modules — `apps/alerts/views.py`, `apps/notify/views.py`, `apps/orchestration/views.py` — are pending migration to the `views/` package form; all *new* apps must use the package layout from day one.
 
-- `views/` — a package (not a monolithic `views.py`), organised by endpoint (e.g. `views/webhook.py`, `views/health.py`).
+- `views/` — a package (not a monolithic `views.py`), organized by endpoint (e.g. `views/webhook.py`, `views/health.py`).
 - `_tests/` — a package mirroring the source structure (e.g. `_tests/views/test_webhook.py`).
 - `AGENTS.md` — app-specific AI agent guidance.
 - `admin.py` — extensive admin for operations.
@@ -109,7 +109,7 @@ Apps under `apps/` should follow this layout (with some legacy `views.py` module
 ### Key patterns
 
 - **Driver/Provider Pattern** — all integrations inherit from abstract base classes (e.g. `BaseDriver`, `BaseChecker`, `BaseProvider`).
-- **DTOs** — normalised data objects between stages (`ParsedPayload`, `CheckResult`, `AnalysisResult`).
+- **DTOs** — normalized data objects between stages (`ParsedPayload`, `CheckResult`, `AnalysisResult`).
 - **Correlation IDs** — every pipeline run has `trace_id` and `run_id` for tracing.
 - **Stage configuration** — pipeline definitions control which checkers/drivers/providers run; `NotificationChannel.is_active` and `IntelligenceProvider.is_active` for DB-level enable/disable.
 
@@ -169,12 +169,12 @@ For non-trivial changes, start with **Plan**, then hand the plan to **Coder**, t
 
 - Code changes in the specified folders/files
 - Minimal, well-scoped diffs
-- Tests updated/added for the new behaviour
+- Tests updated/added for the new behavior
 - Notes on how to run/verify locally
 
 ### Debug agent
 
-**Purpose:** troubleshoot errors, failing tests, runtime exceptions, incorrect behaviour, and deployment issues.
+**Purpose:** troubleshoot errors, failing tests, runtime exceptions, incorrect behavior, and deployment issues.
 
 **When to use:** failing CI/test output, stack traces, migrations failing, driver payload parsing issues, unexpected alerts / duplicated incidents / timeouts.
 
@@ -182,7 +182,7 @@ For non-trivial changes, start with **Plan**, then hand the plan to **Coder**, t
 
 ### Review agent
 
-**Purpose:** improve correctness, readability, security, performance, and consistency without changing intended behaviour.
+**Purpose:** improve correctness, readability, security, performance, and consistency without changing intended behavior.
 
 **When to use:** before merging a PR, after a large Coder change, when adding anything security-sensitive (webhooks, tokens, external APIs).
 
@@ -196,7 +196,7 @@ For non-trivial changes, start with **Plan**, then hand the plan to **Coder**, t
 
 ### Docs agent
 
-**Purpose:** keep documentation in sync with behaviour and configuration. Used when adding new drivers/checkers/providers, new env vars or settings, or new management commands/runbooks.
+**Purpose:** keep documentation in sync with behavior and configuration. Used when adding new drivers/checkers/providers, new env vars or settings, or new management commands/runbooks.
 
 ---
 
@@ -245,7 +245,7 @@ close pipeline span
 
 1. **Absolute imports always.** `from apps.alerts.models import Incident` — never relative.
 2. **App layout is required.** Every app under `apps/<app_name>/` must include `views/` (package), `_tests/` (mirrors source layout), `AGENTS.md`, and a substantive `admin.py`.
-3. **Django Admin is an operations surface.** Admin should make it easy to manage models and trace pipeline behaviour via `Incident`, `trace_id` / `run_id`, and orchestration links. App-specific admin expectations live in each app's `AGENTS.md`.
+3. **Django Admin is an operations surface.** Admin should make it easy to manage models and trace pipeline behavior via `Incident`, `trace_id` / `run_id`, and orchestration links. App-specific admin expectations live in each app's `AGENTS.md`.
 4. **Driver / Provider pattern.** New checkers, drivers, and providers must inherit from the project's abstract base classes (`BaseDriver`, `BaseChecker`, `BaseProvider`, etc.).
 5. **100% branch coverage on changed code.** Verify with `uv run coverage run -m pytest && uv run coverage report`.
 6. **Line length: 100 characters** (Black + Ruff configured in `pyproject.toml`).
@@ -319,7 +319,7 @@ A change is typically "done" when:
 - Config changes are wired correctly (settings/env).
 - Tests achieve 100% branch coverage on changed code.
 - Basic verification steps are provided (how to run / check locally).
-- Docs are updated if behaviour or config changed.
+- Docs are updated if behavior or config changed.
 - Security tooling is clean (`pip-audit`, `bandit`).
 - All CI checks are green on the PR.
 
