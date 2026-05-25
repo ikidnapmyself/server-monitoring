@@ -24,7 +24,7 @@ Every security control documented below was introduced or hardened through a tra
 | 2026-04-15 | [`2026-04-15-ssti-notify-template-design.md`](plans/2026-04-15-ssti-notify-template-design.html) | SSTI protection in `apps/notify/templating.py` (`resolve_safe_name`, `ImmutableSandboxedEnvironment`, bare-Jinja rejection) |
 | 2026-05-12 | [`2026-05-12-iso-27003-security-audit-notes.md`](plans/2026-05-12-iso-27003-security-audit-notes.html) | **End-to-end ISO 27001:2022 / 27003 audit pass** covering `bin/`, every `apps/*`, and `config/`. Per-module sinks, threat models, findings, sub-thresholds, and ISO Annex A control mapping. Recorded one MEDIUM finding (Finding 1, `scan_paths` config bypass) — **fixed 2026-05-13**. |
 
-**Authoritative reference:** when writing or reviewing security-sensitive code, [`2026-05-12-iso-27003-security-audit-notes.md`](plans/2026-05-12-iso-27003-security-audit-notes.html) is the most recent end-to-end view of trust boundaries, sinks reviewed, and per-module rules. Each app's `agents.md` carries the developer-facing distillation of that audit.
+**Authoritative reference:** when writing or reviewing security-sensitive code, [`2026-05-12-iso-27003-security-audit-notes.md`](plans/2026-05-12-iso-27003-security-audit-notes.html) is the most recent end-to-end view of trust boundaries, sinks reviewed, and per-module rules. Each app's `AGENTS.md` carries the developer-facing distillation of that audit.
 
 ## Secret Management
 

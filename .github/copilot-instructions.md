@@ -45,7 +45,7 @@ All apps under `apps/` follow this layout:
 apps/<app_name>/
 ├── views/          # Package (not monolithic views.py), organized by endpoint
 ├── _tests/         # Package mirroring source structure
-├── agents.md       # App-specific AI/agent guidance
+├── AGENTS.md       # App-specific AI/agent guidance
 ├── admin.py        # Extensive admin for operations
 ├── models.py
 ├── services.py     # Business logic
@@ -164,19 +164,19 @@ Required tags: `trace_id/run_id`, `incident_id`, `stage`, `source`, `alert_finge
 ## Key Documentation
 
 - `CLAUDE.md` — Essential commands and architecture overview for Claude Code
-- `agents.md` — AI agent roles, pipeline contracts, and conventions
+- `AGENTS.md` — AI agent roles, pipeline contracts, and conventions
 - `docs/Architecture.md` — System architecture, all entry points, pipeline stages, data models
 - `apps/<app>/README.md` — App-specific documentation
 - App-level AI guidance (stage-specific contracts):
-  - `apps/alerts/agents.md`
-  - `apps/checkers/agents.md`
-  - `apps/intelligence/agents.md`
-  - `apps/notify/agents.md`
-  - `apps/orchestration/agents.md`
+  - `apps/alerts/AGENTS.md`
+  - `apps/checkers/AGENTS.md`
+  - `apps/intelligence/AGENTS.md`
+  - `apps/notify/AGENTS.md`
+  - `apps/orchestration/AGENTS.md`
 
 ## Quick Tips
 
-- **Before coding**: Review the relevant app's `agents.md` for stage-specific contracts
+- **Before coding**: Review the relevant app's `AGENTS.md` for stage-specific contracts
 - **New integrations**: Follow the driver/provider/checker pattern in the respective app
 - **Testing**: Mirror the source structure in `_tests/` (e.g., `views/webhook.py` → `_tests/views/test_webhook.py`)
 - **Pipeline work**: Always respect the orchestrator boundary—stages never call downstream stages

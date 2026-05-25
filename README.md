@@ -37,7 +37,7 @@ This top-level README is the entry point and documentation hub. App-specific doc
 - Working with repo AI agents / conventions: 
   - [`CLAUDE.md`](CLAUDE.md)
   - [`copilot-instructions.md`](.github/copilot-instructions.md)
-  - [`agents.md`](agents.md)
+  - [`AGENTS.md`](AGENTS.md)
 
 ## Requirements
 
@@ -182,7 +182,7 @@ uv run python manage.py runserver
 ## Contributing / extending
 
 - Start by reading the app-level README for the area you’re changing.
-- If you’re using AI agents in this repo, `agents.md` describes the available agent roles and project rules.
+- If you’re using AI agents in this repo, `AGENTS.md` describes the available agent roles and project rules.
 
 ## License
 
