@@ -39,13 +39,13 @@ Each stage emits monitoring signals (`pipeline.stage.started/succeeded/failed`) 
 
 ## App Structure (Required Layout)
 
-All apps under `apps/` follow this layout:
+Apps under `apps/` should follow this layout (a few legacy `views.py` modules — `apps/alerts/views.py`, `apps/notify/views.py`, `apps/orchestration/views.py` — are pending migration to the `views/` package form):
 
 ```
 apps/<app_name>/
 ├── views/          # Package (not monolithic views.py), organized by endpoint
 ├── _tests/         # Package mirroring source structure
-├── agents.md       # App-specific AI/agent guidance
+├── AGENTS.md       # App-specific AI/agent guidance
 ├── admin.py        # Extensive admin for operations
 ├── models.py
 ├── services.py     # Business logic
@@ -152,6 +152,7 @@ Required tags: `trace_id/run_id`, `incident_id`, `stage`, `source`, `alert_finge
 - Input validation for all external payloads
 - Redact secrets in admin displays (show refs, not values)
 - **Always use absolute paths**: Resolve all file/directory paths to absolute form using `pathlib.Path.resolve()` before use. Never pass user-supplied relative paths directly to file operations, subprocess calls, or provider methods. Validate that resolved paths fall within allowed directories to prevent path traversal attacks.
+- **Always use full executable paths for subprocess**: Resolve the binary via `shutil.which("toolname")` and pass the absolute result as `argv[0]`. Do not rely on PATH lookup at exec time (no bare-name first elements like `["less", "-FRX"]`). This eliminates ambiguity about which binary runs and satisfies subprocess linters (bandit B603, Semgrep dynamic-argv) when paired with `# nosec B603  # nosemgrep` on the call.
 
 ## Definition of Done
 
@@ -163,20 +164,20 @@ Required tags: `trace_id/run_id`, `incident_id`, `stage`, `source`, `alert_finge
 
 ## Key Documentation
 
-- `CLAUDE.md` — Essential commands and architecture overview for Claude Code
-- `agents.md` — AI agent roles, pipeline contracts, and conventions
+- `CLAUDE.md` — Claude Code entry shim (`@AGENTS.md` import + Skills table)
+- `AGENTS.md` — canonical, tool-agnostic project guide (project overview, essential commands, architecture, pipeline contracts, agent roles, conventions, GitHub Pages, definition of done)
 - `docs/Architecture.md` — System architecture, all entry points, pipeline stages, data models
 - `apps/<app>/README.md` — App-specific documentation
 - App-level AI guidance (stage-specific contracts):
-  - `apps/alerts/agents.md`
-  - `apps/checkers/agents.md`
-  - `apps/intelligence/agents.md`
-  - `apps/notify/agents.md`
-  - `apps/orchestration/agents.md`
+  - `apps/alerts/AGENTS.md`
+  - `apps/checkers/AGENTS.md`
+  - `apps/intelligence/AGENTS.md`
+  - `apps/notify/AGENTS.md`
+  - `apps/orchestration/AGENTS.md`
 
 ## Quick Tips
 
-- **Before coding**: Review the relevant app's `agents.md` for stage-specific contracts
+- **Before coding**: Review the relevant app's `AGENTS.md` for stage-specific contracts
 - **New integrations**: Follow the driver/provider/checker pattern in the respective app
 - **Testing**: Mirror the source structure in `_tests/` (e.g., `views/webhook.py` → `_tests/views/test_webhook.py`)
 - **Pipeline work**: Always respect the orchestrator boundary—stages never call downstream stages
