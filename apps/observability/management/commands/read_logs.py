@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
-import pydoc
+import shutil
+import subprocess  # nosec B404: only ever invokes `less` with a fixed argv.
+import sys
 from pathlib import Path
+from typing import Iterable
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -80,19 +83,45 @@ class Command(BaseCommand):
         logs_dir = self._logs_dir(options.get("instance"))
 
         records = iter_events(logs_dir, flt, basename=basename)
-        lines = []
-        for rec in records:
-            if options.get("json"):
-                lines.append(json.dumps(rec, ensure_ascii=False))
-            else:
-                lines.append(self._fmt_pretty(rec, plain=options.get("plain", False)))
 
-        if options.get("no_pager"):
+        def lines() -> Iterable[str]:
+            for rec in records:
+                if options.get("json"):
+                    yield json.dumps(rec, ensure_ascii=False)
+                else:
+                    yield self._fmt_pretty(rec, plain=options.get("plain", False))
+
+        self._emit(lines(), use_pager=not options.get("no_pager"))
+
+    def _emit(self, lines: Iterable[str], use_pager: bool) -> None:
+        # Stream through `less -FRX` when running interactively so output
+        # flows as records are parsed and the pager exits cleanly if the
+        # result fits one screen. Skip the pager on non-TTY (CI, redirected
+        # stdout) or when `less` is not installed — fall back to direct
+        # stdout writes in those cases.
+        pager_path = shutil.which("less") if use_pager and sys.stdout.isatty() else None
+        if pager_path is None:
             for line in lines:
                 self.stdout.write(line)
             return
 
-        pydoc.pager("\n".join(lines))
+        pager = subprocess.Popen(  # nosec B603: argv is fixed; pager_path is shutil.which result.
+            [pager_path, "-FRX"],
+            stdin=subprocess.PIPE,
+            text=True,
+        )
+        assert pager.stdin is not None  # for type-checkers; PIPE guarantees stdin
+        try:
+            for line in lines:
+                pager.stdin.write(line + "\n")
+        except BrokenPipeError:
+            pass  # user quit the pager mid-stream
+        finally:
+            try:
+                pager.stdin.close()
+            except BrokenPipeError:
+                pass
+            pager.wait()
 
     def _fmt_pretty(self, rec: dict, plain: bool) -> str:
         if plain:

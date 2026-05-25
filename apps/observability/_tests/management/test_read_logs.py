@@ -1,7 +1,7 @@
 """Tests for `manage.py read_logs view`."""
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.core.management import call_command
@@ -131,10 +131,106 @@ def test_unknown_action_raises(tmp_path, settings):
         raise AssertionError("expected NotImplementedError")
 
 
-def test_view_uses_pager_when_no_pager_flag_absent(tmp_path, settings):
+def test_view_streams_to_less_when_stdout_is_tty(tmp_path, settings):
+    # Default behaviour (no --no-pager) on an interactive stdout: lines flow
+    # into `less -FRX` via subprocess.Popen, written one at a time rather
+    # than buffered into a single string.
     settings.LOGS_DIR = tmp_path
-    _write(tmp_path, [_rec(msg="via-pager")])
-    with patch("apps.observability.management.commands.read_logs.pydoc.pager") as mock_pager:
+    _write(tmp_path, [_rec(msg="line-1"), _rec(msg="line-2")])
+
+    fake_pager = MagicMock()
+    fake_pager.stdin = MagicMock()
+    fake_pager.stdin.write = MagicMock()
+    fake_pager.wait = MagicMock(return_value=0)
+
+    with (
+        patch(
+            "apps.observability.management.commands.read_logs.sys.stdout.isatty",
+            return_value=True,
+        ),
+        patch(
+            "apps.observability.management.commands.read_logs.shutil.which",
+            return_value="/usr/bin/less",
+        ),
+        patch(
+            "apps.observability.management.commands.read_logs.subprocess.Popen",
+            return_value=fake_pager,
+        ) as mock_popen,
+    ):
         call_command("read_logs", "view")
-    mock_pager.assert_called_once()
-    assert "via-pager" in mock_pager.call_args.args[0]
+
+    mock_popen.assert_called_once()
+    argv = mock_popen.call_args.args[0]
+    assert argv[0] == "/usr/bin/less"
+    assert "-FRX" in argv
+    # Lines were streamed (one write per line, not one bulk write).
+    writes = [c.args[0] for c in fake_pager.stdin.write.call_args_list]
+    assert any("line-1" in w for w in writes)
+    assert any("line-2" in w for w in writes)
+    fake_pager.wait.assert_called_once()
+
+
+def test_view_skips_pager_when_stdout_not_tty(tmp_path, settings, capsys):
+    # Non-interactive stdout (CI, redirected output): pager is skipped
+    # without needing the --no-pager flag.
+    settings.LOGS_DIR = tmp_path
+    _write(tmp_path, [_rec(msg="non-tty")])
+
+    with patch("apps.observability.management.commands.read_logs.subprocess.Popen") as mock_popen:
+        call_command("read_logs", "view")
+
+    mock_popen.assert_not_called()
+    assert "non-tty" in capsys.readouterr().out
+
+
+def test_view_skips_pager_when_less_unavailable(tmp_path, settings, capsys):
+    # Interactive stdout but `less` not on PATH: fall back to direct stdout.
+    settings.LOGS_DIR = tmp_path
+    _write(tmp_path, [_rec(msg="no-less")])
+
+    with (
+        patch(
+            "apps.observability.management.commands.read_logs.sys.stdout.isatty",
+            return_value=True,
+        ),
+        patch(
+            "apps.observability.management.commands.read_logs.shutil.which",
+            return_value=None,
+        ),
+        patch("apps.observability.management.commands.read_logs.subprocess.Popen") as mock_popen,
+    ):
+        call_command("read_logs", "view")
+
+    mock_popen.assert_not_called()
+    assert "no-less" in capsys.readouterr().out
+
+
+def test_view_broken_pipe_is_swallowed(tmp_path, settings):
+    # If the user quits `less` early, stdin writes raise BrokenPipeError.
+    # The command must handle it cleanly rather than propagate.
+    settings.LOGS_DIR = tmp_path
+    _write(tmp_path, [_rec(msg="a"), _rec(msg="b")])
+
+    fake_pager = MagicMock()
+    fake_pager.stdin = MagicMock()
+    fake_pager.stdin.write = MagicMock(side_effect=BrokenPipeError)
+    fake_pager.stdin.close = MagicMock(side_effect=BrokenPipeError)
+    fake_pager.wait = MagicMock(return_value=0)
+
+    with (
+        patch(
+            "apps.observability.management.commands.read_logs.sys.stdout.isatty",
+            return_value=True,
+        ),
+        patch(
+            "apps.observability.management.commands.read_logs.shutil.which",
+            return_value="/usr/bin/less",
+        ),
+        patch(
+            "apps.observability.management.commands.read_logs.subprocess.Popen",
+            return_value=fake_pager,
+        ),
+    ):
+        # Must not raise.
+        call_command("read_logs", "view")
+    fake_pager.wait.assert_called_once()
