@@ -293,6 +293,7 @@ except PathNotAllowedError:
 
 - **Always use the utility**: Import from `config.security`, do not write inline validation
 - **Resolve before use**: Never pass user-supplied paths directly to file operations or subprocess calls
+- **Full executable path in subprocess argv**: Resolve the binary via `shutil.which("toolname")` and pass the absolute result as `argv[0]`. Bare-name PATH lookups at exec time are forbidden — they let an attacker-controlled PATH steer the call. Pair with `# nosec B603  # nosemgrep` on the `subprocess.Popen` line so the static analyzers accept the (resolved) dynamic argv as intentional.
 - **No `/` in allowlists**: Including `/` makes the allowlist meaningless
 - **Handle defaults explicitly**: If a command defaults to `/`, skip validation for that specific default value
 - **Filter path-bearing config kwargs:** any provider/driver kwarg accepting a host, URL, filesystem path, command, or template name **must** be added to the relevant allowlist-by-omission filter (`apps.intelligence.providers.BLOCKED_CONFIG_KEYS`, `apps.orchestration.executors._PAYLOAD_TEMPLATE_KEYS`) **or** validated at the constructor via `resolve_safe_path` / `validate_safe_url`. See [`Finding 1`](plans/2026-05-12-iso-27003-security-audit-notes.html#finding-1--path-traversal--information-disclosure-via-scan_paths-config-medium-confidence-810--fixed-2026-05-13) in the ISO 27003 audit for the worked example (`scan_paths` bypass).

@@ -152,6 +152,7 @@ Required tags: `trace_id/run_id`, `incident_id`, `stage`, `source`, `alert_finge
 - Input validation for all external payloads
 - Redact secrets in admin displays (show refs, not values)
 - **Always use absolute paths**: Resolve all file/directory paths to absolute form using `pathlib.Path.resolve()` before use. Never pass user-supplied relative paths directly to file operations, subprocess calls, or provider methods. Validate that resolved paths fall within allowed directories to prevent path traversal attacks.
+- **Always use full executable paths for subprocess**: Resolve the binary via `shutil.which("toolname")` and pass the absolute result as `argv[0]`. Do not rely on PATH lookup at exec time (no bare-name first elements like `["less", "-FRX"]`). This eliminates ambiguity about which binary runs and satisfies subprocess linters (bandit B603, Semgrep dynamic-argv) when paired with `# nosec B603  # nosemgrep` on the call.
 
 ## Definition of Done
 

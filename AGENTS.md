@@ -250,7 +250,7 @@ close pipeline span
 5. **100% branch coverage on changed code.** Verify with `uv run coverage run -m pytest && uv run coverage report`.
 6. **Line length: 100 characters** (Black + Ruff configured in `pyproject.toml`).
 7. **Always use absolute paths.** Resolve all file/directory paths to absolute form using `pathlib.Path.resolve()` before use. Never pass user-supplied relative paths to file operations, subprocess calls, or provider methods. Validate that resolved paths fall within allowed directories to prevent path traversal.
-8. **Always use full executable paths for subprocess.** Resolve via `shutil.which("toolname")` and pass the absolute result as `argv[0]`. No bare-name PATH lookups at exec time.
+8. **Always use full executable paths for subprocess.** Resolve via `shutil.which("toolname")` and pass the absolute result as `argv[0]` — never a bare name like `["less", "-FRX"]`. Bare-name PATH lookups at exec time let an attacker-controlled PATH steer the call. Pair with `# nosec B603  # nosemgrep` on the `subprocess.Popen` line so bandit and Semgrep's dynamic-argv detectors accept the (resolved) call as intentional.
 9. **Be safe with external I/O.** Always set timeouts; handle retries; redact secrets from logs.
 10. **Prefer small, testable units.** Parse and validate payloads separately from side effects (DB writes, network calls).
 11. **Reference existing code.** Point agents to existing directories (e.g. `apps/checkers/`) so new code matches the established pattern.
