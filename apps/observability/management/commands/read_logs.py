@@ -106,9 +106,12 @@ class Command(BaseCommand):
                 self.stdout.write(line)
             return
 
-        # nosec B603: argv is a fixed two-element list; pager_path is the
-        # resolved absolute path from shutil.which (no PATH lookup at exec).
-        pager = subprocess.Popen(  # nosec B603
+        # argv[0] is the absolute path resolved by shutil.which — no PATH
+        # lookup at exec time, no ambiguity about which binary runs. The
+        # static-analyzer suppressions cover both bandit (B603) and Codacy's
+        # semgrep-style "dynamic argv" rule; pager_path's provenance
+        # (shutil.which on a fixed literal) makes the warning a false positive.
+        pager = subprocess.Popen(  # nosec B603  # nosemgrep
             [pager_path, "-FRX"],
             stdin=subprocess.PIPE,
             text=True,
