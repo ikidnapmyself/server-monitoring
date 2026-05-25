@@ -4,17 +4,17 @@ This file is the **canonical, tool-agnostic** source of guidance for AI agents w
 
 ## Documentation map
 
-- **`agents.md`** (this file) — repo-wide guidance: commands, architecture, conventions, agent roles, pipeline contracts.
+- **`AGENTS.md`** (this file) — repo-wide guidance: commands, architecture, conventions, agent roles, pipeline contracts.
 - **`CLAUDE.md`** — Claude Code entry shim: `@`-imports this file and adds the Claude Code Skills (Superpowers) section.
 - **`GEMINI.md`** — Gemini CLI entry shim: `@`-imports this file.
 - **`.github/copilot-instructions.md`** — GitHub Copilot guidance; points readers back here for the authoritative version.
-- **App-local rules** — each app's `agents.md` carries stage-specific contracts, module notes, and admin conventions:
-  - `apps/alerts/agents.md`
-  - `apps/checkers/agents.md`
-  - `apps/intelligence/agents.md`
-  - `apps/notify/agents.md`
-  - `apps/orchestration/agents.md`
-  - `bin/agents.md`
+- **App-local rules** — each app's `AGENTS.md` carries stage-specific contracts, module notes, and admin conventions:
+  - `apps/alerts/AGENTS.md`
+  - `apps/checkers/AGENTS.md`
+  - `apps/intelligence/AGENTS.md`
+  - `apps/notify/AGENTS.md`
+  - `apps/orchestration/AGENTS.md`
+  - `bin/AGENTS.md`
 - **`docs/`** — long-form docs served via GitHub Pages (`Architecture.md`, `Security.md`, `Installation.md`, plan documents under `plans/`).
 
 ---
@@ -92,7 +92,7 @@ All apps under `apps/` follow this layout:
 
 - `views/` — a package (not a monolithic `views.py`), organised by endpoint (e.g. `views/webhook.py`, `views/health.py`).
 - `_tests/` — a package mirroring the source structure (e.g. `_tests/views/test_webhook.py`).
-- `agents.md` — app-specific AI agent guidance.
+- `AGENTS.md` — app-specific AI agent guidance.
 - `admin.py` — extensive admin for operations.
 
 ### Core apps
@@ -115,11 +115,11 @@ All apps under `apps/` follow this layout:
 
 ### Where stage-specific contracts live
 
-- ingest: `apps/alerts/agents.md`
-- diagnose: `apps/checkers/agents.md`
-- analyse: `apps/intelligence/agents.md`
-- communicate: `apps/notify/agents.md`
-- orchestration rules / state machine / node handlers: `apps/orchestration/agents.md`
+- ingest: `apps/alerts/AGENTS.md`
+- diagnose: `apps/checkers/AGENTS.md`
+- analyse: `apps/intelligence/AGENTS.md`
+- communicate: `apps/notify/AGENTS.md`
+- orchestration rules / state machine / node handlers: `apps/orchestration/AGENTS.md`
 
 ---
 
@@ -244,8 +244,8 @@ close pipeline span
 ## Conventions and best practices
 
 1. **Absolute imports always.** `from apps.alerts.models import Incident` — never relative.
-2. **App layout is required.** Every app under `apps/<app_name>/` must include `views/` (package), `_tests/` (mirrors source layout), `agents.md`, and a substantive `admin.py`.
-3. **Django Admin is an operations surface.** Admin should make it easy to manage models and trace pipeline behaviour via `Incident`, `trace_id` / `run_id`, and orchestration links. App-specific admin expectations live in each app's `agents.md`.
+2. **App layout is required.** Every app under `apps/<app_name>/` must include `views/` (package), `_tests/` (mirrors source layout), `AGENTS.md`, and a substantive `admin.py`.
+3. **Django Admin is an operations surface.** Admin should make it easy to manage models and trace pipeline behaviour via `Incident`, `trace_id` / `run_id`, and orchestration links. App-specific admin expectations live in each app's `AGENTS.md`.
 4. **Driver / Provider pattern.** New checkers, drivers, and providers must inherit from the project's abstract base classes (`BaseDriver`, `BaseChecker`, `BaseProvider`, etc.).
 5. **100% branch coverage on changed code.** Verify with `uv run coverage run -m pytest && uv run coverage report`.
 6. **Line length: 100 characters** (Black + Ruff configured in `pyproject.toml`).
