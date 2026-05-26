@@ -69,3 +69,11 @@ class APIKeyModelTests(TestCase):
         fresh = APIKey.objects.get(pk=key.pk)
         assert not hasattr(fresh, "_raw_key")
         assert fresh.key == hashlib.sha256(raw.encode()).hexdigest()
+
+    def test_owner_instance_id_defaults_to_name(self):
+        key = APIKey.objects.create(name="agent-a")
+        assert key.owner_instance_id == "agent-a"
+
+    def test_owner_instance_id_overridable(self):
+        key = APIKey.objects.create(name="agent-a", owner_instance_id="custom-id")
+        assert key.owner_instance_id == "custom-id"

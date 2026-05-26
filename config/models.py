@@ -30,6 +30,15 @@ class APIKey(models.Model):
         blank=True,
         help_text="Optional list of path prefixes this key can access. Empty = all.",
     )
+    owner_instance_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text=(
+            "Instance ID of the host this key was issued to. Used by cluster "
+            "log forwarding's loop-prevention check. Defaults to `name` when blank."
+        ),
+    )
 
     class Meta:
         app_label = "config_app"
@@ -49,6 +58,8 @@ class APIKey(models.Model):
             self._raw_key = raw_key
             self.prefix = raw_key[:8]
             self.key = hashlib.sha256(raw_key.encode()).hexdigest()
+        if not self.owner_instance_id:
+            self.owner_instance_id = self.name
         super().save(*args, **kwargs)
 
     @staticmethod
