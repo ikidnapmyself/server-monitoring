@@ -6,6 +6,7 @@ import json
 import logging
 import socket
 import traceback
+import uuid
 from datetime import datetime, timezone
 
 from django.conf import settings
@@ -146,6 +147,11 @@ class JsonLineFormatter(logging.Formatter):
         extra = {k: v for k, v in record.__dict__.items() if k not in _RESERVED_RECORD_KEYS}
         if extra:
             obj["extra"] = extra
+
+        # Cluster forwarding fields, stamped last so a logger call cannot
+        # spoof them via extra={"record_id": ...} or extra={"path": [...]}
+        obj["record_id"] = str(uuid.uuid4())
+        obj["path"] = []
 
         # Exception info
         if record.exc_info:

@@ -194,6 +194,29 @@ def test_pretty_formatter_omits_trace_when_unset():
     assert "run=" not in out
 
 
+def test_record_has_record_id_uuid():
+    import uuid
+
+    fmt = JsonLineFormatter()
+    obj = json.loads(fmt.format(make_record()))
+    assert "record_id" in obj
+    parsed = uuid.UUID(obj["record_id"])
+    assert parsed.version == 4
+
+
+def test_record_id_unique_per_emission():
+    fmt = JsonLineFormatter()
+    a = json.loads(fmt.format(make_record()))
+    b = json.loads(fmt.format(make_record()))
+    assert a["record_id"] != b["record_id"]
+
+
+def test_record_has_empty_path_at_emit():
+    fmt = JsonLineFormatter()
+    obj = json.loads(fmt.format(make_record()))
+    assert obj["path"] == []
+
+
 def test_pretty_formatter_renders_exception_block():
     import sys
 
