@@ -35,7 +35,7 @@ One new model in `apps.observability`:
 class ClusterDestination(models.Model):
     name = models.CharField(max_length=64, unique=True)              # admin-friendly identifier
     hub_url = models.URLField()                                      # https://hub.example.com
-    api_key = models.ForeignKey("alerts.APIKey", on_delete=PROTECT)  # auth credential held locally
+    api_key = models.ForeignKey("config_app.APIKey", on_delete=PROTECT)  # auth credential held locally
     streams = models.CharField(max_length=128, default="events,heartbeats")
     forward_received = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)

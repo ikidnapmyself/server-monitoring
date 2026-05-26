@@ -10,7 +10,7 @@ parent: Plans
 
 **Architecture:** New `ClusterDestination` model is the single source of truth for "where this host pushes logs". The formatter stamps every record with a `record_id` (uuid) and an empty `path[]`; forwarders append to `path`, receivers dedup by `record_id` and break loops via `path`. Operators configure everything via `manage.py cluster_dest*` commands, wrapped by `bin/cli/cluster.sh` menus. Django admin gets the model for free (secondary surface).
 
-**Tech Stack:** Django 5 + DRF (existing), `apps.observability` (existing), `apps.alerts.APIKey` (existing, gains one field), `bin/cli/cluster.sh` (existing bash menu).
+**Tech Stack:** Django 5 + DRF (existing), `apps.observability` (existing), `config.APIKey` (existing, gains one field), `bin/cli/cluster.sh` (existing bash menu).
 
 **Working branch:** `feat/observability-cluster-topology` (already created off main; design doc committed in `029361a`).
 
@@ -43,9 +43,9 @@ Each PR opens against `main` (not stacked on the previous PR's branch — keeps 
 ### Task 1.1: Add `APIKey.owner_instance_id` field
 
 **Files:**
-- Modify: `apps/alerts/models.py` (add field to APIKey)
-- Create: `apps/alerts/migrations/00XX_apikey_owner_instance_id.py` (auto-generated)
-- Test: `apps/alerts/_tests/test_models.py` (existing) — add test for default value
+- Modify: `config/models.py` (add field to APIKey — APIKey lives in `config_app`, not `apps/alerts/`)
+- Create: `config/migrations/00XX_apikey_owner_instance_id.py` (auto-generated)
+- Test: `config/_tests/test_api_key_model.py` (existing) — add test for default value
 
 **Step 1: Write the failing test**
 
@@ -54,16 +54,16 @@ In `apps/alerts/_tests/test_models.py`, append:
 ```python
 @pytest.mark.django_db
 def test_apikey_owner_instance_id_defaults_to_name():
-    from apps.alerts.models import APIKey
-    key = APIKey.objects.create(name="agent-a", key_hash="x" * 64)
+    from config.models import APIKey
+    key = APIKey.objects.create(name="agent-a")
     assert key.owner_instance_id == "agent-a"
 
 
 @pytest.mark.django_db
 def test_apikey_owner_instance_id_overridable():
-    from apps.alerts.models import APIKey
+    from config.models import APIKey
     key = APIKey.objects.create(
-        name="agent-a", key_hash="x" * 64, owner_instance_id="custom-id"
+        name="agent-a", owner_instance_id="custom-id"
     )
     assert key.owner_instance_id == "custom-id"
 ```
@@ -74,7 +74,7 @@ def test_apikey_owner_instance_id_overridable():
 
 **Step 3: Add the field**
 
-In `apps/alerts/models.py`, on the `APIKey` class:
+In `config/models.py`, on the `APIKey` class:
 
 ```python
 owner_instance_id = models.CharField(
@@ -99,7 +99,7 @@ def save(self, *args, **kwargs):
 
 **Step 4: Generate the migration**
 
-`uv run python manage.py makemigrations alerts -n apikey_owner_instance_id` — expected: a new migration file created under `apps/alerts/migrations/`.
+`uv run python manage.py makemigrations config_app -n apikey_owner_instance_id` — expected: a new migration file created under `config/migrations/`.
 
 **Step 5: Run tests, verify pass**
 
@@ -108,8 +108,8 @@ def save(self, *args, **kwargs):
 **Step 6: Commit**
 
 ```bash
-git add apps/alerts/models.py apps/alerts/migrations/00XX_apikey_owner_instance_id.py apps/alerts/_tests/test_models.py
-git commit -m "feat(alerts): APIKey.owner_instance_id for cluster loop-prevention"
+git add config/models.py config/migrations/00XX_apikey_owner_instance_id.py config/_tests/test_api_key_model.py
+git commit -m "feat(config): APIKey.owner_instance_id for cluster loop-prevention"
 ```
 
 ---
@@ -132,10 +132,10 @@ import pytest
 
 @pytest.mark.django_db
 def test_create_minimal_destination():
-    from apps.alerts.models import APIKey
+    from config.models import APIKey
     from apps.observability.models import ClusterDestination
 
-    key = APIKey.objects.create(name="central-hub", key_hash="x" * 64)
+    key = APIKey.objects.create(name="central-hub")
     dest = ClusterDestination.objects.create(
         name="central",
         hub_url="https://central.example.com",
@@ -151,11 +151,11 @@ def test_create_minimal_destination():
 
 @pytest.mark.django_db
 def test_destination_name_is_unique():
-    from apps.alerts.models import APIKey
+    from config.models import APIKey
     from apps.observability.models import ClusterDestination
     from django.db import IntegrityError
 
-    key = APIKey.objects.create(name="hub", key_hash="x" * 64)
+    key = APIKey.objects.create(name="hub")
     ClusterDestination.objects.create(name="dup", hub_url="https://a.example", api_key=key)
     with pytest.raises(IntegrityError):
         ClusterDestination.objects.create(name="dup", hub_url="https://b.example", api_key=key)
@@ -163,10 +163,10 @@ def test_destination_name_is_unique():
 
 @pytest.mark.django_db
 def test_destination_str_is_name():
-    from apps.alerts.models import APIKey
+    from config.models import APIKey
     from apps.observability.models import ClusterDestination
 
-    key = APIKey.objects.create(name="hub", key_hash="x" * 64)
+    key = APIKey.objects.create(name="hub")
     dest = ClusterDestination.objects.create(name="central", hub_url="https://e.example", api_key=key)
     assert str(dest) == "central"
 ```
@@ -200,7 +200,7 @@ class ClusterDestination(models.Model):
     name = models.CharField(max_length=64, unique=True)
     hub_url = models.URLField()
     api_key = models.ForeignKey(
-        "alerts.APIKey",
+        "config_app.APIKey",
         on_delete=models.PROTECT,
         related_name="cluster_destinations",
     )
@@ -422,10 +422,10 @@ from django.core.management.base import CommandError
 
 @pytest.mark.django_db
 def test_add_creates_destination(capsys):
-    from apps.alerts.models import APIKey
+    from config.models import APIKey
     from apps.observability.models import ClusterDestination
 
-    APIKey.objects.create(name="hub-key", key_hash="x" * 64)
+    APIKey.objects.create(name="hub-key")
     call_command(
         "cluster_dest_add",
         "--name", "central",
@@ -440,10 +440,10 @@ def test_add_creates_destination(capsys):
 
 @pytest.mark.django_db
 def test_add_duplicate_name_raises():
-    from apps.alerts.models import APIKey
+    from config.models import APIKey
     from apps.observability.models import ClusterDestination
 
-    key = APIKey.objects.create(name="hub-key", key_hash="x" * 64)
+    key = APIKey.objects.create(name="hub-key")
     ClusterDestination.objects.create(name="central", hub_url="https://a.example", api_key=key)
     with pytest.raises(CommandError, match="already exists"):
         call_command(
@@ -467,10 +467,10 @@ def test_add_unknown_api_key_raises():
 
 @pytest.mark.django_db
 def test_add_with_forward_flag():
-    from apps.alerts.models import APIKey
+    from config.models import APIKey
     from apps.observability.models import ClusterDestination
 
-    APIKey.objects.create(name="hub-key", key_hash="x" * 64)
+    APIKey.objects.create(name="hub-key")
     call_command(
         "cluster_dest_add",
         "--name", "regional",
@@ -497,7 +497,7 @@ from __future__ import annotations
 
 from django.core.management.base import BaseCommand, CommandError
 
-from apps.alerts.models import APIKey
+from config.models import APIKey
 from apps.observability.models import ClusterDestination
 
 

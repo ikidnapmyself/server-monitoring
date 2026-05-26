@@ -77,3 +77,12 @@ class APIKeyModelTests(TestCase):
     def test_owner_instance_id_overridable(self):
         key = APIKey.objects.create(name="agent-a", owner_instance_id="custom-id")
         assert key.owner_instance_id == "custom-id"
+
+    def test_owner_instance_id_blanked_then_resaved_refills_to_name(self):
+        # Documents the contract: backfill runs whenever the field is blank,
+        # not only on first creation. Set-once-and-leave-alone semantics
+        # would require a different check (`if self.pk is None and not ...`).
+        key = APIKey.objects.create(name="agent-a", owner_instance_id="custom")
+        key.owner_instance_id = ""
+        key.save()
+        assert key.owner_instance_id == "agent-a"

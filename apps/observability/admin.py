@@ -13,7 +13,7 @@ from apps.observability.models import ClusterDestination
 
 @admin.register(ClusterDestination)
 class ClusterDestinationAdmin(admin.ModelAdmin):
-    list_display = (
+    list_display = [
         "name",
         "hub_url",
         "streams",
@@ -21,7 +21,7 @@ class ClusterDestinationAdmin(admin.ModelAdmin):
         "is_active",
         "last_push_at",
         "last_push_status",
-    )
-    list_filter = ("is_active", "forward_received")
-    search_fields = ("name", "hub_url")
-    readonly_fields = ("last_push_at", "last_push_status", "created_at", "updated_at")
+    ]
+    list_filter = ["is_active", "forward_received"]
+    search_fields = ["name", "hub_url"]
+    readonly_fields = ["last_push_at", "last_push_status", "created_at", "updated_at"]
