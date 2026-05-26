@@ -51,6 +51,10 @@ _RESERVED_RECORD_KEYS = frozenset(
         "incident_id",
         "stage",
         "source",
+        # Cluster-forwarding identity: stamped by the formatter itself, never
+        # accepted from extras (would defeat dedup and loop-break).
+        "record_id",
+        "path",
         # Heartbeat fields (promoted to top-level by the formatter; not echoed to extra)
         "_hb_name",
         "_hb_status",

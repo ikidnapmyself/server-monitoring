@@ -217,6 +217,22 @@ def test_record_has_empty_path_at_emit():
     assert obj["path"] == []
 
 
+def test_record_id_and_path_cannot_be_spoofed_via_extra():
+    # A caller passing extra={"record_id": "forged", "path": ["forged"]} must
+    # not be able to defeat cluster dedup or loop-break. Both fields are
+    # stamped by the formatter itself and are in _RESERVED_RECORD_KEYS so
+    # the forged values are dropped before reaching either obj or obj["extra"].
+    import uuid
+
+    fmt = JsonLineFormatter()
+    obj = json.loads(fmt.format(make_record(record_id="forged-id", path=["forged-host"])))
+    assert obj["record_id"] != "forged-id"
+    uuid.UUID(obj["record_id"])  # is a real uuid, not a forged string
+    assert obj["path"] == []
+    assert "record_id" not in obj.get("extra", {})
+    assert "path" not in obj.get("extra", {})
+
+
 def test_pretty_formatter_renders_exception_block():
     import sys
 
