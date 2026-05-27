@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 
+from apps.observability.management.commands._cluster_dest_common import (
+    get_destination_or_raise,
+)
 from apps.observability.models import ClusterDestination
 
 
@@ -17,11 +20,7 @@ class Command(BaseCommand):
         parser.add_argument("--json", action="store_true", help="Machine-readable output.")
 
     def handle(self, *args, **options):
-        name = options["name"]
-        try:
-            dest = ClusterDestination.objects.select_related("api_key").get(name=name)
-        except ClusterDestination.DoesNotExist:
-            raise CommandError(f"No destination named '{name}'.")
+        dest = get_destination_or_raise(options["name"], select_api_key=True)
 
         if options["json"]:
             self.stdout.write(json.dumps(_to_dict(dest)))
@@ -59,8 +58,9 @@ def _to_dict(d: ClusterDestination) -> dict:
         "is_active": d.is_active,
         "max_batch_bytes": d.max_batch_bytes,
         "last_push_at": d.last_push_at.isoformat() if d.last_push_at else None,
-        "last_push_status": d.last_push_status,
+        "last_push_status": d.last_push_status or None,
         "created_at": d.created_at.isoformat(),
         "updated_at": d.updated_at.isoformat(),
+        # TODO(PR 2): wire to ClusterDestPushHistory once it exists.
         "recent_pushes": [],
     }

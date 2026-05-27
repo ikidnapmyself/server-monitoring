@@ -42,7 +42,7 @@ class Command(BaseCommand):
         try:
             api_key = APIKey.objects.get(name=options["api_key_name"])
         except APIKey.DoesNotExist:
-            raise CommandError(f"No APIKey named '{options['api_key_name']}'.")
+            raise CommandError(f"No APIKey named '{options['api_key_name']}'.") from None
 
         dest = ClusterDestination.objects.create(
             name=name,

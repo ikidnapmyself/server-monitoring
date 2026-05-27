@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 
-from apps.observability.models import ClusterDestination
+from apps.observability.management.commands._cluster_dest_common import (
+    get_destination_or_raise,
+)
 
 
 class Command(BaseCommand):
@@ -20,10 +22,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         name = options["name"]
-        try:
-            dest = ClusterDestination.objects.get(name=name)
-        except ClusterDestination.DoesNotExist:
-            raise CommandError(f"No destination named '{name}'.")
+        dest = get_destination_or_raise(name)
 
         if options["hard"]:
             dest.delete()

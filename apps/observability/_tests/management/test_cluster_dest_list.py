@@ -66,7 +66,7 @@ def test_list_json_structure(capsys):
     }
     assert fields.issubset(payload[0].keys())
     assert payload[0]["last_push_at"] is None
-    assert payload[0]["last_push_status"] == ""
+    assert payload[0]["last_push_status"] is None
     assert payload[1]["last_push_at"] is not None
     assert payload[1]["last_push_status"] == "ok"
 

@@ -52,7 +52,7 @@ def test_show_existing_json(capsys):
     assert payload["forward_received"] is False
     assert payload["is_active"] is True
     assert payload["last_push_at"] is None
-    assert payload["last_push_status"] == ""
+    assert payload["last_push_status"] is None
     assert payload["api_key"] == "hub-key"
     assert payload["recent_pushes"] == []
 

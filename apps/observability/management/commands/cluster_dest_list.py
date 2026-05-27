@@ -57,5 +57,5 @@ def _to_dict(r: ClusterDestination) -> dict:
         "forward_received": r.forward_received,
         "is_active": r.is_active,
         "last_push_at": r.last_push_at.isoformat() if r.last_push_at else None,
-        "last_push_status": r.last_push_status,
+        "last_push_status": r.last_push_status or None,
     }
