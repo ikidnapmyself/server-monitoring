@@ -13,6 +13,7 @@ This file is the **canonical, tool-agnostic** source of guidance for AI agents w
   - `apps/checkers/AGENTS.md`
   - `apps/intelligence/AGENTS.md`
   - `apps/notify/AGENTS.md`
+  - `apps/observability/AGENTS.md`
   - `apps/orchestration/AGENTS.md`
   - `bin/AGENTS.md`
 - **`docs/`** — long-form docs served via GitHub Pages (`Architecture.md`, `Security.md`, `Installation.md`, plan documents under `plans/`).
