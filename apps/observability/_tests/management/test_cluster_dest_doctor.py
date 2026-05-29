@@ -174,7 +174,7 @@ def test_tls_failure_exits_1(capsys):
 
 
 @pytest.mark.django_db
-def test_http_401_auth_rejected(capsys):
+def test_http_401_no_secret_reports_auth_required(capsys):
     _make_dest()
     from urllib.error import HTTPError
 
@@ -197,12 +197,43 @@ def test_http_401_auth_rejected(capsys):
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "[✗] http:" in out
-    assert "auth rejected" in out
+    # No secret was sent, so a 401 means auth is required, not that a
+    # supplied credential was rejected.
+    assert "auth required" in out
+    assert "--secret" in out
     assert "Summary: 3/4 checks passed" in out
 
 
 @pytest.mark.django_db
-def test_http_403_auth_rejected(capsys):
+def test_http_401_with_secret_reports_auth_rejected(capsys):
+    _make_dest()
+    from urllib.error import HTTPError
+
+    err = HTTPError("u", 401, "Unauthorized", {}, None)
+    with (
+        patch("socket.gethostbyname", return_value="93.184.216.34"),
+        patch("socket.create_connection") as mock_conn,
+        patch.object(ssl.SSLContext, "wrap_socket") as mock_wrap,
+        patch(
+            "apps.observability.management.commands.cluster_dest_doctor.safe_urlopen",
+            side_effect=err,
+        ),
+        pytest.raises(SystemExit) as exc,
+    ):
+        mock_conn.return_value = MagicMock()
+        tls = MagicMock()
+        tls.getpeercert.return_value = {"subject": ((("commonName", "h"),),)}
+        mock_wrap.return_value = tls
+        call_command("cluster_dest_doctor", "central", "--secret", "wrong-key")
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert "[✗] http:" in out
+    # A secret was supplied and rejected -> credential problem.
+    assert "auth rejected" in out
+
+
+@pytest.mark.django_db
+def test_http_403_with_secret_reports_auth_rejected(capsys):
     _make_dest()
     from urllib.error import HTTPError
 
@@ -221,7 +252,7 @@ def test_http_403_auth_rejected(capsys):
         tls = MagicMock()
         tls.getpeercert.return_value = {"subject": ((("commonName", "h"),),)}
         mock_wrap.return_value = tls
-        call_command("cluster_dest_doctor", "central")
+        call_command("cluster_dest_doctor", "central", "--secret", "wrong-key")
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "[✗] http:" in out
@@ -229,7 +260,7 @@ def test_http_403_auth_rejected(capsys):
 
 
 @pytest.mark.django_db
-def test_http_404_pr2_placeholder(capsys):
+def test_http_404_reports_generic_not_found(capsys):
     _make_dest()
     from urllib.error import HTTPError
 
@@ -252,7 +283,12 @@ def test_http_404_pr2_placeholder(capsys):
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "[✗] http:" in out
-    assert "endpoint not found (will exist in PR 2)" in out
+    # Generic, non-misleading: a 404 can mean a wrong hub_url, not only a
+    # not-yet-deployed endpoint. The probe path is included so operators can
+    # spot a wrong path prefix.
+    assert "endpoint not found" in out
+    assert "/cluster/logs/health/" in out
+    assert "PR 2" not in out
 
 
 @pytest.mark.django_db
@@ -358,7 +394,7 @@ def test_http_200_passes(capsys):
 
 
 @pytest.mark.django_db
-def test_http_request_uses_auth_header_and_head_method(capsys):
+def test_http_request_head_method_no_secret_omits_auth(capsys):
     _make_dest()
     captured = {}
 
@@ -384,7 +420,88 @@ def test_http_request_uses_auth_header_and_head_method(capsys):
         call_command("cluster_dest_doctor", "central")
     assert captured["url"] == "https://central.example.com/cluster/logs/health/"
     assert captured["method"] == "HEAD"
-    assert captured["auth"] == "ApiKey hub-key"
+    # No secret supplied -> no Authorization header (probe checks reachability only).
+    assert captured["auth"] is None
+
+
+@pytest.mark.django_db
+def test_http_request_secret_flag_sends_bearer(capsys):
+    _make_dest()
+    captured = {}
+
+    def fake_urlopen(request, *, allowed_hosts=(), timeout=30):
+        captured["auth"] = request.get_header("Authorization")
+        return _mock_http_response(200)
+
+    with (
+        patch("socket.gethostbyname", return_value="93.184.216.34"),
+        patch("socket.create_connection") as mock_conn,
+        patch.object(ssl.SSLContext, "wrap_socket") as mock_wrap,
+        patch(
+            "apps.observability.management.commands.cluster_dest_doctor.safe_urlopen",
+            side_effect=fake_urlopen,
+        ),
+    ):
+        mock_conn.return_value = MagicMock()
+        tls = MagicMock()
+        tls.getpeercert.return_value = {"subject": ((("commonName", "h"),),)}
+        mock_wrap.return_value = tls
+        call_command("cluster_dest_doctor", "central", "--secret", "raw-secret-123")
+    assert captured["auth"] == "Bearer raw-secret-123"
+
+
+@pytest.mark.django_db
+def test_http_request_secret_env_var_sends_bearer(capsys, monkeypatch):
+    _make_dest()
+    monkeypatch.setenv("CLUSTER_HUB_SECRET", "env-secret-456")
+    captured = {}
+
+    def fake_urlopen(request, *, allowed_hosts=(), timeout=30):
+        captured["auth"] = request.get_header("Authorization")
+        return _mock_http_response(200)
+
+    with (
+        patch("socket.gethostbyname", return_value="93.184.216.34"),
+        patch("socket.create_connection") as mock_conn,
+        patch.object(ssl.SSLContext, "wrap_socket") as mock_wrap,
+        patch(
+            "apps.observability.management.commands.cluster_dest_doctor.safe_urlopen",
+            side_effect=fake_urlopen,
+        ),
+    ):
+        mock_conn.return_value = MagicMock()
+        tls = MagicMock()
+        tls.getpeercert.return_value = {"subject": ((("commonName", "h"),),)}
+        mock_wrap.return_value = tls
+        call_command("cluster_dest_doctor", "central")
+    assert captured["auth"] == "Bearer env-secret-456"
+
+
+@pytest.mark.django_db
+def test_secret_flag_overrides_env_var(capsys, monkeypatch):
+    _make_dest()
+    monkeypatch.setenv("CLUSTER_HUB_SECRET", "env-secret")
+    captured = {}
+
+    def fake_urlopen(request, *, allowed_hosts=(), timeout=30):
+        captured["auth"] = request.get_header("Authorization")
+        return _mock_http_response(200)
+
+    with (
+        patch("socket.gethostbyname", return_value="93.184.216.34"),
+        patch("socket.create_connection") as mock_conn,
+        patch.object(ssl.SSLContext, "wrap_socket") as mock_wrap,
+        patch(
+            "apps.observability.management.commands.cluster_dest_doctor.safe_urlopen",
+            side_effect=fake_urlopen,
+        ),
+    ):
+        mock_conn.return_value = MagicMock()
+        tls = MagicMock()
+        tls.getpeercert.return_value = {"subject": ((("commonName", "h"),),)}
+        mock_wrap.return_value = tls
+        call_command("cluster_dest_doctor", "central", "--secret", "flag-secret")
+    assert captured["auth"] == "Bearer flag-secret"
 
 
 @pytest.mark.django_db
@@ -501,6 +618,64 @@ def test_tls_peer_cert_missing_cn(capsys):
     out = capsys.readouterr().out
     assert "[✓] tls:" in out
     assert "(no CN)" in out
+
+
+@pytest.mark.django_db
+def test_tls_socket_closed_on_success(capsys):
+    _make_dest()
+    with (
+        patch("socket.gethostbyname", return_value="93.184.216.34"),
+        patch("socket.create_connection") as mock_conn,
+        patch.object(ssl.SSLContext, "wrap_socket") as mock_wrap,
+        patch(
+            "apps.observability.management.commands.cluster_dest_doctor.safe_urlopen",
+            return_value=_mock_http_response(200),
+        ),
+    ):
+        mock_conn.return_value = MagicMock()
+        tls = MagicMock()
+        tls.getpeercert.return_value = {"subject": ((("commonName", "h"),),)}
+        mock_wrap.return_value = tls
+        call_command("cluster_dest_doctor", "central")
+    # The wrapped TLS socket must be closed so the probe does not leak an FD.
+    tls.close.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_tls_socket_closed_when_handshake_fails(capsys):
+    _make_dest()
+    tcp_sock = MagicMock()  # used by the TCP probe (step 2)
+    tls_sock = MagicMock()  # used by the TLS probe (step 3)
+    with (
+        patch("socket.gethostbyname", return_value="93.184.216.34"),
+        patch("socket.create_connection", side_effect=[tcp_sock, tls_sock]),
+        patch.object(ssl.SSLContext, "wrap_socket", side_effect=ssl.SSLError("boom")),
+        pytest.raises(SystemExit),
+    ):
+        call_command("cluster_dest_doctor", "central")
+    # wrap_socket raised before taking ownership, so the raw TCP socket from
+    # the TLS probe must be closed directly to avoid leaking an FD.
+    tls_sock.close.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_tls_connect_failure_closes_nothing(capsys):
+    _make_dest()
+    tcp_sock = MagicMock()  # TCP probe (step 2) succeeds
+    with (
+        patch("socket.gethostbyname", return_value="93.184.216.34"),
+        # TCP probe connects; the TLS probe's own connect then fails.
+        patch("socket.create_connection", side_effect=[tcp_sock, OSError("no route")]),
+        pytest.raises(SystemExit) as exc,
+    ):
+        call_command("cluster_dest_doctor", "central")
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert "[✗] tls:" in out
+    assert "no route" in out
+    # The TLS connect never returned a socket, so there is nothing to close
+    # and no FD is leaked (the TCP probe closed its own socket already).
+    tcp_sock.close.assert_called_once()
 
 
 @pytest.mark.django_db
