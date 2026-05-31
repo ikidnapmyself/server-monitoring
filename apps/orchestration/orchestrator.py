@@ -23,7 +23,6 @@ from typing import Any
 from django.conf import settings
 from django.db import transaction
 
-from apps.observability import context as obs_context
 from apps.orchestration.dtos import (
     AnalyzeResult,
     CheckResult,
@@ -201,15 +200,7 @@ class PipelineOrchestrator:
             environment=environment,
         )
 
-        obs_token = obs_context.bind(
-            trace_id=pipeline_run.trace_id,
-            run_id=pipeline_run.run_id,
-            source=pipeline_run.source,
-        )
-        try:
-            return self._execute_pipeline(pipeline_run, payload)
-        finally:
-            obs_context.restore(obs_token)
+        return self._execute_pipeline(pipeline_run, payload)
 
     def resume_pipeline(self, run_id: str, payload: dict[str, Any]) -> PipelineResult:
         """
@@ -231,16 +222,7 @@ class PipelineOrchestrator:
             raise ValueError(f"Pipeline cannot be resumed from status: {pipeline_run.status}")
 
         pipeline_run.mark_retrying()
-
-        obs_token = obs_context.bind(
-            trace_id=pipeline_run.trace_id,
-            run_id=pipeline_run.run_id,
-            source=pipeline_run.source,
-        )
-        try:
-            return self._execute_pipeline(pipeline_run, payload)
-        finally:
-            obs_context.restore(obs_token)
+        return self._execute_pipeline(pipeline_run, payload)
 
     def _execute_pipeline(
         self,
@@ -494,83 +476,79 @@ class PipelineOrchestrator:
                 attempt=attempt,
             )
 
-            stage_token = obs_context.bind(stage=stage, incident_id=incident_id)
             try:
-                try:
-                    # Mark stage started
-                    stage_execution.mark_started()
-                    emit_stage_started(tags)
+                # Mark stage started
+                stage_execution.mark_started()
+                emit_stage_started(tags)
 
-                    # Execute
-                    executor = self.executors[stage]
-                    result = executor.execute(ctx)
-                    last_result = result
+                # Execute
+                executor = self.executors[stage]
+                result = executor.execute(ctx)
+                last_result = result
 
-                    # Check for errors
-                    if result.has_errors and not (
-                        stage == PipelineStage.ANALYZE
-                        and isinstance(result, AnalyzeResult)
-                        and result.fallback_used
-                    ):
-                        raise StageExecutionError(
-                            stage=stage,
-                            errors=result.errors,
-                            retryable=True,
-                        )
-
-                    # Success
-                    stage_execution.mark_succeeded(output_snapshot=result.to_dict())
-                    emit_stage_succeeded(tags, result.duration_ms)
-                    return result
-
-                except StageExecutionError as e:
-                    last_error = e
-                    stage_execution.mark_failed(
-                        error_type="StageExecutionError",
-                        error_message="; ".join(e.errors),
-                        retryable=e.retryable,
-                    )
-                    emit_stage_failed(
-                        tags,
-                        error_type="StageExecutionError",
-                        error_message="; ".join(e.errors),
-                        retryable=e.retryable,
-                        duration_ms=last_result.duration_ms if last_result else 0,
-                    )
-
-                    # Check if retryable
-                    if not e.retryable or attempt >= self.max_retries:
-                        raise
-
-                    # Emit retrying and backoff
-                    emit_stage_retrying(tags)
-                    backoff_time = self.backoff_factor**attempt
-                    time.sleep(backoff_time)
-
-                except Exception as e:
-                    last_error = e
-                    stage_execution.mark_failed(
-                        error_type=type(e).__name__,
-                        error_message=str(e),
-                        error_stack=traceback.format_exc(),
+                # Check for errors
+                if result.has_errors and not (
+                    stage == PipelineStage.ANALYZE
+                    and isinstance(result, AnalyzeResult)
+                    and result.fallback_used
+                ):
+                    raise StageExecutionError(
+                        stage=stage,
+                        errors=result.errors,
                         retryable=True,
                     )
-                    emit_stage_failed(
-                        tags,
-                        error_type=type(e).__name__,
-                        error_message=str(e),
-                        retryable=True,
-                        duration_ms=0,
-                    )
 
-                    if attempt >= self.max_retries:
-                        raise
+                # Success
+                stage_execution.mark_succeeded(output_snapshot=result.to_dict())
+                emit_stage_succeeded(tags, result.duration_ms)
+                return result
 
-                    emit_stage_retrying(tags)
-                    backoff_time = self.backoff_factor**attempt
-                    time.sleep(backoff_time)
-            finally:
-                obs_context.restore(stage_token)
+            except StageExecutionError as e:
+                last_error = e
+                stage_execution.mark_failed(
+                    error_type="StageExecutionError",
+                    error_message="; ".join(e.errors),
+                    retryable=e.retryable,
+                )
+                emit_stage_failed(
+                    tags,
+                    error_type="StageExecutionError",
+                    error_message="; ".join(e.errors),
+                    retryable=e.retryable,
+                    duration_ms=last_result.duration_ms if last_result else 0,
+                )
+
+                # Check if retryable
+                if not e.retryable or attempt >= self.max_retries:
+                    raise
+
+                # Emit retrying and backoff
+                emit_stage_retrying(tags)
+                backoff_time = self.backoff_factor**attempt
+                time.sleep(backoff_time)
+
+            except Exception as e:
+                last_error = e
+                stage_execution.mark_failed(
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    error_stack=traceback.format_exc(),
+                    retryable=True,
+                )
+                emit_stage_failed(
+                    tags,
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    retryable=True,
+                    duration_ms=0,
+                )
+
+                if attempt >= self.max_retries:
+                    raise
+
+                emit_stage_retrying(tags)
+                backoff_time = self.backoff_factor**attempt
+                time.sleep(backoff_time)
 
         # Should not reach here, but raise last error if we do
         if last_error:  # pragma: no cover
