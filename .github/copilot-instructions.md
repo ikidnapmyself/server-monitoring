@@ -165,7 +165,7 @@ Required tags: `trace_id/run_id`, `incident_id`, `stage`, `source`, `alert_finge
 ## Key Documentation
 
 - `CLAUDE.md` — Claude Code entry shim (`@AGENTS.md` import + Skills table)
-- `AGENTS.md` — canonical, tool-agnostic project guide (project overview, essential commands, architecture, pipeline contracts, agent roles, conventions, GitHub Pages, definition of done)
+- `AGENTS.md` — canonical, tool-agnostic project guide (project overview, essential commands, architecture, pipeline contracts, agent roles, conventions, scope discipline / avoiding over-build, GitHub Pages, definition of done)
 - `docs/Architecture.md` — System architecture, all entry points, pipeline stages, data models
 - `apps/<app>/README.md` — App-specific documentation
 - App-level AI guidance (stage-specific contracts):
