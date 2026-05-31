@@ -60,6 +60,7 @@ Options:
                    Example: --prefix maint  =>  maint-check-health, ...
   --remove         Remove generated aliases and the source line from shell profile
   --list           Show currently generated aliases
+  --no-profile     Regenerate aliases file but skip modifying shell profile
   --help           Show this help message
 
 Examples:
@@ -199,9 +200,23 @@ _aliases_do_remove() {
 _aliases_read_existing_prefix() {
     if [[ -f "$ALIASES_FILE" ]]; then
         local line
-        line="$(grep '^# Prefix:' "$ALIASES_FILE" 2>/dev/null || true)"
+
+        line="$(grep -m1 '^# Prefix:' "$ALIASES_FILE" 2>/dev/null || true)"
         if [[ -n "$line" ]]; then
-            echo "${line#*: }"
+            # Trim leading/trailing whitespace after the colon.
+            line="${line#*:}"
+            line="${line#"${line%%[![:space:]]*}"}"
+            line="${line%"${line##*[![:space:]]}"}"
+            echo "$line"
+            return 0
+        fi
+
+        # Fallback: extract prefix from the first 'alias <prefix>-check-health=' line.
+        line="$(grep -m1 '^alias [^=]*-check-health=' "$ALIASES_FILE" 2>/dev/null || true)"
+        if [[ -n "$line" ]]; then
+            line="${line#alias }"
+            line="${line%%=*}"
+            echo "${line%-check-health}"
             return 0
         fi
     fi
@@ -215,6 +230,7 @@ _aliases_read_existing_prefix() {
 _aliases_main() {
     local prefix=""
     local action="setup"
+    local skip_source_line=false
 
     local -a args=("$@")
 
@@ -240,6 +256,10 @@ _aliases_main() {
                 ;;
             --help|-h)
                 action="help"
+                i=$((i + 1))
+                ;;
+            --no-profile)
+                skip_source_line=true
                 i=$((i + 1))
                 ;;
             *)
@@ -295,7 +315,7 @@ _aliases_main() {
             info "Using prefix: $prefix"
             _aliases_generate "$prefix"
             export ALIAS_PREFIX="$prefix"
-            _aliases_install_source_line
+            [ "$skip_source_line" = false ] && _aliases_install_source_line
             ;;
     esac
 }

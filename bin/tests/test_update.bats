@@ -39,20 +39,6 @@ setup() {
     [[ "${output}" == "{"* ]]
 }
 
-@test "update lib reads alias prefix from generated aliases file" {
-    run bash -c '
-        source "'"$LIB_DIR/update.sh"'"
-        aliases_file="$(mktemp)"
-        cat > "$aliases_file" <<EOF
-# Prefix: maint
-alias maint-check-health='\''cd "/tmp" && true'\''
-EOF
-        prefix="$(_up_aliases_read_prefix "$aliases_file")"
-        [[ "$prefix" == "maint" ]]
-    '
-    assert_success
-}
-
 @test "update lib dry-run sync aliases logs regeneration step" {
     run bash -c '
         source "'"$LIB_DIR/update.sh"'"
@@ -68,5 +54,47 @@ EOF
         _up_sync_aliases
     '
     assert_success
-    assert_output --partial "Dry-run: would run install.sh aliases --prefix sm"
+    assert_output --partial "Dry-run: would run install.sh aliases --no-profile"
+}
+
+@test "_up_sync_aliases skips when aliases.sh does not exist" {
+    run bash -c '
+        source "'"$LIB_DIR/update.sh"'"
+        temp_bin="$(mktemp -d)"
+        BIN_DIR="$temp_bin"
+        PROJECT_DIR="$(dirname "$temp_bin")"
+        _up_dry_run=false
+        _up_json_mode=false
+        _up_sync_aliases
+    '
+    assert_success
+    assert_output --partial "Aliases not configured"
+}
+
+@test "_up_sync_aliases logs WARN and returns 0 when install.sh fails" {
+    run bash -c '
+        source "'"$LIB_DIR/update.sh"'"
+        temp_bin="$(mktemp -d)"
+        BIN_DIR="$temp_bin"
+        PROJECT_DIR="$(dirname "$temp_bin")"
+
+        # Provide a fake aliases.sh so the early-return is skipped.
+        cat > "$BIN_DIR/aliases.sh" <<EOF
+# Prefix: sm
+alias sm-check-health='\''cd "/tmp" && true'\''
+EOF
+
+        # Fake install.sh that exits 1.
+        cat > "$BIN_DIR/install.sh" <<EOF
+#!/usr/bin/env bash
+exit 1
+EOF
+        chmod +x "$BIN_DIR/install.sh"
+
+        _up_dry_run=false
+        _up_json_mode=false
+        _up_sync_aliases
+    '
+    assert_success
+    assert_output --partial "Alias regeneration failed"
 }
