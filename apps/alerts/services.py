@@ -86,8 +86,6 @@ class AlertOrchestrator:
         self,
         payload: dict[str, Any],
         driver: str | BaseAlertDriver | None = None,
-        *,
-        allow_internal: bool = False,
     ) -> ProcessingResult:
         """
         Process an incoming webhook payload.
@@ -95,11 +93,6 @@ class AlertOrchestrator:
         Args:
             payload: Raw JSON payload from the webhook.
             driver: Driver name, instance, or None for auto-detection.
-            allow_internal: When False (default), refuse to dispatch by name
-                to non-webhook drivers (e.g. ``"internal"``). Webhook-reachable
-                callers (HTTP views, pipeline executors that consume
-                untrusted payloads) MUST leave this False. Only trusted
-                in-process callers may set ``allow_internal=True``.
 
         Returns:
             ProcessingResult with counts of created/updated records.
@@ -108,7 +101,7 @@ class AlertOrchestrator:
 
         try:
             # Get or detect driver
-            driver_instance = self._get_driver(payload, driver, allow_internal=allow_internal)
+            driver_instance = self._get_driver(payload, driver)
             if not driver_instance:
                 result.errors.append("Could not detect driver for payload")
                 return result
@@ -135,19 +128,12 @@ class AlertOrchestrator:
         self,
         payload: dict[str, Any],
         driver: str | BaseAlertDriver | None,
-        *,
-        allow_internal: bool = False,
     ) -> BaseAlertDriver | None:
-        """Get driver instance from name, instance, or auto-detect.
-
-        ``allow_internal`` is forwarded to :func:`get_driver` so that the
-        explicit-driver path refuses non-webhook drivers (e.g. ``"internal"``)
-        unless the caller has explicitly opted in.
-        """
+        """Get driver instance from name, instance, or auto-detect."""
         if driver is None:
             return detect_driver(payload)
         elif isinstance(driver, str):
-            return get_driver(driver, allow_internal=allow_internal)
+            return get_driver(driver)
         elif isinstance(driver, BaseAlertDriver):
             return driver
         else:

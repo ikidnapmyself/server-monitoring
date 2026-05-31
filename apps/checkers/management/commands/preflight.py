@@ -14,9 +14,10 @@ from django.core.management.base import BaseCommand
 
 from apps.checkers.preflight.checks import run_all
 from apps.checkers.preflight.dashboard import get_definitions, get_pipeline_state, get_profile
-from apps.observability.heartbeat import heartbeat
+from apps.checkers.preflight.logger import log_results
 
 BASE_DIR = Path(settings.BASE_DIR)
+CHECKS_LOG = Path(settings.LOGS_DIR) / "checks.log"
 
 
 class Command(BaseCommand):
@@ -33,25 +34,24 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        with heartbeat("preflight.scheduled"):
-            json_output = options["json_output"]
+        json_output = options["json_output"]
 
-            profile = get_profile()
-            definitions = get_definitions()
+        profile = get_profile()
+        definitions = get_definitions()
 
-            all_checks = run_all(base_dir=BASE_DIR)
+        all_checks = run_all(base_dir=BASE_DIR)
 
-            passed = sum(1 for c in all_checks if c.level in {"ok", "info"})
-            warnings = sum(1 for c in all_checks if c.level == "warn")
-            errors = sum(1 for c in all_checks if c.level == "error")
+        log_results(all_checks, CHECKS_LOG)
 
-            if json_output:
-                pipeline = get_pipeline_state()
-                self._output_json(
-                    profile, pipeline, definitions, all_checks, passed, warnings, errors
-                )
-            else:
-                self._output_human(profile, definitions, all_checks, passed, warnings, errors)
+        passed = sum(1 for c in all_checks if c.level in {"ok", "info"})
+        warnings = sum(1 for c in all_checks if c.level == "warn")
+        errors = sum(1 for c in all_checks if c.level == "error")
+
+        if json_output:
+            pipeline = get_pipeline_state()
+            self._output_json(profile, pipeline, definitions, all_checks, passed, warnings, errors)
+        else:
+            self._output_human(profile, definitions, all_checks, passed, warnings, errors)
 
     def _output_json(self, profile, pipeline, definitions, checks, passed, warnings, errors):
         data = {

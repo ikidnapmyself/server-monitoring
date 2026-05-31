@@ -17,7 +17,6 @@ from django.core.management.base import BaseCommand, CommandError
 
 from apps.checkers.checkers import CHECKER_REGISTRY, CheckStatus
 from apps.checkers.management.commands._metrics_format import write_metrics
-from apps.observability.heartbeat import heartbeat
 from config.security import PathNotAllowedError, resolve_safe_path
 
 
@@ -79,56 +78,38 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        # `options.get("all")` is forward-compatible: the command currently has
-        # no `--all` flag, so this resolves to None → "check_health.hourly",
-        # which matches the existing hourly cron entry. If a future `--all`
-        # daily-sweep flag lands, it'll automatically emit `.daily`.
-        hb_name = "check_health.daily" if options.get("all") else "check_health.hourly"
-        exit_code = 0
-        with heartbeat(hb_name):
-            if options["list"]:
-                self._list_checkers()
-                return
+        if options["list"]:
+            self._list_checkers()
+            return
 
-            checker_names = options["checkers"] or list(CHECKER_REGISTRY.keys())
+        checker_names = options["checkers"] or list(CHECKER_REGISTRY.keys())
 
-            invalid = [name for name in checker_names if name not in CHECKER_REGISTRY]
-            if invalid:
-                raise CommandError(
-                    f"Unknown checker(s): {', '.join(invalid)}. "
-                    f"Available: {', '.join(CHECKER_REGISTRY.keys())}"
-                )
+        invalid = [name for name in checker_names if name not in CHECKER_REGISTRY]
+        if invalid:
+            raise CommandError(
+                f"Unknown checker(s): {', '.join(invalid)}. "
+                f"Available: {', '.join(CHECKER_REGISTRY.keys())}"
+            )
 
-            if options["json_output"]:
-                self.stderr.write(f"Running checkers: {', '.join(checker_names)}\n")
-            else:
-                self.stdout.write(f"Running checkers: {', '.join(checker_names)}\n")
+        if options["json_output"]:
+            self.stderr.write(f"Running checkers: {', '.join(checker_names)}\n")
+        else:
+            self.stdout.write(f"Running checkers: {', '.join(checker_names)}\n")
 
-            results = []
-            for name in checker_names:
-                checker_class = CHECKER_REGISTRY[name]
-                checker_kwargs = self._build_checker_kwargs(name, options)
-                checker = checker_class(**checker_kwargs)
-                result = checker.run()
-                results.append(result)
+        results = []
+        for name in checker_names:
+            checker_class = CHECKER_REGISTRY[name]
+            checker_kwargs = self._build_checker_kwargs(name, options)
+            checker = checker_class(**checker_kwargs)
+            result = checker.run()
+            results.append(result)
 
-            if options["json_output"]:
-                self._output_json(results)
-            else:
-                self._output_text(results)
+        if options["json_output"]:
+            self._output_json(results)
+        else:
+            self._output_text(results)
 
-            exit_code = self._determine_exit_code(results, options)
-
-        # NOTE: `sys.exit` must run OUTSIDE the `with heartbeat(...)` block.
-        # `SystemExit` inherits from `BaseException`, not `Exception`, so the
-        # heartbeat context manager's `except Exception` clause does not catch
-        # it — exiting inside the block would skip the `ok` emission and leave
-        # the heartbeat stream stuck at `status=running` (exactly the failure
-        # mode the freshness check is designed to detect). The job completing
-        # with a non-zero exit code is still a successful run from the
-        # heartbeat's perspective: the heartbeat tracks "did the job finish",
-        # not "did the job find issues". Health failures are surfaced
-        # separately via the alert pipeline.
+        exit_code = self._determine_exit_code(results, options)
         if exit_code != 0:
             sys.exit(exit_code)
 

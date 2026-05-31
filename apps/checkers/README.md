@@ -81,6 +81,8 @@ In addition to runtime health checkers, this app registers Django system checks 
 | `pipeline` | `checkers.W014` | No active notification channels or empty config |
 | `crontab` | `checkers.W002` | No crontab configured |
 | `crontab` | `checkers.W004` | Health check cron job not found |
+| `crontab` | `checkers.W015` | `cron.log` stale (> 1 hour) |
+| `crontab` | `checkers.W016` | `cron.log` too large (> 50MB) |
 | `database` | `checkers.E003` | Missing django_migrations table (deploy) |
 
 Run all system checks:

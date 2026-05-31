@@ -20,8 +20,9 @@ class PreflightCommandTests(TestCase):
         return out.getvalue(), err.getvalue()
 
     @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
-    def test_human_output_has_dashboard_and_checks(self, mock_read):
+    def test_human_output_has_dashboard_and_checks(self, mock_log, mock_read):
         mock_read.return_value = None
         output, _ = self._call()
         self.assertIn("System", output)
@@ -29,8 +30,9 @@ class PreflightCommandTests(TestCase):
         self.assertIn("Checks", output)
 
     @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
-    def test_json_output_valid(self, mock_read):
+    def test_json_output_valid(self, mock_log, mock_read):
         mock_read.return_value = None
         output, _ = self._call("--json")
         data = json.loads(output)
@@ -39,8 +41,17 @@ class PreflightCommandTests(TestCase):
         self.assertIn("summary", data)
 
     @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.management.commands.preflight.log_results")
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
-    def test_summary_line(self, mock_read):
+    def test_logger_called(self, mock_log, mock_read):
+        mock_read.return_value = None
+        self._call()
+        mock_log.assert_called_once()
+
+    @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
+    @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
+    def test_summary_line(self, mock_log, mock_read):
         mock_read.return_value = None
         output, _ = self._call()
         self.assertIn("passed", output)
@@ -48,8 +59,9 @@ class PreflightCommandTests(TestCase):
         self.assertIn("error(s)", output)
 
     @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
-    def test_definitions_shown(self, mock_read):
+    def test_definitions_shown(self, mock_log, mock_read):
         mock_read.return_value = None
         PipelineDefinition.objects.create(
             name="test-pipe",
@@ -60,6 +72,7 @@ class PreflightCommandTests(TestCase):
         self.assertIn("test-pipe", output)
 
     @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
     @override_settings(
         HUB_URL="https://hub.example.com",
         CLUSTER_ENABLED=False,
@@ -67,33 +80,36 @@ class PreflightCommandTests(TestCase):
         WEBHOOK_SECRET_CLUSTER="secret",
     )
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
-    def test_agent_role_in_dashboard(self, mock_read):
+    def test_agent_role_in_dashboard(self, mock_log, mock_read):
         mock_read.return_value = None
         output, _ = self._call()
         self.assertIn("agent", output)
         self.assertIn("hub.example.com", output)
 
     @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
     @override_settings(HUB_URL="", CLUSTER_ENABLED=True, WEBHOOK_SECRET_CLUSTER="secret")
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
-    def test_hub_role_in_dashboard(self, mock_read):
+    def test_hub_role_in_dashboard(self, mock_log, mock_read):
         mock_read.return_value = None
         output, _ = self._call()
         self.assertIn("hub", output)
 
     @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
     @override_settings(
         HUB_URL="https://hub.example.com", CLUSTER_ENABLED=True, WEBHOOK_SECRET_CLUSTER="secret"
     )
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
-    def test_conflict_role_in_dashboard(self, mock_read):
+    def test_conflict_role_in_dashboard(self, mock_log, mock_read):
         mock_read.return_value = None
         output, _ = self._call()
         self.assertIn("CONFLICT", output)
 
     @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
-    def test_inactive_definition_shown_dimmed(self, mock_read):
+    def test_inactive_definition_shown_dimmed(self, mock_log, mock_read):
         mock_read.return_value = None
         PipelineDefinition.objects.create(
             name="old-pipe",
@@ -105,21 +121,23 @@ class PreflightCommandTests(TestCase):
         self.assertIn("inactive", output)
 
     @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
-    def test_check_levels_rendered(self, mock_read):
+    def test_check_levels_rendered(self, mock_log, mock_read):
         mock_read.return_value = None
         output, _ = self._call()
         # Should contain at least OK and WARN (from installation checks in dev)
         self.assertIn("OK", output)
 
     @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
     @override_settings(
         HUB_URL="https://hub.example.com",
         CLUSTER_ENABLED=True,
         WEBHOOK_SECRET_CLUSTER="secret",
     )
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
-    def test_error_summary_styling(self, mock_read):
+    def test_error_summary_styling(self, mock_log, mock_read):
         mock_read.return_value = None
         output, _ = self._call()
         self.assertIn("error(s)", output)
@@ -127,8 +145,9 @@ class PreflightCommandTests(TestCase):
     @patch("apps.checkers.preflight.checks._read_file")
     @patch("apps.checkers.preflight.checks._path_exists", return_value=True)
     @patch("apps.checkers.preflight.checks._is_writable", return_value=True)
+    @patch("apps.checkers.preflight.logger.log_results")
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
-    def test_warnings_summary_styling(self, mock_writable, mock_exists, mock_read):
+    def test_warnings_summary_styling(self, mock_log, mock_writable, mock_exists, mock_read):
         def side_effect(path):
             if path.name == ".env":
                 return "FOO=bar\n"
@@ -148,9 +167,12 @@ class PreflightCommandTests(TestCase):
     @patch("apps.checkers.preflight.checks._path_exists", return_value=True)
     @patch("apps.checkers.preflight.checks._is_writable", return_value=True)
     @patch("apps.checkers.preflight.checks.run_checks", return_value=[])
+    @patch("apps.checkers.preflight.logger.log_results")
     @override_settings(SECRET_KEY="a" * 50)
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
-    def test_clean_summary_styling(self, mock_run_checks, mock_writable, mock_exists, mock_read):
+    def test_clean_summary_styling(
+        self, mock_log, mock_run_checks, mock_writable, mock_exists, mock_read
+    ):
         def side_effect(path):
             if path.name == ".env":
                 return "DJANGO_SECRET_KEY=test\n"
@@ -173,8 +195,9 @@ class PreflightCommandTests(TestCase):
         self.assertIn("0 error(s)", output)
 
     @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
-    def test_json_includes_definitions(self, mock_read):
+    def test_json_includes_definitions(self, mock_log, mock_read):
         mock_read.return_value = None
         PipelineDefinition.objects.create(
             name="test-pipe",
@@ -187,9 +210,10 @@ class PreflightCommandTests(TestCase):
         self.assertTrue(len(data["definitions"]) > 0)
 
     @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
     @override_settings(INSTANCE_ID="node-1")
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
-    def test_instance_id_shown(self, mock_read):
+    def test_instance_id_shown(self, mock_log, mock_read):
         mock_read.return_value = None
         output, _ = self._call()
         self.assertIn("Instance ID:", output)
