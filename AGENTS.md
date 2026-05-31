@@ -261,6 +261,17 @@ close pipeline span
 
 ---
 
+## Scope discipline — avoid over-build
+
+These rules exist because the observability effort (#154/#155/#156, reverted) reinvented a node→hub mechanism the project already had. See the post-mortem: `docs/plans/2026-05-31-observability-overbuild-postmortem.md`.
+
+1. **Inventory before building.** Before adding any new mechanism — endpoint, model, transport, management command — search the codebase for existing capability that already covers the need, and name it in the design. If it exists, reuse or extend it; do not build a parallel one. (The node→hub channel already existed: `push_to_hub` + the inbound `ClusterDriver` + the HMAC `/alerts/webhook/cluster/` path.)
+2. **Respect the established pattern.** New integrations use the existing Driver/Provider base classes and the existing webhook ingestion path — not a parallel endpoint, auth scheme, or registry. If a design finds itself fighting the established pattern, stop and reconsider; that friction is a signal the approach is wrong.
+3. **App vs. utility test.** Cross-cutting concerns (logging, correlation IDs, formatting) belong in shared configuration/utilities consumed through standard interfaces (e.g. stdlib `logging`), **not** in a Django app that other apps import. If an "app" ends up imported across the pipeline, it is a utility miscategorized as an app — that coupling is what turns a small feature into a 50-file revert.
+4. **Solve the topology you have.** Do not build mesh, multi-hop, dedup, loop-prevention, or scaling machinery without a concrete, current requirement named in the design. Single-hop fan-in has no cycles to break and no duplicates to suppress. Relatedly, treat plan size as a smell, not rigor: an implementation plan that dwarfs the code it plans is a scope warning — re-scope before building.
+
+---
+
 ## Tooling and CI
 
 The repo standardises on:
