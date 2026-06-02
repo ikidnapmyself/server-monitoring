@@ -105,34 +105,29 @@ source "$SCRIPT_DIR/cli/update.sh"
 # Main Menu
 # ============================================================================
 
-show_main_menu() {
-    echo -e "${BOLD}Select an option:${NC}"
-    echo ""
-
-    local options=(
-        "Install / Setup"
-        "Health"
-        "Pipeline"
-        "Intelligence"
-        "Notifications"
-        "Cluster"
-        "Updates"
-        "Exit"
-    )
-
-    select opt in "${options[@]}"; do
-        case $REPLY in
-            1) install_project ;;
-            2) health_menu ;;
-            3) pipeline_menu ;;
-            4) intelligence_menu ;;
-            5) notify_menu ;;
-            6) cluster_menu ;;
-            7) update_menu ;;
-            8) echo -e "${GREEN}Goodbye!${NC}"; exit 0 ;;
-            *) echo -e "${RED}Invalid option${NC}" ;;
-        esac
-        break
+main_menu_loop() {
+    local TUIN_MENU_BACK="Exit"
+    while true; do
+        show_banner
+        if tuin_menu "Select an option" \
+            "Install / Setup" "Health" "Pipeline" "Intelligence" \
+            "Notifications" "Cluster" "Updates"
+        then
+            case $TUIN_REPLY in
+                "Install / Setup") install_project ;;
+                "Health")          health_menu ;;
+                "Pipeline")        pipeline_menu ;;
+                "Intelligence")    intelligence_menu ;;
+                "Notifications")   notify_menu ;;
+                "Cluster")         cluster_menu ;;
+                "Updates")         update_menu ;;
+            esac
+            echo ""
+            tuin_input "Press Enter to continue" >/dev/null || true
+        else
+            echo -e "${GREEN}Goodbye!${NC}"
+            return 0
+        fi
     done
 }
 
@@ -189,12 +184,7 @@ main() {
             read -p "Press Enter to continue..."
             ;;
         "")
-            while true; do
-                show_banner
-                show_main_menu
-                echo ""
-                read -p "Press Enter to continue..."
-            done
+            main_menu_loop
             ;;
         *)
             echo "Unknown command: $1"
