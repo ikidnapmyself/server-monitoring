@@ -22,6 +22,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/logging.sh"
 source "$SCRIPT_DIR/lib/colors.sh"
 source "$SCRIPT_DIR/lib/paths.sh"
+source "$SCRIPT_DIR/lib/tuin.sh"
+source "$SCRIPT_DIR/lib/pickers.sh"
 
 PROJECT_ROOT="$PROJECT_DIR"
 cd "$PROJECT_ROOT"
@@ -32,11 +34,7 @@ cd "$PROJECT_ROOT"
 
 show_banner() {
     clear
-    echo -e "${CYAN}"
-    echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║                    Server Maintenance CLI                    ║"
-    echo "╚══════════════════════════════════════════════════════════════╝"
-    echo -e "${NC}"
+    tuin_banner "Server Maintenance CLI"
     if [ ! -f "$SCRIPT_DIR/aliases.sh" ]; then
         echo -e "${YELLOW}Tip:${NC} Run ${CYAN}bin/install.sh aliases${NC} for quick command aliases (sm-check-health, sm-run-check, etc.)"
         echo ""
@@ -63,14 +61,9 @@ show_help() {
 
 confirm_and_run() {
     local cmd="$1"
-    echo ""
-    echo -e "${BOLD}Command to run:${NC}"
+    tuin_section "Command to run"
     echo -e "  ${CYAN}${cmd}${NC}"
-    echo ""
-    read -p "Run this command? (y/n): " confirm
-
-    if [[ "$confirm" =~ ^[Yy]$ ]]; then
-        echo ""
+    if tuin_confirm "Run this command?" n; then
         eval "$cmd"
         return $?
     else
