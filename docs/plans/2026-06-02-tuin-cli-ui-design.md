@@ -195,6 +195,22 @@ strings; `confirm_and_run`/`run_command` calls unchanged.
 - `bin/README.md` (menu UI description), `bin/AGENTS.md` "Key modules" (note tuin
   + pickers), and any `docs/` page describing the CLI UX.
 
+## Future enhancement (next step — not in this design's scope)
+
+**Machine-readable `manage.py` flags for picker option sourcing.** Once this
+parse-in-shell version ships, the natural follow-up is to harden the picker
+contract by adding machine-readable output to the two list commands:
+
+- `check_health --list --quiet` (or `--names-only`) → one checker name per line,
+  no Django system-check noise, no descriptions.
+- `show_pipeline --names` → one definition name per line.
+
+The shell pickers would then consume clean lines instead of anchoring on human
+markers (`Available checkers:`, `--- Pipeline: "…" ---`), removing the only
+brittle coupling in the design. This is deliberately deferred — it expands scope
+into `apps/checkers` + `apps/orchestration` (command code + tests + docs) — and
+should be its own change after the tuin UI lands and stabilizes.
+
 ## Phased rollout (gradual — each phase leaves the CLI fully working)
 
 Mixed state is safe: a submenu still on `select` returns into the tuin main loop
