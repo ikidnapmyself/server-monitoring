@@ -106,6 +106,7 @@ source "$SCRIPT_DIR/cli/update.sh"
 # ============================================================================
 
 main_menu_loop() {
+    # shellcheck disable=SC2034  # read indirectly by tuin_menu via ${TUIN_MENU_BACK:-Back}
     local TUIN_MENU_BACK="Exit"
     while true; do
         show_banner
