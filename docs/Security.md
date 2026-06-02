@@ -437,6 +437,10 @@ The auto-update flow in `bin/lib/update.sh` performs `git fetch origin main` and
 
 When introducing new auto-update behaviour (signed commits, signed releases, version pinning), document the trust model alongside the change.
 
+### Vendored `tuin` (CLI UI library)
+
+The CLI UI depends on `tuin`, a single-file pure-bash TUI library vendored in-repo at `bin/lib/tuin.sh`. It ships and updates through the **normal reviewed `git pull origin/main` path** — branch protection on `main` is the trust root, exactly as for the rest of the code. `bin/lib/tuin_vendor.sh` exposes `vendor_tuin`, which re-fetches a tag-pinned (`v0.3.0`), unsigned copy from `raw.githubusercontent.com` **only** as a manual version-bump / corruption self-heal convenience. That fetch is atomic (temp file + `mv`) and validated by a non-empty + `Version:` marker sanity check before it replaces the vendored file, but it is **not part of the runtime trust boundary**: the committed `bin/lib/tuin.sh` is what runs, and any re-fetch must be reviewed and committed like any other change.
+
 ## Production Hardening Checklist
 
 The following are **operator-set in production** — `config/settings.py` does not impose them so that local development stays low-friction. Set these (env vars or a production settings module) before deploying with `DEBUG=0`:

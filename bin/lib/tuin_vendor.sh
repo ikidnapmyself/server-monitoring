@@ -17,7 +17,19 @@ TUIN_URL="https://raw.githubusercontent.com/ikidnapmyself/tuin/${TUIN_VERSION}/t
 vendor_tuin() {
     command -v curl >/dev/null 2>&1 || { echo "curl is required to vendor tuin" >&2; return 1; }
     echo "Fetching tuin ${TUIN_VERSION} -> ${TUIN_LOCAL}" >&2
-    curl -fsSL "$TUIN_URL" -o "$TUIN_LOCAL" || { echo "Failed to fetch tuin" >&2; return 1; }
+    local tmp
+    tmp="$(mktemp "${TUIN_LOCAL}.XXXXXX")" || { echo "Failed to create temp file" >&2; return 1; }
+    if ! curl -fsSL "$TUIN_URL" -o "$tmp"; then
+        echo "Failed to fetch tuin" >&2
+        rm -f "$tmp"
+        return 1
+    fi
+    if [ ! -s "$tmp" ] || ! grep -q 'Version:' "$tmp"; then
+        echo "Fetched tuin looks invalid (empty or missing version marker)" >&2
+        rm -f "$tmp"
+        return 1
+    fi
+    mv "$tmp" "$TUIN_LOCAL" || { echo "Failed to install tuin" >&2; rm -f "$tmp"; return 1; }
     echo "tuin ${TUIN_VERSION} vendored." >&2
 }
 
