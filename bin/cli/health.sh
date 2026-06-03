@@ -26,12 +26,15 @@ health_menu() {
                         echo -e "${RED}No checkers specified${NC}"
                     fi ;;
                 "Run a single checker")
-                    run_command "uv run python manage.py check_health --list" "Available checkers"
-                    name=$(tuin_input "Enter checker name")
-                    if [ -n "$name" ]; then
+                    raw=$(tuin_spin "Loading checkers" -- uv run python manage.py check_health --list 2>/dev/null) || true
+                    names=()
+                    while IFS= read -r _line; do
+                        [ -n "$_line" ] && names+=("$_line")
+                    done < <(parse_checker_names "$raw")
+                    if [ "${#names[@]}" -eq 0 ]; then
+                        echo -e "${RED}No checkers available (command failed or empty)${NC}"
+                    elif name=$(pick_or_cancel "Select a checker" "${names[@]}"); then
                         confirm_and_run "uv run python manage.py run_check $name"
-                    else
-                        echo -e "${RED}Checker name required${NC}"
                     fi ;;
                 "List available checkers")
                     run_command "uv run python manage.py check_health --list" "Available checkers" ;;
