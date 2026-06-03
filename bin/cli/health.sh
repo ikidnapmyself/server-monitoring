@@ -43,7 +43,7 @@ health_menu() {
                     confirm_and_run "uv run python manage.py check_health --fail-on-warning" ;;
                 "CI mode: fail on critical only")
                     confirm_and_run "uv run python manage.py check_health --fail-on-critical" ;;
-            esac
+            esac || true
             echo ""
             tuin_input "Press Enter to continue" >/dev/null || true
         else

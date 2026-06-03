@@ -28,7 +28,7 @@ intelligence_menu() {
                     custom_recommendations ;;
                 "List providers")
                     confirm_and_run "uv run python manage.py get_recommendations --list-providers" ;;
-            esac
+            esac || true
             echo ""
             tuin_input "Press Enter to continue" >/dev/null || true
         else

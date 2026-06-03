@@ -10,7 +10,7 @@ notify_menu() {
             case $TUIN_REPLY in
                 "test_notify - Send a test notification")
                     test_notify_menu ;;
-            esac
+            esac || true
             echo ""
             tuin_input "Press Enter to continue" >/dev/null || true
         else
@@ -34,7 +34,7 @@ test_notify_menu() {
                     confirm_and_run "uv run python manage.py test_notify" ;;
                 "Non-interactive (specify driver and flags)")
                     test_notify_non_interactive ;;
-            esac
+            esac || true
             echo ""
             tuin_input "Press Enter to continue" >/dev/null || true
         else

@@ -24,7 +24,7 @@ cluster_menu() {
                     else
                         echo -e "${RED}Checker names required${NC}"
                     fi ;;
-            esac
+            esac || true
             echo ""
             tuin_input "Press Enter to continue" >/dev/null || true
         else
