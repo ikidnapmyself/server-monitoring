@@ -45,9 +45,7 @@ test_notify_menu() {
 
 test_notify_non_interactive() {
     local driver_name
-    driver_name=$(tuin_input "Enter driver name (email/slack/pagerduty/generic)")
-    if [ -z "$driver_name" ]; then
-        echo -e "${RED}Driver name required${NC}"
+    if ! driver_name=$(pick_or_cancel "Driver" email slack pagerduty generic); then
         return
     fi
 
