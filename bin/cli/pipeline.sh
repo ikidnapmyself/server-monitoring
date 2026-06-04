@@ -19,12 +19,15 @@ pipeline_menu() {
                 "Run pipeline (sample payload)")
                     confirm_and_run "uv run python manage.py run_pipeline --sample" ;;
                 "Run pipeline by definition")
-                    run_command "uv run python manage.py show_pipeline --all" "Available pipeline definitions"
-                    pipeline_name=$(tuin_input "Enter pipeline definition name")
-                    if [ -n "$pipeline_name" ]; then
+                    raw=$(tuin_spin "Loading definitions" -- uv run python manage.py show_pipeline --all 2>/dev/null) || true
+                    defs=()
+                    while IFS= read -r _line; do
+                        [ -n "$_line" ] && defs+=("$_line")
+                    done < <(parse_pipeline_names "$raw")
+                    if [ "${#defs[@]}" -eq 0 ]; then
+                        echo -e "${RED}No pipeline definitions available${NC}"
+                    elif pipeline_name=$(pick_or_cancel "Select a definition" "${defs[@]}"); then
                         confirm_and_run "uv run python manage.py run_pipeline --definition $pipeline_name"
-                    else
-                        echo -e "${RED}Pipeline definition name required${NC}"
                     fi ;;
                 "Run pipeline from file")
                     payload_path=$(tuin_input "Enter path to payload file")
@@ -40,11 +43,15 @@ pipeline_menu() {
                 "List pipeline definitions")
                     confirm_and_run "uv run python manage.py show_pipeline --all" ;;
                 "Show one pipeline definition")
-                    pipeline_name=$(tuin_input "Enter pipeline definition name")
-                    if [ -n "$pipeline_name" ]; then
+                    raw=$(tuin_spin "Loading definitions" -- uv run python manage.py show_pipeline --all 2>/dev/null) || true
+                    defs=()
+                    while IFS= read -r _line; do
+                        [ -n "$_line" ] && defs+=("$_line")
+                    done < <(parse_pipeline_names "$raw")
+                    if [ "${#defs[@]}" -eq 0 ]; then
+                        echo -e "${RED}No pipeline definitions available${NC}"
+                    elif pipeline_name=$(pick_or_cancel "Select a definition" "${defs[@]}"); then
                         confirm_and_run "uv run python manage.py show_pipeline --name $pipeline_name"
-                    else
-                        echo -e "${RED}Pipeline definition name required${NC}"
                     fi ;;
                 "List recent pipeline runs")
                     confirm_and_run "uv run python manage.py monitor_pipeline" ;;
