@@ -9,7 +9,7 @@ _LIB_TUIN_VENDOR_LOADED=1
 _TV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Bump this one line to update tuin, then run `vendor_tuin` and commit.
-TUIN_VERSION="${TUIN_VERSION:-v0.3.0}"
+TUIN_VERSION="${TUIN_VERSION:-v0.1.0}"
 TUIN_LOCAL="$_TV_DIR/tuin.sh"
 TUIN_URL="https://raw.githubusercontent.com/ikidnapmyself/tuin/${TUIN_VERSION}/tuin.sh"
 
