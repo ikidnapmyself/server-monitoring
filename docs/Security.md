@@ -517,7 +517,7 @@ The security workflow runs automatically on:
 
 | Check | Tool | What it does |
 |-------|------|-------------|
-| Image vulnerability scan | `trivy` | Scans the Docker image for OS and library CVEs (blocks on CRITICAL) |
+| Image vulnerability scan | `trivy` | Scans the Docker image for OS and library CVEs (blocks on CRITICAL **with a released fix** — `ignore-unfixed: true`) |
 | HIGH vulnerability report | `trivy` | Reports HIGH-severity vulnerabilities (non-blocking) |
 
 ### Addressing Security Alerts
@@ -532,7 +532,7 @@ When a vulnerability is reported (by `pip-audit`, GitHub Dependabot, or manual a
 4. **Create a PR** — the security workflow triggers automatically for dependency changes
 5. **Merge promptly** — security fixes should not wait in review queues
 
-For Docker image vulnerabilities (trivy), rebuild with an updated base image or pin a patched version of the affected OS package.
+For Docker image vulnerabilities (trivy), rebuild with an updated base image or pin a patched version of the affected OS package. The CRITICAL gate uses `ignore-unfixed: true`, so it blocks only on vulnerabilities that have a released fix; **unfixed** upstream OS CVEs (status `fix_deferred` / `affected`, no fixed version — e.g. `perl-base` CVE-2026-42496 / CVE-2026-8376) are surfaced by the non-blocking HIGH report but do not fail CI, since there is nothing to bump to. Re-evaluate once the base image ships a fix.
 
 ### CI Pipeline (`.github/workflows/ci.yml`)
 

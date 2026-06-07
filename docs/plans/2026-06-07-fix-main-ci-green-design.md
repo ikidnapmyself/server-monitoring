@@ -30,29 +30,32 @@ and upstream. This change makes `main` fully green.
 
 ## Decisions (chosen)
 
-- **Django target: 6.0.6** (latest), not the 5.2 LTS patch. The Docker image
-  already resolves Django 6.0.x, so the app runtime is effectively there already;
-  aligning the lock removes drift and clears all five Django CVEs. Accepted risk:
-  a 5.2 → 6.0 major bump — the full test/type/check suite must stay green and any
-  breakage is in-scope to fix.
-- **Codecov: pin the action to a known-good commit SHA** (matching the repo's
-  existing SHA-pin convention for `setup-uv`/`trivy-action`), paired with pinning
-  the Codecov CLI `version:` input — because the GPG failure is in the downloaded
-  CLI, not the action wrapper. Kept blocking (`fail_ci_if_error: true` stays).
+- **Django target: 5.2.15 LTS**, pinned `>=5.2.15,<6.0`. An initial attempt to
+  jump to Django 6.0.6 was rejected: Django 6.0 requires Python >=3.12, which
+  conflicts with the project's `requires-python = ">=3.10"` (uv: "django==6.0.6
+  depends on Python>=3.12 … requirements are unsatisfiable"). We keep Python 3.10
+  support, so we stay on the 5.2 LTS line. 5.2.15 fixes all five Django CVEs;
+  the `<6.0` cap stops the resolver from re-selecting 6.0.x and re-triggering the
+  Python-floor conflict. `requires-python`, the CI matrix (3.10/3.11/3.12), and
+  the black/ruff/mypy targets are all unchanged.
+- **Codecov: pin the action to a known-good commit SHA** — `codecov-action`
+  `@e53489f… # v7.0.0`, superseding the floating `@v5` whose bundled CLI failed
+  GPG signature verification of the downloaded uploader. Matches the repo's
+  existing SHA-pin convention (`setup-uv`, `trivy-action`). Kept blocking
+  (`fail_ci_if_error: true` stays). Only confirmable on the PR's own CI run.
 - **Scope: fix all three** so both CI and Security pass on `main`.
 
 ## Changes
 
-1. **`pyproject.toml`** — `django>=5.2.14` → `django>=6.0.6` (raise
-   `django-stubs` floor if 6.0 requires it).
+1. **`pyproject.toml`** — `django>=5.2.14` → `django>=5.2.15,<6.0`;
+   `django-stubs>=5.0.0` (unchanged from the original floor). `requires-python`
+   stays `>=3.10`.
 2. **`uv.lock`** — `uv lock --upgrade-package django --upgrade-package aiohttp
-   --upgrade-package pip` (and `django-object-actions` / `django-json-widget` if
-   the resolver needs the 6.0-compatible versions the image already uses:
-   object-actions 5.0.0, json-widget 2.1.1).
+   --upgrade-package pip` → django 5.2.15, aiohttp 3.14.0, pip 26.1.2.
 3. **`.github/workflows/security.yml`** — add `ignore-unfixed: true` to the
    CRITICAL trivy step.
-4. **`.github/workflows/ci.yml`** — pin `codecov/codecov-action` to a release SHA
-   (with `# vX.Y.Z` comment) and pin the CLI `version:`.
+4. **`.github/workflows/ci.yml`** — pin `codecov/codecov-action` to the v7.0.0
+   release SHA (with `# v7.0.0` comment).
 5. **`docs/Security.md`** — note the trivy `ignore-unfixed` rationale (unfixed
    upstream OS CVEs cannot be patched and must not block all merges).
 
