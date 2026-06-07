@@ -22,6 +22,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/logging.sh"
 source "$SCRIPT_DIR/lib/colors.sh"
 source "$SCRIPT_DIR/lib/paths.sh"
+source "$SCRIPT_DIR/lib/tuin.sh"
+source "$SCRIPT_DIR/lib/pickers.sh"
 
 PROJECT_ROOT="$PROJECT_DIR"
 cd "$PROJECT_ROOT"
@@ -32,11 +34,7 @@ cd "$PROJECT_ROOT"
 
 show_banner() {
     clear
-    echo -e "${CYAN}"
-    echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║                    Server Maintenance CLI                    ║"
-    echo "╚══════════════════════════════════════════════════════════════╝"
-    echo -e "${NC}"
+    tuin_banner "Server Maintenance CLI"
     if [ ! -f "$SCRIPT_DIR/aliases.sh" ]; then
         echo -e "${YELLOW}Tip:${NC} Run ${CYAN}bin/install.sh aliases${NC} for quick command aliases (sm-check-health, sm-run-check, etc.)"
         echo ""
@@ -63,14 +61,9 @@ show_help() {
 
 confirm_and_run() {
     local cmd="$1"
-    echo ""
-    echo -e "${BOLD}Command to run:${NC}"
+    tuin_section "Command to run"
     echo -e "  ${CYAN}${cmd}${NC}"
-    echo ""
-    read -p "Run this command? (y/n): " confirm
-
-    if [[ "$confirm" =~ ^[Yy]$ ]]; then
-        echo ""
+    if tuin_confirm "Run this command?" n; then
         eval "$cmd"
         return $?
     else
@@ -112,34 +105,30 @@ source "$SCRIPT_DIR/cli/update.sh"
 # Main Menu
 # ============================================================================
 
-show_main_menu() {
-    echo -e "${BOLD}Select an option:${NC}"
-    echo ""
-
-    local options=(
-        "Install / Setup"
-        "Health"
-        "Pipeline"
-        "Intelligence"
-        "Notifications"
-        "Cluster"
-        "Updates"
-        "Exit"
-    )
-
-    select opt in "${options[@]}"; do
-        case $REPLY in
-            1) install_project ;;
-            2) health_menu ;;
-            3) pipeline_menu ;;
-            4) intelligence_menu ;;
-            5) notify_menu ;;
-            6) cluster_menu ;;
-            7) update_menu ;;
-            8) echo -e "${GREEN}Goodbye!${NC}"; exit 0 ;;
-            *) echo -e "${RED}Invalid option${NC}" ;;
-        esac
-        break
+main_menu_loop() {
+    # shellcheck disable=SC2034  # read indirectly by tuin_menu via ${TUIN_MENU_BACK:-Back}
+    local TUIN_MENU_BACK="Exit"
+    while true; do
+        show_banner
+        if tuin_menu "Select an option" \
+            "Install / Setup" "Health" "Pipeline" "Intelligence" \
+            "Notifications" "Cluster" "Updates"
+        then
+            case $TUIN_REPLY in
+                "Install / Setup") install_project ;;
+                "Health")          health_menu ;;
+                "Pipeline")        pipeline_menu ;;
+                "Intelligence")    intelligence_menu ;;
+                "Notifications")   notify_menu ;;
+                "Cluster")         cluster_menu ;;
+                "Updates")         update_menu ;;
+            esac
+            echo ""
+            tuin_input "Press Enter to continue" >/dev/null || true
+        else
+            echo -e "${GREEN}Goodbye!${NC}"
+            return 0
+        fi
     done
 }
 
@@ -196,12 +185,7 @@ main() {
             read -p "Press Enter to continue..."
             ;;
         "")
-            while true; do
-                show_banner
-                show_main_menu
-                echo ""
-                read -p "Press Enter to continue..."
-            done
+            main_menu_loop
             ;;
         *)
             echo "Unknown command: $1"

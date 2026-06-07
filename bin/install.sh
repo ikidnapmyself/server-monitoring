@@ -27,6 +27,8 @@ source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/dotenv.sh"
 source "$SCRIPT_DIR/lib/prompt.sh"
 source "$SCRIPT_DIR/lib/profile.sh"
+source "$SCRIPT_DIR/lib/tuin_vendor.sh"
+ensure_tuin || warn "tuin not vendored; CLI UI will self-heal on next install"
 
 INSTALL_MOD_DIR="$SCRIPT_DIR/install"
 

@@ -1,78 +1,57 @@
+# shellcheck shell=bash
 # Sourced by cli.sh — do not execute directly.
 
 notify_menu() {
-    show_banner
-    echo -e "${BOLD}═══ Notifications ═══${NC}"
-    echo ""
-
-    local options=(
-        "test_notify - Send a test notification"
-        "Back to main menu"
-    )
-
-    # shellcheck disable=SC2034
-    select opt in "${options[@]}"; do
-        case $REPLY in
-            1)
-                test_notify_menu
-                ;;
-            2)
-                return
-                ;;
-            *)
-                echo -e "${RED}Invalid option${NC}"
-                ;;
-        esac
-        break
+    while true; do
+        show_banner
+        if tuin_menu "Notifications" \
+            "test_notify - Send a test notification"
+        then
+            case $TUIN_REPLY in
+                "test_notify - Send a test notification")
+                    test_notify_menu ;;
+            esac || true
+            echo ""
+            tuin_input "Press Enter to continue" >/dev/null || true
+        else
+            return 0
+        fi
     done
 }
 
 test_notify_menu() {
-    show_banner
-    echo -e "${BOLD}═══ test_notify ═══${NC}"
-    echo ""
-    echo "Send a test notification to verify driver configuration"
-    echo ""
-
-    local options=(
-        "Interactive wizard (recommended)"
-        "Non-interactive (specify driver and flags)"
-        "Back"
-    )
-
-    # shellcheck disable=SC2034
-    select opt in "${options[@]}"; do
-        case $REPLY in
-            1)
-                confirm_and_run "uv run python manage.py test_notify"
-                ;;
-            2)
-                test_notify_non_interactive
-                ;;
-            3)
-                return
-                ;;
-            *)
-                echo -e "${RED}Invalid option${NC}"
-                ;;
-        esac
-        break
+    while true; do
+        show_banner
+        tuin_section "test_notify"
+        echo "Send a test notification to verify driver configuration."
+        echo ""
+        if tuin_menu "test_notify" \
+            "Interactive wizard (recommended)" \
+            "Non-interactive (specify driver and flags)"
+        then
+            case $TUIN_REPLY in
+                "Interactive wizard (recommended)")
+                    confirm_and_run "uv run python manage.py test_notify" ;;
+                "Non-interactive (specify driver and flags)")
+                    test_notify_non_interactive ;;
+            esac || true
+            echo ""
+            tuin_input "Press Enter to continue" >/dev/null || true
+        else
+            return 0
+        fi
     done
 }
 
 test_notify_non_interactive() {
-    echo ""
-    echo -e "${BOLD}Available drivers:${NC} email, slack, pagerduty, generic"
-    echo ""
-
-    read -p "Enter driver name: " driver_name
-    if [ -z "$driver_name" ]; then
-        echo -e "${RED}Driver name required${NC}"
+    local driver_name
+    if ! driver_name=$(pick_or_cancel "Driver" email slack pagerduty generic); then
         return
     fi
 
-    read -p "Enter channel (optional): " channel
-    read -p "Enter custom message (optional): " message
+    local channel message
+    channel=$(tuin_input "Enter channel (optional)")
+    message=$(tuin_input "Enter custom message (optional)")
 
     local cmd="uv run python manage.py test_notify $driver_name --non-interactive"
     if [ -n "$channel" ]; then

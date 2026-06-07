@@ -86,8 +86,10 @@ An interactive menu-driven interface for all management commands. Recommended fo
 ```
 
 **Features:**
+- Arrow-key menus powered by [tuin](https://github.com/ikidnapmyself/tuin) (vendored, zero-dependency); falls back to numbered input on non-TTY/CI
+- Arrow-key pickers for single-checker, pipeline-definition, and notify-driver selection (no typing names)
+- Each submenu loops; **Back** returns up a level and **Exit** quits
 - Color-coded output
-- Shows available flags and options for each command
 - Confirms before running commands
 - Installation status check
 - Shell alias setup option
