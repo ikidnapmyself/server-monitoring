@@ -74,8 +74,11 @@ jobs:
           format: "table"
           exit-code: "1"
           severity: "CRITICAL"
-          # HIGH OS-level vulns (ncurses, systemd) in python:3.12-slim have no fix yet.
-          # Report them but only block on CRITICAL.
+          ignore-unfixed: true
+          # Block only on CRITICAL vulns that have a released fix. Unfixed OS-level
+          # CVEs in the base image (e.g. perl-base CVE-2026-42496 / CVE-2026-8376,
+          # fix_deferred upstream) cannot be patched and must not block every merge.
+          # The non-blocking HIGH report below still surfaces everything for triage.
 
       - name: Report HIGH vulnerabilities (non-blocking)
         if: always()

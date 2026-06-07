@@ -92,7 +92,10 @@ jobs:
 
       - name: Upload coverage reports to Codecov
         if: matrix.python-version == '3.10'
-        uses: codecov/codecov-action@v5
+        # Pinned to a release SHA (repo convention). v7 supersedes the floating
+        # v5 tag whose bundled CLI broke GPG signature verification of the
+        # downloaded uploader (gpg: Can't check signature: No public key).
+        uses: codecov/codecov-action@e53489f4d376d79066609109e7a95a29eb3740b1 # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
