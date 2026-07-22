@@ -302,9 +302,11 @@ _up_sync_deps() {
         return 0
     fi
 
-    local sync_cmd=("uv" "sync")
+    local sync_cmd
     if [ "$_up_mode" = "dev" ]; then
         sync_cmd=("uv" "sync" "--all-extras" "--dev")
+    else
+        sync_cmd=("uv" "sync" "--extra" "prod")
     fi
 
     if ! (cd "$PROJECT_DIR" && "${sync_cmd[@]}"); then
