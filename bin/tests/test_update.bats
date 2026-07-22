@@ -98,3 +98,50 @@ EOF
     assert_success
     assert_output --partial "Alias regeneration failed"
 }
+
+# Stub `uv` on PATH so it records the arguments it was called with, then assert the
+# extras selected per mode. prod/systemd must install the `prod` extra (gunicorn);
+# a plain `uv sync` would strip it.
+_run_sync_deps_with_mode() {
+    local mode="$1"
+    run bash -c '
+        source "'"$LIB_DIR/update.sh"'"
+        stub_bin="$(mktemp -d)"
+        cat > "$stub_bin/uv" <<EOF
+#!/usr/bin/env bash
+echo "uv \$*"
+EOF
+        chmod +x "$stub_bin/uv"
+        PATH="$stub_bin:$PATH"
+        PROJECT_DIR="$(mktemp -d)"
+        _up_dry_run=false
+        _up_json_mode=false
+        _up_mode="'"$mode"'"
+        _up_sync_deps
+    '
+}
+
+@test "_up_sync_deps installs prod extra in prod mode" {
+    _run_sync_deps_with_mode "prod"
+    assert_success
+    assert_output --partial "uv sync --extra prod"
+}
+
+@test "_up_sync_deps installs prod extra in systemd mode" {
+    _run_sync_deps_with_mode "systemd"
+    assert_success
+    assert_output --partial "uv sync --extra prod"
+}
+
+@test "_up_sync_deps installs all extras and dev in dev mode" {
+    _run_sync_deps_with_mode "dev"
+    assert_success
+    assert_output --partial "uv sync --all-extras --dev"
+}
+
+@test "_up_sync_deps skips sync in docker mode" {
+    _run_sync_deps_with_mode "docker"
+    assert_success
+    assert_output --partial "skipping dependency sync"
+    refute_output --partial "uv sync"
+}
