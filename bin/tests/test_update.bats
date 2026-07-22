@@ -145,3 +145,71 @@ EOF
     assert_output --partial "skipping dependency sync"
     refute_output --partial "uv sync"
 }
+
+# Stub `uv` on PATH and assert collectstatic runs only for web-serving modes.
+# prod/systemd collect static; dev (runserver) and docker (entrypoint) skip.
+_run_collectstatic_with_mode() {
+    local mode="$1"
+    run bash -c '
+        source "'"$LIB_DIR/update.sh"'"
+        stub_bin="$(mktemp -d)"
+        cat > "$stub_bin/uv" <<EOF
+#!/usr/bin/env bash
+echo "uv \$*"
+EOF
+        chmod +x "$stub_bin/uv"
+        PATH="$stub_bin:$PATH"
+        PROJECT_DIR="$(mktemp -d)"
+        _up_dry_run=false
+        _up_json_mode=false
+        _up_mode="'"$mode"'"
+        _up_collectstatic
+    '
+}
+
+@test "_up_collectstatic runs in prod mode" {
+    _run_collectstatic_with_mode "prod"
+    assert_success
+    assert_output --partial "uv run python manage.py collectstatic --no-input"
+}
+
+@test "_up_collectstatic runs in systemd mode" {
+    _run_collectstatic_with_mode "systemd"
+    assert_success
+    assert_output --partial "uv run python manage.py collectstatic --no-input"
+}
+
+@test "_up_collectstatic skips in dev mode" {
+    _run_collectstatic_with_mode "dev"
+    assert_success
+    assert_output --partial "skipping collectstatic"
+    refute_output --partial "manage.py collectstatic"
+}
+
+@test "_up_collectstatic skips in docker mode" {
+    _run_collectstatic_with_mode "docker"
+    assert_success
+    assert_output --partial "skipping collectstatic"
+    refute_output --partial "manage.py collectstatic"
+}
+
+@test "_up_collectstatic dry-run does not invoke collectstatic" {
+    run bash -c '
+        source "'"$LIB_DIR/update.sh"'"
+        stub_bin="$(mktemp -d)"
+        cat > "$stub_bin/uv" <<EOF
+#!/usr/bin/env bash
+echo "uv \$*"
+EOF
+        chmod +x "$stub_bin/uv"
+        PATH="$stub_bin:$PATH"
+        PROJECT_DIR="$(mktemp -d)"
+        _up_dry_run=true
+        _up_json_mode=false
+        _up_mode="prod"
+        _up_collectstatic
+    '
+    assert_success
+    assert_output --partial "Dry-run: would run manage.py collectstatic"
+    refute_output --partial "uv run python manage.py collectstatic"
+}
