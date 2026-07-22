@@ -342,6 +342,35 @@ _up_migrate() {
     return 0
 }
 
+_up_collectstatic() {
+    case "$_up_mode" in
+        docker)
+            _up_log "INFO" "Docker mode — skipping collectstatic (handled by entrypoint)"
+            return 0
+            ;;
+        dev)
+            _up_log "INFO" "Dev mode — skipping collectstatic (runserver serves static)"
+            return 0
+            ;;
+    esac
+
+    _up_log "INFO" "Collecting static files..."
+
+    if [ "$_up_dry_run" = true ]; then
+        _up_log "INFO" "Dry-run: would run manage.py collectstatic"
+        return 0
+    fi
+
+    if ! (cd "$PROJECT_DIR" && uv run python manage.py collectstatic --no-input); then
+        _up_failed_step="collectstatic"
+        _up_log "ERROR" "collectstatic failed"
+        return 1
+    fi
+
+    _up_log "OK" "Static files collected"
+    return 0
+}
+
 _up_restart() {
     local compose_file="$PROJECT_DIR/deploy/docker/docker-compose.yml"
 
@@ -406,9 +435,10 @@ _up_rollback() {
 
     git -C "$PROJECT_DIR" reset --hard "$_up_saved_sha" || true
 
-    # Re-sync deps, migrate, restart — best-effort
+    # Re-sync deps, migrate, collectstatic, restart — best-effort
     _up_sync_deps || true
     _up_migrate || true
+    _up_collectstatic || true
     _up_restart || true
 
     _up_log "WARN" "Rollback to $(_up_short_sha "$_up_saved_sha") complete"
@@ -441,8 +471,8 @@ run_update() {
         return 1
     fi
 
-    # Step 2: Pull → sync_env → sync_aliases → sync_deps → migrate → restart
-    local steps=("_up_pull" "_up_sync_env" "_up_sync_aliases" "_up_sync_deps" "_up_migrate" "_up_restart")
+    # Step 2: Pull → sync_env → sync_aliases → sync_deps → migrate → collectstatic → restart
+    local steps=("_up_pull" "_up_sync_env" "_up_sync_aliases" "_up_sync_deps" "_up_migrate" "_up_collectstatic" "_up_restart")
     local failed=false
 
     for step in "${steps[@]}"; do
