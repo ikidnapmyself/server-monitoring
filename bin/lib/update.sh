@@ -302,9 +302,6 @@ _up_sync_deps() {
         return 0
     fi
 
-    # Match the extras to the environment. dev gets everything (incl. dev tools);
-    # prod / systemd (bare-metal) need the `prod` extra for gunicorn — a plain
-    # `uv sync` would strip it and break the app server.
     local sync_cmd
     if [ "$_up_mode" = "dev" ]; then
         sync_cmd=("uv" "sync" "--all-extras" "--dev")
