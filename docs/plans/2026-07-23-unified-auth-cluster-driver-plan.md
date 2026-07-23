@@ -118,6 +118,84 @@ git commit -m "feat(config): add create_api_key management command"
 
 ---
 
+## Task 1b: Admin reveals the raw API key once on creation
+
+**Context:** `APIKeyAdmin` already exists and is registered (`config/admin.py`, via
+`ConfigAppConfig.ready()`), with a `masked_key` display. The gap: creating a key in
+admin never shows the raw token, so admin can't actually provision an agent key. The
+model sets the raw token on the transient `_raw_key` during `save()`; capture it in
+`save_model` and flash it once.
+
+**Files:**
+- Modify: `config/admin.py` (`APIKeyAdmin`)
+- Test: `config/_tests/test_api_key_admin.py` (extend)
+
+**Step 1: Write the failing test**
+
+```python
+def test_save_model_flashes_raw_token_once_on_create(self):
+    from unittest.mock import MagicMock, patch
+    from django.contrib import admin
+
+    model_admin = admin.site._registry[APIKey]
+    request = MagicMock()
+    obj = APIKey(name="agent web-03")
+    with patch("config.admin.messages") as messages:
+        model_admin.save_model(request, obj, form=MagicMock(), change=False)
+        # The raw token (40 hex chars) is surfaced exactly once via messages.success/warning.
+        flashed = " ".join(str(c) for c in messages.mock_calls)
+        assert obj._raw_key in flashed
+
+def test_save_model_no_token_on_edit(self):
+    from unittest.mock import MagicMock, patch
+    from django.contrib import admin
+
+    model_admin = admin.site._registry[APIKey]
+    obj = APIKey.objects.create(name="existing")
+    request = MagicMock()
+    with patch("config.admin.messages") as messages:
+        model_admin.save_model(request, obj, form=MagicMock(), change=True)
+        assert not any("Raw token" in str(c) for c in messages.mock_calls)
+```
+
+**Step 2: Run to verify it fails**
+
+Run: `uv run pytest config/_tests/test_api_key_admin.py -k save_model -v`
+Expected: FAIL — `APIKeyAdmin` has no `save_model`.
+
+**Step 3: Implementation**
+
+In `config/admin.py`, add the `messages` import and a `save_model` to `APIKeyAdmin`:
+
+```python
+from django.contrib import messages
+```
+
+```python
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        raw = getattr(obj, "_raw_key", "")
+        if not change and raw:
+            messages.warning(
+                request,
+                f"Raw token for '{obj.name}' (shown once — copy it now): {raw}",
+            )
+```
+
+**Step 4: Run to verify it passes**
+
+Run: `uv run pytest config/_tests/test_api_key_admin.py -v`
+Expected: PASS.
+
+**Step 5: Commit**
+
+```bash
+git add config/admin.py config/_tests/test_api_key_admin.py
+git commit -m "feat(admin): reveal raw API key once when created via admin"
+```
+
+---
+
 ## Task 2: `skip_checkers` on drivers + orchestrator honours it
 
 **Files:**
