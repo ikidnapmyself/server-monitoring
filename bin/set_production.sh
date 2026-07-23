@@ -26,7 +26,7 @@ for arg in "$@"; do
             echo "  2. Set DJANGO_DEBUG=0 in .env"
             echo "  3. Ensure DJANGO_SECRET_KEY has a value"
             echo "  4. Ensure DJANGO_ALLOWED_HOSTS has a value"
-            echo "  5. Re-sync dependencies (without dev extras)"
+            echo "  5. Re-sync dependencies (with prod extra, without dev extras)"
             echo ""
             echo "Safe to run multiple times (idempotent)."
             exit 0
@@ -84,12 +84,13 @@ else
     info "DJANGO_ALLOWED_HOSTS already set"
 fi
 
-# 5. Re-sync dependencies (drop dev extras)
+# 5. Re-sync dependencies with the prod extra (gunicorn), dropping dev extras.
+#    A plain `uv sync` would strip the `prod` extra and leave no WSGI server.
 echo ""
-info "Re-syncing dependencies (production only)..."
+info "Re-syncing dependencies (prod extra, no dev)..."
 if command_exists uv; then
-    uv sync
-    success "Dependencies synced (dev extras removed)"
+    uv sync --extra prod
+    success "Dependencies synced (prod extra installed, dev extras removed)"
 else
     warn "uv not found — skipping dependency sync"
 fi
