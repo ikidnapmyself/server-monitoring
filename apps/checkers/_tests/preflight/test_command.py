@@ -77,7 +77,6 @@ class PreflightCommandTests(TestCase):
         HUB_URL="https://hub.example.com",
         CLUSTER_ENABLED=False,
         INSTANCE_ID="node-1",
-        WEBHOOK_SECRET_CLUSTER="secret",
     )
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
     def test_agent_role_in_dashboard(self, mock_log, mock_read):
@@ -88,7 +87,7 @@ class PreflightCommandTests(TestCase):
 
     @patch("apps.checkers.preflight.checks._read_file")
     @patch("apps.checkers.preflight.logger.log_results")
-    @override_settings(HUB_URL="", CLUSTER_ENABLED=True, WEBHOOK_SECRET_CLUSTER="secret")
+    @override_settings(HUB_URL="", CLUSTER_ENABLED=True)
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
     def test_hub_role_in_dashboard(self, mock_log, mock_read):
         mock_read.return_value = None
@@ -97,9 +96,7 @@ class PreflightCommandTests(TestCase):
 
     @patch("apps.checkers.preflight.checks._read_file")
     @patch("apps.checkers.preflight.logger.log_results")
-    @override_settings(
-        HUB_URL="https://hub.example.com", CLUSTER_ENABLED=True, WEBHOOK_SECRET_CLUSTER="secret"
-    )
+    @override_settings(HUB_URL="https://hub.example.com", CLUSTER_ENABLED=True)
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
     def test_conflict_role_in_dashboard(self, mock_log, mock_read):
         mock_read.return_value = None
@@ -134,7 +131,6 @@ class PreflightCommandTests(TestCase):
     @override_settings(
         HUB_URL="https://hub.example.com",
         CLUSTER_ENABLED=True,
-        WEBHOOK_SECRET_CLUSTER="secret",
     )
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
     def test_error_summary_styling(self, mock_log, mock_read):

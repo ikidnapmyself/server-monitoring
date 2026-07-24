@@ -2,8 +2,11 @@
 #
 # Installer module: cluster role configuration.
 #
-# Configures: CLUSTER_ROLE, HUB_URL, INSTANCE_ID,
-#             CLUSTER_ENABLED, WEBHOOK_SECRET_CLUSTER
+# Configures: HUB_URL, INSTANCE_ID, HUB_API_KEY, CLUSTER_ENABLED
+#
+# Auth is a single API key sent as `Authorization: Bearer HUB_API_KEY`. An agent
+# stores the token; a hub mints it with `manage.py create_api_key` and enables the
+# API-key middleware. There is no shared HMAC secret.
 #
 # Source this file from install.sh, or run directly for standalone use.
 #
@@ -52,23 +55,23 @@ if ! prompt_yes_no "Configure cluster mode?" "$_cluster_default"; then
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Cluster role
+# 2. Cluster role (local branching only — not persisted; role is derived from
+#    HUB_URL + CLUSTER_ENABLED at runtime).
 # ---------------------------------------------------------------------------
 
-CLUSTER_ROLE=$(prompt_choice "$_ENV_FILE" "CLUSTER_ROLE" \
+_role=$(prompt_choice "$_ENV_FILE" "__CLUSTER_MODE_LOCAL" \
     "Select cluster role:" \
     "agent:run checkers locally, push results to a hub" \
     "hub:accept alerts from remote agents" \
     "both:agent + hub on the same instance")
 
-dotenv_set "$_ENV_FILE" "CLUSTER_ROLE" "$CLUSTER_ROLE"
-info "Cluster role: $CLUSTER_ROLE"
+info "Cluster role: $_role"
 
 # ---------------------------------------------------------------------------
-# 3. Agent or both: HUB_URL and INSTANCE_ID
+# 3. Agent or both: HUB_URL, INSTANCE_ID, HUB_API_KEY
 # ---------------------------------------------------------------------------
 
-if [ "$CLUSTER_ROLE" = "agent" ] || [ "$CLUSTER_ROLE" = "both" ]; then
+if [ "$_role" = "agent" ] || [ "$_role" = "both" ]; then
     HUB_URL=$(prompt_with_default "$_ENV_FILE" "HUB_URL" \
         "HUB_URL (e.g. https://monitoring-hub.example.com)")
     dotenv_set "$_ENV_FILE" "HUB_URL" "$HUB_URL"
@@ -76,33 +79,34 @@ if [ "$CLUSTER_ROLE" = "agent" ] || [ "$CLUSTER_ROLE" = "both" ]; then
     INSTANCE_ID=$(prompt_with_default "$_ENV_FILE" "INSTANCE_ID" \
         "INSTANCE_ID" "$(hostname 2>/dev/null || echo "")")
     dotenv_set "$_ENV_FILE" "INSTANCE_ID" "$INSTANCE_ID"
+
+    export PROMPT_MASK=1
+    HUB_API_KEY=$(prompt_with_default "$_ENV_FILE" \
+        "HUB_API_KEY" \
+        "HUB_API_KEY (token created on the hub via create_api_key)")
+    unset PROMPT_MASK
+    dotenv_set "$_ENV_FILE" "HUB_API_KEY" "$HUB_API_KEY"
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Hub or both: enable CLUSTER_ENABLED
+# 4. Hub or both: enable CLUSTER_ENABLED and explain key provisioning
 # ---------------------------------------------------------------------------
 
-if [ "$CLUSTER_ROLE" = "hub" ] || [ "$CLUSTER_ROLE" = "both" ]; then
+if [ "$_role" = "hub" ] || [ "$_role" = "both" ]; then
     dotenv_set "$_ENV_FILE" "CLUSTER_ENABLED" "1"
-    success "CLUSTER_ENABLED=1 written to .env"
+    dotenv_set "$_ENV_FILE" "API_KEY_AUTH_ENABLED" "1"
+    success "CLUSTER_ENABLED=1 and API_KEY_AUTH_ENABLED=1 written to .env"
+    echo ""
+    info "Provision an API key for each agent and paste it into that agent's HUB_API_KEY:"
+    info "    uv run python manage.py create_api_key --name \"<agent-name>\""
+    info "The raw token is shown once — copy it immediately."
 fi
 
 # ---------------------------------------------------------------------------
-# 5. All roles: shared webhook secret
+# 5. Agent or both: verify with dry-run
 # ---------------------------------------------------------------------------
 
-export PROMPT_MASK=1
-WEBHOOK_SECRET_CLUSTER=$(prompt_with_default "$_ENV_FILE" \
-    "WEBHOOK_SECRET_CLUSTER" \
-    "WEBHOOK_SECRET_CLUSTER (shared secret between agents and hub)")
-unset PROMPT_MASK
-dotenv_set "$_ENV_FILE" "WEBHOOK_SECRET_CLUSTER" "$WEBHOOK_SECRET_CLUSTER"
-
-# ---------------------------------------------------------------------------
-# 6. Agent or both: verify with dry-run
-# ---------------------------------------------------------------------------
-
-if [ "$CLUSTER_ROLE" = "agent" ] || [ "$CLUSTER_ROLE" = "both" ]; then
+if [ "$_role" = "agent" ] || [ "$_role" = "both" ]; then
     echo ""
     info "Running push_to_hub --dry-run to verify configuration..."
     if uv run python manage.py push_to_hub --dry-run 2>&1; then
@@ -116,6 +120,6 @@ fi
 # Done
 # ---------------------------------------------------------------------------
 
-success "Cluster configuration complete (role: $CLUSTER_ROLE)."
+success "Cluster configuration complete (role: $_role)."
 
 return 0 2>/dev/null || exit 0

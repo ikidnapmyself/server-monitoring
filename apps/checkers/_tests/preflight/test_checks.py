@@ -592,7 +592,7 @@ class CheckClusterCoherenceTests(TestCase):
     @override_settings(
         HUB_URL="https://hub.example.com",
         CLUSTER_ENABLED=True,
-        WEBHOOK_SECRET_CLUSTER="secret",
+        HUB_API_KEY="tok",
         INSTANCE_ID="node-1",
     )
     def test_agent_and_hub_conflict(self):
@@ -603,18 +603,18 @@ class CheckClusterCoherenceTests(TestCase):
     @override_settings(
         HUB_URL="https://hub.example.com",
         CLUSTER_ENABLED=False,
-        WEBHOOK_SECRET_CLUSTER="",
+        HUB_API_KEY="",
         INSTANCE_ID="node-1",
     )
-    def test_agent_without_secret(self):
+    def test_agent_without_api_key(self):
         results = check_cluster_coherence()
         warns = [r for r in results if r.level == "warn"]
-        self.assertTrue(any("WEBHOOK_SECRET_CLUSTER" in r.message for r in warns))
+        self.assertTrue(any("HUB_API_KEY" in r.message for r in warns))
 
     @override_settings(
         HUB_URL="https://hub.example.com",
         CLUSTER_ENABLED=False,
-        WEBHOOK_SECRET_CLUSTER="secret",
+        HUB_API_KEY="tok",
         INSTANCE_ID="",
     )
     def test_agent_without_instance_id(self):
@@ -625,18 +625,20 @@ class CheckClusterCoherenceTests(TestCase):
     @override_settings(
         HUB_URL="",
         CLUSTER_ENABLED=True,
-        WEBHOOK_SECRET_CLUSTER="",
+        HUB_API_KEY="",
         INSTANCE_ID="",
     )
-    def test_hub_without_secret(self):
+    def test_hub_mode_informational(self):
+        # Hub auth is the API-key middleware + a created APIKey (invisible to
+        # preflight), so hub mode reports ok/informational, not an error.
         results = check_cluster_coherence()
-        errors = [r for r in results if r.level == "error"]
-        self.assertTrue(any("WEBHOOK_SECRET_CLUSTER" in r.message for r in errors))
+        self.assertEqual(results[0].level, "ok")
+        self.assertIn("Hub mode", results[0].message)
 
     @override_settings(
         HUB_URL="",
         CLUSTER_ENABLED=False,
-        WEBHOOK_SECRET_CLUSTER="",
+        HUB_API_KEY="",
         INSTANCE_ID="",
     )
     def test_standalone_ok(self):
@@ -647,24 +649,13 @@ class CheckClusterCoherenceTests(TestCase):
     @override_settings(
         HUB_URL="https://hub.example.com",
         CLUSTER_ENABLED=False,
-        WEBHOOK_SECRET_CLUSTER="secret",
+        HUB_API_KEY="tok",
         INSTANCE_ID="node-1",
     )
     def test_valid_agent_ok(self):
         results = check_cluster_coherence()
         self.assertEqual(results[0].level, "ok")
         self.assertIn("agent", results[0].message)
-
-    @override_settings(
-        HUB_URL="",
-        CLUSTER_ENABLED=True,
-        WEBHOOK_SECRET_CLUSTER="secret",
-        INSTANCE_ID="",
-    )
-    def test_valid_hub_ok(self):
-        results = check_cluster_coherence()
-        self.assertEqual(results[0].level, "ok")
-        self.assertIn("hub", results[0].message)
 
 
 class CheckCeleryEagerTests(TestCase):
