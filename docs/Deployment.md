@@ -34,7 +34,7 @@ Create `/etc/server-monitoring/env` (systemd) or `.env` (Docker) with these valu
 | `ENABLE_CELERY_ORCHESTRATION` | `1` | No | Enable async pipeline via Celery |
 | `API_KEY_AUTH_ENABLED` | `1` | No | API key auth (enabled by default; set `0` to disable for dev) |
 | `RATE_LIMIT_ENABLED` | `0` | No | Enable rate limiting middleware |
-| `WEBHOOK_SECRET_<DRIVER>` | — | No | Signature verification per driver (e.g. `WEBHOOK_SECRET_GRAFANA`) |
+| `HUB_API_KEY` | — | Agent only | Bearer token an agent uses to authenticate `push_to_hub` to the hub |
 
 Minimal production `.env`:
 
@@ -270,16 +270,15 @@ The behavior depends on `ENABLE_CELERY_ORCHESTRATION`:
 
 When `ENABLE_CELERY_ORCHESTRATION=1` but the Redis broker is unreachable, the webhook view automatically falls back to synchronous processing. No alerts are lost.
 
-### Signature verification
+### Webhook authentication
 
-Set `WEBHOOK_SECRET_<DRIVER>` environment variables to enable HMAC signature verification:
+All non-GET webhook requests are authenticated by the API-key middleware
+(`API_KEY_AUTH_ENABLED=1`). Callers send `Authorization: Bearer <token>` (or
+`X-API-Key`), resolved against the `APIKey` model. Mint tokens with
+`manage.py create_api_key --name "<label>"`.
 
-```bash
-WEBHOOK_SECRET_GRAFANA=your-grafana-webhook-secret
-WEBHOOK_SECRET_ALERTMANAGER=your-alertmanager-secret
-```
-
-Requests with invalid signatures receive `403 Forbidden`.
+Requests with a missing or invalid key receive `401 Unauthorized`. There is no
+per-driver HMAC scheme — one credential type gates every entrypoint.
 
 ---
 
@@ -343,8 +342,8 @@ On each server you want to monitor:
 
 ```bash
 HUB_URL=https://monitoring-hub.example.com
-WEBHOOK_SECRET_CLUSTER=your-shared-secret
 INSTANCE_ID=web-server-01
+HUB_API_KEY=<token created on the hub via create_api_key>
 ```
 
 3. Schedule the push command via cron:
@@ -373,10 +372,17 @@ On the central monitoring server:
 
 ```bash
 CLUSTER_ENABLED=1
-WEBHOOK_SECRET_CLUSTER=your-shared-secret
+API_KEY_AUTH_ENABLED=1
 ```
 
-The hub accepts cluster payloads at `POST /alerts/webhook/cluster/` and processes them through the full pipeline. Each alert carries `instance_id` and `hostname` labels for per-server filtering.
+Then mint one API key per agent and paste each token into that agent's `HUB_API_KEY`:
+
+```bash
+uv run python manage.py create_api_key --name "web-server-01"
+# The raw token is shown once — copy it immediately.
+```
+
+The hub accepts cluster payloads at `POST /alerts/webhook/cluster/` (authenticated by the API-key middleware) and processes them through the full pipeline. Each alert carries `instance_id` and `hostname` labels for per-server filtering.
 
 ### Standalone (default)
 
@@ -413,9 +419,21 @@ uv run python manage.py check
 ### Security
 
 - **Always use HTTPS** for `HUB_URL` in production. Payloads contain server metrics and alert details.
-- **`WEBHOOK_SECRET_CLUSTER`** must be identical on agents and hub. It is used to compute an HMAC-SHA256 signature sent via the `X-Cluster-Signature` header.
-- Without a shared secret, payloads are accepted **unsigned** — acceptable for local development but not for production.
-- The shared secret is never transmitted in the payload; only the signature is sent.
+- **`HUB_API_KEY`** is a Bearer token minted on the hub (`create_api_key`) and set on each agent. The agent sends it as `Authorization: Bearer <HUB_API_KEY>`; the hub verifies it with the API-key middleware. Keep `API_KEY_AUTH_ENABLED=1` on the hub.
+- Each agent can have its own key; revoke a compromised agent by deactivating its `APIKey` on the hub without touching the others.
+- The token is sent only over the (HTTPS) transport header, never inside the payload body.
+
+### Cluster auth migration (from the shared HMAC secret)
+
+Earlier builds authenticated agent pushes with a shared `WEBHOOK_SECRET_CLUSTER`
+HMAC and a dead `CLUSTER_ROLE` knob. Both are removed; agents now use
+`HUB_API_KEY`. Cutover (coordinated across nodes):
+
+1. On the hub, ensure `API_KEY_AUTH_ENABLED=1`, then mint one key per agent:
+   `uv run python manage.py create_api_key --name "<agent>"`.
+2. On each agent, set `HUB_API_KEY=<token>` and remove `WEBHOOK_SECRET_CLUSTER`
+   and `CLUSTER_ROLE` from `.env`.
+3. Verify with `uv run python manage.py push_to_hub --dry-run`, then a live push.
 
 ### Troubleshooting
 
@@ -423,7 +441,7 @@ uv run python manage.py check
 |--------------------------------------------------|------------------------------|------------------------------------------------------------------------------|
 | `push_to_hub` exits with "HUB_URL not configured" | `HUB_URL` missing from `.env` | Add `HUB_URL=https://your-hub.example.com` to `.env`                        |
 | `push_to_hub` exits with connection refused       | Hub not running or wrong URL  | Verify hub is accessible: `curl -s $HUB_URL/alerts/webhook/cluster/`        |
-| `push_to_hub` returns 403 Forbidden               | HMAC signature mismatch       | Ensure `WEBHOOK_SECRET_CLUSTER` is identical on agent and hub                |
-| `push_to_hub` returns 404 Not Found               | Cluster driver not registered | Set `CLUSTER_ENABLED=1` in hub `.env` and restart                            |
+| `push_to_hub` returns 401 Unauthorized            | Missing/invalid `HUB_API_KEY` | Mint a key on the hub (`create_api_key`) and set it as `HUB_API_KEY` on the agent |
+| `push_to_hub` exits "HUB_API_KEY is not configured" | Agent has no key set        | Set `HUB_API_KEY` in the agent `.env`                                        |
 | Alerts arrive on hub but no notifications fire     | Pipeline not configured       | Run `uv run python manage.py setup_instance` on the hub                      |
 | `push_to_hub --dry-run` shows 0 alerts             | No checkers returned results  | Run `uv run python manage.py check_health` to verify checkers work           |

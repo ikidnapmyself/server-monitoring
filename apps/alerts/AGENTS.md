@@ -56,8 +56,8 @@ Tests have been migrated to `_tests/` (completed). Some apps still use monolithi
 Authoritative source for the security threat model: [`docs/plans/2026-05-12-iso-27003-security-audit-notes.md`](../../docs/plans/2026-05-12-iso-27003-security-audit-notes.md), `apps/alerts/` section. The webhook endpoint is the **only external trust boundary** in the system — any change in this app gets audited against the rules below.
 
 ### Rules for new drivers
-- **Implement `signature_header`** as a class attribute. The framework reads `WEBHOOK_SECRET_<DRIVER>` and verifies `HMAC-SHA256(secret, request.body)` against this header. Drivers without a `signature_header` get no signature verification — that is the documented opt-in fallback, but it means the endpoint is publicly reachable unless gated by API key + rate limit.
-- **Use `hmac.compare_digest`** for any constant-time comparison the driver performs locally. Never use `==` on signature bytes.
+- **Authentication is the API-key middleware, not the driver.** All non-GET webhook requests require a valid `Authorization: Bearer <token>` (or `X-API-Key`) when `API_KEY_AUTH_ENABLED=1`. Drivers do **not** implement their own signature check — the per-driver HMAC scaffold was removed. If a future vendor genuinely needs its own signature scheme, add it deliberately as that vendor's real algorithm, gated behind its own config, and audit it; do not resurrect a generic `WEBHOOK_SECRET_<DRIVER>` HMAC.
+- **Use `hmac.compare_digest`** for any constant-time secret comparison you must perform locally. Never use `==` on token/signature bytes.
 - **`validate()` and `parse()` must be pure** — no DB writes, no outbound HTTP, no subprocess. Driver auto-detection probes every registered `validate()` against an unknown payload; side effects in `validate()` become reachable by any caller who can hit `/alerts/webhook/`.
 - **Never `str(e)` an exception into a production error response.** Use a fixed error string; log the full exception with `logger.exception()` keyed by `trace_id`. Echoing exception messages back to the caller is an information-disclosure vector (stack details, internal paths).
 
@@ -67,7 +67,7 @@ Authoritative source for the security threat model: [`docs/plans/2026-05-12-iso-
 - Stored `Alert.payload_ref` and `Incident.normalized_payload_ref` are **references**, not raw payloads.
 
 ### Audit checks before merging
-- [ ] New driver added: `signature_header` declared and `WEBHOOK_SECRET_<NAME>` env var documented in `docs/Security.md`.
+- [ ] New driver added: relies on the API-key middleware for auth (no bespoke signature check); any deliberate vendor-specific scheme is documented in `docs/Security.md` and audited.
 - [ ] No `mark_safe` / `format_html` without `{}` placeholders in admin code.
 - [ ] No `str(e)` returned in HTTP response bodies.
 - [ ] Run `uv run pytest apps/alerts/_tests/` and confirm signature-verification tests still pass.

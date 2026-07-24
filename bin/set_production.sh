@@ -24,9 +24,10 @@ for arg in "$@"; do
             echo "What it does:"
             echo "  1. Set DJANGO_ENV=prod in .env"
             echo "  2. Set DJANGO_DEBUG=0 in .env"
-            echo "  3. Ensure DJANGO_SECRET_KEY has a value"
-            echo "  4. Ensure DJANGO_ALLOWED_HOSTS has a value"
-            echo "  5. Re-sync dependencies (with prod extra, without dev extras)"
+            echo "  3. Set API_KEY_AUTH_ENABLED=1 in .env"
+            echo "  4. Ensure DJANGO_SECRET_KEY has a value"
+            echo "  5. Ensure DJANGO_ALLOWED_HOSTS has a value"
+            echo "  6. Re-sync dependencies (with prod extra, without dev extras)"
             echo ""
             echo "Safe to run multiple times (idempotent)."
             exit 0
@@ -56,6 +57,11 @@ CHANGES+=("DJANGO_ENV=prod")
 # 2. DJANGO_DEBUG=0
 dotenv_set "$ENV_FILE" "DJANGO_DEBUG" "0"
 CHANGES+=("DJANGO_DEBUG=0")
+
+# 2b. API_KEY_AUTH_ENABLED=1 (production must authenticate API/webhook POSTs;
+#     clears config.W002)
+dotenv_set "$ENV_FILE" "API_KEY_AUTH_ENABLED" "1"
+CHANGES+=("API_KEY_AUTH_ENABLED=1")
 
 # 3. DJANGO_SECRET_KEY
 if ! dotenv_has_value "$ENV_FILE" "DJANGO_SECRET_KEY"; then

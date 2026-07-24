@@ -243,17 +243,14 @@ _sc_check_hub_tls() {
     fi
 }
 
-_sc_check_cluster_secret() {
-    local secret
-    secret=$(_sc_env_val "WEBHOOK_SECRET_CLUSTER")
-    if [ -z "$secret" ]; then
-        sc_fail "cluster_secret" "WEBHOOK_SECRET_CLUSTER is empty" \
-            "Generate a secret: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
-    elif [ "${#secret}" -lt 32 ]; then
-        sc_fail "cluster_secret" "WEBHOOK_SECRET_CLUSTER is too short (${#secret} chars, need >= 32)" \
-            "Generate a longer secret with at least 32 characters"
+_sc_check_hub_api_key() {
+    local api_key
+    api_key=$(_sc_env_val "HUB_API_KEY")
+    if [ -z "$api_key" ]; then
+        sc_fail "hub_api_key" "HUB_API_KEY is empty — the agent cannot authenticate to the hub" \
+            "Mint one on the hub: uv run python manage.py create_api_key --name \"<agent>\""
     else
-        sc_pass "cluster_secret" "WEBHOOK_SECRET_CLUSTER is set (${#secret} chars)"
+        sc_pass "hub_api_key" "HUB_API_KEY is set (${#api_key} chars)"
     fi
 }
 
@@ -305,7 +302,7 @@ run_agent_checks() {
     [ "$_sc_json_mode" = false ] && printf "\n%b=== Agent-Mode Security Checks ===%b\n\n" "$BOLD" "$NC"
 
     _sc_check_hub_tls
-    _sc_check_cluster_secret
+    _sc_check_hub_api_key
     _sc_check_hub_reachable
     _sc_check_hub_cert
 }
@@ -314,17 +311,14 @@ run_agent_checks() {
 # Hub-mode security checks
 # =====================================================================
 
-_sc_check_hub_cluster_secret() {
-    local secret
-    secret=$(_sc_env_val "WEBHOOK_SECRET_CLUSTER")
-    if [ -z "$secret" ]; then
-        sc_fail "hub_cluster_secret" "WEBHOOK_SECRET_CLUSTER is empty — cannot verify agent signatures" \
-            "Generate a secret: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
-    elif [ "${#secret}" -lt 32 ]; then
-        sc_fail "hub_cluster_secret" "WEBHOOK_SECRET_CLUSTER is too short (${#secret} chars) — cannot verify agent signatures" \
-            "Generate a longer secret with at least 32 characters"
+_sc_check_hub_api_auth() {
+    local enabled
+    enabled=$(_sc_env_val "API_KEY_AUTH_ENABLED")
+    if [ "$enabled" = "1" ]; then
+        sc_pass "hub_api_auth" "API_KEY_AUTH_ENABLED=1 — agent pushes are authenticated"
     else
-        sc_pass "hub_cluster_secret" "WEBHOOK_SECRET_CLUSTER is set for agent verification (${#secret} chars)"
+        sc_fail "hub_api_auth" "API_KEY_AUTH_ENABLED is not 1 — the hub accepts unauthenticated pushes" \
+            "Set API_KEY_AUTH_ENABLED=1 and create an APIKey for each agent (create_api_key)"
     fi
 }
 
@@ -391,7 +385,7 @@ _sc_check_https_termination() {
 run_hub_checks() {
     [ "$_sc_json_mode" = false ] && printf "\n%b=== Hub-Mode Security Checks ===%b\n\n" "$BOLD" "$NC"
 
-    _sc_check_hub_cluster_secret
+    _sc_check_hub_api_auth
     _sc_check_bind_address
     _sc_check_reverse_proxy
     _sc_check_https_termination

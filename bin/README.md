@@ -143,7 +143,7 @@ Save and load installer configurations for fleet consistency:
 ./bin/install.sh --profile prod-web --yes
 ```
 
-Profiles are stored as `.install-profile*` files (gitignored by default). They contain all non-sensitive `.env` values plus installer state (cron schedule, alias prefix, etc.). Secrets (`DJANGO_SECRET_KEY`, `WEBHOOK_SECRET_CLUSTER`) are never saved to profiles.
+Profiles are stored as `.install-profile*` files (gitignored by default). They contain all non-sensitive `.env` values plus installer state (cron schedule, alias prefix, etc.). Secrets (`DJANGO_SECRET_KEY`, `HUB_API_KEY`) are never saved to profiles.
 
 ---
 
