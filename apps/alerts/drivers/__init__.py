@@ -40,19 +40,9 @@ DRIVER_REGISTRY: dict[str, type[BaseAlertDriver]] = {
     "newrelic": NewRelicDriver,
     "opsgenie": OpsGenieDriver,
     "zabbix": ZabbixDriver,
+    "cluster": ClusterDriver,
     "generic": GenericWebhookDriver,
 }
-
-
-# Register cluster driver only when CLUSTER_ENABLED=1
-def _register_cluster_driver():
-    from django.conf import settings
-
-    if getattr(settings, "CLUSTER_ENABLED", False):
-        DRIVER_REGISTRY["cluster"] = ClusterDriver
-
-
-_register_cluster_driver()
 
 
 def get_driver(name: str) -> BaseAlertDriver:
