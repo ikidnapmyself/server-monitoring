@@ -157,9 +157,6 @@ class ClusterDriverParseTests(TestCase):
     def test_driver_name_is_cluster(self):
         self.assertEqual(self.driver.name, "cluster")
 
-    def test_signature_header(self):
-        self.assertEqual(self.driver.signature_header, "X-Cluster-Signature")
-
     def test_non_dict_labels_become_empty(self):
         """Labels that aren't a dict should be replaced with empty dict."""
         payload = {

@@ -41,7 +41,6 @@ class PagerDutyDriver(BaseAlertDriver):
     """
 
     name = "pagerduty"
-    signature_header = "X-PagerDuty-Signature"
 
     def validate(self, payload: dict[str, Any]) -> bool:
         """Check if this looks like a PagerDuty payload."""

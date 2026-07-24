@@ -75,6 +75,38 @@ class WebhookViewTests(TestCase):
 
 
 @override_settings(API_KEY_AUTH_ENABLED=False)
+class WebhookSkipCheckersTests(TestCase):
+    """The webhook forwards a driver's skip_checkers into the enqueued run."""
+
+    def setUp(self):
+        self.client = Client()
+
+    @patch("apps.orchestration.tasks.run_pipeline_task.delay")
+    def test_cluster_webhook_forwards_skip_checkers(self, mock_delay):
+        mock_delay.return_value.id = "abc"
+        url = reverse("alerts:webhook_driver", kwargs={"driver": "cluster"})
+        payload = {"source": "cluster", "instance_id": "web-03", "alerts": []}
+
+        response = self.client.post(url, data=json.dumps(payload), content_type="application/json")
+
+        self.assertEqual(response.status_code, 202)
+        sent = mock_delay.call_args.kwargs["payload"]
+        self.assertTrue(sent.get("skip_checkers"))
+
+    @patch("apps.orchestration.tasks.run_pipeline_task.delay")
+    def test_non_cluster_webhook_does_not_set_skip_checkers(self, mock_delay):
+        mock_delay.return_value.id = "abc"
+        url = reverse("alerts:webhook_driver", kwargs={"driver": "generic"})
+        payload = {"name": "x", "status": "firing"}
+
+        response = self.client.post(url, data=json.dumps(payload), content_type="application/json")
+
+        self.assertEqual(response.status_code, 202)
+        sent = mock_delay.call_args.kwargs["payload"]
+        self.assertNotIn("skip_checkers", sent)
+
+
+@override_settings(API_KEY_AUTH_ENABLED=False)
 class WebhookViewPartialResponseTests(TestCase):
     """Tests for webhook partial responses when orchestrator reports errors."""
 
