@@ -8,8 +8,6 @@ Usage:
     python manage.py push_to_hub --checkers cpu,memory  # Specific checkers only
 """
 
-import hashlib
-import hmac
 import json
 import socket
 from datetime import datetime, timezone
@@ -52,7 +50,7 @@ class Command(BaseCommand):
 
         instance_id = getattr(settings, "INSTANCE_ID", "") or socket.gethostname()
         hostname = socket.gethostname()
-        secret = getattr(settings, "WEBHOOK_SECRET_CLUSTER", "")
+        api_key = getattr(settings, "HUB_API_KEY", "")
 
         # Determine which checkers to run
         checker_names = None
@@ -104,10 +102,15 @@ class Command(BaseCommand):
             raise CommandError(f"HUB_URL must use http:// or https:// scheme, got: {url}")
         body = json.dumps(payload, default=str).encode()
 
-        headers = {"Content-Type": "application/json"}
-        if secret:
-            signature = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-            headers["X-Cluster-Signature"] = signature
+        if not api_key:
+            raise CommandError(
+                "HUB_API_KEY is not configured. Set it in .env to enable agent mode "
+                "(mint one on the hub with `manage.py create_api_key`)."
+            )
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        }
 
         request = Request(url, data=body, headers=headers, method="POST")
 
