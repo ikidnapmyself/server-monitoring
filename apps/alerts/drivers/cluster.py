@@ -41,6 +41,7 @@ class ClusterDriver(BaseAlertDriver):
 
     name = "cluster"
     signature_header = "X-Cluster-Signature"
+    skip_checkers = True
 
     def validate(self, payload: dict[str, Any]) -> bool:
         """Validate that this payload is from a cluster agent."""

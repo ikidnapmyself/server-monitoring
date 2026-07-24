@@ -1,6 +1,19 @@
-from django.test import TestCase, override_settings
+from django.test import TestCase
 
+from apps.alerts.drivers.base import BaseAlertDriver
 from apps.alerts.drivers.cluster import ClusterDriver
+
+
+class ClusterDriverSkipCheckersTests(TestCase):
+    """Tests for the skip_checkers declaration on drivers."""
+
+    def test_cluster_driver_declares_skip_checkers(self):
+        """ClusterDriver payloads already carry diagnostics; skip local CHECK."""
+        self.assertIs(ClusterDriver().skip_checkers, True)
+
+    def test_base_driver_does_not_skip_checkers_by_default(self):
+        """BaseAlertDriver defaults to running the CHECK stage."""
+        self.assertIs(BaseAlertDriver.skip_checkers, False)
 
 
 class ClusterDriverValidateTests(TestCase):
@@ -209,26 +222,15 @@ class ClusterDriverParseTests(TestCase):
 
 
 class ClusterDriverRegistrationTests(TestCase):
-    """Tests for conditional driver registration."""
+    """Tests for cluster driver registration."""
 
-    @override_settings(CLUSTER_ENABLED=True)
-    def test_driver_registered_when_enabled(self):
-        from apps.alerts.drivers import DRIVER_REGISTRY, _register_cluster_driver
+    def test_driver_always_registered(self):
+        """Cluster is a normal, always-registered driver (no CLUSTER_ENABLED gate)."""
+        from apps.alerts.drivers import DRIVER_REGISTRY
 
-        DRIVER_REGISTRY.pop("cluster", None)
-        _register_cluster_driver()
         self.assertIn("cluster", DRIVER_REGISTRY)
         self.assertEqual(DRIVER_REGISTRY["cluster"], ClusterDriver)
 
-    @override_settings(CLUSTER_ENABLED=False)
-    def test_driver_not_registered_when_disabled(self):
-        from apps.alerts.drivers import DRIVER_REGISTRY, _register_cluster_driver
-
-        DRIVER_REGISTRY.pop("cluster", None)
-        _register_cluster_driver()
-        self.assertNotIn("cluster", DRIVER_REGISTRY)
-
-    @override_settings(CLUSTER_ENABLED=False)
     def test_driver_accessible_by_direct_import(self):
         """ClusterDriver can always be imported directly."""
         from apps.alerts.drivers.cluster import ClusterDriver as CD

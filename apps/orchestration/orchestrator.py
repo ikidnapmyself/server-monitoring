@@ -261,8 +261,16 @@ class PipelineOrchestrator:
 
         # Determine which stages to run
         checks_only = payload.get("checks_only", False)
-        active_stages = [PipelineStage.CHECK] if checks_only else STAGE_ORDER
-        final_status = PipelineStatus.CHECKED if checks_only else PipelineStatus.NOTIFIED
+        skip_checkers = payload.get("skip_checkers", False)
+        if checks_only:
+            active_stages = [PipelineStage.CHECK]
+            final_status = PipelineStatus.CHECKED
+        elif skip_checkers:
+            active_stages = [s for s in STAGE_ORDER if s != PipelineStage.CHECK]
+            final_status = PipelineStatus.NOTIFIED
+        else:
+            active_stages = STAGE_ORDER
+            final_status = PipelineStatus.NOTIFIED
 
         # Emit pipeline started
         emit_pipeline_started(base_tags)

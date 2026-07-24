@@ -607,3 +607,48 @@ class ChecksOnlyTests(TestCase):
         assert result.status == "COMPLETED"
         assert mock_execute.call_count == 4
         assert len(result.stages_completed) == 4
+        assert PipelineStage.CHECK in result.stages_completed
+
+
+class SkipCheckersTests(TestCase):
+    """Tests for skip_checkers mode that omits only the CHECK stage."""
+
+    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
+    def test_skip_checkers_omits_check_but_reaches_notify(self, mock_execute):
+        """When skip_checkers=True, CHECK is skipped but the pipeline still notifies."""
+        mock_execute.side_effect = [
+            IngestResult(incident_id=None, alerts_created=1),
+            AnalyzeResult(summary="ok"),
+            NotifyResult(channels_succeeded=1),
+        ]
+
+        orchestrator = PipelineOrchestrator()
+        result = orchestrator.run_pipeline(
+            payload={"skip_checkers": True},
+            source="test",
+        )
+
+        assert result.status == "COMPLETED"
+        assert mock_execute.call_count == 3
+        assert PipelineStage.CHECK not in result.stages_completed
+        assert PipelineStage.INGEST in result.stages_completed
+        assert PipelineStage.ANALYZE in result.stages_completed
+        assert PipelineStage.NOTIFY in result.stages_completed
+
+    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
+    def test_skip_checkers_pipeline_marked_notified(self, mock_execute):
+        """skip_checkers run still completes with NOTIFIED status."""
+        mock_execute.side_effect = [
+            IngestResult(incident_id=None, alerts_created=1),
+            AnalyzeResult(summary="ok"),
+            NotifyResult(channels_succeeded=1),
+        ]
+
+        orchestrator = PipelineOrchestrator()
+        orchestrator.run_pipeline(payload={"skip_checkers": True}, source="test")
+
+        from apps.orchestration.models import PipelineRun
+
+        run = PipelineRun.objects.order_by("-started_at").first()
+        assert run is not None
+        assert run.status == PipelineStatus.NOTIFIED

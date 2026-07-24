@@ -1,6 +1,6 @@
 """Custom admin site for the server monitoring ops console."""
 
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.admin import AdminSite
 
 from config.dashboard import get_dashboard_context
@@ -27,3 +27,12 @@ class APIKeyAdmin(admin.ModelAdmin):
     @admin.display(description="Key")
     def masked_key(self, obj):
         return f"{obj.prefix}***"
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        raw = getattr(obj, "_raw_key", "")
+        if not change and raw:
+            messages.warning(
+                request,
+                f"Raw token for '{obj.name}' (shown once — copy it now): {raw}",
+            )

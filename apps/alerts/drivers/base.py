@@ -68,6 +68,9 @@ class BaseAlertDriver(ABC):
     name: str = "base"
     signature_header: str | None = None
     signature_algorithm: str = "sha256"
+    # When True, payloads from this driver already carry diagnostics, so the
+    # orchestrator should skip the local CHECK stage for this pipeline run.
+    skip_checkers: bool = False
 
     def verify_signature(self, request_body: bytes, header_value: str, secret: str) -> bool:
         """Verify HMAC-SHA256 signature. Override for non-standard schemes."""

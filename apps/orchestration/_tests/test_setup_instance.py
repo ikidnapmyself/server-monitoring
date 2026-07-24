@@ -189,7 +189,7 @@ class ConfigureAlertsTests(TestCase):
     def setUp(self):
         self.cmd = Command(stdout=StringIO(), stderr=StringIO())
 
-    @patch("builtins.input", return_value="1,2,8")
+    @patch("builtins.input", return_value="1,2,9")
     def test_returns_selected_drivers(self, _mock_input):
         result = self.cmd._configure_alerts()
         assert result == ["alertmanager", "grafana", "generic"]
