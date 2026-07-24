@@ -1,6 +1,19 @@
 from django.test import TestCase, override_settings
 
+from apps.alerts.drivers.base import BaseAlertDriver
 from apps.alerts.drivers.cluster import ClusterDriver
+
+
+class ClusterDriverSkipCheckersTests(TestCase):
+    """Tests for the skip_checkers declaration on drivers."""
+
+    def test_cluster_driver_declares_skip_checkers(self):
+        """ClusterDriver payloads already carry diagnostics; skip local CHECK."""
+        self.assertIs(ClusterDriver().skip_checkers, True)
+
+    def test_base_driver_does_not_skip_checkers_by_default(self):
+        """BaseAlertDriver defaults to running the CHECK stage."""
+        self.assertIs(BaseAlertDriver.skip_checkers, False)
 
 
 class ClusterDriverValidateTests(TestCase):
