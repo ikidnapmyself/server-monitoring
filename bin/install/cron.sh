@@ -37,12 +37,14 @@ info "Project directory: $PROJECT_DIR"
 # Check uv is available
 # ---------------------------------------------------------------------------
 
-if ! command -v uv &> /dev/null; then
-    error "uv is not installed. Please run the installer first."
+if [ -z "$UV_BIN" ]; then
+    error "uv is not installed (no absolute uv found). Please run the installer first."
     return 1 2>/dev/null || exit 1
 fi
 
-UV_PATH=$(which uv)
+# Bake the absolute uv path into the crontab line so cron (a minimal-PATH,
+# non-login environment) never depends on PATH resolution.
+UV_PATH="$UV_BIN"
 
 # ---------------------------------------------------------------------------
 # 1. Schedule selection

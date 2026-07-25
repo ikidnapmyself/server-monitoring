@@ -109,7 +109,7 @@ fi
 if [ "$_role" = "agent" ] || [ "$_role" = "both" ]; then
     echo ""
     info "Running push_to_hub --dry-run to verify configuration..."
-    if uv run python manage.py push_to_hub --dry-run 2>&1; then
+    if "$UV_BIN" run python manage.py push_to_hub --dry-run 2>&1; then
         success "Dry run succeeded — agent is configured correctly"
     else
         warn "Dry run failed — check HUB_URL and try: uv run python manage.py push_to_hub --dry-run"

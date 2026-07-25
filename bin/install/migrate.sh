@@ -45,7 +45,7 @@ echo ""
 # ---------------------------------------------------------------------------
 
 info "Running database migrations..."
-uv run python manage.py migrate
+"$UV_BIN" run python manage.py migrate
 success "Migrations applied."
 
 # ---------------------------------------------------------------------------
@@ -53,7 +53,7 @@ success "Migrations applied."
 # ---------------------------------------------------------------------------
 
 info "Running Django system checks..."
-if uv run python manage.py check; then
+if "$UV_BIN" run python manage.py check; then
     success "All system checks passed."
 else
     warn "System checks reported issues (see above). You may want to address them."

@@ -32,10 +32,11 @@ setup() {
         > "$tmp/.env"
     stub_bin="$(mktemp -d)"
     printf '#!/usr/bin/env bash\necho "uv $*"\n' > "$stub_bin/uv"
-    chmod +x "$stub_bin/uv"
+    chmod 755 "$stub_bin/uv"
 
     export PROJECT_DIR="$tmp"
-    PATH="$stub_bin:$PATH" run "$BIN_DIR/set_production.sh"
+    # Pin the absolute uv path — scripts no longer resolve uv via PATH.
+    UV_BIN="$stub_bin/uv" run "$BIN_DIR/set_production.sh"
     assert_success
     assert_output --partial "uv sync --extra prod"
 }
@@ -47,10 +48,10 @@ setup() {
         > "$tmp/.env"
     stub_bin="$(mktemp -d)"
     printf '#!/usr/bin/env bash\necho "uv $*"\n' > "$stub_bin/uv"
-    chmod +x "$stub_bin/uv"
+    chmod 755 "$stub_bin/uv"
 
     export PROJECT_DIR="$tmp"
-    PATH="$stub_bin:$PATH" run "$BIN_DIR/set_production.sh"
+    UV_BIN="$stub_bin/uv" run "$BIN_DIR/set_production.sh"
     assert_success
     run grep -q "API_KEY_AUTH_ENABLED=1" "$tmp/.env"
     assert_success

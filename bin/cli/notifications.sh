@@ -31,7 +31,7 @@ test_notify_menu() {
         then
             case $TUIN_REPLY in
                 "Interactive wizard (recommended)")
-                    confirm_and_run "uv run python manage.py test_notify" ;;
+                    confirm_and_run "$UV_BIN run python manage.py test_notify" ;;
                 "Non-interactive (specify driver and flags)")
                     test_notify_non_interactive ;;
             esac || true
@@ -53,7 +53,7 @@ test_notify_non_interactive() {
     channel=$(tuin_input "Enter channel (optional)")
     message=$(tuin_input "Enter custom message (optional)")
 
-    local cmd="uv run python manage.py test_notify $driver_name --non-interactive"
+    local cmd="$UV_BIN run python manage.py test_notify $driver_name --non-interactive"
     if [ -n "$channel" ]; then
         cmd="$cmd --channel=$channel"
     fi
