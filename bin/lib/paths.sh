@@ -43,8 +43,17 @@ resolve_uv() {
         if [[ -z "$_home" ]]; then
             _home="$(getent passwd "$(id -un 2>/dev/null)" 2>/dev/null | cut -d: -f6)"
         fi
+        # Standard absolute install locations, in priority order — the uv
+        # installer's default, cargo, Homebrew (Apple Silicon + Intel), and
+        # system packages. We never consult $PATH; an operator whose uv lives
+        # somewhere else pins UV_BIN explicitly (documented override).
         local d
-        for d in "$_home/.local/bin/uv" "$_home/.cargo/bin/uv"; do
+        for d in \
+            "$_home/.local/bin/uv" \
+            "$_home/.cargo/bin/uv" \
+            "/opt/homebrew/bin/uv" \
+            "/usr/local/bin/uv" \
+            "/usr/bin/uv"; do
             if [[ -x "$d" ]]; then
                 candidate="$d"
                 break
@@ -74,8 +83,10 @@ resolve_uv() {
     # Tamper guard: refuse a uv that is group- or world-writable, so a lower
     # privilege account cannot swap the binary under a privileged deploy.
     # Degrade gracefully if perms can't be read (must not break the deploy).
+    # Follow symlinks (-L) so we check the real binary's perms, not the link's
+    # (a symlink's own mode is 0777 on Linux and would false-reject Homebrew/uv).
     local perms
-    perms="$(stat -c '%a' "$candidate" 2>/dev/null || stat -f '%Lp' "$candidate" 2>/dev/null || echo "")"
+    perms="$(stat -L -c '%a' "$candidate" 2>/dev/null || stat -L -f '%Lp' "$candidate" 2>/dev/null || echo "")"
     if [[ "$perms" =~ ^[0-7]{3,4}$ ]]; then
         local grp="${perms: -2:1}" oth="${perms: -1}"
         if (( (grp & 2) != 0 || (oth & 2) != 0 )); then

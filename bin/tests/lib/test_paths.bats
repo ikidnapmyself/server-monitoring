@@ -106,12 +106,14 @@ setup() {
     assert_output "$home/.local/bin/uv"
 }
 
-@test "resolve_uv leaves UV_BIN empty (non-fatal) when uv is absent" {
+@test "sourcing paths.sh never hard-exits when uv is unpinned" {
+    # Whether or not a system uv is found, an unpinned UV_BIN must be non-fatal
+    # (rc 0) so check_uv() can install it and health checks can report it.
     local home="$BATS_TEST_TMPDIR/empty-home"
     mkdir -p "$home"
 
     run env -u UV_BIN HOME="$home" bash -c \
-        'source "'"$LIB_DIR/paths.sh"'" && echo "rc=$?" && echo "uv=[$UV_BIN]"'
+        'source "'"$LIB_DIR/paths.sh"'"; echo "rc=$?"'
     assert_success
-    assert_output --partial "uv=[]"
+    assert_output --partial "rc=0"
 }
