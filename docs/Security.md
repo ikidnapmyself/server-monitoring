@@ -421,6 +421,7 @@ The `bin/` toolchain (`install.sh`, `cli.sh`, `update.sh`, `check_security.sh`, 
 - `confirm_and_run` and similar interactive helpers consume `read`/`stdin` from the operator session only.
 - Subprocess spawning uses list-form argv; never interpolate user input into a shell string.
 - No `sudo`, setuid, or privilege-escalation paths are introduced.
+- **Resolve external executables to a validated absolute path and invoke that — never a bare name resolved through `$PATH`.** `bin/lib/paths.sh` resolves `uv` once to `$UV_BIN`: it honors an explicit per-deployment `UV_BIN`, otherwise probes the current user's `~/.local/bin` and `~/.cargo/bin` (never `$PATH`), requires an absolute path, and refuses a group/world-writable binary (tamper guard). A deploy runs with the application user's privileges, so a bare `uv` resolved on an attacker-influenced `$PATH` — or a `uv` planted earlier on it — would execute arbitrary code inside the deploy. Apply the same rule to any other tool the scripts shell out to.
 
 ## Supply Chain
 
@@ -429,6 +430,9 @@ The auto-update flow in `bin/lib/update.sh` performs `git fetch origin main` and
 - Anyone who can push to `origin/main` can ship code that executes with the privileges of the application user.
 - Branch protection on `main` (required reviews, status checks) is the actual control.
 - Operators running self-hosted clones must understand which remote they have configured.
+- **`update.sh` takes no branch or ref override — it always fetches and applies `origin/main`.** This is deliberate: neither an operator nor an attacker who obtained shell access can point the deploy at an arbitrary or unreviewed branch. Branch protection on `main` therefore fully bounds what the auto-updater can ship. Do not add a `--branch`/`--ref` flag without re-deriving this trust model.
+
+**Testing implication:** because there is no branch override, changes to `update.sh` (or anything it runs during an update) **cannot be exercised end-to-end from a feature branch** — the tool will only ever pull `origin/main`. Such changes are validated by the bats suite pre-merge, then by an operator running `update.sh` on a node **after** the change has landed on `main`. Do not weaken the `origin/main` pin to make a branch testable.
 
 When introducing new auto-update behaviour (signed commits, signed releases, version pinning), document the trust model alongside the change.
 
