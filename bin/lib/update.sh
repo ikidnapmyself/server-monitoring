@@ -53,14 +53,14 @@ _up_notify() {
         return 0
     fi
 
-    if [ ! -d "$PROJECT_DIR/.venv" ] || ! command_exists uv; then
+    if [ ! -d "$PROJECT_DIR/.venv" ] || [ -z "$UV_BIN" ]; then
         _up_log "WARN" "Cannot send notification (no .venv or uv)"
         return 0
     fi
 
     # Best-effort — never let notification failure break the update
     (cd "$PROJECT_DIR" && \
-        uv run python manage.py test_notify \
+        "$UV_BIN" run python manage.py test_notify \
             --non-interactive \
             --title "$title" \
             --message "$msg" \
@@ -304,9 +304,9 @@ _up_sync_deps() {
 
     local sync_cmd
     if [ "$_up_mode" = "dev" ]; then
-        sync_cmd=("uv" "sync" "--all-extras" "--dev")
+        sync_cmd=("$UV_BIN" "sync" "--all-extras" "--dev")
     else
-        sync_cmd=("uv" "sync" "--extra" "prod")
+        sync_cmd=("$UV_BIN" "sync" "--extra" "prod")
     fi
 
     if ! (cd "$PROJECT_DIR" && "${sync_cmd[@]}"); then
@@ -332,7 +332,7 @@ _up_migrate() {
         return 0
     fi
 
-    if ! (cd "$PROJECT_DIR" && uv run python manage.py migrate --no-input); then
+    if ! (cd "$PROJECT_DIR" && "$UV_BIN" run python manage.py migrate --no-input); then
         _up_failed_step="migrate"
         _up_log "ERROR" "Database migration failed"
         return 1
@@ -361,7 +361,7 @@ _up_collectstatic() {
         return 0
     fi
 
-    if ! (cd "$PROJECT_DIR" && uv run python manage.py collectstatic --no-input); then
+    if ! (cd "$PROJECT_DIR" && "$UV_BIN" run python manage.py collectstatic --no-input); then
         _up_failed_step="collectstatic"
         _up_log "ERROR" "collectstatic failed"
         return 1

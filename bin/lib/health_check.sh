@@ -140,9 +140,9 @@ run_core_checks() {
         hc_fail "python" "Python 3 not found"
     fi
 
-    # uv installed
-    if command_exists uv; then
-        hc_pass "uv" "uv is installed ($(uv --version 2>/dev/null || echo 'unknown'))"
+    # uv installed (resolved to an absolute path, not via PATH)
+    if [ -n "$UV_BIN" ]; then
+        hc_pass "uv" "uv is installed ($("$UV_BIN" --version 2>/dev/null || echo 'unknown')) at $UV_BIN"
     else
         hc_fail "uv" "uv is not installed"
     fi
@@ -191,14 +191,14 @@ run_django_checks() {
     fi
 
     # Django system check
-    if uv run python manage.py check &>/dev/null; then
+    if "$UV_BIN" run python manage.py check &>/dev/null; then
         hc_pass "django_check" "Django system check passed"
     else
         hc_fail "django_check" "Django system check failed"
     fi
 
     # Pending migrations
-    if uv run python manage.py migrate --check &>/dev/null; then
+    if "$UV_BIN" run python manage.py migrate --check &>/dev/null; then
         hc_pass "migrations" "No pending migrations"
     else
         hc_warn "migrations" "Pending migrations found (run: uv run python manage.py migrate)"

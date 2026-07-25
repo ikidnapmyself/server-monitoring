@@ -34,7 +34,7 @@ install_project() {
             8)  run_command "$SCRIPT_DIR/install.sh aliases" "Shell aliases" ;;
             9)  run_command "$SCRIPT_DIR/install.sh deploy" "Deployment" ;;
             10) check_installation ;;
-            11) confirm_and_run "uv run python manage.py setup_instance" ;;
+            11) confirm_and_run "$UV_BIN run python manage.py setup_instance" ;;
             12) confirm_and_run "$SCRIPT_DIR/set_production.sh" ;;
             13) return ;;
             *)  echo -e "${RED}Invalid option${NC}" ;;

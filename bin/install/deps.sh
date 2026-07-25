@@ -57,10 +57,10 @@ DJANGO_ENV="$(dotenv_get "$_ENV_FILE" "DJANGO_ENV")"
 
 if [ "$DJANGO_ENV" = "dev" ]; then
     info "Installing dependencies with uv sync (including development extras)..."
-    uv sync --all-extras --dev
+    "$UV_BIN" sync --all-extras --dev
 else
     info "Installing dependencies with uv sync (production)..."
-    uv sync
+    "$UV_BIN" sync
 fi
 
 success "Dependencies installed."

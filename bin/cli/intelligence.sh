@@ -17,17 +17,17 @@ intelligence_menu() {
         then
             case $TUIN_REPLY in
                 "Memory analysis")
-                    confirm_and_run "uv run python manage.py get_recommendations --memory" ;;
+                    confirm_and_run "$UV_BIN run python manage.py get_recommendations --memory" ;;
                 "Disk analysis")
                     disk_path=$(tuin_input "Enter path to analyze" "$default_path")
-                    confirm_and_run "uv run python manage.py get_recommendations --disk --path=$disk_path" ;;
+                    confirm_and_run "$UV_BIN run python manage.py get_recommendations --disk --path=$disk_path" ;;
                 "Full analysis (memory + disk)")
                     disk_path=$(tuin_input "Enter path for disk analysis" "$default_path")
-                    confirm_and_run "uv run python manage.py get_recommendations --all --path=$disk_path" ;;
+                    confirm_and_run "$UV_BIN run python manage.py get_recommendations --all --path=$disk_path" ;;
                 "Custom options")
                     custom_recommendations ;;
                 "List providers")
-                    confirm_and_run "uv run python manage.py get_recommendations --list-providers" ;;
+                    confirm_and_run "$UV_BIN run python manage.py get_recommendations --list-providers" ;;
             esac || true
             echo ""
             tuin_input "Press Enter to continue" >/dev/null || true
@@ -40,7 +40,7 @@ intelligence_menu() {
 custom_recommendations() {
     tuin_section "Configure custom analysis"
 
-    local cmd="uv run python manage.py get_recommendations"
+    local cmd="$UV_BIN run python manage.py get_recommendations"
 
     if tuin_confirm "Include memory analysis?" y; then
         cmd="$cmd --memory"

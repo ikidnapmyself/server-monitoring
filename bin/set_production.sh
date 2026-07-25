@@ -94,8 +94,8 @@ fi
 #    A plain `uv sync` would strip the `prod` extra and leave no WSGI server.
 echo ""
 info "Re-syncing dependencies (prod extra, no dev)..."
-if command_exists uv; then
-    uv sync --extra prod
+if [ -n "$UV_BIN" ]; then
+    "$UV_BIN" sync --extra prod
     success "Dependencies synced (prod extra installed, dev extras removed)"
 else
     warn "uv not found — skipping dependency sync"

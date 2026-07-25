@@ -200,17 +200,17 @@ _sc_check_dependencies() {
         return 0
     fi
 
-    if ! command_exists uv; then
+    if [ -z "$UV_BIN" ]; then
         sc_pass "dependencies" "Dependency audit skipped (uv not installed)"
         return 0
     fi
 
-    if ! uv run pip-audit --version &>/dev/null; then
+    if ! "$UV_BIN" run pip-audit --version &>/dev/null; then
         sc_pass "dependencies" "Dependency audit skipped (pip-audit not available)"
         return 0
     fi
 
-    if uv run pip-audit &>/dev/null; then
+    if "$UV_BIN" run pip-audit &>/dev/null; then
         sc_pass "dependencies" "No known vulnerabilities in dependencies"
     else
         sc_warn "dependencies" "pip-audit found potential vulnerabilities" \

@@ -416,7 +416,7 @@ _deploy_bare_dev() {
 
     if prompt_yes_no "Run health check suite now?"; then
         info "Running health checks..."
-        cd "$PROJECT_DIR" && uv run python manage.py check_health
+        cd "$PROJECT_DIR" && "$UV_BIN" run python manage.py check_health
     fi
 
     return 0

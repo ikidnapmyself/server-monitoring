@@ -60,3 +60,60 @@ setup() {
     assert_success
     assert_output "$custom_log"
 }
+
+# --- uv resolution (UV_BIN) --------------------------------------------------
+
+@test "resolve_uv honors an explicit absolute UV_BIN" {
+    local fake="$BATS_TEST_TMPDIR/bin/uv"
+    mkdir -p "$(dirname "$fake")"
+    printf '#!/usr/bin/env bash\ntrue\n' > "$fake"
+    chmod 755 "$fake"
+
+    run env UV_BIN="$fake" bash -c \
+        'source "'"$LIB_DIR/paths.sh"'" && echo "$UV_BIN"'
+    assert_success
+    assert_output "$fake"
+}
+
+@test "resolve_uv rejects a relative UV_BIN (never a PATH lookup)" {
+    run env UV_BIN="uv" bash -c \
+        'source "'"$LIB_DIR/paths.sh"'"'
+    assert_failure
+    assert_output --partial "must be an absolute path"
+}
+
+@test "resolve_uv rejects a group/world-writable uv (tamper guard)" {
+    local fake="$BATS_TEST_TMPDIR/writable/uv"
+    mkdir -p "$(dirname "$fake")"
+    printf '#!/usr/bin/env bash\ntrue\n' > "$fake"
+    chmod 777 "$fake"
+
+    run env UV_BIN="$fake" bash -c \
+        'source "'"$LIB_DIR/paths.sh"'"'
+    assert_failure
+    assert_output --partial "group/world-writable"
+}
+
+@test "resolve_uv probes the current user's ~/.local/bin, not PATH" {
+    local home="$BATS_TEST_TMPDIR/home"
+    mkdir -p "$home/.local/bin"
+    printf '#!/usr/bin/env bash\ntrue\n' > "$home/.local/bin/uv"
+    chmod 755 "$home/.local/bin/uv"
+
+    run env -u UV_BIN HOME="$home" bash -c \
+        'source "'"$LIB_DIR/paths.sh"'" && echo "$UV_BIN"'
+    assert_success
+    assert_output "$home/.local/bin/uv"
+}
+
+@test "sourcing paths.sh never hard-exits when uv is unpinned" {
+    # Whether or not a system uv is found, an unpinned UV_BIN must be non-fatal
+    # (rc 0) so check_uv() can install it and health checks can report it.
+    local home="$BATS_TEST_TMPDIR/empty-home"
+    mkdir -p "$home"
+
+    run env -u UV_BIN HOME="$home" bash -c \
+        'source "'"$LIB_DIR/paths.sh"'"; echo "rc=$?"'
+    assert_success
+    assert_output --partial "rc=0"
+}

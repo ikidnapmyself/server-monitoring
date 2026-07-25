@@ -111,7 +111,8 @@ _run_sync_deps_with_mode() {
 #!/usr/bin/env bash
 echo "uv \$*"
 EOF
-        chmod +x "$stub_bin/uv"
+        chmod 755 "$stub_bin/uv"
+        UV_BIN="$stub_bin/uv"
         PATH="$stub_bin:$PATH"
         PROJECT_DIR="$(mktemp -d)"
         _up_dry_run=false
@@ -157,7 +158,8 @@ _run_collectstatic_with_mode() {
 #!/usr/bin/env bash
 echo "uv \$*"
 EOF
-        chmod +x "$stub_bin/uv"
+        chmod 755 "$stub_bin/uv"
+        UV_BIN="$stub_bin/uv"
         PATH="$stub_bin:$PATH"
         PROJECT_DIR="$(mktemp -d)"
         _up_dry_run=false
@@ -201,7 +203,8 @@ EOF
 #!/usr/bin/env bash
 echo "uv \$*"
 EOF
-        chmod +x "$stub_bin/uv"
+        chmod 755 "$stub_bin/uv"
+        UV_BIN="$stub_bin/uv"
         PATH="$stub_bin:$PATH"
         PROJECT_DIR="$(mktemp -d)"
         _up_dry_run=true

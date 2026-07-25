@@ -9,6 +9,8 @@ _LIB_CHECKS_LOADED=1
 
 _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$_LIB_DIR/logging.sh"
+# paths.sh resolves UV_BIN (absolute uv path) and defines resolve_uv().
+source "$_LIB_DIR/paths.sh"
 
 command_exists() {
     command -v "$1" >/dev/null 2>&1
@@ -50,10 +52,10 @@ check_python() {
 # Returns 1 on failure.
 check_uv() {
     info "Checking for uv package manager..."
-    if command_exists uv; then
+    if resolve_uv && [ -n "$UV_BIN" ]; then
         local uv_version
-        uv_version=$(uv --version 2>/dev/null | head -n1)
-        success "uv is already installed: $uv_version"
+        uv_version=$("$UV_BIN" --version 2>/dev/null | head -n1)
+        success "uv is already installed: $uv_version ($UV_BIN)"
         return 0
     fi
 
@@ -67,10 +69,9 @@ check_uv() {
             source "$HOME/.cargo/env"
         fi
 
-        export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-
-        if command_exists uv; then
-            success "uv installed successfully"
+        # Re-resolve to the absolute path just installed — never rely on PATH.
+        if resolve_uv && [ -n "$UV_BIN" ]; then
+            success "uv installed successfully ($UV_BIN)"
             return 0
         else
             error "Failed to install uv. Please install manually: https://docs.astral.sh/uv/"
