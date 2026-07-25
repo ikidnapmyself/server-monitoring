@@ -385,7 +385,7 @@ def check_cluster_coherence() -> list[CheckResult]:
 
     hub_url = getattr(settings, "HUB_URL", "")
     cluster_enabled = getattr(settings, "CLUSTER_ENABLED", False)
-    secret = getattr(settings, "WEBHOOK_SECRET_CLUSTER", "")
+    api_key = getattr(settings, "HUB_API_KEY", "")
     instance_id = getattr(settings, "INSTANCE_ID", "")
 
     if hub_url and cluster_enabled:
@@ -397,13 +397,13 @@ def check_cluster_coherence() -> list[CheckResult]:
             )
         ]
 
-    if hub_url:
-        if not secret:
+    if hub_url:  # agent
+        if not api_key:
             results.append(
                 CheckResult(
                     level="warn",
-                    message="Agent mode: WEBHOOK_SECRET_CLUSTER is empty",
-                    hint="Set it for signed payloads.",
+                    message="Agent mode: HUB_API_KEY is empty",
+                    hint="Set it to the token created on the hub via create_api_key.",
                 )
             )
         if not instance_id:
@@ -415,18 +415,18 @@ def check_cluster_coherence() -> list[CheckResult]:
                 )
             )
 
-    if cluster_enabled and not hub_url:
-        if not secret:
-            results.append(
-                CheckResult(
-                    level="error",
-                    message="Hub mode: WEBHOOK_SECRET_CLUSTER is empty",
-                    hint="Required to verify agent payloads.",
-                )
+    if cluster_enabled and not hub_url:  # hub
+        # Auth is now the API-key middleware plus a created APIKey record, which
+        # preflight cannot see, so this is informational rather than an error.
+        results.append(
+            CheckResult(
+                level="ok",
+                message="Hub mode: ensure API_KEY_AUTH_ENABLED=1 and an APIKey exists for agents",
             )
+        )
 
     if not results:
-        role = "agent" if hub_url else ("hub" if cluster_enabled else "standalone")
+        role = "agent" if hub_url else "standalone"
         results.append(CheckResult(level="ok", message=f"Cluster: {role}"))
 
     return results

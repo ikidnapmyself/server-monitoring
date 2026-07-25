@@ -168,7 +168,7 @@ For automated deployments, combine `--profile` with `--yes` to accept all defaul
 ./bin/install.sh --profile prod-web --yes
 ```
 
-Only secrets (`DJANGO_SECRET_KEY`, `WEBHOOK_SECRET_CLUSTER`) will still be prompted since they are never stored in profiles.
+Only secrets (`DJANGO_SECRET_KEY`, `HUB_API_KEY`) will still be prompted since they are never stored in profiles.
 
 ---
 

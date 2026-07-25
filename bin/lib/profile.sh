@@ -15,7 +15,7 @@ source "$_LIB_DIR/logging.sh"
 source "$_LIB_DIR/dotenv.sh"
 
 # Keys that must never appear in a profile
-PROFILE_SENSITIVE_KEYS=(DJANGO_SECRET_KEY WEBHOOK_SECRET_CLUSTER)
+PROFILE_SENSITIVE_KEYS=(DJANGO_SECRET_KEY HUB_API_KEY)
 
 # Installer state variables not stored in .env
 PROFILE_STATE_KEYS=(CRON_SCHEDULE CRON_AUTO_UPDATE CRON_PUSH_TO_HUB ALIAS_PREFIX)

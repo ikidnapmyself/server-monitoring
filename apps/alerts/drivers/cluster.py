@@ -40,7 +40,6 @@ class ClusterDriver(BaseAlertDriver):
     """Driver for alerts from sibling server-monitoring instances."""
 
     name = "cluster"
-    signature_header = "X-Cluster-Signature"
     skip_checkers = True
 
     def validate(self, payload: dict[str, Any]) -> bool:

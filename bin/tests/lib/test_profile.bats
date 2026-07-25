@@ -22,7 +22,7 @@ DJANGO_ENV=prod
 DEPLOY_METHOD=bare
 DJANGO_SECRET_KEY=supersecret
 DJANGO_DEBUG=0
-WEBHOOK_SECRET_CLUSTER=topsecret
+HUB_API_KEY=topsecret
 CELERY_BROKER_URL=redis://localhost:6379/0
 ENVEOF
 
@@ -33,7 +33,7 @@ ENVEOF
     grep -q "DEPLOY_METHOD=bare" "$TEST_TMPDIR/.install-profile"
     grep -q "CELERY_BROKER_URL=redis://localhost:6379/0" "$TEST_TMPDIR/.install-profile"
     ! grep -q "DJANGO_SECRET_KEY" "$TEST_TMPDIR/.install-profile"
-    ! grep -q "WEBHOOK_SECRET_CLUSTER" "$TEST_TMPDIR/.install-profile"
+    ! grep -q "HUB_API_KEY" "$TEST_TMPDIR/.install-profile"
 }
 
 @test "profile_save writes metadata header" {

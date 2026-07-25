@@ -42,36 +42,28 @@ class AlertWebhookView(View):
                     status=400,
                 )
 
-            # Verify webhook signature if configured
+            # Resolve the driver (from the URL or by sniffing the payload).
             from apps.alerts.drivers import detect_driver, get_driver
 
-            sig_driver = None
+            resolved_driver = None
             if driver:
                 try:
-                    sig_driver = get_driver(driver)
+                    resolved_driver = get_driver(driver)
                 except ValueError:
                     return JsonResponse(
                         {"status": "error", "message": "Unknown driver"},
                         status=400,
                     )
             else:
-                sig_driver = detect_driver(payload)
+                resolved_driver = detect_driver(payload)
 
-            if sig_driver and sig_driver.signature_header:
-                import os as _os
-
-                secret_env = f"WEBHOOK_SECRET_{sig_driver.name.upper()}"
-                secret = _os.environ.get(secret_env)
-                if secret:
-                    header_key = f"HTTP_{sig_driver.signature_header.upper().replace('-', '_')}"
-                    sig_value = request.META.get(header_key)
-                    if not sig_value or not sig_driver.verify_signature(
-                        request.body, sig_value, secret
-                    ):
-                        return JsonResponse(
-                            {"status": "error", "message": "Invalid webhook signature"},
-                            status=403,
-                        )
+            # Interim (Slice A) rule: a driver whose payload already carries its own
+            # diagnostics (e.g. cluster) tells the pipeline to skip the local CHECK
+            # stage for this run. This is a driver property, not a source-string branch
+            # in the orchestrator. Authentication is handled uniformly by the API-key
+            # middleware; there is no per-driver signature check.
+            if resolved_driver and getattr(resolved_driver, "skip_checkers", False):
+                payload["skip_checkers"] = True
 
             # If Celery is enabled, enqueue the orchestration chain and return quickly.
             # (In tests/dev you can set CELERY_TASK_ALWAYS_EAGER=1 to run inline.)

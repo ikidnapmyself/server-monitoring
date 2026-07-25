@@ -39,7 +39,7 @@ class PushToHubTests(TestCase):
         output = out.getvalue()
         self.assertIn("dry run", output.lower())
 
-    @override_settings(HUB_URL="https://hub.example.com")
+    @override_settings(HUB_URL="https://hub.example.com", HUB_API_KEY="tok123")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
     @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
     def test_posts_to_hub_url(self, mock_urlopen, mock_registry):
@@ -69,7 +69,9 @@ class PushToHubTests(TestCase):
         self.assertEqual(payload["source"], "cluster")
         self.assertTrue(len(payload["alerts"]) > 0)
 
-    @override_settings(HUB_URL="https://hub.example.com", INSTANCE_ID="test-agent")
+    @override_settings(
+        HUB_URL="https://hub.example.com", INSTANCE_ID="test-agent", HUB_API_KEY="tok123"
+    )
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
     @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
     def test_uses_instance_id_from_settings(self, mock_urlopen, mock_registry):
@@ -149,11 +151,11 @@ class PushToHubTests(TestCase):
         call_command("push_to_hub", "--dry-run", stdout=out, stderr=err)
         self.assertIn("boom", err.getvalue())
 
-    @override_settings(HUB_URL="https://hub.example.com", WEBHOOK_SECRET_CLUSTER="test-secret")
+    @override_settings(HUB_URL="https://hub.example.com", HUB_API_KEY="tok123")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
     @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
-    def test_signature_header_sent_when_secret_set(self, mock_urlopen, mock_registry):
-        """When WEBHOOK_SECRET_CLUSTER is set, X-Cluster-Signature header is sent."""
+    def test_push_sends_bearer_key_and_no_signature(self, mock_urlopen, mock_registry):
+        """The push authenticates with Authorization: Bearer HUB_API_KEY, no HMAC."""
         mock_checker_cls = MagicMock()
         mock_checker_cls.return_value.run.return_value = CheckResult(
             status=CheckStatus.OK, message="OK", metrics={}, checker_name="cpu"
@@ -171,9 +173,25 @@ class PushToHubTests(TestCase):
         call_command("push_to_hub", stdout=out)
 
         request = mock_urlopen.call_args[0][0]
-        self.assertIn("X-cluster-signature", request.headers)
+        self.assertEqual(request.headers["Authorization"], "Bearer tok123")
+        lowered = {k.lower(): v for k, v in request.headers.items()}
+        self.assertNotIn("x-cluster-signature", lowered)
 
-    @override_settings(HUB_URL="https://hub.example.com")
+    @override_settings(HUB_URL="https://hub.example.com", HUB_API_KEY="")
+    @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
+    def test_push_errors_without_api_key(self, mock_registry):
+        """A real push with no HUB_API_KEY fails clearly rather than posting anonymously."""
+        mock_checker_cls = MagicMock()
+        mock_checker_cls.return_value.run.return_value = CheckResult(
+            status=CheckStatus.OK, message="OK", metrics={}, checker_name="cpu"
+        )
+        mock_registry.items.return_value = [("cpu", mock_checker_cls)]
+
+        with self.assertRaises(CommandError) as ctx:
+            call_command("push_to_hub", stderr=StringIO())
+        self.assertIn("HUB_API_KEY", str(ctx.exception))
+
+    @override_settings(HUB_URL="https://hub.example.com", HUB_API_KEY="tok123")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
     @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
     def test_hub_error_raises_command_error(self, mock_urlopen, mock_registry):
@@ -195,7 +213,7 @@ class PushToHubTests(TestCase):
             call_command("push_to_hub", stderr=StringIO())
         self.assertIn("500", str(ctx.exception))
 
-    @override_settings(HUB_URL="https://hub.example.com")
+    @override_settings(HUB_URL="https://hub.example.com", HUB_API_KEY="tok123")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
     @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
     def test_network_error_raises_command_error(self, mock_urlopen, mock_registry):
@@ -211,7 +229,7 @@ class PushToHubTests(TestCase):
             call_command("push_to_hub", stderr=StringIO())
         self.assertIn("Failed to reach hub", str(ctx.exception))
 
-    @override_settings(HUB_URL="https://hub.example.com")
+    @override_settings(HUB_URL="https://hub.example.com", HUB_API_KEY="tok123")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
     @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
     def test_json_output_on_success(self, mock_urlopen, mock_registry):
@@ -329,7 +347,7 @@ MOCK_REGISTRY = {
 
 @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY", MOCK_REGISTRY)
 class TestPushToHubSSRF(TestCase):
-    @override_settings(HUB_URL="http://10.0.0.1")
+    @override_settings(HUB_URL="http://10.0.0.1", HUB_API_KEY="tok123")
     @patch(
         "apps.alerts.management.commands.push_to_hub.safe_urlopen",
         side_effect=URLNotAllowedError("private"),

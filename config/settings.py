@@ -207,11 +207,13 @@ STATSD_HOST = os.environ.get("STATSD_HOST", "localhost")
 STATSD_PORT = int(os.environ.get("STATSD_PORT", "8125"))
 STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "pipeline")
 
-# Cluster (multi-instance)
+# Cluster (multi-instance). An agent pushes to a hub authenticated by a single
+# API key (Authorization: Bearer HUB_API_KEY); the hub accepts it via the API-key
+# middleware. CLUSTER_ENABLED is the hub-intent flag used for role/preflight only.
 CLUSTER_ENABLED = os.environ.get("CLUSTER_ENABLED", "0") == "1"
 HUB_URL = os.environ.get("HUB_URL", "")
 INSTANCE_ID = os.environ.get("INSTANCE_ID", "")
-WEBHOOK_SECRET_CLUSTER = os.environ.get("WEBHOOK_SECRET_CLUSTER", "")
+HUB_API_KEY = os.environ.get("HUB_API_KEY", "")
 
 # ---------------------------------------------------------------------------
 # Django System Check Silencing

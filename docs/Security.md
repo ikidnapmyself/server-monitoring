@@ -163,35 +163,30 @@ The two health-check paths (`/alerts/webhook/`, `/intelligence/health/`) use an 
 
 The raw key itself is **never** persisted: only its SHA-256 digest is stored (`APIKey.key`, 64 hex chars) and the digest field is `editable=False`. Operators see the raw key exactly once at creation time.
 
-## Webhook Signature Verification
+## Webhook Authentication
 
-Drivers support opt-in HMAC signature verification. When a secret is configured for a driver, incoming webhooks must include a valid signature.
-
-### Configuration
-
-Set an environment variable per driver:
-
-| Variable | Driver |
-|----------|--------|
-| `WEBHOOK_SECRET_GRAFANA` | Grafana |
-| `WEBHOOK_SECRET_PAGERDUTY` | PagerDuty |
-| `WEBHOOK_SECRET_NEWRELIC` | New Relic |
-| `WEBHOOK_SECRET_GENERIC` | Generic webhook |
-
-Drivers without native signature support (Alertmanager, Datadog, OpsGenie, Zabbix) do not perform verification.
+Webhooks are authenticated the same way as every other API entrypoint: the
+API-key middleware. There is no per-driver HMAC scheme — a single credential
+type gates all non-GET requests under `/alerts/`, `/orchestration/`, `/notify/`,
+and `/intelligence/` when `API_KEY_AUTH_ENABLED=1`.
 
 ### How It Works
 
-- The driver declares its signature header (e.g., `X-Grafana-Signature`)
-- On incoming POST, if the env var is set, the middleware computes `HMAC-SHA256(secret, request.body)` and compares with the header value using `hmac.compare_digest` (constant-time)
-- Missing or invalid signature → `403 Forbidden`
-- No env var configured → verification skipped (opt-in)
+- The caller sends `Authorization: Bearer <token>` (or `X-API-Key: <token>`).
+- The middleware resolves the token against the `APIKey` model (SHA-256 digest at
+  rest) and compares with `hmac.compare_digest` (constant-time).
+- Missing or invalid token → `401 Unauthorized`.
+- Admin (`/admin/`) uses Django session auth; `/static/` and GET health checks are exempt.
 
-### Auto-Detection Fallback
+### Cluster (agent → hub)
 
-When `driver=` is omitted from the request, the alerts ingestor probes drivers in registry order and uses the first that successfully `validate()`s the payload. If the matched driver has **no** `WEBHOOK_SECRET_<NAME>` env var configured, HMAC verification is silently skipped — this is the documented opt-in model.
+A cluster agent authenticates its `push_to_hub` with `HUB_API_KEY`, a token
+minted on the hub via `manage.py create_api_key`. Each agent can carry its own
+key so a single agent can be revoked (deactivate its `APIKey`) without disturbing
+the others.
 
-**Operator rule:** for any inbound driver you trust in production, set the corresponding `WEBHOOK_SECRET_*` env var. Auto-detect plus an unset secret means the endpoint is reachable by any caller who can hit it; combine with `APIKey.allowed_endpoints` and rate-limiting to bound the surface.
+**Operator rule:** keep `API_KEY_AUTH_ENABLED=1` in production (`bin/set_production.sh`
+sets it). Bound the surface further with `APIKey.allowed_endpoints` and rate-limiting.
 
 ## Rate Limiting
 
@@ -560,7 +555,7 @@ Mapping derived from the [2026-05-12 ISO 27003 audit](plans/2026-05-12-iso-27003
 | Control | Title | Codebase mitigation |
 |---|---|---|
 | A.5.15 | Access control | `config/middleware/api_key_auth.py` (per-endpoint API keys, `allowed_endpoints` allowlists); Django staff/superuser auth on `/admin/` |
-| A.5.17 | Authentication information | `APIKey` model: `secrets.token_hex(20)` raw, SHA-256 digest at rest, never re-displayed; `DJANGO_SECRET_KEY` env-only with startup check; `WEBHOOK_SECRET_<DRIVER>` env vars |
+| A.5.17 | Authentication information | `APIKey` model: `secrets.token_hex(20)` raw, SHA-256 digest at rest, never re-displayed; `DJANGO_SECRET_KEY` env-only with startup check; agents authenticate to the hub with `HUB_API_KEY` (Bearer) |
 | A.5.23 | Information security for use of cloud services | `validate_safe_url` on intelligence-provider base URLs; `BLOCKED_CONFIG_KEYS` filter on API-callable provider config |
 | A.8.2 | Privileged access rights | `bin/` toolchain confirmed not to grant sudo or install setuid; Django admin actions gated by `is_staff` |
 | A.8.3 | Information access restriction | `APIKey.allowed_endpoints` path-prefix gating; admin actions outside webhook surface |
