@@ -177,6 +177,32 @@ class PushToHubTests(TestCase):
         lowered = {k.lower(): v for k, v in request.headers.items()}
         self.assertNotIn("x-cluster-signature", lowered)
 
+    @override_settings(HUB_URL="https://hub.example.com", HUB_API_KEY="tok123")
+    @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
+    @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
+    def test_push_sends_identifiable_user_agent(self, mock_urlopen, mock_registry):
+        """An explicit User-Agent is sent so a WAF doesn't block the default
+        urllib UA (Python-urllib/*), which commonly yields a 403."""
+        mock_checker_cls = MagicMock()
+        mock_checker_cls.return_value.run.return_value = CheckResult(
+            status=CheckStatus.OK, message="OK", metrics={}, checker_name="cpu"
+        )
+        mock_registry.items.return_value = [("cpu", mock_checker_cls)]
+
+        mock_response = MagicMock()
+        mock_response.status = 202
+        mock_response.read.return_value = b"{}"
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_response
+
+        call_command("push_to_hub", stdout=StringIO())
+
+        request = mock_urlopen.call_args[0][0]
+        ua = {k.lower(): v for k, v in request.headers.items()}.get("user-agent", "")
+        self.assertIn("server-monitoring-agent", ua)
+        self.assertNotIn("python-urllib", ua.lower())
+
     @override_settings(HUB_URL="https://hub.example.com", HUB_API_KEY="")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
     def test_push_errors_without_api_key(self, mock_registry):
