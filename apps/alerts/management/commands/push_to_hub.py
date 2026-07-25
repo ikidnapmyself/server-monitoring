@@ -110,6 +110,10 @@ class Command(BaseCommand):
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
+            # Identify the agent explicitly. urllib's default UA is
+            # "Python-urllib/<ver>", which WAFs in front of a hub routinely block
+            # with a 403; an identifiable UA is also what an operator allowlists.
+            "User-Agent": "server-monitoring-agent/1.0",
         }
 
         request = Request(url, data=body, headers=headers, method="POST")
