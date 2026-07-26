@@ -663,12 +663,23 @@ class TestNotifyExecutorSuccess(TestCase):
         assert len(result.messages) == 1
         driver_inst.send.assert_called_once()
 
-    def test_severity_mapping_critical(self):
+    def test_notify_severity_and_title_from_alert_without_ai(self):
+        """Severity/title are authoritative from alert data even with no AI recs.
+
+        A checkers-only node with a real critical failure but no AI
+        recommendations must still notify at ``critical`` with the incident
+        title — never the generic AI-derived ``Incident Analysis`` / ``info``.
+        """
         driver_cls, _ = _mock_driver_cls()
         previous = {
-            "analyze": {
-                "recommendations": [{"title": "A", "priority": "critical", "description": "x"}]
-            }
+            "ingest": {
+                "severity": "critical",
+                "incident_title": "High CPU on web-03",
+                "alerts_created": 2,
+                "source": "cluster",
+            },
+            # AI produced nothing usable (fallback / empty recommendations).
+            "analyze": {"fallback_used": True, "recommendations": []},
         }
 
         with patch(
@@ -679,11 +690,26 @@ class TestNotifyExecutorSuccess(TestCase):
 
         msg = result.messages[0]
         assert msg["severity"] == "critical"
+        assert "High CPU on web-03" in msg["title"]
+        assert msg["title"] != "Incident Analysis"
+        assert msg["message"]
 
-    def test_severity_mapping_warning(self):
+    def test_recommendations_enrich_body_but_not_severity(self):
+        """AI recommendations enrich the body only; they never raise severity."""
         driver_cls, _ = _mock_driver_cls()
         previous = {
-            "analyze": {"recommendations": [{"title": "A", "priority": "high", "description": "x"}]}
+            "ingest": {
+                "severity": "warning",
+                "incident_title": "Elevated CPU on web-03",
+                "alerts_created": 1,
+                "source": "cluster",
+            },
+            "analyze": {
+                "summary": "Restart the CPU-bound worker process",
+                "recommendations": [
+                    {"title": "Restart worker", "priority": "critical", "description": "hot"}
+                ],
+            },
         }
 
         with patch(
@@ -693,9 +719,17 @@ class TestNotifyExecutorSuccess(TestCase):
             result = NotifyExecutor().execute(_ctx(payload={}, previous_results=previous))
 
         msg = result.messages[0]
+        # Alert-authoritative: AI's critical recommendation did NOT raise it.
         assert msg["severity"] == "warning"
+        # AI enrichment appears in the body via the intelligence summary.
+        assert "Restart the CPU-bound worker process" in msg["message"]
 
-    def test_no_recommendations_defaults(self):
+    def test_no_ingest_data_uses_generated_defaults(self):
+        """With no ingest data, title/severity come from derive_headline defaults.
+
+        Severity defaults to ``info`` and the title is generated from the
+        source — but it is NOT the old AI-derived ``Incident Analysis``.
+        """
         driver_cls, _ = _mock_driver_cls()
         previous = {"analyze": {}}
 
@@ -706,18 +740,23 @@ class TestNotifyExecutorSuccess(TestCase):
             result = NotifyExecutor().execute(_ctx(payload={}, previous_results=previous))
 
         msg = result.messages[0]
-        assert msg["title"] == "Incident Analysis"
         assert msg["severity"] == "info"
+        assert msg["title"] != "Incident Analysis"
+        assert msg["message"]
 
-    def test_fallback_used_message(self):
+    def test_fallback_used_appends_note_but_keeps_alert_headline(self):
+        """AI fallback appends a note to the body; title/severity stay from alert."""
         driver_cls, _ = _mock_driver_cls()
         previous = {
+            "ingest": {
+                "severity": "critical",
+                "incident_title": "Disk full on web-01",
+                "source": "cluster",
+            },
             "analyze": {
                 "fallback_used": True,
                 "summary": "AI unavailable",
-                "probable_cause": "Error",
-                "actions": ["Check manually"],
-            }
+            },
         }
 
         with patch(
@@ -727,8 +766,9 @@ class TestNotifyExecutorSuccess(TestCase):
             result = NotifyExecutor().execute(_ctx(payload={}, previous_results=previous))
 
         msg = result.messages[0]
-        assert "AI Unavailable" in msg["title"]
-        assert "AI analysis was unavailable" in msg["message"]
+        assert msg["severity"] == "critical"
+        assert "Disk full on web-01" in msg["title"]
+        assert "AI analysis unavailable" in msg["message"]
 
 
 class TestNotifyExecutorDriverFailures(TestCase):
@@ -804,7 +844,10 @@ class TestNotifyExecutorTemplateRendering(TestCase):
 
         assert not result.errors
         msg = result.messages[0]
-        assert "Hello Incident Analysis" in msg["message"]
+        # Template renders {{ title }}, which now comes from derive_headline
+        # (alert-authoritative) rather than the old AI-derived "Incident Analysis".
+        assert msg["message"].startswith("Hello [")
+        assert msg["title"] in msg["message"]
 
     def test_payload_config_template_is_ignored(self):
         """Templates passed in pipeline payload.notify_config are IGNORED.
@@ -836,7 +879,7 @@ class TestNotifyExecutorTemplateRendering(TestCase):
         # The payload-supplied literal string must not appear anywhere; the
         # executor must use the default build_notification_body output.
         assert "Payload: {{ title }}" not in msg["message"]
-        assert "Payload: Incident Analysis" not in msg["message"]
+        assert f"Payload: {msg['title']}" not in msg["message"]
         # Default body is produced from build_notification_body; assert it
         # produced non-empty content so we know the fallback path ran.
         assert msg["message"]
