@@ -109,6 +109,18 @@ class AlertOrchestrator:
             # Parse the payload
             parsed = driver_instance.parse(payload)
 
+            # Cluster pushes register/refresh the sending node (the agent registry).
+            if (driver == "cluster") or (payload.get("source") == "cluster"):
+                from apps.alerts.models import Node
+
+                instance_id = payload.get("instance_id")
+                if instance_id:
+                    Node.upsert(
+                        instance_id=instance_id,
+                        hostname=payload.get("hostname", ""),
+                        source="cluster",
+                    )
+
             # Process each alert
             with transaction.atomic():
                 for parsed_alert in parsed.alerts:
