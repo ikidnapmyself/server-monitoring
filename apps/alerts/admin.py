@@ -5,7 +5,7 @@ from django.utils.html import format_html
 from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
 
-from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus
+from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus, Node
 from apps.orchestration.models import PipelineRun
 from config.dashboard import prettify_json
 
@@ -395,4 +395,29 @@ class AlertHistoryAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         """Disable editing history - they are audit records."""
+        return False
+
+
+@admin.register(Node)
+class NodeAdmin(admin.ModelAdmin):
+    """Read-only registry of agents that have pushed cluster data to this hub."""
+
+    list_display = ["instance_id", "hostname", "last_source", "first_seen", "last_seen"]
+    search_fields = ["instance_id", "hostname"]
+    readonly_fields = [
+        "instance_id",
+        "hostname",
+        "address",
+        "last_source",
+        "labels",
+        "first_seen",
+        "last_seen",
+    ]
+
+    def has_add_permission(self, request):
+        """Nodes are written only by the ingest path, never added in admin."""
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        """Registry is a read-only operational view."""
         return False
