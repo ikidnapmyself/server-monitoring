@@ -81,6 +81,82 @@ class TestIngestExecutorSuccess(TestCase):
         assert result.normalized_payload_ref == "payload:trace-abc:run-xyz:ingest"
         assert result.duration_ms > 0
 
+    def test_incident_title_carried_from_latest_alert(self):
+        """The ingest result exposes the incident's human title."""
+        from django.utils import timezone
+
+        from apps.alerts.models import Alert, Incident
+
+        incident = Incident.objects.create(title="Disk full on web-01", severity="critical")
+        Alert.objects.create(
+            fingerprint="fp-title",
+            source="test",
+            name="disk",
+            severity="critical",
+            started_at=timezone.now(),
+            incident=incident,
+        )
+
+        @dataclass
+        class FakeResult:
+            alerts_created: int = 1
+            alerts_updated: int = 0
+            alerts_resolved: int = 0
+            incidents_created: int = 1
+            incidents_updated: int = 0
+            errors: list = field(default_factory=list)
+
+        mock_orch = MagicMock()
+        mock_orch.process_webhook.return_value = FakeResult()
+
+        with patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch):
+            result = IngestExecutor().execute(
+                _ctx(payload={"driver": "generic", "payload": {"key": "val"}})
+            )
+
+        assert result.incident_id == incident.id
+        assert result.incident_title == "Disk full on web-01"
+        assert result.to_dict()["incident_title"] == "Disk full on web-01"
+
+    def test_incident_without_title_leaves_incident_title_empty(self):
+        """When the incident has no title, incident_title stays the default empty string."""
+
+        @dataclass
+        class FakeResult:
+            alerts_created: int = 1
+            alerts_updated: int = 0
+            alerts_resolved: int = 0
+            incidents_created: int = 1
+            incidents_updated: int = 0
+            errors: list = field(default_factory=list)
+
+        mock_orch = MagicMock()
+        mock_orch.process_webhook.return_value = FakeResult()
+
+        mock_alert = MagicMock()
+        mock_alert.incident_id = 42
+        mock_alert.fingerprint = "fp-123"
+        mock_alert.severity = "critical"
+        mock_alert.incident.title = ""
+
+        with (
+            patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch),
+            patch(
+                "apps.alerts.models.Alert.objects.order_by",
+                return_value=MagicMock(
+                    select_related=MagicMock(
+                        return_value=MagicMock(first=MagicMock(return_value=mock_alert))
+                    )
+                ),
+            ),
+        ):
+            result = IngestExecutor().execute(
+                _ctx(payload={"driver": "generic", "payload": {"key": "val"}})
+            )
+
+        assert result.incident_id == 42
+        assert result.incident_title == ""
+
     def test_invalid_payload_not_dict(self):
         result = IngestExecutor().execute(
             _ctx(payload={"driver": "generic", "payload": "not a dict"})

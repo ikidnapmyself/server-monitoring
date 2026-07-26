@@ -90,6 +90,8 @@ class IngestExecutor(BaseExecutor):
                 result.incident_id = latest_alert.incident_id
                 result.alert_fingerprint = latest_alert.fingerprint
                 result.severity = latest_alert.severity
+                if latest_alert.incident and latest_alert.incident.title:
+                    result.incident_title = latest_alert.incident.title
 
             # Generate payload reference (hash-based, no secrets)
             result.normalized_payload_ref = f"payload:{ctx.trace_id}:{ctx.run_id}:ingest"

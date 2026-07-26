@@ -62,6 +62,7 @@ class IngestResult:
     """
 
     incident_id: int | None = None
+    incident_title: str = ""
     alert_fingerprint: str | None = None
     severity: str = "info"
     source: str = "unknown"
