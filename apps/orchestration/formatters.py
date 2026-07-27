@@ -73,6 +73,14 @@ def format_intelligence_summary(intelligence_prev: Any) -> str:
     return "\n".join(lines + top_proc_lines)
 
 
+def _as_int(value: Any) -> int:
+    """Best-effort int coercion for a safe formatter — 0 on non-numeric input."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def derive_headline(ingest_prev: Any, check_prev: Any) -> tuple[str, str, str]:
     """Build (title, severity, lead line) from alert/check data — never from AI.
 
@@ -96,11 +104,11 @@ def derive_headline(ingest_prev: Any, check_prev: Any) -> tuple[str, str, str]:
         title = f"[{severity.upper()}] {source}: incident"
 
     parts = []
-    created = int(ingest.get("alerts_created", 0) or 0)
-    updated = int(ingest.get("alerts_updated", 0) or 0)
+    created = _as_int(ingest.get("alerts_created"))
+    updated = _as_int(ingest.get("alerts_updated"))
     if created or updated:
         parts.append(f"{created + updated} alert(s) ({created} new)")
-    failed = int(check.get("checks_failed", 0) or 0)
+    failed = _as_int(check.get("checks_failed"))
     if failed:
         parts.append(f"{failed} check(s) failed")
     lead = f"{source}: " + (", ".join(parts) if parts else "monitoring event")

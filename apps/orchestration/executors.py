@@ -84,8 +84,15 @@ class IngestExecutor(BaseExecutor):
             result.errors = list(proc_result.errors)
             result.source = ctx.source
 
-            # Find incident ID from latest alert
-            latest_alert = Alert.objects.order_by("-received_at").select_related("incident").first()
+            # Find the incident from the most recent alert. Scope by source when
+            # it is known (not the auto-detect "unknown" sentinel) to reduce
+            # cross-source contamination on a shared hub. Fingerprint-level
+            # correctness under concurrent same-source pushes is a separately
+            # tracked limitation.
+            alert_qs = Alert.objects.order_by("-received_at")
+            if ctx.source and ctx.source != "unknown":
+                alert_qs = alert_qs.filter(source=ctx.source)
+            latest_alert = alert_qs.select_related("incident").first()
             if latest_alert and latest_alert.incident_id:
                 result.incident_id = latest_alert.incident_id
                 result.alert_fingerprint = latest_alert.fingerprint

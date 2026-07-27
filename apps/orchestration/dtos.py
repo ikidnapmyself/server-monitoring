@@ -55,6 +55,7 @@ class IngestResult:
 
     Output:
     - incident_id: The created/updated incident ID
+    - incident_title: Human title of the associated incident (for notifications)
     - alert_fingerprint: Unique identifier for deduplication
     - severity: Alert severity level
     - source: Which monitoring system sent the alert

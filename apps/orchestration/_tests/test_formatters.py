@@ -200,3 +200,12 @@ class DeriveHeadlineTests(SimpleTestCase):
         title, severity, lead = derive_headline(None, "oops")
         self.assertEqual(severity, "info")
         self.assertTrue(title and lead)
+
+    def test_non_numeric_counts_do_not_raise(self):
+        # A safe formatter must not blow up the notify stage on malformed counts.
+        _, severity, lead = derive_headline(
+            {"severity": "warning", "alerts_created": "2 alerts"}, {"checks_failed": "bad"}
+        )
+        self.assertEqual(severity, "warning")
+        self.assertNotIn("alert(s)", lead)  # coerced to 0 → no count part
+        self.assertIn("monitoring event", lead)

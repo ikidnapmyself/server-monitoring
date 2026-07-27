@@ -35,6 +35,15 @@ def _ctx(payload=None, incident_id=None, previous_results=None, source="test"):
     )
 
 
+def _chain_returning(result):
+    """A queryset mock whose filter/select_related chain ends at .first() == result."""
+    qs = MagicMock()
+    qs.filter.return_value = qs
+    qs.select_related.return_value = qs
+    qs.first.return_value = result
+    return qs
+
+
 # ── IngestExecutor ────────────────────────────────────────────────────────
 
 
@@ -61,11 +70,7 @@ class TestIngestExecutorSuccess(TestCase):
             patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch),
             patch(
                 "apps.alerts.models.Alert.objects.order_by",
-                return_value=MagicMock(
-                    select_related=MagicMock(
-                        return_value=MagicMock(first=MagicMock(return_value=mock_alert))
-                    )
-                ),
+                return_value=_chain_returning(mock_alert),
             ),
         ):
             result = IngestExecutor().execute(
@@ -118,6 +123,76 @@ class TestIngestExecutorSuccess(TestCase):
         assert result.incident_title == "Disk full on web-01"
         assert result.to_dict()["incident_title"] == "Disk full on web-01"
 
+    def _fake_ingest_orch(self):
+        @dataclass
+        class FakeResult:
+            alerts_created: int = 1
+            alerts_updated: int = 0
+            alerts_resolved: int = 0
+            incidents_created: int = 1
+            incidents_updated: int = 0
+            errors: list = field(default_factory=list)
+
+        mock_orch = MagicMock()
+        mock_orch.process_webhook.return_value = FakeResult()
+        return mock_orch
+
+    def test_latest_alert_scoped_by_known_source(self):
+        """A newer alert from a different source is ignored when ctx.source is known."""
+        from django.utils import timezone
+
+        from apps.alerts.models import Alert, Incident
+
+        wanted = Incident.objects.create(title="Wanted", severity="warning")
+        Alert.objects.create(
+            fingerprint="fp-wanted",
+            source="test",
+            name="a",
+            severity="warning",
+            started_at=timezone.now(),
+            incident=wanted,
+        )
+        # Created later → globally newest, but a different source.
+        other = Incident.objects.create(title="Other", severity="critical")
+        Alert.objects.create(
+            fingerprint="fp-other",
+            source="grafana",
+            name="b",
+            severity="critical",
+            started_at=timezone.now(),
+            incident=other,
+        )
+
+        with patch("apps.alerts.services.AlertOrchestrator", return_value=self._fake_ingest_orch()):
+            result = IngestExecutor().execute(
+                _ctx(payload={"driver": "generic", "payload": {"k": "v"}}, source="test")
+            )
+
+        assert result.incident_title == "Wanted"  # source-scoped, not the newer "Other"
+
+    def test_latest_alert_global_when_source_unknown(self):
+        """source='unknown' (auto-detect) falls back to the global latest alert."""
+        from django.utils import timezone
+
+        from apps.alerts.models import Alert, Incident
+
+        incident = Incident.objects.create(title="Detected", severity="critical")
+        Alert.objects.create(
+            fingerprint="fp-det",
+            source="grafana",
+            name="c",
+            severity="critical",
+            started_at=timezone.now(),
+            incident=incident,
+        )
+
+        with patch("apps.alerts.services.AlertOrchestrator", return_value=self._fake_ingest_orch()):
+            result = IngestExecutor().execute(
+                _ctx(payload={"driver": "generic", "payload": {"k": "v"}}, source="unknown")
+            )
+
+        assert result.incident_title == "Detected"  # found despite source mismatch
+
     def test_incident_without_title_leaves_incident_title_empty(self):
         """When the incident has no title, incident_title stays the default empty string."""
 
@@ -143,11 +218,7 @@ class TestIngestExecutorSuccess(TestCase):
             patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch),
             patch(
                 "apps.alerts.models.Alert.objects.order_by",
-                return_value=MagicMock(
-                    select_related=MagicMock(
-                        return_value=MagicMock(first=MagicMock(return_value=mock_alert))
-                    )
-                ),
+                return_value=_chain_returning(mock_alert),
             ),
         ):
             result = IngestExecutor().execute(
@@ -184,11 +255,7 @@ class TestIngestExecutorSuccess(TestCase):
             patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch),
             patch(
                 "apps.alerts.models.Alert.objects.order_by",
-                return_value=MagicMock(
-                    select_related=MagicMock(
-                        return_value=MagicMock(first=MagicMock(return_value=None))
-                    )
-                ),
+                return_value=_chain_returning(None),
             ),
         ):
             result = IngestExecutor().execute(_ctx(payload={"driver": "generic", "payload": {}}))
