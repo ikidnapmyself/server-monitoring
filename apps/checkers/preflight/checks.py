@@ -505,8 +505,8 @@ def check_pipeline_state() -> list[CheckResult]:
         results.append(
             CheckResult(
                 level="info",
-                message="No active pipeline definitions",
-                hint="Create one via Django Admin or: manage.py setup_instance",
+                message="No pipeline definitions (optional)",
+                hint="The default pipeline runs without one; definitions are for advanced custom routing.",
             )
         )
 
