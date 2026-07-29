@@ -13,6 +13,16 @@ Responsibilities:
 Output contract (to orchestrator):
 - `{ deliveries: [...], provider_ids, notify_output_ref }`
 
+**Content sourcing (Phase 2 contract).** A notification's **title and severity come
+from the alert/check data** — the orchestrator's `NotifyExecutor` derives them via
+`apps.orchestration.formatters.derive_headline(ingest, check)` (severity from the
+firing alert on the ingest result; title from the incident title). **Intelligence
+(local rule-based or hosted AI) only *enriches the body*** with recommendations — it
+never sets severity/title and never suppresses a notification. Consequence: a
+checkers-only node with **no paid AI configured still sends a useful, correctly-severe
+alert**. Do not reintroduce AI-derived titles/severity or "no recommendations" as the
+headline.
+
 ## Key modules
 
 - `apps/notify/drivers/` — notification drivers/backends

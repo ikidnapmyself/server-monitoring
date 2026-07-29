@@ -84,12 +84,21 @@ class IngestExecutor(BaseExecutor):
             result.errors = list(proc_result.errors)
             result.source = ctx.source
 
-            # Find incident ID from latest alert
-            latest_alert = Alert.objects.order_by("-received_at").select_related("incident").first()
+            # Find the incident from the most recent alert. Scope by source when
+            # it is known (not the auto-detect "unknown" sentinel) to reduce
+            # cross-source contamination on a shared hub. Fingerprint-level
+            # correctness under concurrent same-source pushes is a separately
+            # tracked limitation.
+            alert_qs = Alert.objects.order_by("-received_at")
+            if ctx.source and ctx.source != "unknown":
+                alert_qs = alert_qs.filter(source=ctx.source)
+            latest_alert = alert_qs.select_related("incident").first()
             if latest_alert and latest_alert.incident_id:
                 result.incident_id = latest_alert.incident_id
                 result.alert_fingerprint = latest_alert.fingerprint
                 result.severity = latest_alert.severity
+                if latest_alert.incident and latest_alert.incident.title:
+                    result.incident_title = latest_alert.incident.title
 
             # Generate payload reference (hash-based, no secrets)
             result.normalized_payload_ref = f"payload:{ctx.trace_id}:{ctx.run_id}:ingest"
@@ -301,39 +310,19 @@ class NotifyExecutor(BaseExecutor):
             # (for example, Slack channel name).
             requested_channel = payload.get("notify_channel")
 
-            # Build notification message from intelligence results
-            intelligence = previous.get("analyze", {})
-            title = "Incident Analysis"
-            message_body = "No recommendations available."
-            severity = "info"
+            # Title and severity are AUTHORITATIVE from alert/check data — never
+            # from AI. Intelligence recommendations only ENRICH the body below.
+            from apps.orchestration.formatters import derive_headline
 
-            recs = intelligence.get("recommendations", [])
-            if recs:
-                title = recs[0].get("title", title)
-                lines = []
-                for r in recs[:10]:
-                    prio = r.get("priority", "")
-                    r_title = r.get("title", "")
-                    desc = r.get("description", "")
-                    lines.append(f"- [{prio}] {r_title}: {desc}")
-                message_body = "\n".join(lines)
+            ingest_prev = previous.get("ingest") or {}
+            check_prev = previous.get("check") or {}
+            title, severity, lead = derive_headline(ingest_prev, check_prev)
+            message_body = lead
 
-                # Map priority to severity
-                max_prio = {"critical": 3, "high": 2, "medium": 1, "low": 0}
-                weight = -1
-                for r in recs:
-                    weight = max(weight, max_prio.get((r.get("priority") or "").lower(), 0))
-                severity = "critical" if weight >= 3 else "warning" if weight >= 2 else "info"
-
-            # Handle fallback case
+            # Intelligence ENRICHES the body only — it never sets severity/title.
+            intelligence = previous.get("analyze", {}) or {}
             if intelligence.get("fallback_used"):
-                title = "Incident Alert (AI Unavailable)"
-                message_body = (
-                    f"AI analysis was unavailable.\n\n"
-                    f"Summary: {intelligence.get('summary', 'N/A')}\n"
-                    f"Probable cause: {intelligence.get('probable_cause', 'N/A')}\n"
-                    f"Actions: {', '.join(intelligence.get('actions', ['Manual investigation required']))}"
-                )
+                message_body += "\n\n_AI analysis unavailable; showing check-based summary._"
 
             # Centralize provider/channel selection via NotifySelector
             from apps.notify.services import NotifySelector
@@ -380,11 +369,9 @@ class NotifyExecutor(BaseExecutor):
 
             # Build NotificationMessage using the base dataclass fields. Put
             # idempotency info into tags and the intelligence/check output into context.
-            # Build human-readable summaries for previous stages
-            ingest_prev = previous.get("ingest") or {}
+            # Build human-readable summaries for previous stages. ingest_prev
+            # and check_prev were already resolved above for derive_headline().
             ingest_md = format_ingest_summary(ingest_prev)
-
-            check_prev = previous.get("check") or {}
             check_md = format_check_summary(check_prev)
 
             intelligence_prev = intelligence or {}

@@ -73,6 +73,48 @@ def format_intelligence_summary(intelligence_prev: Any) -> str:
     return "\n".join(lines + top_proc_lines)
 
 
+def _as_int(value: Any) -> int:
+    """Best-effort int coercion for a safe formatter — 0 on non-numeric input."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def derive_headline(ingest_prev: Any, check_prev: Any) -> tuple[str, str, str]:
+    """Build (title, severity, lead line) from alert/check data — never from AI.
+
+    Severity is the alert severity carried on the ingest result (authoritative);
+    the title prefers the incident title, else summarizes the source. The lead
+    line summarizes what happened so a notification is useful with zero
+    recommendations.
+    """
+    ingest = ingest_prev if isinstance(ingest_prev, dict) else {}
+    check = check_prev if isinstance(check_prev, dict) else {}
+
+    severity = (ingest.get("severity") or "info").lower()
+    if severity not in ("critical", "warning", "info"):
+        severity = "info"
+
+    source = ingest.get("source") or "monitoring"
+    incident_title = ingest.get("incident_title") or ""
+    if incident_title:
+        title = f"[{severity.upper()}] {incident_title}"
+    else:
+        title = f"[{severity.upper()}] {source}: incident"
+
+    parts = []
+    created = _as_int(ingest.get("alerts_created"))
+    updated = _as_int(ingest.get("alerts_updated"))
+    if created or updated:
+        parts.append(f"{created + updated} alert(s) ({created} new)")
+    failed = _as_int(check.get("checks_failed"))
+    if failed:
+        parts.append(f"{failed} check(s) failed")
+    lead = f"{source}: " + (", ".join(parts) if parts else "monitoring event")
+    return title, severity, lead
+
+
 def build_notification_body(
     message_body: str,
     ingest_md: str,

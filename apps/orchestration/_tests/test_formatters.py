@@ -4,6 +4,7 @@ from django.test import SimpleTestCase
 
 from apps.orchestration.formatters import (
     build_notification_body,
+    derive_headline,
     format_check_summary,
     format_ingest_summary,
     format_intelligence_summary,
@@ -158,3 +159,53 @@ class TestBuildNotificationBody(SimpleTestCase):
     def test_single_section(self):
         body = build_notification_body("only this", "", "", "")
         assert body == "only this"
+
+
+class DeriveHeadlineTests(SimpleTestCase):
+    def test_uses_incident_title_and_alert_severity(self):
+        ingest = {
+            "incident_title": "High CPU on web-03",
+            "severity": "critical",
+            "source": "cluster",
+            "alerts_created": 2,
+            "incidents_created": 1,
+        }
+        title, severity, lead = derive_headline(ingest, {})
+        self.assertEqual(severity, "critical")
+        self.assertIn("High CPU on web-03", title)
+        self.assertIn("CRITICAL", title.upper())
+        self.assertIn("2", lead)
+
+    def test_falls_back_when_no_incident_title(self):
+        ingest = {"severity": "warning", "source": "grafana", "alerts_created": 1}
+        title, severity, lead = derive_headline(ingest, {})
+        self.assertEqual(severity, "warning")
+        self.assertIn("grafana", title)
+        self.assertTrue(lead)
+
+    def test_defaults_info_when_no_severity(self):
+        title, severity, lead = derive_headline({}, {})
+        self.assertEqual(severity, "info")
+        self.assertTrue(title)
+
+    def test_invalid_severity_coerced_to_info(self):
+        _, severity, _ = derive_headline({"severity": "bogus"}, {})
+        self.assertEqual(severity, "info")
+
+    def test_includes_failed_checks_in_lead(self):
+        _, _, lead = derive_headline({"severity": "warning"}, {"checks_failed": 3})
+        self.assertIn("3", lead)
+
+    def test_non_dict_inputs_are_safe(self):
+        title, severity, lead = derive_headline(None, "oops")
+        self.assertEqual(severity, "info")
+        self.assertTrue(title and lead)
+
+    def test_non_numeric_counts_do_not_raise(self):
+        # A safe formatter must not blow up the notify stage on malformed counts.
+        _, severity, lead = derive_headline(
+            {"severity": "warning", "alerts_created": "2 alerts"}, {"checks_failed": "bad"}
+        )
+        self.assertEqual(severity, "warning")
+        self.assertNotIn("alert(s)", lead)  # coerced to 0 → no count part
+        self.assertIn("monitoring event", lead)
