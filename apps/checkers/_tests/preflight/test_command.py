@@ -132,15 +132,13 @@ class PreflightCommandTests(TestCase):
         # Should contain at least OK and WARN (from installation checks in dev)
         self.assertIn("OK", output)
 
-    @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.checks._read_file", return_value=None)
+    @patch("apps.checkers.preflight.checks._path_exists", return_value=False)
     @patch("apps.checkers.preflight.logger.log_results")
-    @override_settings(
-        HUB_URL="https://hub.example.com",
-        CLUSTER_ENABLED=True,
-    )
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
-    def test_error_summary_styling(self, mock_log, mock_read):
-        mock_read.return_value = None
+    def test_error_summary_styling(self, mock_log, mock_path_exists, mock_read):
+        # A missing .env (path_exists=False) yields an error, exercising the
+        # error-summary styling — no longer relying on the removed cluster conflict.
         output, _ = self._call()
         self.assertIn("error(s)", output)
 
