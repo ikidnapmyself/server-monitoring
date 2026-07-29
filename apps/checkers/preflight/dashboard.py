@@ -10,16 +10,26 @@ import os
 from django.conf import settings
 
 
-def get_profile() -> dict:
-    """Build a system profile dict from Django settings and environment."""
-    hub_url = getattr(settings, "HUB_URL", "")
-    cluster_enabled = getattr(settings, "CLUSTER_ENABLED", False)
+def _is_receiving() -> bool:
+    """A node accepts pushes (is a hub) when auth is on and it has an active key."""
+    from config.models import APIKey
 
-    if hub_url and cluster_enabled:
-        role = "conflict"
-    elif hub_url:
+    if not getattr(settings, "API_KEY_AUTH_ENABLED", False):
+        return False
+    return APIKey.objects.filter(is_active=True).exists()
+
+
+def get_profile() -> dict:
+    """Build a system profile dict from Django settings and the API-key state."""
+    hub_url = getattr(settings, "HUB_URL", "")
+    is_agent = bool(hub_url)
+    receiving = _is_receiving()
+
+    if is_agent and receiving:
+        role = "agent+hub"
+    elif is_agent:
         role = "agent"
-    elif cluster_enabled:
+    elif receiving:
         role = "hub"
     else:
         role = "standalone"
@@ -29,6 +39,7 @@ def get_profile() -> dict:
 
     return {
         "role": role,
+        "receiving": receiving,
         "hub_url": hub_url,
         "environment": os.environ.get("DJANGO_ENV", "dev"),
         "debug": settings.DEBUG,

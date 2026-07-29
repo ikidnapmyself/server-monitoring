@@ -75,33 +75,39 @@ class PreflightCommandTests(TestCase):
     @patch("apps.checkers.preflight.logger.log_results")
     @override_settings(
         HUB_URL="https://hub.example.com",
-        CLUSTER_ENABLED=False,
+        API_KEY_AUTH_ENABLED=False,
         INSTANCE_ID="node-1",
     )
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
     def test_agent_role_in_dashboard(self, mock_log, mock_read):
         mock_read.return_value = None
         output, _ = self._call()
-        self.assertIn("agent", output)
+        self.assertIn("agent", output.lower())
         self.assertIn("hub.example.com", output)
 
     @patch("apps.checkers.preflight.checks._read_file")
     @patch("apps.checkers.preflight.logger.log_results")
-    @override_settings(HUB_URL="", CLUSTER_ENABLED=True)
+    @override_settings(HUB_URL="", API_KEY_AUTH_ENABLED=True)
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
     def test_hub_role_in_dashboard(self, mock_log, mock_read):
+        from config.models import APIKey
+
+        APIKey.objects.create(name="agent-x")  # active → node is receiving
         mock_read.return_value = None
         output, _ = self._call()
-        self.assertIn("hub", output)
+        self.assertIn("hub", output.lower())
 
     @patch("apps.checkers.preflight.checks._read_file")
     @patch("apps.checkers.preflight.logger.log_results")
-    @override_settings(HUB_URL="https://hub.example.com", CLUSTER_ENABLED=True)
+    @override_settings(HUB_URL="https://hub.example.com", API_KEY_AUTH_ENABLED=True)
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
-    def test_conflict_role_in_dashboard(self, mock_log, mock_read):
+    def test_agent_and_hub_role_in_dashboard(self, mock_log, mock_read):
+        from config.models import APIKey
+
+        APIKey.objects.create(name="agent-x")
         mock_read.return_value = None
         output, _ = self._call()
-        self.assertIn("CONFLICT", output)
+        self.assertIn("agent+hub", output.lower())  # valid, not a conflict
 
     @patch("apps.checkers.preflight.checks._read_file")
     @patch("apps.checkers.preflight.logger.log_results")

@@ -19,7 +19,7 @@ from apps.orchestration.models import PipelineDefinition, PipelineRun
 class GetProfileTests(TestCase):
     @override_settings(
         HUB_URL="https://hub.example.com",
-        CLUSTER_ENABLED=False,
+        API_KEY_AUTH_ENABLED=False,
         DEBUG=False,
         DATABASES={
             "default": {
@@ -37,76 +37,54 @@ class GetProfileTests(TestCase):
     def test_agent_profile(self):
         profile = get_profile()
         self.assertEqual(profile["role"], "agent")
+        self.assertFalse(profile["receiving"])
         self.assertEqual(profile["hub_url"], "https://hub.example.com")
         self.assertEqual(profile["environment"], "prod")
         self.assertFalse(profile["debug"])
         self.assertEqual(profile["deploy_method"], "bare")
         self.assertEqual(profile["instance_id"], "node-1")
 
-    @override_settings(
-        HUB_URL="",
-        CLUSTER_ENABLED=True,
-        DEBUG=False,
-        DATABASES={
-            "default": {
-                "ENGINE": "django.db.backends.sqlite3",
-                "NAME": "/tmp/db.sqlite3",
-            }
-        },
-        CELERY_BROKER_URL="redis://localhost:6379/0",
-        CELERY_TASK_ALWAYS_EAGER=False,
-        ORCHESTRATION_METRICS_BACKEND="logging",
-        INSTANCE_ID="",
-        LOGS_DIR="/var/log/sm",
-    )
-    @patch.dict(os.environ, {"DJANGO_ENV": "prod", "DEPLOY_METHOD": "docker"})
+    @override_settings(HUB_URL="", API_KEY_AUTH_ENABLED=True)
     def test_hub_profile(self):
+        from config.models import APIKey
+
+        APIKey.objects.create(name="agent-x")  # active by default
         profile = get_profile()
         self.assertEqual(profile["role"], "hub")
+        self.assertTrue(profile["receiving"])
 
     @override_settings(
         HUB_URL="",
-        CLUSTER_ENABLED=False,
+        API_KEY_AUTH_ENABLED=True,
         DEBUG=True,
-        DATABASES={
-            "default": {
-                "ENGINE": "django.db.backends.sqlite3",
-                "NAME": "/tmp/db.sqlite3",
-            }
-        },
-        CELERY_BROKER_URL="redis://localhost:6379/0",
         CELERY_TASK_ALWAYS_EAGER=True,
-        ORCHESTRATION_METRICS_BACKEND="logging",
-        INSTANCE_ID="",
-        LOGS_DIR="/tmp/logs",
     )
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
     def test_standalone_profile(self):
+        # Auth on but no active keys → not receiving → standalone.
         profile = get_profile()
         self.assertEqual(profile["role"], "standalone")
+        self.assertFalse(profile["receiving"])
         self.assertTrue(profile["debug"])
         self.assertTrue(profile["celery_eager"])
 
-    @override_settings(
-        HUB_URL="https://hub.example.com",
-        CLUSTER_ENABLED=True,
-        DEBUG=False,
-        DATABASES={
-            "default": {
-                "ENGINE": "django.db.backends.sqlite3",
-                "NAME": "/tmp/db.sqlite3",
-            }
-        },
-        CELERY_BROKER_URL="redis://localhost:6379/0",
-        CELERY_TASK_ALWAYS_EAGER=False,
-        ORCHESTRATION_METRICS_BACKEND="logging",
-        INSTANCE_ID="",
-        LOGS_DIR="/tmp/logs",
-    )
-    @patch.dict(os.environ, {"DJANGO_ENV": "prod", "DEPLOY_METHOD": "bare"})
-    def test_conflict_profile(self):
+    @override_settings(HUB_URL="https://hub.example.com", API_KEY_AUTH_ENABLED=True)
+    def test_agent_and_hub_profile(self):
+        from config.models import APIKey
+
+        APIKey.objects.create(name="agent-x")
         profile = get_profile()
-        self.assertEqual(profile["role"], "conflict")
+        self.assertEqual(profile["role"], "agent+hub")  # valid, not a conflict
+        self.assertTrue(profile["receiving"])
+
+    @override_settings(HUB_URL="", API_KEY_AUTH_ENABLED=False)
+    def test_receiving_requires_auth_enabled(self):
+        from config.models import APIKey
+
+        APIKey.objects.create(name="agent-x")  # active, but auth is off
+        profile = get_profile()
+        self.assertEqual(profile["role"], "standalone")
+        self.assertFalse(profile["receiving"])
 
 
 class GetPipelineStateTests(TestCase):
