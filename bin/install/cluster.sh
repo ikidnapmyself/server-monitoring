@@ -2,7 +2,7 @@
 #
 # Installer module: cluster role configuration.
 #
-# Configures: HUB_URL, INSTANCE_ID, HUB_API_KEY, CLUSTER_ENABLED
+# Configures: HUB_URL, INSTANCE_ID, HUB_API_KEY (+ API_KEY_AUTH_ENABLED for hubs)
 #
 # Auth is a single API key sent as `Authorization: Bearer HUB_API_KEY`. An agent
 # stores the token; a hub mints it with `manage.py create_api_key` and enables the
@@ -45,7 +45,7 @@ echo ""
 # ---------------------------------------------------------------------------
 
 _cluster_default="default_n"
-if dotenv_has_value "$_ENV_FILE" "HUB_URL" || dotenv_has_value "$_ENV_FILE" "CLUSTER_ENABLED"; then
+if dotenv_has_value "$_ENV_FILE" "HUB_URL" || dotenv_has_value "$_ENV_FILE" "HUB_API_KEY"; then
     _cluster_default="default_y"
 fi
 
@@ -55,8 +55,8 @@ if ! prompt_yes_no "Configure cluster mode?" "$_cluster_default"; then
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Cluster role (local branching only — not persisted; role is derived from
-#    HUB_URL + CLUSTER_ENABLED at runtime).
+# 2. Cluster role (local branching only — not persisted; role is derived at
+#    runtime from HUB_URL and whether active API keys exist).
 # ---------------------------------------------------------------------------
 
 _role=$(prompt_choice "$_ENV_FILE" "__CLUSTER_MODE_LOCAL" \
@@ -89,13 +89,12 @@ if [ "$_role" = "agent" ] || [ "$_role" = "both" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Hub or both: enable CLUSTER_ENABLED and explain key provisioning
+# 4. Hub or both: enable API-key auth and explain key provisioning
 # ---------------------------------------------------------------------------
 
 if [ "$_role" = "hub" ] || [ "$_role" = "both" ]; then
-    dotenv_set "$_ENV_FILE" "CLUSTER_ENABLED" "1"
     dotenv_set "$_ENV_FILE" "API_KEY_AUTH_ENABLED" "1"
-    success "CLUSTER_ENABLED=1 and API_KEY_AUTH_ENABLED=1 written to .env"
+    success "API_KEY_AUTH_ENABLED=1 written to .env (a minted key makes this a hub)"
     echo ""
     info "Provision an API key for each agent and paste it into that agent's HUB_API_KEY:"
     info "    uv run python manage.py create_api_key --name \"<agent-name>\""
