@@ -416,6 +416,26 @@ uv run python manage.py shell -c "from apps.alerts.drivers import DRIVER_REGISTR
 uv run python manage.py check
 ```
 
+### Node registry & `doctor`
+
+A hub keeps a first-class record of every agent that pushes to it: each accepted
+cluster push **upserts a `Node`** (by `instance_id`, tracking hostname and
+last-seen). Browse them read-only in Django admin under **Alerts → Nodes**.
+
+`manage.py doctor` is the single read-only diagnostic — it runs the preflight
+checks and reports the node's derived role, whether it is **accepting pushes**
+(derived from active API keys + `API_KEY_AUTH_ENABLED`, the real ingest gate —
+not `CLUSTER_ENABLED`), and how many agent nodes it knows:
+
+```bash
+uv run python manage.py doctor          # human-readable
+uv run python manage.py doctor --json   # machine-readable
+```
+
+If `doctor` shows `Accepting pushes: False`, the hub has no active API key (or
+auth is off) — mint one with `create_api_key`. If an agent pushed but `Known
+nodes` stays 0, the push isn't being accepted (check auth / the key scope).
+
 ### Security
 
 - **Always use HTTPS** for `HUB_URL` in production. Payloads contain server metrics and alert details.

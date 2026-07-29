@@ -296,3 +296,41 @@ class AlertHistory(models.Model):
 
     def __str__(self):
         return f"{self.alert.name}: {self.event}"
+
+
+class Node(models.Model):
+    """A peer that has pushed cluster data to this instance (agent registry).
+
+    Upserted on every accepted cluster push, keyed by instance_id. This is the
+    queryable spine a hub uses to know its agents and that future report APIs read.
+    """
+
+    instance_id = models.CharField(max_length=255, unique=True, db_index=True)
+    hostname = models.CharField(max_length=255, blank=True, default="")
+    address = models.CharField(max_length=255, blank=True, default="")
+    last_source = models.CharField(max_length=64, blank=True, default="")
+    labels = models.JSONField(default=dict, blank=True)
+    first_seen = models.DateTimeField(auto_now_add=True)
+    last_seen = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-last_seen"]
+        indexes = [models.Index(fields=["-last_seen"])]
+
+    def __str__(self):
+        return f"{self.instance_id} ({self.hostname})" if self.hostname else self.instance_id
+
+    @classmethod
+    def upsert(cls, *, instance_id, hostname="", address="", source="", labels=None):
+        """Create or update a Node by instance_id; refresh last_seen."""
+        defaults = {"last_source": source}
+        if hostname:
+            defaults["hostname"] = hostname
+        if address:
+            defaults["address"] = address
+        if labels:
+            defaults["labels"] = labels
+        node, created = cls.objects.update_or_create(instance_id=instance_id, defaults=defaults)
+        if not created:
+            node.save(update_fields=["last_seen"])  # bump auto_now
+        return node
