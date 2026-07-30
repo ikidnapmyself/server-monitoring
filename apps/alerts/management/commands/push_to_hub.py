@@ -21,6 +21,45 @@ from apps.checkers.checkers.base import CheckStatus
 from config.security.http import safe_urlopen
 from config.security.url_validation import URLNotAllowedError
 
+CLUSTER_WEBHOOK_PATH = "/alerts/webhook/cluster/"
+# Identify the agent explicitly. urllib's default UA is "Python-urllib/<ver>",
+# which WAFs in front of a hub routinely block with a 403; an identifiable UA is
+# also what an operator allowlists.
+AGENT_USER_AGENT = "server-monitoring-agent/1.0"
+
+
+def build_cluster_payload(instance_id: str, hostname: str, alerts: list) -> dict:
+    """Build the cluster webhook payload from checker-derived alerts."""
+    return {
+        "source": "cluster",
+        "instance_id": instance_id,
+        "hostname": hostname,
+        "version": "1.0",
+        "alerts": alerts,
+    }
+
+
+def send_to_hub(hub_url: str, api_key: str, payload: dict) -> tuple[int, str]:
+    """POST a cluster payload to a hub's webhook; return (status, body).
+
+    Assumes ``hub_url`` and ``api_key`` are non-empty. Raises ``ValueError`` on a
+    bad scheme, ``URLNotAllowedError`` on SSRF policy, and lets transport errors
+    (``HTTPError`` for 4xx/5xx, ``URLError``) propagate so callers can inspect them.
+    Shared by ``push_to_hub`` and ``setup_cluster``.
+    """
+    url = hub_url.rstrip("/") + CLUSTER_WEBHOOK_PATH
+    if not url.startswith(("https://", "http://")):
+        raise ValueError(f"HUB_URL must use http:// or https:// scheme, got: {url}")
+    body = json.dumps(payload, default=str).encode()
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "User-Agent": AGENT_USER_AGENT,
+    }
+    request = Request(url, data=body, headers=headers, method="POST")
+    with safe_urlopen(request, allowed_hosts=settings.SSRF_ALLOWED_HOSTS, timeout=30) as response:
+        return response.status, response.read().decode()
+
 
 class Command(BaseCommand):
     help = "Run health checks and push results to a hub instance"
@@ -47,6 +86,8 @@ class Command(BaseCommand):
         hub_url = getattr(settings, "HUB_URL", "")
         if not hub_url:
             raise CommandError("HUB_URL is not configured. Set it in .env to enable agent mode.")
+        if not hub_url.rstrip("/").startswith(("https://", "http://")):
+            raise CommandError(f"HUB_URL must use http:// or https:// scheme, got: {hub_url}")
 
         instance_id = getattr(settings, "INSTANCE_ID", "") or socket.gethostname()
         hostname = socket.gethostname()
@@ -77,13 +118,7 @@ class Command(BaseCommand):
                 self.stderr.write(self.style.WARNING(f"Checker {name} failed: {e}"))
 
         # Build payload
-        payload = {
-            "source": "cluster",
-            "instance_id": instance_id,
-            "hostname": hostname,
-            "version": "1.0",
-            "alerts": alerts,
-        }
+        payload = build_cluster_payload(instance_id, hostname, alerts)
 
         if options["dry_run"]:
             if options["json_output"]:
@@ -96,49 +131,26 @@ class Command(BaseCommand):
         if not options["json_output"]:
             self.stdout.write(f"Pushing {len(alerts)} alert(s) from {instance_id} to {hub_url}")
 
-        # POST to hub
-        url = hub_url.rstrip("/") + "/alerts/webhook/cluster/"
-        if not url.startswith(("https://", "http://")):
-            raise CommandError(f"HUB_URL must use http:// or https:// scheme, got: {url}")
-        body = json.dumps(payload, default=str).encode()
-
         if not api_key:
             raise CommandError(
                 "HUB_API_KEY is not configured. Set it in .env to enable agent mode "
                 "(mint one on the hub with `manage.py create_api_key`)."
             )
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-            # Identify the agent explicitly. urllib's default UA is
-            # "Python-urllib/<ver>", which WAFs in front of a hub routinely block
-            # with a 403; an identifiable UA is also what an operator allowlists.
-            "User-Agent": "server-monitoring-agent/1.0",
-        }
-
-        request = Request(url, data=body, headers=headers, method="POST")
 
         try:
-            with safe_urlopen(
-                request, allowed_hosts=settings.SSRF_ALLOWED_HOSTS, timeout=30
-            ) as response:
-                status = response.status
-                resp_body = response.read().decode()
-
-            if status in (200, 201, 202):
-                if options["json_output"]:
-                    self.stdout.write(json.dumps(payload, indent=2, default=str))
-                else:
-                    self.stdout.write(self.style.SUCCESS(f"Hub accepted: HTTP {status}"))
-            else:
-                raise CommandError(f"Hub returned HTTP {status}: {resp_body}")
-
+            status, resp_body = send_to_hub(hub_url, api_key, payload)
         except URLNotAllowedError:
             raise CommandError("HUB_URL not allowed by security policy")
         except Exception as e:
-            if isinstance(e, CommandError):
-                raise
-            raise CommandError(f"Failed to reach hub at {url}: {e}")
+            raise CommandError(f"Failed to reach hub at {hub_url}: {e}")
+
+        if status in (200, 201, 202):
+            if options["json_output"]:
+                self.stdout.write(json.dumps(payload, indent=2, default=str))
+            else:
+                self.stdout.write(self.style.SUCCESS(f"Hub accepted: HTTP {status}"))
+        else:
+            raise CommandError(f"Hub returned HTTP {status}: {resp_body}")
 
     def _result_to_alert(self, result, instance_id: str, hostname: str) -> dict:
         """Convert a CheckResult to a cluster alert dict."""
