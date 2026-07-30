@@ -591,18 +591,21 @@ class CheckEnvConsistencyTests(TestCase):
 class CheckClusterCoherenceTests(TestCase):
     @override_settings(
         HUB_URL="https://hub.example.com",
-        CLUSTER_ENABLED=True,
+        API_KEY_AUTH_ENABLED=True,
         HUB_API_KEY="tok",
         INSTANCE_ID="node-1",
     )
-    def test_agent_and_hub_conflict(self):
+    def test_agent_and_hub_is_not_a_conflict(self):
+        from config.models import APIKey
+
+        APIKey.objects.create(name="agent-x")  # receiving
         results = check_cluster_coherence()
-        self.assertEqual(results[0].level, "error")
-        self.assertIn("conflict", results[0].message.lower())
+        # Both roles at once is valid — no error, and a hub "ok" is present.
+        self.assertFalse(any(r.level == "error" for r in results))
+        self.assertTrue(any("Hub mode" in r.message for r in results))
 
     @override_settings(
         HUB_URL="https://hub.example.com",
-        CLUSTER_ENABLED=False,
         HUB_API_KEY="",
         INSTANCE_ID="node-1",
     )
@@ -613,7 +616,6 @@ class CheckClusterCoherenceTests(TestCase):
 
     @override_settings(
         HUB_URL="https://hub.example.com",
-        CLUSTER_ENABLED=False,
         HUB_API_KEY="tok",
         INSTANCE_ID="",
     )
@@ -622,25 +624,16 @@ class CheckClusterCoherenceTests(TestCase):
         warns = [r for r in results if r.level == "warn"]
         self.assertTrue(any("INSTANCE_ID" in r.message for r in warns))
 
-    @override_settings(
-        HUB_URL="",
-        CLUSTER_ENABLED=True,
-        HUB_API_KEY="",
-        INSTANCE_ID="",
-    )
-    def test_hub_mode_informational(self):
-        # Hub auth is the API-key middleware + a created APIKey (invisible to
-        # preflight), so hub mode reports ok/informational, not an error.
+    @override_settings(HUB_URL="", API_KEY_AUTH_ENABLED=True)
+    def test_hub_mode_from_active_key(self):
+        from config.models import APIKey
+
+        APIKey.objects.create(name="agent-x")
         results = check_cluster_coherence()
         self.assertEqual(results[0].level, "ok")
         self.assertIn("Hub mode", results[0].message)
 
-    @override_settings(
-        HUB_URL="",
-        CLUSTER_ENABLED=False,
-        HUB_API_KEY="",
-        INSTANCE_ID="",
-    )
+    @override_settings(HUB_URL="", API_KEY_AUTH_ENABLED=False)
     def test_standalone_ok(self):
         results = check_cluster_coherence()
         self.assertEqual(results[0].level, "ok")
@@ -648,7 +641,7 @@ class CheckClusterCoherenceTests(TestCase):
 
     @override_settings(
         HUB_URL="https://hub.example.com",
-        CLUSTER_ENABLED=False,
+        API_KEY_AUTH_ENABLED=False,
         HUB_API_KEY="tok",
         INSTANCE_ID="node-1",
     )

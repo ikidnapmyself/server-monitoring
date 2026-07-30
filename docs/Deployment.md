@@ -371,11 +371,10 @@ On the central monitoring server:
 2. Add to `.env`:
 
 ```bash
-CLUSTER_ENABLED=1
 API_KEY_AUTH_ENABLED=1
 ```
 
-Then mint one API key per agent and paste each token into that agent's `HUB_API_KEY`:
+Then mint one API key per agent and paste each token into that agent's `HUB_API_KEY` — an active key is what makes this node a receiver (hub):
 
 ```bash
 uv run python manage.py create_api_key --name "web-server-01"
@@ -386,7 +385,7 @@ The hub accepts cluster payloads at `POST /alerts/webhook/cluster/` (authenticat
 
 ### Standalone (default)
 
-Existing installs with neither `HUB_URL` nor `CLUSTER_ENABLED` set continue to work as standalone instances with no changes.
+Existing installs with no `HUB_URL` and no active API key continue to work as standalone instances with no changes.
 
 ### Verification
 
@@ -424,8 +423,8 @@ last-seen). Browse them read-only in Django admin under **Alerts → Nodes**.
 
 `manage.py doctor` is the single read-only diagnostic — it runs the preflight
 checks and reports the node's derived role, whether it is **accepting pushes**
-(derived from active API keys + `API_KEY_AUTH_ENABLED`, the real ingest gate —
-not `CLUSTER_ENABLED`), and how many agent nodes it knows:
+(derived from active API keys + `API_KEY_AUTH_ENABLED`, the real ingest gate),
+and how many agent nodes it knows:
 
 ```bash
 uv run python manage.py doctor          # human-readable

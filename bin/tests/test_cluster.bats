@@ -21,3 +21,13 @@ setup() {
     run grep -q "create_api_key" "$BIN_DIR/install/cluster.sh"
     assert_success
 }
+
+@test "cluster.sh no longer references CLUSTER_ENABLED" {
+    run grep -E "CLUSTER_ENABLED" "$BIN_DIR/install/cluster.sh"
+    assert_failure
+}
+
+@test "security_check.sh no longer references CLUSTER_ENABLED" {
+    run grep -E "CLUSTER_ENABLED" "$BIN_DIR/lib/security_check.sh"
+    assert_failure
+}

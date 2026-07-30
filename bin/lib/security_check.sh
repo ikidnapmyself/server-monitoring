@@ -100,9 +100,9 @@ _sc_env_val() {
 # --- Mode detection ---
 
 _sc_detect_modes() {
-    local hub_url cluster_enabled
+    local hub_url auth_enabled
     hub_url=$(_sc_env_val "HUB_URL")
-    cluster_enabled=$(_sc_env_val "CLUSTER_ENABLED")
+    auth_enabled=$(_sc_env_val "API_KEY_AUTH_ENABLED")
 
     if [ -n "$hub_url" ]; then
         _sc_is_agent=true
@@ -110,7 +110,9 @@ _sc_detect_modes() {
         _sc_is_agent=false
     fi
 
-    if [ "$cluster_enabled" = "1" ]; then
+    # A node exposes an authenticated ingest endpoint whenever API-key auth is on,
+    # so hub-mode checks (bind address, reverse proxy, TLS) apply then.
+    if [ "$auth_enabled" = "1" ]; then
         _sc_is_hub=true
     else
         _sc_is_hub=false

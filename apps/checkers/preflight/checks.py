@@ -383,20 +383,15 @@ def check_env_consistency(base_dir: Path) -> list[CheckResult]:
 def check_cluster_coherence() -> list[CheckResult]:
     results: list[CheckResult] = []
 
+    from apps.checkers.preflight.dashboard import _is_receiving
+
     hub_url = getattr(settings, "HUB_URL", "")
-    cluster_enabled = getattr(settings, "CLUSTER_ENABLED", False)
     api_key = getattr(settings, "HUB_API_KEY", "")
     instance_id = getattr(settings, "INSTANCE_ID", "")
+    receiving = _is_receiving()
 
-    if hub_url and cluster_enabled:
-        return [
-            CheckResult(
-                level="error",
-                message="Cluster conflict: both HUB_URL and CLUSTER_ENABLED=1",
-                hint="An instance cannot be both agent and hub.",
-            )
-        ]
-
+    # A node can be an agent, a receiver (hub), both, or neither — there is no
+    # "conflict". Hub-ness is derived from active API keys, not CLUSTER_ENABLED.
     if hub_url:  # agent
         if not api_key:
             results.append(
@@ -415,15 +410,8 @@ def check_cluster_coherence() -> list[CheckResult]:
                 )
             )
 
-    if cluster_enabled and not hub_url:  # hub
-        # Auth is now the API-key middleware plus a created APIKey record, which
-        # preflight cannot see, so this is informational rather than an error.
-        results.append(
-            CheckResult(
-                level="ok",
-                message="Hub mode: ensure API_KEY_AUTH_ENABLED=1 and an APIKey exists for agents",
-            )
-        )
+    if receiving:  # hub
+        results.append(CheckResult(level="ok", message="Hub mode: accepting authenticated pushes"))
 
     if not results:
         role = "agent" if hub_url else "standalone"

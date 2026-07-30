@@ -236,8 +236,8 @@ Audits the security configuration of a deployment. Auto-detects whether this nod
 ```
 
 **Mode detection:**
-- **Agent** (`HUB_URL` set): checks TLS, HMAC signing, hub reachability, certificate validity
-- **Hub** (`CLUSTER_ENABLED=1`): checks HMAC secret, bind address, reverse proxy, HTTPS termination
+- **Agent** (`HUB_URL` set): checks TLS, `HUB_API_KEY` presence, hub reachability, certificate validity
+- **Hub** (`API_KEY_AUTH_ENABLED=1`): checks API-key auth, bind address, reverse proxy, HTTPS termination
 - **Standalone**: common checks only (secret key, debug mode, .env permissions, allowed hosts, dependency audit)
 
 **Exit codes:** `0` = all pass, `1` = warnings only, `2` = failures present.
