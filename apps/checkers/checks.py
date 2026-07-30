@@ -385,6 +385,17 @@ def check_pipeline_status(app_configs, **kwargs):
     try:
         definitions = list(PipelineDefinition.objects.all().values("name", "is_active"))
         total = len(definitions)
+        if total == 0:
+            # Definitions are optional — the default (webhook/cluster) pipeline runs
+            # without one. Say so, so an empty count doesn't read as a problem.
+            errors.append(
+                Info(
+                    "No pipeline definitions (optional — the default pipeline runs "
+                    "without one; definitions are for advanced custom routing)",
+                    id="checkers.I001",
+                )
+            )
+            return errors
         active = sum(1 for d in definitions if d["is_active"])
         inactive = total - active
         names = ", ".join(

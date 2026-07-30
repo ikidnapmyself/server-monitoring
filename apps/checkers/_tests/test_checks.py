@@ -295,11 +295,12 @@ class PipelineChecksTests(TestCase):
         self.assertIn("1 active", errors[0].msg)
 
     def test_pipeline_status_info_with_none(self):
-        """Test pipeline status reports zero definitions."""
+        """Zero definitions reads as optional, not a problem."""
         errors = check_pipeline_status(app_configs=None)
         self.assertEqual(len(errors), 1)
         self.assertEqual(errors[0].id, "checkers.I001")
-        self.assertIn("0 pipeline", errors[0].msg)
+        self.assertIn("optional", errors[0].msg.lower())
+        self.assertNotIn("0 pipeline definition(s)", errors[0].msg)
 
     def test_notification_channels_warns_when_none_active(self):
         """Test notification channels check warns when no active channels."""
