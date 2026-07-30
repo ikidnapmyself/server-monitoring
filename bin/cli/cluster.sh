@@ -5,14 +5,20 @@ cluster_menu() {
     while true; do
         show_banner
         tuin_section "Cluster"
-        echo "Push local check results to a hub instance (cluster mode)."
+        echo "Set up or run this node in cluster mode (hub or agent)."
         echo ""
         if tuin_menu "Cluster" \
+            "Set up this node as a hub (guided)" \
+            "Set up this node as an agent (guided)" \
             "Push checks to hub" \
             "Push checks to hub (dry run)" \
             "Push checks to hub (specific checkers)"
         then
             case $TUIN_REPLY in
+                "Set up this node as a hub (guided)")
+                    confirm_and_run "$UV_BIN run python manage.py setup_cluster --role hub" ;;
+                "Set up this node as an agent (guided)")
+                    confirm_and_run "$UV_BIN run python manage.py setup_cluster --role agent" ;;
                 "Push checks to hub")
                     confirm_and_run "$UV_BIN run python manage.py push_to_hub" ;;
                 "Push checks to hub (dry run)")

@@ -333,6 +333,28 @@ Agent (server-3)  ──POST──┘     (receives cluster alerts)
 
 All instances run the same codebase. Role is determined by environment variables.
 
+### Guided setup (recommended)
+
+One command wires a node and **proves it works** — use this instead of editing
+`.env` by hand:
+
+```bash
+# On the hub: enable auth, mint an agent key (shown once), confirm it's accepting.
+uv run python manage.py setup_cluster --role hub --name "web-03"
+
+# On the agent: write HUB_URL/INSTANCE_ID/HUB_API_KEY and verify with a live push.
+uv run python manage.py setup_cluster --role agent \
+    --hub-url https://monitoring-hub.example.com --instance-id web-03 --hub-api-key <token>
+```
+
+Run with no flags for an interactive prompt, or from the CLI: **`bin/cli.sh cluster`
+→ "Set up this node as a hub/agent (guided)"**. The agent step names the failure
+if the push is rejected — `401` (bad key), `403` (WAF blocks the agent User-Agent,
+or the key's scope excludes `/alerts/webhook/cluster/`), or connection errors —
+each with the fix. Add `--no-verify` to skip the live push.
+
+The sections below describe the equivalent manual `.env` setup.
+
 ### Agent setup
 
 On each server you want to monitor:
