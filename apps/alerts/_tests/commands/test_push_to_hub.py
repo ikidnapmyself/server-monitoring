@@ -382,3 +382,40 @@ class TestPushToHubSSRF(TestCase):
         with self.assertRaises(CommandError) as ctx:
             call_command("push_to_hub")
         self.assertIn("not allowed", str(ctx.exception).lower())
+
+
+class SendToHubHelpersTests(TestCase):
+    """Direct tests for the shared helpers reused by setup_cluster."""
+
+    def test_build_cluster_payload(self):
+        from apps.alerts.management.commands.push_to_hub import build_cluster_payload
+
+        p = build_cluster_payload("web-03", "web-03.local", [{"x": 1}])
+        self.assertEqual(p["source"], "cluster")
+        self.assertEqual(p["instance_id"], "web-03")
+        self.assertEqual(p["hostname"], "web-03.local")
+        self.assertEqual(p["alerts"], [{"x": 1}])
+
+    def test_send_to_hub_rejects_bad_scheme(self):
+        from apps.alerts.management.commands.push_to_hub import send_to_hub
+
+        with self.assertRaises(ValueError):
+            send_to_hub("file:///etc/passwd", "tok", {"source": "cluster"})
+
+    @override_settings(SSRF_ALLOWED_HOSTS=["hub.example.com"])
+    @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
+    def test_send_to_hub_returns_status_and_body(self, mock_urlopen):
+        from apps.alerts.management.commands.push_to_hub import send_to_hub
+
+        resp = MagicMock()
+        resp.status = 202
+        resp.read.return_value = b'{"ok": true}'
+        resp.__enter__ = MagicMock(return_value=resp)
+        resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = resp
+
+        status, body = send_to_hub(
+            "https://hub.example.com", "tok", {"source": "cluster", "alerts": []}
+        )
+        self.assertEqual(status, 202)
+        self.assertIn("ok", body)
