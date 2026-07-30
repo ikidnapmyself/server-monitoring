@@ -208,7 +208,7 @@ STATSD_PORT = int(os.environ.get("STATSD_PORT", "8125"))
 STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "pipeline")
 
 # Cluster (multi-instance). An agent pushes to a hub authenticated by a single
-# API key (Authorization: Bearer HUB_API_KEY); the hub accepts it via the API-key
+# API key (Authorization: Bearer <HUB_API_KEY>); the hub accepts it via the API-key
 # middleware. A node is a "hub" simply by holding an active APIKey with auth on —
 # there is no separate CLUSTER_ENABLED flag.
 HUB_URL = os.environ.get("HUB_URL", "")

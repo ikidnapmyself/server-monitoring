@@ -14,7 +14,9 @@ def _is_receiving() -> bool:
     """A node accepts pushes (is a hub) when auth is on and it has an active key."""
     from config.models import APIKey
 
-    if not getattr(settings, "API_KEY_AUTH_ENABLED", False):
+    # Default True to match the API-key middleware and get_profile()'s api_key_auth
+    # field, so role/receiving never disagrees with the actual auth gate.
+    if not getattr(settings, "API_KEY_AUTH_ENABLED", True):
         return False
     return APIKey.objects.filter(is_active=True).exists()
 
