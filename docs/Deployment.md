@@ -339,8 +339,12 @@ One command wires a node and **proves it works** — use this instead of editing
 `.env` by hand:
 
 ```bash
-# On the hub: enable auth, mint an agent key (shown once), confirm it's accepting.
-uv run python manage.py setup_cluster --role hub --name "web-03"
+# On the hub: enable auth, mint an agent key (shown once), wire a notification
+# channel (so the hub actually notifies), and confirm it's accepting.
+uv run python manage.py setup_cluster --role hub --name "web-03" \
+    --notify-driver slack --notify-webhook https://hooks.slack.com/services/XXX
+# Omit the --notify-* flags to be prompted; --no-notify to skip (the hub then
+# receives pushes but sends nothing until you add a channel in admin).
 
 # On the agent: write HUB_URL/INSTANCE_ID/HUB_API_KEY and verify with a live push.
 uv run python manage.py setup_cluster --role agent \
