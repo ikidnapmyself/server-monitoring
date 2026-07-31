@@ -2,7 +2,8 @@
 
 Usage:
     python manage.py setup_cluster                       # interactive
-    python manage.py setup_cluster --role hub [--name "agent web-03"]
+    python manage.py setup_cluster --role hub [--name "agent web-03"] \\
+        [--notify-driver slack --notify-webhook <url> | --no-notify]
     python manage.py setup_cluster --role agent \\
         --hub-url https://hub.example.com --instance-id web-03 --hub-api-key <token>
     python manage.py setup_cluster --role agent ... --no-verify
@@ -65,6 +66,23 @@ class Command(BaseCommand):
             dest="no_verify",
             help="Agent: skip the live push verification.",
         )
+        parser.add_argument(
+            "--notify-driver",
+            dest="notify_driver",
+            choices=["slack", "generic"],
+            help="Hub: notification channel driver to create (email: add via admin).",
+        )
+        parser.add_argument(
+            "--notify-webhook",
+            dest="notify_webhook",
+            help="Hub: webhook URL for the notification channel.",
+        )
+        parser.add_argument(
+            "--no-notify",
+            action="store_true",
+            dest="no_notify",
+            help="Hub: skip notification-channel setup.",
+        )
 
     def handle(self, *args, **options):
         role = options.get("role") or self._prompt_role()
@@ -99,9 +117,58 @@ class Command(BaseCommand):
         self.stdout.write("Raw token (shown once — set it as HUB_API_KEY on the agent):")
         self.stdout.write(f"    {raw}")
         self.stdout.write("")
+
+        self._ensure_notification_channel(options)
+
         active = APIKey.objects.filter(is_active=True).count()
+        self.stdout.write("")
         self.stdout.write(f"Accepting pushes: yes ({active} active key(s), auth on).")
         self.stdout.write("If the hub web process was already running with auth off, restart it.")
+
+    def _ensure_notification_channel(self, options) -> None:
+        """Wire one notification channel so the hub actually notifies (or warn if not)."""
+        from apps.notify.models import NotificationChannel
+        from apps.notify.views import DRIVER_REGISTRY
+
+        existing = NotificationChannel.objects.filter(is_active=True).first()
+        if existing:
+            self.stdout.write(
+                f"Notifications: already active ({existing.driver}: {existing.name})."
+            )
+            return
+
+        driver = options.get("notify_driver")
+        if not driver and not options.get("no_notify"):
+            choice = (
+                input("Set up a notification channel now? [slack/generic/skip]: ").strip().lower()
+            )
+            if choice in ("slack", "generic"):
+                driver = choice
+
+        if not driver:
+            self.stdout.write(
+                self.style.WARNING(
+                    "Notifications: NONE — the hub accepts pushes but will not send anything. "
+                    "Add one in Django admin (Notify → Notification channels) or re-run with "
+                    "--notify-driver slack --notify-webhook <url>."
+                )
+            )
+            return
+
+        webhook = options.get("notify_webhook") or input(f"{driver} webhook URL: ").strip()
+        config = {"webhook_url": webhook}
+        driver_cls = DRIVER_REGISTRY.get(driver)
+        # DRIVER_REGISTRY only holds concrete driver classes; mypy sees the abstract base.
+        if driver_cls is None or not driver_cls().validate_config(config):  # type: ignore[abstract]
+            raise CommandError(
+                f"Invalid {driver} webhook. Slack needs an https://hooks.slack.com/... URL; "
+                "generic needs an https:// endpoint."
+            )
+
+        NotificationChannel.objects.create(
+            name=f"{driver}-primary", driver=driver, config=config, is_active=True
+        )
+        self.stdout.write(self.style.SUCCESS(f"Notifications: {driver} channel active."))
 
     def _setup_agent(self, options) -> None:
         hub_url = options.get("hub_url") or input("HUB_URL (https://...): ").strip()

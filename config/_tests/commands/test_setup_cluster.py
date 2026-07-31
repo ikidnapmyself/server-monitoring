@@ -57,7 +57,9 @@ class SetupClusterHubTests(TestCase):
                 "config.management.commands.setup_cluster._env_path", return_value=_tmp_env(d)
             ):
                 out = StringIO()
-                call_command("setup_cluster", "--role", "hub", "--name", "agent-1", stdout=out)
+                call_command(
+                    "setup_cluster", "--role", "hub", "--name", "agent-1", "--no-notify", stdout=out
+                )
             env_text = _tmp_env(d).read_text()
 
         self.assertIn("API_KEY_AUTH_ENABLED=1", env_text)
@@ -66,6 +68,75 @@ class SetupClusterHubTests(TestCase):
         self.assertIn("Accepting pushes: yes", output)
         # The raw token is printed once and starts with the stored prefix.
         self.assertIn(APIKey.objects.get(name="agent-1").prefix, output)
+
+    def _run_hub(self, d, *extra):
+        out = StringIO()
+        with patch("config.management.commands.setup_cluster._env_path", return_value=_tmp_env(d)):
+            call_command("setup_cluster", "--role", "hub", "--name", "k", *extra, stdout=out)
+        return out.getvalue()
+
+    def test_hub_creates_slack_channel(self):
+        from apps.notify.models import NotificationChannel
+
+        with tempfile.TemporaryDirectory() as d:
+            out = self._run_hub(
+                d,
+                "--notify-driver",
+                "slack",
+                "--notify-webhook",
+                "https://hooks.slack.com/services/T/B/x",
+            )
+        ch = NotificationChannel.objects.get(driver="slack")
+        self.assertTrue(ch.is_active)
+        self.assertEqual(ch.config["webhook_url"], "https://hooks.slack.com/services/T/B/x")
+        self.assertIn("slack channel active", out)
+
+    def test_hub_creates_generic_channel(self):
+        from apps.notify.models import NotificationChannel
+
+        with tempfile.TemporaryDirectory() as d:
+            self._run_hub(
+                d, "--notify-driver", "generic", "--notify-webhook", "https://ex.example.com/hook"
+            )
+        self.assertEqual(NotificationChannel.objects.filter(driver="generic").count(), 1)
+
+    def test_hub_invalid_slack_webhook_errors(self):
+        with tempfile.TemporaryDirectory() as d, self.assertRaises(CommandError) as ctx:
+            self._run_hub(d, "--notify-driver", "slack", "--notify-webhook", "https://evil.example")
+        self.assertIn("Invalid slack", str(ctx.exception))
+
+    def test_hub_no_notify_warns(self):
+        from apps.notify.models import NotificationChannel
+
+        with tempfile.TemporaryDirectory() as d:
+            out = self._run_hub(d, "--no-notify")
+        self.assertIn("Notifications: NONE", out)
+        self.assertEqual(NotificationChannel.objects.count(), 0)
+
+    def test_hub_skips_when_channel_already_active(self):
+        from apps.notify.models import NotificationChannel
+
+        NotificationChannel.objects.create(
+            name="existing", driver="slack", config={"webhook_url": "https://hooks.slack.com/x"}
+        )
+        with tempfile.TemporaryDirectory() as d:
+            out = self._run_hub(d, "--no-notify")
+        self.assertIn("already active", out)
+        self.assertEqual(NotificationChannel.objects.count(), 1)
+
+    def test_hub_interactive_slack_channel(self):
+        from apps.notify.models import NotificationChannel
+
+        with tempfile.TemporaryDirectory() as d:
+            with patch(
+                "config.management.commands.setup_cluster._env_path", return_value=_tmp_env(d)
+            ):
+                with patch(
+                    "builtins.input",
+                    side_effect=["slack", "https://hooks.slack.com/services/T/B/x"],
+                ):
+                    call_command("setup_cluster", "--role", "hub", "--name", "k", stdout=StringIO())
+        self.assertEqual(NotificationChannel.objects.filter(driver="slack").count(), 1)
 
     def test_hub_default_name_when_blank(self):
         with tempfile.TemporaryDirectory() as d:
@@ -186,7 +257,8 @@ class SetupClusterInteractiveTests(TestCase):
             with patch(
                 "config.management.commands.setup_cluster._env_path", return_value=_tmp_env(d)
             ):
-                with patch("builtins.input", side_effect=["1", "keyname"]):
+                # role=1(hub), name, notify prompt=skip
+                with patch("builtins.input", side_effect=["1", "keyname", "skip"]):
                     call_command("setup_cluster", stdout=StringIO())
         self.assertEqual(APIKey.objects.filter(name="keyname").count(), 1)
 
