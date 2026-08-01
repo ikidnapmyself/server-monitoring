@@ -51,3 +51,76 @@ class PipelineMatchesTests(TestCase):
         p = self._p([{"field": "source", "value": "grafana"}])
         self.assertTrue(p.matches({"source": "grafana"}))
         self.assertFalse(p.matches({"source": "other"}))
+
+
+class ResolvePipelineTests(TestCase):
+    def test_first_match_wins_by_priority(self):
+        from apps.orchestration.routing import resolve_pipeline
+
+        PipelineDefinition.objects.create(
+            name="general", priority=100, match=[]
+        )  # catch-all, lower priority
+        specific = PipelineDefinition.objects.create(
+            name="grafana",
+            priority=10,
+            match=[{"field": "source", "op": "is", "value": "grafana"}],
+        )
+        self.assertEqual(resolve_pipeline({"source": "grafana"}), specific)
+
+    def test_exception_via_higher_priority_rule(self):
+        from apps.orchestration.routing import resolve_pipeline
+
+        PipelineDefinition.objects.create(
+            name="all-critical",
+            priority=50,
+            match=[{"field": "severity", "op": "is", "value": "critical"}],
+        )
+        drop = PipelineDefinition.objects.create(
+            name="noisy-exception",
+            priority=10,
+            match=[{"field": "source", "op": "is", "value": "noisy"}],
+            run_notify=False,
+        )
+        # A noisy critical hits the higher-priority exception first.
+        self.assertEqual(resolve_pipeline({"source": "noisy", "severity": "critical"}), drop)
+
+    def test_no_match_returns_none(self):
+        from apps.orchestration.routing import resolve_pipeline
+
+        PipelineDefinition.objects.create(
+            name="only-cluster",
+            priority=10,
+            match=[{"field": "source", "op": "is", "value": "cluster"}],
+        )
+        self.assertIsNone(resolve_pipeline({"source": "grafana"}))
+
+    def test_inactive_pipelines_skipped(self):
+        from apps.orchestration.routing import resolve_pipeline
+
+        PipelineDefinition.objects.create(name="off", priority=1, match=[], is_active=False)
+        active = PipelineDefinition.objects.create(name="on", priority=100, match=[])
+        self.assertEqual(resolve_pipeline({"source": "x"}), active)
+
+
+class FactsFromIncidentTests(TestCase):
+    def test_pulls_source_labels_instance_from_alerts(self):
+        from django.utils import timezone
+
+        from apps.alerts.models import Alert, Incident
+        from apps.orchestration.routing import facts_from_incident
+
+        incident = Incident.objects.create(title="High CPU", severity="critical")
+        Alert.objects.create(
+            fingerprint="fp",
+            source="cluster",
+            name="cpu",
+            severity="critical",
+            started_at=timezone.now(),
+            incident=incident,
+            labels={"instance_id": "web-03", "env": "prod"},
+        )
+        facts = facts_from_incident(incident)
+        self.assertEqual(facts["source"], "cluster")
+        self.assertEqual(facts["severity"], "critical")
+        self.assertEqual(facts["instance"], "web-03")
+        self.assertEqual(facts["labels"]["env"], "prod")
