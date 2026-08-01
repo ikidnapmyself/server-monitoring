@@ -132,8 +132,10 @@ class Command(BaseCommand):
 
         existing = NotificationChannel.objects.filter(is_active=True).first()
         if existing:
+            self._bind_catchall_pipeline(existing)
             self.stdout.write(
-                f"Notifications: already active ({existing.driver}: {existing.name})."
+                f"Notifications: active ({existing.driver}: {existing.name}), "
+                "routed via the catch-all pipeline."
             )
             return
 
@@ -165,10 +167,29 @@ class Command(BaseCommand):
                 "generic needs an https:// endpoint."
             )
 
-        NotificationChannel.objects.create(
+        channel = NotificationChannel.objects.create(
             name=f"{driver}-primary", driver=driver, config=config, is_active=True
         )
-        self.stdout.write(self.style.SUCCESS(f"Notifications: {driver} channel active."))
+        self._bind_catchall_pipeline(channel)
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Notifications: {driver} channel active, routed via the catch-all pipeline."
+            )
+        )
+
+    def _bind_catchall_pipeline(self, channel) -> None:
+        """Route the channel through a catch-all Pipeline (empty match = matches all).
+
+        Wires the channel via routing instead of relying on "first active channel",
+        so it composes with the pipeline-routing spine. Idempotent.
+        """
+        from apps.orchestration.models import PipelineDefinition
+
+        pipeline, _ = PipelineDefinition.objects.get_or_create(
+            name="default-catch-all",
+            defaults={"match": [], "priority": 1000},
+        )
+        pipeline.channels.add(channel)
 
     def _setup_agent(self, options) -> None:
         hub_url = options.get("hub_url") or input("HUB_URL (https://...): ").strip()
