@@ -90,6 +90,15 @@ class Alert(models.Model):
         help_text="Original raw payload from the source system.",
     )
 
+    # Correlation
+    trace_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="Correlation ID of the pipeline run that produced this alert.",
+    )
+
     # Timestamps
     started_at = models.DateTimeField(
         help_text="When the alert started firing.",

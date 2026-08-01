@@ -69,7 +69,7 @@ class IngestExecutor(BaseExecutor):
                 result.errors.append("payload must be a JSON object")
                 return result
 
-            orchestrator = AlertOrchestrator()
+            orchestrator = AlertOrchestrator(trace_id=ctx.trace_id)
             proc_result = orchestrator.process_webhook(
                 payload.get("payload", {}),
                 driver=driver,
@@ -134,6 +134,7 @@ class CheckExecutor(BaseExecutor):
             if hostname:
                 bridge_kwargs["hostname"] = hostname
             bridge_kwargs["auto_create_incidents"] = not no_incidents
+            bridge_kwargs["trace_id"] = ctx.trace_id
 
             bridge = CheckAlertBridge(**bridge_kwargs)
 

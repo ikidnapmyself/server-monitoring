@@ -97,6 +97,7 @@ class CheckAlertBridge:
         auto_create_incidents: bool = True,
         auto_resolve_incidents: bool = True,
         hostname: str | None = None,
+        trace_id: str = "",
     ):
         """
         Initialize the bridge.
@@ -105,12 +106,15 @@ class CheckAlertBridge:
             auto_create_incidents: Automatically create incidents for critical alerts.
             auto_resolve_incidents: Automatically resolve incidents when alerts resolve.
             hostname: Override hostname for alert labels. Defaults to system hostname.
+            trace_id: Correlation ID stamped on alerts + CheckRuns from this run.
         """
         self.orchestrator = AlertOrchestrator(
             auto_create_incidents=auto_create_incidents,
             auto_resolve_incidents=auto_resolve_incidents,
+            trace_id=trace_id,
         )
         self.hostname = hostname or socket.gethostname()
+        self.trace_id = trace_id
 
     def check_result_to_parsed_alert(
         self,
@@ -270,6 +274,7 @@ class CheckAlertBridge:
             annotations=parsed.annotations,
             raw_payload=parsed.raw_payload,
             started_at=parsed.started_at,
+            trace_id=self.trace_id,
         )
 
         AlertHistory.objects.create(
@@ -442,7 +447,7 @@ class CheckAlertBridge:
 
         checker_class = CHECKER_REGISTRY[checker_name]
         checker = checker_class(**(checker_kwargs or {}))
-        check_result = checker.run()
+        check_result = checker.run(trace_id=self.trace_id)
 
         processing_result = self.process_check_result(check_result, labels)
 

@@ -46,6 +46,15 @@ class AlertOrchestratorTests(TestCase):
         self.assertEqual(alert.name, "TestAlert")
         self.assertEqual(alert.status, "firing")
 
+    def test_created_alert_carries_trace_id(self):
+        """A webhook-ingested alert is stamped with the orchestrator's trace_id."""
+        AlertOrchestrator(trace_id="trace-xyz").process_webhook(self.alertmanager_payload)
+        self.assertEqual(Alert.objects.get().trace_id, "trace-xyz")
+
+    def test_default_trace_id_is_blank(self):
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+        self.assertEqual(Alert.objects.get().trace_id, "")
+
     def test_process_creates_incident(self):
         result = self.orchestrator.process_webhook(self.alertmanager_payload)
 

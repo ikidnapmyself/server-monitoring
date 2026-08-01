@@ -71,6 +71,7 @@ class AlertOrchestrator:
         self,
         auto_create_incidents: bool = True,
         auto_resolve_incidents: bool = True,
+        trace_id: str = "",
     ):
         """
         Initialize the orchestrator.
@@ -78,9 +79,11 @@ class AlertOrchestrator:
         Args:
             auto_create_incidents: Automatically create incidents for new alerts.
             auto_resolve_incidents: Automatically resolve incidents when all alerts resolve.
+            trace_id: Correlation ID stamped on alerts created by this run.
         """
         self.auto_create_incidents = auto_create_incidents
         self.auto_resolve_incidents = auto_resolve_incidents
+        self.trace_id = trace_id
 
     def process_webhook(
         self,
@@ -188,6 +191,7 @@ class AlertOrchestrator:
             raw_payload=parsed.raw_payload,
             started_at=parsed.started_at,
             ended_at=parsed.ended_at,
+            trace_id=self.trace_id,
         )
 
         # Record history
