@@ -370,18 +370,30 @@ Guided hub setup does not leave the notification channel bare — it binds it to
   `op` is `is` / `is-not` / `in` / `not-in`) and a `priority`.
 - For an incident, pipelines are evaluated by ascending `priority` and the **first
   match wins**. An empty `match` matches everything, so the catch-all is the
-  backstop. The notify stage sends to that pipeline's **primary active channel**
-  (the first active channel by name) — the matched pipeline is stamped on the
-  `Incident` for traceability.
+  backstop. The matched pipeline is **stamped on the `Incident`** right after
+  ingest, and the notify stage sends to that pipeline's **primary active channel**
+  (the first active channel by name).
+- The pipeline's `run_checkers` / `run_intelligence` / `run_notify` flags **select
+  which stages run** after ingest. For example, a pipeline with `run_checkers=False`
+  produces an AI-analysed notify without re-running checks; clearing `run_notify`
+  records the incident without notifying. A pipeline with all three cleared just
+  records the alert (ingest only).
 - To route specific traffic elsewhere (e.g. send `severity: critical` from a given
-  node to a dedicated channel), add a higher-priority pipeline in **Orchestration →
-  Pipeline definitions** with the narrower `match` and its own channel. Lower
-  `priority` numbers win, so an exception rule sits *above* the general one.
+  node to a dedicated channel, or silence a noisy source), add a higher-priority
+  pipeline in **Orchestration → Pipeline definitions** with the narrower `match`,
+  its own channel, and the flags you want. Lower `priority` numbers win, so an
+  exception rule sits *above* the general one.
 
-> **Phase A scope:** routing currently selects the notify **channel**. The
-> `run_checkers` / `run_intelligence` / `run_notify` flags are stored but not yet
-> enforced as stage gates, and only one channel per pipeline is used — flag-driven
-> stage selection and multi-channel fan-out land in Phase B.
+Notes:
+
+- **No-match is non-breaking:** if no active pipeline matches, the full pipeline
+  (checks → intelligence → notify) runs, exactly as before routing existed.
+- The CLI overrides `--checks-only` / `skip_checkers` still take precedence over a
+  pipeline's flags.
+- Only one channel per pipeline is used today; multi-channel fan-out is future work.
+- Every alert now carries the run's `trace_id`, and cluster-ingested alerts link to
+  their originating **`Node`** (resolved from the `instance_id` label) — both are
+  searchable/visible in the `Alert` admin.
 
 ### Agent setup
 
