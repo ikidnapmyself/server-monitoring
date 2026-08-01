@@ -55,6 +55,45 @@ class AlertOrchestratorTests(TestCase):
         self.orchestrator.process_webhook(self.alertmanager_payload)
         self.assertEqual(Alert.objects.get().trace_id, "")
 
+    def test_alert_links_existing_node_from_instance_label(self):
+        from apps.alerts.models import Node
+
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        payload = dict(self.alertmanager_payload)
+        payload["alerts"] = [
+            {
+                "status": "firing",
+                "labels": {
+                    "alertname": "TestAlert",
+                    "severity": "warning",
+                    "instance_id": "web-03",
+                },
+                "annotations": {},
+                "startsAt": "2024-01-08T10:00:00Z",
+                "fingerprint": "fp-node",
+            }
+        ]
+        self.orchestrator.process_webhook(payload)
+        self.assertEqual(Alert.objects.get().node_id, node.id)
+
+    def test_alert_without_instance_label_has_no_node(self):
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+        self.assertIsNone(Alert.objects.get().node_id)
+
+    def test_alert_with_unknown_instance_has_no_node(self):
+        payload = dict(self.alertmanager_payload)
+        payload["alerts"] = [
+            {
+                "status": "firing",
+                "labels": {"alertname": "A", "instance_id": "ghost"},
+                "annotations": {},
+                "startsAt": "2024-01-08T10:00:00Z",
+                "fingerprint": "fp-ghost",
+            }
+        ]
+        self.orchestrator.process_webhook(payload)
+        self.assertIsNone(Alert.objects.get().node_id)
+
     def test_process_creates_incident(self):
         result = self.orchestrator.process_webhook(self.alertmanager_payload)
 

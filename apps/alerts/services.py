@@ -30,6 +30,20 @@ from apps.alerts.models import (
 logger = logging.getLogger(__name__)
 
 
+def resolve_node(labels: dict | None):
+    """Return the Node matching an ``instance_id`` label, or None.
+
+    Only links to an already-registered node (``Node.upsert`` on the cluster push
+    owns creation); a missing label or unknown node leaves the alert unlinked.
+    """
+    from apps.alerts.models import Node
+
+    instance_id = (labels or {}).get("instance_id")
+    if not instance_id:
+        return None
+    return Node.objects.filter(instance_id=instance_id).first()
+
+
 @dataclass
 class ProcessingResult:
     """Result of processing an incoming alert payload."""
@@ -192,6 +206,7 @@ class AlertOrchestrator:
             started_at=parsed.started_at,
             ended_at=parsed.ended_at,
             trace_id=self.trace_id,
+            node=resolve_node(parsed.labels),
         )
 
         # Record history

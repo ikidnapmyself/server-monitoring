@@ -74,12 +74,19 @@ class AlertAdmin(admin.ModelAdmin):
         "severity_badge",
         "status_badge",
         "source",
+        "node",
         "incident_link",
         "started_at",
         "received_at",
     ]
-    list_filter = ["status", "severity", "source"]
-    search_fields = ["name", "fingerprint", "description", "incident__pipeline_runs__trace_id"]
+    list_filter = ["status", "severity", "source", "node"]
+    search_fields = [
+        "name",
+        "fingerprint",
+        "description",
+        "trace_id",
+        "incident__pipeline_runs__trace_id",
+    ]
     readonly_fields = [
         "fingerprint",
         "received_at",
@@ -93,13 +100,13 @@ class AlertAdmin(admin.ModelAdmin):
     actions = ["resolve_selected"]
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related("incident")
+        return super().get_queryset(request).select_related("incident", "node")
 
     fieldsets = [
         (
             "Identification",
             {
-                "fields": ["name", "fingerprint", "source", "incident"],
+                "fields": ["name", "fingerprint", "source", "node", "incident"],
             },
         ),
         (

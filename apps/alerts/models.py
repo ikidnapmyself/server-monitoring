@@ -126,6 +126,16 @@ class Alert(models.Model):
         help_text="Incident this alert is associated with.",
     )
 
+    # Link to originating node (agent), resolved from the instance_id label.
+    node = models.ForeignKey(
+        "alerts.Node",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="alerts",
+        help_text="Agent this alert came from (resolved from the instance_id label).",
+    )
+
     class Meta:
         ordering = ["-received_at"]
         indexes = [

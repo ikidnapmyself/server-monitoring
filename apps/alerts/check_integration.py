@@ -38,7 +38,7 @@ from apps.alerts.models import (
     Incident,
     IncidentStatus,
 )
-from apps.alerts.services import AlertOrchestrator, ProcessingResult
+from apps.alerts.services import AlertOrchestrator, ProcessingResult, resolve_node
 from apps.checkers.checkers import (
     CHECKER_REGISTRY,
     CheckResult,
@@ -275,6 +275,7 @@ class CheckAlertBridge:
             raw_payload=parsed.raw_payload,
             started_at=parsed.started_at,
             trace_id=self.trace_id,
+            node=resolve_node(parsed.labels),
         )
 
         AlertHistory.objects.create(
