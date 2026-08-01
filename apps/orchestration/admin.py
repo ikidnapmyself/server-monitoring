@@ -287,17 +287,18 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
 
     list_display = [
         "name",
-        "version",
+        "priority",
         "is_active",
+        "channel_count",
         "node_count",
-        "tags_display",
         "created_by",
         "updated_at",
     ]
     list_filter = ["is_active", "created_at"]
     search_fields = ["name", "description", "created_by"]
     readonly_fields = ["version", "created_at", "updated_at"]
-    ordering = ["-updated_at"]
+    ordering = ["priority", "-updated_at"]
+    filter_horizontal = ["channels"]
     formfield_overrides = {db_models.JSONField: {"widget": JSONEditorWidget}}
 
     fieldsets = [
@@ -308,10 +309,30 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
             },
         ),
         (
-            "Configuration",
+            "Routing",
+            {
+                "fields": [
+                    "match",
+                    "priority",
+                    "run_checkers",
+                    "run_intelligence",
+                    "run_notify",
+                    "channels",
+                ],
+                "description": (
+                    "match: [{field, op, value}] (field: source|severity|instance|label:<k>; "
+                    "op: is|is-not|in|not-in). Empty match = catch-all. Lower priority is "
+                    "evaluated first; first match wins. Flags select stages; channels are the "
+                    "notify targets."
+                ),
+            },
+        ),
+        (
+            "Configuration (legacy graph)",
             {
                 "fields": ["config"],
-                "description": "Pipeline configuration in JSON format. See documentation for schema.",
+                "classes": ["collapse"],
+                "description": "Legacy node/edge graph — being retired (Phase D). Routing uses the flat fields above.",
             },
         ),
         (
@@ -322,21 +343,16 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
         ),
     ]
 
+    @admin.display(description="Channels")
+    def channel_count(self, obj):
+        """Display the number of notify channels wired to this pipeline."""
+        return obj.channels.count()
+
     @admin.display(description="Nodes")
     def node_count(self, obj):
         """Display the number of nodes in the pipeline."""
         nodes = obj.get_nodes()
         return len(nodes)
-
-    @admin.display(description="Tags")
-    def tags_display(self, obj):
-        """Display tags in a readable format."""
-        if not obj.tags:
-            return "-"
-        tags = obj.tags
-        if isinstance(tags, dict):
-            return ", ".join(f"{k}={v}" for k, v in tags.items())
-        return str(tags)
 
     def save_model(self, request, obj, form, change):
         """Increment version on save if config changed."""

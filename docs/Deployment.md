@@ -359,6 +359,24 @@ each with the fix. Add `--no-verify` to skip the live push.
 
 The sections below describe the equivalent manual `.env` setup.
 
+### How the hub routes an incident to a channel
+
+Guided hub setup does not leave the notification channel bare — it binds it to a
+**catch-all `PipelineDefinition`** (name `default-catch-all`, empty `match`, low
+`priority`). Notification routing is pipeline-driven:
+
+- Each active `PipelineDefinition` has a `match` (a list of `{field, op, value}`
+  conditions; `field` is `source`, `severity`, `instance`, or `label:<key>`;
+  `op` is `is` / `is-not` / `in` / `not-in`) and a `priority`.
+- For an incident, pipelines are evaluated by ascending `priority` and the **first
+  match wins**. An empty `match` matches everything, so the catch-all is the
+  backstop. The notify stage sends to that pipeline's `channels`.
+- To route specific traffic elsewhere (e.g. send `severity: critical` from a given
+  node to PagerDuty, or drop a noisy source by clearing `run_notify`), add a
+  higher-priority pipeline in **Orchestration → Pipeline definitions** with the
+  narrower `match` and its own channels. Lower `priority` numbers win, so an
+  exception rule sits *above* the general one.
+
 ### Agent setup
 
 On each server you want to monitor:
