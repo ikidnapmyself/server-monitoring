@@ -1,8 +1,8 @@
 """Pipeline routing: resolve the pipeline that handles an incident.
 
 First active pipeline (by priority, then id) whose match() passes wins; None means
-no route matched (the caller falls back / inboxes). See the north-star design:
-docs/plans/2026-08-01-pipeline-routing-north-star-design.md.
+no route matched (the caller falls back / inboxes). See the Phase A plan:
+docs/plans/2026-08-01-pipeline-routing-phase-a.md.
 """
 
 from typing import Any

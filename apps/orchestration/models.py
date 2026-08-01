@@ -523,18 +523,30 @@ class PipelineDefinition(models.Model):
         return facts.get(field)
 
     def matches(self, facts: dict) -> bool:
-        """True if every condition holds (AND). Empty match = catch-all."""
+        """True if every condition holds (AND). Empty match = catch-all.
+
+        Fails **closed**: an unknown/typoed ``op``, a non-dict condition, or an
+        ``in``/``not-in`` whose ``value`` is not a list makes the condition (and so
+        the pipeline) not match, rather than silently matching everything.
+        """
         for cond in self.match or []:
+            if not isinstance(cond, dict):
+                return False
             field, op, value = cond.get("field"), cond.get("op", "is"), cond.get("value")
             actual = self._fact(facts, field)
-            if op == "is" and actual != value:
-                return False
-            if op == "is-not" and actual == value:
-                return False
-            if op == "in" and actual not in (value or []):
-                return False
-            if op == "not-in" and actual in (value or []):
-                return False
+            if op == "is":
+                if actual != value:
+                    return False
+            elif op == "is-not":
+                if actual == value:
+                    return False
+            elif op in ("in", "not-in"):
+                if not isinstance(value, (list, tuple)):
+                    return False  # membership needs a list; fail closed
+                if (op == "in") == (actual not in value):
+                    return False
+            else:
+                return False  # unknown op — fail closed
         return True
 
     def get_nodes(self) -> list[dict]:

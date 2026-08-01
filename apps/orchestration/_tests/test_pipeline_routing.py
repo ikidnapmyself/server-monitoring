@@ -52,6 +52,23 @@ class PipelineMatchesTests(TestCase):
         self.assertTrue(p.matches({"source": "grafana"}))
         self.assertFalse(p.matches({"source": "other"}))
 
+    def test_unknown_op_fails_closed(self):
+        # A typoed/unknown op must NOT match everything.
+        p = self._p([{"field": "source", "op": "equals", "value": "grafana"}])
+        self.assertFalse(p.matches({"source": "grafana"}))
+
+    def test_non_dict_condition_fails_closed(self):
+        p = self._p(["not-a-dict"])
+        self.assertFalse(p.matches({"source": "grafana"}))
+
+    def test_in_with_non_list_value_fails_closed(self):
+        p = self._p([{"field": "severity", "op": "in", "value": "critical"}])
+        self.assertFalse(p.matches({"severity": "critical"}))
+
+    def test_not_in_with_non_list_value_fails_closed(self):
+        p = self._p([{"field": "severity", "op": "not-in", "value": "info"}])
+        self.assertFalse(p.matches({"severity": "critical"}))
+
 
 class ResolvePipelineTests(TestCase):
     def test_first_match_wins_by_priority(self):

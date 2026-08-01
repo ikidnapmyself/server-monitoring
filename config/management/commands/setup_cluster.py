@@ -181,14 +181,23 @@ class Command(BaseCommand):
         """Route the channel through a catch-all Pipeline (empty match = matches all).
 
         Wires the channel via routing instead of relying on "first active channel",
-        so it composes with the pipeline-routing spine. Idempotent.
+        so it composes with the pipeline-routing spine. Idempotent: if the pipeline
+        already exists it is repaired to the catch-all invariants (active, empty
+        match, notify on) so the "routed via the catch-all pipeline" claim holds.
         """
         from apps.orchestration.models import PipelineDefinition
 
-        pipeline, _ = PipelineDefinition.objects.get_or_create(
+        pipeline, created = PipelineDefinition.objects.get_or_create(
             name="default-catch-all",
             defaults={"match": [], "priority": 1000},
         )
+        if not created and not (
+            pipeline.is_active and pipeline.match == [] and pipeline.run_notify
+        ):
+            pipeline.is_active = True
+            pipeline.match = []
+            pipeline.run_notify = True
+            pipeline.save(update_fields=["is_active", "match", "run_notify", "updated_at"])
         pipeline.channels.add(channel)
 
     def _setup_agent(self, options) -> None:

@@ -343,10 +343,14 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
         ),
     ]
 
+    def get_queryset(self, request):
+        """Prefetch channels so the changelist's channel_count avoids an N+1."""
+        return super().get_queryset(request).prefetch_related("channels")
+
     @admin.display(description="Channels")
     def channel_count(self, obj):
-        """Display the number of notify channels wired to this pipeline."""
-        return obj.channels.count()
+        """Number of notify channels wired to this pipeline (uses the prefetch cache)."""
+        return len(obj.channels.all())
 
     @admin.display(description="Nodes")
     def node_count(self, obj):

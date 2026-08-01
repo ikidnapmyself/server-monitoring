@@ -135,6 +135,27 @@ class SetupClusterHubTests(TestCase):
         catchall = PipelineDefinition.objects.get(name="default-catch-all")
         self.assertIn(existing, catchall.channels.all())
 
+    def test_hub_repairs_broken_catchall_pipeline(self):
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+
+        # A pre-existing catch-all that is inactive and not actually catch-all.
+        PipelineDefinition.objects.create(
+            name="default-catch-all",
+            is_active=False,
+            match=[{"field": "source", "op": "is", "value": "x"}],
+            run_notify=False,
+        )
+        NotificationChannel.objects.create(
+            name="existing", driver="slack", config={"webhook_url": "https://hooks.slack.com/x"}
+        )
+        with tempfile.TemporaryDirectory() as d:
+            self._run_hub(d, "--no-notify")
+        catchall = PipelineDefinition.objects.get(name="default-catch-all")
+        self.assertTrue(catchall.is_active)
+        self.assertEqual(catchall.match, [])
+        self.assertTrue(catchall.run_notify)
+
     def test_hub_interactive_slack_channel(self):
         from apps.notify.models import NotificationChannel
 

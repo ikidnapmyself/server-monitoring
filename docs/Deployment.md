@@ -370,12 +370,18 @@ Guided hub setup does not leave the notification channel bare — it binds it to
   `op` is `is` / `is-not` / `in` / `not-in`) and a `priority`.
 - For an incident, pipelines are evaluated by ascending `priority` and the **first
   match wins**. An empty `match` matches everything, so the catch-all is the
-  backstop. The notify stage sends to that pipeline's `channels`.
+  backstop. The notify stage sends to that pipeline's **primary active channel**
+  (the first active channel by name) — the matched pipeline is stamped on the
+  `Incident` for traceability.
 - To route specific traffic elsewhere (e.g. send `severity: critical` from a given
-  node to PagerDuty, or drop a noisy source by clearing `run_notify`), add a
-  higher-priority pipeline in **Orchestration → Pipeline definitions** with the
-  narrower `match` and its own channels. Lower `priority` numbers win, so an
-  exception rule sits *above* the general one.
+  node to a dedicated channel), add a higher-priority pipeline in **Orchestration →
+  Pipeline definitions** with the narrower `match` and its own channel. Lower
+  `priority` numbers win, so an exception rule sits *above* the general one.
+
+> **Phase A scope:** routing currently selects the notify **channel**. The
+> `run_checkers` / `run_intelligence` / `run_notify` flags are stored but not yet
+> enforced as stage gates, and only one channel per pipeline is used — flag-driven
+> stage selection and multi-channel fan-out land in Phase B.
 
 ### Agent setup
 
