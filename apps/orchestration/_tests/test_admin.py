@@ -288,6 +288,25 @@ class TestJsonWidgetRendering(TestCase):
         # django-json-widget injects its CSS/JS
         assert "json-editor" in content.lower() or "jsoneditor" in content.lower()
 
+    def test_pipeline_definition_changelist_shows_channel_count(self):
+        from django.contrib.admin.sites import site
+
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.admin import PipelineDefinitionAdmin
+        from apps.orchestration.models import PipelineDefinition
+
+        pd = PipelineDefinition.objects.create(name="routed", match=[], priority=5)
+        ch = NotificationChannel.objects.create(
+            name="ops", driver="slack", config={"webhook_url": "https://hooks.slack.com/x"}
+        )
+        pd.channels.add(ch)
+        response = self.client.get("/admin/orchestration/pipelinedefinition/")
+        assert response.status_code == 200
+        assert "routed" in response.content.decode()
+        # channel_count returns the actual number of wired channels.
+        admin_obj = PipelineDefinitionAdmin(PipelineDefinition, site)
+        assert admin_obj.channel_count(pd) == 1
+
     def test_stage_execution_snapshot_pretty(self):
         from apps.orchestration.models import (
             PipelineRun,
