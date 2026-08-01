@@ -294,27 +294,22 @@ class NotifyExecutor(BaseExecutor):
     """
 
     def _route_incident(self, ctx: StageContext) -> str | None:
-        """Resolve + stamp the matched pipeline; return its primary active channel name.
+        """Return the matched pipeline's primary active channel name.
 
-        Phase A: routes notify to the matched pipeline's channel by name. Returns
-        None (→ caller keeps today's payload-driven selection) when there is no
-        incident, no matching pipeline, or the pipeline names no active channel.
+        The pipeline is resolved and stamped on the incident right after INGEST
+        (Phase B), so notify just reads ``incident.pipeline`` here. Returns None
+        (→ caller keeps today's payload-driven selection) when there is no
+        incident, no stamped pipeline, or the pipeline names no active channel.
         """
         if not ctx.incident_id:
             return None
         from apps.alerts.models import Incident
-        from apps.orchestration.routing import facts_from_incident, resolve_pipeline
 
         incident = Incident.objects.filter(id=ctx.incident_id).first()
-        if incident is None:
+        pipeline = incident.pipeline if incident else None
+        if pipeline is None:
             return None
-        matched = resolve_pipeline(facts_from_incident(incident))
-        if matched is None:
-            return None
-        if incident.pipeline_id != matched.id:
-            incident.pipeline = matched
-            incident.save(update_fields=["pipeline", "updated_at"])
-        channel = matched.channels.filter(is_active=True).order_by("name").first()
+        channel = pipeline.channels.filter(is_active=True).order_by("name").first()
         return channel.name if channel else None
 
     def execute(self, ctx: StageContext) -> NotifyResult:
