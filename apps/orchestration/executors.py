@@ -292,6 +292,30 @@ class NotifyExecutor(BaseExecutor):
     Uses idempotency keys to prevent duplicate messages.
     """
 
+    def _route_incident(self, ctx: StageContext) -> str | None:
+        """Resolve + stamp the matched pipeline; return its primary active channel name.
+
+        Phase A: routes notify to the matched pipeline's channel by name. Returns
+        None (→ caller keeps today's payload-driven selection) when there is no
+        incident, no matching pipeline, or the pipeline names no active channel.
+        """
+        if not ctx.incident_id:
+            return None
+        from apps.alerts.models import Incident
+        from apps.orchestration.routing import facts_from_incident, resolve_pipeline
+
+        incident = Incident.objects.filter(id=ctx.incident_id).first()
+        if incident is None:
+            return None
+        matched = resolve_pipeline(facts_from_incident(incident))
+        if matched is None:
+            return None
+        if incident.pipeline_id != matched.id:
+            incident.pipeline = matched
+            incident.save(update_fields=["pipeline", "updated_at"])
+        channel = matched.channels.filter(is_active=True).order_by("name").first()
+        return channel.name if channel else None
+
     def execute(self, ctx: StageContext) -> NotifyResult:
         """Execute notification dispatch."""
         start_time = time.perf_counter()
@@ -324,10 +348,16 @@ class NotifyExecutor(BaseExecutor):
             if intelligence.get("fallback_used"):
                 message_body += "\n\n_AI analysis unavailable; showing check-based summary._"
 
+            # Phase A routing: resolve the pipeline that matches this incident,
+            # stamp it on the incident (for the notify target + journey view), and
+            # if it names channels, route notify to its (primary) channel. If no
+            # pipeline matches, fall back to today's payload-driven selection.
+            matched_channel_name = self._route_incident(ctx)
+
             # Centralize provider/channel selection via NotifySelector
             from apps.notify.services import NotifySelector
 
-            requested = payload.get("notify_driver")
+            requested = matched_channel_name or payload.get("notify_driver")
             payload_config = payload.get("notify_config", {}) or {}
 
             # Strip template keys so untrusted payloads cannot inject Jinja2

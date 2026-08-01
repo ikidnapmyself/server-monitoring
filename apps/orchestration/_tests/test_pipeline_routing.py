@@ -124,3 +124,87 @@ class FactsFromIncidentTests(TestCase):
         self.assertEqual(facts["severity"], "critical")
         self.assertEqual(facts["instance"], "web-03")
         self.assertEqual(facts["labels"]["env"], "prod")
+
+
+class RouteIncidentTests(TestCase):
+    def _ctx(self, incident_id):
+        from apps.orchestration.dtos import StageContext
+
+        return StageContext(
+            trace_id="t",
+            run_id="r",
+            incident_id=incident_id,
+            payload={},
+            previous_results={},
+            source="cluster",
+        )
+
+    def _incident_with_alert(self, source="cluster", severity="critical"):
+        from django.utils import timezone
+
+        from apps.alerts.models import Alert, Incident
+
+        incident = Incident.objects.create(title="x", severity=severity)
+        Alert.objects.create(
+            fingerprint=f"fp-{source}",
+            source=source,
+            name="cpu",
+            severity=severity,
+            started_at=timezone.now(),
+            incident=incident,
+            labels={"instance_id": "web"},
+        )
+        return incident
+
+    def _route(self, ctx):
+        from apps.orchestration.executors import NotifyExecutor
+
+        return NotifyExecutor()._route_incident(ctx)
+
+    def test_stamps_pipeline_and_returns_channel(self):
+        from apps.notify.models import NotificationChannel
+
+        incident = self._incident_with_alert()
+        ch = NotificationChannel.objects.create(
+            name="ops-slack",
+            driver="slack",
+            config={"webhook_url": "https://hooks.slack.com/x"},
+        )
+        p = PipelineDefinition.objects.create(
+            name="cluster-route",
+            priority=10,
+            match=[{"field": "source", "op": "is", "value": "cluster"}],
+        )
+        p.channels.add(ch)
+
+        self.assertEqual(self._route(self._ctx(incident.id)), "ops-slack")
+        incident.refresh_from_db()
+        self.assertEqual(incident.pipeline_id, p.id)
+        # Re-route is idempotent (already-stamped branch).
+        self.assertEqual(self._route(self._ctx(incident.id)), "ops-slack")
+
+    def test_no_incident_id(self):
+        self.assertIsNone(self._route(self._ctx(None)))
+
+    def test_incident_not_found(self):
+        self.assertIsNone(self._route(self._ctx(999999)))
+
+    def test_no_matching_pipeline(self):
+        incident = self._incident_with_alert(source="grafana")
+        PipelineDefinition.objects.create(
+            name="only-cluster",
+            priority=10,
+            match=[{"field": "source", "op": "is", "value": "cluster"}],
+        )
+        self.assertIsNone(self._route(self._ctx(incident.id)))
+
+    def test_matched_without_channels_still_stamps_but_returns_none(self):
+        incident = self._incident_with_alert()
+        p = PipelineDefinition.objects.create(
+            name="cluster-no-ch",
+            priority=10,
+            match=[{"field": "source", "op": "is", "value": "cluster"}],
+        )
+        self.assertIsNone(self._route(self._ctx(incident.id)))
+        incident.refresh_from_db()
+        self.assertEqual(incident.pipeline_id, p.id)  # stamped even without a channel

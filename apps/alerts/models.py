@@ -206,6 +206,15 @@ class Incident(models.Model):
         blank=True,
         help_text="Additional metadata for the incident.",
     )
+    # The pipeline that routing matched for this incident (Phase A). Powers the
+    # notify target and the journey view; SET_NULL so retiring a pipeline is safe.
+    pipeline = models.ForeignKey(
+        "orchestration.PipelineDefinition",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="incidents",
+    )
 
     class Meta:
         ordering = ["-created_at"]
