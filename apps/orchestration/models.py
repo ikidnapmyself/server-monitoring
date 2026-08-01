@@ -486,15 +486,56 @@ class PipelineDefinition(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # --- Routing spine (Phase A). A flat, first-match-wins alternative to the
+    # legacy graph `config`. Match -> behaviour flags -> channels. ---
+    match = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Routing conditions [{field, op, value}]; empty = catch-all.",
+    )
+    priority = models.IntegerField(
+        default=100,
+        db_index=True,
+        help_text="Lower is evaluated first (first match wins).",
+    )
+    run_checkers = models.BooleanField(default=True)
+    run_intelligence = models.BooleanField(default=True)
+    run_notify = models.BooleanField(default=True)
+    channels = models.ManyToManyField(
+        "notify.NotificationChannel", blank=True, related_name="pipelines"
+    )
+
     class Meta:
         ordering = ["-updated_at"]
         indexes = [
             models.Index(fields=["name", "is_active"]),
             models.Index(fields=["is_active", "-updated_at"]),
+            models.Index(fields=["is_active", "priority"]),
         ]
 
     def __str__(self):
         return f"{self.name} (v{self.version})"
+
+    @staticmethod
+    def _fact(facts: dict, field: str | None):
+        if field and field.startswith("label:"):
+            return (facts.get("labels") or {}).get(field.split(":", 1)[1])
+        return facts.get(field)
+
+    def matches(self, facts: dict) -> bool:
+        """True if every condition holds (AND). Empty match = catch-all."""
+        for cond in self.match or []:
+            field, op, value = cond.get("field"), cond.get("op", "is"), cond.get("value")
+            actual = self._fact(facts, field)
+            if op == "is" and actual != value:
+                return False
+            if op == "is-not" and actual == value:
+                return False
+            if op == "in" and actual not in (value or []):
+                return False
+            if op == "not-in" and actual in (value or []):
+                return False
+        return True
 
     def get_nodes(self) -> list[dict]:
         """Return the list of nodes from config."""
