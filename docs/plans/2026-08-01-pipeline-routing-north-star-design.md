@@ -5,7 +5,7 @@ parent: Plans
 
 # Pipeline Routing — North-Star Architecture
 
-**Status:** Design (north star), written 2026-08-01. Approved as the target
+**Status:** Design (north star), written and approved 2026-08-01 as the target
 architecture. Deliberately a **plan to build toward**, not a big-bang build —
 each phase (A–D) ships independently and non-breaking.
 
@@ -22,7 +22,9 @@ hardcoded or "first one wins":
 - **Pipeline shape** is hardcoded (`PipelineOrchestrator`), with the
   `skip_checkers` **driver flag** as the only routing-ish decision — a one-off hack.
 - `PipelineDefinition` (a legacy node/edge **graph** model) and its
-  `DefinitionBasedOrchestrator` sit unused beside the real path.
+  `DefinitionBasedOrchestrator` sit unused **by the default webhook pipeline path**
+  (they remain reachable via the definition validate/execute endpoints and
+  `run_pipeline --definition …`) — parallel to the real path, not driving it.
 
 That single absence forced the `skip_checkers` hack, the "first active channel"
 crudeness, and the ad-hoc `{driver}-primary` channel created by guided setup. It
