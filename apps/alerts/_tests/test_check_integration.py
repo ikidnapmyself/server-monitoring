@@ -68,6 +68,39 @@ class CheckAlertBridgeTests(TestCase):
         self.assertEqual(alert.status, "firing")
         self.assertEqual(alert.source, "server-checkers")
 
+    def test_check_created_alert_carries_trace_id(self):
+        """A checker-originated alert is stamped with the run's trace_id."""
+        bridge = CheckAlertBridge(hostname="test-server", trace_id="trace-abc")
+        bridge.process_check_result(
+            CheckResult(
+                status=CheckStatus.WARNING,
+                message="Memory usage at 75%",
+                metrics={"memory_percent": 75.0},
+                checker_name="memory",
+            )
+        )
+        alert = Alert.objects.get()
+        self.assertEqual(alert.trace_id, "trace-abc")
+
+    def test_run_check_forwards_trace_id_to_checkrun(self):
+        """run_check_and_alert stamps trace_id on both the CheckRun and the Alert."""
+        from apps.checkers.models import CheckRun
+
+        bridge = CheckAlertBridge(hostname="test-server", trace_id="trace-xyz")
+        with patch("apps.alerts.check_integration.CHECKER_REGISTRY") as registry:
+            checker = MagicMock()
+            checker.run.return_value = CheckResult(
+                status=CheckStatus.CRITICAL, message="disk full", checker_name="disk"
+            )
+            registry.__contains__.return_value = True
+            registry.__getitem__.return_value = lambda **kw: checker
+            bridge.run_check_and_alert("disk")
+        checker.run.assert_called_once_with(trace_id="trace-xyz")
+        self.assertEqual(Alert.objects.get().trace_id, "trace-xyz")
+        # A real checker (not the mock) would also write CheckRun.trace_id; the mock
+        # short-circuits run(), so assert the plumbing via the forwarded kwarg above.
+        self.assertEqual(CheckRun.objects.count(), 0)
+
     def test_process_check_result_creates_incident_for_warning(self):
         """Test that a warning check creates an incident."""
         result = CheckResult(

@@ -376,6 +376,7 @@ class TestCheckExecutorHostnameAndNoIncidents(SimpleTestCase):
         mock_cls.assert_called_once_with(
             hostname="web-01",
             auto_create_incidents=False,
+            trace_id="t",
         )
 
 

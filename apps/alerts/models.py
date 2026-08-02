@@ -90,6 +90,15 @@ class Alert(models.Model):
         help_text="Original raw payload from the source system.",
     )
 
+    # Correlation
+    trace_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="Correlation ID of the pipeline run that produced this alert.",
+    )
+
     # Timestamps
     started_at = models.DateTimeField(
         help_text="When the alert started firing.",
@@ -115,6 +124,16 @@ class Alert(models.Model):
         blank=True,
         related_name="alerts",
         help_text="Incident this alert is associated with.",
+    )
+
+    # Link to originating node (agent), resolved from the instance_id label.
+    node = models.ForeignKey(
+        "alerts.Node",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="alerts",
+        help_text="Agent this alert came from (resolved from the instance_id label).",
     )
 
     class Meta:

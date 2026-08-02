@@ -30,6 +30,20 @@ from apps.alerts.models import (
 logger = logging.getLogger(__name__)
 
 
+def resolve_node(labels: dict | None):
+    """Return the Node matching an ``instance_id`` label, or None.
+
+    Only links to an already-registered node (``Node.upsert`` on the cluster push
+    owns creation); a missing label or unknown node leaves the alert unlinked.
+    """
+    from apps.alerts.models import Node
+
+    instance_id = (labels or {}).get("instance_id")
+    if not instance_id:
+        return None
+    return Node.objects.filter(instance_id=instance_id).first()
+
+
 @dataclass
 class ProcessingResult:
     """Result of processing an incoming alert payload."""
@@ -71,6 +85,7 @@ class AlertOrchestrator:
         self,
         auto_create_incidents: bool = True,
         auto_resolve_incidents: bool = True,
+        trace_id: str = "",
     ):
         """
         Initialize the orchestrator.
@@ -78,9 +93,11 @@ class AlertOrchestrator:
         Args:
             auto_create_incidents: Automatically create incidents for new alerts.
             auto_resolve_incidents: Automatically resolve incidents when all alerts resolve.
+            trace_id: Correlation ID stamped on alerts created by this run.
         """
         self.auto_create_incidents = auto_create_incidents
         self.auto_resolve_incidents = auto_resolve_incidents
+        self.trace_id = trace_id
 
     def process_webhook(
         self,
@@ -175,7 +192,11 @@ class AlertOrchestrator:
         source: str,
         result: ProcessingResult,
     ) -> Alert:
-        """Create a new alert from parsed data."""
+        """Create a new alert from parsed data.
+
+        trace_id/node are stamped at creation only (origin semantics); a later
+        refire updates the alert via _update_alert but keeps its original stamps.
+        """
         alert = Alert.objects.create(
             fingerprint=parsed.fingerprint,
             source=source,
@@ -188,6 +209,8 @@ class AlertOrchestrator:
             raw_payload=parsed.raw_payload,
             started_at=parsed.started_at,
             ended_at=parsed.ended_at,
+            trace_id=self.trace_id,
+            node=resolve_node(parsed.labels),
         )
 
         # Record history

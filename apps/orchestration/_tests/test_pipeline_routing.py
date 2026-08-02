@@ -178,7 +178,9 @@ class RouteIncidentTests(TestCase):
 
         return NotifyExecutor()._route_incident(ctx)
 
-    def test_stamps_pipeline_and_returns_channel(self):
+    def test_returns_primary_channel_of_stamped_pipeline(self):
+        # Phase B: the pipeline is stamped on the incident before notify runs;
+        # _route_incident just reads it and returns its primary active channel.
         from apps.notify.models import NotificationChannel
 
         incident = self._incident_with_alert()
@@ -187,17 +189,11 @@ class RouteIncidentTests(TestCase):
             driver="slack",
             config={"webhook_url": "https://hooks.slack.com/x"},
         )
-        p = PipelineDefinition.objects.create(
-            name="cluster-route",
-            priority=10,
-            match=[{"field": "source", "op": "is", "value": "cluster"}],
-        )
+        p = PipelineDefinition.objects.create(name="cluster-route", priority=10, match=[])
         p.channels.add(ch)
+        incident.pipeline = p
+        incident.save(update_fields=["pipeline"])
 
-        self.assertEqual(self._route(self._ctx(incident.id)), "ops-slack")
-        incident.refresh_from_db()
-        self.assertEqual(incident.pipeline_id, p.id)
-        # Re-route is idempotent (already-stamped branch).
         self.assertEqual(self._route(self._ctx(incident.id)), "ops-slack")
 
     def test_no_incident_id(self):
@@ -206,22 +202,13 @@ class RouteIncidentTests(TestCase):
     def test_incident_not_found(self):
         self.assertIsNone(self._route(self._ctx(999999)))
 
-    def test_no_matching_pipeline(self):
-        incident = self._incident_with_alert(source="grafana")
-        PipelineDefinition.objects.create(
-            name="only-cluster",
-            priority=10,
-            match=[{"field": "source", "op": "is", "value": "cluster"}],
-        )
+    def test_no_stamped_pipeline_returns_none(self):
+        incident = self._incident_with_alert()  # incident.pipeline is None
         self.assertIsNone(self._route(self._ctx(incident.id)))
 
-    def test_matched_without_channels_still_stamps_but_returns_none(self):
+    def test_stamped_pipeline_without_channels_returns_none(self):
         incident = self._incident_with_alert()
-        p = PipelineDefinition.objects.create(
-            name="cluster-no-ch",
-            priority=10,
-            match=[{"field": "source", "op": "is", "value": "cluster"}],
-        )
+        p = PipelineDefinition.objects.create(name="no-ch", priority=10, match=[])
+        incident.pipeline = p
+        incident.save(update_fields=["pipeline"])
         self.assertIsNone(self._route(self._ctx(incident.id)))
-        incident.refresh_from_db()
-        self.assertEqual(incident.pipeline_id, p.id)  # stamped even without a channel

@@ -259,18 +259,22 @@ class PipelineOrchestrator:
             attempt=pipeline_run.total_attempts,
         )
 
-        # Determine which stages to run
+        # Determine which stages to run.
+        #
+        # checks_only / skip_checkers remain CLI/back-compat overrides. Otherwise
+        # INGEST always runs first; the downstream stages are resolved AFTER ingest
+        # from the matched pipeline's flags (see _downstream_stages), because
+        # routing needs the incident's facts (source/severity/labels).
         checks_only = payload.get("checks_only", False)
         skip_checkers = payload.get("skip_checkers", False)
         if checks_only:
             active_stages = [PipelineStage.CHECK]
             final_status = PipelineStatus.CHECKED
-        elif skip_checkers:
-            active_stages = [s for s in STAGE_ORDER if s != PipelineStage.CHECK]
-            final_status = PipelineStatus.NOTIFIED
         else:
-            active_stages = STAGE_ORDER
-            final_status = PipelineStatus.NOTIFIED
+            # INGEST is the only stage known up front; the rest are appended once
+            # ingest resolves the matched pipeline (runs exactly once per pipeline).
+            active_stages = [PipelineStage.INGEST]
+            final_status = PipelineStatus.INGESTED  # recomputed once downstream is known
 
         # Emit pipeline started
         emit_pipeline_started(base_tags)
@@ -294,6 +298,11 @@ class PipelineOrchestrator:
                         previous_results[stage] = prev_execution.output_snapshot
                         if stage == PipelineStage.INGEST:
                             incident_id = prev_execution.output_snapshot.get("incident_id")
+                    # Resolve downstream even on resume, so a resumed run still routes.
+                    if stage == PipelineStage.INGEST:
+                        downstream = self._downstream_stages(incident_id, skip_checkers)
+                        active_stages.extend(downstream)  # in-place: the loop sees new items
+                        final_status = self._final_status(downstream)
                     continue
 
                 # Execute stage with retries
@@ -323,6 +332,11 @@ class PipelineOrchestrator:
                             "updated_at",
                         ]
                     )
+                    # Now that we know the incident, resolve + stamp the matched
+                    # pipeline and select the downstream stages from its flags.
+                    downstream = self._downstream_stages(incident_id, skip_checkers)
+                    active_stages.extend(downstream)  # in-place: the loop sees new items
+                    final_status = self._final_status(downstream)
 
                 # Update refs on pipeline run
                 if stage == PipelineStage.CHECK and isinstance(stage_result, CheckResult):
@@ -424,6 +438,53 @@ class PipelineOrchestrator:
 
         result.completed_at = pipeline_run.completed_at
         return result
+
+    def _downstream_stages(
+        self, incident_id: int | None, skip_checkers: bool
+    ) -> list[PipelineStage]:
+        """Stages after INGEST, from the matched pipeline's flags.
+
+        Resolves the pipeline for the incident, stamps it on the incident, and
+        returns the enabled downstream stages. Falls back to today's full order
+        (minus CHECK when skip_checkers) when there is no incident or no match,
+        so behaviour is unchanged for un-routed traffic.
+        """
+        default = [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+        if not skip_checkers:
+            default = [PipelineStage.CHECK] + default
+
+        if not incident_id:
+            return default
+
+        from apps.alerts.models import Incident
+        from apps.orchestration.routing import facts_from_incident, resolve_pipeline
+
+        incident = Incident.objects.filter(id=incident_id).first()
+        if incident is None:
+            return default
+        matched = resolve_pipeline(facts_from_incident(incident))
+        if matched is None:
+            return default
+
+        if incident.pipeline_id != matched.id:
+            incident.pipeline = matched
+            incident.save(update_fields=["pipeline", "updated_at"])
+
+        stages: list[PipelineStage] = []
+        if matched.run_checkers and not skip_checkers:
+            stages.append(PipelineStage.CHECK)
+        if matched.run_intelligence:
+            stages.append(PipelineStage.ANALYZE)
+        if matched.run_notify:
+            stages.append(PipelineStage.NOTIFY)
+        return stages
+
+    @staticmethod
+    def _final_status(downstream: list[PipelineStage]) -> PipelineStatus:
+        """Terminal status = the last downstream stage that ran (INGESTED if none)."""
+        if not downstream:
+            return PipelineStatus.INGESTED
+        return STAGE_TO_STATUS[downstream[-1]]
 
     def _execute_stage_with_retry(
         self,
