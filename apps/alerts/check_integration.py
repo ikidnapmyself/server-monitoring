@@ -262,7 +262,11 @@ class CheckAlertBridge:
         source: str,
         result: ProcessingResult,
     ) -> Alert:
-        """Create a new alert from parsed data."""
+        """Create a new alert from parsed data.
+
+        trace_id/node are stamped at creation only (origin semantics); a later
+        refire updates the alert via _update_alert but keeps its original stamps.
+        """
         alert = Alert.objects.create(
             fingerprint=parsed.fingerprint,
             source=source,

@@ -391,9 +391,11 @@ Notes:
 - The CLI overrides `--checks-only` / `skip_checkers` still take precedence over a
   pipeline's flags.
 - Only one channel per pipeline is used today; multi-channel fan-out is future work.
-- Every alert now carries the run's `trace_id`, and cluster-ingested alerts link to
-  their originating **`Node`** (resolved from the `instance_id` label) — both are
-  searchable/visible in the `Alert` admin.
+- Alerts created **within a pipeline run** carry the run's `trace_id` (the journey
+  chain). Alerts ingested directly outside a run — the synchronous webhook fallback
+  and the node ingest handler — currently have a blank `trace_id`. Cluster-ingested
+  alerts also link to their originating **`Node`** (resolved from the `instance_id`
+  label). `trace_id` and `node` are both searchable/visible in the `Alert` admin.
 
 ### Agent setup
 
