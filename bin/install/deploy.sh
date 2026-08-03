@@ -101,19 +101,10 @@ _deploy_docker() {
     local TIMEOUT=60
     local INTERVAL=5
     local ELAPSED=0
-    local REDIS_OK=false
     local WEB_OK=false
-    local CELERY_OK=false
+    local INBOX_OK=false
 
     while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
-        # Redis check
-        if [ "$REDIS_OK" = false ]; then
-            if docker compose -f "$COMPOSE_FILE" exec -T redis redis-cli ping 2>/dev/null | grep -q PONG; then
-                REDIS_OK=true
-                success "Redis is healthy"
-            fi
-        fi
-
         # Web check
         if [ "$WEB_OK" = false ]; then
             local WEB_STATE
@@ -124,35 +115,35 @@ _deploy_docker() {
             fi
         fi
 
-        # Celery check
-        if [ "$CELERY_OK" = false ]; then
-            local CELERY_STATE
-            CELERY_STATE=$(get_service_state "$COMPOSE_FILE" celery)
-            if [ "$CELERY_STATE" = "running" ]; then
-                CELERY_OK=true
-                success "Celery service is healthy"
+        # Inbox drain check
+        if [ "$INBOX_OK" = false ]; then
+            local INBOX_STATE
+            INBOX_STATE=$(get_service_state "$COMPOSE_FILE" inbox)
+            if [ "$INBOX_STATE" = "running" ]; then
+                INBOX_OK=true
+                success "Inbox drain is healthy"
             fi
         fi
 
         # All healthy — confirm not in restart loop
-        if [ "$REDIS_OK" = true ] && [ "$WEB_OK" = true ] && [ "$CELERY_OK" = true ]; then
+        if [ "$WEB_OK" = true ] && [ "$INBOX_OK" = true ]; then
             info "All services running — confirming stability..."
             sleep "$INTERVAL"
 
-            local WEB_RECHECK CELERY_RECHECK
+            local WEB_RECHECK INBOX_RECHECK
             WEB_RECHECK=$(get_service_state "$COMPOSE_FILE" web)
-            CELERY_RECHECK=$(get_service_state "$COMPOSE_FILE" celery)
+            INBOX_RECHECK=$(get_service_state "$COMPOSE_FILE" inbox)
 
             if [ "$WEB_RECHECK" != "running" ]; then
                 WEB_OK=false
                 warn "Web service was running but is now restarting (crash loop detected)"
             fi
-            if [ "$CELERY_RECHECK" != "running" ]; then
-                CELERY_OK=false
-                warn "Celery service was running but is now restarting (crash loop detected)"
+            if [ "$INBOX_RECHECK" != "running" ]; then
+                INBOX_OK=false
+                warn "Inbox drain was running but is now restarting (crash loop detected)"
             fi
 
-            if [ "$WEB_OK" = true ] && [ "$CELERY_OK" = true ]; then
+            if [ "$WEB_OK" = true ] && [ "$INBOX_OK" = true ]; then
                 break
             fi
         fi
@@ -163,16 +154,12 @@ _deploy_docker() {
 
     # Report failures
     local FAILED=false
-    if [ "$REDIS_OK" = false ]; then
-        error "Redis failed to become healthy. Check logs: docker compose -f $COMPOSE_FILE logs redis"
-        FAILED=true
-    fi
     if [ "$WEB_OK" = false ]; then
         error "Web service failed to become healthy. Check logs: docker compose -f $COMPOSE_FILE logs web"
         FAILED=true
     fi
-    if [ "$CELERY_OK" = false ]; then
-        error "Celery service failed to become healthy. Check logs: docker compose -f $COMPOSE_FILE logs celery"
+    if [ "$INBOX_OK" = false ]; then
+        error "Inbox drain failed to become healthy. Check logs: docker compose -f $COMPOSE_FILE logs inbox"
         FAILED=true
     fi
 
@@ -195,9 +182,8 @@ _deploy_docker() {
     echo "============================================"
     echo ""
     echo "Services:"
-    echo "  - Web:    http://localhost:${WEB_PORT}"
-    echo "  - Redis:  redis://localhost:6379 (internal)"
-    echo "  - Celery: background worker"
+    echo "  - Web:   http://localhost:${WEB_PORT}"
+    echo "  - Inbox: durable-ingest drain (process_inbox)"
     echo ""
     echo "Useful commands:"
     echo "  docker compose -f $COMPOSE_FILE logs -f       # Follow logs"
@@ -262,20 +248,6 @@ _deploy_bare_prod() {
         warn "Continuing anyway — update DEPLOY_METHOD=bare in $ENV_FILE if this is intentional."
     fi
 
-    # Redis is running
-    info "Checking Redis service..."
-    if systemctl is-active --quiet redis-server 2>/dev/null; then
-        success "Redis is running (redis-server)"
-    elif systemctl is-active --quiet redis 2>/dev/null; then
-        success "Redis is running (redis)"
-    else
-        error "Redis service is not running."
-        echo "  Install and start Redis:"
-        echo "    Debian/Ubuntu: sudo apt install redis-server && sudo systemctl enable --now redis-server"
-        echo "    RHEL/Fedora:   sudo dnf install redis && sudo systemctl enable --now redis"
-        return 1
-    fi
-
     echo ""
     success "All pre-flight checks passed"
 
@@ -290,7 +262,7 @@ _deploy_bare_prod() {
     # Copy unit files
     info "Installing systemd unit files..."
     cp "$UNIT_DIR/server-monitoring.service" /etc/systemd/system/
-    cp "$UNIT_DIR/server-monitoring-celery.service" /etc/systemd/system/
+    cp "$UNIT_DIR/server-monitoring-inbox.service" /etc/systemd/system/
     success "Unit files installed"
 
     # Reload systemd
@@ -309,7 +281,7 @@ _deploy_bare_prod() {
 
     # Enable and start services
     info "Enabling and starting services..."
-    systemctl enable --now server-monitoring server-monitoring-celery
+    systemctl enable --now server-monitoring server-monitoring-inbox
     success "Services enabled and started"
 
     # --- Health Verification ---
@@ -326,7 +298,7 @@ _deploy_bare_prod() {
     local INTERVAL=5
     local ELAPSED=0
     local WEB_OK=false
-    local CELERY_OK=false
+    local INBOX_OK=false
 
     while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
         if [ "$WEB_OK" = false ]; then
@@ -336,14 +308,14 @@ _deploy_bare_prod() {
             fi
         fi
 
-        if [ "$CELERY_OK" = false ]; then
-            if systemctl is-active --quiet server-monitoring-celery 2>/dev/null; then
-                CELERY_OK=true
-                success "server-monitoring-celery — active"
+        if [ "$INBOX_OK" = false ]; then
+            if systemctl is-active --quiet server-monitoring-inbox 2>/dev/null; then
+                INBOX_OK=true
+                success "server-monitoring-inbox — active"
             fi
         fi
 
-        if [ "$WEB_OK" = true ] && [ "$CELERY_OK" = true ]; then
+        if [ "$WEB_OK" = true ] && [ "$INBOX_OK" = true ]; then
             info "Both services active — confirming stability..."
             sleep "$INTERVAL"
 
@@ -351,12 +323,12 @@ _deploy_bare_prod() {
                 WEB_OK=false
                 warn "server-monitoring was active but is now failing (crash loop detected)"
             fi
-            if ! systemctl is-active --quiet server-monitoring-celery 2>/dev/null; then
-                CELERY_OK=false
-                warn "server-monitoring-celery was active but is now failing (crash loop detected)"
+            if ! systemctl is-active --quiet server-monitoring-inbox 2>/dev/null; then
+                INBOX_OK=false
+                warn "server-monitoring-inbox was active but is now failing (crash loop detected)"
             fi
 
-            if [ "$WEB_OK" = true ] && [ "$CELERY_OK" = true ]; then
+            if [ "$WEB_OK" = true ] && [ "$INBOX_OK" = true ]; then
                 break
             fi
         fi
@@ -371,8 +343,8 @@ _deploy_bare_prod() {
         error "server-monitoring failed to start. Check: journalctl -u server-monitoring"
         FAILED=true
     fi
-    if [ "$CELERY_OK" = false ]; then
-        error "server-monitoring-celery failed to start. Check: journalctl -u server-monitoring-celery"
+    if [ "$INBOX_OK" = false ]; then
+        error "server-monitoring-inbox failed to start. Check: journalctl -u server-monitoring-inbox"
         FAILED=true
     fi
 
@@ -392,14 +364,14 @@ _deploy_bare_prod() {
     echo ""
     echo "Services:"
     echo "  - server-monitoring          (gunicorn on unix socket)"
-    echo "  - server-monitoring-celery   (celery worker)"
+    echo "  - server-monitoring-inbox   (inbox drain)"
     echo ""
     echo "Useful commands:"
     echo "  systemctl status server-monitoring"
-    echo "  systemctl status server-monitoring-celery"
+    echo "  systemctl status server-monitoring-inbox"
     echo "  journalctl -u server-monitoring -f"
-    echo "  journalctl -u server-monitoring-celery -f"
-    echo "  systemctl restart server-monitoring server-monitoring-celery"
+    echo "  journalctl -u server-monitoring-inbox -f"
+    echo "  systemctl restart server-monitoring server-monitoring-inbox"
     echo ""
 
     return 0

@@ -19,7 +19,6 @@ from apps.checkers.preflight.checks import (
     _path_exists,
     _read_file,
     check_allowed_hosts,
-    check_celery_eager,
     check_cluster_coherence,
     check_database_connection,
     check_debug_mode,
@@ -651,30 +650,6 @@ class CheckClusterCoherenceTests(TestCase):
         self.assertIn("agent", results[0].message)
 
 
-class CheckCeleryEagerTests(TestCase):
-    @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
-    @patch.dict(os.environ, {"DJANGO_ENV": "prod"})
-    def test_eager_in_prod(self):
-        results = check_celery_eager()
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].level, "warn")
-        self.assertIn("eager", results[0].message.lower())
-
-    @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
-    @patch.dict(os.environ, {"DJANGO_ENV": "dev"})
-    def test_eager_in_dev_ok(self):
-        results = check_celery_eager()
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].level, "ok")
-
-    @override_settings(CELERY_TASK_ALWAYS_EAGER=False)
-    @patch.dict(os.environ, {"DJANGO_ENV": "prod"})
-    def test_not_eager_in_prod_ok(self):
-        results = check_celery_eager()
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].level, "ok")
-
-
 class CheckMetricsConfigTests(TestCase):
     @override_settings(
         ORCHESTRATION_METRICS_BACKEND="logging",
@@ -796,31 +771,17 @@ class CheckDjangoSystemTests(TestCase):
 
 
 class CheckPipelineStateTests(TestCase):
-    @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
-    def test_active_pipeline_with_eager_celery(self):
-        from apps.orchestration.models import PipelineDefinition
-
-        PipelineDefinition.objects.create(name="test", config={}, is_active=True)
-        results = check_pipeline_state()
-        warns = [r for r in results if r.level == "warn"]
-        self.assertTrue(any("eager" in r.message.lower() for r in warns))
-
-    @override_settings(CELERY_TASK_ALWAYS_EAGER=False)
     def test_no_active_channels(self):
         results = check_pipeline_state()
         warns = [r for r in results if r.level == "warn"]
         self.assertTrue(any("notification channel" in r.message.lower() for r in warns))
 
-    @override_settings(CELERY_TASK_ALWAYS_EAGER=False)
     def test_no_active_definitions(self):
         results = check_pipeline_state()
         infos = [r for r in results if r.level == "info"]
         self.assertTrue(any("pipeline definition" in r.message.lower() for r in infos))
 
-    @override_settings(
-        CELERY_TASK_ALWAYS_EAGER=False,
-        ORCHESTRATION_INTELLIGENCE_FALLBACK_ENABLED=False,
-    )
+    @override_settings(ORCHESTRATION_INTELLIGENCE_FALLBACK_ENABLED=False)
     def test_intelligence_fallback_disabled(self):
         from apps.intelligence.models import IntelligenceProvider
 
@@ -829,7 +790,6 @@ class CheckPipelineStateTests(TestCase):
         infos = [r for r in results if r.level == "info"]
         self.assertTrue(any("fallback" in r.message.lower() for r in infos))
 
-    @override_settings(CELERY_TASK_ALWAYS_EAGER=False)
     def test_all_ok(self):
         from apps.notify.models import NotificationChannel
         from apps.orchestration.models import PipelineDefinition
@@ -988,8 +948,8 @@ class CheckDeploymentTests(TestCase):
         mock_run.return_value = mock_result
         results = check_deployment(Path("/fake"))
         ok_results = [r for r in results if r.level == "ok"]
-        # Docker daemon + 3 services
-        self.assertEqual(len(ok_results), 4)
+        # Docker daemon + 2 services (web, inbox)
+        self.assertEqual(len(ok_results), 3)
 
     @patch.dict(os.environ, {"DEPLOY_METHOD": "docker"})
     @patch("apps.checkers.preflight.checks.subprocess.run")
@@ -1044,7 +1004,7 @@ class CheckDeploymentTests(TestCase):
         with patch.object(Path, "exists", return_value=True):
             results = check_deployment(Path("/fake"))
         ok_results = [r for r in results if r.level == "ok"]
-        # 2 services + redis + gunicorn socket
+        # 2 systemd services + gunicorn socket
         self.assertTrue(len(ok_results) >= 3)
 
     @patch.dict(os.environ, {"DEPLOY_METHOD": "bare"})
@@ -1069,7 +1029,7 @@ class CheckDeploymentTests(TestCase):
     def test_systemd_command_not_found(self, _mock_run, _mock_systemd):
         with patch.object(Path, "exists", return_value=False):
             results = check_deployment(Path("/fake"))
-        # Should get warn for services that can't be checked, error for redis
+        # Should get warn for services that can't be checked
         self.assertTrue(len(results) >= 1)
 
     @patch.dict(os.environ, {"DEPLOY_METHOD": "bare"})
@@ -1159,7 +1119,6 @@ class RunAllTests(TestCase):
         return_value=[CheckResult(level="ok", message="django ok")],
     )
     @patch("apps.checkers.preflight.checks.check_metrics_config", return_value=[])
-    @patch("apps.checkers.preflight.checks.check_celery_eager", return_value=[])
     @patch(
         "apps.checkers.preflight.checks.check_cluster_coherence",
         return_value=[CheckResult(level="ok", message="cluster ok")],
@@ -1236,7 +1195,6 @@ class RunAllTests(TestCase):
         return_value=[CheckResult(level="ok", message="django ok")],
     )
     @patch("apps.checkers.preflight.checks.check_metrics_config", return_value=[])
-    @patch("apps.checkers.preflight.checks.check_celery_eager", return_value=[])
     @patch(
         "apps.checkers.preflight.checks.check_cluster_coherence",
         return_value=[CheckResult(level="ok", message="cluster ok")],

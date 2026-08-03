@@ -8,7 +8,6 @@ install_project() {
     local options=(
         "Full installation (all steps)"
         "Environment & .env configuration"
-        "Celery / Redis broker setup"
         "Cluster (multi-instance) setup"
         "Install dependencies (uv sync)"
         "Run migrations & system checks"
@@ -26,17 +25,16 @@ install_project() {
         case $REPLY in
             1)  run_command "$SCRIPT_DIR/install.sh" "Full installation" ;;
             2)  run_command "$SCRIPT_DIR/install.sh env" "Environment setup" ;;
-            3)  run_command "$SCRIPT_DIR/install.sh celery" "Celery setup" ;;
-            4)  run_command "$SCRIPT_DIR/install.sh cluster" "Cluster setup" ;;
-            5)  run_command "$SCRIPT_DIR/install.sh deps" "Installing dependencies" ;;
-            6)  run_command "$SCRIPT_DIR/install.sh migrate" "Migrations & checks" ;;
-            7)  run_command "$SCRIPT_DIR/install.sh cron" "Cron setup" ;;
-            8)  run_command "$SCRIPT_DIR/install.sh aliases" "Shell aliases" ;;
-            9)  run_command "$SCRIPT_DIR/install.sh deploy" "Deployment" ;;
-            10) check_installation ;;
-            11) confirm_and_run "$UV_BIN run python manage.py setup_instance" ;;
-            12) confirm_and_run "$SCRIPT_DIR/set_production.sh" ;;
-            13) return ;;
+            3)  run_command "$SCRIPT_DIR/install.sh cluster" "Cluster setup" ;;
+            4)  run_command "$SCRIPT_DIR/install.sh deps" "Installing dependencies" ;;
+            5)  run_command "$SCRIPT_DIR/install.sh migrate" "Migrations & checks" ;;
+            6)  run_command "$SCRIPT_DIR/install.sh cron" "Cron setup" ;;
+            7)  run_command "$SCRIPT_DIR/install.sh aliases" "Shell aliases" ;;
+            8)  run_command "$SCRIPT_DIR/install.sh deploy" "Deployment" ;;
+            9)  check_installation ;;
+            10) confirm_and_run "$UV_BIN run python manage.py setup_instance" ;;
+            11) confirm_and_run "$SCRIPT_DIR/set_production.sh" ;;
+            12) return ;;
             *)  echo -e "${RED}Invalid option${NC}" ;;
         esac
         break

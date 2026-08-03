@@ -16,7 +16,6 @@ from django.views.decorators.csrf import csrf_exempt
 from apps.orchestration.definition_orchestrator import DefinitionBasedOrchestrator
 from apps.orchestration.models import PipelineDefinition, PipelineRun, PipelineStatus
 from apps.orchestration.orchestrator import PipelineOrchestrator
-from apps.orchestration.tasks import start_pipeline_task
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +73,9 @@ class PipelineView(JSONResponseMixin, View):
             )
             return self.json_response(result.to_dict())
         else:
-            # Async execution via Celery
-            task_result = start_pipeline_task.delay(
+            # Durable async: record a PENDING run for the process_inbox drain
+            # (broker-free; no Celery). The webhook path works the same way.
+            run = PipelineOrchestrator().start_pipeline(
                 payload={"payload": payload, **body},
                 source=source,
                 trace_id=trace_id,
@@ -83,9 +83,9 @@ class PipelineView(JSONResponseMixin, View):
             )
             return self.json_response(
                 {
-                    "status": "queued",
-                    "task_id": task_result.id,
-                    "message": "Pipeline queued for execution",
+                    "status": "accepted",
+                    "run_id": run.run_id,
+                    "message": "Pipeline recorded; will be processed by the inbox drain",
                 },
                 status=202,
             )
