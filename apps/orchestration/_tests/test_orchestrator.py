@@ -34,6 +34,16 @@ class OrchestratorTests(TestCase):
         assert run.source == "test"
         assert run.status == PipelineStatus.PENDING
 
+    def test_start_pipeline_persists_payload_for_drain(self):
+        """start_pipeline stores the raw payload so a drain can process the run later."""
+        orchestrator = PipelineOrchestrator()
+        payload = {"driver": "generic", "payload": {"k": "v"}}
+        run = orchestrator.start_pipeline(payload, source="generic")
+
+        run.refresh_from_db()
+        assert run.status == PipelineStatus.PENDING
+        assert run.inbound_payload == {"driver": "generic", "payload": {"k": "v"}}
+
     def test_start_pipeline_uses_provided_trace_id(self):
         """Test that start_pipeline uses provided trace_id."""
         orchestrator = PipelineOrchestrator()

@@ -162,6 +162,7 @@ class PipelineOrchestrator:
                 environment=environment,
                 status=PipelineStatus.PENDING,
                 max_retries=self.max_retries,
+                inbound_payload=payload,
             )
 
         logger.info(

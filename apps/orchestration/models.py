@@ -21,6 +21,7 @@ class PipelineStatus(models.TextChoices):
     """Overall pipeline status (state machine)."""
 
     PENDING = "pending", "Pending"
+    PROCESSING = "processing", "Processing"
     INGESTED = "ingested", "Ingested"
     CHECKED = "checked", "Checked"
     ANALYZED = "analyzed", "Analyzed"
@@ -113,6 +114,13 @@ class PipelineRun(models.Model):
         blank=True,
         default="",
         help_text="Reference to normalized inbound payload (no raw secrets).",
+    )
+    # Raw inbound payload captured at ingest so a drain (process_inbox) can run
+    # this pending run later. Durable work record — see Phase C retention note.
+    inbound_payload = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Raw inbound payload captured at ingest so a drain can process this run.",
     )
     checker_output_ref = models.CharField(
         max_length=255,
