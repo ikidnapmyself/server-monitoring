@@ -30,6 +30,8 @@ class WebhookViewTests(TestCase):
         self.assertEqual(data["status"], "accepted")
         run = PipelineRun.objects.get(run_id=data["run_id"])
         self.assertEqual(run.status, PipelineStatus.PENDING)
+        # Stored in the wrapper shape IngestExecutor expects ({driver, payload}).
+        self.assertEqual(run.inbound_payload, {"driver": None, "payload": payload})
         # Nothing was processed inline: no Alert, no stage executions.
         self.assertEqual(Alert.objects.count(), 0)
         self.assertEqual(run.stage_executions.count(), 0)

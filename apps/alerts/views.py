@@ -59,15 +59,23 @@ class AlertWebhookView(View):
             # stage for this run. This is a driver property, not a source-string branch
             # in the orchestrator. Authentication is handled uniformly by the API-key
             # middleware; there is no per-driver signature check.
-            if resolved_driver and getattr(resolved_driver, "skip_checkers", False):
-                payload["skip_checkers"] = True
+            skip_checkers = bool(
+                resolved_driver and getattr(resolved_driver, "skip_checkers", False)
+            )
 
-            # Durable ingest: record the run and return immediately. A drain
-            # (manage.py process_inbox) processes it later. No inline pipeline,
-            # no broker — a flood grows a bounded PENDING queue, not the heap.
+            # Durable ingest: record the run in the pipeline's wrapper payload shape
+            # ({driver, payload, [skip_checkers]}) that IngestExecutor expects, then
+            # return immediately. A drain (manage.py process_inbox) processes it —
+            # no inline pipeline, no broker, so a flood grows a bounded PENDING queue.
             from apps.orchestration.orchestrator import PipelineOrchestrator
 
-            run = PipelineOrchestrator().start_pipeline(payload=payload, source=driver or "unknown")
+            run_payload: dict[str, Any] = {"driver": driver, "payload": payload}
+            if skip_checkers:
+                run_payload["skip_checkers"] = True
+
+            run = PipelineOrchestrator().start_pipeline(
+                payload=run_payload, source=driver or "unknown"
+            )
             logger.info(
                 "Webhook recorded run %s (source=%s) for draining",
                 run.run_id,
