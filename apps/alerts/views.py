@@ -4,15 +4,12 @@ Webhook views for receiving alerts from external sources.
 
 import json
 import logging
-import os
-from typing import Any, cast
+from typing import Any
 
 from django.http import JsonResponse
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
-
-from apps.alerts.services import AlertOrchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -65,62 +62,21 @@ class AlertWebhookView(View):
             if resolved_driver and getattr(resolved_driver, "skip_checkers", False):
                 payload["skip_checkers"] = True
 
-            # If Celery is enabled, enqueue the orchestration chain and return quickly.
-            # (In tests/dev you can set CELERY_TASK_ALWAYS_EAGER=1 to run inline.)
-            try:
-                from django.conf import settings
+            # Durable ingest: record the run and return immediately. A drain
+            # (manage.py process_inbox) processes it later. No inline pipeline,
+            # no broker — a flood grows a bounded PENDING queue, not the heap.
+            from apps.orchestration.orchestrator import PipelineOrchestrator
 
-                celery_eager = bool(getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False))
-            except Exception:
-                celery_eager = False
-
-            if os.environ.get("ENABLE_CELERY_ORCHESTRATION", "1") == "1" and not celery_eager:
-                try:
-                    from apps.orchestration.tasks import run_pipeline_task
-
-                    async_res = run_pipeline_task.delay(
-                        payload=payload,
-                        source=driver or "unknown",
-                    )
-                    return JsonResponse(
-                        {
-                            "status": "queued",
-                            "pipeline_id": async_res.id,
-                        },
-                        status=202,
-                    )
-                except Exception as enqueue_err:
-                    # If Celery isn't reachable (broker/result backend down), don't 500 the webhook.
-                    # Fall back to synchronous processing.
-                    logger.warning(
-                        "Celery orchestration enqueue failed; falling back to sync processing: %s",
-                        enqueue_err,
-                    )
-
-            # Fallback: synchronous processing (previous behavior)
-            orchestrator = AlertOrchestrator()
-            result = orchestrator.process_webhook(payload, driver=driver)
-
-            # Build response
-            response_data: dict[str, Any] = {
-                "status": "success" if not result.has_errors else "partial",
-                "alerts_created": result.alerts_created,
-                "alerts_updated": result.alerts_updated,
-                "alerts_resolved": result.alerts_resolved,
-                "incidents_created": result.incidents_created,
-                "incidents_updated": result.incidents_updated,
-            }
-
-            if result.has_errors:
-                response_data["errors"] = cast(Any, result.errors)
-                logger.warning(f"Webhook processing errors: {result.errors}")
-
+            run = PipelineOrchestrator().start_pipeline(payload=payload, source=driver or "unknown")
             logger.info(
-                f"Webhook processed: {result.total_processed} alerts "
-                f"({result.alerts_created} new, {result.alerts_resolved} resolved)"
+                "Webhook recorded run %s (source=%s) for draining",
+                run.run_id,
+                driver or "unknown",
             )
-
-            return JsonResponse(response_data)
+            return JsonResponse(
+                {"status": "accepted", "run_id": run.run_id},
+                status=202,
+            )
 
         except Exception as e:
             logger.exception("Unexpected error processing webhook")
