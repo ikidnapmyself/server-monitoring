@@ -180,10 +180,16 @@ uv run python manage.py collectstatic --noinput
 
 ```bash
 sudo cp deploy/systemd/server-monitoring.service /etc/systemd/system/
-sudo cp deploy/systemd/server-monitoring-celery.service /etc/systemd/system/
+sudo cp deploy/systemd/server-monitoring-inbox.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now server-monitoring server-monitoring-celery
+sudo systemctl enable --now server-monitoring server-monitoring-inbox
 ```
+
+> **`server-monitoring-inbox` is required, not optional.** The webhook only *records*
+> alerts (durable ingest); this drain is what actually processes them. See
+> [Durable ingest & the inbox drain](#durable-ingest--the-inbox-drain) below. The
+> legacy `server-monitoring-celery` unit is no longer needed — the pipeline runs
+> broker-free.
 
 > **Automated:** Run `sudo ./bin/install.sh deploy` to automate steps 2.4-2.6 (migrations, static files, unit installation, and service startup with health verification). Or use `sudo ./bin/install.sh` in **prod** mode when selecting the systemd deployment option.
 >
@@ -193,11 +199,58 @@ sudo systemctl enable --now server-monitoring server-monitoring-celery
 
 ```bash
 sudo systemctl status server-monitoring
-sudo systemctl status server-monitoring-celery
+sudo systemctl status server-monitoring-inbox
 
 # Test via unix socket
 curl --unix-socket /run/server-monitoring/gunicorn.sock http://localhost/alerts/webhook/
 ```
+
+---
+
+## Durable ingest & the inbox drain
+
+The alert webhook does **not** process pipelines inline. It **durably records** each
+inbound alert as a `PENDING` pipeline run and returns `202 {status: accepted, run_id}`
+immediately. A **drain** then processes the queue at a controlled rate. This keeps the
+web workers responsive and means a flood grows a **bounded database queue** instead of
+OOM-ing the node — and it needs **no Redis or Celery**.
+
+> ⚠️ **A drain must be running.** With neither the systemd service nor a cron entry
+> below, alerts are recorded but **never processed** — they pile up as `PENDING`
+> runs. Check the backlog any time with `manage.py doctor` (`Inbox: N pending`);
+> `doctor` also emits a warning once the backlog passes `INBOX_DEPTH_WARN` (default
+> 500).
+
+**Option A — supervised loop (recommended, near-real-time).** The
+`server-monitoring-inbox` unit installed above runs:
+
+```bash
+manage.py process_inbox --loop --interval 5 --limit 100
+```
+
+It polls every few seconds, restarts on crash, and needs no broker.
+
+**Option B — cron one-shot (no systemd).** Drain on a schedule instead:
+
+```cron
+*/1 * * * * cd /opt/server-monitoring && .venv/bin/python manage.py process_inbox --limit 100
+```
+
+**Manual "process now".** Force a specific recorded run through immediately:
+
+```bash
+uv run python manage.py process_inbox --id <run_id>
+```
+
+**Crash recovery.** A run claimed by a drain that dies mid-flight is reclaimed after
+`--stale-minutes` (default 15) and retried.
+
+**Trade-off.** Processing is now eventually-consistent: under load there is a short,
+visible queue delay (bounded by the drain interval) rather than synchronous handling.
+
+> **No-drain deployments (planned).** A future opt-in synchronous mode will let a
+> gunicorn-only host process alerts inline without a drain (trading back the flood
+> protection). Until then, run a drain.
 
 ---
 
