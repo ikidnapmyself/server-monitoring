@@ -253,6 +253,8 @@ def test_doctor_reports_inbox_depth_and_warns_over_threshold(self):
 
 **Content:** document (a) the supervised service (recommended, near-real-time), (b) the cron fallback `*/1 * * * * … process_inbox --limit 100`, (c) `process_inbox --id <run_id>` as the manual "process now", (d) that a flood now grows a visible `PENDING` queue (watch `doctor`) instead of OOM-ing, and (e) the eventual-consistency limit (a short queue delay under load). Commit `docs: durable ingest + process_inbox drain (systemd/cron)`.
 
+**REQUIRED WARNING in the docs:** durable ingest means **a drain must be running** — with neither a systemd service nor a cron entry, alerts are recorded as `PENDING` runs but **never processed**. Call this out prominently, point at `doctor`'s inbox depth to detect it, and reference the deferred **synchronous ingest mode** below as the escape hatch for zero-ops deployments.
+
 ---
 
 ## Task 6: Verify + finish branch
@@ -282,6 +284,20 @@ Expected: all clean; 100% branch coverage on changed lines; no pending migration
 4. `doctor` reports inbox depth and warns above the threshold.
 5. No Celery/Redis is required for the pipeline to run end-to-end; the webhook no longer references Celery (tasks.py/dependency/compose retained for the deferred cleanup).
 6. All CI gates green: black, ruff, mypy, `makemigrations --check`, pytest, 100% branch coverage on changed lines.
+
+## Deferred follow-ups (planned — NOT this PR)
+
+- **Synchronous ingest mode (for no-drain deployments).** A settings knob (e.g.
+  `INGEST_SYNC=1` / `INGEST_MODE=sync`) where the webhook still records the durable
+  `PENDING` run **and then executes it inline** via `execute_run(run)` before
+  returning the outcome — so a zero-ops deployment (gunicorn only, no systemd/cron)
+  processes alerts without a background drain. Trivial once Task 3 lands (the record
+  path already exists; sync mode just adds one inline `execute_run` call). Trade-off:
+  it re-accepts inline processing (the OOM exposure) as an **explicit opt-in** for
+  small deployments — default stays durable/async. Requested 2026-08-03.
+- **Dry-run for an incoming alert.** Preview what a pipeline *would* do for an alert
+  without side effects. Partly covered today by `run_pipeline --dry-run` and
+  `process_inbox --id`; a webhook/CLI dry-run affordance can build on `execute_run`.
 
 ## Out of scope (explicit)
 
