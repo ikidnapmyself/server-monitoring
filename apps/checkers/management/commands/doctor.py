@@ -27,6 +27,21 @@ def _cluster_status() -> dict:
     }
 
 
+def _inbox_status() -> dict:
+    """Durable-ingest queue depth (backpressure signal for the process_inbox drain)."""
+    from apps.orchestration.models import PipelineRun, PipelineStatus
+
+    pending = PipelineRun.objects.filter(status=PipelineStatus.PENDING).count()
+    processing = PipelineRun.objects.filter(status=PipelineStatus.PROCESSING).count()
+    threshold = int(getattr(settings, "INBOX_DEPTH_WARN", 500))
+    return {
+        "pending": pending,
+        "processing": processing,
+        "warn_threshold": threshold,
+        "over_threshold": pending > threshold,
+    }
+
+
 class Command(BaseCommand):
     help = "Read-only node/cluster diagnostic (preflight + registry + ingest readiness)."
     requires_system_checks: list[str] = []
@@ -37,8 +52,19 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         profile = get_profile()
         cluster = _cluster_status()
+        inbox = _inbox_status()
         checks = [{"level": r.level, "message": r.message} for r in run_all(base_dir=BASE_DIR)]
-        data = {"profile": profile, "cluster": cluster, "checks": checks}
+        if inbox["over_threshold"]:
+            checks.append(
+                {
+                    "level": "WARNING",
+                    "message": (
+                        f"Inbox backlog: {inbox['pending']} PENDING runs "
+                        f"(> {inbox['warn_threshold']}). Is a process_inbox drain running?"
+                    ),
+                }
+            )
+        data = {"profile": profile, "cluster": cluster, "inbox": inbox, "checks": checks}
 
         if options["as_json"]:
             self.stdout.write(json.dumps(data, indent=2, default=str))
@@ -52,5 +78,6 @@ class Command(BaseCommand):
             f"auth={'on' if cluster['api_key_auth_enabled'] else 'off'})"
         )
         self.stdout.write(f"Known nodes: {cluster['known_nodes']}")
+        self.stdout.write(f"Inbox: {inbox['pending']} pending, {inbox['processing']} processing")
         for c in checks:
             self.stdout.write(f"  [{c['level']}] {c['message']}")
