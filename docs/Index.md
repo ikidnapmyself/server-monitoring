@@ -85,7 +85,7 @@ See the [Setup Guide](Setup-Guide) for step-by-step walkthroughs of each use cas
 | `ORCHESTRATION_BACKOFF_FACTOR` | 2.0 | Exponential backoff multiplier |
 | `ORCHESTRATION_INTELLIGENCE_FALLBACK_ENABLED` | True | Use local fallback if AI fails |
 | `ORCHESTRATION_METRICS_BACKEND` | "logging" | Signal backend (logging or statsd) |
-| `ENABLE_CELERY_ORCHESTRATION` | 0 | Enable async pipeline via Celery |
+| `INBOX_DEPTH_WARN` | 500 | doctor warns when the drain backlog exceeds this |
 
 ---
 
@@ -903,13 +903,11 @@ Required on every signal: `trace_id`, `run_id`, `stage`, `incident_id`, `source`
 - **LoggingBackend** (default): Structured JSON logging
 - **StatsdBackend**: Sends metrics to StatsD (timing, counters)
 
-### Celery Tasks
+### Durable ingest / drain
 
-| Task | Purpose |
-|------|---------|
-| `run_pipeline_task` | Execute full pipeline synchronously in worker |
-| `resume_pipeline_task` | Resume failed pipeline from last success |
-| `start_pipeline_task` | Create PipelineRun and queue async execution |
+The pipeline is broker-free. The webhook records a `PENDING` `PipelineRun` and
+`manage.py process_inbox` drains it (supervised `--loop` or cron). See
+[Deployment → Durable ingest & the inbox drain](Deployment.md).
 
 ---
 

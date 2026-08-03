@@ -51,7 +51,6 @@ Security-sensitive variables:
 |----------|---------|----------|
 | `DJANGO_SECRET_KEY` | Django cryptographic signing | Yes (enforced) |
 | `DJANGO_DB_PASSWORD` | Database credentials | When using MySQL/PostgreSQL |
-| `CELERY_BROKER_URL` | Redis connection (may contain password) | When using Celery |
 
 ### DB-Stored Secrets
 
@@ -417,7 +416,7 @@ The orchestration layer (`apps.orchestration`) is the only stage controller and 
 The `bin/` toolchain (`install.sh`, `cli.sh`, `update.sh`, `check_security.sh`, etc.) is **admin/operator-only**. It is invoked from a shell session by a user with login access and never consumes HTTP, webhook, or task-queue input.
 
 **Invariants for new code in `bin/`:**
-- Never read or trust input that originated from the API, webhook, or Celery surface. If you need data from the Django application, run a `manage.py` command and parse its output.
+- Never read or trust input that originated from the API or webhook surface. If you need data from the Django application, run a `manage.py` command and parse its output.
 - `confirm_and_run` and similar interactive helpers consume `read`/`stdin` from the operator session only.
 - Subprocess spawning uses list-form argv; never interpolate user input into a shell string.
 - No `sudo`, setuid, or privilege-escalation paths are introduced.
@@ -490,10 +489,13 @@ The pipeline stores **references** to data rather than raw payloads to avoid lea
 - Never log API keys, tokens, or webhook URLs
 - Use structured logging with `trace_id`/`run_id` for correlation without exposing sensitive data
 
-## Celery Security
+## Pipeline Execution
 
-- **JSON-only serialization** — `CELERY_ACCEPT_CONTENT`, `CELERY_TASK_SERIALIZER`, and `CELERY_RESULT_SERIALIZER` are all set to `json`, preventing pickle deserialization attacks
-- Broker URL may contain credentials — treat `CELERY_BROKER_URL` as a secret
+- **Broker-free** — the pipeline no longer uses Celery/Redis. The webhook records a
+  `PENDING` `PipelineRun` and `manage.py process_inbox` drains it, so there is no
+  message broker, no pickle deserialization surface, and no broker credentials to
+  protect. Inbound payloads stored on the run for replay are treated as untrusted
+  input by every stage (validated/parsed, never `eval`'d).
 
 ## CI Security Checks
 
@@ -569,7 +571,7 @@ Mapping derived from the [2026-05-12 ISO 27003 audit](plans/2026-05-12-iso-27003
 | A.8.12 | Data leakage prevention | Logging rules — no raw webhook payloads, tokens, or URLs in logs; `_redact_config` in `apps/intelligence/providers/base.py` |
 | A.8.20 | Networks security | `validate_safe_url` private/reserved-IP allowlist on outbound HTTP destinations |
 | A.8.21 | Security of network services | `safe_urlopen` with redirect re-validation; ruff `TID251` ban as compile-time gate |
-| A.8.24 | Use of cryptography | `hmac.compare_digest` on webhook signature verification; SHA-256 on API key digests; Celery JSON-only serializer; no TLS bypass anywhere |
+| A.8.24 | Use of cryptography | `hmac.compare_digest` on webhook signature verification; SHA-256 on API key digests; no TLS bypass anywhere |
 | A.8.25 | Secure development lifecycle | Ruff banned-API rule encodes the SSRF contract at lint time; SSTI regression tests under `apps/notify/_tests/`; ISO 27003 audit pass with per-module sinks review |
 | A.8.26 | Application security requirements | Central `config.security` package; admin uses `format_html` placeholders consistently; allowlist-by-omission patterns (`BLOCKED_CONFIG_KEYS`, `_PAYLOAD_TEMPLATE_KEYS`, `EXEMPT_PATH_PREFIXES`) |
 | A.8.28 | Secure coding | `secrets.token_hex` for key generation; `hashlib.sha256` for storage; no `mark_safe` on user data; HTML output via `format_html` placeholders; sandboxed Jinja for templates |

@@ -10,7 +10,7 @@ nav_order: 2
 
 Server-maintanence is a Django-based server monitoring and alerting system. It ingests alerts from external sources, runs health checks, generates AI-powered recommendations, and dispatches notifications — all coordinated through a strict 4-stage pipeline.
 
-**Tech stack:** Django 5.2, Celery (async tasks), Redis (broker), psutil (system metrics), Jinja2 (notification templates).
+**Tech stack:** Django 5.2, psutil (system metrics), Jinja2 (notification templates). The pipeline is broker-free — durable ingest + a `process_inbox` drain (no Celery/Redis).
 
 ## Pipeline Stages
 
@@ -115,7 +115,7 @@ Stage behavior is controlled through pipeline definitions and Django Admin — n
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/orchestration/pipeline/` | Trigger pipeline (async via Celery) |
+| POST | `/orchestration/pipeline/` | Trigger pipeline (async — records a PENDING run for the drain) |
 | POST | `/orchestration/pipeline/sync/` | Trigger pipeline (sync, waits for completion) |
 | GET | `/orchestration/pipelines/` | List pipeline runs |
 | GET | `/orchestration/pipeline/<run_id>/` | Get pipeline run status |
@@ -125,15 +125,12 @@ Stage behavior is controlled through pipeline definitions and Django Admin — n
 | POST | `/orchestration/definitions/<name>/validate/` | Validate a definition |
 | POST | `/orchestration/definitions/<name>/execute/` | Execute a definition |
 
-### Celery Tasks
+### Durable ingest / drain
 
-**Pipeline tasks** (`apps.orchestration.tasks`):
-
-| Task | Purpose |
-|------|---------|
-| `run_pipeline_task` | Run pipeline asynchronously, return result |
-| `resume_pipeline_task` | Resume a failed pipeline from last successful stage |
-| `start_pipeline_task` | Queue pipeline for async execution, return immediately |
+The pipeline is broker-free. The webhook (and the async trigger endpoint) record a
+`PENDING` `PipelineRun`; `manage.py process_inbox` claims and executes it (supervised
+`--loop` or cron). No Celery/Redis. See
+[Deployment → Durable ingest & the inbox drain](Deployment.md).
 
 ### Django Admin
 
@@ -158,7 +155,7 @@ The project provides two pipeline execution systems:
 Fixed 4-stage sequence: INGEST → CHECK → ANALYZE → NOTIFY. Each stage has a dedicated executor class.
 
 - **Endpoints:** `POST /orchestration/pipeline/` (async) and `/pipeline/sync/` (sync)
-- **Celery support:** Yes — async mode queues via Celery
+- **Async mode:** records a `PENDING` run for the `process_inbox` drain (broker-free)
 - **Resume:** Yes — failed pipelines can be resumed from the last successful stage
 - **Use when:** Standard alert processing, existing webhook integrations
 
@@ -170,7 +167,6 @@ Dynamic stages configured via JSON stored in `PipelineDefinition` model. Support
 
 - **Endpoints:** `POST /orchestration/definitions/<name>/execute/`
 - **CLI:** `python manage.py run_pipeline --definition <name>` or `--config path/to/file.json`
-- **Celery support:** Not yet (sync only)
 - **Resume:** Not yet
 
 **Available node types:**
@@ -209,7 +205,6 @@ Definitions can be created via:
 | Stages | Fixed 4 stages | Any combination of nodes |
 | Deployment | Code deploy required | Admin UI |
 | Retry logic | Built-in per stage | Built-in per node |
-| Celery support | Yes (async mode) | Not yet (sync only) |
 | Resume failed | Yes | Not yet |
 
 ## Data Models
@@ -265,8 +260,7 @@ Environment variables configure **infrastructure only**. Application behavior (w
 | `DJANGO_SECRET_KEY` | Django secret key | Required in production |
 | `DJANGO_DEBUG` | Debug mode | `0` |
 | `DJANGO_ALLOWED_HOSTS` | Comma-separated allowed hosts | `*` |
-| `CELERY_BROKER_URL` | Redis broker URL | `redis://localhost:6379/0` |
-| `CELERY_TASK_ALWAYS_EAGER` | Run tasks synchronously (dev) | `False` |
+| `INBOX_DEPTH_WARN` | Drain backlog warning threshold | `500` |
 | `ORCHESTRATION_MAX_RETRIES_PER_STAGE` | Retries before pipeline failure | `3` |
 | `ORCHESTRATION_BACKOFF_FACTOR` | Exponential backoff multiplier | `2.0` |
 | `ORCHESTRATION_INTELLIGENCE_FALLBACK_ENABLED` | Continue pipeline when AI fails | `1` |

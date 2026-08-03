@@ -367,10 +367,10 @@ For full pipeline documentation including node types, config options, and troubl
 
 ## 9) Production deployment
 
-For production deployment with Celery workers, Redis, and Nginx, see the
+For production deployment (Nginx + the broker-free inbox drain), see the
 [Deployment Guide](Deployment.md). It covers:
 
-- **Docker Compose** — full stack with Django, Celery, and Redis (recommended for quick deploys)
-- **Bare metal / VPS** — systemd units for gunicorn and Celery worker
+- **Docker Compose** — Django (gunicorn) + the `process_inbox` drain (recommended for quick deploys)
+- **Bare metal / VPS** — systemd units for gunicorn and the inbox drain
 - **Nginx reverse proxy** — static files, proxy headers, SSL termination
-- **Webhook ingestion** — async pipeline processing with automatic fallback
+- **Webhook ingestion** — durable ingest: record a PENDING run, drain processes it
