@@ -191,27 +191,21 @@ class AlertAdmin(admin.ModelAdmin):
 
     @admin.display(description="Journey")
     def journey_display(self, obj):
-        from django.utils.safestring import mark_safe
-
-        parts = [format_html("<div><b>trace_id:</b> {}</div>", obj.trace_id or "—")]
+        trace = format_html("<div><b>trace_id:</b> {}</div>", obj.trace_id or "—")
         if obj.incident_id:
-            parts.append(
-                format_html(
-                    "<div><b>Incident:</b> "
-                    '<a href="/admin/alerts/incident/{}/change/">{}</a> '
-                    "(see its Journey for the full chain)</div>",
-                    obj.incident_id,
-                    obj.incident.title[:40],
-                )
+            body = format_html(
+                "<div><b>Incident:</b> "
+                '<a href="/admin/alerts/incident/{}/change/">{}</a> '
+                "(see its Journey for the full chain)</div>",
+                obj.incident_id,
+                obj.incident.title[:40],
             )
         else:
-            parts.append(
-                mark_safe(
-                    '<div style="color:#b00;"><b>not processed — inbox</b> '
-                    "(no incident; ingest not run)</div>"
-                )
+            body = format_html(
+                '<div style="color:#b00;"><b>{}</b> (no incident; ingest not run)</div>',
+                "not processed — inbox",
             )
-        return mark_safe("".join(parts))
+        return format_html("{}{}", trace, body)
 
     @admin.display(description="Labels")
     def pretty_labels(self, obj):
@@ -410,26 +404,24 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
 
     @admin.display(description="Journey")
     def journey_display(self, obj):
-        from django.utils.safestring import mark_safe
-
-        parts = []
         if obj.pipeline_id:
-            parts.append(
+            parts = [
                 format_html(
                     "<div><b>Routed by:</b> {} (priority {})</div>",
                     obj.pipeline.name,
                     obj.pipeline.priority,
                 )
-            )
+            ]
         else:
-            parts.append(mark_safe("<div><b>Routed by:</b> —</div>"))
+            parts = [format_html("<div><b>Routed by:</b> {}</div>", "—")]
 
         runs = list(obj.pipeline_runs.all().order_by("created_at"))
         if not runs:
             parts.append(
-                mark_safe(
-                    '<div style="color:#b00;"><b>inbox — not processed</b> '
-                    "(no pipeline run; drain with <code>manage.py process_inbox</code>)</div>"
+                format_html(
+                    '<div style="color:#b00;"><b>{}</b> (no pipeline run; drain with '
+                    "<code>manage.py process_inbox</code>)</div>",
+                    "inbox — not processed",
                 )
             )
         for run in runs:
@@ -451,10 +443,11 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
             parts.append(
                 format_html(
                     '<ul style="margin:2px 0 0 16px;">{}</ul>',
-                    items or mark_safe("<li>(no stages)</li>"),
+                    items or format_html("<li>{}</li>", "(no stages)"),
                 )
             )
-        return mark_safe("".join(parts))
+        # All pieces are format_html SafeStrings; join preserves escaping.
+        return format_html_join("", "{}", ((p,) for p in parts))
 
     @admin.display(description="Metadata")
     def pretty_metadata(self, obj):

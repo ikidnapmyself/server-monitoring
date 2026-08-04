@@ -209,6 +209,15 @@ class TestJourneyPanel(TestCase):
         assert resp.status_code == 200
         assert "inbox — not processed" in resp.content.decode()
 
+    def test_incident_journey_run_with_no_stages(self):
+        incident = Incident.objects.create(title="x", severity="warning")
+        PipelineRun.objects.create(
+            trace_id="t2", run_id="run-2", status=PipelineStatus.PENDING, incident=incident
+        )
+        resp = self.client.get(f"/admin/alerts/incident/{incident.id}/change/")
+        assert resp.status_code == 200
+        assert "(no stages)" in resp.content.decode()
+
     def test_alert_journey_links_incident_and_shows_trace(self):
         incident = Incident.objects.create(title="inc", severity="critical")
         alert = Alert.objects.create(
