@@ -1,0 +1,26 @@
+{
+  "event": {
+    "id": "01ABCDEF",
+    "event_type": "incident.triggered",
+    "resource_type": "incident",
+    "occurred_at": "2024-01-15T10:30:00.000Z",
+    "data": {
+      "id": "P123ABC",
+      "type": "incident",
+      "title": "High CPU on web-server-01",
+      "status": "triggered",
+      "urgency": "high",
+      "service": {
+        "id": "PABCDEF",
+        "name": "Production Web Servers"
+      },
+      "body": {
+        "details": {
+          "cpu_percent": 95,
+          "process": "nginx",
+          "duration_minutes": 10
+        }
+      }
+    }
+  }
+}
