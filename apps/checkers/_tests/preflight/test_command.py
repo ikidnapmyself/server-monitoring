@@ -63,11 +63,7 @@ class PreflightCommandTests(TestCase):
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
     def test_definitions_shown(self, mock_log, mock_read):
         mock_read.return_value = None
-        PipelineDefinition.objects.create(
-            name="test-pipe",
-            config={"nodes": [{"id": "n1", "type": "notify", "config": {"driver": "slack"}}]},
-            is_active=True,
-        )
+        PipelineDefinition.objects.create(name="test-pipe", is_active=True)
         output, _ = self._call()
         self.assertIn("test-pipe", output)
 
@@ -114,11 +110,7 @@ class PreflightCommandTests(TestCase):
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
     def test_inactive_definition_shown_dimmed(self, mock_log, mock_read):
         mock_read.return_value = None
-        PipelineDefinition.objects.create(
-            name="old-pipe",
-            config={"nodes": []},
-            is_active=False,
-        )
+        PipelineDefinition.objects.create(name="old-pipe", is_active=False)
         output, _ = self._call()
         self.assertIn("old-pipe", output)
         self.assertIn("inactive", output)
@@ -159,7 +151,7 @@ class PreflightCommandTests(TestCase):
 
         mock_read.side_effect = side_effect
         NotificationChannel.objects.create(name="ch", driver="slack", is_active=True)
-        PipelineDefinition.objects.create(name="p", config={}, is_active=True)
+        PipelineDefinition.objects.create(name="p", is_active=True)
         output, _ = self._call()
         self.assertIn("warning(s)", output)
 
@@ -184,7 +176,7 @@ class PreflightCommandTests(TestCase):
 
         mock_read.side_effect = side_effect
         NotificationChannel.objects.create(name="ch", driver="slack", is_active=True)
-        PipelineDefinition.objects.create(name="p", config={}, is_active=True)
+        PipelineDefinition.objects.create(name="p", is_active=True)
         # Mock stat so .env permissions check doesn't see real file as world-readable
         mock_stat = patch(
             "pathlib.Path.stat", return_value=os.stat_result((0o600, 0, 0, 0, 0, 0, 0, 0, 0, 0))
@@ -199,11 +191,7 @@ class PreflightCommandTests(TestCase):
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
     def test_json_includes_definitions(self, mock_log, mock_read):
         mock_read.return_value = None
-        PipelineDefinition.objects.create(
-            name="test-pipe",
-            config={"nodes": [{"id": "n1", "type": "notify", "config": {"driver": "slack"}}]},
-            is_active=True,
-        )
+        PipelineDefinition.objects.create(name="test-pipe", is_active=True)
         output, _ = self._call("--json")
         data = json.loads(output)
         self.assertIn("definitions", data)

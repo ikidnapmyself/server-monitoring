@@ -421,39 +421,11 @@ class StageExecution(models.Model):
 
 class PipelineDefinition(models.Model):
     """
-    Reusable pipeline definition.
+    A routing pipeline: match conditions -> behaviour flags -> notify channels.
 
-    Stores the configuration for a pipeline as a JSON schema,
-    allowing dynamic pipeline construction and execution.
-
-    Example config:
-    {
-        "version": "1.0",
-        "description": "Analyze and notify",
-        "defaults": {
-            "max_retries": 3,
-            "timeout_seconds": 300
-        },
-        "nodes": [
-            {
-                "id": "analyze_openai",
-                "type": "intelligence",
-                "config": {"provider": "openai"},
-                "next": "analyze_claude"
-            },
-            {
-                "id": "analyze_claude",
-                "type": "intelligence",
-                "config": {"provider": "claude"},
-                "next": "notify_slack"
-            },
-            {
-                "id": "notify_slack",
-                "type": "notify",
-                "config": {"driver": "slack"}
-            }
-        ]
-    }
+    First-match-wins by ``priority`` (see ``matches`` / ``apps.orchestration.routing``).
+    The orchestrator resolves the matching pipeline for an incident after ingest and
+    runs the stages its ``run_*`` flags enable.
     """
 
     name = models.CharField(
@@ -469,11 +441,7 @@ class PipelineDefinition(models.Model):
     )
     version = models.PositiveIntegerField(
         default=1,
-        help_text="Version number, incremented on each update.",
-    )
-    config = models.JSONField(
-        default=dict,
-        help_text="Pipeline configuration schema (nodes, connections, defaults).",
+        help_text="Version number, bumped manually on significant edits.",
     )
     tags = models.JSONField(
         default=dict,
@@ -494,8 +462,8 @@ class PipelineDefinition(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    # --- Routing spine (Phase A). A flat, first-match-wins alternative to the
-    # legacy graph `config`. Match -> behaviour flags -> channels. ---
+    # --- Routing spine (Phase A): flat, first-match-wins.
+    # Match -> behaviour flags -> channels. ---
     match = models.JSONField(
         default=list,
         blank=True,
@@ -556,16 +524,3 @@ class PipelineDefinition(models.Model):
             else:
                 return False  # unknown op — fail closed
         return True
-
-    def get_nodes(self) -> list[dict]:
-        """Return the list of nodes from config."""
-        return self.config.get("nodes", [])
-
-    def get_defaults(self) -> dict:
-        """Return default settings from config."""
-        return self.config.get("defaults", {})
-
-    def get_entry_node(self) -> dict | None:
-        """Return the first node (entry point) of the pipeline."""
-        nodes = self.get_nodes()
-        return nodes[0] if nodes else None

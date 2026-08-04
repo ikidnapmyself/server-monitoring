@@ -88,69 +88,15 @@ def get_pipeline_state() -> dict:
 
 
 def get_definitions() -> list[dict]:
-    """Return all pipeline definitions with rendered chains and stages."""
+    """Return routing pipelines (name, active, priority, channel count)."""
     from apps.orchestration.models import PipelineDefinition
 
-    definitions = []
-    for defn in PipelineDefinition.objects.order_by("-is_active", "name"):
-        definitions.append(
-            {
-                "name": defn.name,
-                "active": defn.is_active,
-                "chain": render_definition_chain(defn),
-                "stages": _extract_stages(defn),
-            }
-        )
-    return definitions
-
-
-def render_definition_chain(defn) -> str:
-    """Render a pipeline definition's nodes as a human-readable chain string."""
-    nodes = defn.get_nodes()
-    if not nodes:
-        return "(no stages)"
-
-    parts = []
-    for node in nodes:
-        node_type = node.get("type", "unknown")
-        config = node.get("config", {})
-
-        detail_parts = []
-        for key in ("driver", "provider"):
-            if key in config:
-                detail_parts.append(config[key])
-        if "checkers" in config:
-            detail_parts.append(",".join(config["checkers"]))
-        if "drivers" in config:
-            detail_parts.append(",".join(config["drivers"]))
-        if "channels" in config:
-            detail_parts.append(",".join(config["channels"]))
-
-        if detail_parts:
-            parts.append(f"{node_type}: {','.join(detail_parts)}")
-        else:
-            parts.append(node_type)
-
-    return " \u2192 ".join(parts)
-
-
-def _extract_stages(defn) -> list[dict]:
-    """Extract stage metadata from a pipeline definition's nodes."""
-    nodes = defn.get_nodes()
-    stages = []
-    for node in nodes:
-        stage: dict = {"stage": node.get("type", "unknown")}
-        config = node.get("config", {})
-        for key in (
-            "driver",
-            "drivers",
-            "provider",
-            "providers",
-            "checkers",
-            "channels",
-        ):
-            if key in config:
-                val = config[key]
-                stage[key] = val if isinstance(val, list) else [val]
-        stages.append(stage)
-    return stages
+    return [
+        {
+            "name": defn.name,
+            "active": defn.is_active,
+            "priority": defn.priority,
+            "channels": defn.channels.count(),
+        }
+        for defn in PipelineDefinition.objects.order_by("priority", "name")
+    ]

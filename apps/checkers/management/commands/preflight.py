@@ -110,7 +110,7 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.SUCCESS(name_line))
                 else:
                     self.stdout.write(f"\033[2m{name_line}\033[0m")
-                self.stdout.write(f"    {defn['chain']}")
+                self.stdout.write(f"    priority {defn['priority']}, {defn['channels']} channel(s)")
 
         self.stdout.write("")
 

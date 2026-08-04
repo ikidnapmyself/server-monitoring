@@ -15,16 +15,6 @@ class TestPipelineDefinition(TestCase):
         definition = PipelineDefinition.objects.create(
             name="test-pipeline",
             description="Test pipeline",
-            config={
-                "version": "1.0",
-                "nodes": [
-                    {
-                        "id": "analyze",
-                        "type": "intelligence",
-                        "config": {"provider": "local"},
-                    }
-                ],
-            },
         )
         assert definition.id is not None
         assert definition.name == "test-pipeline"
@@ -33,20 +23,11 @@ class TestPipelineDefinition(TestCase):
 
     def test_unique_name_constraint(self):
         """Test that pipeline names must be unique."""
-        PipelineDefinition.objects.create(
-            name="unique-test",
-            config={"version": "1.0", "nodes": []},
-        )
+        PipelineDefinition.objects.create(name="unique-test")
         with pytest.raises(Exception):  # IntegrityError
-            PipelineDefinition.objects.create(
-                name="unique-test",
-                config={"version": "1.0", "nodes": []},
-            )
+            PipelineDefinition.objects.create(name="unique-test")
 
     def test_str_representation(self):
         """Test string representation."""
-        definition = PipelineDefinition.objects.create(
-            name="my-pipeline",
-            config={"version": "1.0", "nodes": []},
-        )
+        definition = PipelineDefinition.objects.create(name="my-pipeline")
         assert "my-pipeline" in str(definition)

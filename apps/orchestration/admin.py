@@ -290,7 +290,6 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
         "priority",
         "is_active",
         "channel_count",
-        "node_count",
         "created_by",
         "updated_at",
     ]
@@ -328,14 +327,6 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
             },
         ),
         (
-            "Configuration (legacy graph)",
-            {
-                "fields": ["config"],
-                "classes": ["collapse"],
-                "description": "Legacy node/edge graph — being retired (Phase D). Routing uses the flat fields above.",
-            },
-        ),
-        (
             "Metadata",
             {
                 "fields": ["tags", "version", "created_at", "updated_at"],
@@ -352,16 +343,8 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
         """Number of notify channels wired to this pipeline (uses the prefetch cache)."""
         return len(obj.channels.all())
 
-    @admin.display(description="Nodes")
-    def node_count(self, obj):
-        """Display the number of nodes in the pipeline."""
-        nodes = obj.get_nodes()
-        return len(nodes)
-
     def save_model(self, request, obj, form, change):
-        """Increment version on save if config changed."""
-        if change and "config" in form.changed_data:
-            obj.version += 1
+        """Default created_by to the acting user."""
         if not obj.created_by:
             obj.created_by = request.user.username
         super().save_model(request, obj, form, change)
