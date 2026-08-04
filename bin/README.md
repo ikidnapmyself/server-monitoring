@@ -17,7 +17,6 @@ All management commands and their shell aliases (set up via `install.sh aliases`
 | `sm-run-pipeline` | `run_pipeline` | orchestration | Execute the full pipeline |
 | `sm-monitor-pipeline` | `monitor_pipeline` | orchestration | Monitor pipeline run history |
 | `sm-test-notify` | `test_notify` | notify | Test notification delivery |
-| `sm-setup-instance` | `setup_instance` | orchestration | Interactive wizard to create pipelines and notification channels |
 | `sm-cli` | — | — | Interactive CLI menu |
 | `sm-update` | — | — | Auto-update from origin/main |
 

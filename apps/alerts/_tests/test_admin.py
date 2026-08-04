@@ -176,3 +176,73 @@ class TestJsonPrettyDisplay(TestCase):
         assert response.status_code == 200
         content = response.content.decode()
         assert "<pre" in content
+
+
+class TestJourneyPanel(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
+
+    def setUp(self):
+        self.client.login(username="admin", password="password")
+
+    def test_incident_journey_shows_pipeline_run_and_stages(self):
+        from apps.orchestration.models import PipelineDefinition
+
+        pipeline = PipelineDefinition.objects.create(name="catch-all", match=[], priority=7)
+        incident = Incident.objects.create(title="High CPU", severity="critical", pipeline=pipeline)
+        run = PipelineRun.objects.create(
+            trace_id="tr-1", run_id="run-1", status=PipelineStatus.NOTIFIED, incident=incident
+        )
+        run.stage_executions.create(stage="ingest", status="succeeded", attempt=1, duration_ms=3.0)
+
+        resp = self.client.get(f"/admin/alerts/incident/{incident.id}/change/")
+        assert resp.status_code == 200
+        body = resp.content.decode()
+        assert "catch-all" in body  # routed-by pipeline
+        assert "run-1" in body
+        assert "ingest" in body
+
+    def test_incident_journey_shows_inbox_when_no_run(self):
+        incident = Incident.objects.create(title="unprocessed", severity="warning")
+        resp = self.client.get(f"/admin/alerts/incident/{incident.id}/change/")
+        assert resp.status_code == 200
+        assert "inbox — not processed" in resp.content.decode()
+
+    def test_incident_journey_run_with_no_stages(self):
+        incident = Incident.objects.create(title="x", severity="warning")
+        PipelineRun.objects.create(
+            trace_id="t2", run_id="run-2", status=PipelineStatus.PENDING, incident=incident
+        )
+        resp = self.client.get(f"/admin/alerts/incident/{incident.id}/change/")
+        assert resp.status_code == 200
+        assert "(no stages)" in resp.content.decode()
+
+    def test_alert_journey_links_incident_and_shows_trace(self):
+        incident = Incident.objects.create(title="inc", severity="critical")
+        alert = Alert.objects.create(
+            fingerprint="fp",
+            source="cluster",
+            name="cpu",
+            severity="critical",
+            started_at=timezone.now(),
+            incident=incident,
+            trace_id="tr-9",
+        )
+        resp = self.client.get(f"/admin/alerts/alert/{alert.id}/change/")
+        assert resp.status_code == 200
+        body = resp.content.decode()
+        assert "tr-9" in body
+        assert f"/admin/alerts/incident/{incident.id}/change/" in body
+
+    def test_alert_journey_shows_inbox_when_no_incident(self):
+        alert = Alert.objects.create(
+            fingerprint="fp2",
+            source="grafana",
+            name="mem",
+            severity="warning",
+            started_at=timezone.now(),
+        )
+        resp = self.client.get(f"/admin/alerts/alert/{alert.id}/change/")
+        assert resp.status_code == 200
+        assert "not processed — inbox" in resp.content.decode()

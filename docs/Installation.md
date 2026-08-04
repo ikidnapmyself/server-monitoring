@@ -111,8 +111,7 @@ It will prompt for a prefix (default: `sm`), generate aliases, and add a `source
 | Alias | What it does |
 |-------|-------------|
 | `sm-check-health` | Run health checks (CPU, memory, disk, network, process) |
-| `sm-run-pipeline` | Execute pipelines (definition-based or sample) |
-| `sm-setup-instance` | Interactive wizard to create pipelines and notification channels |
+| `sm-run-pipeline` | Execute pipelines (--sample / --checks-only / --file) |
 | `sm-check-and-alert` | Run checks through the pipeline (`run_pipeline --checks-only`) |
 | `sm-get-recommendations` | Get AI-powered system recommendations |
 | `sm-cli` | Interactive CLI menu |
@@ -306,62 +305,49 @@ uv run python manage.py run_pipeline --sample
 
 ## 8) Pipeline workflow with aliases
 
-Definition-based pipelines let you compose custom monitoring workflows. Here's the typical workflow using shell aliases:
-
-### Step 1: Create a pipeline and notification channels
+### Step 1: Configure channels, routing, and (optionally) AI
 
 ```bash
-sm-setup-instance
+sm-cluster        # guided: notification channel + a catch-all routing pipeline
+# or manage routing pipelines directly in Django Admin (Orchestration → Pipeline definitions)
+uv run python manage.py setup_intelligence   # optional: pick an AI provider
 ```
 
-The interactive wizard walks you through:
-- Choosing which health checkers to enable
-- Configuring notification channels (Slack, email, PagerDuty, generic webhook)
-- Creating a `PipelineDefinition` in the database (e.g., `local-monitor`)
+The CHECK stage runs all registered checkers by default; a routing `PipelineDefinition`'s
+`run_checkers` / `run_intelligence` / `run_notify` flags select which stages run for a
+matched incident, and its `channels` are the notify targets.
 
-### Step 2: Validate with dry-run
+### Step 2: Preview with a dry-run
 
 ```bash
-sm-run-pipeline --definition local-monitor --dry-run
+sm-run-pipeline --sample --dry-run
 ```
-
-This shows the node chain and config without executing anything.
 
 ### Step 3: Run the pipeline
 
 ```bash
-sm-run-pipeline --definition local-monitor
+sm-run-pipeline --sample          # full demo run (real checks + notify)
+sm-run-pipeline --checks-only     # local monitoring: checks → notify only
 ```
-
-This runs real health checks and sends real notifications through the channels you configured.
 
 ### More examples
 
 ```bash
-# Run from a JSON file instead of a DB definition
-sm-run-pipeline --config apps/orchestration/management/commands/pipelines/local-monitor.json
-
-# Run with a sample alert payload (for testing ingest-based pipelines)
-sm-run-pipeline --definition local-monitor --sample
-
-# Monitor pipeline run history
-sm-monitor-pipeline
-
-# Test notification delivery without running a pipeline
-sm-test-notify --driver slack
+sm-run-pipeline --file alert.json     # run from a JSON payload file
+sm-monitor-pipeline                   # pipeline run history
+sm-test-notify --driver slack         # test notification delivery
 ```
 
 ### Without aliases
 
-The same workflow without aliases:
-
 ```bash
-uv run python manage.py setup_instance
-uv run python manage.py run_pipeline --definition local-monitor --dry-run
-uv run python manage.py run_pipeline --definition local-monitor
+uv run python manage.py setup_cluster
+uv run python manage.py run_pipeline --sample --dry-run
+uv run python manage.py run_pipeline --sample
 ```
 
-For full pipeline documentation including node types, config options, and troubleshooting, see [`apps/orchestration/README.md`](../apps/orchestration/README.md).
+Journey/report shortcuts: `manage.py trace <alert|trace_id>` and `manage.py report`.
+For full pipeline docs, see [`apps/orchestration/README.md`](../apps/orchestration/README.md).
 
 ---
 

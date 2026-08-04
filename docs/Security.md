@@ -279,7 +279,7 @@ except PathNotAllowedError:
 | `intelligence/providers/local.py` subprocess | `resolve_safe_path()` | Propagates to caller |
 | `notify/templating.py` template loading | `resolve_safe_name()` | Returns None |
 | `get_recommendations --path` | `resolve_safe_path()` | CommandError |
-| `run_pipeline --file`, `--config` | `resolve_safe_path()` | CommandError |
+| `run_pipeline --file` | `resolve_safe_path()` | CommandError |
 | `check_health --disk-paths` | `resolve_safe_path()` | CommandError |
 | `run_check --paths` | `resolve_safe_path()` | CommandError |
 
@@ -395,21 +395,21 @@ The orchestration layer (`apps.orchestration`) is the only stage controller and 
 
 ### `run_id` and `trace_id`
 
-`run_id` is **always** server-generated (`uuid.uuid4()`) in `PipelineOrchestrator.start_pipeline` and `DefinitionBasedOrchestrator.execute`. A caller-supplied `run_id` in the body is ignored. Do not introduce code paths that accept caller-chosen run IDs — attackers could collide existing records or forge `idempotency_key`s.
+`run_id` is **always** server-generated (`uuid.uuid4()`) in `PipelineOrchestrator.start_pipeline`. A caller-supplied `run_id` in the body is ignored. Do not introduce code paths that accept caller-chosen run IDs — attackers could collide existing records or forge `idempotency_key`s.
 
 `trace_id` **is** caller-controllable. It is a log-correlation hint, **not** an authorization token. Never use it to gate access, identity, or routing decisions.
 
 ### `incident_id` Trust Assumption (single-tenant)
 
-`PipelineDefinitionExecuteView` accepts `incident_id` from the request body and writes it directly onto `PipelineRun.incident_id`. Downstream stages then fetch the linked `Incident` and feed it to the AI provider / notification template. **In the current single-tenant deployment model this is not a vulnerability** — every API key has access to every incident. **In any future multi-tenant deployment** this becomes a cross-tenant information-disclosure primitive and must be re-gated with per-actor authorization.
+The pipeline trigger endpoint accepts `incident_id` from the request body and writes it onto `PipelineRun.incident_id`. Downstream stages then fetch the linked `Incident` and feed it to the AI provider / notification template. **In the current single-tenant deployment model this is not a vulnerability** — every API key has access to every incident. **In any future multi-tenant deployment** this becomes a cross-tenant information-disclosure primitive and must be re-gated with per-actor authorization.
 
 ### Pipeline Resume Authorization
 
 `PipelineResumeView` only requires the pipeline's status to be `FAILED` or `RETRYING`. Any API key holder whose `allowed_endpoints` covers `/orchestration/pipeline/` can resume any failed pipeline. Acceptable for single-tenant; revisit before any per-tenant separation.
 
-### `_should_skip` Discipline (definition-based pipelines)
+### Routing `match` Discipline
 
-`DefinitionBasedOrchestrator._should_skip()` supports a `skip_if_condition` string with a fixed `.has_errors` pattern matcher. **This is a fixed-pattern matcher by design.** Do not extend it into a real expression language using `eval`, `exec`, `compile`, `ast.literal_eval` over attacker data, or Jinja2 — any of those opens code-execution / SSTI on attacker-controlled `PipelineDefinition.config`. If a richer condition language is genuinely needed, route it through an explicit safe-expression parser with no name resolution and no attribute access.
+`PipelineDefinition.matches()` evaluates admin-editable `match` conditions with a **fixed operator set** (`is`/`is-not`/`in`/`not-in`) and **fails closed** on unknown ops or bad shapes. Do not extend it into an expression language using `eval`, `exec`, `compile`, `ast.literal_eval`, or Jinja2 — the `match` JSON is admin-controlled, but admin-trust is not arbitrary-code-execution trust.
 
 ## Operator Tooling (`bin/`)
 

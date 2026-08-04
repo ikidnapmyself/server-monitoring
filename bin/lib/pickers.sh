@@ -14,12 +14,6 @@ parse_checker_names() {
     ' <<<"$1"
 }
 
-# parse_pipeline_names <raw-output-of:show_pipeline --all>
-# Emits one definition name per line (including inactive ones), in order.
-parse_pipeline_names() {
-    sed -nE 's/^--- Pipeline: "([^"]+)" ---.*/\1/p' <<<"$1"
-}
-
 # pick_or_cancel <title> <option...>
 # Shows a tuin_choose picker with a prepended "← Cancel" entry.
 # Prints the chosen value to stdout, or returns non-zero on Cancel/Ctrl-C/empty.

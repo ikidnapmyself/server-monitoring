@@ -13,6 +13,7 @@ intelligence_menu() {
             "Disk analysis" \
             "Full analysis (memory + disk)" \
             "Custom options" \
+            "Configure AI provider" \
             "List providers"
         then
             case $TUIN_REPLY in
@@ -26,6 +27,8 @@ intelligence_menu() {
                     confirm_and_run "$UV_BIN run python manage.py get_recommendations --all --path=$disk_path" ;;
                 "Custom options")
                     custom_recommendations ;;
+                "Configure AI provider")
+                    confirm_and_run "$UV_BIN run python manage.py setup_intelligence" ;;
                 "List providers")
                     confirm_and_run "$UV_BIN run python manage.py get_recommendations --list-providers" ;;
             esac || true

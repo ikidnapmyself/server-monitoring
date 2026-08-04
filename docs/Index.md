@@ -75,7 +75,7 @@ See the [Setup Guide](Setup-Guide) for step-by-step walkthroughs of each use cas
 - **Driver/Provider Pattern**: All integrations inherit from abstract base classes (`BaseDriver`, `BaseChecker`, `BaseProvider`, `BaseNotifyDriver`).
 - **Retry with Backoff**: Per-stage retries with exponential backoff (2^attempt seconds). Failed pipelines can be resumed from the last successful stage.
 - **Intelligence Fallback**: If AI analysis fails, the pipeline continues with a local fallback provider rather than failing entirely.
-- **Stage Configuration**: Pipeline definitions control which checkers/drivers/providers run; `NotificationChannel.is_active` and `IntelligenceProvider.is_active` for DB-level enable/disable.
+- **Stage Configuration**: A matched `PipelineDefinition`'s run_* flags select which stages run; `NotificationChannel.is_active` and `IntelligenceProvider.is_active` for DB-level enable/disable.
 
 ### Key Configuration
 
@@ -386,7 +386,7 @@ CHECKER_REGISTRY = {
 }
 ```
 
-- Pipeline definitions control which checkers run via `checker_names` config
+- The CHECK stage runs the enabled checkers (all active by default)
 - `CHECKER_REGISTRY` — static registry of all available checkers
 
 ---
@@ -756,21 +756,21 @@ Methods: `mark_started()`, `mark_succeeded()`, `mark_failed()`, `mark_skipped()`
 
 #### PipelineDefinition
 
-Dynamic pipeline configuration for definition-based pipelines.
+A routing rule: match conditions → behaviour flags → notify channels (first-match-wins by `priority`).
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | CharField (unique) | Pipeline identifier |
 | `description` | TextField | Pipeline description |
-| `version` | PositiveIntegerField | Incremented on updates |
-| `config` | JSONField | Pipeline schema (nodes, connections, defaults) |
-| `tags` | JSONField | Arbitrary tags |
+| `match` | JSONField | Conditions `[{field, op, value}]`; empty = catch-all |
+| `priority` | IntegerField (indexed) | Lower evaluated first (first match wins) |
+| `run_checkers` / `run_intelligence` / `run_notify` | BooleanField | Which stages run after ingest |
+| `channels` | M2M → NotificationChannel | Notify targets |
 | `is_active` | BooleanField (indexed) | Whether active |
+| `tags` | JSONField | Arbitrary tags |
 | `created_by` | CharField | Creator identifier |
-| `created_at` | DateTimeField | Creation time |
-| `updated_at` | DateTimeField | Last update |
 
-Methods: `get_nodes()`, `get_defaults()`, `get_entry_node()`
+Methods: `matches(facts)` — see `apps.orchestration.routing`.
 
 ### DTOs
 
@@ -852,32 +852,12 @@ PENDING -> INGESTED -> CHECKED -> ANALYZED -> NOTIFIED (success)
 | ANALYZE | AnalyzeExecutor | `intelligence.providers` (with fallback) |
 | NOTIFY | NotifyExecutor | `notify.drivers` (with message building) |
 
-### Definition-Based Pipeline (DefinitionBasedOrchestrator)
+### Routing
 
-Dynamic pipelines configured via `PipelineDefinition.config`:
-
-```json
-{
-  "version": "1.0",
-  "defaults": {"max_retries": 3, "timeout_seconds": 300},
-  "nodes": [
-    {"id": "check_health", "type": "context", "config": {"checker_names": ["cpu", "memory"]}, "next": "notify"},
-    {"id": "notify", "type": "notify", "config": {"drivers": ["slack"]}}
-  ]
-}
-```
-
-**Node types**:
-
-| Type | Handler | Purpose |
-|------|---------|---------|
-| `ingest` | IngestNodeHandler | Parse alert webhooks |
-| `context` | ContextNodeHandler | Run health checkers |
-| `intelligence` | IntelligenceNodeHandler | AI analysis |
-| `notify` | NotifyNodeHandler | Send notifications |
-| `transform` | TransformNodeHandler | Extract, filter, map data |
-
-Each node receives `NodeContext` (with `previous_outputs`) and returns `NodeResult`.
+After INGEST, the orchestrator resolves the matching `PipelineDefinition` for the
+incident (`apps.orchestration.routing`, first-match-wins by `priority`) and runs the
+stages its `run_*` flags enable; NOTIFY sends to the matched pipeline's channels.
+Observability: the Journey admin panel, `manage.py trace`, and `manage.py report`.
 
 ### Monitoring Signals
 
@@ -947,8 +927,6 @@ The pipeline is broker-free. The webhook records a `PENDING` `PipelineRun` and
 | orchestration | **AnalyzeResult** | Stage 3 output |
 | orchestration | **NotifyResult** | Stage 4 output |
 | orchestration | **PipelineResult** | Final pipeline output |
-| orchestration | **NodeContext** | Input context for definition-based nodes |
-| orchestration | **NodeResult** | Output from definition-based nodes |
 | orchestration | **SignalTags** | Required metadata for monitoring signals |
 
 ### Data Flow Through Pipeline

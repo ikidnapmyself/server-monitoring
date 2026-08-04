@@ -9,7 +9,6 @@ from apps.checkers.preflight.dashboard import (
     get_definitions,
     get_pipeline_state,
     get_profile,
-    render_definition_chain,
 )
 from apps.intelligence.models import IntelligenceProvider
 from apps.notify.models import NotificationChannel
@@ -105,99 +104,17 @@ class GetPipelineStateTests(TestCase):
         self.assertEqual(state["last_run"]["status"], "notified")
 
 
-class RenderDefinitionChainTests(TestCase):
-    def test_renders_node_chain(self):
-        defn = PipelineDefinition.objects.create(
-            name="full",
-            config={
-                "nodes": [
-                    {
-                        "id": "ingest",
-                        "type": "alerts",
-                        "config": {"driver": "webhook"},
-                        "next": "check",
-                    },
-                    {
-                        "id": "check",
-                        "type": "checkers",
-                        "config": {"checkers": ["cpu", "memory"]},
-                        "next": "notify",
-                    },
-                    {
-                        "id": "notify",
-                        "type": "notify",
-                        "config": {"driver": "slack"},
-                    },
-                ]
-            },
-            is_active=True,
-        )
-        chain = render_definition_chain(defn)
-        self.assertIn("alerts", chain)
-        self.assertIn("cpu", chain)
-        self.assertIn("notify", chain)
-        self.assertIn("\u2192", chain)
-
-    def test_renders_drivers_and_channels(self):
-        defn = PipelineDefinition.objects.create(
-            name="multi",
-            config={
-                "nodes": [
-                    {
-                        "id": "ingest",
-                        "type": "alerts",
-                        "config": {"drivers": ["webhook", "email"]},
-                    },
-                    {
-                        "id": "notify",
-                        "type": "notify",
-                        "config": {"channels": ["slack", "pagerduty"]},
-                    },
-                ]
-            },
-            is_active=True,
-        )
-        chain = render_definition_chain(defn)
-        self.assertIn("webhook,email", chain)
-        self.assertIn("slack,pagerduty", chain)
-
-    def test_node_without_config_details(self):
-        defn = PipelineDefinition.objects.create(
-            name="bare",
-            config={
-                "nodes": [
-                    {"id": "transform", "type": "transform", "config": {}},
-                ]
-            },
-            is_active=True,
-        )
-        chain = render_definition_chain(defn)
-        self.assertEqual(chain, "transform")
-
-    def test_empty_config(self):
-        defn = PipelineDefinition.objects.create(name="empty", config={}, is_active=True)
-        chain = render_definition_chain(defn)
-        self.assertEqual(chain, "(no stages)")
-
-
 class GetDefinitionsTests(TestCase):
-    def test_returns_definitions_with_chain(self):
-        PipelineDefinition.objects.create(
-            name="pipe1",
-            config={
-                "nodes": [
-                    {
-                        "id": "n1",
-                        "type": "notify",
-                        "config": {"driver": "slack"},
-                    }
-                ]
-            },
-            is_active=True,
+    def test_returns_routing_fields(self):
+        ch = NotificationChannel.objects.create(
+            name="ops", driver="slack", config={"webhook_url": "https://hooks.slack.com/x"}
         )
+        defn = PipelineDefinition.objects.create(name="pipe1", priority=5, is_active=True)
+        defn.channels.add(ch)
+
         defs = get_definitions()
         self.assertEqual(len(defs), 1)
         self.assertEqual(defs[0]["name"], "pipe1")
         self.assertTrue(defs[0]["active"])
-        self.assertIn("chain", defs[0])
-        self.assertIn("stages", defs[0])
+        self.assertEqual(defs[0]["priority"], 5)
+        self.assertEqual(defs[0]["channels"], 1)

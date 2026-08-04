@@ -58,13 +58,13 @@ Alert -> Checkers -> Intelligence -> Notify             (full pipeline)
 Alert -> Intelligence -> Notify         (ai-analyzed)
 ```
 
-See the [Setup Guide](Setup-Guide) for step-by-step walkthroughs and the `setup_instance` wizard.
+See the [Setup Guide](Setup-Guide) for step-by-step walkthroughs.
 
 ### Stage Configuration
 
-Stage behavior is controlled through pipeline definitions and Django Admin — not environment variables:
+Stage behavior is controlled through routing pipelines and Django Admin — not environment variables:
 
-- **Checkers**: Pipeline definitions specify which checkers to run via `checker_names` in the context node config.
+- **Routing**: `PipelineDefinition` (Django Admin) matches an incident and its `run_checkers`/`run_intelligence`/`run_notify` flags select which stages run; its `channels` are the notify targets.
 - **Intelligence**: The `IntelligenceProvider` model (Django Admin) controls which AI provider is active.
 - **Notify**: The `NotificationChannel` model (Django Admin) controls which channels are active via `is_active`.
 
@@ -79,7 +79,7 @@ Stage behavior is controlled through pipeline definitions and Django Admin — n
 | `run_pipeline --checks-only` | orchestration | Run checks through pipeline. Additional flags: `--checkers`, `--no-incidents`, `--hostname`, `--label`, `--warning-threshold`, `--critical-threshold` |
 | `get_recommendations` | intelligence | Get system recommendations. Flags: `--incident-id`, `--memory`, `--disk`, `--provider`, `--json`, `--list-providers` |
 | `test_notify [driver]` | notify | Test notification delivery. Flags: per-driver config (`--webhook-url`, `--smtp-host`, etc.) |
-| `run_pipeline` | orchestration | Run pipeline end-to-end. Flags: `--sample`, `--payload`, `--dry-run`, `--definition`, `--checks-only` |
+| `run_pipeline` | orchestration | Run pipeline end-to-end. Flags: `--sample`, `--payload`, `--file`, `--dry-run`, `--checks-only` |
 | `monitor_pipeline` | orchestration | View pipeline run history. Flags: `--limit`, `--status`, `--run-id` |
 
 ### HTTP Endpoints
@@ -120,10 +120,6 @@ Stage behavior is controlled through pipeline definitions and Django Admin — n
 | GET | `/orchestration/pipelines/` | List pipeline runs |
 | GET | `/orchestration/pipeline/<run_id>/` | Get pipeline run status |
 | POST | `/orchestration/pipeline/<run_id>/resume/` | Resume a failed pipeline |
-| GET | `/orchestration/definitions/` | List pipeline definitions |
-| GET | `/orchestration/definitions/<name>/` | Get definition detail |
-| POST | `/orchestration/definitions/<name>/validate/` | Validate a definition |
-| POST | `/orchestration/definitions/<name>/execute/` | Execute a definition |
 
 ### Durable ingest / drain
 
@@ -144,68 +140,29 @@ All apps register their models at `/admin/`:
 | `/admin/notify/` | NotificationChannel |
 | `/admin/orchestration/` | PipelineRun, StageExecution, PipelineDefinition |
 
-## Orchestration Systems
-
-The project provides two pipeline execution systems:
-
-### Hardcoded Pipeline
+## Pipeline Execution
 
 **Location:** `apps/orchestration/orchestrator.py`
 
-Fixed 4-stage sequence: INGEST → CHECK → ANALYZE → NOTIFY. Each stage has a dedicated executor class.
+Fixed 4-stage sequence: INGEST → CHECK → ANALYZE → NOTIFY, each with a dedicated
+executor class. The pipeline's *shape* is data, not code: after INGEST, the
+orchestrator resolves the matching `PipelineDefinition` for the incident
+(`routing.py`, first-match-wins by `priority`) and runs the stages its
+`run_checkers` / `run_intelligence` / `run_notify` flags enable; NOTIFY sends to the
+matched pipeline's channels. A no-match runs the full order.
 
-- **Endpoints:** `POST /orchestration/pipeline/` (async) and `/pipeline/sync/` (sync)
-- **Async mode:** records a `PENDING` run for the `process_inbox` drain (broker-free)
-- **Resume:** Yes — failed pipelines can be resumed from the last successful stage
-- **Use when:** Standard alert processing, existing webhook integrations
+- **Endpoints:** `POST /orchestration/pipeline/` (async — records a `PENDING` run for
+  the `process_inbox` drain) and `/pipeline/sync/` (runs inline).
+- **CLI:** `python manage.py run_pipeline --sample` / `--checks-only` / `--dry-run`.
+- **Resume:** failed pipelines resume from the last successful stage.
 
-### Definition-Based Pipeline
+Routing pipelines are managed in **Django Admin** (`/admin/orchestration/pipelinedefinition/`)
+or wired by the guided `setup_cluster`. The legacy node/edge graph engine was retired
+in Phase D — `PipelineDefinition` is now purely a routing rule (match → flags → channels).
 
-**Location:** `apps/orchestration/definition_orchestrator.py`
-
-Dynamic stages configured via JSON stored in `PipelineDefinition` model. Supports any combination and ordering of node types.
-
-- **Endpoints:** `POST /orchestration/definitions/<name>/execute/`
-- **CLI:** `python manage.py run_pipeline --definition <name>` or `--config path/to/file.json`
-- **Resume:** Not yet
-
-**Available node types:**
-
-| Type | Handler | Purpose | Config Keys |
-|------|---------|---------|-------------|
-| `ingest` | IngestNodeHandler | Parse alert webhooks, create Incident + Alert records | `driver` (optional) |
-| `context` | ContextNodeHandler | Run real system health checkers (CPU, memory, disk, etc.) | `checker_names` (list, optional — defaults to all enabled) |
-| `intelligence` | IntelligenceNodeHandler | AI analysis via provider pattern (local or OpenAI) | `provider` (required), `provider_config` (optional) |
-| `notify` | NotifyNodeHandler | Send notifications via DB-configured channels | `drivers` (list) or `driver` (string) |
-| `transform` | TransformNodeHandler | Extract, filter, or map data between nodes | `source_node` (required), `extract`, `mapping`, `filter_priority` |
-
-**Node output chaining:** Each node's output is stored in `NodeContext.previous_outputs[node_id]` and available to all downstream nodes. For example, the `notify` node reads checker results from previous context node output to build notification messages with appropriate severity (critical/warning/info).
-
-**Example definition (local health check → notify):**
-
-```json
-{
-  "version": "1.0",
-  "nodes": [
-    {"id": "check_health", "type": "context", "config": {"checker_names": ["cpu", "memory", "disk"]}, "next": "notify"},
-    {"id": "notify", "type": "notify", "config": {"drivers": ["slack"]}}
-  ]
-}
-```
-
-Definitions can be created via:
-- **Django Admin:** `/admin/orchestration/pipelinedefinition/`
-- **Setup wizard:** `python manage.py setup_instance`
-
-### Comparison
-
-| Feature | Hardcoded | Definition-based |
-|---------|-----------|------------------|
-| Configuration | Python code | JSON in database |
-| Stages | Fixed 4 stages | Any combination of nodes |
-| Deployment | Code deploy required | Admin UI |
-| Retry logic | Built-in per stage | Built-in per node |
-| Resume failed | Yes | Not yet |
+**Observability:** a "Journey" panel on the Alert/Incident admin, `manage.py trace
+<alert|trace_id>`, and `manage.py report` (per-node incidents, per-pipeline routing
+hits, inbox depth) — all read-only projections over the `trace_id` chain.
 
 ## Data Models
 
@@ -231,7 +188,7 @@ PipelineDefinition (standalone config)
 | `PipelineRun` | orchestration | Pipeline execution tracking (status, timing, correlation IDs) |
 | `StageExecution` | orchestration | Per-stage execution within a pipeline (input/output snapshots) |
 | `NotificationChannel` | notify | Persistent channel configuration (driver, config, enabled) |
-| `PipelineDefinition` | orchestration | JSON pipeline definition for definition-based orchestration |
+| `PipelineDefinition` | orchestration | Routing rule: match -> run_* flags -> notify channels |
 
 ### State Machine
 

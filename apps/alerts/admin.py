@@ -1,7 +1,7 @@
 """Admin configuration for alerts models."""
 
 from django.contrib import admin
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
 
@@ -91,6 +91,7 @@ class AlertAdmin(admin.ModelAdmin):
         "fingerprint",
         "received_at",
         "updated_at",
+        "journey_display",
         "pretty_labels",
         "pretty_annotations",
         "pretty_raw_payload",
@@ -113,6 +114,13 @@ class AlertAdmin(admin.ModelAdmin):
             "Status",
             {
                 "fields": ["severity", "status", "description"],
+            },
+        ),
+        (
+            "Journey",
+            {
+                "fields": ["journey_display"],
+                "description": "trace_id → incident → pipeline run.",
             },
         ),
         (
@@ -181,6 +189,24 @@ class AlertAdmin(admin.ModelAdmin):
             )
         return "-"
 
+    @admin.display(description="Journey")
+    def journey_display(self, obj):
+        trace = format_html("<div><b>trace_id:</b> {}</div>", obj.trace_id or "—")
+        if obj.incident_id:
+            body = format_html(
+                "<div><b>Incident:</b> "
+                '<a href="/admin/alerts/incident/{}/change/">{}</a> '
+                "(see its Journey for the full chain)</div>",
+                obj.incident_id,
+                obj.incident.title[:40],
+            )
+        else:
+            body = format_html(
+                '<div style="color:#b00;"><b>{}</b> (no incident; ingest not run)</div>',
+                "not processed — inbox",
+            )
+        return format_html("{}{}", trace, body)
+
     @admin.display(description="Labels")
     def pretty_labels(self, obj):
         return prettify_json(obj.labels)
@@ -218,6 +244,7 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         "alert_count_display",
         "firing_alert_count_display",
         "pipeline_runs_display",
+        "journey_display",
         "pretty_metadata",
     ]
     date_hierarchy = "created_at"
@@ -249,6 +276,13 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
                     "firing_alert_count_display",
                     "pipeline_runs_display",
                 ],
+            },
+        ),
+        (
+            "Journey",
+            {
+                "fields": ["journey_display"],
+                "description": "Lifecycle: matched pipeline → run(s) → stages.",
             },
         ),
         (
@@ -367,6 +401,53 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
             return obj.pipeline_runs.count()
         except AttributeError:
             return "-"
+
+    @admin.display(description="Journey")
+    def journey_display(self, obj):
+        if obj.pipeline_id:
+            parts = [
+                format_html(
+                    "<div><b>Routed by:</b> {} (priority {})</div>",
+                    obj.pipeline.name,
+                    obj.pipeline.priority,
+                )
+            ]
+        else:
+            parts = [format_html("<div><b>Routed by:</b> {}</div>", "—")]
+
+        runs = list(obj.pipeline_runs.all().order_by("created_at"))
+        if not runs:
+            parts.append(
+                format_html(
+                    '<div style="color:#b00;"><b>{}</b> (no pipeline run; drain with '
+                    "<code>manage.py process_inbox</code>)</div>",
+                    "inbox — not processed",
+                )
+            )
+        for run in runs:
+            parts.append(
+                format_html(
+                    '<div style="margin-top:6px;"><b>Run</b> {} — {} '
+                    '<span style="color:#888;">trace {}</span></div>',
+                    run.run_id,
+                    run.status,
+                    run.trace_id,
+                )
+            )
+            stages = run.stage_executions.all().order_by("started_at")
+            items = format_html_join(
+                "",
+                "<li>{} — {} ({} ms, attempt {})</li>",
+                ((s.stage, s.status, f"{s.duration_ms:.0f}", s.attempt) for s in stages),
+            )
+            parts.append(
+                format_html(
+                    '<ul style="margin:2px 0 0 16px;">{}</ul>',
+                    items or format_html("<li>{}</li>", "(no stages)"),
+                )
+            )
+        # All pieces are format_html SafeStrings; join preserves escaping.
+        return format_html_join("", "{}", ((p,) for p in parts))
 
     @admin.display(description="Metadata")
     def pretty_metadata(self, obj):

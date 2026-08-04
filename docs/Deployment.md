@@ -561,5 +561,5 @@ HMAC and a dead `CLUSTER_ROLE` knob. Both are removed; agents now use
 | `push_to_hub` exits "HUB_API_KEY is not configured" | Agent has no key set        | Set `HUB_API_KEY` in the agent `.env`                                        |
 | `push_to_hub` returns 403 but the **same request via `curl` succeeds** | A WAF/proxy in front of the hub blocks the agent's `User-Agent` | The agent sends `User-Agent: server-monitoring-agent/<ver>`; allowlist it (or the agent IP) at the WAF. Confirm with `curl -H "User-Agent: Python-urllib/3.11" ...` reproducing the 403 |
 | `push_to_hub` returns 403 with body `API key not authorized for this endpoint` | The `APIKey.allowed_endpoints` allowlist excludes `/alerts/webhook/cluster/` | Clear the key's scope (empty = all) or add `/alerts/`; keys minted by `create_api_key` are unscoped by default |
-| Alerts arrive on hub but no notifications fire     | Pipeline not configured       | Run `uv run python manage.py setup_instance` on the hub                      |
+| Alerts arrive on hub but no notifications fire     | No routing pipeline / channel | Run `uv run python manage.py setup_cluster` on the hub (wires a catch-all pipeline + channel) |
 | `push_to_hub --dry-run` shows 0 alerts             | No checkers returned results  | Run `uv run python manage.py check_health` to verify checkers work           |

@@ -10,9 +10,10 @@ setup() {
     assert_success
 }
 
-@test "cluster menu offers guided hub + agent setup" {
-    run grep -q "setup_cluster --role hub" "$BIN_DIR/cli/cluster.sh"
+@test "cluster menu offers a single guided setup entry (command prompts hub/agent)" {
+    run grep -qE 'manage.py setup_cluster"' "$BIN_DIR/cli/cluster.sh"
     assert_success
-    run grep -q "setup_cluster --role agent" "$BIN_DIR/cli/cluster.sh"
-    assert_success
+    # No duplicate pre-selected --role entries — setup_cluster prompts for the role.
+    run grep -qE "setup_cluster --role" "$BIN_DIR/cli/cluster.sh"
+    assert_failure
 }

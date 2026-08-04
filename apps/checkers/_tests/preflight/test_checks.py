@@ -794,7 +794,7 @@ class CheckPipelineStateTests(TestCase):
         from apps.notify.models import NotificationChannel
         from apps.orchestration.models import PipelineDefinition
 
-        PipelineDefinition.objects.create(name="test", config={}, is_active=True)
+        PipelineDefinition.objects.create(name="test", is_active=True)
         NotificationChannel.objects.create(name="ch", driver="slack", is_active=True)
         results = check_pipeline_state()
         ok_results = [r for r in results if r.level == "ok"]

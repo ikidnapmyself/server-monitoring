@@ -71,10 +71,10 @@ setup() {
     [ -f "$BIN_DIR/cli/cluster.sh" ]
 }
 
-@test "aliases template generates new commands (preflight, show-pipeline, push-to-hub)" {
-    run grep -cE '^alias \$\{prefix\}-(preflight|show-pipeline|push-to-hub)=' "$BIN_DIR/install/aliases.sh"
+@test "aliases template generates new commands (preflight, push-to-hub)" {
+    run grep -cE '^alias \$\{prefix\}-(preflight|push-to-hub)=' "$BIN_DIR/install/aliases.sh"
     assert_success
-    [ "$output" -eq 3 ]
+    [ "$output" -eq 2 ]
 }
 
 @test "aliases template renamed check-and-alert to run-checks-only" {

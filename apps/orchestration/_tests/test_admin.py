@@ -274,18 +274,14 @@ class TestJsonWidgetRendering(TestCase):
     def setUp(self):
         self.client.login(username="admin", password="password")
 
-    def test_pipeline_definition_config_uses_json_widget(self):
+    def test_pipeline_definition_change_page_uses_json_widget(self):
         from apps.orchestration.models import PipelineDefinition
 
-        pd = PipelineDefinition.objects.create(
-            name="test",
-            config={"stages": ["ingest"]},
-            is_active=True,
-        )
+        pd = PipelineDefinition.objects.create(name="test", match=[], is_active=True)
         response = self.client.get(f"/admin/orchestration/pipelinedefinition/{pd.pk}/change/")
         assert response.status_code == 200
         content = response.content.decode()
-        # django-json-widget injects its CSS/JS
+        # django-json-widget injects its CSS/JS for the match/tags JSONFields
         assert "json-editor" in content.lower() or "jsoneditor" in content.lower()
 
     def test_pipeline_definition_changelist_shows_channel_count(self):
@@ -306,6 +302,27 @@ class TestJsonWidgetRendering(TestCase):
         # channel_count returns the actual number of wired channels.
         admin_obj = PipelineDefinitionAdmin(PipelineDefinition, site)
         assert admin_obj.channel_count(pd) == 1
+
+    def test_save_model_defaults_created_by(self):
+        from unittest.mock import MagicMock
+
+        from django.contrib.admin.sites import site
+
+        from apps.orchestration.admin import PipelineDefinitionAdmin
+        from apps.orchestration.models import PipelineDefinition
+
+        admin_obj = PipelineDefinitionAdmin(PipelineDefinition, site)
+        request = MagicMock()
+        request.user.username = "alice"
+
+        obj = PipelineDefinition(name="new-pipe")
+        admin_obj.save_model(request, obj, form=None, change=False)
+        assert obj.created_by == "alice"
+
+        # An explicit created_by is preserved.
+        obj2 = PipelineDefinition(name="kept", created_by="bob")
+        admin_obj.save_model(request, obj2, form=None, change=False)
+        assert obj2.created_by == "bob"
 
     def test_stage_execution_snapshot_pretty(self):
         from apps.orchestration.models import (
