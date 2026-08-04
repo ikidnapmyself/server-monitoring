@@ -571,3 +571,65 @@ class AlertQueryServiceTests(TestCase):
         alert = AlertQueryService.get_alert_with_history(self.alert.pk)
         self.assertEqual(alert.pk, self.alert.pk)
         self.assertEqual(alert.history.count(), 1)
+
+
+class IncidentGroupingTests(TestCase):
+    """Incident grouping is scoped by (name, instance) — no cross-host merge."""
+
+    def setUp(self):
+        self.orchestrator = AlertOrchestrator()
+
+    def _am(self, fingerprint, instance, name="HighCPU", severity="warning"):
+        return {
+            "version": "4",
+            "receiver": "webhook",
+            "status": "firing",
+            "alerts": [
+                {
+                    "status": "firing",
+                    "labels": {"alertname": name, "severity": severity, "instance": instance},
+                    "annotations": {},
+                    "startsAt": "2024-01-08T10:00:00Z",
+                    "fingerprint": fingerprint,
+                }
+            ],
+            "groupLabels": {},
+            "commonLabels": {},
+        }
+
+    def test_same_name_different_instance_do_not_merge(self):
+        # THE BUG: two hosts firing the same alert must be two incidents.
+        self.orchestrator.process_webhook(self._am("fp1", "web-03"), driver="alertmanager")
+        self.orchestrator.process_webhook(self._am("fp2", "web-04"), driver="alertmanager")
+        self.assertEqual(Incident.objects.count(), 2)
+
+    def test_same_name_same_instance_merge(self):
+        self.orchestrator.process_webhook(self._am("fp1", "web-03"), driver="alertmanager")
+        self.orchestrator.process_webhook(self._am("fp2", "web-03"), driver="alertmanager")
+        self.assertEqual(Incident.objects.count(), 1)
+        self.assertEqual(Incident.objects.first().alerts.count(), 2)
+
+    def test_different_name_same_instance_do_not_merge(self):
+        self.orchestrator.process_webhook(
+            self._am("fp1", "web-03", name="HighCPU"), driver="alertmanager"
+        )
+        self.orchestrator.process_webhook(
+            self._am("fp2", "web-03", name="DiskLow"), driver="alertmanager"
+        )
+        self.assertEqual(Incident.objects.count(), 2)
+
+    def test_attach_escalates_severity(self):
+        self.orchestrator.process_webhook(
+            self._am("fp1", "web-03", severity="warning"), driver="alertmanager"
+        )
+        self.orchestrator.process_webhook(
+            self._am("fp2", "web-03", severity="critical"), driver="alertmanager"
+        )
+        inc = Incident.objects.get()
+        self.assertEqual(inc.severity, "critical")
+
+    def test_no_instance_label_groups_by_name_only(self):
+        # Alerts with no instance/hostname label fall back to "" — grouped by name.
+        self.orchestrator.process_webhook(self._am("g1", "", name="Generic"), driver="alertmanager")
+        self.orchestrator.process_webhook(self._am("g2", "", name="Generic"), driver="alertmanager")
+        self.assertEqual(Incident.objects.count(), 1)

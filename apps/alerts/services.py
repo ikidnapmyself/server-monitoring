@@ -44,6 +44,17 @@ def resolve_node(labels: dict | None):
     return Node.objects.filter(instance_id=instance_id).first()
 
 
+def incident_instance_key(alert) -> str:
+    """Instance/host an alert belongs to, for incident grouping.
+
+    Label keys differ by source (cluster: instance_id; Prometheus: instance;
+    datadog/checker: hostname), so fall back through them. Empty string when none
+    is present (grouping then falls back to name-only).
+    """
+    labels = alert.labels or {}
+    return labels.get("instance_id") or labels.get("instance") or labels.get("hostname") or ""
+
+
 @dataclass
 class ProcessingResult:
     """Result of processing an incoming alert payload."""
@@ -279,12 +290,14 @@ class AlertOrchestrator:
         alert: Alert,
         result: ProcessingResult,
     ) -> Incident:
-        """Create a new incident or attach alert to existing one."""
-        # Look for existing open incident with same alert name
-        existing_incident = Incident.objects.filter(
-            status__in=[IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED],
-            alerts__name=alert.name,
-        ).first()
+        """Create a new incident or attach the alert to an existing one.
+
+        Grouping is scoped to (name, instance): an open incident already holding an
+        alert with the same name AND same instance (see ``incident_instance_key``).
+        This keeps per-host incidents distinct — two servers firing the same alert
+        are two incidents, not one.
+        """
+        existing_incident = self._find_open_incident(alert)
 
         if existing_incident:
             # Attach to existing incident
@@ -315,6 +328,23 @@ class AlertOrchestrator:
         logger.info(f"Created incident: {incident.title}")
 
         return incident
+
+    def _find_open_incident(self, alert) -> "Incident | None":
+        """Open incident already holding an alert with this (name, instance)."""
+        instance = incident_instance_key(alert)
+        candidates = (
+            Incident.objects.filter(
+                status__in=[IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED],
+                alerts__name=alert.name,
+            )
+            .distinct()
+            .prefetch_related("alerts")
+        )
+        for incident in candidates:
+            for existing in incident.alerts.all():
+                if existing.name == alert.name and incident_instance_key(existing) == instance:
+                    return incident
+        return None
 
     def _check_incident_resolution(self):
         """Check if any incidents should be auto-resolved."""

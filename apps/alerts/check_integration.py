@@ -292,12 +292,14 @@ class CheckAlertBridge:
         result.alerts_created += 1
         logger.info(f"Created alert from check: {alert.name} ({alert.fingerprint})")
 
-        # Auto-create incident if enabled and this is critical/warning
+        # Auto-create incident if enabled and this is critical/warning. Delegate to
+        # the orchestrator's unified (name, instance)-scoped grouping — no separate
+        # checker grouping path.
         if self.orchestrator.auto_create_incidents and parsed.severity in (
             AlertSeverity.CRITICAL,
             AlertSeverity.WARNING,
         ):
-            self._create_or_attach_incident(alert, result)
+            self.orchestrator._create_or_attach_incident(alert, result)
 
         return alert
 
@@ -364,50 +366,6 @@ class CheckAlertBridge:
         logger.info(f"Resolved alert from check: {alert.name}")
 
         return alert
-
-    def _create_or_attach_incident(
-        self,
-        alert: Alert,
-        result: ProcessingResult,
-    ) -> Incident | None:
-        """Create a new incident or attach alert to existing one."""
-        # Look for existing open incident with same checker
-        checker_name = alert.labels.get("checker", "")
-        existing_incident = Incident.objects.filter(
-            status__in=[IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED],
-            alerts__labels__checker=checker_name,
-            alerts__labels__hostname=alert.labels.get("hostname", ""),
-        ).first()
-
-        if existing_incident:
-            alert.incident = existing_incident
-            alert.save(update_fields=["incident"])
-
-            # Update severity if this is more severe
-            severity_rank = {"critical": 3, "warning": 2, "info": 1}
-            if severity_rank.get(alert.severity, 0) > severity_rank.get(
-                existing_incident.severity, 0
-            ):
-                existing_incident.severity = alert.severity
-                existing_incident.save(update_fields=["severity", "updated_at"])
-
-            result.incidents_updated += 1
-            return existing_incident
-
-        # Create new incident
-        incident = Incident.objects.create(
-            title=alert.name,
-            severity=alert.severity,
-            description=alert.description,
-        )
-
-        alert.incident = incident
-        alert.save(update_fields=["incident"])
-
-        result.incidents_created += 1
-        logger.info(f"Created incident from check: {incident.title}")
-
-        return incident
 
     def _check_incident_resolution(self):
         """Check if any incidents should be auto-resolved."""

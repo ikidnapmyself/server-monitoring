@@ -371,6 +371,24 @@ class CheckAlertBridgeTests(TestCase):
         severity_changes = AlertHistory.objects.filter(event="severity_changed").count()
         self.assertEqual(severity_changes, 0)
 
+    def test_different_checkers_same_host_are_separate_incidents(self):
+        """Unified grouping: different checker names on one host → separate incidents."""
+        self.bridge.process_check_result(
+            CheckResult(status=CheckStatus.WARNING, message="cpu", checker_name="cpu")
+        )
+        self.bridge.process_check_result(
+            CheckResult(status=CheckStatus.WARNING, message="disk", checker_name="disk")
+        )
+        self.assertEqual(Incident.objects.count(), 2)
+
+    def test_same_checker_same_host_groups(self):
+        """Unified grouping: same checker on one host → one incident."""
+        for _ in range(2):
+            self.bridge.process_check_result(
+                CheckResult(status=CheckStatus.WARNING, message="cpu", checker_name="cpu")
+            )
+        self.assertEqual(Incident.objects.count(), 1)
+
     def test_existing_incident_attach_and_severity_upgrade(self):
         """Test attaching to existing incident and upgrading severity."""
         # Manually create an open incident with a firing alert (different source)
@@ -383,7 +401,7 @@ class CheckAlertBridgeTests(TestCase):
         Alert.objects.create(
             fingerprint="webhook-fp",
             source="webhook",
-            name="Disk Alert",
+            name="DISK Check Alert",
             severity="warning",
             status=AlertStatus.FIRING,
             labels={"checker": "disk", "hostname": "test-server"},
@@ -544,7 +562,7 @@ class CheckAlertBridgeTests(TestCase):
         Alert.objects.create(
             fingerprint="webhook-fp",
             source="webhook",
-            name="CPU Alert",
+            name="CPU Check Alert",
             severity="critical",
             status=AlertStatus.FIRING,
             labels={"checker": "cpu", "hostname": "test-server"},
