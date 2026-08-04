@@ -38,27 +38,20 @@ Required tags/fields:
 - `apps/orchestration/executors.py` / `dtos.py` — stage execution helpers and DTOs
 - `apps/orchestration/urls.py` — URL routing
 
-## Node handler contracts
+## Pipeline shape (routing spine)
 
-Each definition-based pipeline node has a handler in `apps/orchestration/nodes/`. Below are the input/output contracts:
+There is one fixed stage order — `INGEST → CHECK → ANALYZE → NOTIFY` — run by
+`PipelineOrchestrator` via the four executors in `executors.py`. The *shape* is data:
+after INGEST, the orchestrator resolves the matching `PipelineDefinition` for the
+incident (`routing.py`, first-match-wins by `priority`) and runs the stages its
+`run_checkers`/`run_intelligence`/`run_notify` flags enable; `notify` sends to the
+matched pipeline's channels. The legacy node/edge graph (`DefinitionBasedOrchestrator`,
+the `nodes/` package, `PipelineDefinition.config`) was **retired in Phase D** — do not
+reintroduce it.
 
-| Node Type | Config Required | Config Optional | Output Keys | Error Behavior |
-|-----------|----------------|-----------------|-------------|----------------|
-| `ingest` | — | `driver` | `alerts_created`, `incident_id`, `severity` | Fails on invalid payload |
-| `context` | — | `checker_names` (list) | `checks_run`, `checks_passed`, `checks_failed`, `results` | Individual checker failures → `"unknown"` status, node continues |
-| `intelligence` | `provider` | `provider_config` | `provider`, `recommendations`, `summary` | Fails on exception; use `"required": false` to make optional |
-| `notify` | `drivers` (list) or `driver` (string) | — | `channels_attempted`, `channels_succeeded`, `deliveries` | Partial failure OK; errors only if ALL channels fail |
-| `transform` | `source_node` | `extract`, `mapping`, `filter_priority` | `transformed`, `source_node` | Fails on exception |
-
-**Output chaining:** Each node's output is stored in `ctx.previous_outputs[node_id]` and available to all downstream nodes. The `notify` node reads checker/intelligence outputs to build smart notification messages with derived severity.
-
-**Key files:**
-- `apps/orchestration/nodes/base.py` — `NodeContext`, `NodeResult`, `BaseNodeHandler`
-- `apps/orchestration/nodes/context.py` — runs `CHECKER_REGISTRY` checkers
-- `apps/orchestration/nodes/notify.py` — queries `NotificationChannel` DB records, uses `DRIVER_REGISTRY`
-- `apps/orchestration/nodes/intelligence.py` — calls provider with timeout
-- `apps/orchestration/nodes/ingest.py` — wraps `AlertOrchestrator`
-- `apps/orchestration/nodes/transform.py` — extract/filter/map operations
+**Observability (projections, no new models):** journey panel on the Alert/Incident
+admin; `manage.py trace <alert|trace_id>` (the chain); `manage.py report` (per-node
+incidents, per-pipeline routing hits, inbox depth).
 
 ## App layout rules (required)
 
@@ -92,19 +85,13 @@ Authoritative source: [`docs/plans/2026-05-12-iso-27003-security-audit-notes.md`
 - **`_PAYLOAD_TEMPLATE_KEYS`** (in `apps/orchestration/executors.py:34`) strips Jinja-template-bearing keys from payload-supplied notify config. Any new template-bearing key MUST be added to this set.
 
 ### Identifier discipline
-- **`run_id` is always server-generated** (`uuid.uuid4()` in `PipelineOrchestrator.start_pipeline` and `DefinitionBasedOrchestrator.execute`). A caller-supplied `run_id` in the body is ignored. Do not introduce code paths that accept caller-chosen run IDs — they could collide existing records or forge `idempotency_key`s.
+- **`run_id` is always server-generated** (`uuid.uuid4()` in `PipelineOrchestrator.start_pipeline`). A caller-supplied `run_id` in the body is ignored. Do not introduce code paths that accept caller-chosen run IDs — they could collide existing records or forge `idempotency_key`s.
 - **`trace_id` is caller-controllable**. It is a log-correlation hint only — **never** an authorization token. Never gate access, identity, or routing on its value.
-- **`incident_id` is request-supplied without per-actor authorization** in `PipelineDefinitionExecuteView`. This is **the single-tenant assumption** — every API key has access to every incident. Document this and revisit before any multi-tenancy.
+- **`incident_id` is request-supplied without per-actor authorization**. This is **the single-tenant assumption** — every API key has access to every incident. Document this and revisit before any multi-tenancy.
 
-### `_should_skip` discipline
-- `DefinitionBasedOrchestrator._should_skip()` supports a `skip_if_condition` string with a fixed `.has_errors` pattern. **This is a fixed-pattern matcher by design and MUST remain one.**
-- Do **not** introduce `eval`, `exec`, `compile`, `ast.literal_eval` on attacker data, or Jinja2 evaluation here. `PipelineDefinition.config` is admin-controlled but admin-trust is not arbitrary-code-execution trust.
-- If a richer condition language is genuinely needed, route it through an explicit safe-expression parser with no name resolution and no attribute access (e.g. an AST allowlist).
-
-### Node handler contract
-- **Every new node type's `validate_config` MUST be implemented** and called from `DefinitionBasedOrchestrator.validate()`. Nodes without it become attack surface via the admin-editable `PipelineDefinition.config`.
-- **Node-type dispatch is via a fixed in-process registry** (`apps/orchestration/nodes/__init__.py:_NODE_HANDLERS`). Do not introduce string-based dynamic import.
+### Dispatch discipline
 - **Stage dispatch on `PipelineOrchestrator` is enum-keyed** — `self.executors[PipelineStage.X]`. Do not introduce string-based dispatch from payload.
+- **Routing `match` conditions fail closed** (`PipelineDefinition.matches`): unknown ops / bad shapes never match. Keep it a fixed operator set (`is/is-not/in/not-in`); do not add `eval`/expression languages over the admin-editable `match`.
 
 ### Durable ingest / drain (broker-free)
 - The pipeline runs **without Celery/Redis**. The webhook records a `PENDING` `PipelineRun` (payload stored on `inbound_payload`) and `manage.py process_inbox` claims it (atomic `PENDING → PROCESSING`) and runs it via `execute_run`.
@@ -112,9 +99,9 @@ Authoritative source: [`docs/plans/2026-05-12-iso-27003-security-audit-notes.md`
 - Do **not** reintroduce a broker/queue or pickle-based serialization; single-hop fan-in has no need for one.
 
 ### Audit checks before merging
-- [ ] New executor / node handler does not call `eval`, `exec`, `compile`, or dynamic import.
+- [ ] New executor does not call `eval`, `exec`, `compile`, or dynamic import.
 - [ ] New payload field is documented as untrusted and routed through the relevant filter (`_PAYLOAD_TEMPLATE_KEYS`, `BLOCKED_CONFIG_KEYS`, or constructor validation).
-- [ ] New node type has a `validate_config` and is registered in `_NODE_HANDLERS`.
+- [ ] New routing `match` operator (if any) fails closed and needs no expression evaluation.
 - [ ] `run_id` is generated server-side (uuid4); `trace_id` is treated as a hint only.
 - [ ] `inbound_payload` stays JSON-serializable; no broker/pickle reintroduced.
 - [ ] Run `uv run pytest apps/orchestration/_tests/` to confirm regression coverage holds.

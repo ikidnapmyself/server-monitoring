@@ -186,18 +186,15 @@ For email drivers, you can set both text and HTML templates:
 }
 ```
 
-### Override via Pipeline Definition
+### Override via NotificationChannel config
 
-In definition-based pipelines, pass template config in the notify node:
+Set a `template` key on the channel's `config` (Django Admin → Notify → Notification
+channels). The notify stage reads it from the DB-stored channel config:
 
 ```json
 {
-  "id": "notify",
-  "type": "notify",
-  "config": {
-    "drivers": ["slack"],
-    "template": "file:my_slack.j2"
-  }
+  "webhook_url": "https://hooks.slack.com/services/...",
+  "template": "file:my_slack.j2"
 }
 ```
 

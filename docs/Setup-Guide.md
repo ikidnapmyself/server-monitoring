@@ -58,7 +58,7 @@ notified when something is wrong. No external monitoring tools required.
 ### Step 1: Run the setup wizard
 
 ```bash
-uv run python manage.py setup_instance
+uv run python manage.py setup_cluster
 ```
 
 ### Step 2: Select alert source
@@ -193,7 +193,7 @@ notification, and retry with different options if something isn't right.
 ### Step 8: Verify with a dry run
 
 ```bash
-uv run python manage.py run_pipeline --definition local-monitor --dry-run
+uv run python manage.py run_pipeline --sample --dry-run
 ```
 
 This shows the node chain and configuration without executing anything. Verify the nodes
@@ -202,7 +202,7 @@ and config look correct.
 ### Step 9: Run your first pipeline
 
 ```bash
-uv run python manage.py run_pipeline --definition local-monitor
+uv run python manage.py run_pipeline --sample
 ```
 
 You should see output showing each node executing in sequence: health checks run, results
@@ -244,7 +244,7 @@ notifications.
 ### Step 1: Run the setup wizard
 
 ```bash
-uv run python manage.py setup_instance
+uv run python manage.py setup_cluster
 ```
 
 ### Step 2: Select alert source
@@ -343,10 +343,10 @@ Same as Use Case 1, Step 5.
 
 ```bash
 # Review the pipeline
-uv run python manage.py run_pipeline --definition full --dry-run
+uv run python manage.py run_pipeline --sample --dry-run
 
 # Test with a sample alert payload
-uv run python manage.py run_pipeline --definition full --sample
+uv run python manage.py run_pipeline --sample --sample
 ```
 
 The `--sample` flag sends a test alert through the pipeline so you can verify every stage
@@ -380,7 +380,7 @@ from multiple monitored servers, runs AI analysis, and dispatches notifications.
 ### Step 1: Run the setup wizard
 
 ```bash
-uv run python manage.py setup_instance
+uv run python manage.py setup_cluster
 ```
 
 ### Step 2: Configure
@@ -395,13 +395,13 @@ uv run python manage.py setup_instance
 
 ```bash
 # Dry run
-uv run python manage.py run_pipeline --definition ai-analyzed --dry-run
+uv run python manage.py run_pipeline --sample --dry-run
 
 # Test with sample payload
-uv run python manage.py run_pipeline --definition ai-analyzed --sample
+uv run python manage.py run_pipeline --sample --sample
 
 # Test with a specific source format
-uv run python manage.py run_pipeline --definition ai-analyzed --sample --source grafana
+uv run python manage.py run_pipeline --sample --sample --source grafana
 ```
 
 ### Step 4: Deploy
@@ -411,86 +411,6 @@ Start the server and point all your monitoring tools at the webhook endpoint:
 ```
 http://<your-server>:8000/api/alerts/webhook/
 ```
-
----
-
-## Running Pipelines from JSON Files
-
-Instead of the setup wizard, you can run pipelines directly from JSON configuration files.
-Sample pipelines are included in the project:
-
-```bash
-# List available sample pipelines
-ls apps/orchestration/management/commands/pipelines/
-```
-
-| File | Description |
-|---|---|
-| `local-monitor.json` | Ingest → Checkers (cpu, memory, disk) → Intelligence (local) → Notify (generic) |
-| `pagerduty-alert.json` | Ingest (PagerDuty) → Intelligence (OpenAI) → Notify (PagerDuty) |
-| `pipeline-manager.json` | Ingest → Intelligence (local) → Notify (generic) |
-
-Run a pipeline from a JSON file:
-
-```bash
-# Dry run to see the node chain
-uv run python manage.py run_pipeline --config apps/orchestration/management/commands/pipelines/local-monitor.json --dry-run
-
-# Run it
-uv run python manage.py run_pipeline --config apps/orchestration/management/commands/pipelines/local-monitor.json
-```
-
-### Writing your own pipeline JSON
-
-A pipeline definition is a JSON file with this structure:
-
-```json
-{
-  "version": "1.0",
-  "description": "My custom pipeline",
-  "defaults": {
-    "max_retries": 3,
-    "timeout_seconds": 300
-  },
-  "nodes": [
-    {
-      "id": "check_health",
-      "type": "context",
-      "config": {
-        "checker_names": ["cpu", "memory", "disk"]
-      },
-      "next": "notify_ops"
-    },
-    {
-      "id": "notify_ops",
-      "type": "notify",
-      "config": {
-        "drivers": ["slack", "email"]
-      }
-    }
-  ]
-}
-```
-
-**Node fields:**
-
-| Field | Required | Description |
-|---|---|---|
-| `id` | Yes | Unique identifier for this node |
-| `type` | Yes | Node type (see table below) |
-| `config` | Yes | Node-specific configuration |
-| `next` | No | ID of the next node in the chain |
-| `required` | No | If `false`, pipeline continues even if this node fails (default: `true`) |
-
-**Available node types:**
-
-| Type | Purpose | Key config |
-|---|---|---|
-| `ingest` | Parse incoming alert webhooks | `source_hint` (optional driver name) |
-| `context` | Run health checkers | `checker_names` (list; defaults to all enabled) |
-| `intelligence` | AI analysis | `provider` (required), `provider_config` (optional) |
-| `notify` | Send notifications | `drivers` (list of driver names) |
-| `transform` | Transform data between nodes | `source_node`, `extract`, `filter_priority`, `mapping` |
 
 ---
 
@@ -566,7 +486,7 @@ errors.
 
 ### Intelligence providers
 
-Providers are configured via the `setup_instance` wizard or Django Admin (`IntelligenceProvider` model). API keys are stored in the DB, not environment variables.
+Providers are configured via `manage.py setup_intelligence` or Django Admin (`IntelligenceProvider` model). API keys are stored in the DB, not environment variables.
 
 | Provider | Notes |
 |---|---|
@@ -623,12 +543,12 @@ drivers. Fix:
 uv run python manage.py shell -c "from apps.notify.models import NotificationChannel; print(list(NotificationChannel.objects.filter(is_active=True).values_list('name', 'driver')))"
 
 # Re-run the wizard to create channels
-uv run python manage.py setup_instance
+uv run python manage.py setup_cluster
 ```
 
 ### Checker doesn't run
 
-If a checker doesn't run, verify it's included in your pipeline definition's `checker_names` config. If `checker_names` is omitted, all registered checkers run by default.
+All registered checkers run by default; a routing pipeline can disable the CHECK stage via run_checkers=false.
 
 ### Intelligence provider times out
 
@@ -638,19 +558,6 @@ slow:
 1. Check your API key is valid and has quota
 2. Try the `local` provider to confirm the pipeline works without AI
 3. Check network connectivity to the provider's API
-
-### Pipeline fails at ingest with no payload
-
-When using `--definition`, you may need to provide a payload:
-
-```bash
-# For local monitoring pipelines (no ingest node), no payload needed:
-uv run python manage.py run_pipeline --definition local-monitor
-
-# For webhook pipelines, provide a payload:
-uv run python manage.py run_pipeline --definition full --sample
-uv run python manage.py run_pipeline --definition full --file alert.json
-```
 
 ### Re-running the setup wizard
 
@@ -678,7 +585,7 @@ details so you can make an informed decision:
 - **Cancel** — Exit without changes
 
 ```bash
-uv run python manage.py setup_instance
+uv run python manage.py setup_cluster
 ```
 
 ### Viewing pipeline errors
