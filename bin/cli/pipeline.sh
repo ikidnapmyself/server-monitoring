@@ -10,7 +10,9 @@ pipeline_menu() {
             "Run checks only (orchestrated)" \
             "Run checks only (dry run)" \
             "List recent pipeline runs" \
-            "Show one pipeline run"
+            "Show one pipeline run" \
+            "Trace an alert's journey" \
+            "Report (nodes / pipelines / inbox)"
         then
             case $TUIN_REPLY in
                 "Run pipeline (sample payload)")
@@ -35,6 +37,15 @@ pipeline_menu() {
                     else
                         echo -e "${RED}Run id required${NC}"
                     fi ;;
+                "Trace an alert's journey")
+                    target=$(tuin_input "Enter alert id or trace_id")
+                    if [ -n "$target" ]; then
+                        confirm_and_run "$UV_BIN run python manage.py trace $target"
+                    else
+                        echo -e "${RED}Alert id or trace_id required${NC}"
+                    fi ;;
+                "Report (nodes / pipelines / inbox)")
+                    confirm_and_run "$UV_BIN run python manage.py report" ;;
             esac || true
             echo ""
             tuin_input "Press Enter to continue" >/dev/null || true
