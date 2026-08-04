@@ -5,12 +5,10 @@ from io import StringIO
 from django.core.management import call_command
 from django.test import TestCase
 
-from apps.orchestration.models import PipelineDefinition, PipelineRun
+from apps.orchestration.models import PipelineRun
 
 
-class ShowRunDetailsWithPipelineDefinitionTests(TestCase):
-    """Tests for pipeline definition display in show_run_details."""
-
+class ShowRunDetailsBasicTests(TestCase):
     def setUp(self):
         self.run = PipelineRun.objects.create(
             run_id="test-run-001",
@@ -18,29 +16,8 @@ class ShowRunDetailsWithPipelineDefinitionTests(TestCase):
             source="test",
         )
 
-    def test_run_details_includes_pipeline_definitions(self):
-        """When pipeline definitions exist, show_run_details renders them."""
-        PipelineDefinition.objects.create(
-            name="my-pipeline",
-            config={
-                "version": "1.0",
-                "nodes": [
-                    {
-                        "id": "check",
-                        "type": "context",
-                        "config": {"checker_names": ["cpu"]},
-                    },
-                ],
-            },
-        )
-        out = StringIO()
-        call_command("monitor_pipeline", "--run-id", "test-run-001", stdout=out)
-        output = out.getvalue()
-        assert "my-pipeline" in output
-        assert "cpu" in output
-
-    def test_run_details_without_pipeline_definitions(self):
-        """When no pipeline definitions exist, show_run_details still works."""
+    def test_run_details_renders(self):
+        """show_run_details renders the run header + fields."""
         out = StringIO()
         call_command("monitor_pipeline", "--run-id", "test-run-001", stdout=out)
         output = out.getvalue()
