@@ -9,7 +9,6 @@
 #
 # Steps:
 #   env       Environment and core .env configuration
-#   celery    Celery / Redis broker setup
 #   cluster   Multi-instance cluster role configuration
 #   deps      Install Python dependencies via uv
 #   migrate   Run Django migrations and system checks
@@ -47,7 +46,6 @@ show_usage() {
     echo ""
     echo "Steps:"
     echo "  env       Environment and core .env configuration"
-    echo "  celery    Celery / Redis broker setup"
     echo "  cluster   Multi-instance cluster role configuration"
     echo "  deps      Install Python dependencies via uv"
     echo "  migrate   Run Django migrations and system checks"
@@ -75,10 +73,6 @@ run_all() {
     source "$INSTALL_MOD_DIR/deps.sh"
     source "$INSTALL_MOD_DIR/migrate.sh"
 
-    # Optional steps
-    if prompt_yes_no "Configure Celery / Redis broker?"; then
-        source "$INSTALL_MOD_DIR/celery.sh"
-    fi
 
     # Cluster has its own y/N gate with smart defaults
     source "$INSTALL_MOD_DIR/cluster.sh"
@@ -154,7 +148,6 @@ fi
 
 case "${1:-}" in
     env)      source "$INSTALL_MOD_DIR/env.sh"     ;;
-    celery)   source "$INSTALL_MOD_DIR/celery.sh"  ;;
     cluster)  source "$INSTALL_MOD_DIR/cluster.sh" ;;
     deps)     source "$INSTALL_MOD_DIR/deps.sh"    ;;
     migrate)  source "$INSTALL_MOD_DIR/migrate.sh" ;;

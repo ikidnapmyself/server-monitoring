@@ -4,15 +4,12 @@ Webhook views for receiving alerts from external sources.
 
 import json
 import logging
-import os
-from typing import Any, cast
+from typing import Any
 
 from django.http import JsonResponse
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
-
-from apps.alerts.services import AlertOrchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -62,65 +59,32 @@ class AlertWebhookView(View):
             # stage for this run. This is a driver property, not a source-string branch
             # in the orchestrator. Authentication is handled uniformly by the API-key
             # middleware; there is no per-driver signature check.
-            if resolved_driver and getattr(resolved_driver, "skip_checkers", False):
-                payload["skip_checkers"] = True
-
-            # If Celery is enabled, enqueue the orchestration chain and return quickly.
-            # (In tests/dev you can set CELERY_TASK_ALWAYS_EAGER=1 to run inline.)
-            try:
-                from django.conf import settings
-
-                celery_eager = bool(getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False))
-            except Exception:
-                celery_eager = False
-
-            if os.environ.get("ENABLE_CELERY_ORCHESTRATION", "1") == "1" and not celery_eager:
-                try:
-                    from apps.orchestration.tasks import run_pipeline_task
-
-                    async_res = run_pipeline_task.delay(
-                        payload=payload,
-                        source=driver or "unknown",
-                    )
-                    return JsonResponse(
-                        {
-                            "status": "queued",
-                            "pipeline_id": async_res.id,
-                        },
-                        status=202,
-                    )
-                except Exception as enqueue_err:
-                    # If Celery isn't reachable (broker/result backend down), don't 500 the webhook.
-                    # Fall back to synchronous processing.
-                    logger.warning(
-                        "Celery orchestration enqueue failed; falling back to sync processing: %s",
-                        enqueue_err,
-                    )
-
-            # Fallback: synchronous processing (previous behavior)
-            orchestrator = AlertOrchestrator()
-            result = orchestrator.process_webhook(payload, driver=driver)
-
-            # Build response
-            response_data: dict[str, Any] = {
-                "status": "success" if not result.has_errors else "partial",
-                "alerts_created": result.alerts_created,
-                "alerts_updated": result.alerts_updated,
-                "alerts_resolved": result.alerts_resolved,
-                "incidents_created": result.incidents_created,
-                "incidents_updated": result.incidents_updated,
-            }
-
-            if result.has_errors:
-                response_data["errors"] = cast(Any, result.errors)
-                logger.warning(f"Webhook processing errors: {result.errors}")
-
-            logger.info(
-                f"Webhook processed: {result.total_processed} alerts "
-                f"({result.alerts_created} new, {result.alerts_resolved} resolved)"
+            skip_checkers = bool(
+                resolved_driver and getattr(resolved_driver, "skip_checkers", False)
             )
 
-            return JsonResponse(response_data)
+            # Durable ingest: record the run in the pipeline's wrapper payload shape
+            # ({driver, payload, [skip_checkers]}) that IngestExecutor expects, then
+            # return immediately. A drain (manage.py process_inbox) processes it —
+            # no inline pipeline, no broker, so a flood grows a bounded PENDING queue.
+            from apps.orchestration.orchestrator import PipelineOrchestrator
+
+            run_payload: dict[str, Any] = {"driver": driver, "payload": payload}
+            if skip_checkers:
+                run_payload["skip_checkers"] = True
+
+            run = PipelineOrchestrator().start_pipeline(
+                payload=run_payload, source=driver or "unknown"
+            )
+            logger.info(
+                "Webhook recorded run %s (source=%s) for draining",
+                run.run_id,
+                driver or "unknown",
+            )
+            return JsonResponse(
+                {"status": "accepted", "run_id": run.run_id},
+                status=202,
+            )
 
         except Exception as e:
             logger.exception("Unexpected error processing webhook")

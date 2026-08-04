@@ -1,0 +1,26 @@
+# Durable-ingest drain: processes PENDING pipeline runs recorded by the webhook.
+# Broker-free — no Redis/Celery required. This supervised loop gives near-real-time
+# processing; on hosts without systemd, use a cron one-shot instead:
+#   */1 * * * * cd /opt/server-monitoring && .venv/bin/python manage.py process_inbox --limit 100
+#
+# IMPORTANT: durable ingest needs a drain running. Without this service (or the cron
+# fallback), alerts are recorded as PENDING runs but never processed. Watch the queue
+# with `manage.py doctor` (Inbox: N pending).
+[Unit]
+Description=Server Monitoring inbox drain (process_inbox)
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/server-monitoring
+EnvironmentFile=/etc/server-monitoring/env
+ExecStart=/opt/server-monitoring/.venv/bin/python manage.py process_inbox \
+    --loop \
+    --interval 5 \
+    --limit 100
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

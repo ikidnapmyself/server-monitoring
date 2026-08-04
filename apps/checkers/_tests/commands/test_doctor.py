@@ -41,3 +41,34 @@ class DoctorCommandTests(TestCase):
         self.assertIn("Doctor", text)
         self.assertIn("Accepting pushes:", text)
         self.assertIn("Known nodes:", text)
+        self.assertIn("Inbox:", text)
+
+    def test_json_reports_inbox_depth(self):
+        from apps.orchestration.orchestrator import PipelineOrchestrator
+
+        for _ in range(3):
+            PipelineOrchestrator().start_pipeline(payload={}, source="x")
+
+        out = StringIO()
+        call_command("doctor", "--json", stdout=out)
+        data = json.loads(out.getvalue())
+
+        self.assertEqual(data["inbox"]["pending"], 3)
+        self.assertEqual(data["inbox"]["processing"], 0)
+        self.assertFalse(data["inbox"]["over_threshold"])
+
+    @override_settings(INBOX_DEPTH_WARN=1)
+    def test_backlog_over_threshold_emits_warning(self):
+        from apps.orchestration.orchestrator import PipelineOrchestrator
+
+        for _ in range(2):
+            PipelineOrchestrator().start_pipeline(payload={}, source="x")
+
+        out = StringIO()
+        call_command("doctor", "--json", stdout=out)
+        data = json.loads(out.getvalue())
+
+        self.assertTrue(data["inbox"]["over_threshold"])
+        self.assertTrue(
+            any(c["level"] == "WARNING" and "Inbox backlog" in c["message"] for c in data["checks"])
+        )

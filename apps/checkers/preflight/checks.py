@@ -420,18 +420,6 @@ def check_cluster_coherence() -> list[CheckResult]:
     return results
 
 
-def check_celery_eager() -> list[CheckResult]:
-    if _is_production() and settings.CELERY_TASK_ALWAYS_EAGER:
-        return [
-            CheckResult(
-                level="warn",
-                message="Celery is in eager mode in production",
-                hint="Set CELERY_TASK_ALWAYS_EAGER=0.",
-            )
-        ]
-    return [CheckResult(level="ok", message="Celery task execution mode is correct")]
-
-
 def check_metrics_config() -> list[CheckResult]:
     backend = getattr(settings, "ORCHESTRATION_METRICS_BACKEND", "logging")
     statsd_host = getattr(settings, "STATSD_HOST", "localhost")
@@ -470,15 +458,6 @@ def check_pipeline_state() -> list[CheckResult]:
     active_defs = PipelineDefinition.objects.filter(is_active=True).count()
     active_channels = NotificationChannel.objects.filter(is_active=True).count()
     active_providers = IntelligenceProvider.objects.filter(is_active=True)
-
-    if active_defs > 0 and settings.CELERY_TASK_ALWAYS_EAGER:
-        results.append(
-            CheckResult(
-                level="warn",
-                message=f"{active_defs} active pipeline(s) but Celery is eager",
-                hint="Set CELERY_TASK_ALWAYS_EAGER=0 for async execution.",
-            )
-        )
 
     if active_channels == 0:
         results.append(
@@ -610,7 +589,7 @@ def _check_docker(base_dir: Path) -> list[CheckResult]:
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return [CheckResult(level="error", message="Docker daemon is not running")]
 
-    for svc in ("redis", "web", "celery"):
+    for svc in ("web", "inbox"):
         try:
             r = subprocess.run(
                 ["docker", "compose", "-f", str(compose_file), "ps", "--format", "json", svc],
@@ -635,7 +614,7 @@ def _check_systemd() -> list[CheckResult]:
 
     services = [
         ("server-monitoring", "server-monitoring.service"),
-        ("server-monitoring-celery", "server-monitoring-celery.service"),
+        ("server-monitoring-inbox", "server-monitoring-inbox.service"),
     ]
     for name, unit in services:
         try:
@@ -650,21 +629,6 @@ def _check_systemd() -> list[CheckResult]:
                 results.append(CheckResult(level="error", message=f"{unit} is not active"))
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             results.append(CheckResult(level="warn", message=f"Cannot check {unit}"))
-
-    for redis_name in ("redis-server", "redis"):
-        try:
-            r = subprocess.run(
-                ["systemctl", "is-active", "--quiet", redis_name],
-                capture_output=True,
-                timeout=5,
-            )
-            if r.returncode == 0:
-                results.append(CheckResult(level="ok", message="Redis service is active"))
-                break
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-            pass
-    else:
-        results.append(CheckResult(level="error", message="Redis service is not active"))
 
     socket_path = Path("/run/server-monitoring/gunicorn.sock")
     if socket_path.exists():
@@ -732,7 +696,6 @@ def run_all(base_dir: Path) -> list[CheckResult]:
     # Config consistency
     results.extend(check_env_consistency(base_dir))
     results.extend(check_cluster_coherence())
-    results.extend(check_celery_eager())
     results.extend(check_metrics_config())
 
     # Django system checks

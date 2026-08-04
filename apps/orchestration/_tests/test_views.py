@@ -262,10 +262,9 @@ class TestPipelineView(TestCase):
         assert response.status_code == 400
         assert response.json()["error"] == "Invalid JSON body"
 
-    @patch("apps.orchestration.views.start_pipeline_task")
-    def test_async_mode(self, mock_task):
-        """Default async mode calls start_pipeline_task.delay and returns 202."""
-        mock_task.delay.return_value = MagicMock(id="task-abc")
+    def test_async_mode_records_pending_run(self):
+        """Default async mode records a PENDING run (broker-free) and returns 202."""
+        from apps.orchestration.models import PipelineRun, PipelineStatus
 
         client = Client()
         response = client.post(
@@ -276,9 +275,9 @@ class TestPipelineView(TestCase):
 
         assert response.status_code == 202
         data = response.json()
-        assert data["status"] == "queued"
-        assert data["task_id"] == "task-abc"
-        mock_task.delay.assert_called_once()
+        assert data["status"] == "accepted"
+        run = PipelineRun.objects.get(run_id=data["run_id"])
+        assert run.status == PipelineStatus.PENDING
 
     @patch("apps.orchestration.views.PipelineOrchestrator")
     def test_sync_mode(self, mock_orch_cls):

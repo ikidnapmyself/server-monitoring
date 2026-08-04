@@ -16,8 +16,10 @@ Production deployment guide for Server Monitoring. Choose Docker Compose for qui
 
 - Python **3.10+**
 - [`uv`](https://github.com/astral-sh/uv)
-- **Redis** (message broker for Celery)
 - **Nginx** (reverse proxy, optional but recommended)
+
+The pipeline runs **broker-free** — no Redis or Celery. Durable ingest records each
+alert and `manage.py process_inbox` drains it (see below).
 
 ---
 
@@ -30,8 +32,7 @@ Create `/etc/server-monitoring/env` (systemd) or `.env` (Docker) with these valu
 | `DJANGO_SECRET_KEY` | — | **Yes** | Cryptographic signing key |
 | `DJANGO_DEBUG` | `1` | **Yes** (set `0`) | Disable debug mode in production |
 | `DJANGO_ALLOWED_HOSTS` | — | **Yes** | Comma-separated hostnames (e.g. `monitoring.example.com`) |
-| `CELERY_BROKER_URL` | `redis://localhost:6379/0` | No | Redis broker URL |
-| `ENABLE_CELERY_ORCHESTRATION` | `1` | No | Enable async pipeline via Celery |
+| `INBOX_DEPTH_WARN` | `500` | No | doctor warns once the PENDING drain backlog exceeds this |
 | `API_KEY_AUTH_ENABLED` | `1` | No | API key auth (enabled by default; set `0` to disable for dev) |
 | `RATE_LIMIT_ENABLED` | `0` | No | Enable rate limiting middleware |
 | `HUB_API_KEY` | — | Agent only | Bearer token an agent uses to authenticate `push_to_hub` to the hub |
@@ -42,7 +43,6 @@ Minimal production `.env`:
 DJANGO_SECRET_KEY=your-random-secret-key-here
 DJANGO_DEBUG=0
 DJANGO_ALLOWED_HOSTS=monitoring.example.com
-ENABLE_CELERY_ORCHESTRATION=1
 ```
 
 Generate a secret key:
@@ -55,7 +55,7 @@ python -c "from django.core.management.utils import get_random_secret_key; print
 
 ## Option 1: Docker Compose
 
-The fastest way to get a production stack running. Includes Django (gunicorn), Celery worker, and Redis.
+The fastest way to get a production stack running. Includes Django (gunicorn) and the broker-free inbox drain.
 
 > **Quick start:** Run `./bin/install.sh` and select **docker** mode to automate the steps below (`.env` setup, build, start, and health verification).
 
@@ -67,10 +67,7 @@ cd server-monitoring
 cp .env.sample .env
 ```
 
-Edit `.env` with the production values from the table above. The Docker Compose file reads
-config from `.env` and automatically overrides `CELERY_BROKER_URL` to use the internal
-`redis` service hostname — you do **not** need to change that value in `.env` for Docker
-deployments.
+Edit `.env` with the production values from the table above.
 
 ### 1.2 Start the stack
 
@@ -78,13 +75,12 @@ deployments.
 docker compose -f deploy/docker/docker-compose.yml up -d
 ```
 
-This starts three services:
+This starts two services:
 
 | Service | What it does |
 |---------|-------------|
-| `redis` | Message broker for Celery |
 | `web` | Django app served by gunicorn on port 8000 |
-| `celery` | Celery worker processing pipeline tasks |
+| `inbox` | Drain that processes recorded pipeline runs (`process_inbox --loop`) |
 
 ### 1.3 Verify
 
@@ -94,7 +90,7 @@ docker compose -f deploy/docker/docker-compose.yml ps
 
 # Check logs
 docker compose -f deploy/docker/docker-compose.yml logs web
-docker compose -f deploy/docker/docker-compose.yml logs celery
+docker compose -f deploy/docker/docker-compose.yml logs inbox
 
 # Test health endpoint
 curl http://localhost:8000/alerts/webhook/
@@ -125,20 +121,7 @@ print('Save this key — it cannot be retrieved again.')
 
 For full control on a Linux server.
 
-### 2.1 Install Redis
-
-```bash
-# Ubuntu/Debian
-sudo apt install redis-server
-# On Debian/Ubuntu the service is usually named redis-server
-# On RHEL/Fedora/Arch it's redis
-sudo systemctl enable --now redis-server
-
-# Verify
-redis-cli ping   # Should return PONG
-```
-
-### 2.2 Clone and install
+### 2.1 Clone and install
 
 ```bash
 sudo mkdir -p /opt/server-monitoring
@@ -151,7 +134,7 @@ sudo -u www-data sh -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'
 sudo -u www-data uv sync --frozen --no-dev --extra prod
 ```
 
-### 2.3 Configure environment
+### 2.2 Configure environment
 
 ```bash
 sudo mkdir -p /etc/server-monitoring
@@ -159,14 +142,12 @@ sudo tee /etc/server-monitoring/env << 'EOF'
 DJANGO_SECRET_KEY=your-random-secret-key-here
 DJANGO_DEBUG=0
 DJANGO_ALLOWED_HOSTS=monitoring.example.com
-CELERY_BROKER_URL=redis://localhost:6379/0
-ENABLE_CELERY_ORCHESTRATION=1
 EOF
 sudo chown root:www-data /etc/server-monitoring/env
 sudo chmod 640 /etc/server-monitoring/env
 ```
 
-### 2.4 Run migrations and collect static files
+### 2.3 Run migrations and collect static files
 
 ```bash
 cd /opt/server-monitoring
@@ -176,28 +157,81 @@ uv run python manage.py migrate --noinput
 uv run python manage.py collectstatic --noinput
 ```
 
-### 2.5 Install systemd units
+### 2.4 Install systemd units
 
 ```bash
 sudo cp deploy/systemd/server-monitoring.service /etc/systemd/system/
-sudo cp deploy/systemd/server-monitoring-celery.service /etc/systemd/system/
+sudo cp deploy/systemd/server-monitoring-inbox.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now server-monitoring server-monitoring-celery
+sudo systemctl enable --now server-monitoring server-monitoring-inbox
 ```
 
-> **Automated:** Run `sudo ./bin/install.sh deploy` to automate steps 2.4-2.6 (migrations, static files, unit installation, and service startup with health verification). Or use `sudo ./bin/install.sh` in **prod** mode when selecting the systemd deployment option.
+> **`server-monitoring-inbox` is required, not optional.** The webhook only *records*
+> alerts (durable ingest); this drain is what actually processes them. See
+> [Durable ingest & the inbox drain](#durable-ingest--the-inbox-drain) below. The
+> legacy `server-monitoring-celery` unit is no longer needed — the pipeline runs
+> broker-free.
+
+> **Automated:** Run `sudo ./bin/install.sh deploy` to automate steps 2.3-2.5 (migrations, static files, unit installation, and service startup with health verification). Or use `sudo ./bin/install.sh` in **prod** mode when selecting the systemd deployment option.
 >
 > **Security note:** Running the installer with `sudo` executes all shell code as root. Review the deploy module (`bin/install/deploy.sh`) before running and ensure the repository has not been tampered with. Prefer running only `install.sh deploy` with `sudo` rather than the full installer to minimize the root-privileged surface.
 
-### 2.6 Verify
+### 2.5 Verify
 
 ```bash
 sudo systemctl status server-monitoring
-sudo systemctl status server-monitoring-celery
+sudo systemctl status server-monitoring-inbox
 
 # Test via unix socket
 curl --unix-socket /run/server-monitoring/gunicorn.sock http://localhost/alerts/webhook/
 ```
+
+---
+
+## Durable ingest & the inbox drain
+
+The alert webhook does **not** process pipelines inline. It **durably records** each
+inbound alert as a `PENDING` pipeline run and returns `202 {status: accepted, run_id}`
+immediately. A **drain** then processes the queue at a controlled rate. This keeps the
+web workers responsive and means a flood grows a **bounded database queue** instead of
+OOM-ing the node — and it needs **no Redis or Celery**.
+
+> ⚠️ **A drain must be running.** With neither the systemd service nor a cron entry
+> below, alerts are recorded but **never processed** — they pile up as `PENDING`
+> runs. Check the backlog any time with `manage.py doctor` (`Inbox: N pending`);
+> `doctor` also emits a warning once the backlog passes `INBOX_DEPTH_WARN` (default
+> 500).
+
+**Option A — supervised loop (recommended, near-real-time).** The
+`server-monitoring-inbox` unit installed above runs:
+
+```bash
+manage.py process_inbox --loop --interval 5 --limit 100
+```
+
+It polls every few seconds, restarts on crash, and needs no broker.
+
+**Option B — cron one-shot (no systemd).** Drain on a schedule instead:
+
+```cron
+*/1 * * * * cd /opt/server-monitoring && .venv/bin/python manage.py process_inbox --limit 100
+```
+
+**Manual "process now".** Force a specific recorded run through immediately:
+
+```bash
+uv run python manage.py process_inbox --id <run_id>
+```
+
+**Crash recovery.** A run claimed by a drain that dies mid-flight is reclaimed after
+`--stale-minutes` (default 15) and retried.
+
+**Trade-off.** Processing is now eventually-consistent: under load there is a short,
+visible queue delay (bounded by the drain interval) rather than synchronous handling.
+
+> **No-drain deployments (planned).** A future opt-in synchronous mode will let a
+> gunicorn-only host process alerts inline without a drain (trading back the flood
+> protection). Until then, run a drain.
 
 ---
 
@@ -257,18 +291,17 @@ POST /alerts/webhook/              # Auto-detect driver from payload
 POST /alerts/webhook/<driver>/     # Driver-specific endpoint
 ```
 
-### Sync vs Async
+### Durable ingest response
 
-The behavior depends on `ENABLE_CELERY_ORCHESTRATION`:
+The webhook records the alert and returns immediately — it never runs the pipeline
+inline:
 
-| Setting | Behavior | Response |
-|---------|----------|----------|
-| `0` (default) | Pipeline runs synchronously in the request | `200 OK` with results |
-| `1` | Pipeline queued to Celery worker | `202 Accepted` with pipeline ID |
+| Behavior | Response |
+|----------|----------|
+| Alert recorded as a `PENDING` run for the drain | `202 Accepted` with `{status: accepted, run_id}` |
 
-### Automatic fallback
-
-When `ENABLE_CELERY_ORCHESTRATION=1` but the Redis broker is unreachable, the webhook view automatically falls back to synchronous processing. No alerts are lost.
+The [inbox drain](#durable-ingest--the-inbox-drain) then processes the run. No broker
+is involved, and no alert is lost if processing lags — it stays queued.
 
 ### Webhook authentication
 
@@ -304,17 +337,17 @@ uv run python manage.py check_health --list
 uv run python manage.py monitor_pipeline --limit 10
 ```
 
-### Celery worker health
+### Inbox drain health
 
 ```bash
-celery -A config inspect ping              # Check if workers are responding
-celery -A config inspect active            # Show active tasks
+uv run python manage.py doctor            # Shows "Inbox: N pending, M processing"
+systemctl status server-monitoring-inbox  # Is the drain running?
 ```
 
 For Docker:
 
 ```bash
-docker compose -f deploy/docker/docker-compose.yml exec celery celery -A config inspect ping
+docker compose -f deploy/docker/docker-compose.yml logs inbox
 ```
 
 ---

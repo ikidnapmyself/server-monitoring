@@ -246,7 +246,7 @@ run_docker_checks() {
 
     # Container health — check each service
     source "$_LIB_DIR/docker.sh"
-    local services=("redis" "web" "celery")
+    local services=("web" "inbox")
     for svc in "${services[@]}"; do
         local state
         state=$(get_service_state "$compose_file" "$svc")
@@ -268,11 +268,11 @@ run_systemd_checks() {
         hc_fail "systemd_web" "server-monitoring.service is not active"
     fi
 
-    # server-monitoring-celery.service
-    if systemctl is-active --quiet server-monitoring-celery 2>/dev/null; then
-        hc_pass "systemd_celery" "server-monitoring-celery.service is active"
+    # server-monitoring-inbox.service (durable-ingest drain)
+    if systemctl is-active --quiet server-monitoring-inbox 2>/dev/null; then
+        hc_pass "systemd_inbox" "server-monitoring-inbox.service is active"
     else
-        hc_fail "systemd_celery" "server-monitoring-celery.service is not active"
+        hc_fail "systemd_inbox" "server-monitoring-inbox.service is not active"
     fi
 
     # Redis

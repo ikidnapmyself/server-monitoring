@@ -392,7 +392,7 @@ _up_restart() {
                 _up_log "INFO" "Dry-run: would run systemctl restart server-monitoring"
                 return 0
             fi
-            if ! sudo systemctl restart server-monitoring server-monitoring-celery; then
+            if ! sudo systemctl restart server-monitoring server-monitoring-inbox; then
                 _up_failed_step="restart"
                 _up_log "ERROR" "Service restart failed"
                 return 1

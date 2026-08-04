@@ -27,8 +27,6 @@ class GetProfileTests(TestCase):
                 "NAME": "/tmp/db.sqlite3",
             }
         },
-        CELERY_BROKER_URL="redis://localhost:6379/0",
-        CELERY_TASK_ALWAYS_EAGER=False,
         ORCHESTRATION_METRICS_BACKEND="logging",
         INSTANCE_ID="node-1",
         LOGS_DIR="/var/log/sm",
@@ -57,7 +55,6 @@ class GetProfileTests(TestCase):
         HUB_URL="",
         API_KEY_AUTH_ENABLED=True,
         DEBUG=True,
-        CELERY_TASK_ALWAYS_EAGER=True,
     )
     @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
     def test_standalone_profile(self):
@@ -66,7 +63,6 @@ class GetProfileTests(TestCase):
         self.assertEqual(profile["role"], "standalone")
         self.assertFalse(profile["receiving"])
         self.assertTrue(profile["debug"])
-        self.assertTrue(profile["celery_eager"])
 
     @override_settings(HUB_URL="https://hub.example.com", API_KEY_AUTH_ENABLED=True)
     def test_agent_and_hub_profile(self):

@@ -162,6 +162,7 @@ class PipelineOrchestrator:
                 environment=environment,
                 status=PipelineStatus.PENDING,
                 max_retries=self.max_retries,
+                inbound_payload=payload,
             )
 
         logger.info(
@@ -223,6 +224,15 @@ class PipelineOrchestrator:
 
         pipeline_run.mark_retrying()
         return self._execute_pipeline(pipeline_run, payload)
+
+    def execute_run(self, pipeline_run: PipelineRun) -> PipelineResult:
+        """Execute a pre-recorded run using its stored payload (the drain entry point).
+
+        Used by ``manage.py process_inbox`` after it has claimed a PENDING run: the
+        run already exists (created by the webhook), so we execute its stored
+        ``inbound_payload`` rather than starting a fresh pipeline.
+        """
+        return self._execute_pipeline(pipeline_run, pipeline_run.inbound_payload)
 
     def _execute_pipeline(
         self,

@@ -1,7 +1,6 @@
 """Tests for rate limiting middleware."""
 
 import json
-import os
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -16,7 +15,6 @@ from config.models import APIKey
     CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
     RATE_LIMITS={"/alerts/": 5, "/notify/": 3},
 )
-@patch.dict(os.environ, {"ENABLE_CELERY_ORCHESTRATION": "0"})
 class RateLimitMiddlewareTests(TestCase):
     def setUp(self):
         cache.clear()

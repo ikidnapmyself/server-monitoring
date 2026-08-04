@@ -19,11 +19,6 @@ setup() {
     assert_success
 }
 
-@test "install/celery.sh passes syntax check" {
-    run bash -n "$BIN_DIR/install/celery.sh"
-    assert_success
-}
-
 @test "install/cluster.sh passes syntax check" {
     run bash -n "$BIN_DIR/install/cluster.sh"
     assert_success
@@ -57,7 +52,6 @@ setup() {
     run "$BIN_DIR/install.sh" help
     assert_success
     assert_output --partial "env"
-    assert_output --partial "celery"
     assert_output --partial "cluster"
     assert_output --partial "deps"
     assert_output --partial "migrate"

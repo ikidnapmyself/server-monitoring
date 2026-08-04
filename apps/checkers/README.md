@@ -206,7 +206,7 @@ uv run python manage.py check_health disk --disk-paths / /var /tmp /home
 uv run python manage.py check_health network --ping-hosts 8.8.8.8 1.1.1.1 github.com
 
 # Process: verify specific processes are running
-uv run python manage.py check_health process --processes nginx postgres redis celery
+uv run python manage.py check_health process --processes nginx gunicorn postgres
 ```
 
 #### Combined examples
@@ -346,8 +346,8 @@ uv run python manage.py run_check network --hosts 8.8.8.8 google.com --json
 ```bash
 # Check specific processes
 uv run python manage.py run_check process --names nginx
-uv run python manage.py run_check process --names nginx postgres redis
-uv run python manage.py run_check process --names nginx postgres redis celery gunicorn
+uv run python manage.py run_check process --names nginx postgres gunicorn
+uv run python manage.py run_check process --names nginx gunicorn postgres
 
 # Process with JSON
 uv run python manage.py run_check process --names nginx postgres --json

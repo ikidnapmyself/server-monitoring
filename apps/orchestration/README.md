@@ -607,22 +607,19 @@ result = orchestrator.run_pipeline(
 print(f"Pipeline {result.status}: {result.stages_completed}")
 ```
 
-### Celery Tasks
+### Durable ingest / drain (broker-free)
 
 ```python
-from apps.orchestration.tasks import run_pipeline_task, start_pipeline_task
+from apps.orchestration.orchestrator import PipelineOrchestrator
 
-# Fire-and-forget
-start_pipeline_task.delay(
-    payload={"payload": alert_data},
+# Record a PENDING run (what the webhook does); a drain processes it later.
+run = PipelineOrchestrator().start_pipeline(
+    payload={"driver": None, "payload": alert_data},
     source="webhook",
 )
 
-# Or run directly
-result = run_pipeline_task.apply(
-    args=[{"payload": alert_data}],
-    kwargs={"source": "manual"},
-)
+# Drain it (manage.py process_inbox does this in a loop):
+result = PipelineOrchestrator().execute_run(run)
 ```
 
 ## Intelligence Fallback

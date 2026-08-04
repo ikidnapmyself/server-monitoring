@@ -32,8 +32,8 @@ Required tags/fields:
 
 ## Key modules
 
-- `apps/orchestration/orchestrator.py` — pipeline implementation
-- `apps/orchestration/tasks.py` — Celery task entrypoints
+- `apps/orchestration/orchestrator.py` — pipeline implementation (`start_pipeline`, `execute_run`)
+- `apps/orchestration/management/commands/process_inbox.py` — broker-free drain of PENDING runs
 - `apps/orchestration/models.py` — `PipelineRun`, `StageExecution`
 - `apps/orchestration/executors.py` / `dtos.py` — stage execution helpers and DTOs
 - `apps/orchestration/urls.py` — URL routing
@@ -106,14 +106,15 @@ Authoritative source: [`docs/plans/2026-05-12-iso-27003-security-audit-notes.md`
 - **Node-type dispatch is via a fixed in-process registry** (`apps/orchestration/nodes/__init__.py:_NODE_HANDLERS`). Do not introduce string-based dynamic import.
 - **Stage dispatch on `PipelineOrchestrator` is enum-keyed** — `self.executors[PipelineStage.X]`. Do not introduce string-based dispatch from payload.
 
-### Celery + serialization
-- `CELERY_ACCEPT_CONTENT = ["json"]`, `CELERY_TASK_SERIALIZER = "json"`, `CELERY_RESULT_SERIALIZER = "json"` are mandatory. **Never accept pickle** even temporarily — broker compromise scope is permanent if pickle is enabled even once during a migration.
-- Tasks must remain JSON-serializable. No `dataclass(frozen=False)` instances or class types as task args.
+### Durable ingest / drain (broker-free)
+- The pipeline runs **without Celery/Redis**. The webhook records a `PENDING` `PipelineRun` (payload stored on `inbound_payload`) and `manage.py process_inbox` claims it (atomic `PENDING → PROCESSING`) and runs it via `execute_run`.
+- `inbound_payload` MUST stay JSON-serializable (it is a `JSONField`). No class instances or non-JSON types — the stored payload is untrusted input, validated/parsed by each stage, never `eval`'d.
+- Do **not** reintroduce a broker/queue or pickle-based serialization; single-hop fan-in has no need for one.
 
 ### Audit checks before merging
 - [ ] New executor / node handler does not call `eval`, `exec`, `compile`, or dynamic import.
 - [ ] New payload field is documented as untrusted and routed through the relevant filter (`_PAYLOAD_TEMPLATE_KEYS`, `BLOCKED_CONFIG_KEYS`, or constructor validation).
 - [ ] New node type has a `validate_config` and is registered in `_NODE_HANDLERS`.
 - [ ] `run_id` is generated server-side (uuid4); `trace_id` is treated as a hint only.
-- [ ] Celery settings unchanged: JSON-only accept / task / result.
+- [ ] `inbound_payload` stays JSON-serializable; no broker/pickle reintroduced.
 - [ ] Run `uv run pytest apps/orchestration/_tests/` to confirm regression coverage holds.

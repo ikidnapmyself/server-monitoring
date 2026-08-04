@@ -82,7 +82,7 @@ Common variables:
 - `DJANGO_SECRET_KEY` (required in production; local dev can fall back to an insecure default)
 - `DJANGO_DEBUG` (`1`/`0`)
 - `DJANGO_ALLOWED_HOSTS` (comma-separated)
-- `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `CELERY_TASK_ALWAYS_EAGER`
+- `INBOX_DEPTH_WARN` (drain backlog warning threshold; the pipeline is broker-free)
 
 ## Development
 
