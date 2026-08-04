@@ -111,10 +111,8 @@ alias ${prefix}-run-checks-only='cd "${PROJECT_DIR}" && ${UV_BIN} run python man
 alias ${prefix}-preflight='cd "${PROJECT_DIR}" && ${UV_BIN} run python manage.py preflight'
 alias ${prefix}-get-recommendations='cd "${PROJECT_DIR}" && ${UV_BIN} run python manage.py get_recommendations'
 alias ${prefix}-run-pipeline='cd "${PROJECT_DIR}" && ${UV_BIN} run python manage.py run_pipeline'
-alias ${prefix}-show-pipeline='cd "${PROJECT_DIR}" && ${UV_BIN} run python manage.py show_pipeline'
 alias ${prefix}-monitor-pipeline='cd "${PROJECT_DIR}" && ${UV_BIN} run python manage.py monitor_pipeline'
 alias ${prefix}-test-notify='cd "${PROJECT_DIR}" && ${UV_BIN} run python manage.py test_notify'
-alias ${prefix}-setup-instance='cd "${PROJECT_DIR}" && ${UV_BIN} run python manage.py setup_instance'
 alias ${prefix}-push-to-hub='cd "${PROJECT_DIR}" && ${UV_BIN} run python manage.py push_to_hub'
 alias ${prefix}-cli='${BIN_DIR}/cli.sh'
 ALIASES

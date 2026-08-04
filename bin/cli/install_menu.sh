@@ -15,7 +15,6 @@ install_project() {
         "Set up shell aliases"
         "Deploy (Docker / systemd)"
         "Check installation status"
-        "Set up monitoring instance (interactive wizard)"
         "Set production mode"
         "Back to main menu"
     )
@@ -32,9 +31,8 @@ install_project() {
             7)  run_command "$SCRIPT_DIR/install.sh aliases" "Shell aliases" ;;
             8)  run_command "$SCRIPT_DIR/install.sh deploy" "Deployment" ;;
             9)  check_installation ;;
-            10) confirm_and_run "$UV_BIN run python manage.py setup_instance" ;;
-            11) confirm_and_run "$SCRIPT_DIR/set_production.sh" ;;
-            12) return ;;
+            10) confirm_and_run "$SCRIPT_DIR/set_production.sh" ;;
+            11) return ;;
             *)  echo -e "${RED}Invalid option${NC}" ;;
         esac
         break
