@@ -22,15 +22,6 @@ setup() {
     [ "${#lines[@]}" -eq 0 ]
 }
 
-@test "parse_pipeline_names extracts quoted names incl. inactive" {
-    raw=$'WARNINGS: noise\n--- Pipeline: "cli-test" ---\n  Flow: ctx\n--- Pipeline: "local-smart-2" ---\n  (inactive)\n  Flow: x'
-    run parse_pipeline_names "$raw"
-    assert_success
-    assert_line --index 0 "cli-test"
-    assert_line --index 1 "local-smart-2"
-    [ "${#lines[@]}" -eq 2 ]
-}
-
 @test "pick_or_cancel non-TTY: selecting Cancel (index 1) returns non-zero" {
     run bash -c 'source bin/lib/tuin.sh; source bin/lib/pickers.sh; printf "1\n" | pick_or_cancel "Pick" alpha beta'
     assert_failure

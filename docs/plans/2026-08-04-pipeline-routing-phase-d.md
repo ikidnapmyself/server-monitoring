@@ -73,6 +73,24 @@ Expected: fresh branch off main with A+B+C present (routing fields, `_downstream
 
 **Commit:** `refactor(orchestration): run_pipeline drops --definition/--config; remove graph samples`.
 
+> **Note (deviation from draft):** keep `--payload`/`--file` — they feed the *main* orchestrator, not the graph. Only `--definition`/`--config` and the three definition-only methods (`_get_definition`, `_show_definition_dry_run`, `_display_definition_result`) are removed.
+
+---
+
+## Task 2b: CLI setup consolidation — retire `setup_instance`, extract `setup_intelligence`, de-dup the cluster menu
+
+**Why (decided with the user 2026-08-04):** `setup_instance` is the graph-era standalone wizard — it *builds* `PipelineDefinition.config` (the retired node graph) and renders via `PipelineInspector`, so it blocks Task 4. It also overlaps `setup_cluster` (two wizards) and the cluster menu carries two setup entries for what one command does. Agile: retire the leftover, one clear door per concern. Its one unique-and-still-useful step (AI provider setup) is *unrelated to cluster* → it moves to its own command in the intelligence app, not folded into `setup_cluster`.
+
+**Steps:**
+1. **Extract `setup_intelligence`.** Create `apps/intelligence/management/commands/setup_intelligence.py` (+ tests): prompt for a provider from `apps.intelligence.providers.PROVIDERS`; if not `local`, collect `api_key` + `model` (default from `provider_cls.default_model`); upsert the **single active** `IntelligenceProvider` (respecting its single-active invariant). `--provider/--api-key/--model` for non-interactive. Surface it in `bin/cli/intelligence.sh` as "Configure AI provider".
+2. **Retire `setup_instance`.** `git rm apps/orchestration/management/commands/setup_instance.py` + `apps/orchestration/_tests/test_setup_instance.py`; remove the `sm-setup-instance` alias (`bin/install/aliases.sh`, `bin/aliases.sh`, `bin/README.md`), the install-menu "Set up monitoring instance (interactive wizard)" entry (`bin/install.sh`, `bin/cli/install_menu.sh`), and Installation.md's "Pipeline workflow with aliases" section. `grep -rn "setup_instance\|sm-setup-instance"` → only historical `docs/plans/` remain.
+3. **De-dup the cluster menu.** In `bin/cli/cluster.sh` collapse options 1+2 ("Set up as hub/agent (guided)") into one **"Set up this node (guided)"** → `manage.py setup_cluster` (no `--role`; the command already prompts hub/agent). Keep the push options. Update `bin/tests/test_cluster_menu.bats`.
+4. Run pytest (intelligence + orchestration) + bats.
+
+**Commit(s):** `feat(intelligence): setup_intelligence command`, `refactor(cli): retire setup_instance; single guided setup entry`.
+
+> After 2b, nothing writes `PipelineDefinition.config` → Task 4 (drop the column) is unblocked. `setup_cluster` handles the channel; checkers run by default; AI provider is `setup_intelligence` — no capability lost, one door per concern.
+
 ---
 
 ## Task 3: Delete `DefinitionBasedOrchestrator`, the `nodes/` package, and the graph inspector
