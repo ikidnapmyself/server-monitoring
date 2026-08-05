@@ -63,6 +63,14 @@ class AlertWebhookView(View):
                 resolved_driver and getattr(resolved_driver, "skip_checkers", False)
             )
 
+            # Register/refresh the sending node synchronously. A cluster push proves
+            # the sender is alive, so the node registry updates the instant the push
+            # is accepted — no wait for the drain. This is one bounded upsert (the
+            # heartbeat), not the alert processing, so it carries no flood risk.
+            from apps.alerts.services import register_pushing_node
+
+            register_pushing_node(payload, driver)
+
             # Durable ingest: record the run in the pipeline's wrapper payload shape
             # ({driver, payload, [skip_checkers]}) that IngestExecutor expects, then
             # return immediately. A drain (manage.py process_inbox) processes it —
