@@ -44,6 +44,29 @@ def resolve_node(labels: dict | None):
     return Node.objects.filter(instance_id=instance_id).first()
 
 
+def register_pushing_node(payload: dict[str, Any], driver: "str | BaseAlertDriver | None" = None):
+    """Register/refresh the sending node for a cluster push (the agent registry).
+
+    A cluster push proves the sender is alive, so its Node is upserted synchronously
+    — at webhook time — independent of when the payload's alerts are drained. Returns
+    the Node, or None if this isn't an identifiable cluster push (wrong source/driver
+    or no ``instance_id``). Idempotent: shared by the webhook view and the drain path.
+    """
+    from apps.alerts.models import Node
+
+    is_cluster = (driver == "cluster") or (payload.get("source") == "cluster")
+    if not is_cluster:
+        return None
+    instance_id = payload.get("instance_id")
+    if not instance_id:
+        return None
+    return Node.upsert(
+        instance_id=instance_id,
+        hostname=payload.get("hostname", ""),
+        source="cluster",
+    )
+
+
 def incident_instance_key(alert) -> str:
     """Instance/host an alert belongs to, for incident grouping.
 
@@ -137,17 +160,10 @@ class AlertOrchestrator:
             # Parse the payload
             parsed = driver_instance.parse(payload)
 
-            # Cluster pushes register/refresh the sending node (the agent registry).
-            if (driver == "cluster") or (payload.get("source") == "cluster"):
-                from apps.alerts.models import Node
-
-                instance_id = payload.get("instance_id")
-                if instance_id:
-                    Node.upsert(
-                        instance_id=instance_id,
-                        hostname=payload.get("hostname", ""),
-                        source="cluster",
-                    )
+            # Cluster pushes register/refresh the sending node. The webhook already
+            # does this synchronously at push time; the drain repeats it (idempotent)
+            # so a node still refreshes even if a run is drained without a live push.
+            register_pushing_node(payload, driver)
 
             # Process each alert
             with transaction.atomic():

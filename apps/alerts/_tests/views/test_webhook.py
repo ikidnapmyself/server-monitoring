@@ -4,7 +4,7 @@ from unittest.mock import patch
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
-from apps.alerts.models import Alert
+from apps.alerts.models import Alert, Node
 from apps.orchestration.models import PipelineRun, PipelineStatus
 
 
@@ -117,3 +117,62 @@ class WebhookSkipCheckersTests(TestCase):
         self.assertEqual(response.status_code, 202)
         run = PipelineRun.objects.get(run_id=response.json()["run_id"])
         self.assertNotIn("skip_checkers", run.inbound_payload)
+
+
+@override_settings(API_KEY_AUTH_ENABLED=False)
+class WebhookNodeRegistrationTests(TestCase):
+    """A cluster push registers/refreshes the sending node synchronously — at push
+    time — so the node is visible the instant the 202 returns, independent of the
+    drain. The payload's alerts are still processed later by the drain."""
+
+    def setUp(self):
+        self.client = Client()
+
+    def test_cluster_push_registers_node_synchronously(self):
+        url = reverse("alerts:webhook_driver", kwargs={"driver": "cluster"})
+        payload = {
+            "source": "cluster",
+            "instance_id": "web-03",
+            "hostname": "web-03.example.com",
+            "alerts": [],
+        }
+
+        response = self.client.post(url, data=json.dumps(payload), content_type="application/json")
+
+        self.assertEqual(response.status_code, 202)
+        # Node exists immediately, before any drain runs.
+        node = Node.objects.get(instance_id="web-03")
+        self.assertEqual(node.hostname, "web-03.example.com")
+        self.assertEqual(node.last_source, "cluster")
+        # Processing is still deferred: the run is PENDING with no alerts yet.
+        run = PipelineRun.objects.get(run_id=response.json()["run_id"])
+        self.assertEqual(run.status, PipelineStatus.PENDING)
+        self.assertEqual(Alert.objects.count(), 0)
+
+    def test_cluster_push_refreshes_existing_node(self):
+        Node.objects.create(instance_id="web-03", hostname="old")
+        url = reverse("alerts:webhook_driver", kwargs={"driver": "cluster"})
+        payload = {"source": "cluster", "instance_id": "web-03", "hostname": "new", "alerts": []}
+
+        self.client.post(url, data=json.dumps(payload), content_type="application/json")
+
+        self.assertEqual(Node.objects.count(), 1)
+        self.assertEqual(Node.objects.get(instance_id="web-03").hostname, "new")
+
+    def test_cluster_push_without_instance_id_registers_no_node(self):
+        url = reverse("alerts:webhook_driver", kwargs={"driver": "cluster"})
+        payload = {"source": "cluster", "alerts": []}
+
+        response = self.client.post(url, data=json.dumps(payload), content_type="application/json")
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(Node.objects.count(), 0)
+
+    def test_non_cluster_push_registers_no_node(self):
+        url = reverse("alerts:webhook_driver", kwargs={"driver": "generic"})
+        payload = {"name": "x", "status": "firing"}
+
+        response = self.client.post(url, data=json.dumps(payload), content_type="application/json")
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(Node.objects.count(), 0)
