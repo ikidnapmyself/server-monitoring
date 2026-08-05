@@ -2,7 +2,7 @@
 
 from django.test import TestCase
 
-from apps.checkers.checkers.raid import ArrayState, parse_mdstat
+from apps.checkers.checkers.raid import ArrayState, _parse_level, parse_mdstat
 
 HEALTHY = """\
 Personalities : [raid1]
@@ -27,8 +27,34 @@ md0 : active raid1 sdb1[1] sda1[0]
 unused devices: <none>
 """
 
+REBUILDING_INTEGER = """\
+md0 : active raid1 sdb1[1] sda1[0]
+      1953382464 blocks super 1.2 [2/1] [U_]
+      [====================>]  recovery = 100% (1953/1953) finish=0.0min speed=100000K/sec
+
+unused devices: <none>
+"""
+
+MULTI_ARRAY = """\
+Personalities : [raid1] [raid5]
+md0 : active raid1 sdb1[1] sda1[0]
+      1953382464 blocks super 1.2 [2/2] [UU]
+
+md1 : active raid5 sdd1[3](F) sdc1[1] sde1[0]
+      3906764800 blocks super 1.2 [3/2] [UU_]
+
+unused devices: <none>
+"""
+
 EMPTY = """\
 Personalities :
+unused devices: <none>
+"""
+
+ACTIVE_NO_COUNTS = """\
+md0 : active raid1 sda1[0]
+      1953382464 blocks super 1.2
+
 unused devices: <none>
 """
 
@@ -67,7 +93,7 @@ class ParseMdstatDegradedTests(TestCase):
         self.assertEqual(array.level, "raid5")
         self.assertEqual(array.active_devices, 2)
         self.assertEqual(array.total_devices, 3)
-        self.assertIn("sdd1", array.failed)
+        self.assertEqual(array.failed, ["sdd1"])
         self.assertTrue(array.is_degraded())
 
 
@@ -81,6 +107,37 @@ class ParseMdstatRebuildingTests(TestCase):
         self.assertEqual(array.resync_percent, 50.0)
         self.assertEqual(array.active_devices, 1)
         self.assertEqual(array.total_devices, 2)
+        # A down slot during rebuild is not a failed device.
+        self.assertEqual(array.failed, [])
+        self.assertTrue(array.is_degraded())
+
+
+class ParseMdstatIntegerPercentTests(TestCase):
+    def test_integer_percent_is_parsed(self):
+        arrays = parse_mdstat(REBUILDING_INTEGER)
+
+        self.assertEqual(len(arrays), 1)
+        array = arrays[0]
+        self.assertTrue(array.rebuilding)
+        self.assertEqual(array.resync_percent, 100.0)
+
+
+class ParseMdstatMultiArrayTests(TestCase):
+    def test_two_arrays_parse_independently(self):
+        arrays = parse_mdstat(MULTI_ARRAY)
+
+        self.assertEqual(len(arrays), 2)
+        healthy, degraded = arrays
+
+        self.assertEqual(healthy.name, "md0")
+        self.assertEqual(healthy.level, "raid1")
+        self.assertEqual(healthy.failed, [])
+        self.assertFalse(healthy.is_degraded())
+
+        self.assertEqual(degraded.name, "md1")
+        self.assertEqual(degraded.level, "raid5")
+        self.assertEqual(degraded.failed, ["sdd1"])
+        self.assertTrue(degraded.is_degraded())
 
 
 class ParseMdstatEmptyTests(TestCase):
@@ -110,3 +167,23 @@ class ArrayStateTests(TestCase):
             total_devices=2,
         )
         self.assertFalse(array.is_degraded())
+
+    def test_is_degraded_active_with_unknown_counts(self):
+        # Active, no failed devices, and counts unknown -> not degraded.
+        array = ArrayState(name="md0", state="active")
+        self.assertFalse(array.is_degraded())
+
+    def test_active_array_without_counts_parses(self):
+        arrays = parse_mdstat(ACTIVE_NO_COUNTS)
+
+        self.assertEqual(len(arrays), 1)
+        array = arrays[0]
+        self.assertEqual(array.state, "active")
+        self.assertIsNone(array.active_devices)
+        self.assertIsNone(array.total_devices)
+        self.assertFalse(array.is_degraded())
+
+
+class ParseLevelTests(TestCase):
+    def test_empty_remainder_yields_none(self):
+        self.assertIsNone(_parse_level(""))

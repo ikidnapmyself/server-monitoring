@@ -30,11 +30,8 @@ _FAILED_DEVICE_RE = re.compile(r"(\w+)\[\d+\]\(F\)")
 # Device counts "[total/active]": "[3/2]" -> total 3, active 2.
 _COUNTS_RE = re.compile(r"\[(\d+)/(\d+)\]")
 
-# Per-slot up-map: "[UU_]" -> "UU_".
-_UPMAP_RE = re.compile(r"\[([U_]+)\]")
-
-# Rebuild/resync progress: "recovery = 50.0%" -> ("recovery", "50.0").
-_PROGRESS_RE = re.compile(r"(recovery|resync|reshape|check)\s*=\s*(\d+\.\d+)%")
+# Rebuild/resync progress: "recovery = 50.0%" or "recovery = 100%".
+_PROGRESS_RE = re.compile(r"(recovery|resync|reshape|check)\s*=\s*(\d+(?:\.\d+)?)%")
 
 
 @dataclass
@@ -86,12 +83,6 @@ def _apply_continuation(array: ArrayState, line: str) -> None:
     if counts:
         array.total_devices = int(counts.group(1))
         array.active_devices = int(counts.group(2))
-
-    upmap = _UPMAP_RE.search(line)
-    if upmap and not array.failed:
-        for slot, marker in enumerate(upmap.group(1)):
-            if marker == "_":
-                array.failed.append(f"slot{slot}")
 
     progress = _PROGRESS_RE.search(line)
     if progress:
