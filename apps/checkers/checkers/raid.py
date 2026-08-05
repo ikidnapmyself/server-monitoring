@@ -11,8 +11,11 @@ so it can be unit-tested against captured `/proc/mdstat` fixtures. The
 """
 
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
 
 MDSTAT = Path("/proc/mdstat")
 
@@ -117,3 +120,98 @@ def parse_mdstat(text: str) -> list[ArrayState]:
             current = None
 
     return arrays
+
+
+def _read_mdstat() -> str | None:
+    """Return the contents of `/proc/mdstat`, or None if unreadable.
+
+    A missing or unreadable mdstat (no md driver loaded, non-Linux, or a
+    permission error) is not a failure — the caller skips with OK.
+    """
+    try:
+        return MDSTAT.read_text()
+    except OSError:
+        return None
+
+
+def _serialize_array(array: ArrayState) -> dict:
+    """Serialize one ArrayState into a JSON-friendly metrics dict."""
+    return {
+        "name": array.name,
+        "level": array.level,
+        "state": array.state,
+        "active_devices": array.active_devices,
+        "total_devices": array.total_devices,
+        "failed": array.failed,
+        "rebuilding": array.rebuilding,
+        "resync_percent": array.resync_percent,
+    }
+
+
+class RaidChecker(BaseChecker):
+    """Report software RAID health from Linux `/proc/mdstat`.
+
+    State-based (no numeric thresholds). A degraded array that is *not*
+    rebuilding (a dead disk with no recovery in progress, or an
+    inactive/failed array) is the CRITICAL emergency. An array that is
+    actively rebuilding is self-healing — its counts read as degraded
+    (`[2/1] [U_]`) while it recovers — so it is only a WARNING.
+    """
+
+    name = "raid"
+
+    def check(self) -> CheckResult:
+        if sys.platform != "linux":
+            return self._skip("not Linux")
+
+        text = _read_mdstat()
+        if text is None:
+            return self._skip("mdstat unavailable")
+
+        arrays = parse_mdstat(text)
+        if not arrays:
+            return self._make_result(
+                status=CheckStatus.OK,
+                message="No software RAID arrays",
+                metrics=self._metrics(arrays),
+            )
+
+        degraded = [a for a in arrays if a.is_degraded()]
+        rebuilding = [a for a in arrays if a.rebuilding]
+        critical = [a for a in degraded if not a.rebuilding]
+
+        if critical:
+            names = ", ".join(a.name for a in critical)
+            return self._make_result(
+                status=CheckStatus.CRITICAL,
+                message=f"Degraded RAID array(s): {names}",
+                metrics=self._metrics(arrays),
+            )
+        if rebuilding:
+            names = ", ".join(a.name for a in rebuilding)
+            return self._make_result(
+                status=CheckStatus.WARNING,
+                message=f"RAID array(s) rebuilding: {names}",
+                metrics=self._metrics(arrays),
+            )
+        return self._make_result(
+            status=CheckStatus.OK,
+            message=f"All {len(arrays)} RAID array(s) healthy",
+            metrics=self._metrics(arrays),
+        )
+
+    def _skip(self, reason: str) -> CheckResult:
+        return self._make_result(
+            status=CheckStatus.OK,
+            message=f"Skipped: {reason}",
+            metrics=self._metrics([]),
+        )
+
+    def _metrics(self, arrays: list[ArrayState]) -> dict:
+        return {
+            "platform": sys.platform,
+            "array_count": len(arrays),
+            "arrays": [_serialize_array(a) for a in arrays],
+            "degraded_arrays": [a.name for a in arrays if a.is_degraded() and not a.rebuilding],
+            "rebuilding_arrays": [a.name for a in arrays if a.rebuilding],
+        }

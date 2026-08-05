@@ -2,7 +2,9 @@
 
 from django.test import TestCase
 
-from apps.checkers.checkers.raid import ArrayState, _parse_level, parse_mdstat
+from apps.checkers.checkers import CHECKER_REGISTRY, RaidChecker
+from apps.checkers.checkers.base import CheckStatus
+from apps.checkers.checkers.raid import ArrayState, _parse_level, _read_mdstat, parse_mdstat
 
 HEALTHY = """\
 Personalities : [raid1]
@@ -61,6 +63,16 @@ unused devices: <none>
 INACTIVE = """\
 md2 : inactive sdf1[0](S)
       1953382464 blocks
+
+unused devices: <none>
+"""
+
+# A healthy array (`[2/2] [UU]`) undergoing a routine scrub/check. Counts
+# are healthy but a progress line makes it "rebuilding".
+SCRUB = """\
+md0 : active raid1 sdb1[1] sda1[0]
+      1953382464 blocks super 1.2 [2/2] [UU]
+      [==>..................]  check = 12.3% (240/1953) finish=5.0min speed=100000K/sec
 
 unused devices: <none>
 """
@@ -187,3 +199,112 @@ class ArrayStateTests(TestCase):
 class ParseLevelTests(TestCase):
     def test_empty_remainder_yields_none(self):
         self.assertIsNone(_parse_level(""))
+
+
+class RaidCheckerTests(TestCase):
+    def _patch(self, monkeypatch_target, value):
+        # TestCase has no pytest monkeypatch; patch via setattr + addCleanup.
+        import apps.checkers.checkers.raid as raid_mod
+
+        original = getattr(raid_mod, monkeypatch_target)
+        setattr(raid_mod, monkeypatch_target, value)
+        self.addCleanup(setattr, raid_mod, monkeypatch_target, original)
+
+    def _patch_platform(self, value):
+        import apps.checkers.checkers.raid as raid_mod
+
+        original = raid_mod.sys.platform
+        raid_mod.sys.platform = value
+        self.addCleanup(setattr, raid_mod.sys, "platform", original)
+
+    def test_healthy_returns_ok(self):
+        self._patch_platform("linux")
+        self._patch("_read_mdstat", lambda: HEALTHY)
+
+        result = RaidChecker().check()
+
+        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.metrics["array_count"], 1)
+        self.assertEqual(result.metrics["degraded_arrays"], [])
+        self.assertEqual(result.metrics["rebuilding_arrays"], [])
+        self.assertEqual(result.metrics["arrays"][0]["name"], "md0")
+
+    def test_degraded_not_rebuilding_returns_critical(self):
+        self._patch_platform("linux")
+        self._patch("_read_mdstat", lambda: DEGRADED)
+
+        result = RaidChecker().check()
+
+        self.assertEqual(result.status, CheckStatus.CRITICAL)
+        self.assertIn("md1", result.metrics["degraded_arrays"])
+        self.assertIn("md1", result.message)
+        self.assertEqual(result.metrics["rebuilding_arrays"], [])
+
+    def test_rebuilding_returns_warning_not_critical(self):
+        self._patch_platform("linux")
+        self._patch("_read_mdstat", lambda: REBUILDING)
+
+        result = RaidChecker().check()
+
+        self.assertEqual(result.status, CheckStatus.WARNING)
+        self.assertEqual(result.metrics["rebuilding_arrays"], ["md0"])
+        self.assertEqual(result.metrics["degraded_arrays"], [])
+        self.assertIn("md0", result.message)
+
+    def test_scrub_on_healthy_array_returns_warning(self):
+        self._patch_platform("linux")
+        self._patch("_read_mdstat", lambda: SCRUB)
+
+        result = RaidChecker().check()
+
+        self.assertEqual(result.status, CheckStatus.WARNING)
+        self.assertEqual(result.metrics["rebuilding_arrays"], ["md0"])
+        self.assertEqual(result.metrics["degraded_arrays"], [])
+
+    def test_empty_mdstat_returns_ok(self):
+        self._patch_platform("linux")
+        self._patch("_read_mdstat", lambda: EMPTY)
+
+        result = RaidChecker().check()
+
+        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.message, "No software RAID arrays")
+        self.assertEqual(result.metrics["array_count"], 0)
+
+    def test_non_linux_returns_ok_skip(self):
+        self._patch_platform("darwin")
+
+        result = RaidChecker().check()
+
+        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertIn("not Linux", result.message)
+        self.assertEqual(result.metrics["array_count"], 0)
+
+    def test_missing_mdstat_returns_ok_skip(self):
+        self._patch_platform("linux")
+        self._patch("_read_mdstat", lambda: None)
+
+        result = RaidChecker().check()
+
+        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertIn("mdstat unavailable", result.message)
+
+
+class ReadMdstatTests(TestCase):
+    def test_oserror_returns_none(self):
+        import apps.checkers.checkers.raid as raid_mod
+
+        class _Unreadable:
+            def read_text(self):
+                raise OSError("boom")
+
+        original = raid_mod.MDSTAT
+        raid_mod.MDSTAT = _Unreadable()
+        self.addCleanup(setattr, raid_mod, "MDSTAT", original)
+
+        self.assertIsNone(_read_mdstat())
+
+
+class RaidRegistryTests(TestCase):
+    def test_registry_maps_raid_to_checker(self):
+        self.assertIs(CHECKER_REGISTRY["raid"], RaidChecker)
