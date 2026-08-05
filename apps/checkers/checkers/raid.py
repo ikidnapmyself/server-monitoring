@@ -1,13 +1,17 @@
-"""RAID health parser for Linux software RAID (`/proc/mdstat`).
+"""RAID health checker for Linux software RAID (`/proc/mdstat`).
 
-Pure parsing of the kernel's `/proc/mdstat` layout into `ArrayState`
-objects. Each md array is reported with its level, state, active/total
-device counts, failed devices, and rebuild/resync progress.
+Two layers live here. A pure parser (`parse_mdstat`) turns the kernel's
+`/proc/mdstat` layout into `ArrayState` objects — level, state,
+active/total device counts, failed devices, and rebuild/scrub progress —
+with no I/O, so it can be unit-tested against captured fixtures. On top,
+`RaidChecker` reads the file and maps md-array state onto a `CheckResult`
+(OK / WARNING / CRITICAL).
 
-This module is parser-only: it does no I/O and produces no side effects,
-so it can be unit-tested against captured `/proc/mdstat` fixtures. The
-`RaidChecker` class that reads the file and maps state onto a
-`CheckResult` lives in a later chunk.
+A key distinction drives severity: `recovery`/`resync`/`reshape` are real
+REBUILDS that restore redundancy (self-healing → WARNING, and they
+suppress CRITICAL while running), whereas `check`/`repair` are read-verify
+SCRUBS that never restore redundancy and so must never mask a real
+failure.
 """
 
 import re
@@ -33,8 +37,14 @@ _FAILED_DEVICE_RE = re.compile(r"(\w+)\[\d+\]\(F\)")
 # Device counts "[total/active]": "[3/2]" -> total 3, active 2.
 _COUNTS_RE = re.compile(r"\[(\d+)/(\d+)\]")
 
-# Rebuild/resync progress: "recovery = 50.0%" or "recovery = 100%".
-_PROGRESS_RE = re.compile(r"(recovery|resync|reshape|check)\s*=\s*(\d+(?:\.\d+)?)%")
+# Progress line op + percent: "recovery = 50.0%", "check = 12.3%", etc.
+# recovery/resync/reshape are real REBUILDS (redundancy is being restored);
+# check/repair are read-verify SCRUBS that do not restore redundancy.
+_PROGRESS_RE = re.compile(r"(recovery|resync|reshape|check|repair)\s*=\s*(\d+(?:\.\d+)?)%")
+
+# Ops that actually rebuild redundancy (a degraded array doing this is
+# self-healing). Everything else the regex matches is a scrub.
+_REBUILD_OPS = {"recovery", "resync", "reshape"}
 
 
 @dataclass
@@ -48,6 +58,7 @@ class ArrayState:
     total_devices: int | None = None
     failed: list[str] = field(default_factory=list)
     rebuilding: bool = False
+    scrubbing: bool = False
     resync_percent: float | None = None
 
     def is_degraded(self) -> bool:
@@ -89,7 +100,11 @@ def _apply_continuation(array: ArrayState, line: str) -> None:
 
     progress = _PROGRESS_RE.search(line)
     if progress:
-        array.rebuilding = True
+        op = progress.group(1)
+        if op in _REBUILD_OPS:
+            array.rebuilding = True
+        else:
+            array.scrubbing = True
         array.resync_percent = float(progress.group(2))
 
 
@@ -144,6 +159,7 @@ def _serialize_array(array: ArrayState) -> dict:
         "total_devices": array.total_devices,
         "failed": array.failed,
         "rebuilding": array.rebuilding,
+        "scrubbing": array.scrubbing,
         "resync_percent": array.resync_percent,
     }
 
@@ -214,4 +230,5 @@ class RaidChecker(BaseChecker):
             "arrays": [_serialize_array(a) for a in arrays],
             "degraded_arrays": [a.name for a in arrays if a.is_degraded() and not a.rebuilding],
             "rebuilding_arrays": [a.name for a in arrays if a.rebuilding],
+            "scrubbing_arrays": [a.name for a in arrays if a.scrubbing],
         }

@@ -68,11 +68,31 @@ unused devices: <none>
 """
 
 # A healthy array (`[2/2] [UU]`) undergoing a routine scrub/check. Counts
-# are healthy but a progress line makes it "rebuilding".
+# are healthy; a scrub must NOT raise severity.
 SCRUB = """\
 md0 : active raid1 sdb1[1] sda1[0]
       1953382464 blocks super 1.2 [2/2] [UU]
       [==>..................]  check = 12.3% (240/1953) finish=5.0min speed=100000K/sec
+
+unused devices: <none>
+"""
+
+# A genuinely degraded array (`sdd1[3](F)`, `[3/2] [UU_]`) that also
+# happens to be mid-scrub. The scrub must not mask the failure.
+DEGRADED_SCRUB = """\
+md1 : active raid5 sdd1[3](F) sdc1[1] sde1[0]
+      3906764800 blocks super 1.2 [3/2] [UU_]
+      [========>............]  check = 40.0% (1562/3906) finish=5.0min speed=100000K/sec
+
+unused devices: <none>
+"""
+
+# A degraded array (`[2/1] [U_]`) with a faulty device that is actively
+# recovering. Real recovery suppresses CRITICAL -> WARNING.
+FAULTY_RECOVERING = """\
+md0 : active raid1 sdb1[2](F) sda1[0]
+      1953382464 blocks super 1.2 [2/1] [U_]
+      [======>..............]  recovery = 30.0% (585/1953) finish=5.0min speed=100000K/sec
 
 unused devices: <none>
 """
@@ -132,6 +152,45 @@ class ParseMdstatIntegerPercentTests(TestCase):
         array = arrays[0]
         self.assertTrue(array.rebuilding)
         self.assertEqual(array.resync_percent, 100.0)
+
+
+class ParseMdstatOperationClassTests(TestCase):
+    def _array_for_op(self, op):
+        text = (
+            "md0 : active raid1 sdb1[1] sda1[0]\n"
+            "      1953382464 blocks super 1.2 [2/2] [UU]\n"
+            f"      [==>..................]  {op} = 40.0% (240/1953) finish=5min\n"
+        )
+        arrays = parse_mdstat(text)
+        self.assertEqual(len(arrays), 1)
+        return arrays[0]
+
+    def test_check_is_scrub_not_rebuild(self):
+        array = self._array_for_op("check")
+        self.assertTrue(array.scrubbing)
+        self.assertFalse(array.rebuilding)
+        self.assertEqual(array.resync_percent, 40.0)
+
+    def test_repair_is_scrub_not_rebuild(self):
+        array = self._array_for_op("repair")
+        self.assertTrue(array.scrubbing)
+        self.assertFalse(array.rebuilding)
+        self.assertEqual(array.resync_percent, 40.0)
+
+    def test_recovery_is_rebuild_not_scrub(self):
+        array = self._array_for_op("recovery")
+        self.assertTrue(array.rebuilding)
+        self.assertFalse(array.scrubbing)
+
+    def test_resync_is_rebuild_not_scrub(self):
+        array = self._array_for_op("resync")
+        self.assertTrue(array.rebuilding)
+        self.assertFalse(array.scrubbing)
+
+    def test_reshape_is_rebuild_not_scrub(self):
+        array = self._array_for_op("reshape")
+        self.assertTrue(array.rebuilding)
+        self.assertFalse(array.scrubbing)
 
 
 class ParseMdstatMultiArrayTests(TestCase):
@@ -251,15 +310,38 @@ class RaidCheckerTests(TestCase):
         self.assertEqual(result.metrics["degraded_arrays"], [])
         self.assertIn("md0", result.message)
 
-    def test_scrub_on_healthy_array_returns_warning(self):
+    def test_scrub_on_healthy_array_returns_ok(self):
         self._patch_platform("linux")
         self._patch("_read_mdstat", lambda: SCRUB)
+
+        result = RaidChecker().check()
+
+        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.metrics["scrubbing_arrays"], ["md0"])
+        self.assertEqual(result.metrics["rebuilding_arrays"], [])
+        self.assertEqual(result.metrics["degraded_arrays"], [])
+
+    def test_scrub_does_not_mask_degraded_array(self):
+        self._patch_platform("linux")
+        self._patch("_read_mdstat", lambda: DEGRADED_SCRUB)
+
+        result = RaidChecker().check()
+
+        self.assertEqual(result.status, CheckStatus.CRITICAL)
+        self.assertIn("md1", result.metrics["degraded_arrays"])
+        self.assertIn("md1", result.metrics["scrubbing_arrays"])
+        self.assertEqual(result.metrics["rebuilding_arrays"], [])
+
+    def test_recovery_suppresses_critical_even_with_faulty_device(self):
+        self._patch_platform("linux")
+        self._patch("_read_mdstat", lambda: FAULTY_RECOVERING)
 
         result = RaidChecker().check()
 
         self.assertEqual(result.status, CheckStatus.WARNING)
         self.assertEqual(result.metrics["rebuilding_arrays"], ["md0"])
         self.assertEqual(result.metrics["degraded_arrays"], [])
+        self.assertEqual(result.metrics["scrubbing_arrays"], [])
 
     def test_empty_mdstat_returns_ok(self):
         self._patch_platform("linux")
