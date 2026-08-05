@@ -1,3 +1,8 @@
+---
+title: "RAID (mdadm) Health Checker Implementation Plan"
+parent: Plans
+---
+
 # RAID (mdadm) Health Checker Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

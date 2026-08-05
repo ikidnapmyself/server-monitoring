@@ -211,6 +211,34 @@ class ParseMdstatMultiArrayTests(TestCase):
         self.assertTrue(degraded.is_degraded())
 
 
+class ParseMdstatDeviceNameTests(TestCase):
+    def test_named_array_is_not_skipped(self):
+        # A named/partitionable array (md_home) must still be parsed, or a
+        # degraded named array would silently report healthy.
+        text = (
+            "md_home : active raid1 sdb1[1] sda1[0](F)\n"
+            "      1953382464 blocks super 1.2 [2/1] [U_]\n"
+            "\nunused devices: <none>\n"
+        )
+        arrays = parse_mdstat(text)
+
+        self.assertEqual(len(arrays), 1)
+        self.assertEqual(arrays[0].name, "md_home")
+        self.assertTrue(arrays[0].is_degraded())
+
+    def test_hyphenated_member_device_is_captured(self):
+        # Device-mapper members (dm-0) contain a hyphen; the faulty device
+        # name must be captured in full, not truncated to "0".
+        text = (
+            "md1 : active raid1 dm-1[1] dm-0[0](F)\n"
+            "      1953382464 blocks super 1.2 [2/1] [U_]\n"
+            "\nunused devices: <none>\n"
+        )
+        arrays = parse_mdstat(text)
+
+        self.assertEqual(arrays[0].failed, ["dm-0"])
+
+
 class ParseMdstatEmptyTests(TestCase):
     def test_no_arrays(self):
         self.assertEqual(parse_mdstat(EMPTY), [])

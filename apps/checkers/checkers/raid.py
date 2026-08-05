@@ -28,11 +28,14 @@ MDSTAT = Path("/proc/mdstat")
 # the token is a device (inactive arrays list a device first, not a level).
 _NON_RAID_LEVELS = {"linear", "multipath", "faulty"}
 
-# Header line: "md0 : active raid1 sdb1[1] sda1[0]"
-_HEADER_RE = re.compile(r"^(md\d+)\s*:\s*(\S+)\s+(.*)$")
+# Header line: "md0 : active raid1 sdb1[1] sda1[0]". The device name may be
+# numeric (md0, md127) or a named/partitionable array (md_home, md_d0), so
+# match "md" followed by any word characters.
+_HEADER_RE = re.compile(r"^(md\w+)\s*:\s*(\S+)\s+(.*)$")
 
-# A device carrying the (F) faulty flag: "sdd1[3](F)" -> "sdd1".
-_FAILED_DEVICE_RE = re.compile(r"(\w+)\[\d+\]\(F\)")
+# A device carrying the (F) faulty flag: "sdd1[3](F)" -> "sdd1". Member names
+# may contain hyphens (device-mapper members like "dm-0"), so allow them.
+_FAILED_DEVICE_RE = re.compile(r"([\w-]+)\[\d+\]\(F\)")
 
 # Device counts "[total/active]": "[3/2]" -> total 3, active 2.
 _COUNTS_RE = re.compile(r"\[(\d+)/(\d+)\]")
@@ -92,7 +95,7 @@ def _parse_level(remainder: str) -> str | None:
 
 
 def _apply_continuation(array: ArrayState, line: str) -> None:
-    """Fill counts, up-map, and progress from one continuation line."""
+    """Fill device counts and rebuild/scrub progress from one continuation line."""
     counts = _COUNTS_RE.search(line)
     if counts:
         array.total_devices = int(counts.group(1))
