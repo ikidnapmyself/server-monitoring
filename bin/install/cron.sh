@@ -125,7 +125,7 @@ fi
 
 if [ -n "$_hub_url" ]; then
     if prompt_yes_no "Schedule automatic push to hub?" "default_y"; then
-        PUSH_CMD="cd $PROJECT_DIR && $UV_PATH run python manage.py push_to_hub --json >> ${LOG_DIR:-$PROJECT_DIR/logs}/push.log 2>&1"
+        PUSH_CMD="cd $PROJECT_DIR && $UV_PATH run python manage.py push_to_hub >> ${LOG_DIR:-$PROJECT_DIR/logs}/push.log 2>&1"
         PUSH_ID="# server-maintanence cluster push"
 
         # Remove existing push job if present

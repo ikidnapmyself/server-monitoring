@@ -24,7 +24,7 @@ their respective log files in the same directory.
 | `logs/update.log` | `bin/update.sh` | Update script output |
 | `logs/update-history.jsonl` | `bin/update.sh` | Structured update history (JSON lines) |
 | `logs/cron.log` | cron job | Health check pipeline output |
-| `logs/push.log` | cron job | Cluster push-to-hub output |
+| `logs/push.log` | cron job | Concise per-push summary (timestamp, hub, alert counts by severity, firing checkers, HTTP status, duration) — not the full payload |
 
 ## Django Logging
 
