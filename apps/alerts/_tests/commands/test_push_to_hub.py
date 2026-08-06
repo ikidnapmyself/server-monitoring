@@ -1,7 +1,7 @@
 import json
 from io import StringIO
 from unittest.mock import MagicMock, patch
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -221,8 +221,9 @@ class PushToHubTests(TestCase):
     @override_settings(HUB_URL="https://hub.example.com", HUB_API_KEY="tok123")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
     @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
-    def test_hub_error_raises_command_error(self, mock_urlopen, mock_registry):
-        """Hub returning non-2xx should raise CommandError."""
+    def test_unaccepted_2xx_status_raises_command_error(self, mock_urlopen, mock_registry):
+        """A 2xx response outside {200,201,202} does not raise HTTPError in urllib,
+        so it reaches the else: branch and is reported as an HTTP failure."""
         mock_checker_cls = MagicMock()
         mock_checker_cls.return_value.run.return_value = CheckResult(
             status=CheckStatus.OK, message="OK", metrics={}, checker_name="cpu"
@@ -230,15 +231,18 @@ class PushToHubTests(TestCase):
         mock_registry.items.return_value = [("cpu", mock_checker_cls)]
 
         mock_response = MagicMock()
-        mock_response.status = 500
-        mock_response.read.return_value = b"Internal Server Error"
+        mock_response.status = 204
+        mock_response.read.return_value = b""
         mock_response.__enter__ = MagicMock(return_value=mock_response)
         mock_response.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_response
 
+        err = StringIO()
         with self.assertRaises(CommandError) as ctx:
-            call_command("push_to_hub", stderr=StringIO())
-        self.assertIn("500", str(ctx.exception))
+            call_command("push_to_hub", stderr=err)
+        self.assertIn("204", str(ctx.exception))
+        self.assertIn("push FAILED", err.getvalue())
+        self.assertIn("HTTP 204", err.getvalue())
 
     @override_settings(HUB_URL="https://hub.example.com", HUB_API_KEY="tok123")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
@@ -396,20 +400,25 @@ class PushToHubTests(TestCase):
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
     @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
     def test_failed_http_writes_summary_to_stderr_and_raises(self, mock_urlopen, mock_registry):
-        """A non-2xx hub response writes a push FAILED summary to stderr and raises."""
+        """A real 4xx/5xx (urllib raises HTTPError) writes a push FAILED HTTP summary."""
         mock_checker_cls = MagicMock()
         mock_checker_cls.return_value.run.return_value = CheckResult(
             status=CheckStatus.OK, message="OK", metrics={}, checker_name="cpu"
         )
         mock_registry.items.return_value = [("cpu", mock_checker_cls)]
-        mock_urlopen.return_value = self._ok_response(status=500, body=b"boom")
+        mock_urlopen.side_effect = HTTPError(
+            "https://hub.example.com", 500, "Server Error", {}, None
+        )
 
         err = StringIO()
-        with self.assertRaises(CommandError):
+        with self.assertRaises(CommandError) as ctx:
             call_command("push_to_hub", stderr=err)
+        # Classified as an HTTP failure, not "unreachable".
         self.assertIn("push FAILED", err.getvalue())
         self.assertIn("HTTP 500", err.getvalue())
+        self.assertNotIn("unreachable", err.getvalue())
         self.assertIn("ms)", err.getvalue())
+        self.assertIn("500", str(ctx.exception))
 
     @override_settings(HUB_URL="https://hub.example.com", HUB_API_KEY="tok123")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
@@ -576,6 +585,20 @@ class SummarizePushTests(TestCase):
             error="timed out",
         )
         self.assertIn("unreachable: timed out (30001ms)", unreachable)
+
+    def test_failure_unreachable_without_error_is_actionable(self):
+        from apps.alerts.management.commands.push_to_hub import summarize_push
+
+        out = summarize_push(
+            hub_url="https://hub.example.com",
+            alerts=[],
+            http_status=None,
+            duration_ms=None,
+            ok=False,
+        )
+        # No None leaks into the message when the error is missing.
+        self.assertIn("unreachable: unknown error", out)
+        self.assertNotIn("None", out)
 
         http = summarize_push(
             hub_url="https://hub.example.com",
