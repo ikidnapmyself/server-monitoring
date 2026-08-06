@@ -77,19 +77,19 @@ def summarize_push(
     hub_url, counts, HTTP status, and the firing checker names.
     """
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    dur = f" ({duration_ms}ms)" if duration_ms is not None else ""
 
     if not ok:
         detail = f"HTTP {http_status}" if http_status is not None else f"unreachable: {error}"
-        return f"{ts} push FAILED hub={hub_url} {detail}"
+        return f"{ts} push FAILED hub={hub_url} {detail}{dur}"
 
     firing = [a for a in alerts if a.get("status") == "firing"]
     n_ok = sum(1 for a in alerts if a.get("status") == "resolved")
     n_warn = sum(1 for a in firing if a.get("severity") == "warning")
     n_crit = sum(1 for a in firing if a.get("severity") == "critical")
 
-    dur = f" ({duration_ms}ms)" if duration_ms is not None else ""
     lines = [
-        f"{ts} push OK  hub={hub_url}",
+        f"{ts} push OK hub={hub_url}",
         f"  ok={n_ok} warning={n_warn} critical={n_crit} -> {len(alerts)} alerts, "
         f"HTTP {http_status}{dur}",
     ]
@@ -97,7 +97,10 @@ def summarize_push(
     if firing:
         order: dict = {"critical": 0, "warning": 1}
         firing_sorted = sorted(firing, key=lambda a: order.get(a.get("severity"), 2))
-        parts = [f"{a['labels']['checker']}({a['severity']})" for a in firing_sorted]
+        parts = [
+            f"{a.get('labels', {}).get('checker', '?')}({a.get('severity', '?')})"
+            for a in firing_sorted
+        ]
         lines.append("  firing: " + ", ".join(parts))
 
     return "\n".join(lines)
@@ -185,7 +188,7 @@ class Command(BaseCommand):
                     hub_url=hub_url,
                     alerts=alerts,
                     http_status=None,
-                    duration_ms=None,
+                    duration_ms=int((time.perf_counter() - start) * 1000),
                     ok=False,
                     error="URL not allowed by security policy",
                 )
@@ -197,7 +200,7 @@ class Command(BaseCommand):
                     hub_url=hub_url,
                     alerts=alerts,
                     http_status=None,
-                    duration_ms=None,
+                    duration_ms=int((time.perf_counter() - start) * 1000),
                     ok=False,
                     error=str(e),
                 )

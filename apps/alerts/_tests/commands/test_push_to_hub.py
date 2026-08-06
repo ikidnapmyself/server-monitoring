@@ -409,6 +409,7 @@ class PushToHubTests(TestCase):
             call_command("push_to_hub", stderr=err)
         self.assertIn("push FAILED", err.getvalue())
         self.assertIn("HTTP 500", err.getvalue())
+        self.assertIn("ms)", err.getvalue())
 
     @override_settings(HUB_URL="https://hub.example.com", HUB_API_KEY="tok123")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
@@ -442,6 +443,7 @@ class PushToHubTests(TestCase):
         with self.assertRaises(CommandError):
             call_command("push_to_hub", stderr=err)
         self.assertIn("unreachable:", err.getvalue())
+        self.assertIn("ms)", err.getvalue())
 
 
 MOCK_REGISTRY = {
@@ -465,9 +467,12 @@ class TestPushToHubSSRF(TestCase):
         side_effect=URLNotAllowedError("private"),
     )
     def test_private_hub_url_rejected(self, _mock_urlopen):
+        err = StringIO()
         with self.assertRaises(CommandError) as ctx:
-            call_command("push_to_hub")
+            call_command("push_to_hub", stderr=err)
         self.assertIn("not allowed", str(ctx.exception).lower())
+        self.assertIn("push FAILED", err.getvalue())
+        self.assertIn("URL not allowed", err.getvalue())
 
 
 class SummarizePushTests(TestCase):
@@ -557,6 +562,29 @@ class SummarizePushTests(TestCase):
         )
         self.assertIn("push FAILED", out)
         self.assertIn("unreachable: timed out", out)
+        self.assertNotIn("ms)", out)
+
+    def test_failure_includes_duration_when_provided(self):
+        from apps.alerts.management.commands.push_to_hub import summarize_push
+
+        unreachable = summarize_push(
+            hub_url="https://hub.example.com",
+            alerts=[],
+            http_status=None,
+            duration_ms=30001,
+            ok=False,
+            error="timed out",
+        )
+        self.assertIn("unreachable: timed out (30001ms)", unreachable)
+
+        http = summarize_push(
+            hub_url="https://hub.example.com",
+            alerts=[],
+            http_status=500,
+            duration_ms=12,
+            ok=False,
+        )
+        self.assertIn("HTTP 500 (12ms)", http)
 
     def test_does_not_leak_metrics_or_secrets(self):
         from apps.alerts.management.commands.push_to_hub import summarize_push
