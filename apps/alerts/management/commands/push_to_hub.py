@@ -10,7 +10,10 @@ Usage:
 
 import json
 import socket
+import time
 from datetime import datetime, timezone
+from urllib.error import HTTPError
+from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request  # noqa: TID251 — Request is a data object, not urlopen
 
 from django.conf import settings
@@ -59,6 +62,73 @@ def send_to_hub(hub_url: str, api_key: str, payload: dict) -> tuple[int, str]:
     request = Request(url, data=body, headers=headers, method="POST")
     with safe_urlopen(request, allowed_hosts=settings.SSRF_ALLOWED_HOSTS, timeout=30) as response:
         return response.status, response.read().decode()
+
+
+def _elapsed_ms(start: float) -> int:
+    """Milliseconds elapsed since a ``time.perf_counter()`` start marker."""
+    return int((time.perf_counter() - start) * 1000)
+
+
+def _safe_hub(hub_url: str) -> str:
+    """Redact any credentials/secrets from a hub URL before it is logged.
+
+    Keeps ``scheme://host[:port]/path`` and drops userinfo (``user:pass@``),
+    query string, and fragment, so credentials or secret query params embedded
+    in ``HUB_URL`` never reach ``push.log``.
+    """
+    parts = urlsplit(hub_url)
+    host = parts.hostname or ""
+    if parts.port is not None:
+        host = f"{host}:{parts.port}"
+    return urlunsplit((parts.scheme, host, parts.path, "", ""))
+
+
+def summarize_push(
+    *,
+    hub_url: str,
+    alerts: list[dict],
+    http_status: int | None,
+    duration_ms: int | None,
+    ok: bool,
+    error: str | None = None,
+) -> str:
+    """Build the concise push.log summary block. Pure — no I/O, no secrets.
+
+    Never includes the payload/metrics or the API key; only the non-secret
+    hub_url, counts, HTTP status, and the firing checker names.
+    """
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    hub = _safe_hub(hub_url)
+    dur = f" ({duration_ms}ms)" if duration_ms is not None else ""
+
+    if not ok:
+        if http_status is not None:
+            detail = f"HTTP {http_status}"
+        else:
+            detail = f"unreachable: {error or 'unknown error'}"
+        return f"{ts} push FAILED hub={hub} {detail}{dur}"
+
+    firing = [a for a in alerts if a.get("status") == "firing"]
+    n_ok = sum(1 for a in alerts if a.get("status") == "resolved")
+    n_warn = sum(1 for a in firing if a.get("severity") == "warning")
+    n_crit = sum(1 for a in firing if a.get("severity") == "critical")
+
+    lines = [
+        f"{ts} push OK hub={hub}",
+        f"  ok={n_ok} warning={n_warn} critical={n_crit} -> {len(alerts)} alerts, "
+        f"HTTP {http_status}{dur}",
+    ]
+
+    if firing:
+        order: dict = {"critical": 0, "warning": 1}
+        firing_sorted = sorted(firing, key=lambda a: order.get(a.get("severity"), 2))
+        parts = [
+            f"{a.get('labels', {}).get('checker', '?')}({a.get('severity', '?')})"
+            for a in firing_sorted
+        ]
+        lines.append("  firing: " + ", ".join(parts))
+
+    return "\n".join(lines)
 
 
 class Command(BaseCommand):
@@ -128,28 +198,78 @@ class Command(BaseCommand):
                 self.stdout.write(json.dumps(payload, indent=2, default=str))
             return
 
-        if not options["json_output"]:
-            self.stdout.write(f"Pushing {len(alerts)} alert(s) from {instance_id} to {hub_url}")
-
         if not api_key:
             raise CommandError(
                 "HUB_API_KEY is not configured. Set it in .env to enable agent mode "
                 "(mint one on the hub with `manage.py create_api_key`)."
             )
 
+        start = time.perf_counter()
         try:
             status, resp_body = send_to_hub(hub_url, api_key, payload)
+        except HTTPError as e:
+            # urllib raises HTTPError for non-2xx responses, so a real 4xx/5xx
+            # lands here (not the else: branch below). Report it as an HTTP
+            # failure, not "unreachable".
+            self.stderr.write(
+                summarize_push(
+                    hub_url=hub_url,
+                    alerts=alerts,
+                    http_status=e.code,
+                    duration_ms=_elapsed_ms(start),
+                    ok=False,
+                )
+            )
+            raise CommandError(f"Hub returned HTTP {e.code}")
         except URLNotAllowedError:
+            self.stderr.write(
+                summarize_push(
+                    hub_url=hub_url,
+                    alerts=alerts,
+                    http_status=None,
+                    duration_ms=_elapsed_ms(start),
+                    ok=False,
+                    error="URL not allowed by security policy",
+                )
+            )
             raise CommandError("HUB_URL not allowed by security policy")
         except Exception as e:
+            self.stderr.write(
+                summarize_push(
+                    hub_url=hub_url,
+                    alerts=alerts,
+                    http_status=None,
+                    duration_ms=_elapsed_ms(start),
+                    ok=False,
+                    error=str(e),
+                )
+            )
             raise CommandError(f"Failed to reach hub at {hub_url}: {e}")
+        duration_ms = _elapsed_ms(start)
 
         if status in (200, 201, 202):
             if options["json_output"]:
                 self.stdout.write(json.dumps(payload, indent=2, default=str))
             else:
-                self.stdout.write(self.style.SUCCESS(f"Hub accepted: HTTP {status}"))
+                self.stdout.write(
+                    summarize_push(
+                        hub_url=hub_url,
+                        alerts=alerts,
+                        http_status=status,
+                        duration_ms=duration_ms,
+                        ok=True,
+                    )
+                )
         else:
+            self.stderr.write(
+                summarize_push(
+                    hub_url=hub_url,
+                    alerts=alerts,
+                    http_status=status,
+                    duration_ms=duration_ms,
+                    ok=False,
+                )
+            )
             raise CommandError(f"Hub returned HTTP {status}: {resp_body}")
 
     def _result_to_alert(self, result, instance_id: str, hostname: str) -> dict:

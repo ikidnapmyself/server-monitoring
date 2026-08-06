@@ -446,8 +446,8 @@ HUB_API_KEY=<token created on the hub via create_api_key>
 3. Schedule the push command via cron:
 
 ```bash
-# Every 5 minutes
-*/5 * * * * cd /opt/server-monitoring && uv run python manage.py push_to_hub --json >> push.log 2>&1
+# Every 5 minutes (push.log gets a concise per-push summary, not the full payload)
+*/5 * * * * cd /opt/server-monitoring && uv run python manage.py push_to_hub >> push.log 2>&1
 ```
 
 Or run manually:

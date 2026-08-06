@@ -1,6 +1,7 @@
 import json
 from io import StringIO
 from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError, URLError
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -220,8 +221,9 @@ class PushToHubTests(TestCase):
     @override_settings(HUB_URL="https://hub.example.com", HUB_API_KEY="tok123")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
     @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
-    def test_hub_error_raises_command_error(self, mock_urlopen, mock_registry):
-        """Hub returning non-2xx should raise CommandError."""
+    def test_unaccepted_2xx_status_raises_command_error(self, mock_urlopen, mock_registry):
+        """A 2xx response outside {200,201,202} does not raise HTTPError in urllib,
+        so it reaches the else: branch and is reported as an HTTP failure."""
         mock_checker_cls = MagicMock()
         mock_checker_cls.return_value.run.return_value = CheckResult(
             status=CheckStatus.OK, message="OK", metrics={}, checker_name="cpu"
@@ -229,15 +231,18 @@ class PushToHubTests(TestCase):
         mock_registry.items.return_value = [("cpu", mock_checker_cls)]
 
         mock_response = MagicMock()
-        mock_response.status = 500
-        mock_response.read.return_value = b"Internal Server Error"
+        mock_response.status = 204
+        mock_response.read.return_value = b""
         mock_response.__enter__ = MagicMock(return_value=mock_response)
         mock_response.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_response
 
+        err = StringIO()
         with self.assertRaises(CommandError) as ctx:
-            call_command("push_to_hub", stderr=StringIO())
-        self.assertIn("500", str(ctx.exception))
+            call_command("push_to_hub", stderr=err)
+        self.assertIn("204", str(ctx.exception))
+        self.assertIn("push FAILED", err.getvalue())
+        self.assertIn("HTTP 204", err.getvalue())
 
     @override_settings(HUB_URL="https://hub.example.com", HUB_API_KEY="tok123")
     @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
@@ -357,6 +362,98 @@ class PushToHubTests(TestCase):
         self.assertEqual(alert["status"], "firing")
         self.assertEqual(alert["severity"], "warning")
 
+    @staticmethod
+    def _ok_response(status=202, body=b"ok"):
+        resp = MagicMock()
+        resp.status = status
+        resp.read.return_value = body
+        resp.__enter__ = MagicMock(return_value=resp)
+        resp.__exit__ = MagicMock(return_value=False)
+        return resp
+
+    @override_settings(HUB_URL="https://hub.example.com", HUB_API_KEY="tok123")
+    @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
+    @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
+    def test_default_output_is_summary_not_payload(self, mock_urlopen, mock_registry):
+        """Default (no-flag) push prints the summary, never the payload/metrics."""
+        mock_checker_cls = MagicMock()
+        mock_checker_cls.return_value.run.return_value = CheckResult(
+            status=CheckStatus.WARNING,
+            message="CPU at 75%",
+            metrics={"cpu_percent": 75.0},
+            checker_name="cpu",
+        )
+        mock_registry.items.return_value = [("cpu", mock_checker_cls)]
+        mock_urlopen.return_value = self._ok_response(status=202)
+
+        out = StringIO()
+        call_command("push_to_hub", stdout=out)
+        output = out.getvalue()
+
+        self.assertIn("push OK", output)
+        self.assertIn("HTTP 202", output)
+        self.assertIn("firing: cpu(warning)", output)
+        self.assertNotIn("cpu_percent", output)
+        self.assertNotIn('"metrics"', output)
+
+    @override_settings(HUB_URL="https://hub.example.com", HUB_API_KEY="tok123")
+    @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
+    @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
+    def test_failed_http_writes_summary_to_stderr_and_raises(self, mock_urlopen, mock_registry):
+        """A real 4xx/5xx (urllib raises HTTPError) writes a push FAILED HTTP summary."""
+        mock_checker_cls = MagicMock()
+        mock_checker_cls.return_value.run.return_value = CheckResult(
+            status=CheckStatus.OK, message="OK", metrics={}, checker_name="cpu"
+        )
+        mock_registry.items.return_value = [("cpu", mock_checker_cls)]
+        mock_urlopen.side_effect = HTTPError(
+            "https://hub.example.com", 500, "Server Error", {}, None
+        )
+
+        err = StringIO()
+        with self.assertRaises(CommandError) as ctx:
+            call_command("push_to_hub", stderr=err)
+        # Classified as an HTTP failure, not "unreachable".
+        self.assertIn("push FAILED", err.getvalue())
+        self.assertIn("HTTP 500", err.getvalue())
+        self.assertNotIn("unreachable", err.getvalue())
+        self.assertIn("ms)", err.getvalue())
+        self.assertIn("500", str(ctx.exception))
+
+    @override_settings(HUB_URL="https://hub.example.com", HUB_API_KEY="tok123")
+    @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
+    @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
+    def test_json_flag_still_dumps_payload(self, mock_urlopen, mock_registry):
+        """--json preserves the full payload dump (needed for debugging)."""
+        mock_checker_cls = MagicMock()
+        mock_checker_cls.return_value.run.return_value = CheckResult(
+            status=CheckStatus.OK, message="OK", metrics={"cpu_percent": 10.0}, checker_name="cpu"
+        )
+        mock_registry.items.return_value = [("cpu", mock_checker_cls)]
+        mock_urlopen.return_value = self._ok_response(status=202)
+
+        out = StringIO()
+        call_command("push_to_hub", "--json", stdout=out)
+        self.assertIn("cpu_percent", out.getvalue())
+
+    @override_settings(HUB_URL="https://hub.example.com", HUB_API_KEY="tok123")
+    @patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
+    @patch("apps.alerts.management.commands.push_to_hub.safe_urlopen")
+    def test_unreachable_writes_summary_to_stderr_and_raises(self, mock_urlopen, mock_registry):
+        """A transport failure writes an 'unreachable' summary to stderr and raises."""
+        mock_checker_cls = MagicMock()
+        mock_checker_cls.return_value.run.return_value = CheckResult(
+            status=CheckStatus.OK, message="OK", metrics={}, checker_name="cpu"
+        )
+        mock_registry.items.return_value = [("cpu", mock_checker_cls)]
+        mock_urlopen.side_effect = URLError("timed out")
+
+        err = StringIO()
+        with self.assertRaises(CommandError):
+            call_command("push_to_hub", stderr=err)
+        self.assertIn("unreachable:", err.getvalue())
+        self.assertIn("ms)", err.getvalue())
+
 
 MOCK_REGISTRY = {
     "cpu": MagicMock(
@@ -379,9 +476,176 @@ class TestPushToHubSSRF(TestCase):
         side_effect=URLNotAllowedError("private"),
     )
     def test_private_hub_url_rejected(self, _mock_urlopen):
+        err = StringIO()
         with self.assertRaises(CommandError) as ctx:
-            call_command("push_to_hub")
+            call_command("push_to_hub", stderr=err)
         self.assertIn("not allowed", str(ctx.exception).lower())
+        self.assertIn("push FAILED", err.getvalue())
+        self.assertIn("URL not allowed", err.getvalue())
+
+
+class SummarizePushTests(TestCase):
+    """Tests for the pure summarize_push helper (no I/O, no secrets)."""
+
+    @staticmethod
+    def _alert(checker, status, severity, metrics=None):
+        return {
+            "name": f"{checker}: msg",
+            "status": status,
+            "severity": severity,
+            "labels": {"checker": checker},
+            "metrics": metrics or {},
+        }
+
+    def test_success_mixed_counts_and_firing_order(self):
+        from apps.alerts.management.commands.push_to_hub import summarize_push
+
+        alerts = [
+            self._alert("cpu", "resolved", "info"),
+            self._alert("disk_linux", "firing", "warning"),
+            self._alert("raid", "firing", "critical"),
+        ]
+        out = summarize_push(
+            hub_url="https://hub.example.com",
+            alerts=alerts,
+            http_status=202,
+            duration_ms=312,
+            ok=True,
+        )
+        self.assertIn("push OK", out)
+        self.assertIn("hub=https://hub.example.com", out)
+        self.assertIn("ok=1 warning=1 critical=1 -> 3 alerts", out)
+        self.assertIn("HTTP 202", out)
+        self.assertIn("(312ms)", out)
+        self.assertIn("firing: raid(critical), disk_linux(warning)", out)
+
+    def test_all_ok_has_no_firing_line(self):
+        from apps.alerts.management.commands.push_to_hub import summarize_push
+
+        alerts = [self._alert("cpu", "resolved", "info")]
+        out = summarize_push(
+            hub_url="https://hub.example.com",
+            alerts=alerts,
+            http_status=202,
+            duration_ms=5,
+            ok=True,
+        )
+        self.assertIn("push OK", out)
+        self.assertNotIn("firing:", out)
+
+    def test_no_duration_omits_ms(self):
+        from apps.alerts.management.commands.push_to_hub import summarize_push
+
+        out = summarize_push(
+            hub_url="https://hub.example.com",
+            alerts=[self._alert("cpu", "resolved", "info")],
+            http_status=202,
+            duration_ms=None,
+            ok=True,
+        )
+        self.assertNotIn("ms)", out)
+
+    def test_failure_http_status(self):
+        from apps.alerts.management.commands.push_to_hub import summarize_push
+
+        out = summarize_push(
+            hub_url="https://hub.example.com",
+            alerts=[],
+            http_status=500,
+            duration_ms=None,
+            ok=False,
+        )
+        self.assertIn("push FAILED", out)
+        self.assertIn("HTTP 500", out)
+
+    def test_failure_unreachable(self):
+        from apps.alerts.management.commands.push_to_hub import summarize_push
+
+        out = summarize_push(
+            hub_url="https://hub.example.com",
+            alerts=[],
+            http_status=None,
+            duration_ms=None,
+            ok=False,
+            error="timed out",
+        )
+        self.assertIn("push FAILED", out)
+        self.assertIn("unreachable: timed out", out)
+        self.assertNotIn("ms)", out)
+
+    def test_failure_includes_duration_when_provided(self):
+        from apps.alerts.management.commands.push_to_hub import summarize_push
+
+        unreachable = summarize_push(
+            hub_url="https://hub.example.com",
+            alerts=[],
+            http_status=None,
+            duration_ms=30001,
+            ok=False,
+            error="timed out",
+        )
+        self.assertIn("unreachable: timed out (30001ms)", unreachable)
+
+    def test_failure_unreachable_without_error_is_actionable(self):
+        from apps.alerts.management.commands.push_to_hub import summarize_push
+
+        out = summarize_push(
+            hub_url="https://hub.example.com",
+            alerts=[],
+            http_status=None,
+            duration_ms=None,
+            ok=False,
+        )
+        # No None leaks into the message when the error is missing.
+        self.assertIn("unreachable: unknown error", out)
+        self.assertNotIn("None", out)
+
+    def test_hub_url_credentials_and_query_are_redacted(self):
+        from apps.alerts.management.commands.push_to_hub import summarize_push
+
+        secret_url = "https://alice:s3cr3t@hub.example.com:8443/ingest?token=leakme#frag"
+        for ok in (True, False):
+            out = summarize_push(
+                hub_url=secret_url,
+                alerts=[],
+                http_status=202 if ok else 500,
+                duration_ms=1,
+                ok=ok,
+            )
+            # Credentials, query params, and fragment must never reach the log.
+            self.assertNotIn("s3cr3t", out)
+            self.assertNotIn("alice", out)
+            self.assertNotIn("leakme", out)
+            self.assertNotIn("token=", out)
+            # Host, port, and path are kept for operational usefulness.
+            self.assertIn("hub=https://hub.example.com:8443/ingest", out)
+
+        http = summarize_push(
+            hub_url="https://hub.example.com",
+            alerts=[],
+            http_status=500,
+            duration_ms=12,
+            ok=False,
+        )
+        self.assertIn("HTTP 500 (12ms)", http)
+
+    def test_does_not_leak_metrics_or_secrets(self):
+        from apps.alerts.management.commands.push_to_hub import summarize_push
+
+        alerts = [
+            self._alert(
+                "cpu", "firing", "warning", metrics={"secret_metric": "sensitive-value-XYZ"}
+            )
+        ]
+        out = summarize_push(
+            hub_url="https://hub.example.com",
+            alerts=alerts,
+            http_status=202,
+            duration_ms=10,
+            ok=True,
+        )
+        self.assertNotIn("sensitive-value-XYZ", out)
+        self.assertNotIn("metrics", out)
 
 
 class SendToHubHelpersTests(TestCase):
