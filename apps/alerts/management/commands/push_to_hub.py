@@ -13,6 +13,7 @@ import socket
 import time
 from datetime import datetime, timezone
 from urllib.error import HTTPError
+from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request  # noqa: TID251 — Request is a data object, not urlopen
 
 from django.conf import settings
@@ -68,6 +69,20 @@ def _elapsed_ms(start: float) -> int:
     return int((time.perf_counter() - start) * 1000)
 
 
+def _safe_hub(hub_url: str) -> str:
+    """Redact any credentials/secrets from a hub URL before it is logged.
+
+    Keeps ``scheme://host[:port]/path`` and drops userinfo (``user:pass@``),
+    query string, and fragment, so credentials or secret query params embedded
+    in ``HUB_URL`` never reach ``push.log``.
+    """
+    parts = urlsplit(hub_url)
+    host = parts.hostname or ""
+    if parts.port is not None:
+        host = f"{host}:{parts.port}"
+    return urlunsplit((parts.scheme, host, parts.path, "", ""))
+
+
 def summarize_push(
     *,
     hub_url: str,
@@ -83,6 +98,7 @@ def summarize_push(
     hub_url, counts, HTTP status, and the firing checker names.
     """
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    hub = _safe_hub(hub_url)
     dur = f" ({duration_ms}ms)" if duration_ms is not None else ""
 
     if not ok:
@@ -90,7 +106,7 @@ def summarize_push(
             detail = f"HTTP {http_status}"
         else:
             detail = f"unreachable: {error or 'unknown error'}"
-        return f"{ts} push FAILED hub={hub_url} {detail}{dur}"
+        return f"{ts} push FAILED hub={hub} {detail}{dur}"
 
     firing = [a for a in alerts if a.get("status") == "firing"]
     n_ok = sum(1 for a in alerts if a.get("status") == "resolved")
@@ -98,7 +114,7 @@ def summarize_push(
     n_crit = sum(1 for a in firing if a.get("severity") == "critical")
 
     lines = [
-        f"{ts} push OK hub={hub_url}",
+        f"{ts} push OK hub={hub}",
         f"  ok={n_ok} warning={n_warn} critical={n_crit} -> {len(alerts)} alerts, "
         f"HTTP {http_status}{dur}",
     ]

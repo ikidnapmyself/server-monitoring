@@ -600,6 +600,26 @@ class SummarizePushTests(TestCase):
         self.assertIn("unreachable: unknown error", out)
         self.assertNotIn("None", out)
 
+    def test_hub_url_credentials_and_query_are_redacted(self):
+        from apps.alerts.management.commands.push_to_hub import summarize_push
+
+        secret_url = "https://alice:s3cr3t@hub.example.com:8443/ingest?token=leakme#frag"
+        for ok in (True, False):
+            out = summarize_push(
+                hub_url=secret_url,
+                alerts=[],
+                http_status=202 if ok else 500,
+                duration_ms=1,
+                ok=ok,
+            )
+            # Credentials, query params, and fragment must never reach the log.
+            self.assertNotIn("s3cr3t", out)
+            self.assertNotIn("alice", out)
+            self.assertNotIn("leakme", out)
+            self.assertNotIn("token=", out)
+            # Host, port, and path are kept for operational usefulness.
+            self.assertIn("hub=https://hub.example.com:8443/ingest", out)
+
         http = summarize_push(
             hub_url="https://hub.example.com",
             alerts=[],
