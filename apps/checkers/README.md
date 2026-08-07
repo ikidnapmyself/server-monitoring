@@ -31,6 +31,7 @@ These checkers are registered in `apps/checkers/checkers/__init__.py` (`CHECKER_
 - `raid` — Linux software-RAID (mdadm) health from `/proc/mdstat` (no sudo, no subprocess). Degraded-and-not-rebuilding or inactive array → CRITICAL; actively rebuilding (`recovery`/`resync`/`reshape`) → WARNING; routine `check`/`repair` scrubs and healthy arrays → OK. Skips as OK on non-linux or when `/proc/mdstat` is absent.
 - `disk_temp` — Hottest disk temperature via Linux hwmon (`psutil.sensors_temperatures()`, chips `drivetemp`/`nvme`; no sudo). Worst disk drives status: warn ≥ 55 °C, critical ≥ 60 °C. Skips as OK on non-linux or when no disk sensors are present. Requires the `drivetemp` kernel module (Linux 5.6+) loaded (`modprobe drivetemp`) for SATA/NVMe temps without root; SMART/`smartctl` is out of scope.
 - `cpu_temp` — Hottest CPU package/core temperature via Linux hwmon (`psutil.sensors_temperatures()`, chips `coretemp`/`k10temp`/`zenpower`/`cpu_thermal`; no sudo). Warm sensor drives status: warn ≥ 80 °C, critical ≥ 90 °C. Skips as OK on non-linux or when no CPU sensors are present.
+- `io_strain` — Busiest disk IO utilization (% busy time) via `psutil.disk_io_counters(perdisk=True)`, sampling `busy_time` over an interval (default 1 s; no sudo). Busiest disk drives status: warn ≥ 80 %, critical ≥ 95 %. Metrics also include per-disk throughput (MB/s) and IOPS. Skips as OK on non-linux or when no IO counters / `busy_time` are available.
 
 List them via:
 
