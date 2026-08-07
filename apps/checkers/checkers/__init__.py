@@ -1,6 +1,7 @@
 # Checker modules
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
 from apps.checkers.checkers.cpu import CPUChecker
+from apps.checkers.checkers.cpu_temp import CPUTempChecker
 from apps.checkers.checkers.disk.common import DiskCommonChecker
 from apps.checkers.checkers.disk.linux import DiskLinuxChecker
 from apps.checkers.checkers.disk.macos import DiskMacOSChecker
@@ -17,6 +18,7 @@ __all__ = [
     "CheckResult",
     "CheckStatus",
     "CPUChecker",
+    "CPUTempChecker",
     "MemoryChecker",
     "DiskChecker",
     "DiskCommonChecker",
@@ -33,6 +35,7 @@ __all__ = [
 # Registry of available checkers
 CHECKER_REGISTRY = {
     "cpu": CPUChecker,
+    "cpu_temp": CPUTempChecker,
     "memory": MemoryChecker,
     "disk": DiskChecker,
     "disk_common": DiskCommonChecker,
