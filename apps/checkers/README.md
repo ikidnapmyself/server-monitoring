@@ -25,6 +25,7 @@ These checkers are registered in `apps/checkers/checkers/__init__.py` (`CHECKER_
 - `disk_macos` — macOS disk analysis: space hogs, old files, cleanup recommendations (warn ≥ 5 GB, critical ≥ 20 GB recoverable). Skips on non-darwin.
 - `disk_linux` — Linux disk analysis: apt cache, journal logs, Docker/Snap data, old temp files (warn ≥ 5 GB, critical ≥ 20 GB recoverable). Skips on non-linux.
 - `disk_common` — Cross-platform disk analysis: system logs, user caches, temp files, large files in home (warn ≥ 5 GB, critical ≥ 20 GB recoverable).
+- `disk_inodes` — Inode usage per filesystem via `os.statvfs` (cross-platform Unix — Linux + macOS; no sudo). Catches inode exhaustion (many tiny files) that free-space checks miss. Worst path drives status: warn ≥ 80 %, critical ≥ 95 %. Filesystems that don't track inodes (`f_files == 0`) are skipped; skips as OK where `statvfs` is unavailable (e.g. Windows).
 - `network` — % of hosts reachable via ping (OK ≥ 70%, warning ≥ 50%, else critical)
 - `process` — % of named processes running (OK = 100%, warning ≥ 50%, else critical)
 - `raid` — Linux software-RAID (mdadm) health from `/proc/mdstat` (no sudo, no subprocess). Degraded-and-not-rebuilding or inactive array → CRITICAL; actively rebuilding (`recovery`/`resync`/`reshape`) → WARNING; routine `check`/`repair` scrubs and healthy arrays → OK. Skips as OK on non-linux or when `/proc/mdstat` is absent.
