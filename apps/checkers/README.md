@@ -28,6 +28,7 @@ These checkers are registered in `apps/checkers/checkers/__init__.py` (`CHECKER_
 - `network` — % of hosts reachable via ping (OK ≥ 70%, warning ≥ 50%, else critical)
 - `process` — % of named processes running (OK = 100%, warning ≥ 50%, else critical)
 - `raid` — Linux software-RAID (mdadm) health from `/proc/mdstat` (no sudo, no subprocess). Degraded-and-not-rebuilding or inactive array → CRITICAL; actively rebuilding (`recovery`/`resync`/`reshape`) → WARNING; routine `check`/`repair` scrubs and healthy arrays → OK. Skips as OK on non-linux or when `/proc/mdstat` is absent.
+- `io_strain` — Busiest disk IO utilization (% busy time) via `psutil.disk_io_counters(perdisk=True)`, sampling `busy_time` over an interval (default 1 s; no sudo). Busiest disk drives status: warn ≥ 80 %, critical ≥ 95 %. Metrics also include per-disk throughput (MB/s) and IOPS. Skips as OK on non-linux or when no IO counters / `busy_time` are available.
 
 List them via:
 

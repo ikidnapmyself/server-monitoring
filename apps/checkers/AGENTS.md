@@ -17,7 +17,7 @@ Output contract (to orchestrator):
 
 - `apps/checkers/checkers/` — checker implementations
   - Registry lives in `apps/checkers/checkers/__init__.py` (`CHECKER_REGISTRY`)
-  - Some checkers (for example, `disk_macos`, `disk_linux`, `raid`) are OS-specific and may use platform gating — early return OK with a skip message on unsupported OSes (`raid` reads Linux `/proc/mdstat` and skips as OK on non-linux / when the file is absent)
+  - Some checkers (for example, `disk_macos`, `disk_linux`, `raid`, `io_strain`) are OS-specific and may use platform gating — early return OK with a skip message on unsupported OSes (`raid` reads Linux `/proc/mdstat`; `io_strain` samples `psutil.disk_io_counters` `busy_time` — both skip as OK on non-linux / when the data is unavailable)
 - `apps/checkers/checks.py` — Django system checks (run with `manage.py check`)
 - `apps/checkers/management/commands/` — commands like `check_health`, `run_check`, `preflight`
 - `apps/checkers/models.py` — `CheckRun` (standalone mode audit trail)
