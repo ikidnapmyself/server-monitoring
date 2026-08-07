@@ -100,7 +100,7 @@ Apps under `apps/` should follow this layout. A few legacy `views.py` modules â€
 | App | Purpose | Key Models |
 |-----|---------|------------|
 | `alerts` | Webhook ingestion (8 drivers) | Alert, Incident, AlertHistory |
-| `checkers` | Health checks (CPU, memory, disk, disk_macos, disk_linux, disk_common, network, process, raid) | CheckRun |
+| `checkers` | Health checks (CPU, memory, disk, disk_macos, disk_linux, disk_common, network, process, raid, disk_temp) | CheckRun |
 | `intelligence` | AI analysis via provider pattern | Uses StageExecution |
 | `notify` | Notification delivery (Email, Slack, PagerDuty, Generic) | NotificationChannel |
 | `orchestration` | Pipeline state machine, retry logic | PipelineRun, StageExecution, PipelineDefinition |
