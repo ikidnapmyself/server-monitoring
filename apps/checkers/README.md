@@ -28,6 +28,7 @@ These checkers are registered in `apps/checkers/checkers/__init__.py` (`CHECKER_
 - `network` — % of hosts reachable via ping (OK ≥ 70%, warning ≥ 50%, else critical)
 - `process` — % of named processes running (OK = 100%, warning ≥ 50%, else critical)
 - `raid` — Linux software-RAID (mdadm) health from `/proc/mdstat` (no sudo, no subprocess). Degraded-and-not-rebuilding or inactive array → CRITICAL; actively rebuilding (`recovery`/`resync`/`reshape`) → WARNING; routine `check`/`repair` scrubs and healthy arrays → OK. Skips as OK on non-linux or when `/proc/mdstat` is absent.
+- `disk_temp` — Hottest disk temperature via Linux hwmon (`psutil.sensors_temperatures()`, chips `drivetemp`/`nvme`; no sudo). Worst disk drives status: warn ≥ 55 °C, critical ≥ 60 °C. Skips as OK on non-linux or when no disk sensors are present. Requires the `drivetemp` kernel module (Linux 5.6+) loaded (`modprobe drivetemp`) for SATA/NVMe temps without root; SMART/`smartctl` is out of scope.
 
 List them via:
 
