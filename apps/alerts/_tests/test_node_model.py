@@ -31,6 +31,18 @@ class NodeModelTests(TestCase):
         node = Node.objects.create(instance_id="web-03")
         self.assertEqual(str(node), "web-03")
 
+    def test_node_config_defaults_to_empty_dict(self):
+        node = Node.objects.create(instance_id="web-03")
+        self.assertEqual(node.config, {})
+
+    def test_node_config_stores_per_checker_thresholds(self):
+        node = Node.objects.create(
+            instance_id="web-03",
+            config={"cpu": {"warning_threshold": 99, "critical_threshold": 99}},
+        )
+        node.refresh_from_db()
+        self.assertEqual(node.config["cpu"]["critical_threshold"], 99)
+
     def test_upsert_without_hostname_sets_address_and_labels(self):
         node = Node.upsert(
             instance_id="web-03",
