@@ -233,6 +233,17 @@ SSRF_ALLOWED_HOSTS: tuple[str, ...] = tuple(
 )
 
 # ---------------------------------------------------------------------------
+# Checkers
+# ---------------------------------------------------------------------------
+
+# Allowlist for the `listening_ports` checker: TCP/UDP ports expected to be
+# LISTENing on the host. Ports outside this list are flagged WARNING. When empty,
+# the checker flags only externally-exposed (non-loopback) listening ports.
+LISTENING_PORTS_ALLOWLIST = [
+    int(p) for p in os.environ.get("LISTENING_PORTS_ALLOWLIST", "").split(",") if p.strip()
+]
+
+# ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 
