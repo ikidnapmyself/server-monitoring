@@ -17,7 +17,7 @@ Output contract (to orchestrator):
 
 - `apps/checkers/checkers/` — checker implementations
   - Registry lives in `apps/checkers/checkers/__init__.py` (`CHECKER_REGISTRY`)
-  - Some checkers (for example, `disk_macos`, `disk_linux`, `raid`, `disk_temp`, `cpu_temp`, `listening_ports`) are OS-specific and may use platform gating — early return OK with a skip message on unsupported OSes (`raid` reads Linux `/proc/mdstat`; `disk_temp`/`cpu_temp` read Linux hwmon via `psutil.sensors_temperatures()`; `listening_ports` reads `psutil.net_connections` (`/proc/net`, no root on Linux only) — all skip as OK on non-linux / when the data is unavailable)
+  - Some checkers (for example, `disk_macos`, `disk_linux`, `raid`, `disk_temp`, `cpu_temp`, `io_strain`, `listening_ports`) are OS-specific and may use platform gating — early return OK with a skip message on unsupported OSes (`raid` reads Linux `/proc/mdstat`; `disk_temp`/`cpu_temp` read Linux hwmon via `psutil.sensors_temperatures()`; `io_strain` samples `psutil.disk_io_counters` `busy_time`; `listening_ports` reads `psutil.net_connections` (`/proc/net`, no root on Linux only) — all skip as OK on non-linux / when the data is unavailable)
 - `apps/checkers/checks.py` — Django system checks (run with `manage.py check`)
 - `apps/checkers/management/commands/` — commands like `check_health`, `run_check`, `preflight`
 - `apps/checkers/models.py` — `CheckRun` (standalone mode audit trail)

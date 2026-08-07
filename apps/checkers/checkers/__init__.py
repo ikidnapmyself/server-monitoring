@@ -7,6 +7,7 @@ from apps.checkers.checkers.disk.linux import DiskLinuxChecker
 from apps.checkers.checkers.disk.macos import DiskMacOSChecker
 from apps.checkers.checkers.disk.usage import DiskChecker
 from apps.checkers.checkers.disk_temp import DiskTempChecker
+from apps.checkers.checkers.io_strain import IOStrainChecker
 from apps.checkers.checkers.listening_ports import ListeningPortsChecker
 from apps.checkers.checkers.memory import MemoryChecker
 from apps.checkers.checkers.network import NetworkChecker
@@ -26,6 +27,7 @@ __all__ = [
     "DiskLinuxChecker",
     "DiskMacOSChecker",
     "DiskTempChecker",
+    "IOStrainChecker",
     "ListeningPortsChecker",
     "NetworkChecker",
     "ProcessChecker",
@@ -44,6 +46,7 @@ CHECKER_REGISTRY = {
     "disk_linux": DiskLinuxChecker,
     "disk_macos": DiskMacOSChecker,
     "disk_temp": DiskTempChecker,
+    "io_strain": IOStrainChecker,
     "listening_ports": ListeningPortsChecker,
     "network": NetworkChecker,
     "process": ProcessChecker,
