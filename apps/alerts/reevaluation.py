@@ -46,22 +46,21 @@ def _number(value) -> float | None:
     return None
 
 
-def numeric_evaluator(parsed: ParsedAlert, cfg: dict) -> tuple[str, str, float] | None:
-    """Return (severity, status, value) for a numeric checker, or None to passthrough."""
+def _score_numeric(checker: str, metrics: dict, cfg) -> tuple[str, str, float] | None:
+    """Pure scorer shared by ingest and config-change re-evaluation.
+
+    `_number` rejects bool (a subclass of int) and non-numbers. An inverted config
+    (critical below warning) is malformed → passthrough. Returns None for any
+    missing/invalid input so callers can fail open.
+    """
     if not isinstance(cfg, dict):
         return None
-    # `_number` rejects bool (a subclass of int) and non-numbers. An inverted
-    # config (critical below warning) is malformed → passthrough.
     warn = _number(cfg.get("warning_threshold"))
     crit = _number(cfg.get("critical_threshold"))
     if warn is None or crit is None or crit < warn:
         return None
-    checker = (parsed.labels or {}).get("checker", "")
     metric_key = PRIMARY_METRIC.get(checker)
-    if metric_key is None:
-        return None
-    metrics = _metrics(parsed)
-    if metrics is None:
+    if metric_key is None or not isinstance(metrics, dict):
         return None
     value = _number(metrics.get(metric_key))
     if value is None:
@@ -71,6 +70,15 @@ def numeric_evaluator(parsed: ParsedAlert, cfg: dict) -> tuple[str, str, float] 
     if value >= warn:
         return ("warning", "firing", value)
     return ("info", "resolved", value)
+
+
+def numeric_evaluator(parsed: ParsedAlert, cfg: dict) -> tuple[str, str, float] | None:
+    """Return (severity, status, value) for a numeric checker, or None to passthrough."""
+    metrics = _metrics(parsed)
+    if metrics is None:
+        return None
+    checker = (parsed.labels or {}).get("checker", "")
+    return _score_numeric(checker, metrics, cfg)
 
 
 # Dispatch seam: checker -> evaluator(parsed, cfg) -> (severity, status, value) | None.

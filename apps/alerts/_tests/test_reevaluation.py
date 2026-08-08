@@ -8,6 +8,7 @@ from apps.alerts.drivers.base import ParsedAlert
 from apps.alerts.models import Node
 from apps.alerts.reevaluation import (
     PRIMARY_METRIC,
+    _score_numeric,
     numeric_evaluator,
     reevaluate_severity,
 )
@@ -23,6 +24,43 @@ def _alert(checker, metrics_json, severity="critical", status="firing"):
         labels={"checker": checker, "instance_id": "web-03"},
         annotations={"metrics": metrics_json},
     )
+
+
+def test_score_numeric_is_the_shared_scorer():
+    # value >= crit -> critical; between -> warning; below -> info/resolved
+    assert _score_numeric(
+        "cpu", {"cpu_percent": 99}, {"warning_threshold": 90, "critical_threshold": 95}
+    ) == ("critical", "firing", 99.0)
+    assert _score_numeric(
+        "cpu", {"cpu_percent": 92}, {"warning_threshold": 90, "critical_threshold": 95}
+    ) == ("warning", "firing", 92.0)
+    assert _score_numeric(
+        "cpu", {"cpu_percent": 50}, {"warning_threshold": 90, "critical_threshold": 95}
+    ) == ("info", "resolved", 50.0)
+    # fail-open cases
+    assert (
+        _score_numeric(
+            "cpu",
+            {"cpu_percent": 99},
+            {"warning_threshold": True, "critical_threshold": True},
+        )
+        is None
+    )
+    assert (
+        _score_numeric(
+            "cpu", {"cpu_percent": 99}, {"warning_threshold": 90, "critical_threshold": 50}
+        )
+        is None
+    )
+    assert (
+        _score_numeric("cpu", {"other": 1}, {"warning_threshold": 90, "critical_threshold": 95})
+        is None
+    )
+    assert (
+        _score_numeric("unknown", {"x": 1}, {"warning_threshold": 90, "critical_threshold": 95})
+        is None
+    )
+    assert _score_numeric("cpu", {"cpu_percent": 99}, "not-a-dict") is None
 
 
 def test_primary_metric_covers_seven_numeric_checkers():
