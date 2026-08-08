@@ -529,3 +529,9 @@ class NodeAdmin(admin.ModelAdmin):
     def has_add_permission(self, request):
         """Nodes are written only by the ingest path, never added in admin."""
         return False
+
+    def has_delete_permission(self, request, obj=None):
+        """Never delete Node rows from admin — that would silently drop the
+        operator-authored ``config`` policy (a later push re-creates the row
+        without it)."""
+        return False

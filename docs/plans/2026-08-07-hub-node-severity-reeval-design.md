@@ -7,7 +7,7 @@ parent: Plans
 
 **Date:** 2026-08-07
 **Status:** Approved (design)
-**Apps:** `apps.alerts` (Node model, AlertProcessor), admin
+**Apps:** `apps.alerts` (Node model, AlertOrchestrator), admin
 
 ## Problem
 
@@ -65,9 +65,9 @@ keyed by checker name → arbitrary per-checker config:
 
 ### Hook
 
-`apps/alerts/services.py` — `AlertProcessor._process_alert`, **before**
+`apps/alerts/services.py` — `AlertOrchestrator._process_alert`, **before**
 `_create_alert` / `_update_alert` (which persist `severity=parsed.severity`).
-This runs in the drain (`process_inbox` → `IngestExecutor` → `AlertProcessor`),
+This runs in the drain (`process_inbox` → `IngestExecutor` → `AlertOrchestrator`),
 i.e. hub-side, after durable ingest and before notify.
 
 ### Public interface
@@ -160,7 +160,7 @@ numeric checkers and their metric keys.
 - missing / malformed `annotations["metrics"]` passthrough,
 - non-numeric metric value passthrough.
 
-`AlertProcessor` integration test: a configured node's alert is **persisted**
+`AlertOrchestrator` integration test: a configured node's alert is **persisted**
 with the re-evaluated severity/status; audit annotation present.
 
 Target 100% branch coverage on changed code.

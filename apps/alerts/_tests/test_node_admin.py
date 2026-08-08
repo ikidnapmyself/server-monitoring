@@ -20,6 +20,10 @@ class NodeAdminTests(TestCase):
         # Nodes are created only by the ingest path.
         self.assertFalse(self._admin().has_add_permission(None))
 
+    def test_nodes_cannot_be_deleted_in_admin(self):
+        # Deleting a Node would silently drop the operator-authored config policy.
+        self.assertFalse(self._admin().has_delete_permission(None))
+
     def test_config_is_editable_registry_is_readonly(self):
         model_admin = self._admin()
         # config is the one operator-editable field...

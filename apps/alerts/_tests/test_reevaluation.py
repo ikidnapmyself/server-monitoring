@@ -74,6 +74,20 @@ def test_numeric_evaluator_unknown_checker_returns_none():
     assert numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95}) is None
 
 
+def test_numeric_evaluator_bool_thresholds_return_none():
+    # bool is an int subclass; a boolean threshold is malformed config -> passthrough.
+    parsed = _alert("cpu", '{"cpu_percent": 95}')
+    assert (
+        numeric_evaluator(parsed, {"warning_threshold": True, "critical_threshold": True}) is None
+    )
+
+
+def test_numeric_evaluator_inverted_thresholds_return_none():
+    # critical below warning is nonsensical config -> passthrough.
+    parsed = _alert("cpu", '{"cpu_percent": 95}')
+    assert numeric_evaluator(parsed, {"warning_threshold": 90, "critical_threshold": 50}) is None
+
+
 def test_numeric_evaluator_missing_metric_returns_none():
     parsed = _alert("cpu", '{"other": 1}')
     assert numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95}) is None
@@ -281,3 +295,12 @@ class ReevaluateSeverityTests(TestCase):
         self.assertIs(out, alert)
         self.assertEqual(out.severity, "critical")
         self.assertNotIn("severity_reevaluated", out.annotations)
+
+    def test_non_dict_labels_pass_through_without_raising(self):
+        # A truthy non-dict labels raises inside the body (labels.get); the
+        # fail-open guard swallows it and the log-context falls back to "?".
+        alert = self._alert("cpu", '{"cpu_percent": 95.2}')
+        alert.labels = "not-a-dict"
+        out = reevaluate_severity(alert)
+        self.assertIs(out, alert)
+        self.assertEqual(out.severity, "critical")

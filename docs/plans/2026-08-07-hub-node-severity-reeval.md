@@ -9,14 +9,14 @@ parent: Plans
 
 **Goal:** Let the hub recompute an ingested alert's severity against per-node thresholds stored in `Node.config`, so operators can say "only alert CPU > 99% on this node" — without changing anything on the nodes.
 
-**Architecture:** Add a `config` JSON field to `Node`. A new pure-ish `apps/alerts/reevaluation.py` exposes `reevaluate_severity(parsed) -> ParsedAlert` plus a `REEVALUATORS` dispatch registry (one numeric evaluator for the 7 numeric checkers now). `AlertProcessor._process_alert` calls it before create/update. Fail-open: any missing data ⇒ passthrough.
+**Architecture:** Add a `config` JSON field to `Node`. A new pure-ish `apps/alerts/reevaluation.py` exposes `reevaluate_severity(parsed) -> ParsedAlert` plus a `REEVALUATORS` dispatch registry (one numeric evaluator for the 7 numeric checkers now). `AlertOrchestrator._process_alert` calls it before create/update. Fail-open: any missing data ⇒ passthrough.
 
 **Tech Stack:** Django model + migration, pytest/pytest-django, `django_json_widget` admin.
 
 **Design doc:** `docs/plans/2026-08-07-hub-node-severity-reeval-design.md`
 
 **Reference before starting:**
-- `apps/alerts/services.py` — `AlertProcessor._process_alert` (hook, ~line 198), `_create_alert` (persists `severity=parsed.severity`), `resolve_node(labels)` (Node-by-instance_id helper).
+- `apps/alerts/services.py` — `AlertOrchestrator._process_alert` (hook, ~line 198), `_create_alert` (persists `severity=parsed.severity`), `resolve_node(labels)` (Node-by-instance_id helper).
 - `apps/alerts/drivers/base.py` — `ParsedAlert` (fields: fingerprint, name, status, severity, labels, annotations, ended_at, …). `annotations` values are strings; cluster metrics live in `annotations["metrics"]` as a JSON string.
 - `apps/alerts/drivers/cluster.py` — confirms `labels["checker"]`, `labels["instance_id"]`, and `annotations["metrics"]` (JSON) are populated.
 - `apps/alerts/models.py` — `Node` (has `labels` JSONField already).
@@ -391,7 +391,7 @@ git commit -m "feat(alerts): reevaluate_severity applies per-node policy (fail-o
 
 ---
 
-## Task 4: Wire into `AlertProcessor._process_alert`
+## Task 4: Wire into `AlertOrchestrator._process_alert`
 
 **Files:**
 - Modify: `apps/alerts/services.py`
@@ -402,7 +402,7 @@ git commit -m "feat(alerts): reevaluate_severity applies per-node policy (fail-o
 ```python
 def test_configured_node_alert_persisted_with_reevaluated_severity(self):
     from apps.alerts.models import Alert, Node
-    from apps.alerts.services import AlertProcessor
+    from apps.alerts.services import AlertOrchestrator
     from apps.alerts.drivers.cluster import ClusterDriver
 
     Node.objects.create(
@@ -417,14 +417,14 @@ def test_configured_node_alert_persisted_with_reevaluated_severity(self):
             "metrics": {"cpu_percent": 95.2},
         }],
     }
-    AlertProcessor().process(payload, driver="cluster")
+    AlertOrchestrator().process(payload, driver="cluster")
     alert = Alert.objects.get(fingerprint="cpu-web-03")
     self.assertEqual(alert.severity, "info")
     self.assertEqual(alert.status, "resolved")
     self.assertIn("severity_reevaluated", alert.annotations)
 ```
 
-(Adjust the `process(...)` call to match `AlertProcessor`'s actual entry signature used elsewhere in `test_services.py`.)
+(Adjust the `process(...)` call to match `AlertOrchestrator`'s actual entry signature used elsewhere in `test_services.py`.)
 
 **Step 2: Run to verify it fails**
 
@@ -458,7 +458,7 @@ Expected: PASS. Also run the full services test file to confirm no regressions:
 
 ```bash
 git add apps/alerts/services.py apps/alerts/_tests/test_services.py
-git commit -m "feat(alerts): re-evaluate per-node severity in AlertProcessor"
+git commit -m "feat(alerts): re-evaluate per-node severity in AlertOrchestrator"
 ```
 
 ---
@@ -487,7 +487,7 @@ Expected: 100% branch coverage on `reevaluation.py`; add tests for any uncovered
 
 **Step 3: Docs**
 
-- `apps/alerts/AGENTS.md`: document that the hub re-evaluates severity per node via `Node.config` + `apps/alerts/reevaluation.py` (the dispatch seam), and that this happens in `AlertProcessor._process_alert`.
+- `apps/alerts/AGENTS.md`: document that the hub re-evaluates severity per node via `Node.config` + `apps/alerts/reevaluation.py` (the dispatch seam), and that this happens in `AlertOrchestrator._process_alert`.
 
 **Step 4: Full suite regression + system check**
 

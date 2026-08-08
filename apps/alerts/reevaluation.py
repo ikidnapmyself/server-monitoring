@@ -50,9 +50,11 @@ def numeric_evaluator(parsed: ParsedAlert, cfg: dict) -> tuple[str, str, float] 
     """Return (severity, status, value) for a numeric checker, or None to passthrough."""
     if not isinstance(cfg, dict):
         return None
-    warn = cfg.get("warning_threshold")
-    crit = cfg.get("critical_threshold")
-    if not isinstance(warn, (int, float)) or not isinstance(crit, (int, float)):
+    # `_number` rejects bool (a subclass of int) and non-numbers. An inverted
+    # config (critical below warning) is malformed → passthrough.
+    warn = _number(cfg.get("warning_threshold"))
+    crit = _number(cfg.get("critical_threshold"))
+    if warn is None or crit is None or crit < warn:
         return None
     checker = (parsed.labels or {}).get("checker", "")
     metric_key = PRIMARY_METRIC.get(checker)
@@ -151,5 +153,10 @@ def reevaluate_severity(parsed: ParsedAlert) -> ParsedAlert:
     try:
         return _reevaluate(parsed)
     except Exception:  # noqa: BLE001 - fail-open contract: never raise into ingest
-        logger.exception("severity re-evaluation failed; passing through")
+        labels = getattr(parsed, "labels", None)
+        if isinstance(labels, dict):
+            ctx = f"{labels.get('instance_id')}/{labels.get('checker')}"
+        else:
+            ctx = "?"
+        logger.exception("severity re-evaluation failed for %s; passing through", ctx)
         return parsed
