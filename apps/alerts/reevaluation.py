@@ -46,8 +46,8 @@ def _number(value) -> float | None:
     return None
 
 
-def numeric_evaluator(parsed: ParsedAlert, cfg: dict) -> tuple[str, str] | None:
-    """Return (severity, status) for a numeric checker, or None to passthrough."""
+def numeric_evaluator(parsed: ParsedAlert, cfg: dict) -> tuple[str, str, float] | None:
+    """Return (severity, status, value) for a numeric checker, or None to passthrough."""
     if not isinstance(cfg, dict):
         return None
     warn = cfg.get("warning_threshold")
@@ -55,31 +55,31 @@ def numeric_evaluator(parsed: ParsedAlert, cfg: dict) -> tuple[str, str] | None:
     if not isinstance(warn, (int, float)) or not isinstance(crit, (int, float)):
         return None
     checker = (parsed.labels or {}).get("checker", "")
+    metric_key = PRIMARY_METRIC.get(checker)
+    if metric_key is None:
+        return None
     metrics = _metrics(parsed)
     if metrics is None:
         return None
-    value = _number(metrics.get(PRIMARY_METRIC[checker]))
+    value = _number(metrics.get(metric_key))
     if value is None:
         return None
     if value >= crit:
-        return ("critical", "firing")
+        return ("critical", "firing", value)
     if value >= warn:
-        return ("warning", "firing")
-    return ("info", "resolved")
+        return ("warning", "firing", value)
+    return ("info", "resolved", value)
 
 
-# Dispatch seam: checker -> evaluator(parsed, cfg) -> (severity, status) | None.
+# Dispatch seam: checker -> evaluator(parsed, cfg) -> (severity, status, value) | None.
 # First slice: one numeric evaluator for the seven numeric checkers.
-REEVALUATORS: dict[str, Callable[[ParsedAlert, dict], "tuple[str, str] | None"]] = {
+REEVALUATORS: dict[str, Callable[[ParsedAlert, dict], "tuple[str, str, float] | None"]] = {
     checker: numeric_evaluator for checker in PRIMARY_METRIC
 }
 
 
-def reevaluate_severity(parsed: ParsedAlert) -> ParsedAlert:
-    """Override severity/status from the node's per-checker policy.
-
-    Returns ``parsed`` unchanged when no policy applies. Never raises.
-    """
+def _reevaluate(parsed: ParsedAlert) -> ParsedAlert:
+    """Core re-evaluation logic; may raise. Wrapped by reevaluate_severity."""
     labels = parsed.labels or {}
     checker = labels.get("checker")
     instance_id = labels.get("instance_id")
@@ -103,16 +103,29 @@ def reevaluate_severity(parsed: ParsedAlert) -> ParsedAlert:
     if outcome is None:
         return parsed
 
-    severity, status = outcome
+    severity, status, value = outcome
     if severity == parsed.severity and status == parsed.status:
         return parsed
 
-    original = parsed.severity
+    original_severity = parsed.severity
+    original_status = parsed.status
     parsed.annotations = dict(parsed.annotations or {})
     parsed.annotations["severity_reevaluated"] = json.dumps(
-        {"from": original, "to": severity, "checker": checker, "by": "hub-node-policy"}
+        {
+            "from": original_severity,
+            "to": severity,
+            "status_from": original_status,
+            "status_to": status,
+            "value": value,
+            "thresholds": cfg,
+            "checker": checker,
+            "by": "hub-node-policy",
+        }
     )
-    if status == "resolved" and parsed.status != "resolved" and parsed.ended_at is None:
+    # Keep ended_at consistent with the re-evaluated status in both directions.
+    if status == "firing":
+        parsed.ended_at = None
+    elif parsed.ended_at is None:
         from django.utils import timezone
 
         parsed.ended_at = timezone.now()
@@ -122,7 +135,21 @@ def reevaluate_severity(parsed: ParsedAlert) -> ParsedAlert:
         "Re-evaluated severity for %s on %s: %s -> %s",
         checker,
         instance_id,
-        original,
+        original_severity,
         severity,
     )
     return parsed
+
+
+def reevaluate_severity(parsed: ParsedAlert) -> ParsedAlert:
+    """Override severity/status from the node's per-checker policy.
+
+    Returns ``parsed`` unchanged when no policy applies. Fail-open: any exception
+    is logged and the alert is passed through untouched, so re-evaluation can never
+    raise into the ingest path (which would roll back the whole webhook batch).
+    """
+    try:
+        return _reevaluate(parsed)
+    except Exception:  # noqa: BLE001 - fail-open contract: never raise into ingest
+        logger.exception("severity re-evaluation failed; passing through")
+        return parsed
