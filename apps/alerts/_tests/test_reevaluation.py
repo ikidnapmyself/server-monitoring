@@ -89,6 +89,12 @@ def test_numeric_evaluator_missing_thresholds_returns_none():
     assert numeric_evaluator(parsed, {"warning_threshold": 80}) is None
 
 
+def test_numeric_evaluator_non_dict_cfg_returns_none():
+    parsed = _alert("cpu", '{"cpu_percent": 95}')
+    assert numeric_evaluator(parsed, "99") is None
+    assert numeric_evaluator(parsed, [1, 2]) is None
+
+
 class ReevaluateSeverityTests(TestCase):
     def _alert(
         self,
@@ -160,6 +166,24 @@ class ReevaluateSeverityTests(TestCase):
             config={"cpu": {"warning_threshold": 80, "critical_threshold": 90}},
         )
         out = reevaluate_severity(self._alert("cpu", "not json"))
+        self.assertEqual(out.severity, "critical")
+        self.assertNotIn("severity_reevaluated", out.annotations)
+
+    def test_non_dict_config_string_passthrough(self):
+        Node.objects.create(instance_id="web-03", config={"cpu": "99"})
+        out = reevaluate_severity(self._alert("cpu", '{"cpu_percent": 95.2}'))
+        self.assertEqual(out.severity, "critical")
+        self.assertNotIn("severity_reevaluated", out.annotations)
+
+    def test_non_dict_config_list_passthrough(self):
+        Node.objects.create(instance_id="web-03", config={"cpu": [1, 2]})
+        out = reevaluate_severity(self._alert("cpu", '{"cpu_percent": 95.2}'))
+        self.assertEqual(out.severity, "critical")
+        self.assertNotIn("severity_reevaluated", out.annotations)
+
+    def test_empty_dict_config_passthrough(self):
+        Node.objects.create(instance_id="web-03", config={"cpu": {}})
+        out = reevaluate_severity(self._alert("cpu", '{"cpu_percent": 95.2}'))
         self.assertEqual(out.severity, "critical")
         self.assertNotIn("severity_reevaluated", out.annotations)
 

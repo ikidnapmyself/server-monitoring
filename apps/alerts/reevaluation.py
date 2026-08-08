@@ -48,6 +48,8 @@ def _number(value) -> float | None:
 
 def numeric_evaluator(parsed: ParsedAlert, cfg: dict) -> tuple[str, str] | None:
     """Return (severity, status) for a numeric checker, or None to passthrough."""
+    if not isinstance(cfg, dict):
+        return None
     warn = cfg.get("warning_threshold")
     crit = cfg.get("critical_threshold")
     if not isinstance(warn, (int, float)) or not isinstance(crit, (int, float)):
@@ -94,7 +96,7 @@ def reevaluate_severity(parsed: ParsedAlert) -> ParsedAlert:
     if node is None:
         return parsed
     cfg = (node.config or {}).get(checker)
-    if not cfg:
+    if not isinstance(cfg, dict) or not cfg:
         return parsed
 
     outcome = evaluator(parsed, cfg)
