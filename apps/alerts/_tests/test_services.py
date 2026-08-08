@@ -146,6 +146,34 @@ class AlertOrchestratorTests(TestCase):
         incident = Incident.objects.first()
         self.assertEqual(incident.status, IncidentStatus.RESOLVED)
 
+    def test_configured_node_alert_persisted_with_reevaluated_severity(self):
+        from apps.alerts.models import Node
+
+        Node.objects.create(
+            instance_id="web-03",
+            config={"cpu": {"warning_threshold": 99, "critical_threshold": 99}},
+        )
+        payload = {
+            "source": "cluster",
+            "instance_id": "web-03",
+            "hostname": "h",
+            "alerts": [
+                {
+                    "fingerprint": "cpu-web-03",
+                    "name": "cpu: high",
+                    "status": "firing",
+                    "severity": "critical",
+                    "labels": {"checker": "cpu"},
+                    "metrics": {"cpu_percent": 95.2},
+                }
+            ],
+        }
+        self.orchestrator.process_webhook(payload, driver="cluster")
+        alert = Alert.objects.get(fingerprint="cpu-web-03")
+        self.assertEqual(alert.severity, "info")
+        self.assertEqual(alert.status, "resolved")
+        self.assertIn("severity_reevaluated", alert.annotations)
+
 
 class AlertOrchestratorEdgeCaseTests(TestCase):
     """Additional orchestrator tests for missing branches."""

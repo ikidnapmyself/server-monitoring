@@ -21,7 +21,8 @@ Output contract (to orchestrator):
 - `apps/alerts/drivers/` — payload parsers (Alertmanager, Grafana, PagerDuty, etc.)
   - Drivers should implement `validate()` and `parse()`.
 - `apps/alerts/services.py` — business logic (`AlertOrchestrator`, `IncidentManager`)
-- `apps/alerts/models.py` — `Alert`, `Incident`, `AlertHistory`
+- `apps/alerts/models.py` — `Alert`, `Incident`, `AlertHistory`, `Node`
+- `apps/alerts/reevaluation.py` — **hub-side per-node severity re-evaluation**. Nodes report raw metrics + a default severity; the hub recomputes severity against per-node policy in `Node.config` and overrides it. Called at the top of `AlertOrchestrator._process_alert` (covers create + update), so nodes stay unchanged. Fail-open: any missing/invalid input (or exception) passes the alert through unchanged. First slice: numeric-threshold override for the 7 numeric checkers via `REEVALUATORS` (a dispatch seam) + `PRIMARY_METRIC`; extend per checker-type (allowlists, exclusions) by registering new evaluators. Overrides are audited in `annotations["severity_reevaluated"]`. See `docs/plans/2026-08-07-hub-node-severity-reeval-design.md`.
 - `apps/alerts/urls.py` — URL routing for this app
 
 ## Boundary rules

@@ -202,6 +202,12 @@ class AlertOrchestrator:
         result: ProcessingResult,
     ) -> Alert:
         """Process a single parsed alert."""
+        from apps.alerts.reevaluation import reevaluate_severity
+
+        # Recompute severity/status against the sending node's per-checker policy
+        # (Node.config) before create/update. Fail-open: passthrough on any gap.
+        parsed = reevaluate_severity(parsed)
+
         # Check if alert already exists (by fingerprint and source)
         existing = Alert.objects.filter(
             fingerprint=parsed.fingerprint,

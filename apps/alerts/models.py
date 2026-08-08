@@ -338,6 +338,15 @@ class Node(models.Model):
     address = models.CharField(max_length=255, blank=True, default="")
     last_source = models.CharField(max_length=64, blank=True, default="")
     labels = models.JSONField(default=dict, blank=True)
+    config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Per-checker hub-side policy, keyed by checker name, e.g. "
+            '{"cpu": {"warning_threshold": 99, "critical_threshold": 99}}. '
+            "Used to re-evaluate alert severity per node."
+        ),
+    )
     first_seen = models.DateTimeField(auto_now_add=True)
     last_seen = models.DateTimeField(auto_now=True)
 
