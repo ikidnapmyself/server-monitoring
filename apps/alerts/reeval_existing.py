@@ -14,7 +14,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.alerts.models import Alert, AlertHistory, Incident, IncidentStatus, Node
-from apps.alerts.reevaluation import REEVALUATORS, _score_numeric
+from apps.alerts.reevaluation import REEVALUATORS, _score_numeric, parse_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -43,23 +43,12 @@ class ReevalReport:
         return sum(1 for c in self.changes if c.new_status != "resolved")
 
 
-def _metrics_of(alert: Alert) -> dict | None:
-    raw = (alert.annotations or {}).get("metrics")
-    if not raw:
-        return None
-    try:
-        data = json.loads(raw)
-    except (TypeError, ValueError):
-        return None
-    return data if isinstance(data, dict) else None
-
-
 def _score_alert(alert: Alert, config: dict) -> tuple[str, str, float] | None:
     checker = (alert.labels or {}).get("checker", "")
     if checker not in REEVALUATORS:
         return None
     cfg = (config or {}).get(checker)
-    metrics = _metrics_of(alert)
+    metrics = parse_metrics(alert.annotations)
     if metrics is None:
         return None
     return _score_numeric(checker, metrics, cfg)
@@ -124,8 +113,15 @@ def apply_node_alert_reeval(node: Node) -> ReevalReport:
             event=event,
             old_status=change.old_status,
             new_status=change.new_status,
+            details={
+                "severity_from": change.old_severity,
+                "severity_to": change.new_severity,
+            },
         )
-    _resolve_incidents_for(node)
+    # Only sweep incidents when something actually resolved — a pure severity
+    # change (or a no-op run) must not auto-resolve a manually-reopened incident.
+    if report.resolved_count:
+        _resolve_incidents_for(node)
     if report.changes:
         logger.info(
             "Config-change re-eval on %s: resolved %d, changed severity on %d",

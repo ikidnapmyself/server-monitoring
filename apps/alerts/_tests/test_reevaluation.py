@@ -61,6 +61,11 @@ def test_score_numeric_is_the_shared_scorer():
         is None
     )
     assert _score_numeric("cpu", {"cpu_percent": 99}, "not-a-dict") is None
+    # non-dict metrics (defensive guard on the shared scorer)
+    assert (
+        _score_numeric("cpu", "not-a-dict", {"warning_threshold": 90, "critical_threshold": 95})
+        is None
+    )
 
 
 def test_primary_metric_covers_seven_numeric_checkers():

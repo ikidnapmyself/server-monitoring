@@ -27,8 +27,13 @@ PRIMARY_METRIC = {
 }
 
 
-def _metrics(parsed: ParsedAlert) -> dict | None:
-    raw = (parsed.annotations or {}).get("metrics")
+def parse_metrics(annotations: dict | None) -> dict | None:
+    """Parse the JSON `metrics` string stashed in an alert's annotations.
+
+    Shared by ingest (`ParsedAlert`) and config-change re-eval (`Alert`).
+    Returns the dict, or None when absent / unparseable / not a dict.
+    """
+    raw = (annotations or {}).get("metrics")
     if not raw:
         return None
     try:
@@ -36,6 +41,10 @@ def _metrics(parsed: ParsedAlert) -> dict | None:
     except (TypeError, ValueError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def _metrics(parsed: ParsedAlert) -> dict | None:
+    return parse_metrics(parsed.annotations)
 
 
 def _number(value) -> float | None:

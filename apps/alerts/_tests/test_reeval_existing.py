@@ -5,10 +5,10 @@ from django.utils import timezone
 
 from apps.alerts.models import Alert, AlertHistory, Incident, Node
 from apps.alerts.reeval_existing import (
-    _metrics_of,
     apply_node_alert_reeval,
     preview_node_alert_reeval,
 )
+from apps.alerts.reevaluation import parse_metrics
 
 
 class ReevalExistingTests(TestCase):
@@ -124,11 +124,14 @@ class ReevalExistingTests(TestCase):
         inc.refresh_from_db()
         self.assertEqual(inc.status, "resolved")
 
-    def test_incident_not_resolved_when_an_alert_still_firing(self):
-        node = self._node({"cpu": {"warning_threshold": 80, "critical_threshold": 99}})
-        resolving = self._alert(node, "cpu", 85)  # -> warning, still firing
+    def test_incident_with_still_firing_alert_stays_open_during_sweep(self):
+        # The sweep runs (a cpu alert resolves), but an incident that still holds
+        # a firing alert (memory, no config -> not re-scored) must stay open.
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        self._alert(node, "cpu", 95.2)  # -> resolved (drives resolved_count > 0)
+        still_firing = self._alert(node, "memory", 50, metric="memory_percent")  # stays firing
         inc = Incident.objects.create(title="t", severity="critical", status="open")
-        inc.alerts.add(resolving)
+        inc.alerts.add(still_firing)
         apply_node_alert_reeval(node)
         inc.refresh_from_db()
         self.assertEqual(inc.status, "open")
@@ -140,11 +143,37 @@ class ReevalExistingTests(TestCase):
         second = apply_node_alert_reeval(node)
         self.assertEqual(second.changes, [])
 
-    def test_metrics_of_none_and_malformed(self):
-        node = self._node({})
-        no_metrics = self._alert(node, "cpu", annotations={})
-        malformed = self._alert(node, "cpu", annotations={"metrics": "not json"})
-        not_dict = self._alert(node, "cpu", annotations={"metrics": "[1, 2]"})
-        self.assertIsNone(_metrics_of(no_metrics))
-        self.assertIsNone(_metrics_of(malformed))
-        self.assertIsNone(_metrics_of(not_dict))
+    def test_metrics_parse_none_and_malformed(self):
+        self.assertIsNone(parse_metrics({}))
+        self.assertIsNone(parse_metrics({"metrics": "not json"}))
+        self.assertIsNone(parse_metrics({"metrics": "[1, 2]"}))
+
+    def test_severity_only_change_does_not_resolve_incident(self):
+        # A run that only changes severity (no resolutions) must not sweep
+        # incidents — a pre-existing open incident whose alerts are all
+        # non-firing stays open.
+        node = self._node({"cpu": {"warning_threshold": 80, "critical_threshold": 99}})
+        a = self._alert(node, "cpu", 85)  # critical -> warning, still firing
+        # An unrelated open incident on this node whose alert is already resolved.
+        other = self._alert(
+            node, "memory", 10, severity="info", status="resolved", metric="memory_percent"
+        )
+        inc = Incident.objects.create(title="stale", severity="info", status="open")
+        inc.alerts.add(other)
+
+        report = apply_node_alert_reeval(node)
+
+        self.assertEqual(report.resolved_count, 0)
+        self.assertEqual(report.severity_changed_count, 1)
+        a.refresh_from_db()
+        self.assertEqual(a.severity, "warning")
+        inc.refresh_from_db()
+        self.assertEqual(inc.status, "open")  # NOT auto-resolved
+
+    def test_history_details_carry_severity_delta(self):
+        node = self._node({"cpu": {"warning_threshold": 80, "critical_threshold": 99}})
+        a = self._alert(node, "cpu", 85)  # critical -> warning
+        apply_node_alert_reeval(node)
+        history = AlertHistory.objects.get(alert=a, event="reevaluated")
+        self.assertEqual(history.details["severity_from"], "critical")
+        self.assertEqual(history.details["severity_to"], "warning")
