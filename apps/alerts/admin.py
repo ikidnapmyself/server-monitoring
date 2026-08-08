@@ -1,7 +1,9 @@
 """Admin configuration for alerts models."""
 
 from django.contrib import admin
+from django.db import models as db_models
 from django.utils.html import format_html, format_html_join
+from django_json_widget.widgets import JSONEditorWidget
 from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
 
@@ -488,7 +490,13 @@ class AlertHistoryAdmin(admin.ModelAdmin):
 
 @admin.register(Node)
 class NodeAdmin(admin.ModelAdmin):
-    """Read-only registry of agents that have pushed cluster data to this hub."""
+    """Registry of agents that have pushed cluster data to this hub.
+
+    The registry fields (instance_id, hostname, …) are written only by the
+    ingest path and stay read-only. ``config`` is the one operator-editable
+    field: per-checker hub-side policy used to re-evaluate alert severity
+    per node (see apps/alerts/reevaluation.py).
+    """
 
     list_display = ["instance_id", "hostname", "last_source", "first_seen", "last_seen"]
     search_fields = ["instance_id", "hostname"]
@@ -501,11 +509,23 @@ class NodeAdmin(admin.ModelAdmin):
         "first_seen",
         "last_seen",
     ]
+    fields = [
+        "instance_id",
+        "hostname",
+        "address",
+        "last_source",
+        "labels",
+        "config",
+        "first_seen",
+        "last_seen",
+    ]
+    formfield_overrides = {db_models.JSONField: {"widget": JSONEditorWidget}}
+    # Numeric checkers the hub can re-evaluate, and the metric each reads:
+    # cpu→cpu_percent, memory→memory_percent, disk→worst_percent,
+    # disk_inodes→worst_percent, disk_temp→hottest_c, cpu_temp→hottest_c,
+    # io_strain→busiest_util_percent. Example config value:
+    #   {"cpu": {"warning_threshold": 99, "critical_threshold": 99}}
 
     def has_add_permission(self, request):
         """Nodes are written only by the ingest path, never added in admin."""
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        """Registry is a read-only operational view."""
         return False
