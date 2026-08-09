@@ -46,3 +46,10 @@ def test_preflight_run_str():
     run = PreflightRun.objects.create(overall_status="ok")
     assert "Preflight" in str(run)
     assert "ok" in str(run)
+
+
+@pytest.mark.django_db
+def test_preflight_check_str():
+    run = PreflightRun.objects.create(overall_status="warn")
+    check = PreflightCheck.objects.create(run=run, level="warn", message="DEBUG on")
+    assert str(check) == "[warn] DEBUG on"
