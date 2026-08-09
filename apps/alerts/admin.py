@@ -502,7 +502,8 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
     """
 
     change_actions = ["reevaluate_open_alerts"]
-    list_display = ["instance_id", "hostname", "last_source", "first_seen", "last_seen"]
+    list_display = ["instance_id", "hostname", "is_self", "last_source", "first_seen", "last_seen"]
+    list_filter = ["is_self"]
     search_fields = ["instance_id", "hostname"]
     readonly_fields = [
         "instance_id",

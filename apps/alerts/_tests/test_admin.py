@@ -2,8 +2,14 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.utils import timezone
 
+from apps.alerts.admin import NodeAdmin
 from apps.alerts.models import Alert, AlertSeverity, AlertStatus, Incident, IncidentStatus
 from apps.orchestration.models import PipelineRun, PipelineStatus
+
+
+def test_nodeadmin_shows_is_self():
+    assert "is_self" in NodeAdmin.list_display
+    assert "is_self" in NodeAdmin.list_filter
 
 
 class TestAdminQueryOptimization(TestCase):
