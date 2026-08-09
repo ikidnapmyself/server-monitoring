@@ -6,7 +6,6 @@ from django.core.management.base import CommandError
 from django.test import TestCase
 from django.utils import timezone
 
-from apps.orchestration.management.commands.process_inbox import Command
 from apps.orchestration.models import PipelineDefinition, PipelineRun, PipelineStatus
 from apps.orchestration.orchestrator import PipelineOrchestrator
 
@@ -82,9 +81,9 @@ class ProcessInboxTests(TestCase):
         self.assertEqual(run.status, PipelineStatus.INGESTED)
 
     def test_lost_claim_is_skipped(self):
-        # Simulate a concurrent drain winning the claim: _claim returns False.
+        # Simulate a concurrent drain winning the claim: the shared claim() returns False.
         run = self._pending()
-        with patch.object(Command, "_claim", return_value=False):
+        with patch("apps.orchestration.inbox.claim", return_value=False):
             call_command("process_inbox", "--limit", "10")
         run.refresh_from_db()
         self.assertEqual(run.status, PipelineStatus.PENDING)

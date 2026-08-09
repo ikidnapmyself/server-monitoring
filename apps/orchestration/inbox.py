@@ -10,6 +10,7 @@ double-process, and a crashed drain's PROCESSING runs are reclaimed after the
 timeout.
 """
 
+from collections.abc import Iterable
 from datetime import timedelta
 
 from django.utils import timezone
@@ -17,13 +18,27 @@ from django.utils import timezone
 from apps.orchestration.models import PipelineRun, PipelineStatus
 from apps.orchestration.orchestrator import PipelineOrchestrator
 
+# Single source of truth for the stall timeout: how long a run may sit PROCESSING
+# before it is considered a crashed/stalled drain and reclaimed. Referenced by
+# ``reclaim_stuck``, ``InboxItem.is_stuck``, and the ``process_inbox --stale-minutes``
+# default so the literal is not triplicated.
+DEFAULT_STALE_MINUTES = 15
 
-def reclaim_stuck(timeout_minutes: int = 15) -> int:
-    """Return PROCESSING runs stuck past the timeout to PENDING; return the count."""
+
+def reclaim_stuck(
+    timeout_minutes: int = DEFAULT_STALE_MINUTES, pks: Iterable[int] | None = None
+) -> int:
+    """Return PROCESSING runs stuck past the timeout to PENDING; return the count.
+
+    When ``pks`` is given, only those runs are considered (the admin action scopes the
+    reclaim to the operator's selection); with ``pks=None`` the sweep is global (the
+    management command's crash-recovery pass).
+    """
     cutoff = timezone.now() - timedelta(minutes=timeout_minutes)
-    return PipelineRun.objects.filter(
-        status=PipelineStatus.PROCESSING, updated_at__lt=cutoff
-    ).update(status=PipelineStatus.PENDING)
+    qs = PipelineRun.objects.filter(status=PipelineStatus.PROCESSING, updated_at__lt=cutoff)
+    if pks is not None:
+        qs = qs.filter(pk__in=pks)
+    return qs.update(status=PipelineStatus.PENDING)
 
 
 def claim(pk: int) -> bool:
@@ -44,15 +59,13 @@ def _execute(run: PipelineRun) -> None:
 def drain(limit: int = 50) -> int:
     """Claim and execute up to ``limit`` PENDING runs (oldest first). Return count."""
     pending = list(
-        PipelineRun.objects.filter(status=PipelineStatus.PENDING)
-        .order_by("created_at")
-        .values_list("pk", flat=True)[:limit]
+        PipelineRun.objects.filter(status=PipelineStatus.PENDING).order_by("created_at")[:limit]
     )
     processed = 0
-    for pk in pending:
-        if not claim(pk):
+    for run in pending:
+        if not claim(run.pk):
             continue  # a concurrent drain claimed it first
-        _execute(PipelineRun.objects.get(pk=pk))
+        _execute(run)  # execute re-fetches via refresh_from_db; no extra get() needed
         processed += 1
     return processed
 

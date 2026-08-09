@@ -1,11 +1,14 @@
 """Tests for PipelineRun and StageExecution model state transitions."""
 
 import uuid
+from datetime import timedelta
 
 import pytest
 from django.test import TestCase
+from django.utils import timezone
 
 from apps.orchestration.models import (
+    InboxItem,
     PipelineOrigin,
     PipelineRun,
     PipelineStage,
@@ -183,11 +186,6 @@ class StageExecutionModelTests(TestCase):
 
 
 # --- Phase 3.1: InboxItem proxy model ---
-from datetime import timedelta  # noqa: E402
-
-from apps.orchestration.models import InboxItem  # noqa: E402
-
-
 @pytest.mark.django_db
 def test_inbox_lists_only_pending_and_processing():
     PipelineRun.objects.create(trace_id="t", run_id="a", status=PipelineStatus.PENDING)
@@ -199,8 +197,6 @@ def test_inbox_lists_only_pending_and_processing():
 
 @pytest.mark.django_db
 def test_stuck_true_when_processing_past_cutoff():
-    from django.utils import timezone
-
     run = PipelineRun.objects.create(trace_id="t", run_id="c", status=PipelineStatus.PROCESSING)
     PipelineRun.objects.filter(pk=run.pk).update(updated_at=timezone.now() - timedelta(minutes=30))
     item = InboxItem.objects.get(pk=run.pk)
@@ -219,3 +215,15 @@ def test_stuck_false_for_recent_processing_item():
     run = PipelineRun.objects.create(trace_id="t", run_id="e", status=PipelineStatus.PROCESSING)
     item = InboxItem.objects.get(pk=run.pk)
     assert item.is_stuck(timeout_minutes=15) is False
+
+
+@pytest.mark.django_db
+def test_stuck_uses_default_stale_minutes_when_none():
+    from apps.orchestration.inbox import DEFAULT_STALE_MINUTES
+
+    run = PipelineRun.objects.create(trace_id="t", run_id="f", status=PipelineStatus.PROCESSING)
+    PipelineRun.objects.filter(pk=run.pk).update(
+        updated_at=timezone.now() - timedelta(minutes=DEFAULT_STALE_MINUTES + 5)
+    )
+    item = InboxItem.objects.get(pk=run.pk)
+    assert item.is_stuck() is True

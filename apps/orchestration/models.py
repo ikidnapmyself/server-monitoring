@@ -301,10 +301,18 @@ class InboxItem(PipelineRun):
         verbose_name = "Inbox item"
         verbose_name_plural = "Inbox"
 
-    def is_stuck(self, timeout_minutes: int = 15) -> bool:
-        """True if this run has been PROCESSING past the timeout (a stalled drain)."""
+    def is_stuck(self, timeout_minutes: int | None = None) -> bool:
+        """True if this run has been PROCESSING past the timeout (a stalled drain).
+
+        ``timeout_minutes`` defaults to ``inbox.DEFAULT_STALE_MINUTES`` (resolved lazily
+        to avoid an import cycle: ``inbox`` imports this module).
+        """
         if self.status != PipelineStatus.PROCESSING:
             return False
+        if timeout_minutes is None:
+            from apps.orchestration.inbox import DEFAULT_STALE_MINUTES
+
+            timeout_minutes = DEFAULT_STALE_MINUTES
         return self.updated_at < timezone.now() - timedelta(minutes=timeout_minutes)
 
 

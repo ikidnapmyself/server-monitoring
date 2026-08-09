@@ -411,26 +411,85 @@ class TestInboxAdmin(SimpleTestCase):
         self.assertTrue(self._admin().stuck(obj))
         obj.is_stuck.assert_called_once()
 
+    @staticmethod
+    def _queryset(rows=None, count=None, pks=None):
+        """Build a fake queryset supporting count(), iteration, and values_list()."""
+        from unittest.mock import MagicMock
+
+        qs = MagicMock()
+        qs.count.return_value = len(rows) if count is None and rows is not None else count
+        if rows is not None:
+            qs.__iter__.return_value = iter(rows)
+        if pks is not None:
+            qs.values_list.return_value = pks
+        return qs
+
     def test_drain_selected_calls_helper_per_row(self):
         from unittest.mock import MagicMock, patch
 
+        from django.contrib import messages
+
         admin_obj = self._admin()
         rows = [MagicMock(run_id="a"), MagicMock(run_id="b")]
+        qs = self._queryset(rows=rows)
         with patch("apps.orchestration.inbox.drain_run", return_value=1) as mock_drain:
             with patch.object(admin_obj, "message_user") as mock_msg:
-                admin_obj.drain_selected(request=MagicMock(), queryset=rows)
+                admin_obj.drain_selected(request=MagicMock(), queryset=qs)
         called_ids = [c.args[0] for c in mock_drain.call_args_list]
         self.assertEqual(called_ids, ["a", "b"])
         mock_msg.assert_called_once()
+        self.assertEqual(mock_msg.call_args.kwargs["level"], messages.SUCCESS)
 
-    def test_reclaim_stuck_calls_helper(self):
+    def test_drain_selected_isolates_row_errors(self):
+        from unittest.mock import MagicMock, patch
+
+        from django.contrib import messages
+
+        from apps.orchestration.models import PipelineRun
+
+        admin_obj = self._admin()
+        rows = [MagicMock(run_id="ok1"), MagicMock(run_id="bad"), MagicMock(run_id="ok2")]
+        qs = self._queryset(rows=rows)
+
+        def fake_drain(run_id):
+            if run_id == "bad":
+                # A row claimed/deleted between listing and action.
+                raise PipelineRun.DoesNotExist()
+            return 1
+
+        with patch("apps.orchestration.inbox.drain_run", side_effect=fake_drain):
+            with patch.object(admin_obj, "message_user") as mock_msg:
+                # Must not raise (no 500) even though a row fails.
+                admin_obj.drain_selected(request=MagicMock(), queryset=qs)
+        mock_msg.assert_called_once()
+        message = mock_msg.call_args.args[1]
+        self.assertIn("Drained 2", message)
+        self.assertIn("1 failed", message)
+        self.assertEqual(mock_msg.call_args.kwargs["level"], messages.ERROR)
+
+    def test_drain_selected_refuses_oversized_selection(self):
+        from unittest.mock import MagicMock, patch
+
+        from django.contrib import messages
+
+        admin_obj = self._admin()
+        qs = self._queryset(count=admin_obj.max_drain_selection + 1)
+        with patch("apps.orchestration.inbox.drain_run") as mock_drain:
+            with patch.object(admin_obj, "message_user") as mock_msg:
+                admin_obj.drain_selected(request=MagicMock(), queryset=qs)
+        mock_drain.assert_not_called()
+        mock_msg.assert_called_once()
+        self.assertEqual(mock_msg.call_args.kwargs["level"], messages.WARNING)
+
+    def test_reclaim_stuck_scopes_to_selected_pks(self):
         from unittest.mock import MagicMock, patch
 
         admin_obj = self._admin()
+        qs = self._queryset(pks=[7, 8])
         with patch("apps.orchestration.inbox.reclaim_stuck", return_value=3) as mock_reclaim:
             with patch.object(admin_obj, "message_user") as mock_msg:
-                admin_obj.reclaim_stuck(request=MagicMock(), queryset=MagicMock())
-        mock_reclaim.assert_called_once()
+                admin_obj.reclaim_stuck(request=MagicMock(), queryset=qs)
+        mock_reclaim.assert_called_once_with(pks=[7, 8])
         mock_msg.assert_called_once()
 
 

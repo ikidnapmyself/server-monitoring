@@ -88,3 +88,30 @@ def test_drain_run_not_pending_returns_zero():
         processed = inbox.drain_run(run.run_id)
     assert processed == 0
     mock_exec.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_reclaim_stuck_scoped_to_pks_leaves_others_untouched():
+    """A stuck run outside the pks selection is left PROCESSING (scoped reclaim)."""
+    selected = _run("selected", status=PipelineStatus.PROCESSING)
+    other = _run("other", status=PipelineStatus.PROCESSING)
+    stale = timezone.now() - timedelta(minutes=30)
+    PipelineRun.objects.filter(pk__in=[selected.pk, other.pk]).update(updated_at=stale)
+    reclaimed = inbox.reclaim_stuck(pks=[selected.pk])
+    assert reclaimed == 1
+    selected.refresh_from_db()
+    other.refresh_from_db()
+    assert selected.status == PipelineStatus.PENDING
+    assert other.status == PipelineStatus.PROCESSING
+
+
+@pytest.mark.django_db
+def test_reclaim_stuck_uses_default_stale_minutes():
+    """Calling with no timeout uses DEFAULT_STALE_MINUTES."""
+    run = _run("defaulted", status=PipelineStatus.PROCESSING)
+    PipelineRun.objects.filter(pk=run.pk).update(
+        updated_at=timezone.now() - timedelta(minutes=inbox.DEFAULT_STALE_MINUTES + 5)
+    )
+    assert inbox.reclaim_stuck() == 1
+    run.refresh_from_db()
+    assert run.status == PipelineStatus.PENDING

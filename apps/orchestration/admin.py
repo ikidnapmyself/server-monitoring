@@ -1,6 +1,6 @@
 """Admin configuration for orchestration models."""
 
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.db import models as db_models
 from django.utils.html import format_html, format_html_join
 from django.utils.timesince import timesince
@@ -369,6 +369,11 @@ class InboxAdmin(admin.ModelAdmin):
     search_fields = ["run_id", "trace_id", "alert_fingerprint"]
     actions = ["drain_selected", "reclaim_stuck"]
 
+    # Draining runs the full pipeline synchronously per row inside the request, so a
+    # large selection would tie up the worker. Refuse anything bigger and let the
+    # operator narrow the selection.
+    max_drain_selection = 25
+
     def has_add_permission(self, request):
         # The inbox is populated by ingest, never created by hand.
         return False
@@ -388,14 +393,47 @@ class InboxAdmin(admin.ModelAdmin):
 
     @admin.action(description="Drain selected (process now)")
     def drain_selected(self, request, queryset):
-        """Claim + execute each selected run via the shared inbox helper."""
+        """Claim + execute each selected run via the shared inbox helper.
+
+        Each row is isolated: a failure (including a row claimed or deleted between
+        listing and action, which raises ``PipelineRun.DoesNotExist``) is counted and
+        the drain continues. Oversized selections are refused up front because each row
+        runs the full pipeline synchronously in-request.
+        """
+        if queryset.count() > self.max_drain_selection:
+            self.message_user(
+                request,
+                f"Refusing to drain more than {self.max_drain_selection} runs at once; "
+                "narrow the selection and retry.",
+                level=messages.WARNING,
+            )
+            return
+
         processed = 0
+        failed = 0
         for obj in queryset:
-            processed += inbox.drain_run(obj.run_id)
-        self.message_user(request, f"Drained {processed} run(s).")
+            try:
+                processed += inbox.drain_run(obj.run_id)
+            except (
+                Exception
+            ):  # noqa: BLE001 — isolate each row; one bad run must not abort the rest
+                failed += 1
+        if failed:
+            self.message_user(
+                request,
+                f"Drained {processed} run(s); {failed} failed.",
+                level=messages.ERROR,
+            )
+        else:
+            self.message_user(
+                request,
+                f"Drained {processed} run(s).",
+                level=messages.SUCCESS,
+            )
 
     @admin.action(description="Reclaim stuck (PROCESSING -> PENDING)")
     def reclaim_stuck(self, request, queryset):
-        """Return stalled PROCESSING runs to PENDING via the shared inbox helper."""
-        count = inbox.reclaim_stuck()
-        self.message_user(request, f"Reclaimed {count} stuck run(s).")
+        """Return stalled PROCESSING runs in the selection to PENDING (scoped reclaim)."""
+        pks = list(queryset.values_list("pk", flat=True))
+        count = inbox.reclaim_stuck(pks=pks)
+        self.message_user(request, f"Reclaimed {count} stuck run(s).", level=messages.SUCCESS)
