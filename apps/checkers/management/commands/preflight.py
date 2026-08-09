@@ -12,6 +12,7 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
+from apps.checkers.models import PreflightCheck, PreflightRun
 from apps.checkers.preflight.checks import run_all
 from apps.checkers.preflight.dashboard import get_definitions, get_pipeline_state, get_profile
 from apps.checkers.preflight.logger import log_results
@@ -32,9 +33,17 @@ class Command(BaseCommand):
             dest="json_output",
             help="Output as JSON",
         )
+        parser.add_argument(
+            "--no-save",
+            action="store_true",
+            default=False,
+            dest="no_save",
+            help="Do not persist this preflight run to the database",
+        )
 
     def handle(self, *args, **options):
         json_output = options["json_output"]
+        no_save = options["no_save"]
 
         profile = get_profile()
         definitions = get_definitions()
@@ -47,11 +56,30 @@ class Command(BaseCommand):
         warnings = sum(1 for c in all_checks if c.level == "warn")
         errors = sum(1 for c in all_checks if c.level == "error")
 
+        if not no_save:
+            self._persist(all_checks, passed, warnings, errors)
+
         if json_output:
             pipeline = get_pipeline_state()
             self._output_json(profile, pipeline, definitions, all_checks, passed, warnings, errors)
         else:
             self._output_human(profile, definitions, all_checks, passed, warnings, errors)
+
+    def _persist(self, checks, passed, warnings, errors):
+        # Retention: preflight history grows unbounded here. A future prune
+        # (keep-last-N or older-than) is a follow-up; not built now (YAGNI).
+        overall_status = "error" if errors else "warn" if warnings else "ok"
+        run = PreflightRun.objects.create(
+            instance_id=settings.INSTANCE_ID,
+            passed=passed,
+            warnings=warnings,
+            errors=errors,
+            overall_status=overall_status,
+            triggered_by="cli",
+        )
+        PreflightCheck.objects.bulk_create(
+            [PreflightCheck(run=run, level=c.level, message=c.message, hint=c.hint) for c in checks]
+        )
 
     def _output_json(self, profile, pipeline, definitions, checks, passed, warnings, errors):
         data = {
