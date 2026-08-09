@@ -17,6 +17,14 @@ class PipelineStage(models.TextChoices):
     NOTIFY = "notify", "Notify"
 
 
+class PipelineOrigin(models.TextChoices):
+    """How a pipeline run was initiated (orthogonal to which node it concerns)."""
+
+    INCOMING_WEBHOOK = "incoming_webhook", "Incoming webhook"
+    CHECKER_GENERATED = "checker_generated", "Checker generated"
+    MANUAL = "manual", "Manual / CLI"
+
+
 class PipelineStatus(models.TextChoices):
     """Overall pipeline status (state machine)."""
 
@@ -86,6 +94,23 @@ class PipelineRun(models.Model):
         blank=True,
         related_name="pipeline_runs",
         help_text="Incident this pipeline run is associated with.",
+    )
+
+    # Which server this run concerns, and how it started
+    node = models.ForeignKey(
+        "alerts.Node",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pipeline_runs",
+        help_text="Server this run concerns (agent node, or the hub self-node).",
+    )
+    origin = models.CharField(
+        max_length=20,
+        choices=PipelineOrigin.choices,
+        default=PipelineOrigin.INCOMING_WEBHOOK,
+        db_index=True,
+        help_text="How this run started (incoming push vs local checker vs manual).",
     )
 
     # Source information

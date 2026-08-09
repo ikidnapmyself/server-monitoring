@@ -2,15 +2,24 @@
 
 import uuid
 
+import pytest
 from django.test import TestCase
 
 from apps.orchestration.models import (
+    PipelineOrigin,
     PipelineRun,
     PipelineStage,
     PipelineStatus,
     StageExecution,
     StageStatus,
 )
+
+
+@pytest.mark.django_db
+def test_pipelinerun_origin_defaults_incoming():
+    run = PipelineRun.objects.create(trace_id="t", run_id="r1")
+    assert run.origin == PipelineOrigin.INCOMING_WEBHOOK
+    assert run.node is None
 
 
 class PipelineRunModelTests(TestCase):
