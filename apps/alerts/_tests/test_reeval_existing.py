@@ -90,6 +90,48 @@ class ReevalExistingTests(TestCase):
         self.assertEqual(history.event, "reevaluated")
         self.assertEqual(history.new_status, "firing")
 
+    def test_finds_unlinked_alert_by_instance_id_label(self):
+        # Alert created before the node registered → node FK is NULL, but its
+        # instance_id label still identifies it. Reeval must find it by label.
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        a = self._alert(node, "cpu", 95.2)
+        a.node = None
+        a.save(update_fields=["node"])
+        report = preview_node_alert_reeval(node)
+        self.assertEqual(len(report.changes), 1)
+        self.assertEqual(report.changes[0].new_status, "resolved")
+
+    def test_apply_resolves_unlinked_alert_and_incident(self):
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        a = self._alert(node, "cpu", 95.2)
+        a.node = None
+        a.save(update_fields=["node"])
+        inc = Incident.objects.create(title="t", severity="critical", status="open")
+        inc.alerts.add(a)
+        apply_node_alert_reeval(node)
+        a.refresh_from_db()
+        self.assertEqual(a.status, "resolved")
+        inc.refresh_from_db()
+        self.assertEqual(inc.status, "resolved")
+
+    def test_ignores_other_nodes_alerts(self):
+        # A firing alert for a DIFFERENT instance_id must not be swept in.
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        other = Alert.objects.create(
+            fingerprint="cpu-web-99",
+            source="cluster",
+            name="cpu high",
+            severity="critical",
+            status="firing",
+            started_at=timezone.now(),
+            node=None,
+            labels={"checker": "cpu", "instance_id": "web-99"},
+            annotations={"metrics": json.dumps({"cpu_percent": 95.2})},
+        )
+        self.assertEqual(preview_node_alert_reeval(node).changes, [])
+        other.refresh_from_db()
+        self.assertEqual(other.status, "firing")
+
     def test_skips_when_no_config(self):
         node = self._node({})  # no config
         self._alert(node, "cpu", 95.2)

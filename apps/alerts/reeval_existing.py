@@ -56,9 +56,14 @@ def _score_alert(alert: Alert, config: dict) -> tuple[str, str, float] | None:
 
 
 def preview_node_alert_reeval(node: Node) -> ReevalReport:
-    """Report which of the node's open alerts would change; no writes."""
+    """Report which of the node's open alerts would change; no writes.
+
+    Alerts are matched by their ``instance_id`` label, not the ``node`` FK: the FK
+    is stamped only at alert creation (``resolve_node``), so an alert created before
+    its node registered is unlinked yet still belongs to the node by label.
+    """
     report = ReevalReport(node=node)
-    open_alerts = Alert.objects.filter(node=node, status="firing")
+    open_alerts = Alert.objects.filter(labels__instance_id=node.instance_id, status="firing")
     for alert in open_alerts:
         outcome = _score_alert(alert, node.config)
         if outcome is None:
@@ -137,7 +142,7 @@ def _resolve_incidents_for(node: Node) -> None:
     """Resolve open/ack incidents (touching this node) whose alerts all resolved."""
     incidents = Incident.objects.filter(
         status__in=[IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED],
-        alerts__node=node,
+        alerts__labels__instance_id=node.instance_id,
     ).distinct()
     for incident in incidents:
         if incident.alerts.exists() and not incident.alerts.filter(status="firing").exists():
