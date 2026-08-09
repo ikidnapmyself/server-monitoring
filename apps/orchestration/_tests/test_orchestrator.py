@@ -694,3 +694,39 @@ def test_incoming_run_resolves_node_from_instance_id():
 def test_incoming_run_without_instance_id_has_null_node():
     run = PipelineOrchestrator().start_pipeline(payload={}, source="grafana")
     assert run.node is None
+
+
+@pytest.mark.django_db
+def test_incoming_run_resolves_node_from_cluster_top_level_instance_id():
+    """Cluster shape: instance_id lives at the top of the inner payload."""
+    Node = __import__("apps.alerts.models", fromlist=["Node"]).Node
+    Node.objects.create(instance_id="web-03")
+    payload = {"payload": {"instance_id": "web-03", "alerts": []}}
+    run = PipelineOrchestrator().start_pipeline(payload=payload, source="cluster")
+    assert run.node is not None and run.node.instance_id == "web-03"
+
+
+@pytest.mark.django_db
+def test_incoming_run_resolves_node_from_instance_label_fallthrough():
+    """Falls through instance_id -> instance -> hostname in the first alert labels."""
+    Node = __import__("apps.alerts.models", fromlist=["Node"]).Node
+    Node.objects.create(instance_id="host-7")
+    payload = {"payload": {"alerts": [{"labels": {"hostname": "host-7"}}]}}
+    run = PipelineOrchestrator().start_pipeline(payload=payload, source="datadog")
+    assert run.node is not None and run.node.instance_id == "host-7"
+
+
+@pytest.mark.django_db
+def test_incoming_run_with_empty_alerts_has_null_node():
+    """No instance_id anywhere (empty alerts list) leaves node NULL."""
+    payload = {"payload": {"alerts": []}}
+    run = PipelineOrchestrator().start_pipeline(payload=payload, source="grafana")
+    assert run.node is None
+
+
+@pytest.mark.django_db
+def test_incoming_run_with_labelless_alert_has_null_node():
+    """An alert with no usable instance label leaves node NULL."""
+    payload = {"payload": {"alerts": [{"labels": {"foo": "bar"}}]}}
+    run = PipelineOrchestrator().start_pipeline(payload=payload, source="grafana")
+    assert run.node is None
