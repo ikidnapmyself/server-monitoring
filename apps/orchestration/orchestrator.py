@@ -220,6 +220,7 @@ class PipelineOrchestrator:
         source: str = "unknown",
         trace_id: str | None = None,
         environment: str = "production",
+        origin: str | None = None,
     ) -> PipelineResult:
         """
         Run the complete pipeline synchronously.
@@ -232,6 +233,7 @@ class PipelineOrchestrator:
             source: Source system.
             trace_id: Optional trace ID.
             environment: Environment name.
+            origin: How the run started (defaults to INCOMING_WEBHOOK).
 
         Returns:
             PipelineResult with all stage results.
@@ -241,6 +243,7 @@ class PipelineOrchestrator:
             source=source,
             trace_id=trace_id,
             environment=environment,
+            origin=origin,
         )
 
         return self._execute_pipeline(pipeline_run, payload)

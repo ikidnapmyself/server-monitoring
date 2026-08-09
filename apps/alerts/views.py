@@ -75,6 +75,7 @@ class AlertWebhookView(View):
             # ({driver, payload, [skip_checkers]}) that IngestExecutor expects, then
             # return immediately. A drain (manage.py process_inbox) processes it —
             # no inline pipeline, no broker, so a flood grows a bounded PENDING queue.
+            from apps.orchestration.models import PipelineOrigin
             from apps.orchestration.orchestrator import PipelineOrchestrator
 
             run_payload: dict[str, Any] = {"driver": driver, "payload": payload}
@@ -82,7 +83,9 @@ class AlertWebhookView(View):
                 run_payload["skip_checkers"] = True
 
             run = PipelineOrchestrator().start_pipeline(
-                payload=run_payload, source=driver or "unknown"
+                payload=run_payload,
+                source=driver or "unknown",
+                origin=PipelineOrigin.INCOMING_WEBHOOK,
             )
             logger.info(
                 "Webhook recorded run %s (source=%s) for draining",

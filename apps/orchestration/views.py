@@ -13,7 +13,7 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
-from apps.orchestration.models import PipelineRun, PipelineStatus
+from apps.orchestration.models import PipelineOrigin, PipelineRun, PipelineStatus
 from apps.orchestration.orchestrator import PipelineOrchestrator
 
 logger = logging.getLogger(__name__)
@@ -79,6 +79,7 @@ class PipelineView(JSONResponseMixin, View):
                 source=source,
                 trace_id=trace_id,
                 environment=environment,
+                origin=PipelineOrigin.INCOMING_WEBHOOK,
             )
             return self.json_response(
                 {

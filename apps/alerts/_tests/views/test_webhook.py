@@ -176,3 +176,15 @@ class WebhookNodeRegistrationTests(TestCase):
 
         self.assertEqual(response.status_code, 202)
         self.assertEqual(Node.objects.count(), 0)
+
+    def test_webhook_run_origin_is_incoming_webhook(self):
+        from apps.orchestration.models import PipelineOrigin
+
+        payload = {"name": "Test Alert", "status": "firing", "severity": "warning"}
+        response = self.client.post(
+            reverse("alerts:webhook"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        run = PipelineRun.objects.get(run_id=response.json()["run_id"])
+        self.assertEqual(run.origin, PipelineOrigin.INCOMING_WEBHOOK)

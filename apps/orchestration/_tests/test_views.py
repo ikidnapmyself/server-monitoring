@@ -63,6 +63,19 @@ class TestPipelineView(TestCase):
         run = PipelineRun.objects.get(run_id=data["run_id"])
         assert run.status == PipelineStatus.PENDING
 
+    def test_async_mode_run_origin_is_incoming_webhook(self):
+        """Async trigger records the run as an incoming webhook."""
+        from apps.orchestration.models import PipelineOrigin, PipelineRun
+
+        client = Client()
+        response = client.post(
+            "/orchestration/pipeline/",
+            data=json.dumps({"payload": {"key": "val"}, "source": "grafana"}),
+            content_type="application/json",
+        )
+        run = PipelineRun.objects.get(run_id=response.json()["run_id"])
+        assert run.origin == PipelineOrigin.INCOMING_WEBHOOK
+
     @patch("apps.orchestration.views.PipelineOrchestrator")
     def test_sync_mode(self, mock_orch_cls):
         """Sync mode calls PipelineOrchestrator.run_pipeline and returns 200."""
