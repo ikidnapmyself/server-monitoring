@@ -1,13 +1,16 @@
 """Admin configuration for alerts models."""
 
 from django.contrib import admin
+from django.core.exceptions import PermissionDenied
 from django.db import models as db_models
+from django.template.response import TemplateResponse
 from django.utils.html import format_html, format_html_join
 from django_json_widget.widgets import JSONEditorWidget
 from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
 
 from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus, Node
+from apps.alerts.reeval_existing import apply_node_alert_reeval, preview_node_alert_reeval
 from apps.orchestration.models import PipelineRun
 from config.dashboard import prettify_json
 
@@ -489,7 +492,7 @@ class AlertHistoryAdmin(admin.ModelAdmin):
 
 
 @admin.register(Node)
-class NodeAdmin(admin.ModelAdmin):
+class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
     """Registry of agents that have pushed cluster data to this hub.
 
     The registry fields (instance_id, hostname, …) are written only by the
@@ -498,6 +501,7 @@ class NodeAdmin(admin.ModelAdmin):
     per node (see apps/alerts/reevaluation.py).
     """
 
+    change_actions = ["reevaluate_open_alerts"]
     list_display = ["instance_id", "hostname", "last_source", "first_seen", "last_seen"]
     search_fields = ["instance_id", "hostname"]
     readonly_fields = [
@@ -535,3 +539,37 @@ class NodeAdmin(admin.ModelAdmin):
         operator-authored ``config`` policy (a later push re-creates the row
         without it)."""
         return False
+
+    @object_action(
+        label="Re-evaluate open alerts",
+        description="Re-score this node's open alerts against its current config",
+    )
+    def reevaluate_open_alerts(self, request, obj):
+        """Preview (then, on POST confirm) re-evaluate this node's open alerts."""
+        # django_object_actions gates the URL behind admin_view (is_staff only);
+        # enforce model change permission before any mutation.
+        if not self.has_change_permission(request, obj):
+            raise PermissionDenied
+        report = preview_node_alert_reeval(obj)
+        if not report.changes:
+            self.message_user(request, "No open alerts need re-evaluation.")
+            return
+        if request.method == "POST" and request.POST.get("confirm"):
+            applied = apply_node_alert_reeval(obj)
+            self.message_user(
+                request,
+                f"Resolved {applied.resolved_count}; changed severity on "
+                f"{applied.severity_changed_count}.",
+            )
+            return
+        return TemplateResponse(
+            request,
+            "admin/alerts/node/reevaluate_confirm.html",
+            {
+                **self.admin_site.each_context(request),
+                "node": obj,
+                "report": report,
+                "title": "Confirm re-evaluation",
+                "opts": self.model._meta,
+            },
+        )
