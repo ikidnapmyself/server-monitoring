@@ -5,16 +5,17 @@ claims and executes them. Run it as a supervised loop (systemd ``--loop``) or a
 one-shot pass from cron. The claim is atomic (PENDING -> PROCESSING) so overlapping
 drains never double-process, and a crashed drain's PROCESSING runs are reclaimed
 after ``--stale-minutes``.
+
+All claim/drain/reclaim logic lives in ``apps.orchestration.inbox`` so the admin
+Inbox monitor can reuse it; this command is a thin CLI wrapper.
 """
 
 import time
-from datetime import timedelta
 
 from django.core.management.base import BaseCommand, CommandError
-from django.utils import timezone
 
+from apps.orchestration import inbox
 from apps.orchestration.models import PipelineRun, PipelineStatus
-from apps.orchestration.orchestrator import PipelineOrchestrator
 
 
 class Command(BaseCommand):
@@ -62,23 +63,14 @@ class Command(BaseCommand):
 
     def _reclaim_stale(self, stale_minutes: int) -> None:
         """Return PROCESSING runs stuck past the timeout to PENDING for retry."""
-        cutoff = timezone.now() - timedelta(minutes=stale_minutes)
-        PipelineRun.objects.filter(status=PipelineStatus.PROCESSING, updated_at__lt=cutoff).update(
-            status=PipelineStatus.PENDING
-        )
+        inbox.reclaim_stuck(stale_minutes)
 
     def _claim(self, pk: int) -> bool:
         """Atomically move one run PENDING -> PROCESSING. True iff we won the claim."""
-        return (
-            PipelineRun.objects.filter(pk=pk, status=PipelineStatus.PENDING).update(
-                status=PipelineStatus.PROCESSING
-            )
-            == 1
-        )
+        return inbox.claim(pk)
 
     def _execute(self, run: PipelineRun) -> None:
-        run.refresh_from_db()
-        PipelineOrchestrator().execute_run(run)
+        inbox._execute(run)
 
     def _drain(self, limit: int) -> int:
         """Claim and execute up to ``limit`` PENDING runs (oldest first)."""
