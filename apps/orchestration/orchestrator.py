@@ -18,10 +18,13 @@ import logging
 import time
 import traceback
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import transaction
+
+if TYPE_CHECKING:
+    from apps.alerts.models import Node
 
 from apps.orchestration.dtos import (
     AnalyzeResult,
@@ -183,16 +186,18 @@ class PipelineOrchestrator:
         return pipeline_run
 
     @staticmethod
-    def _resolve_node(payload: dict[str, Any], origin: str):
+    def _resolve_node(payload: dict[str, Any], origin: str) -> "Node | None":
         """Resolve the Node a run concerns.
 
         CHECKER_GENERATED runs concern the hub itself, so upsert + return the
         self-node. Otherwise dig the ``instance_id`` out of the wrapper payload —
         either the inner payload's top-level ``instance_id`` (cluster shape) or the
-        first alert's labels (instance_id/instance/hostname fallthrough) — and link
-        to the already-registered Node, or None when unknown.
+        first alert's labels (instance_id/instance/hostname fallthrough, via the
+        shared, malformed-input-safe ``instance_key_from_labels``) — and link to
+        the already-registered Node, or None when unknown.
         """
         from apps.alerts.models import Node
+        from apps.alerts.services import instance_key_from_labels
 
         if origin == PipelineOrigin.CHECKER_GENERATED:
             return Node.ensure_self()
@@ -205,10 +210,7 @@ class PipelineOrchestrator:
         if not instance_id:
             alerts = inner.get("alerts")
             if isinstance(alerts, list) and alerts and isinstance(alerts[0], dict):
-                labels = alerts[0].get("labels") or {}
-                instance_id = (
-                    labels.get("instance_id") or labels.get("instance") or labels.get("hostname")
-                )
+                instance_id = instance_key_from_labels(alerts[0].get("labels"))
 
         if not instance_id:
             return None
