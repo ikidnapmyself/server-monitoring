@@ -45,7 +45,7 @@
   <input type="hidden" name="confirm" value="1">
   <div class="submit-row">
     <input type="submit" value="Confirm" class="default">
-    <a href="../../" class="button cancel-link">Cancel</a>
+    <a href="{% url 'admin:alerts_node_change' node.pk %}" class="button cancel-link">Cancel</a>
   </div>
 </form>
 {% endblock %}

@@ -57,7 +57,9 @@ class NodeReevaluateActionTests(TestCase):
         request = getattr(self.factory, method)("/", data or {})
         request.user = self.user
         # message_user requires a message store on the request.
-        setattr(request, "session", "session")
+        from django.contrib.sessions.backends.db import SessionStore
+
+        request.session = SessionStore()
         request._messages = FallbackStorage(request)
         return request
 
