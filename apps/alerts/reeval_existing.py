@@ -14,7 +14,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.alerts.models import Alert, AlertHistory, Incident, IncidentStatus, Node
-from apps.alerts.reevaluation import REEVALUATORS, _score_numeric, parse_metrics
+from apps.alerts.reevaluation import SCORERS, parse_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -45,13 +45,14 @@ class ReevalReport:
 
 def _score_alert(alert: Alert, config: dict) -> tuple[str, str, float] | None:
     checker = (alert.labels or {}).get("checker", "")
-    if checker not in REEVALUATORS:
+    scorer = SCORERS.get(checker)
+    if scorer is None:
         return None
     cfg = (config or {}).get(checker)
     metrics = parse_metrics(alert.annotations)
     if metrics is None:
         return None
-    return _score_numeric(checker, metrics, cfg)
+    return scorer(checker, metrics, cfg)
 
 
 def preview_node_alert_reeval(node: Node) -> ReevalReport:

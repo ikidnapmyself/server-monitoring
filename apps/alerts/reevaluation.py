@@ -81,6 +81,69 @@ def _score_numeric(checker: str, metrics: dict, cfg) -> tuple[str, str, float] |
     return ("info", "resolved", value)
 
 
+def _int_set(values) -> set[int] | None:
+    """Coerce a list of numbers to a set of ints; None if any element is invalid.
+
+    `_number` rejects bool and non-numbers, so a string/bool port fails open
+    (passthrough) rather than being silently coerced.
+    """
+    result: set[int] = set()
+    for value in values:
+        number = _number(value)
+        if number is None:
+            return None
+        result.add(int(number))
+    return result
+
+
+def _flag_ports(listening: list, allowset: set[int]) -> list[int] | None:
+    """Ports violating policy, mirroring the checker's ``flagged_ports``.
+
+    With an allowlist: every port not in it. Without one (empty allowlist): only
+    externally-exposed ports. A malformed entry returns None so callers fail open
+    (never mis-resolve on bad data).
+    """
+    flagged: list[int] = []
+    for entry in listening:
+        if not isinstance(entry, dict):
+            return None
+        port = _number(entry.get("port"))
+        if port is None:
+            return None
+        if int(port) in allowset:
+            continue
+        if allowset or entry.get("exposed"):
+            flagged.append(int(port))
+    return flagged
+
+
+def _score_allowlist(checker: str, metrics: dict, cfg) -> tuple[str, str, float] | None:
+    """Re-flag listening ports against a per-node allowlist. Binary warning/ok.
+
+    Reuses the checker's own flagging semantics against the full ``listening``
+    inventory the node reports. Returns None for any missing/invalid input so
+    callers can fail open. ``checker`` is unused (uniform scorer signature).
+    """
+    if not isinstance(cfg, dict) or not isinstance(metrics, dict):
+        return None
+    allow = cfg.get("allowlist")
+    if not isinstance(allow, list):
+        return None
+    allowset = _int_set(allow)
+    if allowset is None:
+        return None
+    listening = metrics.get("listening")
+    if not isinstance(listening, list):
+        return None
+    flagged = _flag_ports(listening, allowset)
+    if flagged is None:
+        return None
+    count = float(len(flagged))
+    if flagged:
+        return ("warning", "firing", count)
+    return ("info", "resolved", count)
+
+
 def numeric_evaluator(parsed: ParsedAlert, cfg: dict) -> tuple[str, str, float] | None:
     """Return (severity, status, value) for a numeric checker, or None to passthrough."""
     metrics = _metrics(parsed)
@@ -90,10 +153,28 @@ def numeric_evaluator(parsed: ParsedAlert, cfg: dict) -> tuple[str, str, float] 
     return _score_numeric(checker, metrics, cfg)
 
 
-# Dispatch seam: checker -> evaluator(parsed, cfg) -> (severity, status, value) | None.
-# First slice: one numeric evaluator for the seven numeric checkers.
+def allowlist_evaluator(parsed: ParsedAlert, cfg: dict) -> tuple[str, str, float] | None:
+    """Return (severity, status, value) for listening_ports, or None to passthrough."""
+    metrics = _metrics(parsed)
+    if metrics is None:
+        return None
+    return _score_allowlist("listening_ports", metrics, cfg)
+
+
+# Pure-scorer seam: checker -> (checker, metrics, cfg) -> (severity, status, value) | None.
+# Shared by ingest (via the evaluators below) and config-change re-eval
+# (`apps.alerts.reeval_existing`), so both paths score a checker identically.
+# cfg is typed `object`: each scorer validates it (fail-open on a non-dict), and
+# callers pass a raw `Node.config[checker]` lookup that may be None/malformed.
+SCORERS: dict[str, Callable[[str, dict, object], "tuple[str, str, float] | None"]] = {
+    **{checker: _score_numeric for checker in PRIMARY_METRIC},
+    "listening_ports": _score_allowlist,
+}
+
+# Ingest dispatch seam: checker -> evaluator(parsed, cfg) -> (severity, status, value) | None.
 REEVALUATORS: dict[str, Callable[[ParsedAlert, dict], "tuple[str, str, float] | None"]] = {
-    checker: numeric_evaluator for checker in PRIMARY_METRIC
+    **{checker: numeric_evaluator for checker in PRIMARY_METRIC},
+    "listening_ports": allowlist_evaluator,
 }
 
 

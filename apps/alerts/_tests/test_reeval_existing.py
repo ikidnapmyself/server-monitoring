@@ -105,6 +105,38 @@ class ReevalExistingTests(TestCase):
         self._alert(node, "cpu", 95)  # already critical + firing -> no change
         self.assertEqual(preview_node_alert_reeval(node).changes, [])
 
+    def test_listening_ports_resolves_when_allowlist_covers(self):
+        node = self._node({"listening_ports": {"allowlist": [22, 80]}})
+        a = self._alert(
+            node,
+            "listening_ports",
+            severity="warning",
+            annotations={
+                "metrics": json.dumps(
+                    {"listening": [{"port": 22, "exposed": True}, {"port": 80, "exposed": True}]}
+                )
+            },
+        )
+        report = apply_node_alert_reeval(node)
+        self.assertEqual(report.resolved_count, 1)
+        a.refresh_from_db()
+        self.assertEqual(a.status, "resolved")
+        self.assertEqual(a.severity, "info")
+        audit = json.loads(a.annotations["reevaluated_on_config_change"])
+        self.assertEqual(audit["checker"], "listening_ports")
+        self.assertEqual(audit["value"], 0.0)
+        self.assertEqual(audit["thresholds"], {"allowlist": [22, 80]})
+
+    def test_listening_ports_still_flagged_no_change(self):
+        node = self._node({"listening_ports": {"allowlist": [22]}})
+        self._alert(
+            node,
+            "listening_ports",
+            severity="warning",
+            annotations={"metrics": json.dumps({"listening": [{"port": 9999, "exposed": True}]})},
+        )
+        self.assertEqual(preview_node_alert_reeval(node).changes, [])
+
     def test_skips_non_numeric_checker(self):
         node = self._node({"raid": {"warning_threshold": 1, "critical_threshold": 2}})
         self._alert(node, "raid", 1, metric="array_count")

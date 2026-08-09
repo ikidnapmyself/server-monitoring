@@ -8,7 +8,9 @@ from apps.alerts.drivers.base import ParsedAlert
 from apps.alerts.models import Node
 from apps.alerts.reevaluation import (
     PRIMARY_METRIC,
+    _score_allowlist,
     _score_numeric,
+    allowlist_evaluator,
     numeric_evaluator,
     reevaluate_severity,
 )
@@ -66,6 +68,74 @@ def test_score_numeric_is_the_shared_scorer():
         _score_numeric("cpu", "not-a-dict", {"warning_threshold": 90, "critical_threshold": 95})
         is None
     )
+
+
+def test_score_allowlist_all_ports_allowed_resolves():
+    metrics = {"listening": [{"port": 22, "exposed": True}, {"port": 80, "exposed": True}]}
+    assert _score_allowlist("listening_ports", metrics, {"allowlist": [22, 80]}) == (
+        "info",
+        "resolved",
+        0.0,
+    )
+
+
+def test_score_allowlist_unexpected_port_fires():
+    metrics = {"listening": [{"port": 22, "exposed": True}, {"port": 9999, "exposed": True}]}
+    assert _score_allowlist("listening_ports", metrics, {"allowlist": [22]}) == (
+        "warning",
+        "firing",
+        1.0,
+    )
+
+
+def test_score_allowlist_empty_allowlist_flags_only_exposed():
+    # No allowlist configured -> only externally-exposed (non-loopback) ports flag.
+    metrics = {"listening": [{"port": 22, "exposed": False}, {"port": 9999, "exposed": True}]}
+    assert _score_allowlist("listening_ports", metrics, {"allowlist": []}) == (
+        "warning",
+        "firing",
+        1.0,
+    )
+
+
+def test_score_allowlist_empty_allowlist_all_loopback_resolves():
+    metrics = {"listening": [{"port": 22, "exposed": False}]}
+    assert _score_allowlist("listening_ports", metrics, {"allowlist": []}) == (
+        "info",
+        "resolved",
+        0.0,
+    )
+
+
+def test_score_allowlist_fail_open_cases():
+    good = {"listening": [{"port": 22, "exposed": True}]}
+    assert _score_allowlist("listening_ports", good, "nope") is None  # cfg not a dict
+    assert _score_allowlist("listening_ports", good, {}) is None  # no allowlist key
+    assert _score_allowlist("listening_ports", good, {"allowlist": "x"}) is None  # not a list
+    assert _score_allowlist("listening_ports", good, {"allowlist": ["22"]}) is None  # string port
+    assert _score_allowlist("listening_ports", good, {"allowlist": [True]}) is None  # bool port
+    assert _score_allowlist("listening_ports", "x", {"allowlist": [22]}) is None  # metrics not dict
+    assert _score_allowlist("listening_ports", {"other": 1}, {"allowlist": [22]}) is None  # no key
+    assert (
+        _score_allowlist("listening_ports", {"listening": "x"}, {"allowlist": [22]}) is None
+    )  # listening not a list
+    assert (
+        _score_allowlist("listening_ports", {"listening": [1]}, {"allowlist": [22]}) is None
+    )  # entry not a dict
+    assert (
+        _score_allowlist("listening_ports", {"listening": [{"port": "x"}]}, {"allowlist": [22]})
+        is None
+    )  # malformed port
+
+
+def test_allowlist_evaluator_resolves_when_covered():
+    parsed = _alert("listening_ports", '{"listening": [{"port": 22, "exposed": true}]}')
+    assert allowlist_evaluator(parsed, {"allowlist": [22]}) == ("info", "resolved", 0.0)
+
+
+def test_allowlist_evaluator_no_metrics_returns_none():
+    parsed = _alert("listening_ports", "not json")
+    assert allowlist_evaluator(parsed, {"allowlist": [22]}) is None
 
 
 def test_primary_metric_covers_seven_numeric_checkers():
@@ -229,6 +299,36 @@ class ReevaluateSeverityTests(TestCase):
         Node.objects.create(instance_id="web-03", config={"raid": {"x": 1}})
         out = reevaluate_severity(self._alert("raid", '{"array_count": 1}'))
         self.assertEqual(out.severity, "critical")
+
+    def test_listening_ports_resolves_when_allowlist_covers(self):
+        Node.objects.create(
+            instance_id="web-03", config={"listening_ports": {"allowlist": [22, 80]}}
+        )
+        parsed = self._alert(
+            "listening_ports",
+            '{"listening": [{"port": 22, "exposed": true}, {"port": 80, "exposed": true}]}',
+            severity="warning",
+        )
+        out = reevaluate_severity(parsed)
+        self.assertEqual(out.severity, "info")
+        self.assertEqual(out.status, "resolved")
+        self.assertIsNotNone(out.ended_at)
+        audit = json.loads(out.annotations["severity_reevaluated"])
+        self.assertEqual(audit["checker"], "listening_ports")
+        self.assertEqual(audit["to"], "info")
+        self.assertEqual(audit["value"], 0.0)
+
+    def test_listening_ports_still_flagged_passthrough(self):
+        Node.objects.create(instance_id="web-03", config={"listening_ports": {"allowlist": [22]}})
+        parsed = self._alert(
+            "listening_ports",
+            '{"listening": [{"port": 9999, "exposed": true}]}',
+            severity="warning",
+        )
+        out = reevaluate_severity(parsed)
+        self.assertEqual(out.severity, "warning")
+        self.assertEqual(out.status, "firing")
+        self.assertNotIn("severity_reevaluated", out.annotations)
 
     def test_missing_checker_label_passthrough(self):
         out = reevaluate_severity(
