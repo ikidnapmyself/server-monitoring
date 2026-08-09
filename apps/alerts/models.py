@@ -2,6 +2,9 @@
 Alert and Incident models for tracking alerts from various sources.
 """
 
+import socket
+
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -382,10 +385,6 @@ class Node(models.Model):
 
         Returns the self-node, or None when INSTANCE_ID is unset (no-op).
         """
-        import socket
-
-        from django.conf import settings
-
         instance_id = getattr(settings, "INSTANCE_ID", "") or ""
         if not instance_id:
             return None
