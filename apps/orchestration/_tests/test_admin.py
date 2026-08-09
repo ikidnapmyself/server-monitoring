@@ -365,3 +365,86 @@ class TestPipelineRunAdminFilters(SimpleTestCase):
         self.assertIn("node", list_display)
         self.assertIn("origin", list_display)
         self.assertIn("status", list_display)
+
+
+class TestInboxAdmin(SimpleTestCase):
+    """InboxAdmin monitors PENDING/PROCESSING runs with drain/reclaim actions."""
+
+    def _admin(self):
+        from apps.orchestration.admin import InboxAdmin
+        from apps.orchestration.models import InboxItem
+
+        return InboxAdmin(InboxItem, admin.site)
+
+    def test_inbox_item_is_registered(self):
+        from apps.orchestration.models import InboxItem
+
+        self.assertTrue(admin.site.is_registered(InboxItem))
+
+    def test_no_add_permission(self):
+        self.assertFalse(self._admin().has_add_permission(request=None))
+
+    def test_ordering_is_oldest_first(self):
+        self.assertEqual(self._admin().ordering, ["created_at"])
+
+    def test_list_display_columns(self):
+        list_display = self._admin().list_display
+        for col in ("run_id", "source", "node", "origin", "status", "age", "stuck"):
+            self.assertIn(col, list_display)
+
+    def test_actions_defined(self):
+        actions = self._admin().actions
+        self.assertIn("drain_selected", actions)
+        self.assertIn("reclaim_stuck", actions)
+
+    def test_age_returns_human_string(self):
+        from apps.orchestration.models import InboxItem
+
+        item = InboxItem(trace_id="t", run_id="r", created_at=timezone.now())
+        self.assertIsInstance(self._admin().age(item), str)
+
+    def test_stuck_display_delegates_to_model(self):
+        from unittest.mock import MagicMock
+
+        obj = MagicMock()
+        obj.is_stuck.return_value = True
+        self.assertTrue(self._admin().stuck(obj))
+        obj.is_stuck.assert_called_once()
+
+    def test_drain_selected_calls_helper_per_row(self):
+        from unittest.mock import MagicMock, patch
+
+        admin_obj = self._admin()
+        rows = [MagicMock(run_id="a"), MagicMock(run_id="b")]
+        with patch("apps.orchestration.inbox.drain_run", return_value=1) as mock_drain:
+            with patch.object(admin_obj, "message_user") as mock_msg:
+                admin_obj.drain_selected(request=MagicMock(), queryset=rows)
+        called_ids = [c.args[0] for c in mock_drain.call_args_list]
+        self.assertEqual(called_ids, ["a", "b"])
+        mock_msg.assert_called_once()
+
+    def test_reclaim_stuck_calls_helper(self):
+        from unittest.mock import MagicMock, patch
+
+        admin_obj = self._admin()
+        with patch("apps.orchestration.inbox.reclaim_stuck", return_value=3) as mock_reclaim:
+            with patch.object(admin_obj, "message_user") as mock_msg:
+                admin_obj.reclaim_stuck(request=MagicMock(), queryset=MagicMock())
+        mock_reclaim.assert_called_once()
+        mock_msg.assert_called_once()
+
+
+class TestInboxAdminQueryset(TestCase):
+    """InboxAdmin.get_queryset returns only inbox items (via the proxy manager)."""
+
+    def test_get_queryset_filters_to_inbox(self):
+        from unittest.mock import MagicMock
+
+        from apps.orchestration.admin import InboxAdmin
+        from apps.orchestration.models import InboxItem, PipelineRun, PipelineStatus
+
+        PipelineRun.objects.create(trace_id="t", run_id="pend", status=PipelineStatus.PENDING)
+        PipelineRun.objects.create(trace_id="t", run_id="done", status=PipelineStatus.NOTIFIED)
+        admin_obj = InboxAdmin(InboxItem, admin.site)
+        qs = admin_obj.get_queryset(MagicMock())
+        self.assertEqual(list(qs.values_list("run_id", flat=True)), ["pend"])

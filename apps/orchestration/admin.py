@@ -3,11 +3,14 @@
 from django.contrib import admin
 from django.db import models as db_models
 from django.utils.html import format_html, format_html_join
+from django.utils.timesince import timesince
 from django_json_widget.widgets import JSONEditorWidget
 from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
 
+from apps.orchestration import inbox
 from apps.orchestration.models import (
+    InboxItem,
     PipelineDefinition,
     PipelineRun,
     PipelineStatus,
@@ -350,3 +353,49 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
         if not obj.created_by:
             obj.created_by = request.user.username
         super().save_model(request, obj, form, change)
+
+
+@admin.register(InboxItem)
+class InboxAdmin(admin.ModelAdmin):
+    """Monitor of un-drained pipeline runs (PENDING/PROCESSING) with drain/reclaim.
+
+    Reuses the shared ``apps.orchestration.inbox`` helpers so the drain/claim logic
+    is single-sourced with the ``process_inbox`` management command.
+    """
+
+    ordering = ["created_at"]  # oldest first — the natural drain order
+    list_display = ["run_id", "source", "node", "origin", "status", "age", "stuck"]
+    list_filter = ["status", "origin", "node", "source"]
+    search_fields = ["run_id", "trace_id", "alert_fingerprint"]
+    actions = ["drain_selected", "reclaim_stuck"]
+
+    def has_add_permission(self, request):
+        # The inbox is populated by ingest, never created by hand.
+        return False
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("node")
+
+    @admin.display(description="Age")
+    def age(self, obj):
+        """Human-readable time since the run was recorded."""
+        return timesince(obj.created_at)
+
+    @admin.display(description="Stuck", boolean=True)
+    def stuck(self, obj):
+        """True if the run has been PROCESSING past the stall timeout."""
+        return obj.is_stuck()
+
+    @admin.action(description="Drain selected (process now)")
+    def drain_selected(self, request, queryset):
+        """Claim + execute each selected run via the shared inbox helper."""
+        processed = 0
+        for obj in queryset:
+            processed += inbox.drain_run(obj.run_id)
+        self.message_user(request, f"Drained {processed} run(s).")
+
+    @admin.action(description="Reclaim stuck (PROCESSING -> PENDING)")
+    def reclaim_stuck(self, request, queryset):
+        """Return stalled PROCESSING runs to PENDING via the shared inbox helper."""
+        count = inbox.reclaim_stuck()
+        self.message_user(request, f"Reclaimed {count} stuck run(s).")
