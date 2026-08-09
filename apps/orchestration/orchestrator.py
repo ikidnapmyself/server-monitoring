@@ -40,6 +40,7 @@ from apps.orchestration.executors import (
     NotifyExecutor,
 )
 from apps.orchestration.models import (
+    PipelineOrigin,
     PipelineRun,
     PipelineStage,
     PipelineStatus,
@@ -134,6 +135,7 @@ class PipelineOrchestrator:
         source: str = "unknown",
         trace_id: str | None = None,
         environment: str = "production",
+        origin: str | None = None,
     ) -> PipelineRun:
         """
         Start a new pipeline run.
@@ -145,6 +147,7 @@ class PipelineOrchestrator:
             source: Source system (grafana, alertmanager, etc.).
             trace_id: Optional trace ID (generated if not provided).
             environment: Environment name.
+            origin: How the run started (defaults to INCOMING_WEBHOOK).
 
         Returns:
             Created PipelineRun instance.
@@ -152,7 +155,12 @@ class PipelineOrchestrator:
         if trace_id is None:
             trace_id = str(uuid.uuid4())
 
+        if origin is None:
+            origin = PipelineOrigin.INCOMING_WEBHOOK
+
         run_id = str(uuid.uuid4())
+
+        node = self._resolve_node(payload, origin)
 
         with transaction.atomic():
             pipeline_run = PipelineRun.objects.create(
@@ -163,6 +171,8 @@ class PipelineOrchestrator:
                 status=PipelineStatus.PENDING,
                 max_retries=self.max_retries,
                 inbound_payload=payload,
+                origin=origin,
+                node=node,
             )
 
         logger.info(
@@ -171,6 +181,38 @@ class PipelineOrchestrator:
         )
 
         return pipeline_run
+
+    @staticmethod
+    def _resolve_node(payload: dict[str, Any], origin: str):
+        """Resolve the Node a run concerns.
+
+        CHECKER_GENERATED runs concern the hub itself, so upsert + return the
+        self-node. Otherwise dig the ``instance_id`` out of the wrapper payload —
+        either the inner payload's top-level ``instance_id`` (cluster shape) or the
+        first alert's labels (instance_id/instance/hostname fallthrough) — and link
+        to the already-registered Node, or None when unknown.
+        """
+        from apps.alerts.models import Node
+
+        if origin == PipelineOrigin.CHECKER_GENERATED:
+            return Node.ensure_self()
+
+        inner = payload.get("payload")
+        if not isinstance(inner, dict):
+            return None
+
+        instance_id = inner.get("instance_id")
+        if not instance_id:
+            alerts = inner.get("alerts")
+            if isinstance(alerts, list) and alerts and isinstance(alerts[0], dict):
+                labels = alerts[0].get("labels") or {}
+                instance_id = (
+                    labels.get("instance_id") or labels.get("instance") or labels.get("hostname")
+                )
+
+        if not instance_id:
+            return None
+        return Node.objects.filter(instance_id=instance_id).first()
 
     def run_pipeline(
         self,

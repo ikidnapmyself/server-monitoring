@@ -2,7 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+import pytest
+from django.test import TestCase, override_settings
 
 from apps.orchestration.dtos import (
     AnalyzeResult,
@@ -11,6 +12,7 @@ from apps.orchestration.dtos import (
     NotifyResult,
 )
 from apps.orchestration.models import (
+    PipelineOrigin,
     PipelineStage,
     PipelineStatus,
     StageExecution,
@@ -662,3 +664,33 @@ class SkipCheckersTests(TestCase):
         run = PipelineRun.objects.order_by("-started_at").first()
         assert run is not None
         assert run.status == PipelineStatus.NOTIFIED
+
+
+@pytest.mark.django_db
+@override_settings(INSTANCE_ID="hub-1")
+def test_checker_generated_run_gets_self_node():
+    run = PipelineOrchestrator().start_pipeline(
+        payload={"checks_only": True},
+        source="cli",
+        origin=PipelineOrigin.CHECKER_GENERATED,
+    )
+    assert run.origin == PipelineOrigin.CHECKER_GENERATED
+    assert run.node is not None and run.node.is_self is True
+
+
+@pytest.mark.django_db
+def test_incoming_run_resolves_node_from_instance_id():
+    Node = __import__("apps.alerts.models", fromlist=["Node"]).Node
+    Node.objects.create(instance_id="agent-9")  # node must exist to resolve
+    payload = {"payload": {"alerts": [{"labels": {"instance_id": "agent-9"}}]}}
+    run = PipelineOrchestrator().start_pipeline(
+        payload=payload, source="grafana", origin=PipelineOrigin.INCOMING_WEBHOOK
+    )
+    assert run.origin == PipelineOrigin.INCOMING_WEBHOOK
+    assert run.node is not None and run.node.instance_id == "agent-9"
+
+
+@pytest.mark.django_db
+def test_incoming_run_without_instance_id_has_null_node():
+    run = PipelineOrchestrator().start_pipeline(payload={}, source="grafana")
+    assert run.node is None
