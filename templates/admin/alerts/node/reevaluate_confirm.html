@@ -1,0 +1,39 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<p>
+  Re-evaluate the open alerts for node
+  <strong>{{ node.instance_id }}</strong> against its current config.
+  The following changes will be applied:
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Checker</th>
+      <th>Severity</th>
+      <th>Status</th>
+      <th>Value</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for change in report.changes %}
+    <tr>
+      <td>{{ change.alert.labels.checker }}</td>
+      <td>{{ change.old_severity }} &rarr; {{ change.new_severity }}</td>
+      <td>{{ change.old_status }} &rarr; {{ change.new_status }}</td>
+      <td>{{ change.value }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<form method="post">
+  {% csrf_token %}
+  <input type="hidden" name="confirm" value="1">
+  <div class="submit-row">
+    <input type="submit" value="Confirm" class="default">
+    <a href="../../" class="button cancel-link">Cancel</a>
+  </div>
+</form>
+{% endblock %}
