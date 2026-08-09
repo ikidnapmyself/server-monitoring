@@ -1,0 +1,48 @@
+"""Tests for PreflightRun + PreflightCheck models."""
+
+import pytest
+
+from apps.checkers.models import PreflightCheck, PreflightRun
+
+
+@pytest.mark.django_db
+def test_preflight_run_with_counts_and_children():
+    run = PreflightRun.objects.create(
+        instance_id="node-1",
+        passed=3,
+        warnings=1,
+        errors=0,
+        overall_status="warn",
+        triggered_by="cli",
+    )
+    PreflightCheck.objects.create(run=run, level="ok", message="Python OK", hint="")
+    PreflightCheck.objects.create(run=run, level="warn", message="DEBUG on", hint="Disable DEBUG")
+
+    assert run.instance_id == "node-1"
+    assert run.passed == 3
+    assert run.warnings == 1
+    assert run.errors == 0
+    assert run.overall_status == "warn"
+    assert run.triggered_by == "cli"
+    assert run.checks.count() == 2
+
+    child = run.checks.get(level="warn")
+    assert child.message == "DEBUG on"
+    assert child.hint == "Disable DEBUG"
+
+
+@pytest.mark.django_db
+def test_preflight_run_default_ordering_newest_first():
+    older = PreflightRun.objects.create(overall_status="ok")
+    newer = PreflightRun.objects.create(overall_status="error")
+
+    runs = list(PreflightRun.objects.all())
+    assert runs[0] == newer
+    assert runs[1] == older
+
+
+@pytest.mark.django_db
+def test_preflight_run_str():
+    run = PreflightRun.objects.create(overall_status="ok")
+    assert "Preflight" in str(run)
+    assert "ok" in str(run)

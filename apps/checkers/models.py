@@ -134,3 +134,40 @@ class CheckRun(models.Model):
     def created_alert(self) -> bool:
         """Check if this run resulted in an alert."""
         return self.alert is not None
+
+
+class PreflightRun(models.Model):
+    """
+    Node-local record of a single ``preflight`` command execution.
+
+    Preflight checks are environment/config/deployment sanity checks
+    (Python version, .venv, .env, migrations, DEBUG mode, DB connectivity,
+    disk space, etc.) — distinct from health checkers that write CheckRun.
+    Results are persisted node-locally only; there is no hub-push.
+    """
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    instance_id = models.CharField(max_length=255, blank=True, default="")
+    passed = models.PositiveIntegerField(default=0)
+    warnings = models.PositiveIntegerField(default=0)
+    errors = models.PositiveIntegerField(default=0)
+    overall_status = models.CharField(max_length=10, default="ok")  # ok|warn|error
+    triggered_by = models.CharField(max_length=50, blank=True, default="")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Preflight {self.created_at:%Y-%m-%d %H:%M} ({self.overall_status})"
+
+
+class PreflightCheck(models.Model):
+    """A single check result belonging to a PreflightRun."""
+
+    run = models.ForeignKey(PreflightRun, on_delete=models.CASCADE, related_name="checks")
+    level = models.CharField(max_length=10)  # ok|info|warn|error
+    message = models.TextField(blank=True, default="")
+    hint = models.TextField(blank=True, default="")
+
+    def __str__(self):
+        return f"[{self.level}] {self.message}"
