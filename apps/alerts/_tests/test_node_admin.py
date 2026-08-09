@@ -3,6 +3,7 @@ import json
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.core.exceptions import PermissionDenied
 from django.db import models as db_models
 from django.template.response import TemplateResponse
 from django.test import RequestFactory, TestCase
@@ -116,3 +117,31 @@ class NodeReevaluateActionTests(TestCase):
         messages = list(request._messages)
         self.assertEqual(len(messages), 1)
         self.assertIn("Resolved 1", messages[0].message)
+
+    def test_post_without_confirm_renders_page_and_does_not_apply(self):
+        node = Node.objects.create(
+            instance_id="web-03",
+            config={"cpu": {"warning_threshold": 99, "critical_threshold": 99}},
+        )
+        alert = self._firing_cpu_alert(node)
+        request = self._request("post")  # bare POST, no confirm field
+        response = self.model_admin.reevaluate_open_alerts(request, node)
+        self.assertIsInstance(response, TemplateResponse)
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, "firing")
+
+    def test_staff_without_change_permission_is_denied(self):
+        node = Node.objects.create(
+            instance_id="web-03",
+            config={"cpu": {"warning_threshold": 99, "critical_threshold": 99}},
+        )
+        alert = self._firing_cpu_alert(node)
+        staff = get_user_model().objects.create_user(
+            username="viewer", email="viewer@example.com", password="pw", is_staff=True
+        )
+        request = self._request("post", {"confirm": "1"})
+        request.user = staff
+        with self.assertRaises(PermissionDenied):
+            self.model_admin.reevaluate_open_alerts(request, node)
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, "firing")

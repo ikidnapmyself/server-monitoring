@@ -36,7 +36,12 @@ class Command(BaseCommand):
             return
 
         if not options["noinput"]:
-            if input("Apply these changes? [y/N] ").strip().lower() != "y":
+            try:
+                answer = input("Apply these changes? [y/N] ")
+            except EOFError:
+                # Closed / non-interactive stdin (cron, CI, `echo | ...`): abort safely.
+                answer = ""
+            if answer.strip().lower() != "y":
                 self.stdout.write("Aborted.")
                 return
 

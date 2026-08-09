@@ -67,6 +67,16 @@ class ReevaluateNodeAlertsCommandTests(TestCase):
         alert.refresh_from_db()
         self.assertEqual(alert.status, "firing")
 
+    @patch("builtins.input", side_effect=EOFError)
+    def test_prompt_eof_aborts(self, _mock_input):
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        alert = self._firing_cpu_alert(node)
+        out = StringIO()
+        call_command("reevaluate_node_alerts", "web-03", stdout=out)
+        self.assertIn("Aborted.", out.getvalue())
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, "firing")
+
     @patch("builtins.input", return_value="y")
     def test_prompt_yes_applies(self, _mock_input):
         node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})

@@ -1,6 +1,7 @@
 """Admin configuration for alerts models."""
 
 from django.contrib import admin
+from django.core.exceptions import PermissionDenied
 from django.db import models as db_models
 from django.template.response import TemplateResponse
 from django.utils.html import format_html, format_html_join
@@ -545,6 +546,10 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
     )
     def reevaluate_open_alerts(self, request, obj):
         """Preview (then, on POST confirm) re-evaluate this node's open alerts."""
+        # django_object_actions gates the URL behind admin_view (is_staff only);
+        # enforce model change permission before any mutation.
+        if not self.has_change_permission(request, obj):
+            raise PermissionDenied
         report = preview_node_alert_reeval(obj)
         if not report.changes:
             self.message_user(request, "No open alerts need re-evaluation.")

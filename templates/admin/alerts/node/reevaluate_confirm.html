@@ -1,5 +1,15 @@
 {% extends "admin/base_site.html" %}
 
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">Home</a>
+  &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+  &rsaquo; <a href="{% url 'admin:alerts_node_changelist' %}">Nodes</a>
+  &rsaquo; <a href="{% url 'admin:alerts_node_change' node.pk %}">{{ node.instance_id }}</a>
+  &rsaquo; Re-evaluate
+</div>
+{% endblock %}
+
 {% block content %}
 <p>
   Re-evaluate the open alerts for node
@@ -7,6 +17,7 @@
   The following changes will be applied:
 </p>
 
+<div class="results">
 <table>
   <thead>
     <tr>
@@ -27,6 +38,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 
 <form method="post">
   {% csrf_token %}
