@@ -375,3 +375,22 @@ class Node(models.Model):
         if not created:
             node.save(update_fields=["last_seen"])  # bump auto_now
         return node
+
+    @classmethod
+    def ensure_self(cls):
+        """Upsert the Node representing this hub, keyed by settings.INSTANCE_ID.
+
+        Returns the self-node, or None when INSTANCE_ID is unset (no-op).
+        """
+        import socket
+
+        from django.conf import settings
+
+        instance_id = getattr(settings, "INSTANCE_ID", "") or ""
+        if not instance_id:
+            return None
+        node, _ = cls.objects.update_or_create(
+            instance_id=instance_id,
+            defaults={"is_self": True, "hostname": socket.gethostname()},
+        )
+        return node
