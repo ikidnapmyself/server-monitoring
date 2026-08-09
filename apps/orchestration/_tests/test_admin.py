@@ -343,3 +343,25 @@ class TestJsonWidgetRendering(TestCase):
         assert response.status_code == 200
         content = response.content.decode()
         assert "<pre" in content
+
+
+class TestPipelineRunAdminFilters(SimpleTestCase):
+    """PipelineRunAdmin exposes node/origin/status for filtering and display."""
+
+    def _admin(self):
+        from apps.orchestration.admin import PipelineRunAdmin
+        from apps.orchestration.models import PipelineRun
+
+        return PipelineRunAdmin(PipelineRun, admin.site)
+
+    def test_list_filter_has_node_origin_status(self):
+        list_filter = self._admin().list_filter
+        self.assertIn("node", list_filter)
+        self.assertIn("origin", list_filter)
+        self.assertIn("status", list_filter)
+
+    def test_list_display_has_node_origin_status(self):
+        list_display = self._admin().list_display
+        self.assertIn("node", list_display)
+        self.assertIn("origin", list_display)
+        self.assertIn("status", list_display)

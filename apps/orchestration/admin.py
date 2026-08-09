@@ -47,13 +47,15 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
         "trace_id",
         "pipeline_flow",
         "status",
+        "origin",
+        "node",
         "source",
         "current_stage",
         "total_attempts",
         "created_at",
         "total_duration_ms",
     ]
-    list_filter = ["status", "source", "current_stage", "environment"]
+    list_filter = ["status", "origin", "node", "source", "current_stage", "environment"]
     search_fields = ["run_id", "trace_id", "alert_fingerprint"]
     readonly_fields = [
         "run_id",
@@ -73,7 +75,7 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
         return (
             super()
             .get_queryset(request)
-            .select_related("incident")
+            .select_related("incident", "node")
             .prefetch_related("stage_executions")
         )
 
