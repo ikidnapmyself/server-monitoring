@@ -334,6 +334,10 @@ class Node(models.Model):
     """
 
     instance_id = models.CharField(max_length=255, unique=True, db_index=True)
+    is_self = models.BooleanField(
+        default=False,
+        help_text="True for the Node representing this hub itself (self-node).",
+    )
     hostname = models.CharField(max_length=255, blank=True, default="")
     address = models.CharField(max_length=255, blank=True, default="")
     last_source = models.CharField(max_length=64, blank=True, default="")
