@@ -252,3 +252,67 @@ class TestJourneyPanel(TestCase):
         resp = self.client.get(f"/admin/alerts/alert/{alert.id}/change/")
         assert resp.status_code == 200
         assert "not processed — inbox" in resp.content.decode()
+
+
+class TestIncidentJourneyTimeline(TestCase):
+    """Task 6.2: merged journey timeline rendered on IncidentAdmin."""
+
+    def _admin(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import IncidentAdmin
+
+        return IncidentAdmin(Incident, AdminSite())
+
+    def test_journey_timeline_in_readonly_fields(self):
+        from apps.alerts.admin import IncidentAdmin
+
+        assert "journey_timeline" in IncidentAdmin.readonly_fields
+
+    def test_journey_timeline_renders_events_in_order_escaped(self):
+        from datetime import timedelta
+
+        from django.utils.safestring import SafeString
+
+        from apps.alerts.models import AlertHistory
+        from apps.orchestration.models import StageExecution
+
+        base = timezone.now()
+        incident = Incident.objects.create(title="Inc", severity="critical")
+        alert = Alert.objects.create(
+            fingerprint="fp",
+            source="cluster",
+            name="cpu",
+            severity="critical",
+            started_at=base,
+            incident=incident,
+        )
+        hist = AlertHistory.objects.create(alert=alert, event="created", new_status="firing")
+        AlertHistory.objects.filter(pk=hist.pk).update(created_at=base + timedelta(seconds=10))
+        run = PipelineRun.objects.create(
+            trace_id="tr", run_id="run-1", incident=incident, notify_output_ref="ref-1"
+        )
+        PipelineRun.objects.filter(pk=run.pk).update(created_at=base + timedelta(seconds=5))
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage="notify",
+            status="failed",
+            started_at=base + timedelta(seconds=20),
+            error_message="<b>boom</b>",
+        )
+
+        html = self._admin().journey_timeline(incident)
+        assert isinstance(html, SafeString)
+        # Chronological: pipeline run label before stage label.
+        assert html.index("run-1") < html.index("notify failed")
+        # Dynamic content with HTML-special chars is escaped.
+        assert "&lt;b&gt;boom&lt;/b&gt;" in html
+        assert "<b>boom</b>" not in html
+
+    def test_journey_timeline_empty_incident(self):
+        from django.utils.safestring import SafeString
+
+        incident = Incident.objects.create(title="Empty", severity="info")
+        html = self._admin().journey_timeline(incident)
+        assert isinstance(html, SafeString)
+        assert "No timeline events yet." in html

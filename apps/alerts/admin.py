@@ -11,6 +11,7 @@ from django_object_actions import action as object_action
 
 from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus, Node
 from apps.alerts.reeval_existing import apply_node_alert_reeval, preview_node_alert_reeval
+from apps.alerts.timeline import build_incident_timeline
 from apps.orchestration.models import PipelineRun
 from config.dashboard import prettify_json
 
@@ -250,6 +251,7 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         "firing_alert_count_display",
         "pipeline_runs_display",
         "journey_display",
+        "journey_timeline",
         "pretty_metadata",
     ]
     date_hierarchy = "created_at"
@@ -286,7 +288,7 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         (
             "Journey",
             {
-                "fields": ["journey_display"],
+                "fields": ["journey_display", "journey_timeline"],
                 "description": "Lifecycle: matched pipeline → run(s) → stages.",
             },
         ),
@@ -453,6 +455,32 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
             )
         # All pieces are format_html SafeStrings; join preserves escaping.
         return format_html_join("", "{}", ((p,) for p in parts))
+
+    @admin.display(description="Journey timeline")
+    def journey_timeline(self, obj):
+        """Merged chronological timeline of alert history, stages, and runs.
+
+        Renders via ``format_html_join`` so every dynamic value (event names,
+        error messages, notify refs — all derived from external payloads) is
+        HTML-escaped.
+        """
+        events = build_incident_timeline(obj)
+        if not events:
+            return format_html("<em>{}</em>", "No timeline events yet.")
+        rows = format_html_join(
+            "",
+            '<li><span style="color:#888;">{}</span> ' "<b>[{}]</b> {}{}</li>",
+            (
+                (
+                    e["when"].isoformat(),
+                    e["kind"],
+                    e["label"],
+                    format_html(" — {}", e["detail"]) if e.get("detail") else "",
+                )
+                for e in events
+            ),
+        )
+        return format_html('<ol style="margin:0 0 0 16px;">{}</ol>', rows)
 
     @admin.display(description="Metadata")
     def pretty_metadata(self, obj):
