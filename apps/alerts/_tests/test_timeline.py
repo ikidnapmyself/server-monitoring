@@ -137,3 +137,49 @@ class BuildIncidentTimelineTests(TestCase):
             StageExecution.objects.count(),
         )
         assert before == after
+
+
+class BuildIncidentTimelineQueryAndCorrelationTests(TestCase):
+    """Phase 6 review: bounded queries and trace_id correlation."""
+
+    def _make_runs(self, incident, count):
+        for i in range(count):
+            run = PipelineRun.objects.create(
+                trace_id=f"tr-{incident.pk}-{i}",
+                run_id=f"run-{incident.pk}-{i}",
+                incident=incident,
+            )
+            StageExecution.objects.create(
+                pipeline_run=run,
+                stage="ingest",
+                status="succeeded",
+                started_at=timezone.now(),
+            )
+
+    def test_query_count_does_not_grow_with_run_count(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        inc1 = Incident.objects.create(title="One run")
+        self._make_runs(inc1, 1)
+        inc4 = Incident.objects.create(title="Four runs")
+        self._make_runs(inc4, 4)
+
+        with CaptureQueriesContext(connection) as ctx1:
+            build_incident_timeline(inc1)
+        with CaptureQueriesContext(connection) as ctx4:
+            build_incident_timeline(inc4)
+
+        # Constant query count regardless of run count (prefetch collapses stages).
+        assert len(ctx1.captured_queries) == len(ctx4.captured_queries)
+
+    def test_trace_id_present_on_pipeline_and_stage_entries(self):
+        incident = Incident.objects.create(title="Trace")
+        run = PipelineRun.objects.create(trace_id="trace-99", run_id="run-99", incident=incident)
+        StageExecution.objects.create(
+            pipeline_run=run, stage="ingest", status="succeeded", started_at=timezone.now()
+        )
+        timeline = build_incident_timeline(incident)
+        for entry in timeline:
+            if entry["kind"] in ("pipeline", "stage"):
+                assert entry["trace_id"] == "trace-99"

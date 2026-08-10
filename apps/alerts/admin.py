@@ -458,20 +458,21 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         # All pieces are format_html SafeStrings; join preserves escaping.
         return format_html_join("", "{}", ((p,) for p in parts))
 
-    @admin.display(description="Journey timeline")
+    @admin.display(description="Merged chronological timeline")
     def journey_timeline(self, obj):
         """Merged chronological timeline of alert history, stages, and runs.
 
-        Renders via ``format_html_join`` so every dynamic value (event names,
-        error messages, notify refs — all derived from external payloads) is
-        HTML-escaped.
+        Unlike ``journey_display`` (a per-run pipeline tree), this interleaves all
+        three sources into one time-ordered list. Renders via ``format_html_join``
+        so every dynamic value (event names, error messages, notify refs — all
+        derived from external payloads) is HTML-escaped.
         """
         events = build_incident_timeline(obj)
         if not events:
             return format_html("<em>{}</em>", "No timeline events yet.")
         rows = format_html_join(
             "",
-            '<li><span style="color:#888;">{}</span> ' "<b>[{}]</b> {}{}</li>",
+            '<li><span style="color:#888;">{}</span> <b>[{}]</b> {}{}</li>',
             (
                 (
                     e["when"].isoformat(),

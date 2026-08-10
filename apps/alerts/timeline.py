@@ -42,8 +42,9 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
             }
         )
 
-    # 2) PipelineRun creation + 3) its StageExecutions.
-    for run in incident.pipeline_runs.all():
+    # 2) PipelineRun creation + 3) its StageExecutions. prefetch_related keeps this a
+    # constant ~3 queries regardless of run count (renders inline on the admin page).
+    for run in incident.pipeline_runs.prefetch_related("stage_executions"):
         entries.append(
             {
                 "when": run.created_at,
@@ -51,6 +52,7 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
                 "label": f"run {run.run_id} created",
                 "detail": run.notify_output_ref or None,
                 "run_id": run.run_id,
+                "trace_id": run.trace_id,
             }
         )
         for stage in run.stage_executions.all():
@@ -64,8 +66,11 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
                     "label": f"{stage.stage} {stage.status}",
                     "detail": stage.error_message or None,
                     "run_id": run.run_id,
+                    "trace_id": run.trace_id,
                 }
             )
 
+    # Stable sort: entries sharing an identical timestamp keep insertion order
+    # (history, then per-run pipeline+stage), which is a sensible tie-break.
     entries.sort(key=lambda e: e["when"])
     return entries
