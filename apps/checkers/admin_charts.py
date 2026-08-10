@@ -31,7 +31,9 @@ def render_sparkline(
     open_tag = f'<svg viewBox="0 0 {width} {height}" width="{width}" height="{height}" role="img">'
 
     if not points:
-        return mark_safe(f"{open_tag}</svg>")
+        # nosec B703,B308 — SVG built only from ints (width/height) and static
+        # literals; no external/user string is ever interpolated. See module docstring.
+        return mark_safe(f"{open_tag}</svg>")  # nosec
 
     xs = [p[0] for p in points]
     ys = [p[1] for p in points]
@@ -62,4 +64,6 @@ def render_sparkline(
             parts.append(f'<circle cx="{sx(x):.1f}" cy="{sy(y):.1f}" r="2" fill="#d33"/>')
 
     parts.append("</svg>")
-    return mark_safe("".join(parts))
+    # nosec B703,B308 — every part is composed solely of numeric coordinates
+    # (``.1f`` floats / ints) and static literals; no external string is interpolated.
+    return mark_safe("".join(parts))  # nosec
