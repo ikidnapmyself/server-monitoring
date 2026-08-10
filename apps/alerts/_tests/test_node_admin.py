@@ -8,6 +8,7 @@ from django.db import models as db_models
 from django.template.response import TemplateResponse
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
+from django.utils.safestring import SafeString
 from django_json_widget.widgets import JSONEditorWidget
 
 from apps.alerts.models import Alert, Node
@@ -147,3 +148,112 @@ class NodeReevaluateActionTests(TestCase):
             self.model_admin.reevaluate_open_alerts(request, node)
         alert.refresh_from_db()
         self.assertEqual(alert.status, "firing")
+
+
+class NodePageInlineDisplaysTests(TestCase):
+    """Node change page: disk sparkline, recent pipelines, latest preflight."""
+
+    def setUp(self):
+        self.model_admin = admin.site._registry[Node]
+
+    def _disk_run(self, node, worst_percent, *, with_alert=False, offset=0):
+        from apps.checkers.models import CheckRun
+
+        alert = None
+        if with_alert:
+            alert = Alert.objects.create(
+                fingerprint=f"disk-{node.hostname}-{offset}",
+                source="cluster",
+                name="disk high",
+                severity="critical",
+                status="firing",
+                started_at=timezone.now(),
+                node=node,
+            )
+        metrics = {} if worst_percent is None else {"worst_percent": worst_percent}
+        return CheckRun.objects.create(
+            checker_name="disk",
+            hostname=node.hostname,
+            status="ok",
+            metrics=metrics,
+            alert=alert,
+            executed_at=timezone.now() + timezone.timedelta(minutes=offset),
+        )
+
+    def test_display_methods_in_readonly_fields(self):
+        for field in ("disk_sparkline", "recent_pipelines", "latest_preflight"):
+            self.assertIn(field, self.model_admin.readonly_fields)
+
+    def test_disk_sparkline_renders_svg_with_alert_marker(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self._disk_run(node, 40.0, offset=0)
+        self._disk_run(node, 85.0, with_alert=True, offset=1)
+        result = self.model_admin.disk_sparkline(node)
+        self.assertIsInstance(result, SafeString)
+        self.assertIn("<svg", result)
+        self.assertIn("circle", result)
+
+    def test_disk_sparkline_skips_missing_worst_percent(self):
+        node = Node.objects.create(instance_id="web-04", hostname="web-04")
+        self._disk_run(node, None, offset=0)  # no worst_percent
+        self._disk_run(node, "bad", offset=1)  # non-numeric
+        self._disk_run(node, 50.0, offset=2)
+        result = self.model_admin.disk_sparkline(node)
+        self.assertIn("<svg", result)
+
+    def test_disk_sparkline_empty_history(self):
+        node = Node.objects.create(instance_id="web-05", hostname="web-05")
+        result = self.model_admin.disk_sparkline(node)
+        self.assertEqual(result, "No disk history.")
+
+    def test_recent_pipelines_lists_runs_newest_first_with_links(self):
+        from apps.orchestration.models import PipelineRun
+
+        node = Node.objects.create(instance_id="web-06", hostname="web-06")
+        PipelineRun.objects.create(trace_id="t1", run_id="run-old", node=node)
+        new = PipelineRun.objects.create(trace_id="t2", run_id="run-new", node=node)
+        result = self.model_admin.recent_pipelines(node)
+        self.assertIsInstance(result, SafeString)
+        self.assertIn("run-old", result)
+        self.assertIn("run-new", result)
+        self.assertIn(f"/admin/orchestration/pipelinerun/{new.pk}/change/", result)
+        # newest first
+        self.assertLess(result.index("run-new"), result.index("run-old"))
+
+    def test_recent_pipelines_escapes_content(self):
+        from apps.orchestration.models import PipelineRun
+
+        node = Node.objects.create(instance_id="web-07", hostname="web-07")
+        PipelineRun.objects.create(
+            trace_id="t", run_id="<script>", node=node, origin="incoming_webhook"
+        )
+        result = self.model_admin.recent_pipelines(node)
+        self.assertNotIn("<script>", result)
+        self.assertIn("&lt;script&gt;", result)
+
+    def test_recent_pipelines_empty(self):
+        node = Node.objects.create(instance_id="web-08", hostname="web-08")
+        result = self.model_admin.recent_pipelines(node)
+        self.assertIsInstance(result, str)
+        self.assertNotIn("/admin/orchestration/", result)
+
+    def test_latest_preflight_shows_matching_run(self):
+        from apps.checkers.models import PreflightRun
+
+        node = Node.objects.create(instance_id="web-09", hostname="web-09")
+        PreflightRun.objects.create(
+            instance_id="web-09", passed=5, warnings=1, errors=0, overall_status="warn"
+        )
+        result = self.model_admin.latest_preflight(node)
+        self.assertIsInstance(result, SafeString)
+        self.assertIn("warn", result)
+
+    def test_latest_preflight_no_instance_id(self):
+        node = Node.objects.create(instance_id="", hostname="web-10")
+        result = self.model_admin.latest_preflight(node)
+        self.assertEqual(result, "No preflight recorded.")
+
+    def test_latest_preflight_no_matching_run(self):
+        node = Node.objects.create(instance_id="web-11", hostname="web-11")
+        result = self.model_admin.latest_preflight(node)
+        self.assertEqual(result, "No preflight recorded.")
