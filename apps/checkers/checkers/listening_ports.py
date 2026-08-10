@@ -12,6 +12,10 @@ Policy (see docs/plans design discussion 2026-08-07):
   bind address (loopback included).
 - With no allowlist: only externally-exposed ports (non-loopback bind) are
   flagged WARNING; loopback-only ports are inventoried but not alarmed.
+
+Each socket is enriched with its owning process ``name`` and ``username`` (best
+effort via ``psutil.Process``) so an operator can tell what is bound to a port.
+Command line is intentionally not captured (it can carry secrets).
 """
 
 import sys
@@ -32,6 +36,8 @@ class ListeningPort:
     family: str
     pid: int | None
     exposed: bool
+    process: str | None = None
+    username: str | None = None
 
 
 def _is_exposed(ip: str) -> bool:
@@ -56,6 +62,35 @@ def collect_listening() -> list[ListeningPort]:
             )
         )
     return ports
+
+
+def _process_info(pid: int) -> dict:
+    """Resolve a PID to {name, username}; empty dict if it can't be read.
+
+    ``as_dict(ad_value=None)`` yields None for individual inaccessible fields; a
+    vanished/denied process is swallowed so resolution never raises.
+    """
+    try:
+        return psutil.Process(pid).as_dict(attrs=["name", "username"], ad_value=None)
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        return {}
+
+
+def resolve_processes(ports: list[ListeningPort]) -> None:
+    """Stamp process name + owning username onto each port, in place.
+
+    Resolves each unique PID once — sockets share PIDs (IPv4+IPv6, pre-fork
+    workers). A None PID or an unresolvable process leaves the fields as None.
+    """
+    cache: dict[int, dict] = {}
+    for port in ports:
+        if port.pid is None:
+            continue
+        info = cache.get(port.pid)
+        if info is None:
+            info = cache[port.pid] = _process_info(port.pid)
+        port.process = info.get("name")
+        port.username = info.get("username")
 
 
 def flagged_ports(ports: list[ListeningPort], allowlist: set[int]) -> list[ListeningPort]:
@@ -87,12 +122,13 @@ class ListeningPortsChecker(BaseChecker):
         except (psutil.AccessDenied, PermissionError):
             return self._skip("cannot read listening ports")
 
+        resolve_processes(ports)
         allowlist = {int(p) for p in getattr(settings, "LISTENING_PORTS_ALLOWLIST", []) or []}
         flagged = flagged_ports(ports, allowlist)
 
         if flagged:
             status = CheckStatus.WARNING
-            shown = ", ".join(f"{p.port}({p.ip})" for p in flagged)
+            shown = ", ".join(f"{p.port}({p.ip}) [{p.process or '?'}]" for p in flagged)
             message = f"{len(flagged)} unexpected listening port(s): {shown}"
         else:
             status = CheckStatus.OK
@@ -129,6 +165,8 @@ class ListeningPortsChecker(BaseChecker):
                     "family": p.family,
                     "pid": p.pid,
                     "exposed": p.exposed,
+                    "process": p.process,
+                    "username": p.username,
                 }
                 for p in ports
             ],
