@@ -736,3 +736,11 @@ def test_incoming_run_with_non_dict_labels_has_null_node():
     payload = {"payload": {"alerts": [{"labels": "pwned"}]}}
     run = PipelineOrchestrator().start_pipeline(payload=payload, source="grafana")
     assert run.node is None
+
+
+@pytest.mark.django_db
+def test_incoming_run_with_non_string_instance_id_has_null_node():
+    """A non-str top-level instance_id must not reach the ORM filter; node stays NULL."""
+    payload = {"payload": {"instance_id": ["not", "a", "string"]}}
+    run = PipelineOrchestrator().start_pipeline(payload=payload, source="cluster")
+    assert run.node is None

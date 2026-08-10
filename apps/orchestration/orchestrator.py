@@ -212,7 +212,9 @@ class PipelineOrchestrator:
             if isinstance(alerts, list) and alerts and isinstance(alerts[0], dict):
                 instance_id = instance_key_from_labels(alerts[0].get("labels"))
 
-        if not instance_id:
+        # instance_id must be a non-empty string before it reaches the ORM filter:
+        # a malformed cluster-shape payload could carry a non-str top-level value.
+        if not isinstance(instance_id, str) or not instance_id:
             return None
         return Node.objects.filter(instance_id=instance_id).first()
 
