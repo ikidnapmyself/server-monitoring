@@ -551,3 +551,30 @@ class TestPipelineRunCrossLinks(TestCase):
     def test_incident_link_dash_when_null(self):
         run = PipelineRun.objects.create(trace_id="t", run_id="r")
         self.assertEqual(self._admin().incident_link(run), "—")
+
+
+class TestPipelineRunChangePageRendersCrossLinks(TestCase):
+    """The PipelineRun change page actually renders the node + incident links."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
+
+    def setUp(self):
+        self.client.force_login(self.user)
+
+    def test_change_page_contains_node_and_incident_urls(self):
+        from django.urls import reverse
+
+        from apps.alerts.models import Node
+
+        node = Node.objects.create(instance_id="web-30", hostname="web-30")
+        incident = Incident.objects.create(
+            title="I", severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN
+        )
+        run = PipelineRun.objects.create(trace_id="t", run_id="r", node=node, incident=incident)
+        url = reverse("admin:orchestration_pipelinerun_change", args=[run.pk])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f"/admin/alerts/node/{node.pk}/change/")
+        self.assertContains(resp, f"/admin/alerts/incident/{incident.pk}/change/")

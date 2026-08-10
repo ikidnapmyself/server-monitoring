@@ -635,9 +635,10 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
         """
         runs = list(
             CheckRun.objects.filter(hostname=obj.hostname, checker_name="disk").order_by(
-                "executed_at"
+                "-executed_at"
             )[:50]
         )
+        runs.reverse()  # most-recent 50, restored to oldest -> newest for plotting
         points = []
         marker_xs = []
         for index, run in enumerate(runs):

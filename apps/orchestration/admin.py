@@ -129,6 +129,8 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
                     "trace_id",
                     "run_id",
                     "incident",
+                    "incident_link",
+                    "node_link",
                     "source",
                     "environment",
                     "alert_fingerprint",

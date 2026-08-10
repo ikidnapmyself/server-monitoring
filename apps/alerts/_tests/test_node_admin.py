@@ -206,12 +206,36 @@ class NodePageInlineDisplaysTests(TestCase):
         result = self.model_admin.disk_sparkline(node)
         self.assertEqual(result, "No disk history.")
 
+    def test_disk_sparkline_uses_recent_window_not_oldest(self):
+        # >50 runs: only the most-recent run carries an alert marker. The recent
+        # window (last 50) must include it; the old ascending [:50] would have
+        # dropped it (it selected runs 0-49, never the newest).
+        recent_node = Node.objects.create(instance_id="web-12", hostname="web-12")
+        for i in range(60):
+            self._disk_run(recent_node, float(i), with_alert=(i == 59), offset=i)
+        recent_result = self.model_admin.disk_sparkline(recent_node)
+        # "#d33" is the alert marker fill from render_sparkline — present only if
+        # the newest (alert-bearing) run is within the plotted window.
+        self.assertIn("#d33", recent_result)
+
+        # Conversely, an alert only on the OLDEST run must be dropped by the window.
+        old_node = Node.objects.create(instance_id="web-13", hostname="web-13")
+        for i in range(60):
+            self._disk_run(old_node, float(i), with_alert=(i == 0), offset=i)
+        old_result = self.model_admin.disk_sparkline(old_node)
+        self.assertNotIn("#d33", old_result)
+
     def test_recent_pipelines_lists_runs_newest_first_with_links(self):
         from apps.orchestration.models import PipelineRun
 
         node = Node.objects.create(instance_id="web-06", hostname="web-06")
-        PipelineRun.objects.create(trace_id="t1", run_id="run-old", node=node)
+        old = PipelineRun.objects.create(trace_id="t1", run_id="run-old", node=node)
         new = PipelineRun.objects.create(trace_id="t2", run_id="run-new", node=node)
+        # Set created_at explicitly so ordering can't tie at microsecond resolution.
+        PipelineRun.objects.filter(pk=old.pk).update(
+            created_at=timezone.now() - timezone.timedelta(minutes=5)
+        )
+        PipelineRun.objects.filter(pk=new.pk).update(created_at=timezone.now())
         result = self.model_admin.recent_pipelines(node)
         self.assertIsInstance(result, SafeString)
         self.assertIn("run-old", result)
@@ -257,3 +281,34 @@ class NodePageInlineDisplaysTests(TestCase):
         node = Node.objects.create(instance_id="web-11", hostname="web-11")
         result = self.model_admin.latest_preflight(node)
         self.assertEqual(result, "No preflight recorded.")
+
+
+class NodeChangePageRenderTests(TestCase):
+    """The Node change page actually renders the sparkline + pipeline links."""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            username="ops", email="ops@example.com", password="pw"
+        )
+        self.client.force_login(self.user)
+
+    def test_node_change_page_renders_sparkline_and_pipeline_link(self):
+        from django.urls import reverse
+
+        from apps.checkers.models import CheckRun
+        from apps.orchestration.models import PipelineRun
+
+        node = Node.objects.create(instance_id="web-20", hostname="web-20")
+        CheckRun.objects.create(
+            checker_name="disk",
+            hostname="web-20",
+            status="ok",
+            metrics={"worst_percent": 42.0},
+            executed_at=timezone.now(),
+        )
+        run = PipelineRun.objects.create(trace_id="t", run_id="run-render", node=node)
+        url = reverse("admin:alerts_node_change", args=[node.pk])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "<svg")
+        self.assertContains(resp, f"/admin/orchestration/pipelinerun/{run.pk}/change/")
