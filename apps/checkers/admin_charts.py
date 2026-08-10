@@ -4,11 +4,16 @@ No JavaScript, no external assets (fonts/CDN/images), no ``xmlns`` — the marku
 is inlined directly into admin HTML5 pages, so it must not reference any external
 host (it renders under the same self-contained constraints as an artifact). Colors
 use ``currentColor`` so the chart follows the admin's light/dark text color.
+
+All markup is assembled with ``format_html``/``format_html_join`` (never
+``mark_safe``): the templates are static literals and every interpolated value is
+a number, so there is no XSS surface and the security linters stay clean.
 """
 
 from collections.abc import Iterable, Sequence
 
-from django.utils.safestring import SafeString, mark_safe
+from django.utils.html import format_html, format_html_join
+from django.utils.safestring import SafeString
 
 Point = tuple[float, float]
 
@@ -28,12 +33,15 @@ def render_sparkline(
     without raising.
     """
     marker_xs = set(markers or ())
-    open_tag = f'<svg viewBox="0 0 {width} {height}" width="{width}" height="{height}" role="img">'
 
     if not points:
-        # nosec B703,B308 — SVG built only from ints (width/height) and static
-        # literals; no external/user string is ever interpolated. See module docstring.
-        return mark_safe(f"{open_tag}</svg>")  # nosec
+        return format_html(
+            '<svg viewBox="0 0 {} {}" width="{}" height="{}" role="img"></svg>',
+            width,
+            height,
+            width,
+            height,
+        )
 
     xs = [p[0] for p in points]
     ys = [p[1] for p in points]
@@ -42,28 +50,35 @@ def render_sparkline(
     xspan = (xmax - xmin) or 1
     yspan = (ymax - ymin) or 1
 
-    def sx(x: float) -> float:
-        return pad + (x - xmin) / xspan * (width - 2 * pad)
+    def sx(x: float) -> str:
+        return f"{pad + (x - xmin) / xspan * (width - 2 * pad):.1f}"
 
-    def sy(y: float) -> float:
+    def sy(y: float) -> str:
         # SVG y grows downward; invert so larger values sit higher.
-        return height - pad - (y - ymin) / yspan * (height - 2 * pad)
+        return f"{height - pad - (y - ymin) / yspan * (height - 2 * pad):.1f}"
 
-    parts = [open_tag]
     if len(points) == 1:
         x, y = points[0]
-        parts.append(f'<circle cx="{sx(x):.1f}" cy="{sy(y):.1f}" r="2" fill="currentColor"/>')
+        body = format_html('<circle cx="{}" cy="{}" r="2" fill="currentColor"/>', sx(x), sy(y))
     else:
-        coords = " ".join(f"{sx(x):.1f},{sy(y):.1f}" for x, y in points)
-        parts.append(
-            f'<polyline points="{coords}" fill="none" stroke="currentColor" stroke-width="1"/>'
+        coords = " ".join(f"{sx(x)},{sy(y)}" for x, y in points)
+        body = format_html(
+            '<polyline points="{}" fill="none" stroke="currentColor" stroke-width="1"/>',
+            coords,
         )
 
-    for x, y in points:
-        if x in marker_xs:
-            parts.append(f'<circle cx="{sx(x):.1f}" cy="{sy(y):.1f}" r="2" fill="#d33"/>')
+    markers_svg = format_html_join(
+        "",
+        '<circle cx="{}" cy="{}" r="2" fill="#d33"/>',
+        ((sx(x), sy(y)) for x, y in points if x in marker_xs),
+    )
 
-    parts.append("</svg>")
-    # nosec B703,B308 — every part is composed solely of numeric coordinates
-    # (``.1f`` floats / ints) and static literals; no external string is interpolated.
-    return mark_safe("".join(parts))  # nosec
+    return format_html(
+        '<svg viewBox="0 0 {} {}" width="{}" height="{}" role="img">{}{}</svg>',
+        width,
+        height,
+        width,
+        height,
+        body,
+        markers_svg,
+    )
