@@ -507,3 +507,47 @@ class TestInboxAdminQueryset(TestCase):
         admin_obj = InboxAdmin(InboxItem, admin.site)
         qs = admin_obj.get_queryset(MagicMock())
         self.assertEqual(list(qs.values_list("run_id", flat=True)), ["pend"])
+
+
+class TestPipelineRunCrossLinks(TestCase):
+    """PipelineRunAdmin cross-links to Node and Incident change pages."""
+
+    def _admin(self):
+        from apps.orchestration.admin import PipelineRunAdmin
+
+        return PipelineRunAdmin(PipelineRun, admin.site)
+
+    def test_cross_link_methods_in_readonly_fields(self):
+        readonly = self._admin().readonly_fields
+        self.assertIn("node_link", readonly)
+        self.assertIn("incident_link", readonly)
+
+    def test_node_link_renders_anchor(self):
+        from django.utils.safestring import SafeString
+
+        from apps.alerts.models import Node
+
+        node = Node.objects.create(instance_id="web-01", hostname="web-01")
+        run = PipelineRun.objects.create(trace_id="t", run_id="r", node=node)
+        result = self._admin().node_link(run)
+        self.assertIsInstance(result, SafeString)
+        self.assertIn(f"/admin/alerts/node/{node.pk}/change/", result)
+
+    def test_node_link_dash_when_null(self):
+        run = PipelineRun.objects.create(trace_id="t", run_id="r")
+        self.assertEqual(self._admin().node_link(run), "—")
+
+    def test_incident_link_renders_anchor(self):
+        from django.utils.safestring import SafeString
+
+        incident = Incident.objects.create(
+            title="I", severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN
+        )
+        run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
+        result = self._admin().incident_link(run)
+        self.assertIsInstance(result, SafeString)
+        self.assertIn(f"/admin/alerts/incident/{incident.pk}/change/", result)
+
+    def test_incident_link_dash_when_null(self):
+        run = PipelineRun.objects.create(trace_id="t", run_id="r")
+        self.assertEqual(self._admin().incident_link(run), "—")

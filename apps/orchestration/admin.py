@@ -2,6 +2,7 @@
 
 from django.contrib import admin, messages
 from django.db import models as db_models
+from django.urls import reverse
 from django.utils.html import format_html, format_html_join
 from django.utils.timesince import timesince
 from django_json_widget.widgets import JSONEditorWidget
@@ -69,6 +70,8 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
         "completed_at",
         "total_duration_ms",
         "pipeline_flow",
+        "node_link",
+        "incident_link",
     ]
     inlines = [StageExecutionInline]
     actions = ["mark_for_retry_selected"]
@@ -232,6 +235,28 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
             '<div style="display:flex;align-items:center;padding:8px 0;">{}</div>',
             stages_html,
         )
+
+    @admin.display(description="Node")
+    def node_link(self, obj):
+        """Link to the Node change page this run concerns (— when unset)."""
+        if obj.node_id:
+            return format_html(
+                '<a href="{}">{}</a>',
+                reverse("admin:alerts_node_change", args=[obj.node_id]),
+                str(obj.node),
+            )
+        return "—"
+
+    @admin.display(description="Incident")
+    def incident_link(self, obj):
+        """Link to the linked Incident change page (— when unset)."""
+        if obj.incident_id:
+            return format_html(
+                '<a href="{}">{}</a>',
+                reverse("admin:alerts_incident_change", args=[obj.incident_id]),
+                str(obj.incident),
+            )
+        return "—"
 
 
 @admin.register(StageExecution)
