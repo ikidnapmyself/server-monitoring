@@ -20,7 +20,8 @@ Output contract (to orchestrator):
   - Some checkers (for example, `disk_macos`, `disk_linux`, `raid`, `disk_temp`, `cpu_temp`, `io_strain`, `listening_ports`) are OS-specific and may use platform gating — early return OK with a skip message on unsupported OSes (`raid` reads Linux `/proc/mdstat`; `disk_temp`/`cpu_temp` read Linux hwmon via `psutil.sensors_temperatures()`; `io_strain` samples `psutil.disk_io_counters` `busy_time`; `listening_ports` reads `psutil.net_connections` (`/proc/net`, no root on Linux only) — all skip as OK on non-linux / when the data is unavailable)
 - `apps/checkers/checks.py` — Django system checks (run with `manage.py check`)
 - `apps/checkers/management/commands/` — commands like `check_health`, `run_check`, `preflight`
-- `apps/checkers/models.py` — `CheckRun` (standalone mode audit trail)
+- `apps/checkers/models.py` — `CheckRun` (standalone mode audit trail); `PreflightRun` + `PreflightCheck` (node-local persisted history of `preflight` runs — counts, `overall_status`, and per-check `level`/`message`/`hint`; **no hub-push**). Browse under Checkers → Preflight runs (readonly, with a readonly check inline).
+- `apps/checkers/admin_charts.py` — `render_sparkline(points, markers=…)`: self-contained inline SVG (no JS/CDN/`xmlns`, `currentColor` for theme). Used for the disk-usage sparkline on the Node admin page; reuse it for any admin trend chart.
 
 ## Boundary rules
 
@@ -59,7 +60,10 @@ Runs all Django system checks grouped by tag with formatted output.
 manage.py preflight                    # All checks, human output
 manage.py preflight --only security    # Filter by tag(s)
 manage.py preflight --json             # JSON output for CI
+manage.py preflight --no-save          # skip persistence (print only)
 ```
+
+**Persistence:** by default each run writes a `PreflightRun` (+ child `PreflightCheck`s) so history is visible in the admin; `--no-save` restores print-only behaviour (e.g. CI). Node-local only — no hub-push. Retention is unbounded for now (prune is a documented follow-up).
 
 Input: None (reads Django system check registry)
 Output (human): Grouped checks with OK/WARN/ERR/INFO levels + summary line
