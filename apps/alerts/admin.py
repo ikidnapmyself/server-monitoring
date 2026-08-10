@@ -1,5 +1,7 @@
 """Admin configuration for alerts models."""
 
+import json
+
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 from django.db import models as db_models
@@ -493,19 +495,19 @@ class AlertHistoryAdmin(admin.ModelAdmin):
 
     list_display = [
         "alert",
-        "event",
+        "event_label",
         "old_status",
         "new_status",
         "created_at",
     ]
-    list_filter = ["event"]
+    list_filter = ["event", "created_at"]
     search_fields = ["alert__name", "event"]
     readonly_fields = [
         "alert",
         "event",
         "old_status",
         "new_status",
-        "details",
+        "details_pretty",
         "created_at",
     ]
     date_hierarchy = "created_at"
@@ -517,6 +519,16 @@ class AlertHistoryAdmin(admin.ModelAdmin):
     def has_change_permission(self, request, obj=None):
         """Disable editing history - they are audit records."""
         return False
+
+    @admin.display(description="Event", ordering="event")
+    def event_label(self, obj):
+        """Human-friendly event name (e.g. ``status_changed`` → ``Status Changed``)."""
+        return obj.event.replace("_", " ").replace("-", " ").title()
+
+    @admin.display(description="Details")
+    def details_pretty(self, obj):
+        """Pretty-printed JSON details, HTML-escaped inside a <pre> block."""
+        return format_html("<pre>{}</pre>", json.dumps(obj.details, indent=2, default=str))
 
 
 @admin.register(Node)

@@ -316,3 +316,55 @@ class TestIncidentJourneyTimeline(TestCase):
         html = self._admin().journey_timeline(incident)
         assert isinstance(html, SafeString)
         assert "No timeline events yet." in html
+
+
+class TestAlertHistoryAdminReadability(TestCase):
+    """Task 6.3: AlertHistory admin readability defaults."""
+
+    def _admin(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import AlertHistoryAdmin
+        from apps.alerts.models import AlertHistory
+
+        return AlertHistoryAdmin(AlertHistory, AdminSite())
+
+    def test_event_label_in_list_display_and_humanizes(self):
+        from apps.alerts.admin import AlertHistoryAdmin
+        from apps.alerts.models import AlertHistory
+
+        assert "event_label" in AlertHistoryAdmin.list_display
+        alert = Alert.objects.create(
+            fingerprint="fp",
+            source="cluster",
+            name="cpu",
+            severity="warning",
+            started_at=timezone.now(),
+        )
+        hist = AlertHistory.objects.create(alert=alert, event="status_changed")
+        assert self._admin().event_label(hist) == "Status Changed"
+
+    def test_details_pretty_escapes(self):
+        from django.utils.safestring import SafeString
+
+        from apps.alerts.models import AlertHistory
+
+        alert = Alert.objects.create(
+            fingerprint="fp",
+            source="cluster",
+            name="cpu",
+            severity="warning",
+            started_at=timezone.now(),
+        )
+        hist = AlertHistory.objects.create(alert=alert, event="created", details={"x": "<b>y</b>"})
+        html = self._admin().details_pretty(hist)
+        assert isinstance(html, SafeString)
+        assert "&lt;b&gt;y&lt;/b&gt;" in html
+        assert "<b>y</b>" not in html
+        assert "<pre>" in html
+
+    def test_list_filter_includes_event_and_created_at(self):
+        from apps.alerts.admin import AlertHistoryAdmin
+
+        assert "event" in AlertHistoryAdmin.list_filter
+        assert "created_at" in AlertHistoryAdmin.list_filter
