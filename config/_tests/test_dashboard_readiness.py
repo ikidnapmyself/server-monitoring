@@ -1,7 +1,7 @@
 import pytest
 from django.urls import reverse
 
-from config.dashboard import build_readiness
+from config.dashboard import build_readiness, get_dashboard_context
 
 
 def _by_key(readiness):
@@ -76,3 +76,15 @@ def test_nodes_neutral_then_recent_ok():
     assert _by_key(build_readiness())["nodes"]["status"] == "neutral"
     Node.objects.create(instance_id="agent-1")
     assert _by_key(build_readiness())["nodes"]["status"] == "ok"
+
+
+@pytest.mark.django_db
+def test_readiness_in_dashboard_context():
+    ctx = get_dashboard_context()
+    assert "readiness" in ctx
+    readiness = ctx["readiness"]
+    assert isinstance(readiness, list) and readiness
+    for entry in readiness:
+        assert {"key", "label", "status", "detail", "url"} <= set(entry)
+    keys = {entry["key"] for entry in readiness}
+    assert {"channels", "provider", "preflight", "inbox", "nodes"} <= keys

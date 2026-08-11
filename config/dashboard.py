@@ -246,4 +246,5 @@ def get_dashboard_context():
         "top_failing_checkers": top_failing_checkers,
         "top_error_types": top_error_types,
         "provider_usage": provider_usage,
+        "readiness": build_readiness(),
     }
