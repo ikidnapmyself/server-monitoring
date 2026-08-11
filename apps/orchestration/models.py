@@ -105,7 +105,7 @@ class PipelineRun(models.Model):
         null=True,
         blank=True,
         related_name="pipeline_runs",
-        help_text="Server this run concerns (agent node, or the hub self-node).",
+        help_text="Server this run concerns (the agent node resolved from the alert's instance_id).",
     )
     origin = models.CharField(
         max_length=20,

@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from django.test import TestCase, override_settings
+from django.test import TestCase
 
 from apps.alerts.models import Node
 from apps.orchestration.dtos import (
@@ -668,15 +668,14 @@ class SkipCheckersTests(TestCase):
 
 
 @pytest.mark.django_db
-@override_settings(INSTANCE_ID="hub-1")
-def test_checker_generated_run_gets_self_node():
+def test_checker_generated_run_has_null_node():
     run = PipelineOrchestrator().start_pipeline(
         payload={"checks_only": True},
         source="cli",
         origin=PipelineOrigin.CHECKER_GENERATED,
     )
     assert run.origin == PipelineOrigin.CHECKER_GENERATED
-    assert run.node is not None and run.node.is_self is True
+    assert run.node is None
 
 
 @pytest.mark.django_db
