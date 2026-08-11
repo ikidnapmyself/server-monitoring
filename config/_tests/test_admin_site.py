@@ -42,6 +42,22 @@ def test_all_models_present_none_dropped(su):
 
 
 @pytest.mark.django_db
+def test_no_registered_model_is_dropped(su):
+    flat = {name for models in _sections(su).values() for name in models}
+    registered = {m._meta.object_name for m in admin.site._registry}
+    assert registered <= flat
+
+
+@pytest.mark.django_db
+def test_section_map_keys_are_all_registered():
+    from config.admin import SECTION_MAP
+
+    registered = {f"{m._meta.app_label}.{m._meta.model_name}" for m in admin.site._registry}
+    mapped = {k for keys in SECTION_MAP.values() for k in keys}
+    assert mapped <= registered  # a typo'd or stale key fails here
+
+
+@pytest.mark.django_db
 def test_per_app_label_preserves_native_behaviour(su):
     # When app_label is passed (per-app index), do NOT regroup.
     req = RequestFactory().get("/admin/alerts/")

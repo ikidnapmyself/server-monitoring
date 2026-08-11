@@ -60,7 +60,11 @@ class MonitoringAdminSite(AdminSite):
                     {
                         "name": name,
                         "app_label": slugify(name),
-                        "app_url": models[0]["admin_url"],
+                        # Header links to the first model's changelist — the synthetic section
+                        # slug isn't a real app_label, so admin:app_list would 404.
+                        "app_url": next((m["admin_url"] for m in models if m["admin_url"]), ""),
+                        # Safe: models here are already permission-filtered by super(), and
+                        # empty sections are dropped above.
                         "has_module_perms": True,
                         "models": models,
                     }
@@ -71,7 +75,11 @@ class MonitoringAdminSite(AdminSite):
                 {
                     "name": "Other",
                     "app_label": "other",
-                    "app_url": leftover[0]["admin_url"],
+                    # Header links to the first model's changelist — the synthetic section
+                    # slug isn't a real app_label, so admin:app_list would 404.
+                    "app_url": next((m["admin_url"] for m in leftover if m["admin_url"]), ""),
+                    # Safe: models here are already permission-filtered by super(), and
+                    # empty sections are dropped above.
                     "has_module_perms": True,
                     "models": leftover,
                 }
