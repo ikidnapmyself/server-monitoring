@@ -212,7 +212,75 @@
     color: #666;
     font-size: 13px;
   }
+
+  /* Readiness cards */
+  .readiness-card {
+    display: block;
+    flex: 1;
+    padding: 12px;
+    border: 1px solid var(--hairline-color, #ddd);
+    border-radius: 4px;
+    text-decoration: none;
+    color: var(--body-fg, #333);
+    border-left-width: 4px;
+  }
+
+  .readiness-card strong {
+    display: block;
+  }
+
+  .readiness-status {
+    font-size: 11px;
+    font-weight: bold;
+    opacity: .8;
+  }
+
+  .readiness-detail {
+    display: block;
+    font-size: 12px;
+    opacity: .75;
+    margin-top: 4px;
+  }
+
+  .readiness-ok {
+    border-left-color: #28a745;
+  }
+
+  .readiness-warn {
+    border-left-color: #f0ad4e;
+  }
+
+  .readiness-error {
+    border-left-color: #dc3545;
+  }
+
+  .readiness-neutral {
+    border-left-color: var(--hairline-color, #aaa);
+  }
+
+  /* Grouped nav grid */
+  #nav-sections .dashboard-card {
+    border: 1px solid var(--hairline-color, #ddd);
+    border-radius: 4px;
+  }
+
+  #nav-sections .dashboard-card h3 {
+    margin-top: 0;
+  }
 </style>
+
+<div id="readiness">
+  <h2>Readiness</h2>
+  <div class="dashboard-row">
+    {% for r in readiness %}
+      <a class="readiness-card readiness-{{ r.status }}" href="{{ r.url }}">
+        <strong>{{ r.label }}</strong>
+        <span class="readiness-status">{{ r.status|upper }}</span>
+        <span class="readiness-detail">{{ r.detail }}</span>
+      </a>
+    {% endfor %}
+  </div>
+</div>
 
 <div id="dashboard">
 
@@ -407,6 +475,22 @@
     </div>
   </div>
 
+</div>
+
+<div id="nav-sections">
+  <h2>Navigate</h2>
+  <div class="dashboard-row">
+    {% for app in app_list %}
+      <div class="dashboard-card">
+        <h3>{{ app.name }}</h3>
+        <ul>
+          {% for model in app.models %}
+            <li><a href="{{ model.admin_url }}">{{ model.name }}</a></li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endfor %}
+  </div>
 </div>
 
 {{ block.super }}

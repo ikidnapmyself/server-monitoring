@@ -37,6 +37,7 @@ class TestGetDashboardContext(TestCase):
             "top_failing_checkers",
             "top_error_types",
             "provider_usage",
+            "readiness",
         }
         assert set(ctx.keys()) == expected_keys
 
