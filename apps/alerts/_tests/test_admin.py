@@ -362,3 +362,40 @@ class TestAlertHistoryAdminReadability(TestCase):
 
         assert "event" in AlertHistoryAdmin.list_filter
         assert "created_at" in AlertHistoryAdmin.list_filter
+
+
+class IncidentDiagnosisDisplayTests(TestCase):
+    def test_diagnosis_display_renders_stage_rows(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import IncidentAdmin
+        from apps.alerts.models import Incident
+
+        incident = Incident.objects.create(title="D")
+        admin = IncidentAdmin(Incident, AdminSite())
+        html = str(admin.diagnosis_display(incident))
+        for label in ("alerts", "checkers", "intelligence", "notify"):
+            self.assertIn(label, html)
+        self.assertIn("never", html.lower())
+
+    def test_diagnosis_display_escapes_detail(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import IncidentAdmin
+        from apps.alerts.models import Incident
+        from apps.orchestration.models import PipelineRun, StageExecution
+
+        incident = Incident.objects.create(title="D2")
+        run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage="analyze",
+            status="failed",
+            error_type="X",
+            error_message="<script>bad</script>",
+            error_retryable=False,
+        )
+        admin = IncidentAdmin(Incident, AdminSite())
+        html = str(admin.diagnosis_display(incident))
+        self.assertNotIn("<script>bad", html)
+        self.assertIn("&lt;script&gt;", html)

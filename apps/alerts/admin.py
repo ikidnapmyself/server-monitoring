@@ -12,6 +12,7 @@ from django_json_widget.widgets import JSONEditorWidget
 from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
 
+from apps.alerts.diagnosis import diagnose_incident
 from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus, Node
 from apps.alerts.reeval_existing import apply_node_alert_reeval, preview_node_alert_reeval
 from apps.alerts.timeline import build_incident_timeline
@@ -255,6 +256,7 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         "alert_count_display",
         "firing_alert_count_display",
         "pipeline_runs_display",
+        "diagnosis_display",
         "journey_display",
         "journey_timeline",
         "pretty_metadata",
@@ -293,7 +295,7 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         (
             "Journey",
             {
-                "fields": ["journey_display", "journey_timeline"],
+                "fields": ["diagnosis_display", "journey_display", "journey_timeline"],
                 "description": "Lifecycle: matched pipeline → run(s) → stages.",
             },
         ),
@@ -413,6 +415,53 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
             return obj.pipeline_runs.count()
         except AttributeError:
             return "-"
+
+    _STAGE_LABELS = {
+        "ingest": "alerts",
+        "check": "checkers",
+        "analyze": "intelligence",
+        "notify": "notify",
+    }
+    # status -> (glyph, colour, label). "stalled" reads "running / stalled" so a
+    # legitimately in-flight stage is not misread as stuck.
+    _STATUS_RENDER = {
+        "ok": ("✓", "#2e7d32", "ok"),
+        "empty": ("✓→∅", "#b26a00", "empty"),
+        "failed": ("✗", "#b00020", "failed"),
+        "stalled": ("…", "#b26a00", "running / stalled"),
+        "skipped": ("⊘", "#888", "skipped"),
+        "never_ran": ("✗", "#b00020", "never ran"),
+    }
+
+    @admin.display(description="Stage diagnosis (expected vs actual)")
+    def diagnosis_display(self, obj):
+        """Compact expected-vs-actual stage strip. All dynamic values escaped.
+
+        ``runs`` reads "succeeded in N/M runs" where M is the incident's total
+        pipeline-run count (not attempts of this stage).
+        """
+        entries = diagnose_incident(obj)
+        rows = format_html_join(
+            "",
+            '<li><b style="display:inline-block;width:90px;">{}</b>'
+            '<span style="color:{};">{} {}</span>{}{}</li>',
+            (
+                (
+                    self._STAGE_LABELS.get(e["stage"], e["stage"]),
+                    self._STATUS_RENDER.get(e["status"], ("?", "#888", e["status"]))[1],
+                    self._STATUS_RENDER.get(e["status"], ("?", "#888", e["status"]))[0],
+                    self._STATUS_RENDER.get(e["status"], ("?", "#888", e["status"]))[2],
+                    format_html(" — {}", e["detail"]) if e.get("detail") else "",
+                    (
+                        format_html(' <span style="color:#888;">({})</span>', e["runs"])
+                        if e.get("runs")
+                        else ""
+                    ),
+                )
+                for e in entries
+            ),
+        )
+        return format_html('<ul style="margin:0 0 0 16px;list-style:none;padding:0;">{}</ul>', rows)
 
     @admin.display(description="Journey")
     def journey_display(self, obj):
