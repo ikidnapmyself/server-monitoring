@@ -9,7 +9,21 @@ runs. No side effects — reads the ORM and returns plain dicts, mirroring
 
 from __future__ import annotations
 
+from enum import Enum
+
 from apps.orchestration.models import PipelineStage, StageStatus
+
+
+class StageDiag(str, Enum):
+    """Status vocabulary for a stage diagnosis entry."""
+
+    OK = "ok"
+    EMPTY = "empty"
+    FAILED = "failed"
+    STALLED = "stalled"
+    SKIPPED = "skipped"
+    NEVER_RAN = "never_ran"
+
 
 # Canonical stage order (display maps ingest->alerts, check->checkers, etc.).
 _STAGE_ORDER = [
@@ -57,11 +71,16 @@ def diagnose_incident(incident) -> list[dict]:
 
 
 def _diagnose_stage(incident, stage, runs, total) -> dict:
-    entry = {"stage": stage.value, "status": "never_ran", "detail": None, "runs": None}
+    entry = {
+        "stage": stage.value,
+        "status": StageDiag.NEVER_RAN.value,
+        "detail": None,
+        "runs": None,
+    }
 
     if not _is_expected(incident, stage):
         flag_attr, _ = _STAGE_META[stage]
-        entry["status"] = "skipped"
+        entry["status"] = StageDiag.SKIPPED.value
         entry["detail"] = f"config: {flag_attr} disabled"
         return entry
 
@@ -81,7 +100,7 @@ def _diagnose_stage(incident, stage, runs, total) -> dict:
         entry["runs"] = f"succeeded in {succeeded_runs}/{total} runs"
 
     if latest is None:
-        entry["status"] = "never_ran"
+        entry["status"] = StageDiag.NEVER_RAN.value
         return entry
 
     _classify_from_execution(entry, latest, stage)
@@ -91,19 +110,19 @@ def _diagnose_stage(incident, stage, runs, total) -> dict:
 def _classify_from_execution(entry, exc, stage) -> None:
     """Fill entry['status'] / ['detail'] from the latest StageExecution."""
     if exc.status == StageStatus.SKIPPED:
-        entry["status"] = "skipped"
+        entry["status"] = StageDiag.SKIPPED.value
         reason = exc.error_message.removeprefix("Skipped: ") or "no reason recorded"
         entry["detail"] = reason
     elif exc.status == StageStatus.FAILED:
-        entry["status"] = "failed"
+        entry["status"] = StageDiag.FAILED.value
         entry["detail"] = (
             f"{exc.error_type or 'error'}: {exc.error_message} "
             f"(retryable={exc.error_retryable})"
         )
     elif exc.status in _IN_PROGRESS:
-        entry["status"] = "stalled"
+        entry["status"] = StageDiag.STALLED.value
     elif exc.status == StageStatus.SUCCEEDED:
-        entry["status"] = "empty" if _is_empty(exc, stage) else "ok"
+        entry["status"] = StageDiag.EMPTY.value if _is_empty(exc, stage) else StageDiag.OK.value
 
 
 def _is_empty(exc, stage) -> bool:
