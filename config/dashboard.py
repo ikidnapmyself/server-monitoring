@@ -11,6 +11,8 @@ from django.db.models import Count, Q, Sum
 from django.utils import timezone
 from django.utils.html import format_html
 
+NODE_RECENT_MINUTES = 15
+
 
 def prettify_json(data):
     """Render a JSON-serializable value as a syntax-highlighted <pre> block."""
@@ -52,10 +54,8 @@ def build_readiness():
     active = NotificationChannel.objects.filter(is_active=True).count()
     if active == 0:
         c_status, detail = "error", "No active channel — alerts will not be delivered"
-    elif active < total:
-        c_status, detail = "warn", f"{active}/{total} channels active"
     else:
-        c_status, detail = "ok", f"{active} channel(s) active"
+        c_status, detail = "ok", f"{active}/{total} channels active"
     out.append(
         {
             "key": "channels",
@@ -125,13 +125,17 @@ def build_readiness():
 
     # Nodes
     total_nodes = Node.objects.count()
-    recent = Node.objects.filter(last_seen__gte=now - timedelta(minutes=15)).count()
+    recent = Node.objects.filter(
+        last_seen__gte=now - timedelta(minutes=NODE_RECENT_MINUTES)
+    ).count()
     if total_nodes == 0:
         n_status, detail = "neutral", "No nodes seen"
-    elif recent:
+    elif recent == total_nodes:
         n_status, detail = "ok", f"{recent}/{total_nodes} seen recently"
+    elif recent == 0:
+        n_status, detail = "warn", f"No node seen in {NODE_RECENT_MINUTES} min"
     else:
-        n_status, detail = "warn", "No node seen in 15 min"
+        n_status, detail = "warn", f"{recent}/{total_nodes} seen recently"
     out.append(
         {
             "key": "nodes",

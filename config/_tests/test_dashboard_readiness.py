@@ -19,12 +19,12 @@ def test_channels_error_when_none_active():
 
 
 @pytest.mark.django_db
-def test_channels_warn_when_some_inactive():
+def test_channels_ok_when_some_inactive():
     from apps.notify.models import NotificationChannel
 
     NotificationChannel.objects.create(name="a", driver="slack", is_active=True)
     NotificationChannel.objects.create(name="b", driver="email", is_active=False)
-    assert _by_key(build_readiness())["channels"]["status"] == "warn"
+    assert _by_key(build_readiness())["channels"]["status"] == "ok"
 
 
 @pytest.mark.django_db
@@ -109,3 +109,17 @@ def test_preflight_unknown_status_is_neutral():
 
     PreflightRun.objects.create(overall_status="unknown")
     assert _by_key(build_readiness())["preflight"]["status"] == "neutral"
+
+
+@pytest.mark.django_db
+def test_nodes_warn_when_some_stale():
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.alerts.models import Node
+
+    Node.objects.create(instance_id="agent-fresh")
+    stale = Node.objects.create(instance_id="agent-partial-stale")
+    Node.objects.filter(pk=stale.pk).update(last_seen=timezone.now() - timedelta(minutes=30))
+    assert _by_key(build_readiness())["nodes"]["status"] == "warn"
