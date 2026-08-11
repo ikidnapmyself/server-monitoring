@@ -695,3 +695,57 @@ class InstanceKeyFromLabelsTests(TestCase):
             labels = {"instance": "web-1"}
 
         self.assertEqual(incident_instance_key(_Alert()), "web-1")
+
+
+class DiffAlertTests(TestCase):
+    """Tests for AlertOrchestrator._diff_alert."""
+
+    def setUp(self):
+        self.orchestrator = AlertOrchestrator()
+        self.alert = Alert.objects.create(
+            fingerprint="fp",
+            source="alertmanager",
+            name="A",
+            severity="warning",
+            status="firing",
+            description="old desc",
+            labels={"a": "1"},
+            annotations={"x": "1"},
+            started_at=timezone.now(),
+        )
+
+    def _parsed(self, **overrides):
+        base = dict(
+            fingerprint="fp",
+            name="A",
+            status="firing",
+            started_at=timezone.now(),
+            severity="warning",
+            description="old desc",
+            labels={"a": "1"},
+            annotations={"x": "1"},
+        )
+        base.update(overrides)
+        return ParsedAlert(**base)
+
+    def test_no_changes_returns_empty(self):
+        self.assertEqual(self.orchestrator._diff_alert(self.alert, self._parsed()), {})
+
+    def test_severity_change_captured(self):
+        diff = self.orchestrator._diff_alert(self.alert, self._parsed(severity="critical"))
+        self.assertEqual(diff, {"severity": ["warning", "critical"]})
+
+    def test_description_and_annotation_change_captured(self):
+        diff = self.orchestrator._diff_alert(
+            self.alert, self._parsed(description="new desc", annotations={"x": "2"})
+        )
+        self.assertEqual(
+            diff,
+            {"description": ["old desc", "new desc"], "annotations": [{"x": "1"}, {"x": "2"}]},
+        )
+
+    def test_raw_payload_and_name_not_diffed(self):
+        diff = self.orchestrator._diff_alert(
+            self.alert, self._parsed(name="B", raw_payload={"huge": "churn"})
+        )
+        self.assertEqual(diff, {})

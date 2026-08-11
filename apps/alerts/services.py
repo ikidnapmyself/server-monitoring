@@ -273,6 +273,20 @@ class AlertOrchestrator:
 
         return alert
 
+    # Fields compared on re-fire. raw_payload (noisy/large) and name
+    # (fingerprint-stable) are deliberately excluded — see design doc.
+    _DIFF_FIELDS = ("severity", "description", "labels", "annotations")
+
+    def _diff_alert(self, alert: Alert, parsed: ParsedAlert) -> dict:
+        """Return {field: [old, new]} for meaningful fields that changed on re-fire."""
+        diff: dict = {}
+        for field_name in self._DIFF_FIELDS:
+            old = getattr(alert, field_name)
+            new = getattr(parsed, field_name)
+            if old != new:
+                diff[field_name] = [old, new]
+        return diff
+
     def _update_alert(
         self,
         alert: Alert,
