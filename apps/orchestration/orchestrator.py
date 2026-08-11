@@ -163,7 +163,7 @@ class PipelineOrchestrator:
 
         run_id = str(uuid.uuid4())
 
-        node = self._resolve_node(payload, origin)
+        node = self._resolve_node(payload)
 
         with transaction.atomic():
             pipeline_run = PipelineRun.objects.create(
@@ -186,21 +186,18 @@ class PipelineOrchestrator:
         return pipeline_run
 
     @staticmethod
-    def _resolve_node(payload: dict[str, Any], origin: str) -> "Node | None":
+    def _resolve_node(payload: dict[str, Any]) -> "Node | None":
         """Resolve the Node a run concerns.
 
-        CHECKER_GENERATED runs concern the hub itself, so upsert + return the
-        self-node. Otherwise dig the ``instance_id`` out of the wrapper payload —
-        either the inner payload's top-level ``instance_id`` (cluster shape) or the
-        first alert's labels (instance_id/instance/hostname fallthrough, via the
-        shared, malformed-input-safe ``instance_key_from_labels``) — and link to
-        the already-registered Node, or None when unknown.
+        Dig the ``instance_id`` out of the wrapper payload — either the inner
+        payload's top-level ``instance_id`` (cluster shape) or the first alert's
+        labels (instance_id/instance/hostname fallthrough, via the shared,
+        malformed-input-safe ``instance_key_from_labels``) — and link to the
+        already-registered Node, or None when unknown (e.g. the hub's own
+        checker-generated runs, which carry no instance_id).
         """
         from apps.alerts.models import Node
         from apps.alerts.services import instance_key_from_labels
-
-        if origin == PipelineOrigin.CHECKER_GENERATED:
-            return Node.ensure_self()
 
         inner = payload.get("payload")
         if not isinstance(inner, dict):
