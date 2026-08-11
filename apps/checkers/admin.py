@@ -3,7 +3,7 @@
 from django.contrib import admin
 from django.utils.html import format_html
 
-from apps.checkers.models import CheckRun
+from apps.checkers.models import CheckRun, PreflightCheck, PreflightRun
 from config.dashboard import prettify_json
 
 
@@ -135,4 +135,63 @@ class CheckRunAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         """Disable editing check runs - they are audit records."""
+        return False
+
+
+class PreflightCheckInline(admin.TabularInline):
+    """Readonly inline of individual preflight check results."""
+
+    model = PreflightCheck
+    extra = 0
+    fields = ["level", "message", "hint"]
+    readonly_fields = ["level", "message", "hint"]
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PreflightRun)
+class PreflightRunAdmin(admin.ModelAdmin):
+    """Admin for persisted preflight runs (created by the preflight command)."""
+
+    list_display = [
+        "created_at",
+        "overall_status",
+        "passed",
+        "warnings",
+        "errors",
+        "instance_id",
+        "triggered_by",
+    ]
+    list_filter = ["overall_status", "instance_id", "triggered_by"]
+    search_fields = ["instance_id"]
+    date_hierarchy = "created_at"
+    readonly_fields = [
+        "created_at",
+        "instance_id",
+        "passed",
+        "warnings",
+        "errors",
+        "overall_status",
+        "triggered_by",
+    ]
+    inlines = [PreflightCheckInline]
+
+    def has_add_permission(self, request):
+        """Runs are created by the preflight command, not the admin."""
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        """Preflight runs are audit records — view only, no edits."""
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        """Preserve preflight history — no deletion via admin."""
         return False

@@ -33,8 +33,9 @@ Required tags/fields:
 ## Key modules
 
 - `apps/orchestration/orchestrator.py` — pipeline implementation (`start_pipeline`, `execute_run`)
-- `apps/orchestration/management/commands/process_inbox.py` — broker-free drain of PENDING runs
-- `apps/orchestration/models.py` — `PipelineRun`, `StageExecution`
+- `apps/orchestration/management/commands/process_inbox.py` — broker-free drain of PENDING runs (thin CLI wrapper over `inbox.py`)
+- `apps/orchestration/inbox.py` — **single source of truth** for the drain/reclaim logic: `claim` (atomic PENDING→PROCESSING CAS), `drain`, `drain_run`, `reclaim_stuck(pks=…)`, and `DEFAULT_STALE_MINUTES`. Both the `process_inbox` command and the admin Inbox actions call these — never duplicate the claim.
+- `apps/orchestration/models.py` — `PipelineRun`, `StageExecution`. `PipelineRun.node` (FK → `alerts.Node`, the server the run concerns) and `PipelineRun.origin` (`incoming_webhook`/`checker_generated`/`manual`) are resolved once at the `start_pipeline` chokepoint and power admin filtering by node+origin+status. `InboxItem` is a proxy over `PipelineRun` filtered to PENDING/PROCESSING (the admin Inbox monitor, with age/`is_stuck` + drain/reclaim actions). See `docs/plans/2026-08-09-admin-hardening-design.md`.
 - `apps/orchestration/executors.py` / `dtos.py` — stage execution helpers and DTOs
 - `apps/orchestration/urls.py` — URL routing
 

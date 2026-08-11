@@ -661,3 +661,37 @@ class IncidentGroupingTests(TestCase):
         self.orchestrator.process_webhook(self._am("g1", "", name="Generic"), driver="alertmanager")
         self.orchestrator.process_webhook(self._am("g2", "", name="Generic"), driver="alertmanager")
         self.assertEqual(Incident.objects.count(), 1)
+
+
+class InstanceKeyFromLabelsTests(TestCase):
+    """Tests for the shared, malformed-input-safe label -> instance key helper."""
+
+    def test_prefers_instance_id_then_instance_then_hostname(self):
+        from apps.alerts.services import instance_key_from_labels
+
+        self.assertEqual(
+            instance_key_from_labels({"instance_id": "a", "instance": "b", "hostname": "c"}),
+            "a",
+        )
+        self.assertEqual(instance_key_from_labels({"instance": "b", "hostname": "c"}), "b")
+        self.assertEqual(instance_key_from_labels({"hostname": "c"}), "c")
+
+    def test_empty_or_none_labels_return_empty_string(self):
+        from apps.alerts.services import instance_key_from_labels
+
+        self.assertEqual(instance_key_from_labels({}), "")
+        self.assertEqual(instance_key_from_labels(None), "")
+
+    def test_non_dict_labels_do_not_raise(self):
+        from apps.alerts.services import instance_key_from_labels
+
+        self.assertEqual(instance_key_from_labels("pwned"), "")
+        self.assertEqual(instance_key_from_labels(["not", "a", "dict"]), "")
+
+    def test_incident_instance_key_delegates(self):
+        from apps.alerts.services import incident_instance_key
+
+        class _Alert:
+            labels = {"instance": "web-1"}
+
+        self.assertEqual(incident_instance_key(_Alert()), "web-1")

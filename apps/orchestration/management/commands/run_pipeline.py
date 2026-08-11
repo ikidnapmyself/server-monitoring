@@ -25,6 +25,7 @@ import json
 
 from django.core.management.base import BaseCommand, CommandError
 
+from apps.orchestration.models import PipelineOrigin
 from apps.orchestration.orchestrator import PipelineOrchestrator
 from config.security import PathNotAllowedError, resolve_safe_path
 
@@ -134,12 +135,18 @@ class Command(BaseCommand):
         self.stdout.write("")
 
         try:
+            origin = (
+                PipelineOrigin.CHECKER_GENERATED
+                if options.get("checks_only")
+                else PipelineOrigin.MANUAL
+            )
             orchestrator = PipelineOrchestrator()
             result = orchestrator.run_pipeline(
                 payload=payload,
                 source=options["source"],
                 trace_id=options.get("trace_id"),
                 environment=options["environment"],
+                origin=origin,
             )
 
             if options["json"]:

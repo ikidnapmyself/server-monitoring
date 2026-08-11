@@ -67,15 +67,25 @@ def register_pushing_node(payload: dict[str, Any], driver: "str | BaseAlertDrive
     )
 
 
-def incident_instance_key(alert) -> str:
-    """Instance/host an alert belongs to, for incident grouping.
+def instance_key_from_labels(labels: dict | None) -> str:
+    """Instance/host key from a label dict, with source-specific fallthrough.
 
     Label keys differ by source (cluster: instance_id; Prometheus: instance;
     datadog/checker: hostname), so fall back through them. Empty string when none
-    is present (grouping then falls back to name-only).
+    is present. Guards against non-dict input (e.g. attacker-controlled webhook
+    payloads where ``labels`` is a string) by treating anything non-dict as empty.
     """
-    labels = alert.labels or {}
+    labels = labels if isinstance(labels, dict) else {}
     return labels.get("instance_id") or labels.get("instance") or labels.get("hostname") or ""
+
+
+def incident_instance_key(alert) -> str:
+    """Instance/host an alert belongs to, for incident grouping.
+
+    Delegates to :func:`instance_key_from_labels`. Empty string when no instance
+    label is present (grouping then falls back to name-only).
+    """
+    return instance_key_from_labels(alert.labels)
 
 
 @dataclass

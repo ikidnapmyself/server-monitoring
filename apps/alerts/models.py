@@ -2,6 +2,9 @@
 Alert and Incident models for tracking alerts from various sources.
 """
 
+import socket
+
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -334,6 +337,10 @@ class Node(models.Model):
     """
 
     instance_id = models.CharField(max_length=255, unique=True, db_index=True)
+    is_self = models.BooleanField(
+        default=False,
+        help_text="True for the Node representing this hub itself (self-node).",
+    )
     hostname = models.CharField(max_length=255, blank=True, default="")
     address = models.CharField(max_length=255, blank=True, default="")
     last_source = models.CharField(max_length=64, blank=True, default="")
@@ -370,4 +377,19 @@ class Node(models.Model):
         node, created = cls.objects.update_or_create(instance_id=instance_id, defaults=defaults)
         if not created:
             node.save(update_fields=["last_seen"])  # bump auto_now
+        return node
+
+    @classmethod
+    def ensure_self(cls):
+        """Upsert the Node representing this hub, keyed by settings.INSTANCE_ID.
+
+        Returns the self-node, or None when INSTANCE_ID is unset (no-op).
+        """
+        instance_id = getattr(settings, "INSTANCE_ID", "") or ""
+        if not instance_id:
+            return None
+        node, _ = cls.objects.update_or_create(
+            instance_id=instance_id,
+            defaults={"is_self": True, "hostname": socket.gethostname()},
+        )
         return node

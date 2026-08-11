@@ -1,13 +1,17 @@
 """Admin configuration for orchestration models."""
 
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.db import models as db_models
+from django.urls import reverse
 from django.utils.html import format_html, format_html_join
+from django.utils.timesince import timesince
 from django_json_widget.widgets import JSONEditorWidget
 from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
 
+from apps.orchestration import inbox
 from apps.orchestration.models import (
+    InboxItem,
     PipelineDefinition,
     PipelineRun,
     PipelineStatus,
@@ -47,13 +51,15 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
         "trace_id",
         "pipeline_flow",
         "status",
+        "origin",
+        "node",
         "source",
         "current_stage",
         "total_attempts",
         "created_at",
         "total_duration_ms",
     ]
-    list_filter = ["status", "source", "current_stage", "environment"]
+    list_filter = ["status", "origin", "node", "source", "current_stage", "environment"]
     search_fields = ["run_id", "trace_id", "alert_fingerprint"]
     readonly_fields = [
         "run_id",
@@ -64,6 +70,8 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
         "completed_at",
         "total_duration_ms",
         "pipeline_flow",
+        "node_link",
+        "incident_link",
     ]
     inlines = [StageExecutionInline]
     actions = ["mark_for_retry_selected"]
@@ -73,7 +81,7 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
         return (
             super()
             .get_queryset(request)
-            .select_related("incident")
+            .select_related("incident", "node")
             .prefetch_related("stage_executions")
         )
 
@@ -121,6 +129,8 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
                     "trace_id",
                     "run_id",
                     "incident",
+                    "incident_link",
+                    "node_link",
                     "source",
                     "environment",
                     "alert_fingerprint",
@@ -227,6 +237,28 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
             '<div style="display:flex;align-items:center;padding:8px 0;">{}</div>',
             stages_html,
         )
+
+    @admin.display(description="Node")
+    def node_link(self, obj):
+        """Link to the Node change page this run concerns (— when unset)."""
+        if obj.node_id:
+            return format_html(
+                '<a href="{}">{}</a>',
+                reverse("admin:alerts_node_change", args=[obj.node_id]),
+                str(obj.node),
+            )
+        return "—"
+
+    @admin.display(description="Incident")
+    def incident_link(self, obj):
+        """Link to the linked Incident change page (— when unset)."""
+        if obj.incident_id:
+            return format_html(
+                '<a href="{}">{}</a>',
+                reverse("admin:alerts_incident_change", args=[obj.incident_id]),
+                str(obj.incident),
+            )
+        return "—"
 
 
 @admin.register(StageExecution)
@@ -348,3 +380,87 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
         if not obj.created_by:
             obj.created_by = request.user.username
         super().save_model(request, obj, form, change)
+
+
+@admin.register(InboxItem)
+class InboxAdmin(admin.ModelAdmin):
+    """Monitor of un-drained pipeline runs (PENDING/PROCESSING) with drain/reclaim.
+
+    Reuses the shared ``apps.orchestration.inbox`` helpers so the drain/claim logic
+    is single-sourced with the ``process_inbox`` management command.
+    """
+
+    ordering = ["created_at"]  # oldest first — the natural drain order
+    list_display = ["run_id", "source", "node", "origin", "status", "age", "stuck"]
+    list_filter = ["status", "origin", "node", "source"]
+    search_fields = ["run_id", "trace_id", "alert_fingerprint"]
+    actions = ["drain_selected", "reclaim_stuck"]
+
+    # Draining runs the full pipeline synchronously per row inside the request, so a
+    # large selection would tie up the worker. Refuse anything bigger and let the
+    # operator narrow the selection.
+    max_drain_selection = 25
+
+    def has_add_permission(self, request):
+        # The inbox is populated by ingest, never created by hand.
+        return False
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("node")
+
+    @admin.display(description="Age")
+    def age(self, obj):
+        """Human-readable time since the run was recorded."""
+        return timesince(obj.created_at)
+
+    @admin.display(description="Stuck", boolean=True)
+    def stuck(self, obj):
+        """True if the run has been PROCESSING past the stall timeout."""
+        return obj.is_stuck()
+
+    @admin.action(description="Drain selected (process now)")
+    def drain_selected(self, request, queryset):
+        """Claim + execute each selected run via the shared inbox helper.
+
+        Each row is isolated: a failure (including a row claimed or deleted between
+        listing and action, which raises ``PipelineRun.DoesNotExist``) is counted and
+        the drain continues. Oversized selections are refused up front because each row
+        runs the full pipeline synchronously in-request.
+        """
+        if queryset.count() > self.max_drain_selection:
+            self.message_user(
+                request,
+                f"Refusing to drain more than {self.max_drain_selection} runs at once; "
+                "narrow the selection and retry.",
+                level=messages.WARNING,
+            )
+            return
+
+        processed = 0
+        failed = 0
+        for obj in queryset:
+            try:
+                processed += inbox.drain_run(obj.run_id)
+            except (
+                Exception
+            ):  # noqa: BLE001 — isolate each row; one bad run must not abort the rest
+                failed += 1
+        if failed:
+            self.message_user(
+                request,
+                f"Drained {processed} run(s); {failed} failed.",
+                level=messages.ERROR,
+            )
+        else:
+            self.message_user(
+                request,
+                f"Drained {processed} run(s).",
+                level=messages.SUCCESS,
+            )
+
+    @admin.action(description="Reclaim stuck (PROCESSING -> PENDING)")
+    def reclaim_stuck(self, request, queryset):
+        """Return stalled PROCESSING runs in the selection to PENDING (scoped reclaim)."""
+        pks = list(queryset.values_list("pk", flat=True))
+        count = inbox.reclaim_stuck(pks=pks)
+        self.message_user(request, f"Reclaimed {count} stuck run(s).", level=messages.SUCCESS)

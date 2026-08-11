@@ -1,9 +1,12 @@
 """Admin configuration for alerts models."""
 
+import json
+
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 from django.db import models as db_models
 from django.template.response import TemplateResponse
+from django.urls import reverse
 from django.utils.html import format_html, format_html_join
 from django_json_widget.widgets import JSONEditorWidget
 from django_object_actions import DjangoObjectActions
@@ -11,6 +14,9 @@ from django_object_actions import action as object_action
 
 from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus, Node
 from apps.alerts.reeval_existing import apply_node_alert_reeval, preview_node_alert_reeval
+from apps.alerts.timeline import build_incident_timeline
+from apps.checkers.admin_charts import render_sparkline
+from apps.checkers.models import CheckRun, PreflightRun
 from apps.orchestration.models import PipelineRun
 from config.dashboard import prettify_json
 
@@ -250,6 +256,7 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         "firing_alert_count_display",
         "pipeline_runs_display",
         "journey_display",
+        "journey_timeline",
         "pretty_metadata",
     ]
     date_hierarchy = "created_at"
@@ -286,7 +293,7 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         (
             "Journey",
             {
-                "fields": ["journey_display"],
+                "fields": ["journey_display", "journey_timeline"],
                 "description": "Lifecycle: matched pipeline → run(s) → stages.",
             },
         ),
@@ -454,6 +461,33 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         # All pieces are format_html SafeStrings; join preserves escaping.
         return format_html_join("", "{}", ((p,) for p in parts))
 
+    @admin.display(description="Merged chronological timeline")
+    def journey_timeline(self, obj):
+        """Merged chronological timeline of alert history, stages, and runs.
+
+        Unlike ``journey_display`` (a per-run pipeline tree), this interleaves all
+        three sources into one time-ordered list. Renders via ``format_html_join``
+        so every dynamic value (event names, error messages, notify refs — all
+        derived from external payloads) is HTML-escaped.
+        """
+        events = build_incident_timeline(obj)
+        if not events:
+            return format_html("<em>{}</em>", "No timeline events yet.")
+        rows = format_html_join(
+            "",
+            '<li><span style="color:#888;">{}</span> <b>[{}]</b> {}{}</li>',
+            (
+                (
+                    e["when"].isoformat(),
+                    e["kind"],
+                    e["label"],
+                    format_html(" — {}", e["detail"]) if e.get("detail") else "",
+                )
+                for e in events
+            ),
+        )
+        return format_html('<ol style="margin:0 0 0 16px;">{}</ol>', rows)
+
     @admin.display(description="Metadata")
     def pretty_metadata(self, obj):
         return prettify_json(obj.metadata)
@@ -465,19 +499,19 @@ class AlertHistoryAdmin(admin.ModelAdmin):
 
     list_display = [
         "alert",
-        "event",
+        "event_label",
         "old_status",
         "new_status",
         "created_at",
     ]
-    list_filter = ["event"]
+    list_filter = ["event", "created_at"]
     search_fields = ["alert__name", "event"]
     readonly_fields = [
         "alert",
         "event",
         "old_status",
         "new_status",
-        "details",
+        "details_pretty",
         "created_at",
     ]
     date_hierarchy = "created_at"
@@ -489,6 +523,16 @@ class AlertHistoryAdmin(admin.ModelAdmin):
     def has_change_permission(self, request, obj=None):
         """Disable editing history - they are audit records."""
         return False
+
+    @admin.display(description="Event", ordering="event")
+    def event_label(self, obj):
+        """Human-friendly event name (e.g. ``status_changed`` → ``Status Changed``)."""
+        return obj.event.replace("_", " ").replace("-", " ").title()
+
+    @admin.display(description="Details")
+    def details_pretty(self, obj):
+        """Pretty-printed JSON details, HTML-escaped inside a <pre> block."""
+        return format_html("<pre>{}</pre>", json.dumps(obj.details, indent=2, default=str))
 
 
 @admin.register(Node)
@@ -502,7 +546,8 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
     """
 
     change_actions = ["reevaluate_open_alerts"]
-    list_display = ["instance_id", "hostname", "last_source", "first_seen", "last_seen"]
+    list_display = ["instance_id", "hostname", "is_self", "last_source", "first_seen", "last_seen"]
+    list_filter = ["is_self"]
     search_fields = ["instance_id", "hostname"]
     readonly_fields = [
         "instance_id",
@@ -512,6 +557,9 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
         "labels",
         "first_seen",
         "last_seen",
+        "disk_sparkline",
+        "recent_pipelines",
+        "latest_preflight",
     ]
     fields = [
         "instance_id",
@@ -522,6 +570,9 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
         "config",
         "first_seen",
         "last_seen",
+        "disk_sparkline",
+        "recent_pipelines",
+        "latest_preflight",
     ]
     formfield_overrides = {db_models.JSONField: {"widget": JSONEditorWidget}}
     # Numeric checkers the hub can re-evaluate, and the metric each reads:
@@ -572,4 +623,72 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
                 "title": "Confirm re-evaluation",
                 "opts": self.model._meta,
             },
+        )
+
+    @admin.display(description="Disk usage history")
+    def disk_sparkline(self, obj):
+        """Inline SVG sparkline of recent ``disk`` checker ``worst_percent``.
+
+        Points are indexed by position (oldest → newest); runs that raised an
+        alert are dotted as markers. Runs with a missing or non-numeric
+        ``worst_percent`` are skipped. Reuses ``render_sparkline`` (Phase 5).
+        """
+        runs = list(
+            CheckRun.objects.filter(hostname=obj.hostname, checker_name="disk").order_by(
+                "-executed_at"
+            )[:50]
+        )
+        runs.reverse()  # most-recent 50, restored to oldest -> newest for plotting
+        points = []
+        marker_xs = []
+        for index, run in enumerate(runs):
+            worst = (run.metrics or {}).get("worst_percent")
+            if not isinstance(worst, (int, float)):
+                continue
+            points.append((index, float(worst)))
+            if run.alert_id is not None:
+                marker_xs.append(index)
+        if not points:
+            return "No disk history."
+        return render_sparkline(points, markers=marker_xs)
+
+    @admin.display(description="Recent pipeline runs")
+    def recent_pipelines(self, obj):
+        """Escaped list of the node's 10 newest pipeline runs, each admin-linked."""
+        runs = list(obj.pipeline_runs.order_by("-created_at")[:10])
+        if not runs:
+            return "No pipeline runs for this node."
+        rows = format_html_join(
+            "",
+            '<li><a href="{}">{}</a> — {} — {} — {}</li>',
+            (
+                (
+                    reverse("admin:orchestration_pipelinerun_change", args=[run.pk]),
+                    run.run_id,
+                    run.origin,
+                    run.status,
+                    run.created_at.isoformat(),
+                )
+                for run in runs
+            ),
+        )
+        return format_html('<ul style="margin:0 0 0 16px;">{}</ul>', rows)
+
+    @admin.display(description="Latest preflight")
+    def latest_preflight(self, obj):
+        """Latest preflight matched by ``instance_id`` (PreflightRun has no node FK)."""
+        if not obj.instance_id:
+            return "No preflight recorded."
+        run = (
+            PreflightRun.objects.filter(instance_id=obj.instance_id).order_by("-created_at").first()
+        )
+        if run is None:
+            return "No preflight recorded."
+        return format_html(
+            "<div>{} — <b>{}</b> " "(passed {}, warnings {}, errors {})</div>",
+            run.created_at.isoformat(),
+            run.overall_status,
+            run.passed,
+            run.warnings,
+            run.errors,
         )

@@ -18,10 +18,13 @@ import logging
 import time
 import traceback
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import transaction
+
+if TYPE_CHECKING:
+    from apps.alerts.models import Node
 
 from apps.orchestration.dtos import (
     AnalyzeResult,
@@ -40,6 +43,7 @@ from apps.orchestration.executors import (
     NotifyExecutor,
 )
 from apps.orchestration.models import (
+    PipelineOrigin,
     PipelineRun,
     PipelineStage,
     PipelineStatus,
@@ -134,6 +138,7 @@ class PipelineOrchestrator:
         source: str = "unknown",
         trace_id: str | None = None,
         environment: str = "production",
+        origin: str | None = None,
     ) -> PipelineRun:
         """
         Start a new pipeline run.
@@ -145,6 +150,7 @@ class PipelineOrchestrator:
             source: Source system (grafana, alertmanager, etc.).
             trace_id: Optional trace ID (generated if not provided).
             environment: Environment name.
+            origin: How the run started (defaults to INCOMING_WEBHOOK).
 
         Returns:
             Created PipelineRun instance.
@@ -152,7 +158,12 @@ class PipelineOrchestrator:
         if trace_id is None:
             trace_id = str(uuid.uuid4())
 
+        if origin is None:
+            origin = PipelineOrigin.INCOMING_WEBHOOK
+
         run_id = str(uuid.uuid4())
+
+        node = self._resolve_node(payload, origin)
 
         with transaction.atomic():
             pipeline_run = PipelineRun.objects.create(
@@ -163,6 +174,8 @@ class PipelineOrchestrator:
                 status=PipelineStatus.PENDING,
                 max_retries=self.max_retries,
                 inbound_payload=payload,
+                origin=origin,
+                node=node,
             )
 
         logger.info(
@@ -172,12 +185,46 @@ class PipelineOrchestrator:
 
         return pipeline_run
 
+    @staticmethod
+    def _resolve_node(payload: dict[str, Any], origin: str) -> "Node | None":
+        """Resolve the Node a run concerns.
+
+        CHECKER_GENERATED runs concern the hub itself, so upsert + return the
+        self-node. Otherwise dig the ``instance_id`` out of the wrapper payload —
+        either the inner payload's top-level ``instance_id`` (cluster shape) or the
+        first alert's labels (instance_id/instance/hostname fallthrough, via the
+        shared, malformed-input-safe ``instance_key_from_labels``) — and link to
+        the already-registered Node, or None when unknown.
+        """
+        from apps.alerts.models import Node
+        from apps.alerts.services import instance_key_from_labels
+
+        if origin == PipelineOrigin.CHECKER_GENERATED:
+            return Node.ensure_self()
+
+        inner = payload.get("payload")
+        if not isinstance(inner, dict):
+            return None
+
+        instance_id = inner.get("instance_id")
+        if not instance_id:
+            alerts = inner.get("alerts")
+            if isinstance(alerts, list) and alerts and isinstance(alerts[0], dict):
+                instance_id = instance_key_from_labels(alerts[0].get("labels"))
+
+        # instance_id must be a non-empty string before it reaches the ORM filter:
+        # a malformed cluster-shape payload could carry a non-str top-level value.
+        if not isinstance(instance_id, str) or not instance_id:
+            return None
+        return Node.objects.filter(instance_id=instance_id).first()
+
     def run_pipeline(
         self,
         payload: dict[str, Any],
         source: str = "unknown",
         trace_id: str | None = None,
         environment: str = "production",
+        origin: str | None = None,
     ) -> PipelineResult:
         """
         Run the complete pipeline synchronously.
@@ -190,6 +237,7 @@ class PipelineOrchestrator:
             source: Source system.
             trace_id: Optional trace ID.
             environment: Environment name.
+            origin: How the run started (defaults to INCOMING_WEBHOOK).
 
         Returns:
             PipelineResult with all stage results.
@@ -199,6 +247,7 @@ class PipelineOrchestrator:
             source=source,
             trace_id=trace_id,
             environment=environment,
+            origin=origin,
         )
 
         return self._execute_pipeline(pipeline_run, payload)

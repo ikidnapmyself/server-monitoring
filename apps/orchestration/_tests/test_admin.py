@@ -343,3 +343,238 @@ class TestJsonWidgetRendering(TestCase):
         assert response.status_code == 200
         content = response.content.decode()
         assert "<pre" in content
+
+
+class TestPipelineRunAdminFilters(SimpleTestCase):
+    """PipelineRunAdmin exposes node/origin/status for filtering and display."""
+
+    def _admin(self):
+        from apps.orchestration.admin import PipelineRunAdmin
+        from apps.orchestration.models import PipelineRun
+
+        return PipelineRunAdmin(PipelineRun, admin.site)
+
+    def test_list_filter_has_node_origin_status(self):
+        list_filter = self._admin().list_filter
+        self.assertIn("node", list_filter)
+        self.assertIn("origin", list_filter)
+        self.assertIn("status", list_filter)
+
+    def test_list_display_has_node_origin_status(self):
+        list_display = self._admin().list_display
+        self.assertIn("node", list_display)
+        self.assertIn("origin", list_display)
+        self.assertIn("status", list_display)
+
+
+class TestInboxAdmin(SimpleTestCase):
+    """InboxAdmin monitors PENDING/PROCESSING runs with drain/reclaim actions."""
+
+    def _admin(self):
+        from apps.orchestration.admin import InboxAdmin
+        from apps.orchestration.models import InboxItem
+
+        return InboxAdmin(InboxItem, admin.site)
+
+    def test_inbox_item_is_registered(self):
+        from apps.orchestration.models import InboxItem
+
+        self.assertTrue(admin.site.is_registered(InboxItem))
+
+    def test_no_add_permission(self):
+        self.assertFalse(self._admin().has_add_permission(request=None))
+
+    def test_ordering_is_oldest_first(self):
+        self.assertEqual(self._admin().ordering, ["created_at"])
+
+    def test_list_display_columns(self):
+        list_display = self._admin().list_display
+        for col in ("run_id", "source", "node", "origin", "status", "age", "stuck"):
+            self.assertIn(col, list_display)
+
+    def test_actions_defined(self):
+        actions = self._admin().actions
+        self.assertIn("drain_selected", actions)
+        self.assertIn("reclaim_stuck", actions)
+
+    def test_age_returns_human_string(self):
+        from apps.orchestration.models import InboxItem
+
+        item = InboxItem(trace_id="t", run_id="r", created_at=timezone.now())
+        self.assertIsInstance(self._admin().age(item), str)
+
+    def test_stuck_display_delegates_to_model(self):
+        from unittest.mock import MagicMock
+
+        obj = MagicMock()
+        obj.is_stuck.return_value = True
+        self.assertTrue(self._admin().stuck(obj))
+        obj.is_stuck.assert_called_once()
+
+    @staticmethod
+    def _queryset(rows=None, count=None, pks=None):
+        """Build a fake queryset supporting count(), iteration, and values_list()."""
+        from unittest.mock import MagicMock
+
+        qs = MagicMock()
+        qs.count.return_value = len(rows) if count is None and rows is not None else count
+        if rows is not None:
+            qs.__iter__.return_value = iter(rows)
+        if pks is not None:
+            qs.values_list.return_value = pks
+        return qs
+
+    def test_drain_selected_calls_helper_per_row(self):
+        from unittest.mock import MagicMock, patch
+
+        from django.contrib import messages
+
+        admin_obj = self._admin()
+        rows = [MagicMock(run_id="a"), MagicMock(run_id="b")]
+        qs = self._queryset(rows=rows)
+        with patch("apps.orchestration.inbox.drain_run", return_value=1) as mock_drain:
+            with patch.object(admin_obj, "message_user") as mock_msg:
+                admin_obj.drain_selected(request=MagicMock(), queryset=qs)
+        called_ids = [c.args[0] for c in mock_drain.call_args_list]
+        self.assertEqual(called_ids, ["a", "b"])
+        mock_msg.assert_called_once()
+        self.assertEqual(mock_msg.call_args.kwargs["level"], messages.SUCCESS)
+
+    def test_drain_selected_isolates_row_errors(self):
+        from unittest.mock import MagicMock, patch
+
+        from django.contrib import messages
+
+        from apps.orchestration.models import PipelineRun
+
+        admin_obj = self._admin()
+        rows = [MagicMock(run_id="ok1"), MagicMock(run_id="bad"), MagicMock(run_id="ok2")]
+        qs = self._queryset(rows=rows)
+
+        def fake_drain(run_id):
+            if run_id == "bad":
+                # A row claimed/deleted between listing and action.
+                raise PipelineRun.DoesNotExist()
+            return 1
+
+        with patch("apps.orchestration.inbox.drain_run", side_effect=fake_drain):
+            with patch.object(admin_obj, "message_user") as mock_msg:
+                # Must not raise (no 500) even though a row fails.
+                admin_obj.drain_selected(request=MagicMock(), queryset=qs)
+        mock_msg.assert_called_once()
+        message = mock_msg.call_args.args[1]
+        self.assertIn("Drained 2", message)
+        self.assertIn("1 failed", message)
+        self.assertEqual(mock_msg.call_args.kwargs["level"], messages.ERROR)
+
+    def test_drain_selected_refuses_oversized_selection(self):
+        from unittest.mock import MagicMock, patch
+
+        from django.contrib import messages
+
+        admin_obj = self._admin()
+        qs = self._queryset(count=admin_obj.max_drain_selection + 1)
+        with patch("apps.orchestration.inbox.drain_run") as mock_drain:
+            with patch.object(admin_obj, "message_user") as mock_msg:
+                admin_obj.drain_selected(request=MagicMock(), queryset=qs)
+        mock_drain.assert_not_called()
+        mock_msg.assert_called_once()
+        self.assertEqual(mock_msg.call_args.kwargs["level"], messages.WARNING)
+
+    def test_reclaim_stuck_scopes_to_selected_pks(self):
+        from unittest.mock import MagicMock, patch
+
+        admin_obj = self._admin()
+        qs = self._queryset(pks=[7, 8])
+        with patch("apps.orchestration.inbox.reclaim_stuck", return_value=3) as mock_reclaim:
+            with patch.object(admin_obj, "message_user") as mock_msg:
+                admin_obj.reclaim_stuck(request=MagicMock(), queryset=qs)
+        mock_reclaim.assert_called_once_with(pks=[7, 8])
+        mock_msg.assert_called_once()
+
+
+class TestInboxAdminQueryset(TestCase):
+    """InboxAdmin.get_queryset returns only inbox items (via the proxy manager)."""
+
+    def test_get_queryset_filters_to_inbox(self):
+        from unittest.mock import MagicMock
+
+        from apps.orchestration.admin import InboxAdmin
+        from apps.orchestration.models import InboxItem, PipelineRun, PipelineStatus
+
+        PipelineRun.objects.create(trace_id="t", run_id="pend", status=PipelineStatus.PENDING)
+        PipelineRun.objects.create(trace_id="t", run_id="done", status=PipelineStatus.NOTIFIED)
+        admin_obj = InboxAdmin(InboxItem, admin.site)
+        qs = admin_obj.get_queryset(MagicMock())
+        self.assertEqual(list(qs.values_list("run_id", flat=True)), ["pend"])
+
+
+class TestPipelineRunCrossLinks(TestCase):
+    """PipelineRunAdmin cross-links to Node and Incident change pages."""
+
+    def _admin(self):
+        from apps.orchestration.admin import PipelineRunAdmin
+
+        return PipelineRunAdmin(PipelineRun, admin.site)
+
+    def test_cross_link_methods_in_readonly_fields(self):
+        readonly = self._admin().readonly_fields
+        self.assertIn("node_link", readonly)
+        self.assertIn("incident_link", readonly)
+
+    def test_node_link_renders_anchor(self):
+        from django.utils.safestring import SafeString
+
+        from apps.alerts.models import Node
+
+        node = Node.objects.create(instance_id="web-01", hostname="web-01")
+        run = PipelineRun.objects.create(trace_id="t", run_id="r", node=node)
+        result = self._admin().node_link(run)
+        self.assertIsInstance(result, SafeString)
+        self.assertIn(f"/admin/alerts/node/{node.pk}/change/", result)
+
+    def test_node_link_dash_when_null(self):
+        run = PipelineRun.objects.create(trace_id="t", run_id="r")
+        self.assertEqual(self._admin().node_link(run), "—")
+
+    def test_incident_link_renders_anchor(self):
+        from django.utils.safestring import SafeString
+
+        incident = Incident.objects.create(
+            title="I", severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN
+        )
+        run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
+        result = self._admin().incident_link(run)
+        self.assertIsInstance(result, SafeString)
+        self.assertIn(f"/admin/alerts/incident/{incident.pk}/change/", result)
+
+    def test_incident_link_dash_when_null(self):
+        run = PipelineRun.objects.create(trace_id="t", run_id="r")
+        self.assertEqual(self._admin().incident_link(run), "—")
+
+
+class TestPipelineRunChangePageRendersCrossLinks(TestCase):
+    """The PipelineRun change page actually renders the node + incident links."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
+
+    def setUp(self):
+        self.client.force_login(self.user)
+
+    def test_change_page_contains_node_and_incident_urls(self):
+        from django.urls import reverse
+
+        from apps.alerts.models import Node
+
+        node = Node.objects.create(instance_id="web-30", hostname="web-30")
+        incident = Incident.objects.create(
+            title="I", severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN
+        )
+        run = PipelineRun.objects.create(trace_id="t", run_id="r", node=node, incident=incident)
+        url = reverse("admin:orchestration_pipelinerun_change", args=[run.pk])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f"/admin/alerts/node/{node.pk}/change/")
+        self.assertContains(resp, f"/admin/alerts/incident/{incident.pk}/change/")

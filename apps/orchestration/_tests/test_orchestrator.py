@@ -2,8 +2,10 @@
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+import pytest
+from django.test import TestCase, override_settings
 
+from apps.alerts.models import Node
 from apps.orchestration.dtos import (
     AnalyzeResult,
     CheckResult,
@@ -11,6 +13,7 @@ from apps.orchestration.dtos import (
     NotifyResult,
 )
 from apps.orchestration.models import (
+    PipelineOrigin,
     PipelineStage,
     PipelineStatus,
     StageExecution,
@@ -662,3 +665,82 @@ class SkipCheckersTests(TestCase):
         run = PipelineRun.objects.order_by("-started_at").first()
         assert run is not None
         assert run.status == PipelineStatus.NOTIFIED
+
+
+@pytest.mark.django_db
+@override_settings(INSTANCE_ID="hub-1")
+def test_checker_generated_run_gets_self_node():
+    run = PipelineOrchestrator().start_pipeline(
+        payload={"checks_only": True},
+        source="cli",
+        origin=PipelineOrigin.CHECKER_GENERATED,
+    )
+    assert run.origin == PipelineOrigin.CHECKER_GENERATED
+    assert run.node is not None and run.node.is_self is True
+
+
+@pytest.mark.django_db
+def test_incoming_run_resolves_node_from_instance_id():
+    Node.objects.create(instance_id="agent-9")  # node must exist to resolve
+    payload = {"payload": {"alerts": [{"labels": {"instance_id": "agent-9"}}]}}
+    run = PipelineOrchestrator().start_pipeline(
+        payload=payload, source="grafana", origin=PipelineOrigin.INCOMING_WEBHOOK
+    )
+    assert run.origin == PipelineOrigin.INCOMING_WEBHOOK
+    assert run.node is not None and run.node.instance_id == "agent-9"
+
+
+@pytest.mark.django_db
+def test_incoming_run_without_instance_id_has_null_node():
+    run = PipelineOrchestrator().start_pipeline(payload={}, source="grafana")
+    assert run.node is None
+
+
+@pytest.mark.django_db
+def test_incoming_run_resolves_node_from_cluster_top_level_instance_id():
+    """Cluster shape: instance_id lives at the top of the inner payload."""
+    Node.objects.create(instance_id="web-03")
+    payload = {"payload": {"instance_id": "web-03", "alerts": []}}
+    run = PipelineOrchestrator().start_pipeline(payload=payload, source="cluster")
+    assert run.node is not None and run.node.instance_id == "web-03"
+
+
+@pytest.mark.django_db
+def test_incoming_run_resolves_node_from_instance_label_fallthrough():
+    """Falls through instance_id -> instance -> hostname in the first alert labels."""
+    Node.objects.create(instance_id="host-7")
+    payload = {"payload": {"alerts": [{"labels": {"hostname": "host-7"}}]}}
+    run = PipelineOrchestrator().start_pipeline(payload=payload, source="datadog")
+    assert run.node is not None and run.node.instance_id == "host-7"
+
+
+@pytest.mark.django_db
+def test_incoming_run_with_empty_alerts_has_null_node():
+    """No instance_id anywhere (empty alerts list) leaves node NULL."""
+    payload = {"payload": {"alerts": []}}
+    run = PipelineOrchestrator().start_pipeline(payload=payload, source="grafana")
+    assert run.node is None
+
+
+@pytest.mark.django_db
+def test_incoming_run_with_labelless_alert_has_null_node():
+    """An alert with no usable instance label leaves node NULL."""
+    payload = {"payload": {"alerts": [{"labels": {"foo": "bar"}}]}}
+    run = PipelineOrchestrator().start_pipeline(payload=payload, source="grafana")
+    assert run.node is None
+
+
+@pytest.mark.django_db
+def test_incoming_run_with_non_dict_labels_has_null_node():
+    """Malformed webhook input (labels is a string) must not raise; node stays NULL."""
+    payload = {"payload": {"alerts": [{"labels": "pwned"}]}}
+    run = PipelineOrchestrator().start_pipeline(payload=payload, source="grafana")
+    assert run.node is None
+
+
+@pytest.mark.django_db
+def test_incoming_run_with_non_string_instance_id_has_null_node():
+    """A non-str top-level instance_id must not reach the ORM filter; node stays NULL."""
+    payload = {"payload": {"instance_id": ["not", "a", "string"]}}
+    run = PipelineOrchestrator().start_pipeline(payload=payload, source="cluster")
+    assert run.node is None

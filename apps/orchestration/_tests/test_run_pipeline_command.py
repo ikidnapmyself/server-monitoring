@@ -673,3 +673,35 @@ class RunPipelinePathTraversalTest(TestCase):
                 stdout=io.StringIO(),
             )
         self.assertIn("File not found", str(ctx.exception))
+
+
+class RunPipelineOriginTest(TestCase):
+    """The command tags each run with the correct pipeline origin."""
+
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
+    def test_checks_only_uses_checker_generated_origin(self, mock_orchestrator):
+        from apps.orchestration.models import PipelineOrigin
+
+        mock_result = mock.Mock()
+        mock_result.status = "COMPLETED"
+        mock_result.to_dict.return_value = {"status": "COMPLETED"}
+        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+
+        call_command("run_pipeline", "--checks-only", "--json", stdout=io.StringIO())
+
+        kwargs = mock_orchestrator.return_value.run_pipeline.call_args[1]
+        self.assertEqual(kwargs["origin"], PipelineOrigin.CHECKER_GENERATED)
+
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
+    def test_non_checks_only_uses_manual_origin(self, mock_orchestrator):
+        from apps.orchestration.models import PipelineOrigin
+
+        mock_result = mock.Mock()
+        mock_result.status = "COMPLETED"
+        mock_result.to_dict.return_value = {"status": "COMPLETED"}
+        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+
+        call_command("run_pipeline", "--sample", "--json", stdout=io.StringIO())
+
+        kwargs = mock_orchestrator.return_value.run_pipeline.call_args[1]
+        self.assertEqual(kwargs["origin"], PipelineOrigin.MANUAL)

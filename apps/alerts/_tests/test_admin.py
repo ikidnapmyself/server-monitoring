@@ -2,8 +2,14 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.utils import timezone
 
+from apps.alerts.admin import NodeAdmin
 from apps.alerts.models import Alert, AlertSeverity, AlertStatus, Incident, IncidentStatus
 from apps.orchestration.models import PipelineRun, PipelineStatus
+
+
+def test_nodeadmin_shows_is_self():
+    assert "is_self" in NodeAdmin.list_display
+    assert "is_self" in NodeAdmin.list_filter
 
 
 class TestAdminQueryOptimization(TestCase):
@@ -246,3 +252,119 @@ class TestJourneyPanel(TestCase):
         resp = self.client.get(f"/admin/alerts/alert/{alert.id}/change/")
         assert resp.status_code == 200
         assert "not processed — inbox" in resp.content.decode()
+
+
+class TestIncidentJourneyTimeline(TestCase):
+    """Task 6.2: merged journey timeline rendered on IncidentAdmin."""
+
+    def _admin(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import IncidentAdmin
+
+        return IncidentAdmin(Incident, AdminSite())
+
+    def test_journey_timeline_in_readonly_fields(self):
+        from apps.alerts.admin import IncidentAdmin
+
+        assert "journey_timeline" in IncidentAdmin.readonly_fields
+
+    def test_journey_timeline_renders_events_in_order_escaped(self):
+        from datetime import timedelta
+
+        from django.utils.safestring import SafeString
+
+        from apps.alerts.models import AlertHistory
+        from apps.orchestration.models import StageExecution
+
+        base = timezone.now()
+        incident = Incident.objects.create(title="Inc", severity="critical")
+        alert = Alert.objects.create(
+            fingerprint="fp",
+            source="cluster",
+            name="cpu",
+            severity="critical",
+            started_at=base,
+            incident=incident,
+        )
+        hist = AlertHistory.objects.create(alert=alert, event="created", new_status="firing")
+        AlertHistory.objects.filter(pk=hist.pk).update(created_at=base + timedelta(seconds=10))
+        run = PipelineRun.objects.create(
+            trace_id="tr", run_id="run-1", incident=incident, notify_output_ref="ref-1"
+        )
+        PipelineRun.objects.filter(pk=run.pk).update(created_at=base + timedelta(seconds=5))
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage="notify",
+            status="failed",
+            started_at=base + timedelta(seconds=20),
+            error_message="<b>boom</b>",
+        )
+
+        html = self._admin().journey_timeline(incident)
+        assert isinstance(html, SafeString)
+        # Chronological: pipeline run label before stage label.
+        assert html.index("run-1") < html.index("notify failed")
+        # Dynamic content with HTML-special chars is escaped.
+        assert "&lt;b&gt;boom&lt;/b&gt;" in html
+        assert "<b>boom</b>" not in html
+
+    def test_journey_timeline_empty_incident(self):
+        from django.utils.safestring import SafeString
+
+        incident = Incident.objects.create(title="Empty", severity="info")
+        html = self._admin().journey_timeline(incident)
+        assert isinstance(html, SafeString)
+        assert "No timeline events yet." in html
+
+
+class TestAlertHistoryAdminReadability(TestCase):
+    """Task 6.3: AlertHistory admin readability defaults."""
+
+    def _admin(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import AlertHistoryAdmin
+        from apps.alerts.models import AlertHistory
+
+        return AlertHistoryAdmin(AlertHistory, AdminSite())
+
+    def test_event_label_in_list_display_and_humanizes(self):
+        from apps.alerts.admin import AlertHistoryAdmin
+        from apps.alerts.models import AlertHistory
+
+        assert "event_label" in AlertHistoryAdmin.list_display
+        alert = Alert.objects.create(
+            fingerprint="fp",
+            source="cluster",
+            name="cpu",
+            severity="warning",
+            started_at=timezone.now(),
+        )
+        hist = AlertHistory.objects.create(alert=alert, event="status_changed")
+        assert self._admin().event_label(hist) == "Status Changed"
+
+    def test_details_pretty_escapes(self):
+        from django.utils.safestring import SafeString
+
+        from apps.alerts.models import AlertHistory
+
+        alert = Alert.objects.create(
+            fingerprint="fp",
+            source="cluster",
+            name="cpu",
+            severity="warning",
+            started_at=timezone.now(),
+        )
+        hist = AlertHistory.objects.create(alert=alert, event="created", details={"x": "<b>y</b>"})
+        html = self._admin().details_pretty(hist)
+        assert isinstance(html, SafeString)
+        assert "&lt;b&gt;y&lt;/b&gt;" in html
+        assert "<b>y</b>" not in html
+        assert "<pre>" in html
+
+    def test_list_filter_includes_event_and_created_at(self):
+        from apps.alerts.admin import AlertHistoryAdmin
+
+        assert "event" in AlertHistoryAdmin.list_filter
+        assert "created_at" in AlertHistoryAdmin.list_filter
