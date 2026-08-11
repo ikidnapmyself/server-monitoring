@@ -296,6 +296,9 @@ class AlertOrchestrator:
         """Update an existing alert with new data."""
         old_status = alert.status
 
+        # Snapshot what changed BEFORE overwriting fields below.
+        changed = self._diff_alert(alert, parsed)
+
         # Update fields
         alert.name = parsed.name
         alert.severity = parsed.severity
@@ -316,17 +319,24 @@ class AlertOrchestrator:
                 alert.ended_at = None
                 event = "refired"
 
-            # Record history
             AlertHistory.objects.create(
                 alert=alert,
                 event=event,
                 old_status=old_status,
                 new_status=parsed.status,
+                details={"changed": changed},
             )
 
             logger.info(f"Alert {event}: {alert.name} ({alert.fingerprint})")
         else:
             result.alerts_updated += 1
+            AlertHistory.objects.create(
+                alert=alert,
+                event="updated",
+                old_status=old_status,
+                new_status=alert.status,
+                details={"changed": changed},
+            )
 
         alert.save()
         return alert

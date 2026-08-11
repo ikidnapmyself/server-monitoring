@@ -136,6 +136,35 @@ class AlertOrchestratorTests(TestCase):
         history = AlertHistory.objects.filter(event="created")
         self.assertEqual(history.count(), 1)
 
+    def test_refire_no_change_records_updated_row_with_empty_diff(self):
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+
+        rows = AlertHistory.objects.filter(event="updated")
+        self.assertEqual(rows.count(), 1)
+        row = rows.get()
+        self.assertEqual(row.old_status, "firing")
+        self.assertEqual(row.new_status, "firing")
+        self.assertEqual(row.details, {"changed": {}})
+
+    def test_refire_with_severity_change_records_diff(self):
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+        self.alertmanager_payload["alerts"][0]["labels"]["severity"] = "critical"
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+
+        row = AlertHistory.objects.get(event="updated")
+        changed = row.details["changed"]
+        self.assertEqual(changed["severity"], ["warning", "critical"])
+        # severity is a label in AlertManager, so the labels dict changes too
+        self.assertIn("labels", changed)
+
+    def test_continuous_firing_records_one_row_per_webhook(self):
+        for _ in range(4):
+            self.orchestrator.process_webhook(self.alertmanager_payload)
+        # 1 created + 3 updated
+        self.assertEqual(AlertHistory.objects.filter(event="created").count(), 1)
+        self.assertEqual(AlertHistory.objects.filter(event="updated").count(), 3)
+
     def test_auto_resolve_incident(self):
         # Create and then resolve alert
         self.orchestrator.process_webhook(self.alertmanager_payload)
