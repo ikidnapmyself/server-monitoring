@@ -106,3 +106,65 @@ class DiagnoseIncidentStatusTests(TestCase):
     def test_explicit_skipped_without_reason(self):
         self._exec("check", "skipped", error_message="")
         self.assertEqual(self._entry(self.incident, "check")["detail"], "no reason recorded")
+
+
+class DiagnoseIncidentAggregationTests(TestCase):
+    def _entry(self, incident, stage):
+        return {e["stage"]: e for e in diagnose_incident(incident)}[stage]
+
+    def test_latest_run_wins_and_rollup_counts(self):
+        incident = Incident.objects.create(title="Multi")
+        # Older run: notify succeeded. Newer run: notify failed.
+        old = PipelineRun.objects.create(trace_id="t1", run_id="r1", incident=incident)
+        StageExecution.objects.create(
+            pipeline_run=old, stage="notify", status="succeeded", output_ref="ref://1"
+        )
+        new = PipelineRun.objects.create(trace_id="t2", run_id="r2", incident=incident)
+        StageExecution.objects.create(
+            pipeline_run=new,
+            stage="notify",
+            status="failed",
+            error_type="X",
+            error_message="boom",
+            error_retryable=False,
+        )
+        entry = self._entry(incident, "notify")
+        self.assertEqual(entry["status"], "failed")  # latest run wins
+        self.assertEqual(entry["runs"], "succeeded in 1/2 runs")
+
+    def test_highest_attempt_within_latest_run_wins(self):
+        incident = Incident.objects.create(title="Retry")
+        run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage="analyze",
+            status="failed",
+            attempt=1,
+            error_type="X",
+            error_message="first",
+            error_retryable=True,
+        )
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage="analyze",
+            status="succeeded",
+            attempt=2,
+            output_ref="ref://ok",
+        )
+        self.assertEqual(self._entry(incident, "analyze")["status"], "ok")
+
+    def test_ingest_succeeded_without_output_is_empty(self):
+        # ingest has no PipelineRun output-ref attr (run_ref_attr is None),
+        # so emptiness rests solely on the execution's own snapshot/output_ref.
+        incident = Incident.objects.create(title="IngestEmpty")
+        run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
+        StageExecution.objects.create(pipeline_run=run, stage="ingest", status="succeeded")
+        self.assertEqual(self._entry(incident, "ingest")["status"], "empty")
+
+    def test_unknown_status_falls_back_to_never_ran(self):
+        # A status outside the known vocabulary matches no classify branch and
+        # leaves the default never_ran verdict untouched (defensive fall-through).
+        incident = Incident.objects.create(title="Unknown")
+        run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
+        StageExecution.objects.create(pipeline_run=run, stage="notify", status="cancelled")
+        self.assertEqual(self._entry(incident, "notify")["status"], "never_ran")
