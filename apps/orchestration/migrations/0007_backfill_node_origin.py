@@ -1,11 +1,13 @@
 """Backfill node + origin on pre-existing PipelineRun rows.
 
 Rows created before Phase 2 have the ``origin`` default (incoming_webhook) and a
-NULL ``node``. Derive ``origin`` from ``source`` (``cli*`` -> manual, else
-incoming_webhook) and derive ``node`` from the linked incident's alerts — the FK
-to a node lives on ``Alert``, not ``Incident`` — using the first alert that
-carries one. Reversible with a no-op reverse (the backfilled values are harmless
-to keep). Updates are applied in chunked ``bulk_update`` batches.
+NULL ``node``. Derive ``origin`` from the run's stored payload first — a
+``--checks-only`` run carries ``inbound_payload["checks_only"] = True`` and is
+``checker_generated`` — then fall back to the ``source`` heuristic (``cli*`` ->
+manual, else incoming_webhook). Derive ``node`` from the linked incident's alerts
+— the FK to a node lives on ``Alert``, not ``Incident`` — using the first alert
+that carries one. Reversible with a no-op reverse (the backfilled values are
+harmless to keep). Updates are applied in chunked ``bulk_update`` batches.
 """
 
 from django.db import migrations
@@ -19,8 +21,12 @@ def forwards(apps, schema_editor):
 
     batch = []
     for run in PipelineRun.objects.select_related("incident").all().iterator():
-        src = (run.source or "").lower()
-        run.origin = "manual" if src.startswith("cli") else "incoming_webhook"
+        payload = run.inbound_payload if isinstance(run.inbound_payload, dict) else {}
+        if payload.get("checks_only"):
+            run.origin = "checker_generated"
+        else:
+            src = (run.source or "").lower()
+            run.origin = "manual" if src.startswith("cli") else "incoming_webhook"
         if run.incident_id:
             node_id = (
                 Alert.objects.filter(incident_id=run.incident_id, node__isnull=False)

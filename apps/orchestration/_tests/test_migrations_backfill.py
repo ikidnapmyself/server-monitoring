@@ -33,6 +33,18 @@ def test_forwards_sets_incoming_origin_for_other_source():
 
 
 @pytest.mark.django_db
+def test_forwards_sets_checker_generated_origin_from_checks_only_payload():
+    # A historical --checks-only run carries checks_only in inbound_payload; it must
+    # backfill as checker_generated even though its source looks CLI-ish (would be manual).
+    run = PipelineRun.objects.create(
+        trace_id="t", run_id="checks-run", source="cli", inbound_payload={"checks_only": True}
+    )
+    migration.forwards(django_apps, None)
+    run.refresh_from_db()
+    assert run.origin == "checker_generated"
+
+
+@pytest.mark.django_db
 def test_forwards_leaves_node_null_when_no_alert_has_node():
     """A run whose incident has no node-bearing alert keeps node NULL."""
     from django.utils import timezone

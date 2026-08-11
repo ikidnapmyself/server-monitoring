@@ -58,14 +58,18 @@ def _execute(run: PipelineRun) -> None:
 
 def drain(limit: int = 50) -> int:
     """Claim and execute up to ``limit`` PENDING runs (oldest first). Return count."""
-    pending = list(
-        PipelineRun.objects.filter(status=PipelineStatus.PENDING).order_by("created_at")[:limit]
+    # Fetch PKs only (not full rows) so we never load the potentially large
+    # ``inbound_payload`` JSON for runs a concurrent drain claims out from under us.
+    pending_pks = list(
+        PipelineRun.objects.filter(status=PipelineStatus.PENDING)
+        .order_by("created_at")
+        .values_list("pk", flat=True)[:limit]
     )
     processed = 0
-    for run in pending:
-        if not claim(run.pk):
+    for pk in pending_pks:
+        if not claim(pk):
             continue  # a concurrent drain claimed it first
-        _execute(run)  # execute re-fetches via refresh_from_db; no extra get() needed
+        _execute(PipelineRun(pk=pk))  # refresh_from_db loads the claimed row once
         processed += 1
     return processed
 

@@ -187,3 +187,11 @@ class PreflightRunAdmin(admin.ModelAdmin):
     def has_add_permission(self, request):
         """Runs are created by the preflight command, not the admin."""
         return False
+
+    def has_change_permission(self, request, obj=None):
+        """Preflight runs are audit records — view only, no edits."""
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        """Preserve preflight history — no deletion via admin."""
+        return False

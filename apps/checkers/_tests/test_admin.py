@@ -31,6 +31,13 @@ def test_preflight_run_no_add_permission():
     assert model_admin.has_add_permission(request=None) is False
 
 
+def test_preflight_run_no_change_or_delete_permission():
+    # Audit history: view-only, no edits or deletion (matches CheckRunAdmin intent).
+    model_admin = admin.site._registry[PreflightRun]
+    assert model_admin.has_change_permission(request=None) is False
+    assert model_admin.has_delete_permission(request=None) is False
+
+
 def test_preflight_check_inline_readonly():
     inline = PreflightCheckInline(PreflightCheck, admin.site)
     for field in ("level", "message", "hint"):
