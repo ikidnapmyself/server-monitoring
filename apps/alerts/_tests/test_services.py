@@ -170,6 +170,16 @@ class AlertOrchestratorTests(TestCase):
         row = AlertHistory.objects.get(event="refired")
         self.assertIn("severity", row.details["changed"])
 
+    def test_resolved_row_carries_diff(self):
+        # fire, then resolve with a severity bump so the diff is non-empty
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+        self.alertmanager_payload["alerts"][0]["status"] = "resolved"
+        self.alertmanager_payload["alerts"][0]["labels"]["severity"] = "critical"
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+
+        row = AlertHistory.objects.get(event="resolved")
+        self.assertIn("severity", row.details["changed"])
+
     def test_continuous_firing_records_one_row_per_webhook(self):
         for _ in range(4):
             self.orchestrator.process_webhook(self.alertmanager_payload)
