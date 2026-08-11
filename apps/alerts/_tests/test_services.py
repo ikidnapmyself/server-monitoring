@@ -158,6 +158,18 @@ class AlertOrchestratorTests(TestCase):
         # severity is a label in AlertManager, so the labels dict changes too
         self.assertIn("labels", changed)
 
+    def test_refired_row_carries_diff(self):
+        # fire -> resolve -> fire again with a severity bump
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+        self.alertmanager_payload["alerts"][0]["status"] = "resolved"
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+        self.alertmanager_payload["alerts"][0]["status"] = "firing"
+        self.alertmanager_payload["alerts"][0]["labels"]["severity"] = "critical"
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+
+        row = AlertHistory.objects.get(event="refired")
+        self.assertIn("severity", row.details["changed"])
+
     def test_continuous_firing_records_one_row_per_webhook(self):
         for _ in range(4):
             self.orchestrator.process_webhook(self.alertmanager_payload)
