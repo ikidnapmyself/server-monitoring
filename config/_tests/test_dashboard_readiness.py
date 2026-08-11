@@ -88,3 +88,24 @@ def test_readiness_in_dashboard_context():
         assert {"key", "label", "status", "detail", "url"} <= set(entry)
     keys = {entry["key"] for entry in readiness}
     assert {"channels", "provider", "preflight", "inbox", "nodes"} <= keys
+
+
+@pytest.mark.django_db
+def test_nodes_warn_when_stale():
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.alerts.models import Node
+
+    node = Node.objects.create(instance_id="agent-stale")
+    Node.objects.filter(pk=node.pk).update(last_seen=timezone.now() - timedelta(minutes=30))
+    assert _by_key(build_readiness())["nodes"]["status"] == "warn"
+
+
+@pytest.mark.django_db
+def test_preflight_unknown_status_is_neutral():
+    from apps.checkers.models import PreflightRun
+
+    PreflightRun.objects.create(overall_status="unknown")
+    assert _by_key(build_readiness())["preflight"]["status"] == "neutral"
