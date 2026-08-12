@@ -136,6 +136,57 @@ class AlertOrchestratorTests(TestCase):
         history = AlertHistory.objects.filter(event="created")
         self.assertEqual(history.count(), 1)
 
+    def test_refire_no_change_records_updated_row_with_empty_diff(self):
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+
+        rows = AlertHistory.objects.filter(event="updated")
+        self.assertEqual(rows.count(), 1)
+        row = rows.get()
+        self.assertEqual(row.old_status, "firing")
+        self.assertEqual(row.new_status, "firing")
+        self.assertEqual(row.details, {"changed": {}})
+
+    def test_refire_with_severity_change_records_diff(self):
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+        self.alertmanager_payload["alerts"][0]["labels"]["severity"] = "critical"
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+
+        row = AlertHistory.objects.get(event="updated")
+        changed = row.details["changed"]
+        self.assertEqual(changed["severity"], ["warning", "critical"])
+        # severity is a label in AlertManager, so the labels dict changes too
+        self.assertIn("labels", changed)
+
+    def test_refired_row_carries_diff(self):
+        # fire -> resolve -> fire again with a severity bump
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+        self.alertmanager_payload["alerts"][0]["status"] = "resolved"
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+        self.alertmanager_payload["alerts"][0]["status"] = "firing"
+        self.alertmanager_payload["alerts"][0]["labels"]["severity"] = "critical"
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+
+        row = AlertHistory.objects.get(event="refired")
+        self.assertIn("severity", row.details["changed"])
+
+    def test_resolved_row_carries_diff(self):
+        # fire, then resolve with a severity bump so the diff is non-empty
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+        self.alertmanager_payload["alerts"][0]["status"] = "resolved"
+        self.alertmanager_payload["alerts"][0]["labels"]["severity"] = "critical"
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+
+        row = AlertHistory.objects.get(event="resolved")
+        self.assertIn("severity", row.details["changed"])
+
+    def test_continuous_firing_records_one_row_per_webhook(self):
+        for _ in range(4):
+            self.orchestrator.process_webhook(self.alertmanager_payload)
+        # 1 created + 3 updated
+        self.assertEqual(AlertHistory.objects.filter(event="created").count(), 1)
+        self.assertEqual(AlertHistory.objects.filter(event="updated").count(), 3)
+
     def test_auto_resolve_incident(self):
         # Create and then resolve alert
         self.orchestrator.process_webhook(self.alertmanager_payload)
@@ -695,3 +746,57 @@ class InstanceKeyFromLabelsTests(TestCase):
             labels = {"instance": "web-1"}
 
         self.assertEqual(incident_instance_key(_Alert()), "web-1")
+
+
+class DiffAlertTests(TestCase):
+    """Tests for AlertOrchestrator._diff_alert."""
+
+    def setUp(self):
+        self.orchestrator = AlertOrchestrator()
+        self.alert = Alert.objects.create(
+            fingerprint="fp",
+            source="alertmanager",
+            name="A",
+            severity="warning",
+            status="firing",
+            description="old desc",
+            labels={"a": "1"},
+            annotations={"x": "1"},
+            started_at=timezone.now(),
+        )
+
+    def _parsed(self, **overrides):
+        base = dict(
+            fingerprint="fp",
+            name="A",
+            status="firing",
+            started_at=timezone.now(),
+            severity="warning",
+            description="old desc",
+            labels={"a": "1"},
+            annotations={"x": "1"},
+        )
+        base.update(overrides)
+        return ParsedAlert(**base)
+
+    def test_no_changes_returns_empty(self):
+        self.assertEqual(self.orchestrator._diff_alert(self.alert, self._parsed()), {})
+
+    def test_severity_change_captured(self):
+        diff = self.orchestrator._diff_alert(self.alert, self._parsed(severity="critical"))
+        self.assertEqual(diff, {"severity": ["warning", "critical"]})
+
+    def test_description_and_annotation_change_captured(self):
+        diff = self.orchestrator._diff_alert(
+            self.alert, self._parsed(description="new desc", annotations={"x": "2"})
+        )
+        self.assertEqual(
+            diff,
+            {"description": ["old desc", "new desc"], "annotations": [{"x": "1"}, {"x": "2"}]},
+        )
+
+    def test_raw_payload_and_name_not_diffed(self):
+        diff = self.orchestrator._diff_alert(
+            self.alert, self._parsed(name="B", raw_payload={"huge": "churn"})
+        )
+        self.assertEqual(diff, {})

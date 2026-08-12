@@ -273,6 +273,20 @@ class AlertOrchestrator:
 
         return alert
 
+    # Fields compared on re-fire. raw_payload (noisy/large) and name
+    # (fingerprint-stable) are deliberately excluded — see design doc.
+    _DIFF_FIELDS = ("severity", "description", "labels", "annotations")
+
+    def _diff_alert(self, alert: Alert, parsed: ParsedAlert) -> dict:
+        """Return {field: [old, new]} for meaningful fields that changed on re-fire."""
+        diff: dict = {}
+        for field_name in self._DIFF_FIELDS:
+            old = getattr(alert, field_name)
+            new = getattr(parsed, field_name)
+            if old != new:
+                diff[field_name] = [old, new]
+        return diff
+
     def _update_alert(
         self,
         alert: Alert,
@@ -281,6 +295,9 @@ class AlertOrchestrator:
     ) -> Alert:
         """Update an existing alert with new data."""
         old_status = alert.status
+
+        # Snapshot what changed BEFORE overwriting fields below.
+        changed = self._diff_alert(alert, parsed)
 
         # Update fields
         alert.name = parsed.name
@@ -302,17 +319,24 @@ class AlertOrchestrator:
                 alert.ended_at = None
                 event = "refired"
 
-            # Record history
             AlertHistory.objects.create(
                 alert=alert,
                 event=event,
                 old_status=old_status,
                 new_status=parsed.status,
+                details={"changed": changed},
             )
 
             logger.info(f"Alert {event}: {alert.name} ({alert.fingerprint})")
         else:
             result.alerts_updated += 1
+            AlertHistory.objects.create(
+                alert=alert,
+                event="updated",
+                old_status=old_status,
+                new_status=alert.status,
+                details={"changed": changed},
+            )
 
         alert.save()
         return alert
