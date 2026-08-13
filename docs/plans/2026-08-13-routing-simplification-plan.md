@@ -1030,8 +1030,17 @@ git commit -m "fix(orchestration): route checker-generated runs so the hub monit
 
 **Files:**
 - Modify: `AGENTS.md` (the `PipelineDefinition` description under "Stage configuration")
-- Modify: `apps/orchestration/AGENTS.md` (state machine and routing rules)
-- Modify: `docs/Architecture.md` if it describes the `run_*` flags or the fallback
+- Modify: `apps/orchestration/AGENTS.md` — **partially done in Task 3**; that file is canonical
+  agent guidance and could not be left teaching `run_notify` while later tasks ran. Verify it is
+  current rather than assuming.
+- Modify: `docs/Architecture.md:67,151`, `docs/Index.md:767` (field table), `docs/Installation.md:317`,
+  `docs/Deployment.md:409-411`, `docs/Setup-Guide.md:551` — all still describe the removed `run_*`
+  booleans as the routing mechanism.
+- `docs/plans/` is an immutable historical record. Do not touch it.
+
+Add an operator note to `docs/Deployment.md`: migration `0010` is destructive (it drops three
+columns after backfilling from them) and `0012` discards surplus `channels` rows. Both want a
+SQLite backup taken before `migrate`.
 
 Document: lanes are rows; `stages` excludes the entry stage and why; `origin` is a matchable fact;
 unmatched traffic fails with `no_route`; the hub's self-check lane exists and notifies.
