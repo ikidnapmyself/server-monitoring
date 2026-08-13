@@ -96,6 +96,9 @@ class SetupClusterHubTests(TestCase):
         catchall = PipelineDefinition.objects.get(name="default-catch-all")
         self.assertEqual(catchall.match, [])
         self.assertIn(ch, catchall.channels.all())
+        # ...and the fresh lane actually lists stages: an empty list would attach the
+        # channel to a lane that swallows every incident and delivers nothing.
+        self.assertEqual(catchall.stages, ["check", "analyze", "notify"])
 
     def test_hub_creates_generic_channel(self):
         from apps.notify.models import NotificationChannel
@@ -144,7 +147,7 @@ class SetupClusterHubTests(TestCase):
             name="default-catch-all",
             is_active=False,
             match=[{"field": "source", "op": "is", "value": "x"}],
-            run_notify=False,
+            stages=["check"],
         )
         NotificationChannel.objects.create(
             name="existing", driver="slack", config={"webhook_url": "https://hooks.slack.com/x"}
@@ -154,7 +157,9 @@ class SetupClusterHubTests(TestCase):
         catchall = PipelineDefinition.objects.get(name="default-catch-all")
         self.assertTrue(catchall.is_active)
         self.assertEqual(catchall.match, [])
-        self.assertTrue(catchall.run_notify)
+        # NOTIFY is guaranteed, and the operator's existing selection is preserved
+        # in canonical order rather than overwritten.
+        self.assertEqual(catchall.stages, ["check", "notify"])
 
     def test_hub_interactive_slack_channel(self):
         from apps.notify.models import NotificationChannel

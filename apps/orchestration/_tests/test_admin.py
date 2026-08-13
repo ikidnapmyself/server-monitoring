@@ -578,3 +578,74 @@ class TestPipelineRunChangePageRendersCrossLinks(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, f"/admin/alerts/node/{node.pk}/change/")
         self.assertContains(resp, f"/admin/alerts/incident/{incident.pk}/change/")
+
+
+class TestPipelineDefinitionStagesForm(TestCase):
+    """The Add form seeds ``stages``; the data model still means empty when empty."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_superuser("admin2", "admin2@test.com", "password")
+
+    def setUp(self):
+        self.client.login(username="admin2", password="password")
+
+    def test_add_form_arrives_prefilled_with_the_full_pipeline(self):
+        response = self.client.get("/admin/orchestration/pipelinedefinition/add/")
+        assert response.status_code == 200
+        form = response.context["adminform"].form
+        assert form.fields["stages"].initial == ["check", "analyze", "notify"]
+        # ...and that is the value the widget actually renders, not just an attribute
+        # on the field object. (Asserting on the page HTML would be vacuous: the
+        # fieldset's help text quotes the same list.)
+        assert form["stages"].value() == '["check", "analyze", "notify"]'
+
+    def test_explicitly_empty_stages_still_saves_as_empty(self):
+        """Seeding the form must not make an ingest-only lane inexpressible."""
+        from apps.orchestration.models import PipelineDefinition
+
+        response = self.client.post(
+            "/admin/orchestration/pipelinedefinition/add/",
+            {
+                "name": "ingest-only-lane",
+                "description": "",
+                "created_by": "",
+                "is_active": "on",
+                "match": "[]",
+                "priority": "100",
+                "stages": "[]",
+                "tags": "{}",
+            },
+        )
+        assert response.status_code == 302, getattr(
+            response.context.get("adminform"), "errors", response.status_code
+        )
+        assert PipelineDefinition.objects.get(name="ingest-only-lane").stages == []
+
+    def test_change_form_shows_the_saved_value_not_the_seed(self):
+        from apps.orchestration.models import PipelineDefinition
+
+        pd = PipelineDefinition.objects.create(name="emptied", match=[], stages=[])
+        response = self.client.get(f"/admin/orchestration/pipelinedefinition/{pd.pk}/change/")
+        assert response.status_code == 200
+        # The resolved bound value is what the operator sees; form.initial alone would
+        # only be asserting a Django invariant, not this admin's behaviour.
+        assert response.context["adminform"].form["stages"].value() == "[]"
+
+    def test_ingest_is_rejected_through_the_admin_form(self):
+        """The model-level design decision is enforced where operators actually type."""
+        response = self.client.post(
+            "/admin/orchestration/pipelinedefinition/add/",
+            {
+                "name": "bad-lane",
+                "description": "",
+                "created_by": "",
+                "is_active": "on",
+                "match": "[]",
+                "priority": "100",
+                "stages": '["ingest", "check"]',
+                "tags": "{}",
+            },
+        )
+        assert response.status_code == 200  # redisplayed with errors, not saved
+        assert "Unknown stage" in response.content.decode()

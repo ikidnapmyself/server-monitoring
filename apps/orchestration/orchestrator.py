@@ -319,7 +319,7 @@ class PipelineOrchestrator:
         #
         # checks_only / skip_checkers remain CLI/back-compat overrides. Otherwise
         # INGEST always runs first; the downstream stages are resolved AFTER ingest
-        # from the matched pipeline's flags (see _downstream_stages), because
+        # from the matched pipeline's stages list (see _downstream_stages), because
         # routing needs the incident's facts (source/severity/labels).
         checks_only = payload.get("checks_only", False)
         skip_checkers = payload.get("skip_checkers", False)
@@ -389,7 +389,7 @@ class PipelineOrchestrator:
                         ]
                     )
                     # Now that we know the incident, resolve + stamp the matched
-                    # pipeline and select the downstream stages from its flags.
+                    # pipeline and take the downstream stages from its stages list.
                     downstream = self._downstream_stages(incident_id, skip_checkers)
                     active_stages.extend(downstream)  # in-place: the loop sees new items
                     final_status = self._final_status(downstream)
@@ -498,7 +498,7 @@ class PipelineOrchestrator:
     def _downstream_stages(
         self, incident_id: int | None, skip_checkers: bool
     ) -> list[PipelineStage]:
-        """Stages after INGEST, from the matched pipeline's flags.
+        """Stages after INGEST, from the matched pipeline's ``stages`` list.
 
         Resolves the pipeline for the incident, stamps it on the incident, and
         returns the enabled downstream stages. Falls back to today's full order
@@ -526,13 +526,20 @@ class PipelineOrchestrator:
             incident.pipeline = matched
             incident.save(update_fields=["pipeline", "updated_at"])
 
-        stages: list[PipelineStage] = []
-        if matched.run_checkers and not skip_checkers:
-            stages.append(PipelineStage.CHECK)
-        if matched.run_intelligence:
-            stages.append(PipelineStage.ANALYZE)
-        if matched.run_notify:
-            stages.append(PipelineStage.NOTIFY)
+        # Normalise on the model: a hand-edited or fixture-written row can hold junk,
+        # and an unfiltered PipelineStage(...) would raise ValueError here — swallowed
+        # by the generic handler below into a retryable FAILED run that never drains.
+        normalised = matched.routable_stages()
+        if normalised != matched.stages:
+            logger.warning(
+                "Pipeline lane %r has an invalid stages value %r; running %r instead",
+                matched.name,
+                matched.stages,
+                normalised,
+            )
+        stages = [PipelineStage(s) for s in normalised]
+        if skip_checkers and PipelineStage.CHECK in stages:
+            stages.remove(PipelineStage.CHECK)
         return stages
 
     @staticmethod

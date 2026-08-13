@@ -185,19 +185,27 @@ class Command(BaseCommand):
         already exists it is repaired to the catch-all invariants (active, empty
         match, notify on) so the "routed via the catch-all pipeline" claim holds.
         """
-        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.models import PipelineDefinition, PipelineStage
 
         pipeline, created = PipelineDefinition.objects.get_or_create(
             name="default-catch-all",
-            defaults={"match": [], "priority": 1000},
+            defaults={
+                "match": [],
+                "priority": 1000,
+                "stages": list(PipelineDefinition.ROUTABLE_STAGES),
+            },
         )
+        notify = PipelineStage.NOTIFY.value
         if not created and not (
-            pipeline.is_active and pipeline.match == [] and pipeline.run_notify
+            pipeline.is_active and pipeline.match == [] and notify in (pipeline.stages or [])
         ):
             pipeline.is_active = True
             pipeline.match = []
-            pipeline.run_notify = True
-            pipeline.save(update_fields=["is_active", "match", "run_notify", "updated_at"])
+            # Keep whatever stages the operator selected, but guarantee NOTIFY,
+            # inserted in canonical order.
+            selected = set(pipeline.stages or []) | {notify}
+            pipeline.stages = [s for s in PipelineDefinition.ROUTABLE_STAGES if s in selected]
+            pipeline.save(update_fields=["is_active", "match", "stages", "updated_at"])
         pipeline.channels.add(channel)
 
     def _setup_agent(self, options) -> None:

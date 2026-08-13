@@ -1,9 +1,9 @@
-"""Phase B: stage selection comes from the matched pipeline's flags.
+"""Phase B: stage selection comes from the matched pipeline's ``stages`` list.
 
-INGEST always runs; the downstream stages (check/analyze/notify) are chosen from
-the resolved PipelineDefinition's run_* flags, and the pipeline is stamped on the
-incident right after ingest. checks_only/skip_checkers stay as CLI overrides; a
-no-match runs today's full order.
+INGEST always runs; the downstream stages (check/analyze/notify) are the ones the
+resolved PipelineDefinition lists in ``stages``, in that order, and the pipeline is
+stamped on the incident right after ingest. checks_only/skip_checkers stay as CLI
+overrides; a no-match runs today's full order.
 """
 
 from unittest.mock import patch
@@ -22,7 +22,7 @@ from apps.orchestration.models import (
 from apps.orchestration.orchestrator import PipelineOrchestrator
 
 
-class StageSelectionFromFlagsTests(TestCase):
+class StageSelectionFromStagesListTests(TestCase):
     def setUp(self):
         self.incident = Incident.objects.create(title="High CPU", severity="critical")
         Alert.objects.create(
@@ -51,34 +51,36 @@ class StageSelectionFromFlagsTests(TestCase):
                 payload=payload or {"payload": {}}, source="cluster"
             )
 
-    def test_run_checkers_false_skips_check_stage(self):
-        PipelineDefinition.objects.create(name="no-check", match=[], priority=1, run_checkers=False)
+    def test_stages_without_check_skips_check_stage(self):
+        PipelineDefinition.objects.create(
+            name="no-check", match=[], priority=1, stages=["analyze", "notify"]
+        )
         result = self._run()
         assert PipelineStage.CHECK not in result.stages_completed
         assert PipelineStage.NOTIFY in result.stages_completed
 
-    def test_run_intelligence_false_skips_analyze_stage(self):
+    def test_stages_without_analyze_skips_analyze_stage(self):
         PipelineDefinition.objects.create(
-            name="no-ai", match=[], priority=1, run_intelligence=False
+            name="no-ai", match=[], priority=1, stages=["check", "notify"]
         )
         result = self._run()
         assert PipelineStage.ANALYZE not in result.stages_completed
         assert PipelineStage.CHECK in result.stages_completed
         assert PipelineStage.NOTIFY in result.stages_completed
 
-    def test_run_notify_false_stops_before_notify(self):
-        PipelineDefinition.objects.create(name="silent", match=[], priority=1, run_notify=False)
+    def test_stages_without_notify_stops_before_notify(self):
+        PipelineDefinition.objects.create(
+            name="silent", match=[], priority=1, stages=["check", "analyze"]
+        )
         result = self._run()
         assert PipelineStage.NOTIFY not in result.stages_completed
 
-    def test_all_flags_false_runs_only_ingest(self):
+    def test_empty_stages_runs_only_ingest(self):
         PipelineDefinition.objects.create(
             name="inbox-lite",
             match=[],
             priority=1,
-            run_checkers=False,
-            run_intelligence=False,
-            run_notify=False,
+            stages=[],
         )
         result = self._run()
         assert result.stages_completed == [PipelineStage.INGEST]
@@ -111,8 +113,10 @@ class StageSelectionFromFlagsTests(TestCase):
         assert self.incident.pipeline_id == p.id
 
     def test_skip_checkers_payload_override_still_wins(self):
-        # Even a run_checkers=True pipeline is overridden by the payload flag.
-        PipelineDefinition.objects.create(name="full", match=[], priority=1, run_checkers=True)
+        # Even a lane that lists CHECK is overridden by the payload flag.
+        PipelineDefinition.objects.create(
+            name="full", match=[], priority=1, stages=["check", "analyze", "notify"]
+        )
         result = self._run(payload={"payload": {}, "skip_checkers": True})
         assert PipelineStage.CHECK not in result.stages_completed
         assert PipelineStage.NOTIFY in result.stages_completed
@@ -140,6 +144,58 @@ class DownstreamStagesHelperTests(TestCase):
         )
         return incident
 
+    def test_junk_stages_value_degrades_instead_of_failing_the_run(self):
+        """A hand-edited lane must not turn every run into an endless retryable failure.
+
+        ``PipelineStage("sparkle")`` raises ValueError, which the orchestrator's generic
+        handler would turn into FAILED/retryable=True *after* INGEST already succeeded.
+        Normalising on the model degrades to the valid subset instead.
+        """
+        incident = self._incident()
+        PipelineDefinition.objects.create(
+            name="junk", match=[], priority=1, stages=["sparkle", "notify"]
+        )
+        with self.assertLogs("apps.orchestration.orchestrator", level="WARNING") as logs:
+            stages = PipelineOrchestrator()._downstream_stages(incident.id, skip_checkers=False)
+        assert stages == [PipelineStage.NOTIFY]
+        # The warning names the lane so an operator can find the bad row.
+        assert "junk" in logs.output[0]
+
+    def test_valid_lane_logs_no_warning(self):
+        incident = self._incident()
+        PipelineDefinition.objects.create(
+            name="clean", match=[], priority=1, stages=["check", "notify"]
+        )
+        with patch("apps.orchestration.orchestrator.logger") as mock_logger:
+            stages = PipelineOrchestrator()._downstream_stages(incident.id, skip_checkers=False)
+        assert stages == [PipelineStage.CHECK, PipelineStage.NOTIFY]
+        mock_logger.warning.assert_not_called()
+
+    def test_skip_checkers_removes_check_from_a_matched_lane(self):
+        incident = self._incident()
+        PipelineDefinition.objects.create(
+            name="lane-with-check", match=[], priority=1, stages=["check", "notify"]
+        )
+        stages = PipelineOrchestrator()._downstream_stages(incident.id, skip_checkers=True)
+        assert stages == [PipelineStage.NOTIFY]
+
+    def test_skip_checkers_is_a_noop_for_a_lane_without_check(self):
+        incident = self._incident()
+        PipelineDefinition.objects.create(
+            name="lane-no-check", match=[], priority=1, stages=["analyze", "notify"]
+        )
+        stages = PipelineOrchestrator()._downstream_stages(incident.id, skip_checkers=True)
+        assert stages == [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+
+    def test_matched_lane_stages_arrive_in_listed_order(self):
+        """The list an operator saved is the list the orchestrator executes."""
+        incident = self._incident()
+        PipelineDefinition.objects.create(
+            name="lane-full", match=[], priority=1, stages=["check", "analyze", "notify"]
+        )
+        stages = PipelineOrchestrator()._downstream_stages(incident.id, skip_checkers=False)
+        assert stages == [PipelineStage.CHECK, PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+
     def test_no_incident_id_returns_full_default(self):
         stages = PipelineOrchestrator()._downstream_stages(None, skip_checkers=False)
         assert stages == [PipelineStage.CHECK, PipelineStage.ANALYZE, PipelineStage.NOTIFY]
@@ -154,7 +210,9 @@ class DownstreamStagesHelperTests(TestCase):
 
     def test_already_stamped_pipeline_is_not_re_saved(self):
         incident = self._incident()
-        p = PipelineDefinition.objects.create(name="ca", match=[], priority=1)
+        p = PipelineDefinition.objects.create(
+            name="ca", match=[], priority=1, stages=["check", "analyze", "notify"]
+        )
         incident.pipeline = p
         incident.save(update_fields=["pipeline"])
         before = incident.updated_at

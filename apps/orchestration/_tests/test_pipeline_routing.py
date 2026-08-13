@@ -96,7 +96,7 @@ class ResolvePipelineTests(TestCase):
             name="noisy-exception",
             priority=10,
             match=[{"field": "source", "op": "is", "value": "noisy"}],
-            run_notify=False,
+            stages=["check", "analyze"],
         )
         # A noisy critical hits the higher-priority exception first.
         self.assertEqual(resolve_pipeline({"source": "noisy", "severity": "critical"}), drop)

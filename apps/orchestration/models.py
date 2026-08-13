@@ -6,6 +6,7 @@ Provides persistent state tracking for pipeline runs and stage executions.
 
 from datetime import timedelta
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
@@ -484,11 +485,11 @@ class StageExecution(models.Model):
 
 class PipelineDefinition(models.Model):
     """
-    A routing pipeline: match conditions -> behaviour flags -> notify channels.
+    A routing pipeline: match conditions -> ordered stages -> notify channels.
 
     First-match-wins by ``priority`` (see ``matches`` / ``apps.orchestration.routing``).
     The orchestrator resolves the matching pipeline for an incident after ingest and
-    runs the stages its ``run_*`` flags enable.
+    runs the downstream stages listed in ``stages``, in that order.
     """
 
     name = models.CharField(
@@ -526,7 +527,7 @@ class PipelineDefinition(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     # --- Routing spine (Phase A): flat, first-match-wins.
-    # Match -> behaviour flags -> channels. ---
+    # Match -> ordered stages -> channels. ---
     match = models.JSONField(
         default=list,
         blank=True,
@@ -537,9 +538,15 @@ class PipelineDefinition(models.Model):
         db_index=True,
         help_text="Lower is evaluated first (first match wins).",
     )
-    run_checkers = models.BooleanField(default=True)
-    run_intelligence = models.BooleanField(default=True)
-    run_notify = models.BooleanField(default=True)
+    stages = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            'Ordered downstream stages, e.g. ["check", "analyze", "notify"]. The entry '
+            "stage (ingest) is not listed: it has already run by the time this lane is "
+            "resolved. Checker-generated runs do not consult a lane at all today."
+        ),
+    )
     channels = models.ManyToManyField(
         "notify.NotificationChannel", blank=True, related_name="pipelines"
     )
@@ -552,8 +559,47 @@ class PipelineDefinition(models.Model):
             models.Index(fields=["is_active", "priority"]),
         ]
 
+    #: Downstream stages a lane may select, in execution order. INGEST is absent by
+    #: design — routing happens after the entry stage, so no lane can control it.
+    ROUTABLE_STAGES = (
+        PipelineStage.CHECK.value,
+        PipelineStage.ANALYZE.value,
+        PipelineStage.NOTIFY.value,
+    )
+
     def __str__(self):
         return f"{self.name} (v{self.version})"
+
+    def clean(self):
+        """Validate ``stages`` as data shape only — no domain knowledge lives here."""
+        super().clean()
+        stages = self.stages
+        if not isinstance(stages, list):
+            raise ValidationError({"stages": "stages must be a list."})
+        unknown = [s for s in stages if s not in self.ROUTABLE_STAGES]
+        if unknown:
+            raise ValidationError(
+                {"stages": f"Unknown stage(s): {', '.join(str(s) for s in unknown)}."}
+            )
+        # Check order is load-bearing: after the unknown check every element is a
+        # known string, so set() is safe. Hoisting this above it would turn an
+        # unhashable element (a nested list/dict) into a TypeError, not a
+        # ValidationError.
+        if len(set(stages)) != len(stages):
+            raise ValidationError({"stages": "Duplicate stages are not allowed."})
+        if [s for s in self.ROUTABLE_STAGES if s in stages] != stages:
+            raise ValidationError(
+                {"stages": f"stages must follow the order {list(self.ROUTABLE_STAGES)}."}
+            )
+
+    def routable_stages(self) -> list[str]:
+        """Stored stages, filtered to known values and forced into canonical order.
+
+        ``clean()`` only runs on admin forms, so ``objects.create()``, fixtures and
+        shell edits can persist junk. Readers must not trust the column.
+        """
+        raw = self.stages if isinstance(self.stages, list) else []
+        return [s for s in self.ROUTABLE_STAGES if s in raw]
 
     @staticmethod
     def _fact(facts: dict, field: str | None):

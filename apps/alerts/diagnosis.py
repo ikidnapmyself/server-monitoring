@@ -33,13 +33,12 @@ _STAGE_ORDER = [
     PipelineStage.NOTIFY,
 ]
 
-# stage -> (pipeline flag attr or None if always-expected,
-#           PipelineRun output-ref attr or None)
-_STAGE_META = {
-    PipelineStage.INGEST: (None, None),
-    PipelineStage.CHECK: ("run_checkers", "checker_output_ref"),
-    PipelineStage.ANALYZE: ("run_intelligence", "intelligence_output_ref"),
-    PipelineStage.NOTIFY: ("run_notify", "notify_output_ref"),
+# stage -> PipelineRun output-ref attr (None when the stage stores no ref)
+_STAGE_OUTPUT_REF = {
+    PipelineStage.INGEST: None,
+    PipelineStage.CHECK: "checker_output_ref",
+    PipelineStage.ANALYZE: "intelligence_output_ref",
+    PipelineStage.NOTIFY: "notify_output_ref",
 }
 
 _IN_PROGRESS = {StageStatus.PENDING, StageStatus.RUNNING, StageStatus.RETRYING}
@@ -47,12 +46,11 @@ _IN_PROGRESS = {StageStatus.PENDING, StageStatus.RUNNING, StageStatus.RETRYING}
 
 def _is_expected(incident, stage) -> bool:
     """Is this stage expected to run for the incident's routed pipeline?"""
-    flag_attr, _ = _STAGE_META[stage]
-    if flag_attr is None:
-        return True  # ingest always expected
+    if stage == PipelineStage.INGEST:
+        return True  # entry stage, always expected
     if incident.pipeline_id is None:
-        return True  # un-routed fallback: full pipeline
-    return bool(getattr(incident.pipeline, flag_attr))
+        return True  # un-routed: assume the full pipeline
+    return stage.value in incident.pipeline.routable_stages()
 
 
 def diagnose_incident(incident) -> list[dict]:
@@ -79,9 +77,8 @@ def _diagnose_stage(incident, stage, runs, total) -> dict:
     }
 
     if not _is_expected(incident, stage):
-        flag_attr, _ = _STAGE_META[stage]
         entry["status"] = StageDiag.SKIPPED.value
-        entry["detail"] = f"config: {flag_attr} disabled"
+        entry["detail"] = f"config: {stage.value} not in the pipeline's stages"
         return entry
 
     # Latest execution for this stage: newest run first, highest attempt within.
@@ -127,7 +124,7 @@ def _classify_from_execution(entry, exc, stage) -> None:
 
 def _is_empty(exc, stage) -> bool:
     """A succeeded stage with no visible output snapshot or refs."""
-    _, run_ref_attr = _STAGE_META[stage]
+    run_ref_attr = _STAGE_OUTPUT_REF[stage]
     run_ref_empty = True
     if run_ref_attr is not None:
         run_ref_empty = getattr(exc.pipeline_run, run_ref_attr) == ""

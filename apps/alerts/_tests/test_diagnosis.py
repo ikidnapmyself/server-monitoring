@@ -28,12 +28,10 @@ class DiagnoseIncidentExpectedStagesTests(TestCase):
             },
         )
 
-    def test_flag_disabled_stage_reads_skipped_config_not_never_ran(self):
+    def test_unlisted_stage_reads_skipped_config_not_never_ran(self):
         pipe = PipelineDefinition.objects.create(
             name="no-intel",
-            run_checkers=True,
-            run_intelligence=False,
-            run_notify=True,
+            stages=["check", "notify"],
         )
         incident = Incident.objects.create(title="Routed", pipeline=pipe)
         entries = {e["stage"]: e for e in diagnose_incident(incident)}
@@ -168,3 +166,29 @@ class DiagnoseIncidentAggregationTests(TestCase):
         run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
         StageExecution.objects.create(pipeline_run=run, stage="notify", status="cancelled")
         self.assertEqual(self._entry(incident, "notify")["status"], "never_ran")
+
+
+class DiagnoseIncidentJunkPipelineTests(TestCase):
+    """Diagnosis reads the lane through the same normalisation the orchestrator uses."""
+
+    def test_bare_string_stages_does_not_substring_match(self):
+        """A junk row storing "notify" must not make every stage look expected.
+
+        ``"check" in "notify"`` is False but ``"notify" in "notify"`` is True, so a raw
+        membership test on a string column would report NOTIFY as expected while the
+        orchestrator (which normalises) would never run it.
+        """
+        pipe = PipelineDefinition.objects.create(name="junk-lane", stages="notify")
+        incident = Incident.objects.create(title="Junk", pipeline=pipe)
+        entries = {e["stage"]: e for e in diagnose_incident(incident)}
+        self.assertEqual(entries["notify"]["status"], "skipped")
+        self.assertEqual(entries["check"]["status"], "skipped")
+        # INGEST is the entry stage and stays expected regardless of the lane.
+        self.assertEqual(entries["ingest"]["status"], "never_ran")
+
+    def test_unknown_stage_in_list_is_ignored(self):
+        pipe = PipelineDefinition.objects.create(name="part-junk", stages=["sparkle", "notify"])
+        incident = Incident.objects.create(title="Part junk", pipeline=pipe)
+        entries = {e["stage"]: e for e in diagnose_incident(incident)}
+        self.assertEqual(entries["notify"]["status"], "never_ran")  # expected, not yet run
+        self.assertEqual(entries["analyze"]["status"], "skipped")

@@ -44,9 +44,13 @@ Required tags/fields:
 There is one fixed stage order — `INGEST → CHECK → ANALYZE → NOTIFY` — run by
 `PipelineOrchestrator` via the four executors in `executors.py`. The *shape* is data:
 after INGEST, the orchestrator resolves the matching `PipelineDefinition` for the
-incident (`routing.py`, first-match-wins by `priority`) and runs the stages its
-`run_checkers`/`run_intelligence`/`run_notify` flags enable; `notify` sends to the
-matched pipeline's channels. The legacy node/edge graph (`DefinitionBasedOrchestrator`,
+incident (`routing.py`, first-match-wins by `priority`) and runs the downstream stages
+listed in its `stages` column, in that order; `notify` sends to the matched pipeline's
+channels. `stages` is an ordered subset of `["check", "analyze", "notify"]` —
+`PipelineDefinition.ROUTABLE_STAGES`. It deliberately excludes `ingest`: a lane is
+resolved *from* the alert INGEST produced, so no lane can control the entry stage.
+Read it via `PipelineDefinition.routable_stages()`, never the raw column — `clean()`
+only runs on admin forms, so fixtures and shell edits can persist junk. The legacy node/edge graph (`DefinitionBasedOrchestrator`,
 the `nodes/` package, `PipelineDefinition.config`) was **retired in Phase D** — do not
 reintroduce it.
 
