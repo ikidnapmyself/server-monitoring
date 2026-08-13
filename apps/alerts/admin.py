@@ -15,6 +15,7 @@ from django_object_actions import action as object_action
 from apps.alerts.diagnosis import diagnose_incident
 from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus, Node
 from apps.alerts.reeval_existing import apply_node_alert_reeval, preview_node_alert_reeval
+from apps.alerts.services import instance_key_from_labels
 from apps.alerts.timeline import build_incident_timeline
 from apps.checkers.admin_charts import render_sparkline
 from apps.checkers.models import CheckRun, PreflightRun
@@ -86,7 +87,7 @@ class AlertAdmin(admin.ModelAdmin):
         "severity_badge",
         "status_badge",
         "source",
-        "node",
+        "host",
         "incident_link",
         "started_at",
         "received_at",
@@ -200,6 +201,19 @@ class AlertAdmin(admin.ModelAdmin):
                 obj.incident.title[:30],
             )
         return "-"
+
+    @admin.display(description="Host")
+    def host(self, obj):
+        """Machine this alert concerns, for every source — not just cluster pushes.
+
+        ``node`` is only linked for registered cluster nodes, so fall through to the
+        shared label lookup that also defines incident grouping. Returns a plain
+        string deliberately: it carries no markup, and the admin escapes any
+        attacker-supplied label value for us.
+        """
+        if obj.node_id:
+            return str(obj.node)
+        return instance_key_from_labels(obj.labels) or "—"
 
     @admin.display(description="Journey")
     def journey_display(self, obj):

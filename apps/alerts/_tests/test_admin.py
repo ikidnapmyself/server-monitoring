@@ -2,7 +2,14 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.utils import timezone
 
-from apps.alerts.models import Alert, AlertSeverity, AlertStatus, Incident, IncidentStatus
+from apps.alerts.models import (
+    Alert,
+    AlertSeverity,
+    AlertStatus,
+    Incident,
+    IncidentStatus,
+    Node,
+)
 from apps.orchestration.models import PipelineRun, PipelineStatus
 
 
@@ -399,3 +406,76 @@ class IncidentDiagnosisDisplayTests(TestCase):
         html = str(admin.diagnosis_display(incident))
         self.assertNotIn("<script>bad", html)
         self.assertIn("&lt;script&gt;", html)
+
+
+class AlertAdminHostColumnTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
+
+    def setUp(self):
+        self.client.login(username="admin", password="password")
+
+    def _admin(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import AlertAdmin
+
+        return AlertAdmin(Alert, AdminSite())
+
+    def test_host_prefers_registered_node(self):
+        node = Node.objects.create(instance_id="node-a", hostname="web-01")
+        alert = Alert.objects.create(
+            name="cpu",
+            fingerprint="fp1",
+            source="cluster",
+            labels={"instance_id": "node-a"},
+            node=node,
+            started_at=timezone.now(),
+        )
+        self.assertEqual(self._admin().host(alert), "node-a (web-01)")
+
+    def test_host_falls_back_to_labels_for_webhook_sources(self):
+        alert = Alert.objects.create(
+            name="cpu",
+            fingerprint="fp2",
+            source="grafana",
+            labels={"instance": "10.0.0.7"},
+            started_at=timezone.now(),
+        )
+        self.assertEqual(self._admin().host(alert), "10.0.0.7")
+
+    def test_host_is_dash_when_nothing_identifies_the_machine(self):
+        alert = Alert.objects.create(
+            name="cpu",
+            fingerprint="fp3",
+            source="grafana",
+            labels={},
+            started_at=timezone.now(),
+        )
+        self.assertEqual(self._admin().host(alert), "—")
+
+    def test_host_escapes_attacker_controlled_labels(self):
+        """``host`` returns a plain string on purpose; the admin does the escaping.
+
+        ``labels`` is attacker-influenced, so pin that a label value can never reach
+        the changelist as live markup — and that nobody "fixes" the plain-string
+        return with ``mark_safe`` later.
+        """
+        Alert.objects.create(
+            name="cpu",
+            fingerprint="fp4",
+            source="grafana",
+            labels={"instance": "<script>bad</script>"},
+            started_at=timezone.now(),
+        )
+        html = self.client.get("/admin/alerts/alert/").content.decode()
+        self.assertNotIn("<script>bad", html)
+        self.assertIn("&lt;script&gt;bad", html)
+
+    def test_host_replaces_node_in_list_display(self):
+        from apps.alerts.admin import AlertAdmin
+
+        self.assertIn("host", AlertAdmin.list_display)
+        self.assertNotIn("node", AlertAdmin.list_display)
+        self.assertIn("node", AlertAdmin.list_filter)
