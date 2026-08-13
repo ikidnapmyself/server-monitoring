@@ -46,7 +46,9 @@ There is one fixed stage order — `INGEST → CHECK → ANALYZE → NOTIFY` —
 after INGEST, the orchestrator resolves the matching `PipelineDefinition` for the
 incident (`routing.py`, first-match-wins by `priority`) and runs the downstream stages
 listed in its `stages` column, in that order; `notify` sends to the matched pipeline's
-channels. `stages` is an ordered subset of `["check", "analyze", "notify"]` —
+`channel` — a single FK, because delivery has never fanned out. An inactive channel
+routes nowhere and notify falls back to payload-driven selection.
+`stages` is an ordered subset of `["check", "analyze", "notify"]` —
 `PipelineDefinition.ROUTABLE_STAGES`. It deliberately excludes `ingest`: a lane is
 resolved *from* the alert INGEST produced, so no lane can control the entry stage.
 Read it via `PipelineDefinition.routable_stages()`, never the raw column — `clean()`

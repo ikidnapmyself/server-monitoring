@@ -301,12 +301,12 @@ class NotifyExecutor(BaseExecutor):
     """
 
     def _route_incident(self, ctx: StageContext) -> str | None:
-        """Return the matched pipeline's primary active channel name.
+        """Return the matched pipeline's channel name, when it is active.
 
         The pipeline is resolved and stamped on the incident right after INGEST
         (Phase B), so notify just reads ``incident.pipeline`` here. Returns None
         (→ caller keeps today's payload-driven selection) when there is no
-        incident, no stamped pipeline, or the pipeline names no active channel.
+        incident, no stamped pipeline, or the lane's channel is unset/inactive.
         """
         if not ctx.incident_id:
             return None
@@ -316,7 +316,7 @@ class NotifyExecutor(BaseExecutor):
         pipeline = incident.pipeline if incident else None
         if pipeline is None:
             return None
-        channel = pipeline.channels.filter(is_active=True).order_by("name").first()
+        channel = pipeline.routed_channel()
         return channel.name if channel else None
 
     def execute(self, ctx: StageContext) -> NotifyResult:
@@ -353,8 +353,8 @@ class NotifyExecutor(BaseExecutor):
 
             # Phase A routing: resolve the pipeline that matches this incident,
             # stamp it on the incident (for the notify target + journey view), and
-            # if it names channels, route notify to its (primary) channel. If no
-            # pipeline matches, fall back to today's payload-driven selection.
+            # if it names an active channel, route notify there. If no pipeline
+            # matches, fall back to today's payload-driven selection.
             matched_channel_name = self._route_incident(ctx)
 
             # Centralize provider/channel selection via NotifySelector

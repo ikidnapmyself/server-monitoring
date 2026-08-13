@@ -206,7 +206,13 @@ class Command(BaseCommand):
             selected = set(pipeline.stages or []) | {notify}
             pipeline.stages = [s for s in PipelineDefinition.ROUTABLE_STAGES if s in selected]
             pipeline.save(update_fields=["is_active", "match", "stages", "updated_at"])
-        pipeline.channels.add(channel)
+        # A lane has exactly one channel. Claim the slot when it is empty or holds a
+        # dead channel — otherwise the "routed via the catch-all pipeline" message
+        # above would be false. An already-wired *active* channel is an operator
+        # decision and is left alone.
+        if pipeline.routed_channel() is None:
+            pipeline.channel = channel
+            pipeline.save(update_fields=["channel", "updated_at"])
 
     def _setup_agent(self, options) -> None:
         hub_url = options.get("hub_url") or input("HUB_URL (https://...): ").strip()

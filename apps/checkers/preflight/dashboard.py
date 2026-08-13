@@ -88,7 +88,13 @@ def get_pipeline_state() -> dict:
 
 
 def get_definitions() -> list[dict]:
-    """Return routing pipelines (name, active, priority, channel count)."""
+    """Return routing pipelines (name, active, priority, channel name, routes?).
+
+    ``channel_routes`` is not decoration: a lane wired to a deactivated channel
+    delivers nothing (notify falls back to payload-driven selection), so reporting
+    the name alone would claim a route that does not exist. This feeds ``preflight
+    --json`` and therefore CI, where nobody eyeballs the discrepancy.
+    """
     from apps.orchestration.models import PipelineDefinition
 
     return [
@@ -96,7 +102,10 @@ def get_definitions() -> list[dict]:
             "name": defn.name,
             "active": defn.is_active,
             "priority": defn.priority,
-            "channels": defn.channels.count(),
+            "channel": defn.channel.name if defn.channel else None,
+            "channel_routes": defn.routed_channel() is not None,
         }
-        for defn in PipelineDefinition.objects.order_by("priority", "name")
+        for defn in PipelineDefinition.objects.select_related("channel").order_by(
+            "priority", "name"
+        )
     ]

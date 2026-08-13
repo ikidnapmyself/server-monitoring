@@ -1,6 +1,8 @@
 from django.contrib import admin
 from django.contrib.auth.models import User
+from django.db import connection
 from django.test import SimpleTestCase, TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from apps.alerts.models import Alert, AlertSeverity, AlertStatus, Incident, IncidentStatus
@@ -284,24 +286,97 @@ class TestJsonWidgetRendering(TestCase):
         # django-json-widget injects its CSS/JS for the match/tags JSONFields
         assert "json-editor" in content.lower() or "jsoneditor" in content.lower()
 
-    def test_pipeline_definition_changelist_shows_channel_count(self):
+    def test_pipeline_definition_changelist_shows_channel_name(self):
         from django.contrib.admin.sites import site
 
         from apps.notify.models import NotificationChannel
         from apps.orchestration.admin import PipelineDefinitionAdmin
         from apps.orchestration.models import PipelineDefinition
 
-        pd = PipelineDefinition.objects.create(name="routed", match=[], priority=5)
         ch = NotificationChannel.objects.create(
             name="ops", driver="slack", config={"webhook_url": "https://hooks.slack.com/x"}
         )
-        pd.channels.add(ch)
+        pd = PipelineDefinition.objects.create(name="routed", match=[], priority=5, channel=ch)
+        bare = PipelineDefinition.objects.create(name="unrouted", match=[], priority=6)
         response = self.client.get("/admin/orchestration/pipelinedefinition/")
         assert response.status_code == 200
-        assert "routed" in response.content.decode()
-        # channel_count returns the actual number of wired channels.
+        body = response.content.decode()
+        assert "routed" in body
+        # The wired channel's name reaches the rendered changelist, not just the method.
+        assert "ops" in body
         admin_obj = PipelineDefinitionAdmin(PipelineDefinition, site)
-        assert admin_obj.channel_count(pd) == 1
+        assert admin_obj.channel_name(pd) == "ops"
+        assert admin_obj.channel_name(bare) == "\u2014"
+
+    def test_pipeline_definition_changelist_marks_an_inactive_channel(self):
+        """A deactivated channel routes nowhere, so the changelist must not imply it does."""
+        from django.contrib.admin.sites import site
+
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.admin import PipelineDefinitionAdmin
+        from apps.orchestration.models import PipelineDefinition
+
+        ch = NotificationChannel.objects.create(
+            name="dead-ops",
+            driver="slack",
+            config={"webhook_url": "https://hooks.slack.com/x"},
+            is_active=False,
+        )
+        pd = PipelineDefinition.objects.create(name="stale", match=[], priority=5, channel=ch)
+        admin_obj = PipelineDefinitionAdmin(PipelineDefinition, site)
+        rendered = admin_obj.channel_name(pd)
+        assert "dead-ops" in rendered
+        assert "(inactive)" in rendered
+        # ...and the marker survives into the actual changelist HTML.
+        body = self.client.get("/admin/orchestration/pipelinedefinition/").content.decode()
+        assert "(inactive)" in body
+
+    def test_pipeline_definition_channel_name_escapes_the_channel_name(self):
+        """The name is interpolated into HTML, so it must be escaped, not trusted."""
+        from django.contrib.admin.sites import site
+
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.admin import PipelineDefinitionAdmin
+        from apps.orchestration.models import PipelineDefinition
+
+        ch = NotificationChannel.objects.create(
+            name="<b>x</b>",
+            driver="slack",
+            config={"webhook_url": "https://hooks.slack.com/x"},
+            is_active=False,
+        )
+        pd = PipelineDefinition.objects.create(name="xss", match=[], priority=5, channel=ch)
+        rendered = PipelineDefinitionAdmin(PipelineDefinition, site).channel_name(pd)
+        assert "&lt;b&gt;x&lt;/b&gt;" in rendered
+        assert "<b>x</b>" not in rendered
+
+    def test_pipeline_definition_changelist_does_not_n_plus_one_on_channel(self):
+        """channel_name touches a related row; get_queryset's join keeps it constant.
+
+        Without this, dropping select_related would still pass every other test while
+        adding one query per lane to an ops page.
+        """
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+
+        for i in range(4):
+            ch = NotificationChannel.objects.create(
+                name=f"ch-{i}", driver="slack", config={"webhook_url": "https://hooks.slack.com/x"}
+            )
+            PipelineDefinition.objects.create(name=f"lane-{i}", match=[], priority=i, channel=ch)
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get("/admin/orchestration/pipelinedefinition/")
+        assert response.status_code == 200
+        # With select_related the channel arrives via a JOIN on the lane query, so no
+        # query selects from the channel table on its own. Without it there would be
+        # one per lane.
+        standalone = [
+            q["sql"]
+            for q in ctx.captured_queries
+            if "notify_notificationchannel" in q["sql"]
+            and "orchestration_pipelinedefinition" not in q["sql"]
+        ]
+        assert standalone == []
 
     def test_save_model_defaults_created_by(self):
         from unittest.mock import MagicMock

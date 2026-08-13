@@ -109,12 +109,31 @@ class GetDefinitionsTests(TestCase):
         ch = NotificationChannel.objects.create(
             name="ops", driver="slack", config={"webhook_url": "https://hooks.slack.com/x"}
         )
-        defn = PipelineDefinition.objects.create(name="pipe1", priority=5, is_active=True)
-        defn.channels.add(ch)
+        PipelineDefinition.objects.create(name="pipe1", priority=5, is_active=True, channel=ch)
 
         defs = get_definitions()
         self.assertEqual(len(defs), 1)
         self.assertEqual(defs[0]["name"], "pipe1")
         self.assertTrue(defs[0]["active"])
         self.assertEqual(defs[0]["priority"], 5)
-        self.assertEqual(defs[0]["channels"], 1)
+        self.assertEqual(defs[0]["channel"], "ops")
+        self.assertTrue(defs[0]["channel_routes"])
+
+    def test_channel_is_none_when_unset(self):
+        PipelineDefinition.objects.create(name="bare", priority=1, is_active=True)
+        defn = get_definitions()[0]
+        self.assertIsNone(defn["channel"])
+        self.assertFalse(defn["channel_routes"])
+
+    def test_inactive_channel_is_reported_as_not_routing(self):
+        """The name alone would claim a route notify does not take -- and this feeds CI."""
+        ch = NotificationChannel.objects.create(
+            name="off",
+            driver="slack",
+            config={"webhook_url": "https://hooks.slack.com/x"},
+            is_active=False,
+        )
+        PipelineDefinition.objects.create(name="stale", priority=1, is_active=True, channel=ch)
+        defn = get_definitions()[0]
+        self.assertEqual(defn["channel"], "off")
+        self.assertFalse(defn["channel_routes"])

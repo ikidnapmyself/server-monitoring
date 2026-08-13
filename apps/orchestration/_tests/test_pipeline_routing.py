@@ -178,9 +178,15 @@ class RouteIncidentTests(TestCase):
 
         return NotifyExecutor()._route_incident(ctx)
 
-    def test_returns_primary_channel_of_stamped_pipeline(self):
+    def _stamp(self, incident, **defn_kwargs):
+        p = PipelineDefinition.objects.create(priority=10, match=[], **defn_kwargs)
+        incident.pipeline = p
+        incident.save(update_fields=["pipeline"])
+        return p
+
+    def test_returns_channel_of_stamped_pipeline(self):
         # Phase B: the pipeline is stamped on the incident before notify runs;
-        # _route_incident just reads it and returns its primary active channel.
+        # _route_incident just reads it and returns its single channel.
         from apps.notify.models import NotificationChannel
 
         incident = self._incident_with_alert()
@@ -189,12 +195,24 @@ class RouteIncidentTests(TestCase):
             driver="slack",
             config={"webhook_url": "https://hooks.slack.com/x"},
         )
-        p = PipelineDefinition.objects.create(name="cluster-route", priority=10, match=[])
-        p.channels.add(ch)
-        incident.pipeline = p
-        incident.save(update_fields=["pipeline"])
+        self._stamp(incident, name="cluster-route", channel=ch)
 
         self.assertEqual(self._route(self._ctx(incident.id)), "ops-slack")
+
+    def test_inactive_channel_returns_none(self):
+        """An inactive channel routes nowhere; the caller falls back to the payload."""
+        from apps.notify.models import NotificationChannel
+
+        incident = self._incident_with_alert()
+        ch = NotificationChannel.objects.create(
+            name="off-slack",
+            driver="slack",
+            config={"webhook_url": "https://hooks.slack.com/x"},
+            is_active=False,
+        )
+        self._stamp(incident, name="inactive-route", channel=ch)
+
+        self.assertIsNone(self._route(self._ctx(incident.id)))
 
     def test_no_incident_id(self):
         self.assertIsNone(self._route(self._ctx(None)))
@@ -206,9 +224,7 @@ class RouteIncidentTests(TestCase):
         incident = self._incident_with_alert()  # incident.pipeline is None
         self.assertIsNone(self._route(self._ctx(incident.id)))
 
-    def test_stamped_pipeline_without_channels_returns_none(self):
+    def test_stamped_pipeline_without_channel_returns_none(self):
         incident = self._incident_with_alert()
-        p = PipelineDefinition.objects.create(name="no-ch", priority=10, match=[])
-        incident.pipeline = p
-        incident.save(update_fields=["pipeline"])
+        self._stamp(incident, name="no-ch")
         self.assertIsNone(self._route(self._ctx(incident.id)))

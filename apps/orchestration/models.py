@@ -485,7 +485,7 @@ class StageExecution(models.Model):
 
 class PipelineDefinition(models.Model):
     """
-    A routing pipeline: match conditions -> ordered stages -> notify channels.
+    A routing pipeline: match conditions -> ordered stages -> one notify channel.
 
     First-match-wins by ``priority`` (see ``matches`` / ``apps.orchestration.routing``).
     The orchestrator resolves the matching pipeline for an incident after ingest and
@@ -527,7 +527,7 @@ class PipelineDefinition(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     # --- Routing spine (Phase A): flat, first-match-wins.
-    # Match -> ordered stages -> channels. ---
+    # Match -> ordered stages -> channel. ---
     match = models.JSONField(
         default=list,
         blank=True,
@@ -547,8 +547,13 @@ class PipelineDefinition(models.Model):
             "resolved. Checker-generated runs do not consult a lane at all today."
         ),
     )
-    channels = models.ManyToManyField(
-        "notify.NotificationChannel", blank=True, related_name="pipelines"
+    channel = models.ForeignKey(
+        "notify.NotificationChannel",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="pipelines",
+        help_text="Channel this lane notifies. One channel: delivery never fanned out.",
     )
 
     class Meta:
@@ -600,6 +605,19 @@ class PipelineDefinition(models.Model):
         """
         raw = self.stages if isinstance(self.stages, list) else []
         return [s for s in self.ROUTABLE_STAGES if s in raw]
+
+    def routed_channel(self):
+        """The channel this lane actually notifies, or None.
+
+        The FK guarantees the *value* (a real channel or NULL) in a way ``stages``
+        never could, so this is not about junk data. It is about one rule living in
+        one place: "active" is not DB-enforceable, and it is the rule that decides
+        whether the lane delivers at all. An inactive channel routes nowhere — notify
+        falls back to payload-driven selection — so every reader (delivery, admin,
+        preflight, setup) must ask this question the same way rather than each
+        re-deriving it and drifting apart.
+        """
+        return self.channel if self.channel and self.channel.is_active else None
 
     @staticmethod
     def _fact(facts: dict, field: str | None):

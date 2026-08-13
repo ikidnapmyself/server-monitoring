@@ -7,6 +7,7 @@ lives on ``Alert``, not ``Incident``) when one carries a node.
 """
 
 import importlib
+import logging
 
 import pytest
 from django.apps import apps as django_apps
@@ -137,6 +138,25 @@ class _FakeDefn:
         self.saved_fields = list(update_fields or [])
 
 
+class _FakeRowSet:
+    """Just enough queryset surface for the migrations under test."""
+
+    def __init__(self, rows):
+        self._rows = list(rows)
+
+    def all(self):
+        return self._rows
+
+    def order_by(self, field):
+        return _FakeRowSet(sorted(self._rows, key=lambda r: getattr(r, field)))
+
+    def prefetch_related(self, *fields):
+        return self
+
+    def __iter__(self):
+        return iter(self._rows)
+
+
 class _FakeApps:
     """Minimal ``apps`` shim: ``get_model`` yields a manager over fixed rows."""
 
@@ -145,8 +165,7 @@ class _FakeApps:
 
     def get_model(self, app_label, model_name):
         assert (app_label, model_name) == ("orchestration", "PipelineDefinition")
-        rows = self._rows
-        return type("M", (), {"objects": type("Q", (), {"all": staticmethod(lambda: rows)})})
+        return type("M", (), {"objects": _FakeRowSet(self._rows)})
 
 
 @pytest.mark.parametrize(
@@ -261,3 +280,226 @@ def test_real_schema_round_trip():
         executor = MigrationExecutor(connection)
         executor.migrate(executor.loader.graph.leaf_nodes())
         PipelineDefinition.objects.filter(name__in=["lane-a", "lane-b"]).delete()
+
+
+# --- 0011: channels M2M -> single channel FK ----------------------------------
+#
+# Same two-layer approach as 0010: stand-in rows for the selection rule, plus a
+# real-schema round trip through ``MigrationExecutor``. The M2M cannot be driven
+# through the *current* models (it no longer exists post-0011) and ``channel``
+# does not exist on the historical pre-0011 model, so the executor's historical
+# states are the only way to exercise the migration end to end.
+#
+# The migration is LOSSY by design: a lane with several channels keeps the one
+# delivery already selected and the rest are dropped with the join table.
+
+channel_migration = importlib.import_module(
+    "apps.orchestration.migrations.0011_pipelinedefinition_channel"
+)
+
+
+class _FakeChannel:
+    def __init__(self, id, name, is_active=True):
+        self.id = id
+        self.name = name
+        self.is_active = is_active
+
+
+class _FakeM2M:
+    """Stand-in for ``defn.channels`` supporting the two calls the migration makes."""
+
+    def __init__(self, channels):
+        self._channels = list(channels)
+        self.set_to = None
+
+    def filter(self, is_active):
+        return _FakeM2M([c for c in self._channels if c.is_active == is_active])
+
+    def order_by(self, field):
+        return _FakeM2M(sorted(self._channels, key=lambda c: getattr(c, field.lstrip("-"))))
+
+    def first(self):
+        return self._channels[0] if self._channels else None
+
+    def all(self):
+        return list(self._channels)
+
+    def set(self, values):
+        self.set_to = list(values)
+
+
+class _FakeChannelDefn(_FakeDefn):
+    def __init__(self, channels=(), **fields):
+        fields.setdefault("name", "lane")  # forwards() names the lane in its warning
+        super().__init__(**fields)
+        self.channels = _FakeM2M(channels)
+
+
+def test_channel_forwards_picks_alphabetically_first_active():
+    """Mirrors the old delivery rule exactly: active only, ordered by name."""
+    row = _FakeChannelDefn(
+        channels=[
+            _FakeChannel(1, "zulu"),
+            _FakeChannel(2, "alpha"),
+            _FakeChannel(3, "mike"),
+        ],
+        channel_id=None,
+    )
+    channel_migration.forwards(_FakeApps([row]), None)
+    assert row.channel_id == 2
+    assert row.saved_fields == ["channel"]
+
+
+def test_channel_forwards_ignores_inactive_channels():
+    """An inactive channel was never delivered to, so it must not be adopted."""
+    row = _FakeChannelDefn(
+        channels=[_FakeChannel(1, "aaa", is_active=False), _FakeChannel(2, "bbb")],
+        channel_id=None,
+    )
+    channel_migration.forwards(_FakeApps([row]), None)
+    assert row.channel_id == 2
+
+
+def test_channel_forwards_leaves_null_when_no_active_channel():
+    row = _FakeChannelDefn(channels=[_FakeChannel(1, "aaa", is_active=False)], channel_id=None)
+    channel_migration.forwards(_FakeApps([row]), None)
+    assert row.channel_id is None
+    assert row.saved_fields is None  # no write at all
+
+
+def _warn(caplog, rows):
+    """Run ``forwards`` and return the emitted warning records."""
+    with caplog.at_level(logging.WARNING, logger=channel_migration.logger.name):
+        channel_migration.forwards(_FakeApps(rows), None)
+    return [r for r in caplog.records if r.levelno == logging.WARNING]
+
+
+# These assert on ``record.args`` -- the logged *facts* -- rather than the rendered
+# sentence, so the wording stays free to improve without a test defending the old
+# phrasing. Pinning the prose is how a message keeps a wart nobody can fix.
+
+
+def test_channel_forwards_warns_naming_every_discarded_channel(apps_logging_propagates, caplog):
+    """The loss must be auditable in the migrate log, not just the docstring."""
+    row = _FakeChannelDefn(
+        name="lane-many",
+        channels=[_FakeChannel(1, "zulu"), _FakeChannel(2, "alpha"), _FakeChannel(3, "mike")],
+        channel_id=None,
+    )
+    (record,) = _warn(caplog, [row])
+    lane, survivor, count, names = record.args
+    assert lane == "lane-many"
+    assert survivor == "alpha"  # the survivor is named
+    assert count == 2
+    assert names == "'mike', 'zulu'"  # every casualty is named, deterministically
+
+
+def test_channel_forwards_warns_when_all_channels_are_discarded(apps_logging_propagates, caplog):
+    """An all-inactive lane keeps nothing: a distinct message, and no crash on chosen=None."""
+    row = _FakeChannelDefn(
+        name="lane-dead",
+        channels=[_FakeChannel(1, "off", is_active=False)],
+        channel_id=None,
+    )
+    (record,) = _warn(caplog, [row])
+    lane, count, names = record.args
+    assert (lane, count, names) == ("lane-dead", 1, "'off'")
+    # The survivor slot is absent entirely rather than filled with a bare "none"
+    # that reads as a channel *named* none next to a quoted real name.
+    assert "keeping no channel" in record.getMessage()
+    assert "unused" not in record.getMessage()
+
+
+def test_channel_forwards_is_silent_when_nothing_is_lost(apps_logging_propagates, caplog):
+    """A single-channel lane loses nothing, so it must not emit a scary warning."""
+    row = _FakeChannelDefn(name="lane-one", channels=[_FakeChannel(1, "only")], channel_id=None)
+    assert _warn(caplog, [row]) == []
+
+
+def test_channel_forwards_warns_in_deterministic_lane_order(apps_logging_propagates, caplog):
+    """Lanes are logged by name so a production migrate log is reproducible."""
+    rows = [
+        _FakeChannelDefn(
+            name=name,
+            channels=[_FakeChannel(1, "aa"), _FakeChannel(2, "bb")],
+            channel_id=None,
+        )
+        for name in ("zeta", "alpha", "mid")
+    ]
+    records = _warn(caplog, rows)
+    assert [r.args[0] for r in records] == ["alpha", "mid", "zeta"]
+
+
+def test_channel_backwards_restores_the_single_channel():
+    row = _FakeChannelDefn(channels=[], channel_id=7)
+    channel_migration.backwards(_FakeApps([row]), None)
+    assert row.channels.set_to == [7]
+
+
+def test_channel_backwards_skips_rows_without_a_channel():
+    row = _FakeChannelDefn(channels=[], channel_id=None)
+    channel_migration.backwards(_FakeApps([row]), None)
+    assert row.channels.set_to is None
+
+
+def test_channel_migration_operation_order_is_load_bearing():
+    """``channel`` must be added and backfilled before the M2M is dropped."""
+    ops = channel_migration.Migration.operations
+    assert [type(op).__name__ for op in ops] == ["AddField", "RunPython", "RemoveField"]
+    assert ops[0].name == "channel"
+    assert ops[2].name == "channels"
+
+
+_CH_OLD = ("orchestration", "0010_pipelinedefinition_stages")
+_CH_NEW = ("orchestration", "0011_pipelinedefinition_channel")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_channel_real_schema_round_trip():
+    """Apply and unapply 0011 against the real schema.
+
+    Asserts the lossy contract concretely: a three-channel lane keeps the
+    alphabetically-first *active* one, an all-inactive lane keeps none, an empty
+    lane keeps none, and the reverse restores the single survivor (only).
+    """
+    names = ["lane-many", "lane-inactive", "lane-empty"]
+    try:
+        old_apps = _migrate_to(_CH_OLD)
+        PD = old_apps.get_model("orchestration", "PipelineDefinition")
+        NC = old_apps.get_model("notify", "NotificationChannel")
+        zulu = NC.objects.create(name="zulu", driver="slack", config={})
+        alpha = NC.objects.create(name="alpha", driver="slack", config={})
+        mike = NC.objects.create(name="mike", driver="slack", config={})
+        off = NC.objects.create(name="off", driver="slack", config={}, is_active=False)
+
+        many = PD.objects.create(name="lane-many")
+        many.channels.set([zulu, alpha, mike])
+        inactive = PD.objects.create(name="lane-inactive")
+        inactive.channels.set([off])
+        PD.objects.create(name="lane-empty")
+
+        new_apps = _migrate_to(_CH_NEW)
+        PD = new_apps.get_model("orchestration", "PipelineDefinition")
+        assert PD.objects.get(name="lane-many").channel.name == "alpha"
+        assert PD.objects.get(name="lane-inactive").channel is None
+        assert PD.objects.get(name="lane-empty").channel is None
+
+        old_apps = _migrate_to(_CH_OLD)
+        PD = old_apps.get_model("orchestration", "PipelineDefinition")
+        # Lossy: only the survivor comes back — zulu and mike are gone for good.
+        assert [c.name for c in PD.objects.get(name="lane-many").channels.all()] == ["alpha"]
+        assert list(PD.objects.get(name="lane-inactive").channels.all()) == []
+        assert list(PD.objects.get(name="lane-empty").channels.all()) == []
+    finally:
+        # Always leave the shared test database at the migration graph's HEAD --
+        # head-relative on purpose; see the note on the 0010 round trip above.
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+        PipelineDefinition.objects.filter(name__in=names).delete()
+        NotificationChannel.objects.filter(name__in=["zulu", "alpha", "mike", "off"]).delete()

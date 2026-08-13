@@ -95,7 +95,7 @@ class SetupClusterHubTests(TestCase):
         # The channel is wired THROUGH a catch-all pipeline, not left bare.
         catchall = PipelineDefinition.objects.get(name="default-catch-all")
         self.assertEqual(catchall.match, [])
-        self.assertIn(ch, catchall.channels.all())
+        self.assertEqual(catchall.channel, ch)
         # ...and the fresh lane actually lists stages: an empty list would attach the
         # channel to a lane that swallows every incident and delivers nothing.
         self.assertEqual(catchall.stages, ["check", "analyze", "notify"])
@@ -136,7 +136,64 @@ class SetupClusterHubTests(TestCase):
         from apps.orchestration.models import PipelineDefinition
 
         catchall = PipelineDefinition.objects.get(name="default-catch-all")
-        self.assertIn(existing, catchall.channels.all())
+        self.assertEqual(catchall.channel, existing)
+
+    def test_hub_keeps_an_already_wired_active_channel(self):
+        """A lane has one channel slot; an operator's active choice is not clobbered."""
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+
+        chosen = NotificationChannel.objects.create(
+            name="operator-pick",
+            driver="slack",
+            config={"webhook_url": "https://hooks.slack.com/a"},
+        )
+        PipelineDefinition.objects.create(
+            name="default-catch-all",
+            match=[],
+            stages=["check", "analyze", "notify"],
+            channel=chosen,
+        )
+        with tempfile.TemporaryDirectory() as d:
+            self._run_hub(
+                d,
+                "--notify-driver",
+                "slack",
+                "--notify-webhook",
+                "https://hooks.slack.com/services/T/B/x",
+            )
+        catchall = PipelineDefinition.objects.get(name="default-catch-all")
+        self.assertEqual(catchall.channel, chosen)
+
+    def test_hub_replaces_an_inactive_channel_on_the_catchall(self):
+        """A dead channel would falsify the printed "routed via the catch-all" claim."""
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+
+        dead = NotificationChannel.objects.create(
+            name="dead-pick",
+            driver="slack",
+            config={"webhook_url": "https://hooks.slack.com/a"},
+            is_active=False,
+        )
+        PipelineDefinition.objects.create(
+            name="default-catch-all",
+            match=[],
+            stages=["check", "analyze", "notify"],
+            channel=dead,
+        )
+        with tempfile.TemporaryDirectory() as d:
+            out = self._run_hub(
+                d,
+                "--notify-driver",
+                "slack",
+                "--notify-webhook",
+                "https://hooks.slack.com/services/T/B/x",
+            )
+        catchall = PipelineDefinition.objects.get(name="default-catch-all")
+        self.assertNotEqual(catchall.channel, dead)
+        self.assertTrue(catchall.channel.is_active)
+        self.assertIn("routed via the catch-all pipeline", out)
 
     def test_hub_repairs_broken_catchall_pipeline(self):
         from apps.notify.models import NotificationChannel

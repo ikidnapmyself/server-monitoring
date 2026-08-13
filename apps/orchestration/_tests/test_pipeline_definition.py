@@ -123,3 +123,54 @@ class TestRoutableStagesNormalisation(TestCase):
     def _lane_value(self, junk):
         lane = PipelineDefinition(name="x", stages=junk)
         return lane.routable_stages()
+
+
+class TestRoutedChannel(TestCase):
+    """``routed_channel()`` owns the one rule that decides whether a lane delivers.
+
+    Delivery, admin, preflight and setup all ask this question; before it was
+    centralised each re-derived it and they drifted, so the contract is pinned here
+    rather than only through those four callers.
+    """
+
+    def _channel(self, name="ops", *, is_active=True):
+        from apps.notify.models import NotificationChannel
+
+        return NotificationChannel.objects.create(
+            name=name,
+            driver="slack",
+            config={"webhook_url": "https://hooks.slack.com/x"},
+            is_active=is_active,
+        )
+
+    def _lane(self, channel):
+        return PipelineDefinition.objects.create(name="lane", match=[], channel=channel)
+
+    def test_active_channel_is_returned(self):
+        channel = self._channel()
+        assert self._lane(channel).routed_channel() == channel
+
+    def test_inactive_channel_routes_nowhere(self):
+        """The FK is set, so the lane *looks* wired — but nothing would be delivered."""
+        assert self._lane(self._channel(is_active=False)).routed_channel() is None
+
+    def test_no_channel_routes_nowhere(self):
+        assert self._lane(None).routed_channel() is None
+
+    def test_deactivating_a_wired_channel_stops_routing(self):
+        """An operator flipping is_active must change the answer without re-wiring.
+
+        Distinct from the inactive case above: that one is born dead, this one proves
+        the rule is evaluated per read rather than cached at wiring time.
+        """
+        channel = self._channel()
+        lane = self._lane(channel)
+        assert lane.routed_channel() == channel
+
+        channel.is_active = False
+        channel.save(update_fields=["is_active"])
+        # Re-read the lane: refresh_from_db() keeps the cached related object when the
+        # FK id is unchanged, which would answer from the pre-deactivation channel.
+        reread = PipelineDefinition.objects.get(pk=lane.pk)
+        assert reread.channel_id == channel.id
+        assert reread.routed_channel() is None
