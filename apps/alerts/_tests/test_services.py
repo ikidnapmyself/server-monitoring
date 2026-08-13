@@ -399,6 +399,68 @@ class ProcessingResultTests(TestCase):
     def test_has_errors_true(self):
         self.assertTrue(ProcessingResult(errors=["oops"]).has_errors)
 
+    def test_alerts_defaults_to_empty_list(self):
+        self.assertEqual(ProcessingResult().alerts, [])
+
+
+class ProcessingResultAlertCollectionTests(TestCase):
+    """ProcessingResult records the Alert rows the call actually touched."""
+
+    def _payload(self, alerts):
+        return {
+            "version": "4",
+            "groupKey": "test",
+            "receiver": "webhook",
+            "status": "firing",
+            "alerts": alerts,
+            "groupLabels": {},
+            "commonLabels": {},
+        }
+
+    def test_processing_result_collects_the_alerts_it_touched(self):
+        payload = self._payload(
+            [
+                {
+                    "status": "firing",
+                    "labels": {"alertname": "cpu", "instance": "a", "severity": "warning"},
+                    "annotations": {},
+                    "startsAt": "2024-01-08T10:00:00Z",
+                    "fingerprint": "fp-cpu",
+                },
+                {
+                    "status": "firing",
+                    "labels": {"alertname": "disk", "instance": "a", "severity": "critical"},
+                    "annotations": {},
+                    "startsAt": "2024-01-08T10:00:00Z",
+                    "fingerprint": "fp-disk",
+                },
+            ]
+        )
+
+        result = AlertOrchestrator().process_webhook(payload, driver="alertmanager")
+
+        self.assertEqual({a.name for a in result.alerts}, {"cpu", "disk"})
+
+    def test_refire_update_path_also_collects_the_alert(self):
+        payload = self._payload(
+            [
+                {
+                    "status": "firing",
+                    "labels": {"alertname": "cpu", "instance": "a", "severity": "warning"},
+                    "annotations": {},
+                    "startsAt": "2024-01-08T10:00:00Z",
+                    "fingerprint": "fp-cpu",
+                }
+            ]
+        )
+        AlertOrchestrator().process_webhook(payload, driver="alertmanager")
+
+        # Second push takes the _update_alert path, not _create_alert.
+        result = AlertOrchestrator().process_webhook(payload, driver="alertmanager")
+
+        self.assertEqual(result.alerts_created, 0)
+        self.assertEqual([a.name for a in result.alerts], ["cpu"])
+
 
 class AlertOrchestratorDriverTests(TestCase):
     """Tests for driver handling in AlertOrchestrator."""

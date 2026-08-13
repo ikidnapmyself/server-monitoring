@@ -54,6 +54,8 @@ class IngestResult:
     Result from apps.alerts (Stage 1: Ingest).
 
     Output:
+    - alert_id: The alert chosen as this run's subject (most severe alert of
+      this push, ties broken by name)
     - incident_id: The created/updated incident ID
     - incident_title: Human title of the associated incident (for notifications)
     - alert_fingerprint: Unique identifier for deduplication
@@ -62,6 +64,7 @@ class IngestResult:
     - normalized_payload_ref: Reference to stored normalized payload
     """
 
+    alert_id: int | None = None
     incident_id: int | None = None
     incident_title: str = ""
     alert_fingerprint: str | None = None

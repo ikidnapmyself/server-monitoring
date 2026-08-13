@@ -7,6 +7,7 @@ creating/updating incidents, and managing alert lifecycle.
 
 import logging
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any
 
 from django.db import transaction
@@ -88,6 +89,25 @@ def incident_instance_key(alert) -> str:
     return instance_key_from_labels(alert.labels)
 
 
+# Read-only: this is module state now, so a stray mutation would be global and
+# silent. Untrusted severities only ever reach it via severity_rank()'s .get().
+_SEVERITY_RANK = MappingProxyType(
+    {
+        AlertSeverity.INFO: 1,
+        AlertSeverity.WARNING: 2,
+        AlertSeverity.CRITICAL: 3,
+        "info": 1,
+        "warning": 2,
+        "critical": 3,
+    }
+)
+
+
+def severity_rank(severity: str) -> int:
+    """Numeric rank for severity comparison; unknown severities rank lowest."""
+    return _SEVERITY_RANK.get(severity, 0)
+
+
 @dataclass
 class ProcessingResult:
     """Result of processing an incoming alert payload."""
@@ -98,6 +118,17 @@ class ProcessingResult:
     incidents_created: int = 0
     incidents_updated: int = 0
     errors: list[str] = field(default_factory=list)
+    # Alert rows this call created or updated — the only alerts a caller may
+    # route on (a global "latest alert" query would cross pushes/nodes).
+    #
+    # Retention is bounded to a single push: these are live model instances
+    # carrying raw_payload/labels/annotations, so the list is O(alerts in this
+    # payload), not a growing buffer. Two traps for consumers:
+    #   - a payload repeating a fingerprint appends the same row twice, so
+    #     anything that counts (rather than min/max) must dedupe first;
+    #   - _check_incident_resolution() runs after the loop and mutates Incident
+    #     rows, so a cached .incident on a retained alert may be stale.
+    alerts: list[Alert] = field(default_factory=list)
 
     @property
     def total_processed(self) -> int:
@@ -271,6 +302,7 @@ class AlertOrchestrator:
         if self.auto_create_incidents and parsed.status == "firing":
             self._create_or_attach_incident(alert, result)
 
+        result.alerts.append(alert)
         return alert
 
     # Fields compared on re-fire. raw_payload (noisy/large) and name
@@ -339,6 +371,7 @@ class AlertOrchestrator:
             )
 
         alert.save()
+        result.alerts.append(alert)
         return alert
 
     def _create_or_attach_incident(
@@ -417,15 +450,7 @@ class AlertOrchestrator:
 
     def _severity_rank(self, severity: str) -> int:
         """Return numeric rank for severity comparison."""
-        ranks = {
-            AlertSeverity.INFO: 1,
-            AlertSeverity.WARNING: 2,
-            AlertSeverity.CRITICAL: 3,
-            "info": 1,
-            "warning": 2,
-            "critical": 3,
-        }
-        return ranks.get(severity, 0)
+        return severity_rank(severity)
 
 
 class IncidentManager:

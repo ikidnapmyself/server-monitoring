@@ -59,8 +59,7 @@ class IngestExecutor(BaseExecutor):
         result = IngestResult()
 
         try:
-            from apps.alerts.models import Alert
-            from apps.alerts.services import AlertOrchestrator
+            from apps.alerts.services import AlertOrchestrator, severity_rank
 
             payload = ctx.payload
             driver = payload.get("driver")
@@ -84,21 +83,29 @@ class IngestExecutor(BaseExecutor):
             result.errors = list(proc_result.errors)
             result.source = ctx.source
 
-            # Find the incident from the most recent alert. Scope by source when
-            # it is known (not the auto-detect "unknown" sentinel) to reduce
-            # cross-source contamination on a shared hub. Fingerprint-level
-            # correctness under concurrent same-source pushes is a separately
-            # tracked limitation.
-            alert_qs = Alert.objects.order_by("-received_at")
-            if ctx.source and ctx.source != "unknown":
-                alert_qs = alert_qs.filter(source=ctx.source)
-            latest_alert = alert_qs.select_related("incident").first()
-            if latest_alert and latest_alert.incident_id:
-                result.incident_id = latest_alert.incident_id
-                result.alert_fingerprint = latest_alert.fingerprint
-                result.severity = latest_alert.severity
-                if latest_alert.incident and latest_alert.incident.title:
-                    result.incident_title = latest_alert.incident.title
+            # Subject = the most severe alert THIS call touched, ties broken by
+            # name then fingerprint. Deliberately not a global query: two nodes
+            # pushing as source=cluster must never route on each other's alerts.
+            # The fingerprint key makes the order total: one grouped alertmanager
+            # notification can carry the same alertname at the same severity for
+            # two instances, and those belong to different (name, instance)
+            # incidents — an arbitrary pick would swing incident_id and title.
+            subject = min(
+                proc_result.alerts,
+                key=lambda a: (-severity_rank(a.severity), a.name, a.fingerprint),
+                default=None,
+            )
+            if subject is not None:
+                result.alert_id = subject.id
+                result.incident_id = subject.incident_id
+                result.alert_fingerprint = subject.fingerprint
+                result.severity = subject.severity
+                # Gate on the already-loaded FK id so no-incident runs skip the
+                # lazy fetch of subject.incident entirely; binding the result
+                # also keeps it to one access and lets mypy narrow the Optional.
+                incident = subject.incident if subject.incident_id else None
+                if incident is not None and incident.title:
+                    result.incident_title = incident.title
 
             # Generate payload reference (hash-based, no secrets)
             result.normalized_payload_ref = f"payload:{ctx.trace_id}:{ctx.run_id}:ingest"

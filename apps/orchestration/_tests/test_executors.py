@@ -3,6 +3,7 @@
 Covers IngestExecutor, CheckExecutor, AnalyzeExecutor, and NotifyExecutor.
 """
 
+import json
 from dataclasses import dataclass, field
 from unittest.mock import MagicMock, patch
 
@@ -35,13 +36,32 @@ def _ctx(payload=None, incident_id=None, previous_results=None, source="test"):
     )
 
 
-def _chain_returning(result):
-    """A queryset mock whose filter/select_related chain ends at .first() == result."""
-    qs = MagicMock()
-    qs.filter.return_value = qs
-    qs.select_related.return_value = qs
-    qs.first.return_value = result
-    return qs
+@dataclass
+class _FakeProcessingResult:
+    """Stand-in for apps.alerts.services.ProcessingResult."""
+
+    alerts_created: int = 1
+    alerts_updated: int = 0
+    alerts_resolved: int = 0
+    incidents_created: int = 1
+    incidents_updated: int = 0
+    errors: list = field(default_factory=list)
+    alerts: list = field(default_factory=list)
+
+
+def _mock_alert(*, name, severity, fingerprint, id=1, incident_id=None, title=None):
+    """A duck-typed stand-in for an Alert row (``name`` needs explicit assignment)."""
+    alert = MagicMock()
+    alert.id = id
+    alert.name = name
+    alert.severity = severity
+    alert.fingerprint = fingerprint
+    alert.incident_id = incident_id
+    if title is None:
+        alert.incident = None
+    else:
+        alert.incident.title = title
+    return alert
 
 
 # ── IngestExecutor ────────────────────────────────────────────────────────
@@ -49,30 +69,21 @@ def _chain_returning(result):
 
 class TestIngestExecutorSuccess(TestCase):
     def test_successful_ingest(self):
-        @dataclass
-        class FakeResult:
-            alerts_created: int = 1
-            alerts_updated: int = 0
-            alerts_resolved: int = 0
-            incidents_created: int = 1
-            incidents_updated: int = 0
-            errors: list = field(default_factory=list)
-
         mock_orch = MagicMock()
-        mock_orch.process_webhook.return_value = FakeResult()
+        mock_orch.process_webhook.return_value = _FakeProcessingResult(
+            alerts=[
+                _mock_alert(
+                    name="disk",
+                    severity="critical",
+                    fingerprint="fp-123",
+                    id=7,
+                    incident_id=42,
+                    title="Disk full on web-01",
+                )
+            ]
+        )
 
-        mock_alert = MagicMock()
-        mock_alert.incident_id = 42
-        mock_alert.fingerprint = "fp-123"
-        mock_alert.severity = "critical"
-
-        with (
-            patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch),
-            patch(
-                "apps.alerts.models.Alert.objects.order_by",
-                return_value=_chain_returning(mock_alert),
-            ),
-        ):
+        with patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch):
             result = IngestExecutor().execute(
                 _ctx(payload={"driver": "generic", "payload": {"key": "val"}})
             )
@@ -80,147 +91,34 @@ class TestIngestExecutorSuccess(TestCase):
         assert isinstance(result, IngestResult)
         assert result.alerts_created == 1
         assert result.incidents_created == 1
+        assert result.alert_id == 7
         assert result.incident_id == 42
+        assert result.incident_title == "Disk full on web-01"
+        assert result.alert_fingerprint == "fp-123"
         assert result.severity == "critical"
         assert result.source == "test"
         assert result.normalized_payload_ref == "payload:trace-abc:run-xyz:ingest"
         assert result.duration_ms > 0
-
-    def test_incident_title_carried_from_latest_alert(self):
-        """The ingest result exposes the incident's human title."""
-        from django.utils import timezone
-
-        from apps.alerts.models import Alert, Incident
-
-        incident = Incident.objects.create(title="Disk full on web-01", severity="critical")
-        Alert.objects.create(
-            fingerprint="fp-title",
-            source="test",
-            name="disk",
-            severity="critical",
-            started_at=timezone.now(),
-            incident=incident,
-        )
-
-        @dataclass
-        class FakeResult:
-            alerts_created: int = 1
-            alerts_updated: int = 0
-            alerts_resolved: int = 0
-            incidents_created: int = 1
-            incidents_updated: int = 0
-            errors: list = field(default_factory=list)
-
-        mock_orch = MagicMock()
-        mock_orch.process_webhook.return_value = FakeResult()
-
-        with patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch):
-            result = IngestExecutor().execute(
-                _ctx(payload={"driver": "generic", "payload": {"key": "val"}})
-            )
-
-        assert result.incident_id == incident.id
-        assert result.incident_title == "Disk full on web-01"
-        assert result.to_dict()["incident_title"] == "Disk full on web-01"
-
-    def _fake_ingest_orch(self):
-        @dataclass
-        class FakeResult:
-            alerts_created: int = 1
-            alerts_updated: int = 0
-            alerts_resolved: int = 0
-            incidents_created: int = 1
-            incidents_updated: int = 0
-            errors: list = field(default_factory=list)
-
-        mock_orch = MagicMock()
-        mock_orch.process_webhook.return_value = FakeResult()
-        return mock_orch
-
-    def test_latest_alert_scoped_by_known_source(self):
-        """A newer alert from a different source is ignored when ctx.source is known."""
-        from django.utils import timezone
-
-        from apps.alerts.models import Alert, Incident
-
-        wanted = Incident.objects.create(title="Wanted", severity="warning")
-        Alert.objects.create(
-            fingerprint="fp-wanted",
-            source="test",
-            name="a",
-            severity="warning",
-            started_at=timezone.now(),
-            incident=wanted,
-        )
-        # Created later → globally newest, but a different source.
-        other = Incident.objects.create(title="Other", severity="critical")
-        Alert.objects.create(
-            fingerprint="fp-other",
-            source="grafana",
-            name="b",
-            severity="critical",
-            started_at=timezone.now(),
-            incident=other,
-        )
-
-        with patch("apps.alerts.services.AlertOrchestrator", return_value=self._fake_ingest_orch()):
-            result = IngestExecutor().execute(
-                _ctx(payload={"driver": "generic", "payload": {"k": "v"}}, source="test")
-            )
-
-        assert result.incident_title == "Wanted"  # source-scoped, not the newer "Other"
-
-    def test_latest_alert_global_when_source_unknown(self):
-        """source='unknown' (auto-detect) falls back to the global latest alert."""
-        from django.utils import timezone
-
-        from apps.alerts.models import Alert, Incident
-
-        incident = Incident.objects.create(title="Detected", severity="critical")
-        Alert.objects.create(
-            fingerprint="fp-det",
-            source="grafana",
-            name="c",
-            severity="critical",
-            started_at=timezone.now(),
-            incident=incident,
-        )
-
-        with patch("apps.alerts.services.AlertOrchestrator", return_value=self._fake_ingest_orch()):
-            result = IngestExecutor().execute(
-                _ctx(payload={"driver": "generic", "payload": {"k": "v"}}, source="unknown")
-            )
-
-        assert result.incident_title == "Detected"  # found despite source mismatch
+        # to_dict() lands in StageExecution.output_snapshot (a JSONField), so the
+        # whole dict must survive serialization — not just carry the right keys.
+        assert json.loads(json.dumps(result.to_dict()))["incident_title"] == "Disk full on web-01"
 
     def test_incident_without_title_leaves_incident_title_empty(self):
         """When the incident has no title, incident_title stays the default empty string."""
-
-        @dataclass
-        class FakeResult:
-            alerts_created: int = 1
-            alerts_updated: int = 0
-            alerts_resolved: int = 0
-            incidents_created: int = 1
-            incidents_updated: int = 0
-            errors: list = field(default_factory=list)
-
         mock_orch = MagicMock()
-        mock_orch.process_webhook.return_value = FakeResult()
+        mock_orch.process_webhook.return_value = _FakeProcessingResult(
+            alerts=[
+                _mock_alert(
+                    name="disk",
+                    severity="critical",
+                    fingerprint="fp-123",
+                    incident_id=42,
+                    title="",
+                )
+            ]
+        )
 
-        mock_alert = MagicMock()
-        mock_alert.incident_id = 42
-        mock_alert.fingerprint = "fp-123"
-        mock_alert.severity = "critical"
-        mock_alert.incident.title = ""
-
-        with (
-            patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch),
-            patch(
-                "apps.alerts.models.Alert.objects.order_by",
-                return_value=_chain_returning(mock_alert),
-            ),
-        ):
+        with patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch):
             result = IngestExecutor().execute(
                 _ctx(payload={"driver": "generic", "payload": {"key": "val"}})
             )
@@ -238,30 +136,146 @@ class TestIngestExecutorSuccess(TestCase):
         result = IngestExecutor().execute(_ctx(payload={"driver": "generic"}))
         assert "payload must be a JSON object" in result.errors
 
-    def test_no_latest_alert(self):
-        @dataclass
-        class FakeResult:
-            alerts_created: int = 0
-            alerts_updated: int = 0
-            alerts_resolved: int = 0
-            incidents_created: int = 0
-            incidents_updated: int = 0
-            errors: list = field(default_factory=list)
-
+    def test_ingest_with_no_alerts_leaves_subject_unset(self):
         mock_orch = MagicMock()
-        mock_orch.process_webhook.return_value = FakeResult()
+        mock_orch.process_webhook.return_value = _FakeProcessingResult(
+            alerts_created=0, incidents_created=0
+        )
 
-        with (
-            patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch),
-            patch(
-                "apps.alerts.models.Alert.objects.order_by",
-                return_value=_chain_returning(None),
-            ),
-        ):
+        with patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch):
             result = IngestExecutor().execute(_ctx(payload={"driver": "generic", "payload": {}}))
 
+        assert result.alert_id is None
         assert result.incident_id is None
         assert not result.errors
+
+
+class TestIngestExecutorSubjectSelection(TestCase):
+    """The run's subject comes from the alerts THIS push touched."""
+
+    def _alert(self, *, name, severity, fingerprint, incident=None):
+        from django.utils import timezone
+
+        from apps.alerts.models import Alert
+
+        return Alert.objects.create(
+            fingerprint=fingerprint,
+            source="test",
+            name=name,
+            severity=severity,
+            started_at=timezone.now(),
+            incident=incident,
+        )
+
+    def _execute_with(self, alerts, **ctx_kwargs):
+        mock_orch = MagicMock()
+        mock_orch.process_webhook.return_value = _FakeProcessingResult(alerts=alerts)
+        with patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch):
+            return IngestExecutor().execute(
+                _ctx(payload={"driver": "generic", "payload": {"k": "v"}}, **ctx_kwargs)
+            )
+
+    def test_ingest_subject_is_the_most_severe_alert_from_this_push(self):
+        """A newer, more severe alert outside this push must not become the subject."""
+        from apps.alerts.models import Incident
+
+        pushed_incident = Incident.objects.create(title="Pushed", severity="warning")
+        pushed = self._alert(
+            name="cpu", severity="warning", fingerprint="fp-pushed", incident=pushed_incident
+        )
+        # Created afterwards → newer received_at, same source, higher severity,
+        # but it is NOT part of this push.
+        other_incident = Incident.objects.create(title="Other node", severity="critical")
+        self._alert(
+            name="disk", severity="critical", fingerprint="fp-other", incident=other_incident
+        )
+
+        result = self._execute_with([pushed])
+
+        assert result.alert_id == pushed.id
+        assert result.incident_id == pushed_incident.id
+        assert result.incident_title == "Pushed"
+        assert result.alert_fingerprint == "fp-pushed"
+        assert result.severity == "warning"
+
+    def test_ingest_subject_is_most_severe_within_the_push(self):
+        low = self._alert(name="cpu", severity="info", fingerprint="fp-low")
+        high = self._alert(name="disk", severity="critical", fingerprint="fp-high")
+
+        result = self._execute_with([low, high])
+
+        assert result.alert_id == high.id
+        assert result.severity == "critical"
+
+    def test_ingest_subject_ties_break_by_name(self):
+        beta = self._alert(name="beta", severity="warning", fingerprint="fp-beta")
+        alpha = self._alert(name="alpha", severity="warning", fingerprint="fp-alpha")
+
+        result = self._execute_with([beta, alpha])
+
+        assert result.alert_id == alpha.id
+
+    def test_subject_without_incident_leaves_incident_id_none(self):
+        """All-OK pushes create alerts but no incident; the run still completes."""
+        alert = self._alert(name="cpu", severity="info", fingerprint="fp-ok")
+
+        result = self._execute_with([alert])
+
+        assert result.alert_id == alert.id
+        assert result.incident_id is None
+        assert result.incident_title == ""
+        assert not result.errors
+
+
+class TestIngestExecutorSubjectOrderingIsTotal(TestCase):
+    """Same name + same severity on two instances must not pick arbitrarily.
+
+    A grouped alertmanager notification can carry one alertname at one severity
+    for several instances. Incident grouping is (name, instance)-scoped, so those
+    alerts belong to *different* incidents — without a total order the run's
+    incident_id and title would swing with payload order.
+    """
+
+    def _payload(self, instances):
+        return {
+            "version": "4",
+            "groupKey": "test",
+            "receiver": "webhook",
+            "status": "firing",
+            "alerts": [
+                {
+                    "status": "firing",
+                    "labels": {
+                        "alertname": "HighCPU",
+                        "severity": "critical",
+                        "instance": instance,
+                    },
+                    "annotations": {},
+                    "startsAt": "2024-01-08T10:00:00Z",
+                    "fingerprint": f"fp-{instance}",
+                }
+                for instance in instances
+            ],
+            "groupLabels": {},
+            "commonLabels": {},
+        }
+
+    def _ingest(self, instances):
+        return IngestExecutor().execute(
+            _ctx(payload={"driver": "alertmanager", "payload": self._payload(instances)})
+        )
+
+    def test_same_name_same_severity_two_instances_is_order_independent(self):
+        forward = self._ingest(["a", "b"])
+        reverse = self._ingest(["b", "a"])
+
+        assert not forward.errors
+        assert not reverse.errors
+        # Two hosts, one alertname → two distinct incidents.
+        assert forward.alert_fingerprint == "fp-a"
+        assert reverse.alert_id == forward.alert_id
+        assert reverse.incident_id == forward.incident_id
+        assert reverse.alert_fingerprint == forward.alert_fingerprint
 
 
 class TestIngestExecutorError(SimpleTestCase):
