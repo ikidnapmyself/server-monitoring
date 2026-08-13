@@ -52,8 +52,12 @@ behaviour and depend on the model being in place. Task 9 is docs.
 | 6 | Delete the implicit fallback; seed the lanes | 3.1 |
 | 7 | Delete `skip_checkers` | 3.2 |
 | 8 | Route checker-generated runs | 3.9 |
-| 9 | Route `reeval_existing` through orchestration | 3.8 |
-| 10 | Docs | — |
+| 9 | Docs | — |
+
+**Deferred out of this plan:** routing `reeval_existing` through orchestration (3.8). It is the
+most contentious behaviour change in the design — threshold edits would start producing outbound
+messages — and it is separable from everything above. See "Deferred: re-eval through
+orchestration" at the end of this plan.
 
 ---
 
@@ -1022,54 +1026,7 @@ git commit -m "fix(orchestration): route checker-generated runs so the hub monit
 
 ---
 
-## Task 9: Route `reeval_existing` through orchestration
-
-**Files:**
-- Modify: `apps/alerts/reeval_existing.py:88-141`
-- Modify: `apps/alerts/admin.py:657`, `apps/alerts/management/commands/reevaluate_node_alerts.py:48`
-- Test: `apps/alerts/_tests/test_reeval_existing.py`
-
-**Step 1: Write the failing tests**
-
-```python
-def test_reeval_creates_a_pipeline_run_with_a_trace_id(self):
-    report = apply_node_alert_reeval(node)
-    run = PipelineRun.objects.filter(origin=PipelineOrigin.MANUAL).latest("created_at")
-    self.assertTrue(run.trace_id)
-
-def test_reeval_that_resolves_an_incident_notifies(self):
-    ...  # assert a NOTIFY StageExecution exists for the run
-
-def test_reeval_with_no_changes_creates_no_run(self):
-    # A no-op re-score must not manufacture pipeline traffic.
-    ...
-```
-
-**Step 2: Run to verify they fail**
-
-**Step 3: Implement**
-
-Keep `apply_node_alert_reeval` responsible for the re-score itself, and have it open a run for the
-resulting changes rather than mutating and returning silently. Guard on `report.changes` so a
-no-op run creates nothing. Preserve the existing `report.resolved_count` guard around
-`_resolve_incidents_for` — a pure severity change must still not auto-resolve a manually reopened
-incident.
-
-Use `PipelineOrigin.MANUAL` and pass the affected alert as the routing subject, so the lane is
-resolved by the same rule as every other entry point.
-
-**Step 4: Run tests and commit**
-
-```bash
-uv run pytest
-uv run black . && uv run ruff check . --fix
-git add -A
-git commit -m "fix(alerts): route config-change re-evaluation through orchestration"
-```
-
----
-
-## Task 10: Documentation
+## Task 9: Documentation
 
 **Files:**
 - Modify: `AGENTS.md` (the `PipelineDefinition` description under "Stage configuration")
@@ -1078,6 +1035,10 @@ git commit -m "fix(alerts): route config-change re-evaluation through orchestrat
 
 Document: lanes are rows; `stages` excludes the entry stage and why; `origin` is a matchable fact;
 unmatched traffic fails with `no_route`; the hub's self-check lane exists and notifies.
+
+State plainly that `reeval_existing` is still a documented exception to "everything passes through
+orchestration" — it can still resolve an incident with no run, no trace and no notification.
+Leaving that undocumented would make the codebase look more consistent than it is.
 
 ```bash
 git add -A
@@ -1129,12 +1090,42 @@ uv run python manage.py migrate orchestration 0012 && uv run python manage.py mi
 1. **Migration ordering.** Tasks 3 and 4 both backfill from a column they then drop. The
    `RunPython` must precede the `RemoveField` in the same migration, and the reverse direction
    needs the column back before the backwards function runs. Test both directions explicitly.
-2. **Notification volume changes.** Tasks 8 and 9 both add outbound messages that did not exist
-   before — the hub's self-checks and config-change resolutions. This is intended, but it is what
-   an operator will notice first after deploying.
+2. **Notification volume changes.** Task 8 adds outbound messages that did not exist before: the
+   hub's own scheduled self-checks now notify. This is intended, but it is what an operator will
+   notice first after deploying.
 3. **`_final_status` with an empty stage list.** A lane with `stages: []` terminates at the entry
    stage's status. Confirm `_final_status([])` returns `INGESTED` for webhook runs and `CHECKED`
    for checker runs rather than raising.
 4. **Fan-out is still deferred.** Nothing here fixes the "one push routes one incident" bug
    (design doc 3.10 / §9). Do not let it creep in — it needs the run/stage schema decision and
    retention alongside it.
+5. **Re-eval is still a backdoor.** 3.8 is untouched by this plan. A node config change can still
+   resolve an incident with no run, no trace and no notification. Do not quietly fix it while
+   working on something adjacent; it is deferred on purpose.
+
+---
+
+## Deferred: re-eval through orchestration (3.8)
+
+Postponed out of this plan. The mechanics are small — `apply_node_alert_reeval` opens a
+`PipelineRun` with a `trace_id` and lets the matched lane handle the resulting changes — but the
+consequence is not: threshold edits would start producing outbound messages where they currently
+produce silence. That is a judgement about how operators want to be interrupted, and it deserves
+its own decision rather than riding along with a routing refactor.
+
+When it is picked up, the shape is:
+
+- Keep `apply_node_alert_reeval` responsible for the re-score itself; have it open a run for the
+  resulting changes rather than mutating and returning silently.
+- Guard on `report.changes` so a no-op re-score manufactures no pipeline traffic.
+- Preserve the existing `report.resolved_count` guard around `_resolve_incidents_for` — a pure
+  severity change must still not auto-resolve a manually reopened incident.
+- Use `PipelineOrigin.MANUAL` and pass the affected alert as the routing subject, so the lane is
+  resolved by the same rule as every other entry point.
+
+Whether the matched lane includes NOTIFY is the actual decision. A lane with `stages: ["analyze"]`
+gives full traceability with no new notifications, which may be the palatable middle.
+
+Files it will touch: `apps/alerts/reeval_existing.py:88-141`, `apps/alerts/admin.py:657`,
+`apps/alerts/management/commands/reevaluate_node_alerts.py:48`,
+`apps/alerts/_tests/test_reeval_existing.py`.

@@ -50,6 +50,7 @@ Working through it produced three conclusions, in order:
 | Unmatched traffic | **Seeded catch-all row**, not a quarantine state | Makes the fallback visible instead of relocating it |
 | Entry point | **A fact in `match`** (`origin`), not an entry in `stages` | Entry points vary; they are matched on, not executed |
 | Checker-generated runs | **Routed** | The hub's own scheduled checks currently notify nobody — see 3.9 |
+| `reeval_existing` (3.8) | **Deferred** | Mechanically small, but it changes when operators get interrupted; decided separately |
 | Retention (3.7) | **Separate work** | No shared code with routing; folding it in doubles the review surface |
 | Push fan-out (3.10) | **Separate work** | Lives in the run/stage schema, not in routing — see §9 |
 
@@ -393,17 +394,7 @@ Fixes 3.9.
 Operators who want a quiet diagnostic run keep `--no-incidents`, which suppresses incident
 creation upstream of any of this (`executors.py:131-136`).
 
-### 7.7 `reeval_existing` through orchestration
-
-`apply_node_alert_reeval` opens a `PipelineRun` carrying a `trace_id`; severity changes and
-incident resolutions happen inside it and route through the matched lane. **It notifies.** A
-config change that closes an incident sends the resolution like any other, restoring the "given a
-notification, jump back to the exact incident" guarantee. Fixes 3.8.
-
-This is the most operator-visible change in the design: threshold edits now produce outbound
-messages where previously they produced silence.
-
-### 7.8 Readable host in the alerts admin
+### 7.7 Readable host in the alerts admin
 
 Add a `host` display column to `AlertAdmin` backed by `instance_key_from_labels`
 (`services.py:70-79`), which already falls through `instance_id` → `instance` → `hostname`, with
@@ -411,7 +402,7 @@ the `node` FK preferred when set. The server name then shows for every source in
 cluster pushes. Reuses the helper that already defines "which host" for incident grouping, so no
 second notion of host identity is introduced. Fixes 3.11.
 
-### 7.9 On seeded lanes
+### 7.8 On seeded lanes
 
 The concern that shipping a "checker lane" and a "webhook lane" creates a special case that grows
 is right about the risk, and the answer is framing. There are no such concepts in code: one table,
@@ -429,7 +420,6 @@ Nothing gets faster at runtime; this is not a performance change. What it buys:
 - **Config stops lying.** The channel field matches what delivery actually does.
 - **One place decides.** Whether checkers run is one field, not two modules and a payload key.
 - **The hub monitors itself.** Its own scheduled checks stop opening silent incidents.
-- **No silent incident closing.** Config-change re-eval is traced and notified.
 - **The host is readable.** Server names show for webhook sources, not just cluster pushes.
 - **Changing routing stops requiring a deploy.** Edit a row, not code.
 
@@ -475,6 +465,12 @@ happens regardless, or it silently removes that hook.
 
 ## 11. Still open
 
+- **3.8, `reeval_existing`** — deferred. The mechanics are small; the consequence is not, since
+  threshold edits would start producing outbound messages where they currently produce silence.
+  Until it lands, this remains a documented exception to "everything passes through
+  orchestration": a config change can still resolve an incident with no run, no trace and no
+  notification. The likely middle ground is routing it to a lane with `stages: ["analyze"]`,
+  which buys full traceability without new notifications.
 - 3.6, node-bound fingerprints — untouched here. Becomes live if "the same alert on five nodes"
   should ever group or route as one thing.
 - Retention (3.7) — needs an owner, and becomes urgent once fan-out lands.
