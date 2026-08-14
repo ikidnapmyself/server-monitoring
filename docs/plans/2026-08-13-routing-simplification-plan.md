@@ -1073,6 +1073,22 @@ for r in PipelineRun.objects.filter(status__in=['failed','retrying','pending','p
         print(r.run_id, r.status)"
 ```
 
+**Deploy order is NOT symmetric — run `migrate` BEFORE restarting the app.**
+
+- `migrate` → then deploy code: **safe.** The old code still has its fallback, but the seeded
+  rows now match, so the fallback is never reached. `catch-all`'s stages are identical to the old
+  default order, and `skip_checkers` drops CHECK on the matched path too, so both fallback
+  variants are reproduced.
+- Deploy code → then `migrate`: **not safe.** In that window `_downstream_stages` returns `None`
+  for anything no operator lane claims, and the run fails non-retryably as `no_route`. Those runs
+  are not in the inbox and nothing auto-retries them, so they need manual resume. On a database
+  with an existing empty-`match` lane the window is harmless; on a fresh install, all traffic
+  fails during it.
+
+Related, pre-existing and unchanged by this work: the admin's "Mark for Retry" action retries any
+FAILED run without consulting `last_error_retryable`. The flag is advisory — it protects against
+automation, not against an operator clicking retry.
+
 **Release note — two routing facts are computed differently.** Nothing in the repo depends on the
 old semantics, but deployed lanes are config the plan cannot see:
 
