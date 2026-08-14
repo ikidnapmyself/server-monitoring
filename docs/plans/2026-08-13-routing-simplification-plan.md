@@ -1039,8 +1039,16 @@ git commit -m "fix(orchestration): route checker-generated runs so the hub monit
 - `docs/plans/` is an immutable historical record. Do not touch it.
 
 Add an operator note to `docs/Deployment.md`: migration `0010` is destructive (it drops three
-columns after backfilling from them) and `0012` discards surplus `channels` rows. Both want a
-SQLite backup taken before `migrate`.
+columns after backfilling from them) and `0011` discards surplus `channels` rows (logging a
+warning naming each one). Both want a SQLite backup taken before `migrate`.
+
+`docs/Deployment.md:407-408` also still explains delivery picking the "primary active channel
+(the first active channel by name)" — that mechanism is gone; it is one FK now.
+
+**`preflight --json` changed shape** and feeds CI, so it needs documenting wherever that output
+is described: `definitions[].channels` (an int count) became `definitions[].channel` (a name or
+`null`), plus a new `definitions[].channel_routes` boolean saying whether that channel is active
+enough to actually deliver.
 
 Document: lanes are rows; `stages` excludes the entry stage and why; `origin` is a matchable fact;
 unmatched traffic fails with `no_route`; the hub's self-check lane exists and notifies.

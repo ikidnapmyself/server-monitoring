@@ -101,7 +101,11 @@ class PreflightCommandTests(TestCase):
         )
         PipelineDefinition.objects.create(name="stale-pipe", is_active=True, channel=ch)
         output, _ = self._call()
-        self.assertIn("channel: dead-slack (inactive — routes nowhere)", output)
+        # Assert the two facts, not the sentence: the operator must see WHICH channel
+        # is wired (so they can fix it) and that it does not route. Pinning the exact
+        # prose would make a wording change a test failure.
+        self.assertIn("dead-slack", output)
+        self.assertIn("routes nowhere", output)
 
     @patch("apps.checkers.preflight.checks._read_file")
     @patch("apps.checkers.preflight.logger.log_results")
