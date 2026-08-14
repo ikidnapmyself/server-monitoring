@@ -178,23 +178,47 @@ class Command(BaseCommand):
         )
 
     def _bind_catchall_pipeline(self, channel) -> None:
-        """Route the channel through a catch-all Pipeline (empty match = matches all).
+        """Route the channel through the catch-all lane that actually wins.
 
         Wires the channel via routing instead of relying on "first active channel",
-        so it composes with the pipeline-routing spine. Idempotent: if the pipeline
-        already exists it is repaired to the catch-all invariants (active, empty
-        match, notify on) so the "routed via the catch-all pipeline" claim holds.
+        so it composes with the pipeline-routing spine. Idempotent: the lane is
+        repaired to the catch-all invariants (active, empty match, notify on) so the
+        "routed via the catch-all pipeline" claim holds.
+
+        The lane is selected the way ``resolve_pipeline`` selects one — first active
+        empty-match lane by ``(priority, id)`` — rather than by a name this command
+        owns. Binding a lane by name is how this silently broke: migration 0012
+        seeds a ``catch-all`` at priority 1000 and ``migrate`` runs before
+        ``setup_cluster``, so a ``default-catch-all`` created here tied on priority,
+        lost the tie on ``id``, and never ran. Delivery then fell through to
+        ``NotifySelector``'s "first active channel by name" — right by luck on a
+        single-channel install, wrong on any other — while this command printed
+        "routed via the catch-all pipeline" about a lane that never fired.
+        Selecting the winner is self-correcting: it also does the right thing when
+        an operator has a catch-all of their own.
         """
         from apps.orchestration.models import PipelineDefinition, PipelineStage
 
-        pipeline, created = PipelineDefinition.objects.get_or_create(
-            name="default-catch-all",
-            defaults={
-                "match": [],
-                "priority": 1000,
-                "stages": list(PipelineDefinition.ROUTABLE_STAGES),
-            },
+        pipeline = (
+            PipelineDefinition.objects.filter(is_active=True, match=[])
+            .order_by("priority", "id")
+            .first()
         )
+        created = False
+        if pipeline is None:
+            # Nothing routes catch-all traffic today. Fall back to the lane this
+            # command owns — get_or_create, not create, because an inactive or
+            # mis-matched ``default-catch-all`` from an earlier run is invisible to
+            # the query above and a bare create() would trip the unique name. The
+            # repair block below then puts it back into catch-all shape.
+            pipeline, created = PipelineDefinition.objects.get_or_create(
+                name="default-catch-all",
+                defaults={
+                    "match": [],
+                    "priority": 1000,
+                    "stages": list(PipelineDefinition.ROUTABLE_STAGES),
+                },
+            )
         notify = PipelineStage.NOTIFY.value
         if not created and not (
             pipeline.is_active and pipeline.match == [] and notify in (pipeline.stages or [])

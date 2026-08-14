@@ -13,6 +13,7 @@ from apps.checkers.preflight.dashboard import (
 from apps.intelligence.models import IntelligenceProvider
 from apps.notify.models import NotificationChannel
 from apps.orchestration.models import PipelineDefinition, PipelineRun
+from apps.orchestration.testing import clear_lanes
 
 
 class GetProfileTests(TestCase):
@@ -106,6 +107,7 @@ class GetPipelineStateTests(TestCase):
 
 class GetDefinitionsTests(TestCase):
     def test_returns_routing_fields(self):
+        clear_lanes()  # drop the lanes migration 0012 seeds
         ch = NotificationChannel.objects.create(
             name="ops", driver="slack", config={"webhook_url": "https://hooks.slack.com/x"}
         )

@@ -196,7 +196,7 @@ class TestJourneyPanel(TestCase):
     def test_incident_journey_shows_pipeline_run_and_stages(self):
         from apps.orchestration.models import PipelineDefinition
 
-        pipeline = PipelineDefinition.objects.create(name="catch-all", match=[], priority=7)
+        pipeline = PipelineDefinition.objects.create(name="admin-lane", match=[], priority=7)
         incident = Incident.objects.create(title="High CPU", severity="critical", pipeline=pipeline)
         run = PipelineRun.objects.create(
             trace_id="tr-1", run_id="run-1", status=PipelineStatus.NOTIFIED, incident=incident
@@ -206,7 +206,7 @@ class TestJourneyPanel(TestCase):
         resp = self.client.get(f"/admin/alerts/incident/{incident.id}/change/")
         assert resp.status_code == 200
         body = resp.content.decode()
-        assert "catch-all" in body  # routed-by pipeline
+        assert "admin-lane" in body  # routed-by pipeline
         assert "run-1" in body
         assert "ingest" in body
 

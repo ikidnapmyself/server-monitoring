@@ -471,9 +471,14 @@ def check_pipeline_state() -> list[CheckResult]:
     if active_defs == 0:
         results.append(
             CheckResult(
-                level="info",
-                message="No pipeline definitions (optional)",
-                hint="The default pipeline runs without one; definitions are for advanced custom routing.",
+                level="warn",
+                message="No active pipeline definitions — every alert will fail to route",
+                hint=(
+                    "Routing has no fallback: an alert no lane matches fails as "
+                    "no_route and nothing is checked, analysed or notified. Migration "
+                    "0012 seeds a catch-all lane; re-add one in Django Admin "
+                    "(Orchestration → Pipeline definitions) with an empty match."
+                ),
             )
         )
 

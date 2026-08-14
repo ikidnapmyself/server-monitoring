@@ -360,7 +360,7 @@ class PipelineOrchestrator:
                                 alert_id = self._legacy_subject_alert_id(incident_id)
                     # Resolve downstream even on resume, so a resumed run still routes.
                     if stage == PipelineStage.INGEST:
-                        downstream = self._downstream_stages_or_default(
+                        downstream = self._downstream_or_fail(
                             alert_id, pipeline_run.origin, skip_checkers
                         )
                         active_stages.extend(downstream)  # in-place: the loop sees new items
@@ -395,14 +395,6 @@ class PipelineOrchestrator:
                             "updated_at",
                         ]
                     )
-                    # Now that we know this run's subject alert, resolve + stamp the
-                    # matched lane and take the downstream stages from its stages list.
-                    downstream = self._downstream_stages_or_default(
-                        alert_id, pipeline_run.origin, skip_checkers
-                    )
-                    active_stages.extend(downstream)  # in-place: the loop sees new items
-                    final_status = self._final_status(downstream)
-
                 # Update refs on pipeline run
                 if stage == PipelineStage.CHECK and isinstance(stage_result, CheckResult):
                     pipeline_run.checker_output_ref = stage_result.checker_output_ref or ""
@@ -452,6 +444,19 @@ class PipelineOrchestrator:
                     stage_result, NotifyResult
                 ):
                     result.notify = stage_result
+
+                # Routing runs LAST for INGEST, after the stage has been advanced and
+                # recorded. It is the subject alert discovered above that routes, so
+                # this cannot move earlier than ingest — but it must not move earlier
+                # than the append either: a no_route failure below would otherwise
+                # erase INGEST from stages_completed, reporting an empty run for a
+                # stage that demonstrably succeeded (its StageExecution row says so).
+                if stage == PipelineStage.INGEST:
+                    downstream = self._downstream_or_fail(
+                        alert_id, pipeline_run.origin, skip_checkers
+                    )
+                    active_stages.extend(downstream)  # in-place: the loop sees new items
+                    final_status = self._final_status(downstream)
 
             # Pipeline completed successfully
             duration_ms = (time.perf_counter() - start_time) * 1000
@@ -532,10 +537,12 @@ class PipelineOrchestrator:
         """Stages after the entry stage, from the matched lane.
 
         ``[]`` means nothing to run downstream — either no alert to route, or a
-        lane matched that lists no stages. ``None`` means an alert exists and no
-        lane claimed it; today the caller falls back to the default order (see
-        ``_downstream_stages_or_default``), and Task 6 replaces that with a
-        non-retryable ``no_route`` failure.
+        lane matched that lists no stages; both complete cleanly. ``None`` means an
+        alert exists and no lane claimed it, which the caller turns into a
+        non-retryable ``no_route`` failure. There is deliberately no default order
+        here: migration ``0012`` seeds a catch-all lane, so "what happens to
+        unmatched traffic" is a row an operator can read and edit rather than a
+        constant in this file. Delete that row and unmatched traffic fails loudly.
         """
         from apps.alerts.models import Alert
         from apps.orchestration.routing import facts_from_alert, resolve_pipeline
@@ -572,22 +579,35 @@ class PipelineOrchestrator:
             stages.remove(PipelineStage.CHECK)
         return stages
 
-    def _downstream_stages_or_default(
+    def _downstream_or_fail(
         self, alert_id: int | None, origin: str, skip_checkers: bool
     ) -> list[PipelineStage]:
-        """``_downstream_stages`` plus the pre-catch-all fallback. Temporary.
+        """``_downstream_stages``, turning a no-match into a terminal failure.
 
-        TASK 6 deletes this method: once a catch-all lane is seeded, a ``None``
-        from ``_downstream_stages`` becomes a non-retryable ``no_route`` failure
-        instead of silently running today's default order, and both call sites go
-        back to ``_downstream_stages``. Until then an un-routed run behaves
-        exactly as it did before.
+        Both call sites (fresh ingest and resume) need the identical rule, so it
+        lives here rather than being spelled out twice.
+
+        The failure is attributed to ``routing``, NOT to ingest. Ingest is the stage
+        that just succeeded — it has a ``StageExecution`` row saying so — and naming
+        it here would send an operator to debug the payload, the driver and the
+        parser, the one part of the run that worked. ``routing`` is not a
+        ``PipelineStage``, which is exactly right: nothing writes this string to a
+        ``StageExecution`` row or a signal tag (those use the loop's own ``stage``
+        variable); ``StageExecutionError.stage`` is typed ``str`` and is only
+        interpolated into the human-readable message on ``PipelineResult`` and
+        ``PipelineRun.last_error_message``.
+
+        ``retryable=False`` because nothing about a retry can conjure a lane: the
+        alert is unroutable until an operator adds one, and a retryable failure
+        would spin forever.
         """
         downstream = self._downstream_stages(alert_id, origin, skip_checkers)
         if downstream is None:
-            downstream = [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
-            if not skip_checkers:
-                downstream = [PipelineStage.CHECK] + downstream
+            raise StageExecutionError(
+                stage="routing",
+                errors=["no_route: no active pipeline matched this alert"],
+                retryable=False,
+            )
         return downstream
 
     @staticmethod

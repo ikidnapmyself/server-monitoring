@@ -7,13 +7,17 @@ from django.utils import timezone
 
 from apps.alerts.models import Alert, Incident, IncidentStatus, Node
 from apps.orchestration.models import PipelineDefinition, PipelineRun, PipelineStatus
+from apps.orchestration.testing import clear_lanes
 
 
 class ReportCommandTests(TestCase):
     def _seed(self):
+        # Migration 0012 seeds routing lanes; this file asserts on the exact
+        # pipelines list, so start from a table containing only what it creates.
+        clear_lanes()
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
-        pipeline = PipelineDefinition.objects.create(name="catch-all", match=[], priority=1)
-        # open incident from web-03, routed via catch-all
+        pipeline = PipelineDefinition.objects.create(name="report-lane", match=[], priority=1)
+        # open incident from web-03, routed via report-lane
         inc_open = Incident.objects.create(
             title="cpu", severity="critical", status=IncidentStatus.OPEN, pipeline=pipeline
         )
@@ -39,7 +43,7 @@ class ReportCommandTests(TestCase):
         data = json.loads(out.getvalue())
 
         assert data["nodes"] == [{"instance_id": "web-03", "incidents": 2, "open": 1}]
-        assert data["pipelines"] == [{"name": "catch-all", "routed": 2}]
+        assert data["pipelines"] == [{"name": "report-lane", "routed": 2}]
         assert data["incidents"]["total"] == 2
         assert data["incidents"]["by_status"] == {"open": 1, "resolved": 1}
         assert data["inbox"] == {"pending": 1, "processing": 0}
@@ -50,11 +54,12 @@ class ReportCommandTests(TestCase):
         call_command("report", stdout=out)
         text = out.getvalue()
         assert "web-03" in text
-        assert "catch-all" in text
+        assert "report-lane" in text
         assert "1 pending" in text
         assert "2 total" in text
 
     def test_empty_report(self):
+        clear_lanes()
         out = StringIO()
         call_command("report", stdout=out)
         text = out.getvalue()

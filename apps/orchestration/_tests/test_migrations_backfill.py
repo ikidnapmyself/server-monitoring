@@ -503,3 +503,165 @@ def test_channel_real_schema_round_trip():
         executor.migrate(executor.loader.graph.leaf_nodes())
         PipelineDefinition.objects.filter(name__in=names).delete()
         NotificationChannel.objects.filter(name__in=["zulu", "alpha", "mike", "off"]).delete()
+
+
+# --- 0012: seed the two default lanes ----------------------------------------
+#
+# Same two-layer approach as 0010/0011. This migration adds no columns, so the
+# stand-ins can drive ``forwards``/``backwards`` directly through a fake manager,
+# while the real-schema round trip proves the seeded rows land in (and leave) the
+# actual table with the priorities routing depends on.
+
+seed_migration = importlib.import_module("apps.orchestration.migrations.0012_seed_default_lanes")
+
+
+class _FakeGetOrCreateManager:
+    """Stand-in manager recording ``get_or_create`` / ``filter(...).delete()`` calls."""
+
+    def __init__(self, existing=()):
+        self.rows = {name: dict(fields) for name, fields in existing}
+        self.created = []
+        self.deleted = []
+
+    def get_or_create(self, name, defaults):
+        if name in self.rows:
+            return self.rows[name], False
+        self.rows[name] = dict(defaults)
+        self.created.append(name)
+        return self.rows[name], True
+
+    def filter(self, **kwargs):
+        self._pending = kwargs
+        return self
+
+    def delete(self):
+        name = self._pending["name"]
+        shape = {k: v for k, v in self._pending.items() if k != "name"}
+        self.deleted.append(dict(self._pending))
+        if self.rows.get(name) == shape:
+            self.rows.pop(name)
+
+
+class _FakeSeedApps:
+    def __init__(self, manager):
+        self._manager = manager
+
+    def get_model(self, app_label, model_name):
+        assert (app_label, model_name) == ("orchestration", "PipelineDefinition")
+        return type("M", (), {"objects": self._manager})
+
+
+def test_seed_forwards_creates_both_lanes():
+    manager = _FakeGetOrCreateManager()
+    seed_migration.forwards(_FakeSeedApps(manager), None)
+    assert manager.created == ["cluster-nodes", "catch-all"]
+    assert manager.rows["cluster-nodes"]["priority"] == 50
+    assert manager.rows["cluster-nodes"]["stages"] == ["analyze", "notify"]
+    assert manager.rows["catch-all"]["priority"] == 1000
+    assert manager.rows["catch-all"]["match"] == []
+
+
+def test_seed_forwards_leaves_an_existing_lane_untouched():
+    """An operator who already configured a lane by that name keeps their row."""
+    manager = _FakeGetOrCreateManager(existing=[("catch-all", {"priority": 7, "stages": []})])
+    seed_migration.forwards(_FakeSeedApps(manager), None)
+    assert manager.created == ["cluster-nodes"]
+    assert manager.rows["catch-all"] == {"priority": 7, "stages": []}
+
+
+def test_seed_forwards_is_idempotent():
+    manager = _FakeGetOrCreateManager()
+    seed_migration.forwards(_FakeSeedApps(manager), None)
+    manager.created.clear()
+    seed_migration.forwards(_FakeSeedApps(manager), None)
+    assert manager.created == []
+
+
+def test_seed_backwards_deletes_only_rows_matching_the_seeded_shape():
+    """Name alone is not enough: an adopted operator row must survive a rollback."""
+    manager = _FakeGetOrCreateManager()
+    seed_migration.backwards(_FakeSeedApps(manager), None)
+    assert [f["name"] for f in manager.deleted] == ["cluster-nodes", "catch-all"]
+    # The full seeded shape is part of every delete filter, not just the name.
+    assert manager.deleted[1]["priority"] == 1000
+    assert manager.deleted[1]["match"] == []
+    assert manager.deleted[1]["stages"] == ["check", "analyze", "notify"]
+
+
+def test_seed_forwards_does_not_mutate_the_lane_table():
+    """``forwards`` pops ``name`` off a copy; a shared dict would break re-runs."""
+    seed_migration.forwards(_FakeSeedApps(_FakeGetOrCreateManager()), None)
+    assert [lane["name"] for lane in seed_migration._LANES] == ["cluster-nodes", "catch-all"]
+
+
+def test_seed_migration_is_data_only():
+    """No schema operations: this migration exists purely to add rows."""
+    ops = seed_migration.Migration.operations
+    assert [type(op).__name__ for op in ops] == ["RunPython"]
+
+
+def test_cluster_lane_outranks_the_catch_all():
+    """The ordering the seeds depend on, asserted on the data, not on routing.
+
+    ``cluster-nodes`` must also beat the model's default priority of 100, or a
+    hand-created lane would silently outrank it.
+    """
+    by_name = {lane["name"]: lane for lane in seed_migration._LANES}
+    assert by_name["cluster-nodes"]["priority"] < 100 < by_name["catch-all"]["priority"]
+
+
+_SEED_OLD = ("orchestration", "0011_pipelinedefinition_channel")
+_SEED_NEW = ("orchestration", "0012_seed_default_lanes")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_seed_real_schema_round_trip():
+    """Apply and unapply 0012 against the real schema.
+
+    Also pins the ``get_or_create`` contract on a real row: a pre-existing
+    ``catch-all`` survives forwards with its own priority intact.
+    """
+    from apps.orchestration.models import PipelineDefinition
+
+    try:
+        old_apps = _migrate_to(_SEED_OLD)
+        PD = old_apps.get_model("orchestration", "PipelineDefinition")
+        PD.objects.filter(name__in=["cluster-nodes", "catch-all"]).delete()
+        PD.objects.create(name="catch-all", priority=7, match=[], stages=["notify"])
+
+        new_apps = _migrate_to(_SEED_NEW)
+        PD = new_apps.get_model("orchestration", "PipelineDefinition")
+        cluster = PD.objects.get(name="cluster-nodes")
+        assert cluster.priority == 50
+        assert cluster.stages == ["analyze", "notify"]
+        assert cluster.match == [{"field": "source", "op": "is", "value": "cluster"}]
+        assert cluster.is_active is True
+        # The operator's existing row is adopted as-is, not overwritten.
+        assert PD.objects.get(name="catch-all").priority == 7
+
+        old_apps = _migrate_to(_SEED_OLD)
+        PD = old_apps.get_model("orchestration", "PipelineDefinition")
+        # The row this migration created is gone...
+        assert not PD.objects.filter(name="cluster-nodes").exists()
+        # ...but the operator's own catch-all, which forwards merely adopted, is
+        # NOT collateral damage. Deleting by name would have destroyed it (and its
+        # channel FK) on any rollback, with no way for forwards to bring it back.
+        assert PD.objects.get(name="catch-all").priority == 7
+    finally:
+        # Always leave the shared test database at the migration graph's HEAD --
+        # head-relative on purpose; see the note on the 0010 round trip above.
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+        # Restore the seeded rows the reverse pass removed: they are part of the
+        # post-migration baseline every other test in this worker routes against.
+        #
+        # This calls forwards() with the LIVE app registry rather than a historical
+        # one, which is safe only because 0012 adds no columns -- the current model
+        # and the 0012-era model have the same fields. A future migration that
+        # changes PipelineDefinition would make this line lie; re-seed through the
+        # executor's historical state instead if that day comes.
+        PipelineDefinition.objects.filter(name__in=["cluster-nodes", "catch-all"]).delete()
+        seed_migration.forwards(django_apps, None)

@@ -1,6 +1,7 @@
 from django.test import TestCase
 
 from apps.orchestration.models import PipelineDefinition
+from apps.orchestration.testing import clear_lanes
 
 
 class PipelineMatchesTests(TestCase):
@@ -104,6 +105,9 @@ class ResolvePipelineTests(TestCase):
     def test_no_match_returns_none(self):
         from apps.orchestration.routing import resolve_pipeline
 
+        # Migration 0012 seeds a catch-all, so "nothing matches" only exists once
+        # an operator has removed it. That is the state under test here.
+        clear_lanes()
         PipelineDefinition.objects.create(
             name="only-cluster",
             priority=10,
@@ -210,6 +214,8 @@ class OriginMatchingTests(TestCase):
     def test_resolve_pipeline_picks_the_lane_for_this_origin(self):
         from apps.orchestration.routing import resolve_pipeline
 
+        # Without this, the seeded catch-all claims the "manual" case below.
+        clear_lanes()
         webhook = PipelineDefinition.objects.create(
             name="webhook-lane",
             priority=10,

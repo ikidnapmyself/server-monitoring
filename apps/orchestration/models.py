@@ -536,7 +536,12 @@ class PipelineDefinition(models.Model):
     priority = models.IntegerField(
         default=100,
         db_index=True,
-        help_text="Lower is evaluated first (first match wins).",
+        help_text=(
+            "Lower is evaluated first (first match wins). Convention: below 100 for "
+            "system lanes that must pre-empt operator rules, 100 (the default) for "
+            "your own lanes, 1000 for the catch-all that should only run when "
+            "nothing else claimed the alert. Ties break on id, so avoid them."
+        ),
     )
     stages = models.JSONField(
         default=list,

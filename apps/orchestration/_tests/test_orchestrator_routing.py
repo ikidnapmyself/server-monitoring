@@ -3,7 +3,13 @@
 INGEST always runs; the downstream stages (check/analyze/notify) are the ones the
 resolved PipelineDefinition lists in ``stages``, in that order, and the pipeline is
 stamped on the incident right after ingest. checks_only/skip_checkers stay as CLI
-overrides; a no-match runs today's full order.
+overrides.
+
+Since Task 6 there is no implicit fallback: unmatched traffic fails as a
+non-retryable ``no_route``, and the routes that used to be hard-coded live in the
+rows migration ``0012`` seeds (``cluster-nodes``, ``catch-all``). Those rows are
+present in the test database exactly as they are on a fresh install, so tests
+that need "nothing matches" delete them first.
 """
 
 from unittest.mock import patch
@@ -24,6 +30,7 @@ from apps.orchestration.models import (
     StageStatus,
 )
 from apps.orchestration.orchestrator import PipelineOrchestrator
+from apps.orchestration.testing import clear_lanes
 
 
 class StageSelectionFromStagesListTests(TestCase):
@@ -74,9 +81,15 @@ class StageSelectionFromStagesListTests(TestCase):
         result = self._run(origin=PipelineOrigin.CHECKER_GENERATED)
         assert result.stages_completed == [PipelineStage.INGEST, PipelineStage.NOTIFY]
 
-        # The same payload from a webhook does not match that lane (fallback order).
+        # The same payload from a webhook does not match that lane; it falls
+        # through to the seeded cluster-nodes lane instead.
         webhook = self._run(origin=PipelineOrigin.INCOMING_WEBHOOK)
-        assert PipelineStage.CHECK in webhook.stages_completed
+        assert webhook.stages_completed == [
+            PipelineStage.INGEST,
+            PipelineStage.ANALYZE,
+            PipelineStage.NOTIFY,
+        ]
+        assert Incident.objects.get(pk=self.incident.pk).pipeline.name == "cluster-nodes"
 
     def test_subject_alert_from_the_ingest_result_is_what_routes(self):
         """The lane matches the subject alert's labels, proving alert_id is used."""
@@ -126,27 +139,40 @@ class StageSelectionFromStagesListTests(TestCase):
         run = PipelineRun.objects.get(run_id=result.run_id)
         assert run.status == PipelineStatus.INGESTED
 
-    def test_no_matching_pipeline_runs_full_order(self):
-        # Only a pipeline that does NOT match this cluster incident exists.
+    def test_no_matching_operator_lane_falls_through_to_the_seeded_lanes(self):
+        """Was ``test_no_matching_pipeline_runs_full_order``.
+
+        That name described the deleted Python fallback. The observable behaviour
+        is now a seeded row, so the assertion moves with it: a cluster alert no
+        operator lane claims lands on ``cluster-nodes``, which omits CHECK.
+        """
         PipelineDefinition.objects.create(
             name="grafana-only",
             match=[{"field": "source", "op": "is", "value": "grafana"}],
             priority=1,
         )
         result = self._run()
-        assert {
+        assert result.stages_completed == [
             PipelineStage.INGEST,
-            PipelineStage.CHECK,
             PipelineStage.ANALYZE,
             PipelineStage.NOTIFY,
-        } <= set(result.stages_completed)
+        ]
 
-    def test_no_pipelines_at_all_runs_full_order(self):
+    def test_no_operator_lanes_at_all_still_routes_on_the_seeds(self):
+        """Was ``test_no_pipelines_at_all_runs_full_order`` — same reason as above.
+
+        A fresh install with nothing configured still routes, because the routes
+        are rows now rather than a constant in the orchestrator.
+        """
         result = self._run()
-        assert len(result.stages_completed) == 4
+        assert result.stages_completed == [
+            PipelineStage.INGEST,
+            PipelineStage.ANALYZE,
+            PipelineStage.NOTIFY,
+        ]
 
     def test_incident_stamped_with_matched_pipeline(self):
-        p = PipelineDefinition.objects.create(name="catch-all", match=[], priority=1)
+        p = PipelineDefinition.objects.create(name="stamp-lane", match=[], priority=1)
         self._run()
         self.incident.refresh_from_db()
         assert self.incident.pipeline_id == p.id
@@ -188,11 +214,6 @@ class DownstreamStagesHelperTests(TestCase):
 
     def _downstream(self, alert_id, origin="incoming_webhook", skip_checkers=False):
         return PipelineOrchestrator()._downstream_stages(
-            alert_id, origin, skip_checkers=skip_checkers
-        )
-
-    def _resolved(self, alert_id, origin="incoming_webhook", skip_checkers=False):
-        return PipelineOrchestrator()._downstream_stages_or_default(
             alert_id, origin, skip_checkers=skip_checkers
         )
 
@@ -262,6 +283,9 @@ class DownstreamStagesHelperTests(TestCase):
     def test_no_matching_lane_returns_none(self):
         """``None`` means "an alert exists but nothing routed it" — distinct from ``[]``."""
         alert, _ = self._incident_alert()
+        # The seeded lanes would claim this alert; the no-route state only exists
+        # on a database where an operator has removed them.
+        clear_lanes()
         PipelineDefinition.objects.create(
             name="grafana-only",
             priority=1,
@@ -269,32 +293,10 @@ class DownstreamStagesHelperTests(TestCase):
         )
         assert self._downstream(alert.id) is None
 
-    def test_or_default_falls_back_to_the_default_order_on_no_match(self):
-        """Task 6 replaces this fallback with a seeded catch-all + no_route."""
-        alert, _ = self._incident_alert()
-        PipelineDefinition.objects.create(
-            name="grafana-only",
-            priority=1,
-            match=[{"field": "source", "op": "is", "value": "grafana"}],
-        )
-        assert self._resolved(alert.id) == [
-            PipelineStage.CHECK,
-            PipelineStage.ANALYZE,
-            PipelineStage.NOTIFY,
-        ]
-        assert self._resolved(alert.id, skip_checkers=True) == [
-            PipelineStage.ANALYZE,
-            PipelineStage.NOTIFY,
-        ]
-
-    def test_or_default_passes_a_matched_lane_through_unchanged(self):
-        alert, _ = self._incident_alert()
-        PipelineDefinition.objects.create(name="lane", match=[], priority=1, stages=["notify"])
-        assert self._resolved(alert.id) == [PipelineStage.NOTIFY]
-
-    def test_or_default_keeps_an_empty_list_empty(self):
-        """No alert must NOT fall back to the default order."""
-        assert self._resolved(None) == []
+    # The three ``_downstream_stages_or_default`` tests that stood here are gone with
+    # the method. Their surviving cases are covered by ``test_matched_lane_stages_
+    # arrive_in_listed_order`` (pass-through), ``test_no_alert_id_returns_empty_list``
+    # ([] stays []), and ``NoRouteFailsTheRunTests`` (what a no-match does now).
 
     def test_alert_without_an_incident_still_routes(self):
         """Routing needs the alert, not the incident; the stamp is just skipped."""
@@ -312,8 +314,13 @@ class DownstreamStagesHelperTests(TestCase):
         )
         assert self._downstream(alert.id, origin="checker_generated") == [PipelineStage.NOTIFY]
         assert Incident.objects.get(pk=incident.pk).pipeline_id == checker_lane.id
-        # A different origin does not match that lane at all.
-        assert self._downstream(alert.id, origin="incoming_webhook") is None
+        # A different origin does not match that lane at all: it falls through to
+        # the seeded cluster-nodes lane, which lists different stages.
+        assert self._downstream(alert.id, origin="incoming_webhook") == [
+            PipelineStage.ANALYZE,
+            PipelineStage.NOTIFY,
+        ]
+        assert Incident.objects.get(pk=incident.pk).pipeline.name == "cluster-nodes"
 
     def test_routes_on_the_subject_alerts_own_facts_not_a_merge(self):
         """Regression: facts must come from ONE alert.
@@ -530,3 +537,226 @@ class LegacySnapshotResumeTests(TestCase):
     def test_incident_with_no_alerts_yields_no_subject(self):
         empty = Incident.objects.create(title="ghost", severity="info")
         assert PipelineOrchestrator()._legacy_subject_alert_id(empty.id) is None
+
+
+class SeededDefaultLanesTests(TestCase):
+    """The lanes migration ``0012`` seeds are ordinary rows, and they route.
+
+    They exist in the test database because migrations created them, which is
+    exactly how a fresh install sees them. Nothing here mocks routing: the
+    assertions go through ``_downstream_stages`` against the real rows.
+    """
+
+    def _alert(self, source, labels=None):
+        incident = Incident.objects.create(title="x", severity="critical")
+        return Alert.objects.create(
+            fingerprint=f"fp-seed-{source}",
+            source=source,
+            name="cpu",
+            severity="critical",
+            started_at=timezone.now(),
+            incident=incident,
+            labels=labels or {},
+        )
+
+    def _downstream(self, alert_id, origin="incoming_webhook", skip_checkers=False):
+        return PipelineOrchestrator()._downstream_stages(
+            alert_id, origin, skip_checkers=skip_checkers
+        )
+
+    def test_both_seeded_lanes_exist_and_are_active(self):
+        seeded = {
+            d.name: d
+            for d in PipelineDefinition.objects.filter(name__in=["cluster-nodes", "catch-all"])
+        }
+        assert set(seeded) == {"cluster-nodes", "catch-all"}
+        assert seeded["cluster-nodes"].priority == 50
+        assert seeded["catch-all"].priority == 1000
+        assert all(d.is_active for d in seeded.values())
+
+    def test_cluster_nodes_lane_matches_a_cluster_alert_and_omits_check(self):
+        """A node already ran its own checkers; hub-side CHECK would measure the hub."""
+        alert = self._alert("cluster")
+        assert self._downstream(alert.id) == [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+        assert Incident.objects.get(pk=alert.incident_id).pipeline.name == "cluster-nodes"
+
+    def test_catch_all_lane_matches_when_nothing_else_does(self):
+        alert = self._alert("grafana")
+        assert self._downstream(alert.id) == [
+            PipelineStage.CHECK,
+            PipelineStage.ANALYZE,
+            PipelineStage.NOTIFY,
+        ]
+        assert Incident.objects.get(pk=alert.incident_id).pipeline.name == "catch-all"
+
+    def test_cluster_traffic_prefers_cluster_nodes_over_the_catch_all(self):
+        """Priority ordering, asserted with both seeded lanes present and active.
+
+        Recreating ``cluster-nodes`` gives it the *higher* id, so it can no longer
+        win the ``(priority, id)`` sort on insertion order. If 0012 ever seeds the
+        two lanes at the same priority, this test fails; asserting on the routing
+        outcome alone would have passed on id luck.
+        """
+        cluster = PipelineDefinition.objects.get(name="cluster-nodes")
+        catch_all = PipelineDefinition.objects.get(name="catch-all")
+        fields = {
+            f.name: getattr(cluster, f.name)
+            for f in PipelineDefinition._meta.fields
+            if f.name not in ("id", "created_at", "updated_at")
+        }
+        cluster.delete()
+        cluster = PipelineDefinition.objects.create(**fields)
+        assert cluster.id > catch_all.id
+        assert cluster.is_active and catch_all.is_active
+
+        # The seeded lane must also beat a hand-created lane, which takes the
+        # model's default priority — read it rather than restating 100 here.
+        assert cluster.priority < PipelineDefinition._meta.get_field("priority").default
+
+        alert = self._alert("cluster")
+        assert PipelineStage.CHECK not in self._downstream(alert.id)
+        assert Incident.objects.get(pk=alert.incident_id).pipeline_id == cluster.id
+
+    def test_seeded_lanes_are_deletable_like_any_operator_row(self):
+        """They are rows, not special cases: removing them removes the behaviour."""
+        PipelineDefinition.objects.filter(name__in=["cluster-nodes", "catch-all"]).delete()
+        alert = self._alert("cluster")
+        assert self._downstream(alert.id) is None
+
+
+class NoRouteFailsTheRunTests(TestCase):
+    """An alert nothing claims fails the run instead of silently defaulting."""
+
+    def setUp(self):
+        # Reproduce the operator state this failure exists for: the seeded
+        # catch-all has been deleted, so some traffic has no lane at all.
+        clear_lanes()
+        self.incident = Incident.objects.create(title="High CPU", severity="critical")
+        self.alert = Alert.objects.create(
+            fingerprint="fp-noroute",
+            source="grafana",
+            name="cpu",
+            severity="critical",
+            started_at=timezone.now(),
+            incident=self.incident,
+        )
+
+    def _fake_exec(self, pipeline_run, stage, payload, previous_results, incident_id):
+        return {
+            PipelineStage.INGEST: IngestResult(
+                alert_id=self.alert.id, incident_id=self.incident.id, alerts_created=1
+            ),
+            PipelineStage.CHECK: CheckResult(checks_run=1),
+            PipelineStage.ANALYZE: AnalyzeResult(summary="s"),
+            PipelineStage.NOTIFY: NotifyResult(channels_succeeded=1),
+        }[stage]
+
+    def _run(self, payload=None):
+        with patch.object(
+            PipelineOrchestrator, "_execute_stage_with_retry", side_effect=self._fake_exec
+        ):
+            return PipelineOrchestrator().run_pipeline(
+                payload=payload or {"payload": {}}, source="grafana"
+            )
+
+    def test_unmatched_alert_fails_the_run_non_retryably(self):
+        result = self._run()
+        assert result.status == "FAILED"
+        assert "no_route" in result.final_error.message
+        assert result.final_error.retryable is False
+        run = PipelineRun.objects.get(run_id=result.run_id)
+        assert run.status == PipelineStatus.FAILED
+        assert run.last_error_retryable is False
+        assert "no_route" in run.last_error_message
+
+    def test_unmatched_alert_does_not_run_downstream_stages(self):
+        result = self._run()
+        assert PipelineStage.NOTIFY not in result.stages_completed
+        assert PipelineStage.CHECK not in result.stages_completed
+        assert PipelineStage.ANALYZE not in result.stages_completed
+        assert not StageExecution.objects.filter(
+            pipeline_run__run_id=result.run_id, stage=PipelineStage.NOTIFY
+        ).exists()
+
+    def test_ingest_is_still_recorded_as_completed(self):
+        """The stage that succeeded must survive in the run record.
+
+        Routing is resolved after INGEST is advanced and appended, so a no_route
+        failure does not retroactively erase it. ``stages_completed`` is part of
+        ``PipelineResult.to_dict()`` and therefore of the API response shape, and
+        the ``StageExecution`` row already says INGEST succeeded — an empty list
+        would contradict the run's own children.
+        """
+        result = self._run()
+        assert result.stages_completed == [PipelineStage.INGEST]
+        assert result.ingest is not None
+        run = PipelineRun.objects.get(run_id=result.run_id)
+        assert run.current_stage == PipelineStage.INGEST
+
+    def test_failure_is_attributed_to_routing_not_to_ingest(self):
+        """Blaming ingest would send an operator to debug the one stage that worked.
+
+        The same trace records INGEST as SUCCEEDED, so "Stage ingest failed" is a
+        message contradicted by its own child row.
+        """
+        result = self._run()
+        assert "Stage routing failed" in result.final_error.message
+        assert "Stage ingest failed" not in result.final_error.message
+        run = PipelineRun.objects.get(run_id=result.run_id)
+        assert "Stage routing failed" in run.last_error_message
+
+    def test_skip_checkers_does_not_rescue_an_unmatched_alert(self):
+        """The deleted wrapper had a second copy of the skip_checkers default.
+
+        Without a lane there is nothing to skip a checker *from*, so the flag must
+        not conjure an [ANALYZE, NOTIFY] route out of a no-match.
+        """
+        result = self._run(payload={"payload": {}, "skip_checkers": True})
+        assert result.status == "FAILED"
+        assert "no_route" in result.final_error.message
+
+    def test_a_matched_lane_with_no_stages_completes_instead_of_raising(self):
+        """``[]`` is a route that runs nothing — it is not a no-route."""
+        PipelineDefinition.objects.create(name="inbox-only", match=[], priority=1, stages=[])
+        result = self._run()
+        assert result.status == "COMPLETED"
+        assert result.stages_completed == [PipelineStage.INGEST]
+        run = PipelineRun.objects.get(run_id=result.run_id)
+        assert run.status == PipelineStatus.INGESTED
+
+    def test_no_alert_to_route_completes_instead_of_raising(self):
+        """A run with no subject alert has nothing to route and must not fail."""
+        self.alert.delete()
+
+        def exec_without_alert(pipeline_run, stage, payload, previous_results, incident_id):
+            return IngestResult(alert_id=None, incident_id=self.incident.id, alerts_created=0)
+
+        with patch.object(
+            PipelineOrchestrator, "_execute_stage_with_retry", side_effect=exec_without_alert
+        ):
+            result = PipelineOrchestrator().run_pipeline(payload={"payload": {}}, source="grafana")
+        assert result.status == "COMPLETED"
+        assert result.stages_completed == [PipelineStage.INGEST]
+
+    def test_resume_of_an_unmatched_run_also_fails_no_route(self):
+        """The resume call site must fail the same way, not fall back."""
+        run = PipelineRun.objects.create(
+            trace_id="t-noroute",
+            run_id="r-noroute",
+            source="grafana",
+            status=PipelineStatus.FAILED,
+            origin=PipelineOrigin.INCOMING_WEBHOOK,
+        )
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage=PipelineStage.INGEST,
+            status=StageStatus.SUCCEEDED,
+            output_snapshot={"alert_id": self.alert.id, "incident_id": self.incident.id},
+        )
+        with patch.object(
+            PipelineOrchestrator, "_execute_stage_with_retry", side_effect=self._fake_exec
+        ):
+            result = PipelineOrchestrator().resume_pipeline(run_id="r-noroute", payload={})
+        assert result.status == "FAILED"
+        assert "no_route" in result.final_error.message
+        assert result.final_error.retryable is False

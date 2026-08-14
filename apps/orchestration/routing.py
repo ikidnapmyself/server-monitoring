@@ -1,7 +1,9 @@
 """Pipeline routing: resolve the pipeline lane that handles an alert.
 
 First active pipeline (by priority, then id) whose match() passes wins; None means
-no route matched (the caller falls back / inboxes). See the Phase A plan:
+no route matched, which the orchestrator fails as a non-retryable ``no_route``
+rather than defaulting (migration ``0012`` seeds a catch-all lane so that only
+happens once an operator has removed or deactivated it). See the Phase A plan:
 docs/plans/2026-08-01-pipeline-routing-phase-a.md.
 """
 
