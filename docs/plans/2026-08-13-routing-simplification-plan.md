@@ -742,19 +742,19 @@ Rewrite `_downstream_stages` in `apps/orchestration/orchestrator.py`:
 Update both call sites (`:358` resume path, `:393` fresh path) to pass
 `stage_result.alert_id` and `pipeline_run.origin`, and to handle `None`:
 
-```python
-                    downstream = self._downstream_stages(alert_id, pipeline_run.origin)
-                    if downstream is None:
-                        raise StageExecutionError(
-                            stage=stage,
-                            errors=["no_route: no active pipeline matched this alert"],
-                            retryable=False,
-                        )
-                    active_stages.extend(downstream)
-                    final_status = self._final_status(downstream)
-```
-
 On the resume path, read `alert_id` from `prev_execution.output_snapshot.get("alert_id")`.
+
+> **Amended during execution.** As written above, this task both introduced alert-based routing
+> *and* removed the fallback (raising `no_route` on a `None` return). Those were split: Task 5
+> keeps today's fallback behaviour, and Task 6 owns removing it alongside the seeded lanes that
+> make removal safe. Deleting the fallback before the lanes exist would leave a window where all
+> traffic fails to route.
+>
+> As implemented, `_downstream_stages` returns `None` and a thin `_resolve_downstream(alert_id,
+> origin, skip_checkers)` wrapper supplies the legacy default list. Task 6 deletes that wrapper
+> whole, points both call sites back at `_downstream_stages`, and raises there. The signature also
+> keeps `skip_checkers` (deleted in Task 7) and the `routable_stages()` normalisation added in
+> Task 3, neither of which the snippet above accounts for.
 
 **Step 4: Run tests and commit**
 
@@ -1049,6 +1049,54 @@ warning naming each one). Both want a SQLite backup taken before `migrate`.
 is described: `definitions[].channels` (an int count) became `definitions[].channel` (a name or
 `null`), plus a new `definitions[].channel_routes` boolean saying whether that channel is active
 enough to actually deliver.
+
+**Legacy snapshots — handled in code, no deploy step needed.** Routing resolves from
+`IngestResult.alert_id`, which only exists in stage snapshots written after Task 2. A resumable
+run with a *succeeded* INGEST and no `alert_id` would route on nothing: it completes at INGESTED
+reporting COMPLETED, leaves the incident unstamped, and the diagnosis strip then renders
+check/analyze/notify as `never_ran` for a run that claims to have finished.
+
+This was first assessed as a narrow window needing only an inbox drain. That was **wrong** — it
+counted only PENDING/PROCESSING runs, but `FAILED` and `RETRYING` runs are resumable too, via the
+resume endpoint and the admin's "Mark for Retry" action. The dev database had **33** such runs;
+a drain would have touched none of them.
+
+`_legacy_subject_alert_id()` re-derives the subject from `incident_id` when the snapshot predates
+`alert_id`. It is marked for deletion once no such snapshots remain. Audit with:
+
+```bash
+uv run python manage.py shell -c "
+from apps.orchestration.models import PipelineRun, StageExecution
+for r in PipelineRun.objects.filter(status__in=['failed','retrying','pending','processing']):
+    ing = StageExecution.objects.filter(pipeline_run=r, stage='ingest', status='succeeded').first()
+    if ing and 'alert_id' not in (ing.output_snapshot or {}):
+        print(r.run_id, r.status)"
+```
+
+**Release note — two routing facts are computed differently.** Nothing in the repo depends on the
+old semantics, but deployed lanes are config the plan cannot see:
+
+- `severity` is now the **subject alert's** severity, not the **incident's**. An incident's
+  severity is the max across its alerts, so a lane matching `severity=critical` stops matching
+  when the triggering alert is a warning on a critical incident.
+- `instance` now falls through `instance_id` → `instance` → `hostname` (via
+  `instance_key_from_labels`, the same helper that defines incident grouping) instead of reading
+  `instance_id` alone, so it is populated where it used to be `""`.
+
+This is a superset of the *value*, **not** of the *match outcome*. For `is-not` and `not-in`, a
+fact moving from `""` to populated flips a previously-matching lane to not-matching. Audit before
+deploying:
+
+```bash
+uv run python manage.py shell -c "
+from apps.orchestration.models import PipelineDefinition
+for d in PipelineDefinition.objects.all():
+    for c in (d.match or []):
+        if c.get('field') in ('severity', 'instance'):
+            print(d.name, c)"
+```
+
+Any row with `op` of `is-not` or `not-in` is a lane whose behaviour can invert.
 
 Document: lanes are rows; `stages` excludes the entry stage and why; `origin` is a matchable fact;
 unmatched traffic fails with `no_route`; the hub's self-check lane exists and notifies.
