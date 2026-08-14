@@ -317,12 +317,12 @@ class PipelineOrchestrator:
 
         # Determine which stages to run.
         #
-        # checks_only / skip_checkers remain CLI/back-compat overrides. Otherwise
-        # INGEST always runs first; the downstream stages are resolved AFTER ingest
-        # from the matched pipeline's stages list (see _downstream_stages), because
-        # routing needs this run's subject alert (source/severity/labels/origin).
+        # checks_only remains a CLI invocation flag (run_pipeline --checks-only),
+        # not traffic routing. Otherwise INGEST always runs first; the downstream
+        # stages are resolved AFTER ingest from the matched pipeline's stages list
+        # (see _downstream_stages), because routing needs this run's subject alert
+        # (source/severity/labels/origin).
         checks_only = payload.get("checks_only", False)
-        skip_checkers = payload.get("skip_checkers", False)
         if checks_only:
             active_stages = [PipelineStage.CHECK]
             final_status = PipelineStatus.CHECKED
@@ -360,9 +360,7 @@ class PipelineOrchestrator:
                                 alert_id = self._legacy_subject_alert_id(incident_id)
                     # Resolve downstream even on resume, so a resumed run still routes.
                     if stage == PipelineStage.INGEST:
-                        downstream = self._downstream_or_fail(
-                            alert_id, pipeline_run.origin, skip_checkers
-                        )
+                        downstream = self._downstream_or_fail(alert_id, pipeline_run.origin)
                         active_stages.extend(downstream)  # in-place: the loop sees new items
                         final_status = self._final_status(downstream)
                     continue
@@ -452,9 +450,7 @@ class PipelineOrchestrator:
                 # erase INGEST from stages_completed, reporting an empty run for a
                 # stage that demonstrably succeeded (its StageExecution row says so).
                 if stage == PipelineStage.INGEST:
-                    downstream = self._downstream_or_fail(
-                        alert_id, pipeline_run.origin, skip_checkers
-                    )
+                    downstream = self._downstream_or_fail(alert_id, pipeline_run.origin)
                     active_stages.extend(downstream)  # in-place: the loop sees new items
                     final_status = self._final_status(downstream)
 
@@ -531,9 +527,7 @@ class PipelineOrchestrator:
         subject = subject_alert(Alert.objects.filter(incident_id=incident_id))
         return subject.id if subject is not None else None
 
-    def _downstream_stages(
-        self, alert_id: int | None, origin: str, skip_checkers: bool
-    ) -> list[PipelineStage] | None:
+    def _downstream_stages(self, alert_id: int | None, origin: str) -> list[PipelineStage] | None:
         """Stages after the entry stage, from the matched lane.
 
         ``[]`` means nothing to run downstream — either no alert to route, or a
@@ -574,14 +568,9 @@ class PipelineOrchestrator:
                 matched.stages,
                 normalised,
             )
-        stages = [PipelineStage(s) for s in normalised]
-        if skip_checkers and PipelineStage.CHECK in stages:
-            stages.remove(PipelineStage.CHECK)
-        return stages
+        return [PipelineStage(s) for s in normalised]
 
-    def _downstream_or_fail(
-        self, alert_id: int | None, origin: str, skip_checkers: bool
-    ) -> list[PipelineStage]:
+    def _downstream_or_fail(self, alert_id: int | None, origin: str) -> list[PipelineStage]:
         """``_downstream_stages``, turning a no-match into a terminal failure.
 
         Both call sites (fresh ingest and resume) need the identical rule, so it
@@ -601,7 +590,7 @@ class PipelineOrchestrator:
         alert is unroutable until an operator adds one, and a retryable failure
         would spin forever.
         """
-        downstream = self._downstream_stages(alert_id, origin, skip_checkers)
+        downstream = self._downstream_stages(alert_id, origin)
         if downstream is None:
             raise StageExecutionError(
                 stage="routing",

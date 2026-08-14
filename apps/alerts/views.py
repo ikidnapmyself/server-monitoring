@@ -39,29 +39,18 @@ class AlertWebhookView(View):
                     status=400,
                 )
 
-            # Resolve the driver (from the URL or by sniffing the payload).
-            from apps.alerts.drivers import detect_driver, get_driver
+            # Reject an unknown driver name before recording anything — the name
+            # is checked here, but never resolved to an instance: the drain
+            # resolves it from the wrapper's ``driver`` key, and sniffs the
+            # payload when no name was given. Authentication is handled uniformly
+            # by the API-key middleware; there is no per-driver signature check.
+            from apps.alerts.drivers import DRIVER_REGISTRY
 
-            resolved_driver = None
-            if driver:
-                try:
-                    resolved_driver = get_driver(driver)
-                except ValueError:
-                    return JsonResponse(
-                        {"status": "error", "message": "Unknown driver"},
-                        status=400,
-                    )
-            else:
-                resolved_driver = detect_driver(payload)
-
-            # Interim (Slice A) rule: a driver whose payload already carries its own
-            # diagnostics (e.g. cluster) tells the pipeline to skip the local CHECK
-            # stage for this run. This is a driver property, not a source-string branch
-            # in the orchestrator. Authentication is handled uniformly by the API-key
-            # middleware; there is no per-driver signature check.
-            skip_checkers = bool(
-                resolved_driver and getattr(resolved_driver, "skip_checkers", False)
-            )
+            if driver and driver not in DRIVER_REGISTRY:
+                return JsonResponse(
+                    {"status": "error", "message": "Unknown driver"},
+                    status=400,
+                )
 
             # Register/refresh the sending node synchronously. A cluster push proves
             # the sender is alive, so the node registry updates the instant the push
@@ -72,15 +61,13 @@ class AlertWebhookView(View):
             register_pushing_node(payload, driver)
 
             # Durable ingest: record the run in the pipeline's wrapper payload shape
-            # ({driver, payload, [skip_checkers]}) that IngestExecutor expects, then
-            # return immediately. A drain (manage.py process_inbox) processes it —
+            # ({driver, payload}) that IngestExecutor expects, then return
+            # immediately. A drain (manage.py process_inbox) processes it —
             # no inline pipeline, no broker, so a flood grows a bounded PENDING queue.
             from apps.orchestration.models import PipelineOrigin
             from apps.orchestration.orchestrator import PipelineOrchestrator
 
             run_payload: dict[str, Any] = {"driver": driver, "payload": payload}
-            if skip_checkers:
-                run_payload["skip_checkers"] = True
 
             run = PipelineOrchestrator().start_pipeline(
                 payload=run_payload,

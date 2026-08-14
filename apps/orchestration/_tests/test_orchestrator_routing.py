@@ -2,8 +2,9 @@
 
 INGEST always runs; the downstream stages (check/analyze/notify) are the ones the
 resolved PipelineDefinition lists in ``stages``, in that order, and the pipeline is
-stamped on the incident right after ingest. checks_only/skip_checkers stay as CLI
-overrides.
+stamped on the incident right after ingest. ``checks_only`` stays as a CLI
+invocation flag; there is no longer any payload or driver flag that edits a
+matched lane's stage list.
 
 Since Task 6 there is no implicit fallback: unmatched traffic fails as a
 non-retryable ``no_route``, and the routes that used to be hard-coded live in the
@@ -177,13 +178,20 @@ class StageSelectionFromStagesListTests(TestCase):
         self.incident.refresh_from_db()
         assert self.incident.pipeline_id == p.id
 
-    def test_skip_checkers_payload_override_still_wins(self):
-        # Even a lane that lists CHECK is overridden by the payload flag.
+    def test_a_lane_listing_check_runs_check_for_cluster_traffic_too(self):
+        """Was ``test_skip_checkers_payload_override_still_wins`` — inverted.
+
+        A payload flag used to strip CHECK from a lane that listed it, so cluster
+        traffic could never be checked whatever the table said. Nothing overrides
+        a lane now: the list an operator saved is the list that runs, even when
+        the result (hub-side checks on a node's alert) is useless. That is the
+        accepted cost of holding the rule as data only.
+        """
         PipelineDefinition.objects.create(
             name="full", match=[], priority=1, stages=["check", "analyze", "notify"]
         )
-        result = self._run(payload={"payload": {}, "skip_checkers": True})
-        assert PipelineStage.CHECK not in result.stages_completed
+        result = self._run()
+        assert PipelineStage.CHECK in result.stages_completed
         assert PipelineStage.NOTIFY in result.stages_completed
 
     def test_checks_only_payload_override_runs_only_check(self):
@@ -212,10 +220,8 @@ class DownstreamStagesHelperTests(TestCase):
         incident = Incident.objects.create(title="x", severity="critical")
         return self._alert(source=source, incident=incident), incident
 
-    def _downstream(self, alert_id, origin="incoming_webhook", skip_checkers=False):
-        return PipelineOrchestrator()._downstream_stages(
-            alert_id, origin, skip_checkers=skip_checkers
-        )
+    def _downstream(self, alert_id, origin="incoming_webhook"):
+        return PipelineOrchestrator()._downstream_stages(alert_id, origin)
 
     def test_junk_stages_value_degrades_instead_of_failing_the_run(self):
         """A hand-edited lane must not turn every run into an endless retryable failure.
@@ -243,23 +249,6 @@ class DownstreamStagesHelperTests(TestCase):
             stages = self._downstream(alert.id)
         assert stages == [PipelineStage.CHECK, PipelineStage.NOTIFY]
         mock_logger.warning.assert_not_called()
-
-    def test_skip_checkers_removes_check_from_a_matched_lane(self):
-        alert, _ = self._incident_alert()
-        PipelineDefinition.objects.create(
-            name="lane-with-check", match=[], priority=1, stages=["check", "notify"]
-        )
-        assert self._downstream(alert.id, skip_checkers=True) == [PipelineStage.NOTIFY]
-
-    def test_skip_checkers_is_a_noop_for_a_lane_without_check(self):
-        alert, _ = self._incident_alert()
-        PipelineDefinition.objects.create(
-            name="lane-no-check", match=[], priority=1, stages=["analyze", "notify"]
-        )
-        assert self._downstream(alert.id, skip_checkers=True) == [
-            PipelineStage.ANALYZE,
-            PipelineStage.NOTIFY,
-        ]
 
     def test_matched_lane_stages_arrive_in_listed_order(self):
         """The list an operator saved is the list the orchestrator executes."""
@@ -559,10 +548,8 @@ class SeededDefaultLanesTests(TestCase):
             labels=labels or {},
         )
 
-    def _downstream(self, alert_id, origin="incoming_webhook", skip_checkers=False):
-        return PipelineOrchestrator()._downstream_stages(
-            alert_id, origin, skip_checkers=skip_checkers
-        )
+    def _downstream(self, alert_id, origin="incoming_webhook"):
+        return PipelineOrchestrator()._downstream_stages(alert_id, origin)
 
     def test_both_seeded_lanes_exist_and_are_active(self):
         seeded = {
@@ -704,16 +691,6 @@ class NoRouteFailsTheRunTests(TestCase):
         assert "Stage ingest failed" not in result.final_error.message
         run = PipelineRun.objects.get(run_id=result.run_id)
         assert "Stage routing failed" in run.last_error_message
-
-    def test_skip_checkers_does_not_rescue_an_unmatched_alert(self):
-        """The deleted wrapper had a second copy of the skip_checkers default.
-
-        Without a lane there is nothing to skip a checker *from*, so the flag must
-        not conjure an [ANALYZE, NOTIFY] route out of a no-match.
-        """
-        result = self._run(payload={"payload": {}, "skip_checkers": True})
-        assert result.status == "FAILED"
-        assert "no_route" in result.final_error.message
 
     def test_a_matched_lane_with_no_stages_completes_instead_of_raising(self):
         """``[]`` is a route that runs nothing — it is not a no-route."""

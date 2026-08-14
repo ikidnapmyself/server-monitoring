@@ -1,19 +1,21 @@
 from django.test import TestCase
 
-from apps.alerts.drivers.base import BaseAlertDriver
 from apps.alerts.drivers.cluster import ClusterDriver
 
 
-class ClusterDriverSkipCheckersTests(TestCase):
-    """Tests for the skip_checkers declaration on drivers."""
+class ClusterDriverDeclaresNoSkipCheckersTests(TestCase):
+    """The driver declares nothing about which stages its traffic runs.
 
-    def test_cluster_driver_declares_skip_checkers(self):
-        """ClusterDriver payloads already carry diagnostics; skip local CHECK."""
-        self.assertIs(ClusterDriver().skip_checkers, True)
+    ``skip_checkers`` used to live here, and a driver attribute is the one place
+    a routing rule can hide from the routing table. That a node push skips the
+    hub's CHECK stage is now the ``cluster-nodes`` lane's ``stages`` list — see
+    ``SeededDefaultLanesTests`` and the end-to-end webhook tests. ``hasattr``
+    resolves through the MRO, so this covers a flag re-added on the base class
+    too.
+    """
 
-    def test_base_driver_does_not_skip_checkers_by_default(self):
-        """BaseAlertDriver defaults to running the CHECK stage."""
-        self.assertIs(BaseAlertDriver.skip_checkers, False)
+    def test_cluster_driver_declares_no_skip_checkers(self):
+        self.assertFalse(hasattr(ClusterDriver, "skip_checkers"))
 
 
 class ClusterDriverValidateTests(TestCase):

@@ -14,6 +14,7 @@ from apps.orchestration.dtos import (
     NotifyResult,
 )
 from apps.orchestration.models import (
+    PipelineDefinition,
     PipelineOrigin,
     PipelineStage,
     PipelineStatus,
@@ -654,12 +655,25 @@ class ChecksOnlyTests(TestCase):
         assert PipelineStage.CHECK in result.stages_completed
 
 
-class SkipCheckersTests(TestCase):
-    """Tests for skip_checkers mode that omits only the CHECK stage."""
+class CheckOmittingLaneTests(TestCase):
+    """A lane that lists no CHECK runs INGEST -> ANALYZE -> NOTIFY and ends NOTIFIED.
+
+    Was ``SkipCheckersTests``, which drove the same two outcomes through a
+    ``payload["skip_checkers"]`` flag. The flag is gone; the outcomes are not, so
+    they are re-driven through the only thing that selects stages now — the
+    matched lane's ``stages`` list. Terminal status still comes from the *last*
+    stage that ran, which is what makes a three-stage lane worth asserting
+    separately from the full four.
+    """
+
+    def _lane_without_check(self):
+        PipelineDefinition.objects.create(
+            name="analyze-notify", match=[], priority=1, stages=["analyze", "notify"]
+        )
 
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
-    def test_skip_checkers_omits_check_but_reaches_notify(self, mock_execute):
-        """When skip_checkers=True, CHECK is skipped but the pipeline still notifies."""
+    def test_lane_without_check_omits_check_but_reaches_notify(self, mock_execute):
+        self._lane_without_check()
         alert = make_subject_alert()
         mock_execute.side_effect = [
             IngestResult(alert_id=alert.id, incident_id=None, alerts_created=1),
@@ -668,10 +682,7 @@ class SkipCheckersTests(TestCase):
         ]
 
         orchestrator = PipelineOrchestrator()
-        result = orchestrator.run_pipeline(
-            payload={"skip_checkers": True},
-            source="test",
-        )
+        result = orchestrator.run_pipeline(payload={"payload": {}}, source="test")
 
         assert result.status == "COMPLETED"
         assert mock_execute.call_count == 3
@@ -681,8 +692,8 @@ class SkipCheckersTests(TestCase):
         assert PipelineStage.NOTIFY in result.stages_completed
 
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
-    def test_skip_checkers_pipeline_marked_notified(self, mock_execute):
-        """skip_checkers run still completes with NOTIFIED status."""
+    def test_lane_without_check_is_marked_notified(self, mock_execute):
+        self._lane_without_check()
         alert = make_subject_alert()
         mock_execute.side_effect = [
             IngestResult(alert_id=alert.id, incident_id=None, alerts_created=1),
@@ -691,7 +702,7 @@ class SkipCheckersTests(TestCase):
         ]
 
         orchestrator = PipelineOrchestrator()
-        orchestrator.run_pipeline(payload={"skip_checkers": True}, source="test")
+        orchestrator.run_pipeline(payload={"payload": {}}, source="test")
 
         from apps.orchestration.models import PipelineRun
 

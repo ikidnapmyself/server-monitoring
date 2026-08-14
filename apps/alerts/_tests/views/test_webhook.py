@@ -1,11 +1,18 @@
 import json
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from apps.alerts.models import Alert, Node
-from apps.orchestration.models import PipelineRun, PipelineStatus
+from apps.orchestration import inbox
+from apps.orchestration.models import (
+    PipelineDefinition,
+    PipelineRun,
+    PipelineStage,
+    PipelineStatus,
+)
 
 
 @override_settings(API_KEY_AUTH_ENABLED=False)
@@ -92,31 +99,103 @@ class WebhookViewTests(TestCase):
 
 
 @override_settings(API_KEY_AUTH_ENABLED=False)
-class WebhookSkipCheckersTests(TestCase):
-    """A driver's skip_checkers is captured in the recorded run's payload."""
+class WebhookClusterLaneRoutingTests(TestCase):
+    """Cluster traffic skips CHECK because the ``cluster-nodes`` lane says so.
+
+    Was ``WebhookSkipCheckersTests``, which asserted the *mechanism* — a
+    ``skip_checkers`` key the view copied off the driver. That key is gone; the
+    outcome it produced is now a row migration ``0012`` seeds. So these tests
+    assert the outcome instead, end to end: a real POST, a real drain, and real
+    routing against the seeded rows. No stage list is passed in and no helper is
+    called directly, so a lane that is configured but never consulted cannot pass
+    them.
+    """
 
     def setUp(self):
         self.client = Client()
+        self.url = reverse("alerts:webhook_driver", kwargs={"driver": "cluster"})
 
-    def test_cluster_webhook_captures_skip_checkers(self):
-        url = reverse("alerts:webhook_driver", kwargs={"driver": "cluster"})
-        payload = {"source": "cluster", "instance_id": "web-03", "alerts": []}
-
-        response = self.client.post(url, data=json.dumps(payload), content_type="application/json")
-
+    def _push(self):
+        """POST one firing cluster alert; return its PENDING run."""
+        payload = {
+            "source": "cluster",
+            "instance_id": "web-03",
+            "hostname": "web-03.example.com",
+            "alerts": [
+                {
+                    "fingerprint": "cpu-web-03",
+                    "name": "CPU usage critical",
+                    "status": "firing",
+                    "severity": "critical",
+                    "labels": {"checker": "cpu"},
+                }
+            ],
+        }
+        response = self.client.post(
+            self.url, data=json.dumps(payload), content_type="application/json"
+        )
         self.assertEqual(response.status_code, 202)
-        run = PipelineRun.objects.get(run_id=response.json()["run_id"])
-        self.assertTrue(run.inbound_payload.get("skip_checkers"))
+        return PipelineRun.objects.get(run_id=response.json()["run_id"])
 
-    def test_non_cluster_webhook_does_not_set_skip_checkers(self):
-        url = reverse("alerts:webhook_driver", kwargs={"driver": "generic"})
-        payload = {"name": "x", "status": "firing"}
+    def _drained_stages(self, run):
+        """Stages that actually executed for ``run``, in execution order.
 
-        response = self.client.post(url, data=json.dumps(payload), content_type="application/json")
+        The checker bridge is stubbed, and only the bridge. The POST, the drain,
+        routing resolution and every ``StageExecution`` row still happen for real
+        — CHECK included, which is the stage under test in the negative arm. What
+        the stub removes is the I/O behind that stage: a real ``CheckExecutor``
+        runs the whole ``CHECKER_REGISTRY`` against the machine running the
+        tests (CPU sampling, disk scans, SMART and temperature probes), which
+        cost 36s here and varies with the runner's disks and sensors. The three
+        lanes that never reach CHECK pay nothing for the patch.
+        """
+        mock_bridge = MagicMock()
+        mock_bridge.run_checks_and_alert.return_value = SimpleNamespace(checks_run=0, errors=[])
+        with patch("apps.alerts.check_integration.CheckAlertBridge", return_value=mock_bridge):
+            inbox.drain_run(run.run_id)
+        return list(run.stage_executions.order_by("id").values_list("stage", flat=True))
 
-        self.assertEqual(response.status_code, 202)
-        run = PipelineRun.objects.get(run_id=response.json()["run_id"])
-        self.assertNotIn("skip_checkers", run.inbound_payload)
+    def test_wrapper_payload_carries_only_driver_and_payload(self):
+        """The view no longer smuggles a routing decision into the wrapper."""
+        run = self._push()
+        self.assertEqual(set(run.inbound_payload), {"driver", "payload"})
+        self.assertEqual(run.inbound_payload["driver"], "cluster")
+
+    def test_drained_cluster_push_analyzes_and_notifies_but_never_checks(self):
+        run = self._push()
+        stages = self._drained_stages(run)
+        self.assertEqual(
+            stages,
+            [PipelineStage.INGEST, PipelineStage.ANALYZE, PipelineStage.NOTIFY],
+        )
+
+    def test_the_cluster_lane_is_the_one_routing_resolved_to(self):
+        """Read the stamp routing wrote, not the row's name from the table.
+
+        A lane can be perfectly configured and never consulted; the incident's
+        ``pipeline`` FK is written by ``_downstream_stages`` on the matched lane,
+        so it is evidence that resolution reached this row.
+        """
+        run = self._push()
+        self._drained_stages(run)
+        incident = Alert.objects.get(fingerprint="cpu-web-03").incident
+        self.assertIsNotNone(incident)
+        self.assertEqual(incident.pipeline.name, "cluster-nodes")
+
+    def test_deleting_the_cluster_lane_sends_node_traffic_through_check(self):
+        """The accepted consequence of holding this rule purely as data.
+
+        Nothing in the engine special-cases cluster, so removing the row removes
+        the behaviour: the push falls through to the seeded catch-all and the hub
+        runs its own checkers on node traffic. Useless output, visible in the
+        admin, and an operator's choice to make.
+        """
+        PipelineDefinition.objects.filter(name="cluster-nodes").delete()
+        run = self._push()
+        stages = self._drained_stages(run)
+        self.assertIn(PipelineStage.CHECK, stages)
+        incident = Alert.objects.get(fingerprint="cpu-web-03").incident
+        self.assertEqual(incident.pipeline.name, "catch-all")
 
 
 @override_settings(API_KEY_AUTH_ENABLED=False)

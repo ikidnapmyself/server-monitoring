@@ -66,9 +66,6 @@ class BaseAlertDriver(ABC):
     """Abstract base class for alert source drivers."""
 
     name: str = "base"
-    # When True, payloads from this driver already carry diagnostics, so the
-    # orchestrator should skip the local CHECK stage for this pipeline run.
-    skip_checkers: bool = False
 
     @abstractmethod
     def validate(self, payload: dict[str, Any]) -> bool:
