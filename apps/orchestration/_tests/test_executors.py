@@ -299,6 +299,7 @@ class TestCheckExecutorSuccess(SimpleTestCase):
         class FakeBridgeResult:
             checks_run: int = 3
             errors: list = field(default_factory=list)
+            alerts: list = field(default_factory=list)
 
         mock_bridge = MagicMock()
         mock_bridge.run_checks_and_alert.return_value = FakeBridgeResult()
@@ -320,6 +321,7 @@ class TestCheckExecutorSuccess(SimpleTestCase):
         class FakeBridgeResult:
             checks_run: int = 2
             errors: list = field(default_factory=lambda: ["cpu failed"])
+            alerts: list = field(default_factory=list)
 
         mock_bridge = MagicMock()
         mock_bridge.run_checks_and_alert.return_value = FakeBridgeResult()
@@ -344,6 +346,7 @@ class TestCheckExecutorSuccess(SimpleTestCase):
         class FakeBridgeResult:
             checks_run: int = 1
             errors: list = field(default_factory=list)
+            alerts: list = field(default_factory=list)
             check_results: list = field(default_factory=lambda: [FakeCheck()])
 
         mock_bridge = MagicMock()
@@ -368,6 +371,7 @@ class TestCheckExecutorHostnameAndNoIncidents(SimpleTestCase):
             checks_run=1,
             errors=[],
             check_results=[],
+            alerts=[],
         )
 
         ctx = StageContext(
@@ -392,6 +396,80 @@ class TestCheckExecutorHostnameAndNoIncidents(SimpleTestCase):
             auto_create_incidents=False,
             trace_id="t",
         )
+
+
+@dataclass
+class _FakeAlert:
+    """Stand-in for an Alert row: what ``subject_alert`` reads, plus correlation."""
+
+    id: int
+    severity: str
+    name: str
+    fingerprint: str
+    incident_id: int | None = None
+
+
+class TestCheckExecutorSubjectAlert(SimpleTestCase):
+    """CHECK reports the subject alert of the batch it just created.
+
+    CHECK is the entry stage for checker-generated runs, so the orchestrator
+    routes on this id exactly as it routes on ``IngestResult.alert_id``. Both
+    stages use ``routing.subject_alert``; the ordering asserted here is that one
+    rule, not a second copy of it.
+    """
+
+    @staticmethod
+    def _run(alerts):
+        mock_bridge = MagicMock()
+        mock_bridge.run_checks_and_alert.return_value = MagicMock(
+            checks_run=len(alerts),
+            errors=[],
+            check_results=[],
+            alerts=alerts,
+        )
+        with patch(
+            "apps.alerts.check_integration.CheckAlertBridge",
+            return_value=mock_bridge,
+        ):
+            return CheckExecutor().execute(_ctx(payload={"checker_names": ["cpu"]}))
+
+    def test_most_severe_alert_of_the_batch_becomes_the_subject(self):
+        alerts = [
+            _FakeAlert(id=11, severity="info", name="aaa", fingerprint="fp-a"),
+            _FakeAlert(id=22, severity="critical", name="zzz", fingerprint="fp-z"),
+            _FakeAlert(id=33, severity="warning", name="bbb", fingerprint="fp-b"),
+        ]
+        # Not merely "not None": id 22 is neither first nor last in the list, so a
+        # naive alerts[0]/alerts[-1] pick would fail here.
+        assert self._run(alerts).alert_id == 22
+
+    def test_severity_ties_break_on_name(self):
+        alerts = [
+            _FakeAlert(id=11, severity="critical", name="memory", fingerprint="fp-m"),
+            _FakeAlert(id=22, severity="critical", name="disk", fingerprint="fp-d"),
+        ]
+        assert self._run(alerts).alert_id == 22
+
+    def test_no_alerts_leaves_the_subject_unset(self):
+        """A clean run touches no alerts, so the run has nothing to route."""
+        result = self._run([])
+        assert result.alert_id is None
+        assert result.incident_id is None
+        assert result.alert_fingerprint is None
+
+    def test_subject_incident_and_fingerprint_are_reported(self):
+        """notify reads incident_id to find the lane's channel; tags need both."""
+        result = self._run(
+            [_FakeAlert(id=44, severity="critical", name="disk", fingerprint="fp-d", incident_id=9)]
+        )
+        assert (result.alert_id, result.incident_id, result.alert_fingerprint) == (44, 9, "fp-d")
+
+    def test_subject_without_an_incident_leaves_incident_id_none(self):
+        """An alert the bridge opened without an incident must not raise here."""
+        result = self._run([_FakeAlert(id=44, severity="warning", name="cpu", fingerprint="fp-c")])
+        assert result.alert_id == 44
+        assert result.incident_id is None
+        assert result.alert_fingerprint == "fp-c"
 
 
 class TestCheckExecutorError(SimpleTestCase):

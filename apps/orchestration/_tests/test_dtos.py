@@ -109,6 +109,24 @@ class DTOSerializationTests(TestCase):
         assert CheckResult(errors=["e"]).has_errors is True
         assert CheckResult().has_errors is False
 
+    def test_check_result_carries_a_subject_alert_id(self):
+        """CHECK is an entry stage, so it reports a subject alert like INGEST does.
+
+        ``to_dict`` is what the orchestrator persists as the stage's
+        ``output_snapshot`` and what the resume path reads back, so the field has
+        to survive serialisation, not merely exist on the dataclass.
+        """
+        assert CheckResult().alert_id is None
+        assert CheckResult(alert_id=42).to_dict()["alert_id"] == 42
+
+    def test_check_result_carries_incident_correlation(self):
+        """notify reads incident_id to find the lane's channel; signals tag on it."""
+        assert CheckResult().incident_id is None
+        assert CheckResult().alert_fingerprint is None
+        data = CheckResult(incident_id=7, alert_fingerprint="fp-x").to_dict()
+        assert data["incident_id"] == 7
+        assert data["alert_fingerprint"] == "fp-x"
+
     def test_analyze_result_has_errors(self):
         assert AnalyzeResult(errors=["e"]).has_errors is True
         assert AnalyzeResult().has_errors is False

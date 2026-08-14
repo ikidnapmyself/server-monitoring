@@ -318,19 +318,45 @@ class PipelineOrchestrator:
         # Determine which stages to run.
         #
         # checks_only remains a CLI invocation flag (run_pipeline --checks-only),
-        # not traffic routing. Otherwise INGEST always runs first; the downstream
-        # stages are resolved AFTER ingest from the matched pipeline's stages list
-        # (see _downstream_stages), because routing needs this run's subject alert
-        # (source/severity/labels/origin).
+        # not traffic routing: it selects the ENTRY stage, not the route. One rule
+        # covers both branches — the entry stage produces an alert, the lane is
+        # resolved from that alert, the lane's stages run. INGEST is the entry
+        # stage for webhook traffic; CHECK is the entry stage for the hub's own
+        # scheduled checks (bin/install/cron.sh). Either way the downstream stages
+        # are resolved AFTER the entry stage (see _downstream_stages), because
+        # routing needs that run's subject alert (source/severity/labels/origin).
         checks_only = payload.get("checks_only", False)
         if checks_only:
             active_stages = [PipelineStage.CHECK]
-            final_status = PipelineStatus.CHECKED
+            final_status = PipelineStatus.CHECKED  # recomputed once downstream is known
         else:
             # INGEST is the only stage known up front; the rest are appended once
             # ingest resolves the matched pipeline (runs exactly once per pipeline).
             active_stages = [PipelineStage.INGEST]
             final_status = PipelineStatus.INGESTED  # recomputed once downstream is known
+
+        # The entry stage is the one that produces this run's subject alert, and it
+        # is the only stage that routes. A lane is free to list ``check`` as well;
+        # a CHECK that runs because a lane asked for it must not re-resolve the
+        # route, and when the entry stage is itself CHECK the second pass is simply
+        # skipped as already-succeeded (see _stage_completed) — visible, not guarded.
+        entry_stage = active_stages[0]
+        # ``--checks-only --no-incidents`` is a manual diagnostic: "just check,
+        # don't disturb anything". Such a run does not route — no lane, no ANALYZE,
+        # no NOTIFY — and ends at CHECKED. Like checks_only itself this is a CLI
+        # invocation flag scoping its own run, so it is read here, in the one place
+        # invocation flags are read; the routing engine, the lane table and the
+        # executors know nothing about it. Alert creation is deliberately NOT
+        # suppressed — the bridge still records what it found (that is what
+        # --no-incidents already meant); only the downstream fan-out is.
+        run_routes = not (checks_only and payload.get("no_incidents", False))
+        # Routing happens exactly once per run. This is not a guard on CHECK's
+        # execution (that stays unguarded: _stage_completed skips the second pass
+        # and the skip is visible in the run record) — it is termination. A lane
+        # matching checker-generated traffic that also lists ``check`` appends CHECK
+        # to active_stages; without this the skipped second CHECK would re-resolve
+        # the same lane and append it again, forever.
+        routed = False
 
         # Emit pipeline started
         emit_pipeline_started(base_tags)
@@ -340,6 +366,36 @@ class PipelineOrchestrator:
         previous_results: dict[str, dict[str, Any]] = {}
         incident_id: int | None = None
         alert_id: int | None = None
+
+        def route_from_entry_stage(stage: PipelineStage) -> None:
+            """Resolve this run's lane, once, from the entry stage's subject alert.
+
+            Both the fresh and the resumed path need the identical rule, and the
+            two used to spell it out separately. That is not a style point: the
+            paired restore blocks beside them fell out of lockstep and a resumed
+            run silently lost its ``incident_id``, which sent notify to the wrong
+            channel. One body, called twice, cannot drift.
+
+            It runs LAST for the entry stage, after that stage has been advanced
+            and recorded. The subject alert discovered by then is what routes, so
+            this cannot move earlier than the entry stage — but it must not move
+            earlier than the ``stages_completed`` append either: a ``no_route``
+            failure raised here would otherwise erase a stage that demonstrably
+            succeeded (its ``StageExecution`` row says so) from the run's record.
+            """
+            nonlocal routed, final_status
+            # ``routed`` alone would be enough today — the loop always reaches the
+            # entry stage first, so the first call is always the entry stage's and
+            # every later one short-circuits. No test distinguishes the
+            # ``entry_stage`` check, and that is deliberate: it states the
+            # invariant ("only the entry stage routes") at the point that enforces
+            # it, rather than leaving correctness resting on call order.
+            if stage != entry_stage or not run_routes or routed:
+                return
+            routed = True
+            downstream = self._downstream_or_fail(alert_id, pipeline_run.origin)
+            active_stages.extend(downstream)  # in-place: the loop sees new items
+            final_status = self._final_status(downstream, entry_stage)
 
         try:
             for stage in active_stages:
@@ -353,16 +409,26 @@ class PipelineOrchestrator:
                     ).first()
                     if prev_execution and prev_execution.output_snapshot:
                         previous_results[stage] = prev_execution.output_snapshot
-                        if stage == PipelineStage.INGEST:
+                        # Restore this run's subject from the ENTRY stage's snapshot
+                        # — one block for both entry stages, because they need the
+                        # same two values. Splitting it per stage is what let the
+                        # CHECK copy restore alert_id but not incident_id: notify
+                        # then found no incident, could not read the lane's channel,
+                        # and delivered to whatever NotifySelector picked instead.
+                        # (INGEST is only ever in active_stages as the entry stage,
+                        # so this is the same condition the INGEST branch had.)
+                        if stage == entry_stage:
                             incident_id = prev_execution.output_snapshot.get("incident_id")
                             alert_id = prev_execution.output_snapshot.get("alert_id")
-                            if not alert_id and incident_id:
+                            # Legacy fallback stays scoped to INGEST: it exists for
+                            # snapshots written before IngestResult had alert_id. A
+                            # pre-Task-8 checks_only run never routed at all, so a
+                            # CHECK snapshot without alert_id must land on None ->
+                            # no downstream -> CHECKED, the behaviour it always had.
+                            if stage == PipelineStage.INGEST and not alert_id and incident_id:
                                 alert_id = self._legacy_subject_alert_id(incident_id)
                     # Resolve downstream even on resume, so a resumed run still routes.
-                    if stage == PipelineStage.INGEST:
-                        downstream = self._downstream_or_fail(alert_id, pipeline_run.origin)
-                        active_stages.extend(downstream)  # in-place: the loop sees new items
-                        final_status = self._final_status(downstream)
+                    route_from_entry_stage(stage)
                     continue
 
                 # Execute stage with retries
@@ -396,7 +462,20 @@ class PipelineOrchestrator:
                 # Update refs on pipeline run
                 if stage == PipelineStage.CHECK and isinstance(stage_result, CheckResult):
                     pipeline_run.checker_output_ref = stage_result.checker_output_ref or ""
-                    pipeline_run.save(update_fields=["checker_output_ref", "updated_at"])
+                    check_fields = ["checker_output_ref", "updated_at"]
+                    if stage == entry_stage:
+                        # CHECK is this run's entry stage (run_pipeline --checks-only):
+                        # the alerts it just opened are what the lane is resolved
+                        # from, and their incident is what notify reads the lane's
+                        # channel off and what every signal tag carries. Mirrors the
+                        # INGEST block above; incident_id stays None when the checks
+                        # opened no incident, which notify handles.
+                        alert_id = stage_result.alert_id
+                        incident_id = stage_result.incident_id
+                        pipeline_run.incident_id = incident_id
+                        pipeline_run.alert_fingerprint = stage_result.alert_fingerprint or ""
+                        check_fields += ["incident_id", "alert_fingerprint"]
+                    pipeline_run.save(update_fields=check_fields)
 
                 if stage == PipelineStage.ANALYZE and isinstance(stage_result, AnalyzeResult):
                     pipeline_run.intelligence_output_ref = stage_result.ai_output_ref or ""
@@ -443,16 +522,7 @@ class PipelineOrchestrator:
                 ):
                     result.notify = stage_result
 
-                # Routing runs LAST for INGEST, after the stage has been advanced and
-                # recorded. It is the subject alert discovered above that routes, so
-                # this cannot move earlier than ingest — but it must not move earlier
-                # than the append either: a no_route failure below would otherwise
-                # erase INGEST from stages_completed, reporting an empty run for a
-                # stage that demonstrably succeeded (its StageExecution row says so).
-                if stage == PipelineStage.INGEST:
-                    downstream = self._downstream_or_fail(alert_id, pipeline_run.origin)
-                    active_stages.extend(downstream)  # in-place: the loop sees new items
-                    final_status = self._final_status(downstream)
+                route_from_entry_stage(stage)
 
             # Pipeline completed successfully
             duration_ms = (time.perf_counter() - start_time) * 1000
@@ -600,10 +670,17 @@ class PipelineOrchestrator:
         return downstream
 
     @staticmethod
-    def _final_status(downstream: list[PipelineStage]) -> PipelineStatus:
-        """Terminal status = the last downstream stage that ran (INGESTED if none)."""
+    def _final_status(
+        downstream: list[PipelineStage], entry_stage: PipelineStage
+    ) -> PipelineStatus:
+        """Terminal status = the last downstream stage that ran, else the entry stage's.
+
+        The entry stage is the floor because it did run: a webhook run that routes
+        nowhere is INGESTED, and a ``--checks-only`` run whose checks touched no
+        alerts is CHECKED — not demoted to INGESTED by a stage it never executed.
+        """
         if not downstream:
-            return PipelineStatus.INGESTED
+            return STAGE_TO_STATUS[entry_stage]
         return STAGE_TO_STATUS[downstream[-1]]
 
     def _execute_stage_with_retry(

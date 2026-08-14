@@ -126,6 +126,7 @@ class CheckExecutor(BaseExecutor):
 
         try:
             from apps.alerts.check_integration import CheckAlertBridge
+            from apps.orchestration.routing import subject_alert
 
             payload = ctx.payload
             hostname = payload.get("hostname")
@@ -171,6 +172,21 @@ class CheckExecutor(BaseExecutor):
             result.checks_passed = bridge_result.checks_run - len(bridge_result.errors)
             result.checks_failed = len(bridge_result.errors)
             result.errors = list(bridge_result.errors)
+
+            # Subject = the most severe alert THIS batch of checks touched, chosen
+            # by the same routing helper IngestExecutor uses. CHECK is the entry
+            # stage for checker-generated runs, so this is what the lane resolves
+            # from; a second selection rule here would let the hub route on one
+            # alert and report another. None when nothing was touched.
+            subject = subject_alert(bridge_result.alerts)
+            if subject is not None:
+                result.alert_id = subject.id
+                # The incident is what NotifyExecutor reads to find the lane's
+                # channel, and what every signal tag carries. Read from the
+                # already-loaded FK id: --no-incidents and OK results leave it
+                # None, which is a valid outcome, not an error.
+                result.incident_id = subject.incident_id
+                result.alert_fingerprint = subject.fingerprint
 
             # Store checks in structured format
             result.checks = []

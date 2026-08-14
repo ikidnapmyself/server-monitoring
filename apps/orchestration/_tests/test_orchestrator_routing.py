@@ -68,10 +68,9 @@ class StageSelectionFromStagesListTests(TestCase):
     def test_run_origin_reaches_routing_and_selects_the_lane(self):
         """The run's origin is a routing fact, not just a stored column.
 
-        Not end to end for checker_generated: production only sets that origin on
-        checks_only runs, which take the CHECK-only branch and never reach routing,
-        so no such lane can fire yet. Task 8 closes that gap. The origin plumbing
-        itself is what this pins, and it is live for incoming_webhook and manual.
+        This pins the origin plumbing on the INGEST-entry path. The
+        checker-generated path has its own entry stage and is covered by
+        ``CheckAsEntryStageRoutingTests``.
         """
         PipelineDefinition.objects.create(
             name="checker-lane",
@@ -737,3 +736,603 @@ class NoRouteFailsTheRunTests(TestCase):
         assert result.status == "FAILED"
         assert "no_route" in result.final_error.message
         assert result.final_error.retryable is False
+
+
+class CheckAsEntryStageRoutingTests(TestCase):
+    """Task 8: a ``checks_only`` run routes on the alert CHECK produced.
+
+    The entry stage produces an alert, the lane is resolved from that alert, the
+    lane's stages run. INGEST is the entry stage for webhook traffic; CHECK is the
+    entry stage for the hub's own scheduled ``run_pipeline --checks-only`` cron.
+    Before this, such a run stopped at CHECKED: it opened incidents about the
+    hub's own disk and memory every five minutes and notified nobody.
+
+    These tests replace the orchestrator's ``executors`` map rather than patching
+    ``_execute_stage_with_retry``, so the real retry wrapper runs and writes the
+    ``StageExecution`` rows that ``_stage_completed`` reads. Patching one level up
+    would leave that table empty and make every "ran exactly once" assertion
+    vacuous. The real CHECKER_REGISTRY is never reached.
+    """
+
+    def setUp(self):
+        self.incident = Incident.objects.create(title="Disk 95%", severity="critical")
+        self.alert = Alert.objects.create(
+            fingerprint="fp-hub-disk",
+            source="server-checkers",
+            name="DISK Check Alert",
+            severity="critical",
+            started_at=timezone.now(),
+            incident=self.incident,
+            labels={"instance_id": "hub-01"},
+        )
+        self.calls: list[PipelineStage] = []
+        self.check_result_alert_id = self.alert.id
+
+    def _result_for(self, stage):
+        return {
+            PipelineStage.INGEST: lambda: IngestResult(
+                alert_id=self.alert.id, incident_id=self.incident.id, alerts_created=1
+            ),
+            PipelineStage.CHECK: lambda: CheckResult(
+                checks_run=1, alert_id=self.check_result_alert_id
+            ),
+            PipelineStage.ANALYZE: lambda: AnalyzeResult(summary="s"),
+            PipelineStage.NOTIFY: lambda: NotifyResult(channels_succeeded=1),
+        }[stage]()
+
+    def _orchestrator(self):
+        outer = self
+
+        class _RecordingExecutor:
+            def __init__(self, stage):
+                self.stage = stage
+
+            def execute(self, ctx):
+                outer.calls.append(self.stage)
+                return outer._result_for(self.stage)
+
+        orchestrator = PipelineOrchestrator()
+        orchestrator.executors = {
+            stage: _RecordingExecutor(stage) for stage in orchestrator.executors
+        }
+        return orchestrator
+
+    def _run(self, payload=None, origin=PipelineOrigin.CHECKER_GENERATED):
+        return self._orchestrator().run_pipeline(
+            payload=payload if payload is not None else {"checks_only": True},
+            source="server-checkers",
+            origin=origin,
+        )
+
+    def test_the_seeded_hub_lane_records_and_correlates_without_notifying(self):
+        """``hub-self-check`` ships with empty stages: it routes, then stops.
+
+        An empty lane is a route that ends, not a missing route — it must reach
+        COMPLETED/CHECKED rather than raising ``no_route``. The correlation is the
+        point: the lane is stamped on the incident and the run keeps its trace_id,
+        so a hub self-check is traceable in the admin like any other traffic. The
+        cron fires every five minutes and a still-firing alert is re-reported each
+        time, so notifying by default would mean ~288 identical messages a day.
+        """
+        result = self._run()
+        assert result.status == "COMPLETED"
+        assert result.stages_completed == [PipelineStage.CHECK]
+        run = PipelineRun.objects.get(run_id=result.run_id)
+        assert run.status == PipelineStatus.CHECKED
+        # The lane that actually ran is recorded on the incident, so this asserts
+        # routing resolved to it rather than merely that the row exists.
+        assert Incident.objects.get(pk=self.incident.pk).pipeline.name == "hub-self-check"
+        assert run.trace_id
+
+    def test_adding_notify_to_the_seeded_lane_enables_paging(self):
+        """The description's promise: this is one column edit away from paging."""
+        lane = PipelineDefinition.objects.get(name="hub-self-check")
+        lane.stages = ["notify"]
+        lane.save(update_fields=["stages"])
+        result = self._run()
+        assert result.stages_completed == [PipelineStage.CHECK, PipelineStage.NOTIFY]
+        assert PipelineRun.objects.get(run_id=result.run_id).status == PipelineStatus.NOTIFIED
+
+    def test_the_lane_is_resolved_from_the_check_result_alert(self):
+        """A lane matching the subject alert's instance wins, proving alert_id routes."""
+        lane = PipelineDefinition.objects.create(
+            name="hub-01-lane",
+            priority=1,
+            match=[{"field": "instance", "op": "is", "value": "hub-01"}],
+            stages=["notify"],
+        )
+        result = self._run()
+        assert result.stages_completed == [PipelineStage.CHECK, PipelineStage.NOTIFY]
+        assert Incident.objects.get(pk=self.incident.pk).pipeline_id == lane.id
+
+    def test_the_check_snapshot_carries_the_alert_id_routing_reads(self):
+        """``alert_id`` reaches StageExecution.output_snapshot, which resume reads back."""
+        result = self._run()
+        snapshot = StageExecution.objects.get(
+            pipeline_run__run_id=result.run_id,
+            stage=PipelineStage.CHECK,
+            status=StageStatus.SUCCEEDED,
+        ).output_snapshot
+        assert snapshot["alert_id"] == self.alert.id
+
+    def test_no_alerts_ends_at_checked_without_raising(self):
+        """A clean run touches no alerts, so there is nothing to route.
+
+        This is the empty-batch path. ``--no-incidents`` reaches CHECKED too but
+        by a different route — it has a subject alert and declines to route it;
+        see NoIncidentsIsADiagnosticRunTests.
+        """
+        self.check_result_alert_id = None
+        result = self._run(payload={"checks_only": True})
+        assert result.status == "COMPLETED"
+        assert result.stages_completed == [PipelineStage.CHECK]
+        assert PipelineRun.objects.get(run_id=result.run_id).status == PipelineStatus.CHECKED
+        assert self.calls == [PipelineStage.CHECK]
+
+    def test_unmatched_checks_only_run_fails_no_route_with_check_recorded(self):
+        """Same failure as the ingest path — and CHECK is not erased from the run."""
+        clear_lanes()
+        result = self._run()
+        assert result.status == "FAILED"
+        assert "no_route" in result.final_error.message
+        assert result.final_error.retryable is False
+        # The stage demonstrably succeeded; routing failed after it.
+        assert result.stages_completed == [PipelineStage.CHECK]
+        assert StageExecution.objects.filter(
+            pipeline_run__run_id=result.run_id,
+            stage=PipelineStage.CHECK,
+            status=StageStatus.SUCCEEDED,
+        ).exists()
+
+    def test_a_lane_that_lists_check_runs_check_exactly_once(self):
+        """Deliberately unguarded: ``_stage_completed`` skips the re-entry.
+
+        Pure data, no special case — a lane may name any stage, and the entry
+        stage that already succeeded is simply skipped on the second pass. What is
+        NOT left to the data is routing: it resolves once per run, or this lane
+        would append itself to ``active_stages`` forever.
+        """
+        clear_lanes()
+        PipelineDefinition.objects.create(
+            name="checker-with-check",
+            priority=1,
+            match=[{"field": "origin", "op": "is", "value": "checker_generated"}],
+            stages=["check", "analyze"],
+        )
+        result = self._run()
+        assert self.calls == [PipelineStage.CHECK, PipelineStage.ANALYZE]
+        assert result.stages_completed == [PipelineStage.CHECK, PipelineStage.ANALYZE]
+        assert (
+            StageExecution.objects.filter(
+                pipeline_run__run_id=result.run_id, stage=PipelineStage.CHECK
+            ).count()
+            == 1
+        )
+
+    def test_deleting_the_hub_lane_falls_through_to_the_catch_all(self):
+        """No guard keeps ``hub-self-check`` alive; the catch-all then claims it.
+
+        The catch-all lists ``check``, which is why the skip above matters: the
+        run still executes CHECK once and continues to analyze and notify.
+        """
+        PipelineDefinition.objects.filter(name="hub-self-check").delete()
+        result = self._run()
+        assert self.calls == [
+            PipelineStage.CHECK,
+            PipelineStage.ANALYZE,
+            PipelineStage.NOTIFY,
+        ]
+        assert result.stages_completed == [
+            PipelineStage.CHECK,
+            PipelineStage.ANALYZE,
+            PipelineStage.NOTIFY,
+        ]
+        assert Incident.objects.get(pk=self.incident.pk).pipeline.name == "catch-all"
+
+    def test_an_ingest_run_does_not_re_route_at_check(self):
+        """Only the entry stage routes. CHECK inside a webhook run must not."""
+        clear_lanes()
+        PipelineDefinition.objects.create(
+            name="webhook-lane", priority=1, match=[], stages=["check", "analyze"]
+        )
+        result = self._run(payload={"payload": {}}, origin=PipelineOrigin.INCOMING_WEBHOOK)
+        assert result.stages_completed == [
+            PipelineStage.INGEST,
+            PipelineStage.CHECK,
+            PipelineStage.ANALYZE,
+        ]
+        assert self.calls.count(PipelineStage.ANALYZE) == 1
+
+    def test_resume_of_a_checks_only_run_routes_from_the_check_snapshot(self):
+        """The resume branch mirrors ingest's: a resumed hub run still routes.
+
+        It must restore BOTH values the snapshot holds. Restoring only alert_id
+        routes correctly and still leaves ``incident_id`` None all the way to
+        notify, which is how a resumed run ended up delivering to the wrong
+        channel; ``CheckerGeneratedNotifiesThroughItsLaneChannelTests`` pins that
+        consequence, this pins the value itself.
+        """
+        clear_lanes()
+        PipelineDefinition.objects.create(
+            name="resume-lane",
+            priority=1,
+            match=[{"field": "origin", "op": "is", "value": "checker_generated"}],
+            stages=["analyze", "notify"],
+        )
+        run = PipelineRun.objects.create(
+            trace_id="t-hub-resume",
+            run_id="r-hub-resume",
+            source="server-checkers",
+            status=PipelineStatus.FAILED,
+            origin=PipelineOrigin.CHECKER_GENERATED,
+        )
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage=PipelineStage.CHECK,
+            status=StageStatus.SUCCEEDED,
+            output_snapshot={"alert_id": self.alert.id, "incident_id": self.incident.id},
+        )
+        result = self._orchestrator().resume_pipeline(
+            run_id="r-hub-resume", payload={"checks_only": True}
+        )
+        assert result.stages_completed == [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+        assert self.calls == [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+        assert PipelineRun.objects.get(pk=run.pk).status == PipelineStatus.NOTIFIED
+        assert result.incident_id == self.incident.id
+
+    def test_a_legacy_check_snapshot_without_alert_id_resumes_to_checked(self):
+        """No legacy lookup for CHECK: a pre-Task-8 checks_only run never routed."""
+        run = PipelineRun.objects.create(
+            trace_id="t-hub-legacy",
+            run_id="r-hub-legacy",
+            source="server-checkers",
+            status=PipelineStatus.FAILED,
+            origin=PipelineOrigin.CHECKER_GENERATED,
+        )
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage=PipelineStage.CHECK,
+            status=StageStatus.SUCCEEDED,
+            output_snapshot={"checks_run": 1},
+        )
+        result = self._orchestrator().resume_pipeline(
+            run_id="r-hub-legacy", payload={"checks_only": True}
+        )
+        assert result.stages_completed == []
+        assert self.calls == []
+        assert PipelineRun.objects.get(pk=run.pk).status == PipelineStatus.CHECKED
+
+
+class CheckerGeneratedNotifiesThroughItsLaneChannelTests(TestCase):
+    """A checker-generated run delivers to the channel its lane names.
+
+    This is the payoff of carrying ``incident_id`` out of CHECK. NotifyExecutor
+    finds the lane through ``ctx.incident_id -> incident.pipeline``; without it
+    the lane's channel FK is dead for this traffic and NotifySelector silently
+    falls back to "first active channel by name".
+
+    The two channels are named so that the fallback and the routed answer differ:
+    ``aaa-fallback`` sorts first and is what an unrouted run picks, so asserting
+    the delivery went to ``zzz-lane-channel`` asserts the routing OUTCOME rather
+    than merely that the lane row exists.
+
+    The real NotifyExecutor runs; only the outbound driver send is stubbed.
+    """
+
+    def setUp(self):
+        from apps.notify.models import NotificationChannel
+
+        clear_lanes()
+        self.fallback = NotificationChannel.objects.create(
+            name="aaa-fallback", driver="generic", is_active=True, config={}
+        )
+        self.lane_channel = NotificationChannel.objects.create(
+            name="zzz-lane-channel", driver="generic", is_active=True, config={}
+        )
+        self.lane = PipelineDefinition.objects.create(
+            name="hub-lane",
+            priority=1,
+            match=[{"field": "origin", "op": "is", "value": "checker_generated"}],
+            stages=["notify"],
+            channel=self.lane_channel,
+        )
+        self.incident = Incident.objects.create(title="Disk 95%", severity="critical")
+        self.alert = Alert.objects.create(
+            fingerprint="fp-hub-chan",
+            source="server-checkers",
+            name="DISK Check Alert",
+            severity="critical",
+            started_at=timezone.now(),
+            incident=self.incident,
+        )
+
+    def _run(self):
+        outer = self
+
+        class _FakeCheckExecutor:
+            def execute(self, ctx):
+                return CheckResult(
+                    checks_run=1,
+                    alert_id=outer.alert.id,
+                    incident_id=outer.incident.id,
+                    alert_fingerprint=outer.alert.fingerprint,
+                )
+
+        orchestrator = PipelineOrchestrator()
+        orchestrator.executors[PipelineStage.CHECK] = _FakeCheckExecutor()
+        # Every outbound driver is stubbed: reaching a live driver would deliver
+        # a real message.
+        with (
+            patch(
+                "apps.notify.drivers.generic.GenericNotifyDriver.send",
+                return_value={"success": True, "message_id": "stub-1"},
+            ),
+            patch(
+                "apps.notify.drivers.slack.SlackNotifyDriver.send",
+                return_value={"success": True, "message_id": "stub-1"},
+            ),
+        ):
+            return orchestrator.run_pipeline(
+                payload={"checks_only": True},
+                source="server-checkers",
+                origin=PipelineOrigin.CHECKER_GENERATED,
+            )
+
+    def test_delivery_goes_to_the_channel_the_lane_names(self):
+        result = self._run()
+        assert result.stages_completed == [PipelineStage.CHECK, PipelineStage.NOTIFY]
+        assert [d["driver"] for d in result.notify.deliveries] == ["zzz-lane-channel"]
+        assert result.notify.channels_succeeded == 1
+
+    def test_the_run_and_its_signals_carry_the_incident(self):
+        """incident_id reaches the run record, so signal tags stop being null."""
+        result = self._run()
+        run = PipelineRun.objects.get(run_id=result.run_id)
+        assert run.incident_id == self.incident.id
+        assert run.alert_fingerprint == self.alert.fingerprint
+        assert result.incident_id == self.incident.id
+
+    def test_a_resumed_run_also_delivers_to_the_lane_channel(self):
+        """The defect this class exists to catch, on the resume path.
+
+        A resumed run rebuilds ``incident_id`` from the CHECK snapshot rather
+        than from a stage result, so it is a second, independent chance to lose
+        it — and it did: the restore block read ``alert_id`` only, the run routed
+        correctly, and notify still delivered to ``aaa-fallback`` because
+        ``ctx.incident_id`` was None. Asserting the stage list alone passes
+        throughout; only the delivered channel catches it.
+        """
+        run = PipelineRun.objects.create(
+            trace_id="t-chan-resume",
+            run_id="r-chan-resume",
+            source="server-checkers",
+            status=PipelineStatus.FAILED,
+            origin=PipelineOrigin.CHECKER_GENERATED,
+        )
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage=PipelineStage.CHECK,
+            status=StageStatus.SUCCEEDED,
+            output_snapshot={"alert_id": self.alert.id, "incident_id": self.incident.id},
+        )
+        with (
+            patch(
+                "apps.notify.drivers.generic.GenericNotifyDriver.send",
+                return_value={"success": True, "message_id": "stub-1"},
+            ),
+            patch(
+                "apps.notify.drivers.slack.SlackNotifyDriver.send",
+                return_value={"success": True, "message_id": "stub-1"},
+            ),
+        ):
+            result = PipelineOrchestrator().resume_pipeline(
+                run_id="r-chan-resume", payload={"checks_only": True}
+            )
+        assert result.stages_completed == [PipelineStage.NOTIFY]
+        # Delivery first: it is the assertion that fails informatively, naming the
+        # wrong channel rather than a null id.
+        assert [d["driver"] for d in result.notify.deliveries] == ["zzz-lane-channel"]
+        assert result.incident_id == self.incident.id
+
+    def test_an_inactive_lane_channel_falls_back(self):
+        """``routed_channel`` is the one rule for "active"; notify honours it."""
+        self.lane_channel.is_active = False
+        self.lane_channel.save(update_fields=["is_active"])
+        result = self._run()
+        assert [d["driver"] for d in result.notify.deliveries] == ["aaa-fallback"]
+
+
+class NoIncidentsIsADiagnosticRunTests(TestCase):
+    """``--checks-only --no-incidents`` means "just check, don't disturb anything".
+
+    It ends at CHECKED: no lane, no ANALYZE, no NOTIFY. Alert creation is NOT
+    suppressed — the bridge still records what it found, which is all
+    ``--no-incidents`` ever meant — so this is not the empty-batch path: the run
+    has a perfectly routable subject alert and declines to route it.
+
+    ``CheckAlertBridge`` is stubbed, so the real CHECKER_REGISTRY never runs.
+    """
+
+    def setUp(self):
+        self.incident = Incident.objects.create(title="Disk 95%", severity="critical")
+        self.alert = Alert.objects.create(
+            fingerprint="fp-diag",
+            source="server-checkers",
+            name="DISK Check Alert",
+            severity="critical",
+            started_at=timezone.now(),
+            incident=self.incident,
+        )
+        self.calls: list[PipelineStage] = []
+
+    def _run(self, no_incidents):
+        outer = self
+
+        class _FakeBridge:
+            def __init__(self, **kwargs):
+                outer.bridge_kwargs = kwargs
+
+            def run_checks_and_alert(self, **kwargs):
+                from apps.alerts.check_integration import CheckAlertResult
+
+                # A host with a real problem: the bridge opened an alert.
+                return CheckAlertResult(checks_run=1, alerts_created=1, alerts=[outer.alert])
+
+        class _Recording:
+            def __init__(self, stage, inner):
+                self.stage, self.inner = stage, inner
+
+            def execute(self, ctx):
+                outer.calls.append(self.stage)
+                return self.inner.execute(ctx)
+
+        orchestrator = PipelineOrchestrator()
+        # Real executors throughout, wrapped only to record which ones ran.
+        orchestrator.executors = {
+            stage: _Recording(stage, executor) for stage, executor in orchestrator.executors.items()
+        }
+        payload = {"checks_only": True, "checker_names": ["cpu"]}
+        if no_incidents:
+            payload["no_incidents"] = True
+        # Every outbound call is stubbed UNCONDITIONALLY, including on the
+        # no_incidents runs that are supposed never to reach ANALYZE or NOTIFY.
+        # A test must not depend on the code under test to keep it off the
+        # network: break the scoping and these runs would otherwise call the live
+        # Claude API and deliver a real Slack message. The assertion that they
+        # did not run is ``self.calls``, not the absence of a stub.
+        with (
+            patch("apps.alerts.check_integration.CheckAlertBridge", _FakeBridge),
+            patch(
+                "apps.orchestration.executors.AnalyzeExecutor.execute",
+                return_value=AnalyzeResult(summary="s"),
+            ),
+            patch(
+                "apps.notify.drivers.generic.GenericNotifyDriver.send",
+                return_value={"success": True},
+            ),
+            patch(
+                "apps.notify.drivers.slack.SlackNotifyDriver.send", return_value={"success": True}
+            ),
+        ):
+            return orchestrator.run_pipeline(
+                payload=payload,
+                source="server-checkers",
+                origin=PipelineOrigin.CHECKER_GENERATED,
+            )
+
+    def test_no_incidents_run_ends_at_checked_without_routing(self):
+        result = self._run(no_incidents=True)
+        assert result.status == "COMPLETED"
+        assert result.stages_completed == [PipelineStage.CHECK]
+        assert self.calls == [PipelineStage.CHECK]
+        assert PipelineRun.objects.get(run_id=result.run_id).status == PipelineStatus.CHECKED
+        # Not the empty-batch path: the subject alert exists and would have routed.
+        assert result.check.alert_id == self.alert.id
+        # Incident creation is what --no-incidents suppresses, and it still does.
+        assert self.bridge_kwargs["auto_create_incidents"] is False
+
+    def test_no_incidents_run_does_not_fail_when_no_lane_exists(self):
+        """Declining to route is not ``no_route``: there is no routing decision."""
+        clear_lanes()
+        result = self._run(no_incidents=True)
+        assert result.status == "COMPLETED"
+        assert result.stages_completed == [PipelineStage.CHECK]
+
+    def test_a_webhook_run_is_not_silenced_by_a_no_incidents_payload_key(self):
+        """The flag scopes ``--checks-only`` runs only, and that matters.
+
+        ``payload`` is the wrapper the webhook view builds around untrusted
+        inbound data. Without the ``checks_only`` conjunction, a top-level
+        ``no_incidents`` key would let inbound traffic switch off its own routing
+        — a silent way to stop the hub notifying. INGEST-entry runs always route.
+        """
+        outer = self
+
+        class _FakeIngest:
+            def execute(self, ctx):
+                outer.calls.append(PipelineStage.INGEST)
+                return IngestResult(
+                    alert_id=outer.alert.id, incident_id=outer.incident.id, alerts_created=1
+                )
+
+        # A lane without ``check``: the seeded catch-all lists it, and CHECK here
+        # is the REAL executor, which would run the host's every checker for real.
+        clear_lanes()
+        PipelineDefinition.objects.create(
+            name="webhook-lane", priority=1, match=[], stages=["notify"]
+        )
+
+        orchestrator = PipelineOrchestrator()
+        orchestrator.executors[PipelineStage.INGEST] = _FakeIngest()
+        with (
+            patch(
+                "apps.notify.drivers.generic.GenericNotifyDriver.send",
+                return_value={"success": True},
+            ),
+            patch(
+                "apps.notify.drivers.slack.SlackNotifyDriver.send", return_value={"success": True}
+            ),
+        ):
+            result = orchestrator.run_pipeline(
+                payload={"payload": {}, "no_incidents": True},
+                source="grafana",
+                origin=PipelineOrigin.INCOMING_WEBHOOK,
+            )
+        assert result.stages_completed == [PipelineStage.INGEST, PipelineStage.NOTIFY]
+
+    def test_a_resumed_diagnostic_run_still_declines_to_route(self):
+        """The resume call site is scoped by the same flag, not just the fresh one."""
+        run = PipelineRun.objects.create(
+            trace_id="t-diag-resume",
+            run_id="r-diag-resume",
+            source="server-checkers",
+            status=PipelineStatus.FAILED,
+            origin=PipelineOrigin.CHECKER_GENERATED,
+        )
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage=PipelineStage.CHECK,
+            status=StageStatus.SUCCEEDED,
+            output_snapshot={"alert_id": self.alert.id, "incident_id": self.incident.id},
+        )
+        with (
+            patch(
+                "apps.orchestration.executors.AnalyzeExecutor.execute",
+                return_value=AnalyzeResult(summary="s"),
+            ),
+            patch(
+                "apps.notify.drivers.generic.GenericNotifyDriver.send",
+                return_value={"success": True},
+            ),
+            patch(
+                "apps.notify.drivers.slack.SlackNotifyDriver.send", return_value={"success": True}
+            ),
+        ):
+            result = PipelineOrchestrator().resume_pipeline(
+                run_id="r-diag-resume",
+                payload={"checks_only": True, "no_incidents": True},
+            )
+        assert result.stages_completed == []
+        assert PipelineRun.objects.get(pk=run.pk).status == PipelineStatus.CHECKED
+
+    def test_the_same_run_without_no_incidents_routes_and_notifies(self):
+        """The scheduled cron run is unaffected — this is the contrast case.
+
+        Uses an operator lane that lists the downstream stages: the seeded
+        ``hub-self-check`` is deliberately record-only, so routing to it would
+        also end at CHECKED and the two cases would be indistinguishable.
+        """
+        clear_lanes()
+        PipelineDefinition.objects.create(
+            name="paging-lane",
+            priority=1,
+            match=[{"field": "origin", "op": "is", "value": "checker_generated"}],
+            stages=["analyze", "notify"],
+        )
+        result = self._run(no_incidents=False)
+        assert result.stages_completed == [
+            PipelineStage.CHECK,
+            PipelineStage.ANALYZE,
+            PipelineStage.NOTIFY,
+        ]
+        assert self.bridge_kwargs["auto_create_incidents"] is True

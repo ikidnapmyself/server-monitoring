@@ -350,10 +350,6 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
                     "stages",
                     "channel",
                 ],
-                # origin's checker_generated value cannot match a lane yet: it is
-                # only set for checks_only runs, which take the CHECK-only branch in
-                # the orchestrator and never reach routing. Task 8 wires that up.
-                # Don't promise lanes can separate hub checks from inbound traffic.
                 "description": (
                     "match: [{field, op, value}] (field: source|severity|instance|origin|"
                     "label:<k>; op: is|is-not|in|not-in). origin is where the run started: "

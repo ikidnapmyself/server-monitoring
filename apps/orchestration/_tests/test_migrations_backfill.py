@@ -665,3 +665,111 @@ def test_seed_real_schema_round_trip():
         # executor's historical state instead if that day comes.
         PipelineDefinition.objects.filter(name__in=["cluster-nodes", "catch-all"]).delete()
         seed_migration.forwards(django_apps, None)
+
+
+# --- 0014: seed the hub self-check lane ---------------------------------------
+#
+# Same two-layer approach as 0012: the fake manager drives forwards/backwards
+# directly (this migration adds no columns), and a real-schema round trip proves
+# the row lands in the actual table at the priority routing depends on.
+
+hub_migration = importlib.import_module("apps.orchestration.migrations.0014_seed_hub_self_check")
+
+
+def test_hub_seed_forwards_creates_the_lane():
+    manager = _FakeGetOrCreateManager()
+    hub_migration.forwards(_FakeSeedApps(manager), None)
+    assert manager.created == ["hub-self-check"]
+    row = manager.rows["hub-self-check"]
+    assert row["priority"] == 50
+    assert row["match"] == [{"field": "origin", "op": "is", "value": "checker_generated"}]
+    # Record-only: the run resolves this lane, stamps it and stops. Empty because
+    # the cron repeats every 5 minutes, so notifying would mean ~288 identical
+    # messages a day; an operator adds "notify" here to page. CHECK is never
+    # listed either — it is the entry stage and has already run.
+    assert row["stages"] == []
+    assert row["is_active"] is True
+
+
+def test_hub_seed_forwards_leaves_an_existing_lane_untouched():
+    manager = _FakeGetOrCreateManager(existing=[("hub-self-check", {"priority": 3, "stages": []})])
+    hub_migration.forwards(_FakeSeedApps(manager), None)
+    assert manager.created == []
+    assert manager.rows["hub-self-check"] == {"priority": 3, "stages": []}
+
+
+def test_hub_seed_forwards_is_idempotent():
+    manager = _FakeGetOrCreateManager()
+    hub_migration.forwards(_FakeSeedApps(manager), None)
+    manager.created.clear()
+    hub_migration.forwards(_FakeSeedApps(manager), None)
+    assert manager.created == []
+
+
+def test_hub_seed_backwards_deletes_only_rows_matching_the_seeded_shape():
+    manager = _FakeGetOrCreateManager()
+    hub_migration.backwards(_FakeSeedApps(manager), None)
+    assert [f["name"] for f in manager.deleted] == ["hub-self-check"]
+    assert manager.deleted[0]["priority"] == 50
+    assert manager.deleted[0]["stages"] == []
+    assert manager.deleted[0]["match"] == [
+        {"field": "origin", "op": "is", "value": "checker_generated"}
+    ]
+
+
+def test_hub_seed_backwards_spares_an_operator_edited_row():
+    manager = _FakeGetOrCreateManager(existing=[("hub-self-check", {"priority": 3})])
+    hub_migration.backwards(_FakeSeedApps(manager), None)
+    assert manager.rows["hub-self-check"] == {"priority": 3}
+
+
+def test_hub_seed_forwards_does_not_mutate_the_lane_table():
+    hub_migration.forwards(_FakeSeedApps(_FakeGetOrCreateManager()), None)
+    assert [lane["name"] for lane in hub_migration._LANES] == ["hub-self-check"]
+
+
+def test_hub_seed_migration_is_data_only():
+    assert [type(op).__name__ for op in hub_migration.Migration.operations] == ["RunPython"]
+
+
+def test_hub_lane_outranks_the_catch_all_and_hand_made_lanes():
+    """Priority asserted against the rows it must beat, not in the abstract."""
+    seeded = {lane["name"]: lane for lane in seed_migration._LANES}
+    hub = hub_migration._LANES[0]
+    assert hub["priority"] < 100 < seeded["catch-all"]["priority"]
+
+
+_HUB_OLD = ("orchestration", "0013_priority_help_text")
+_HUB_NEW = ("orchestration", "0014_seed_hub_self_check")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_hub_seed_real_schema_round_trip():
+    """Apply and unapply 0014 against the real schema."""
+    from apps.orchestration.models import PipelineDefinition
+
+    try:
+        old_apps = _migrate_to(_HUB_OLD)
+        PD = old_apps.get_model("orchestration", "PipelineDefinition")
+        PD.objects.filter(name="hub-self-check").delete()
+
+        new_apps = _migrate_to(_HUB_NEW)
+        PD = new_apps.get_model("orchestration", "PipelineDefinition")
+        lane = PD.objects.get(name="hub-self-check")
+        assert lane.priority == 50
+        assert lane.stages == []
+        assert lane.match == [{"field": "origin", "op": "is", "value": "checker_generated"}]
+        assert lane.is_active is True
+
+        old_apps = _migrate_to(_HUB_OLD)
+        PD = old_apps.get_model("orchestration", "PipelineDefinition")
+        assert not PD.objects.filter(name="hub-self-check").exists()
+    finally:
+        # Leave the shared test database at the graph's HEAD; see the 0010/0012 notes.
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+        PipelineDefinition.objects.filter(name="hub-self-check").delete()
+        hub_migration.forwards(django_apps, None)
