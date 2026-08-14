@@ -12,12 +12,16 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.alerts.models import Alert, Incident
+from apps.orchestration import routing
 from apps.orchestration.dtos import AnalyzeResult, CheckResult, IngestResult, NotifyResult
 from apps.orchestration.models import (
     PipelineDefinition,
+    PipelineOrigin,
     PipelineRun,
     PipelineStage,
     PipelineStatus,
+    StageExecution,
+    StageStatus,
 )
 from apps.orchestration.orchestrator import PipelineOrchestrator
 
@@ -25,7 +29,7 @@ from apps.orchestration.orchestrator import PipelineOrchestrator
 class StageSelectionFromStagesListTests(TestCase):
     def setUp(self):
         self.incident = Incident.objects.create(title="High CPU", severity="critical")
-        Alert.objects.create(
+        self.alert = Alert.objects.create(
             fingerprint="fp-cluster",
             source="cluster",
             name="cpu",
@@ -37,19 +41,54 @@ class StageSelectionFromStagesListTests(TestCase):
 
     def _fake_exec(self, pipeline_run, stage, payload, previous_results, incident_id):
         return {
-            PipelineStage.INGEST: IngestResult(incident_id=self.incident.id, alerts_created=1),
+            PipelineStage.INGEST: IngestResult(
+                alert_id=self.alert.id, incident_id=self.incident.id, alerts_created=1
+            ),
             PipelineStage.CHECK: CheckResult(checks_run=1),
             PipelineStage.ANALYZE: AnalyzeResult(summary="s"),
             PipelineStage.NOTIFY: NotifyResult(channels_succeeded=1),
         }[stage]
 
-    def _run(self, payload=None):
+    def _run(self, payload=None, origin=None):
         with patch.object(
             PipelineOrchestrator, "_execute_stage_with_retry", side_effect=self._fake_exec
         ):
             return PipelineOrchestrator().run_pipeline(
-                payload=payload or {"payload": {}}, source="cluster"
+                payload=payload or {"payload": {}}, source="cluster", origin=origin
             )
+
+    def test_run_origin_reaches_routing_and_selects_the_lane(self):
+        """The run's origin is a routing fact, not just a stored column.
+
+        Not end to end for checker_generated: production only sets that origin on
+        checks_only runs, which take the CHECK-only branch and never reach routing,
+        so no such lane can fire yet. Task 8 closes that gap. The origin plumbing
+        itself is what this pins, and it is live for incoming_webhook and manual.
+        """
+        PipelineDefinition.objects.create(
+            name="checker-lane",
+            priority=1,
+            match=[{"field": "origin", "op": "is", "value": "checker_generated"}],
+            stages=["notify"],
+        )
+        result = self._run(origin=PipelineOrigin.CHECKER_GENERATED)
+        assert result.stages_completed == [PipelineStage.INGEST, PipelineStage.NOTIFY]
+
+        # The same payload from a webhook does not match that lane (fallback order).
+        webhook = self._run(origin=PipelineOrigin.INCOMING_WEBHOOK)
+        assert PipelineStage.CHECK in webhook.stages_completed
+
+    def test_subject_alert_from_the_ingest_result_is_what_routes(self):
+        """The lane matches the subject alert's labels, proving alert_id is used."""
+        lane = PipelineDefinition.objects.create(
+            name="web-03-lane",
+            priority=1,
+            match=[{"field": "instance", "op": "is", "value": "web-03"}],
+            stages=["notify"],
+        )
+        result = self._run()
+        assert result.stages_completed == [PipelineStage.INGEST, PipelineStage.NOTIFY]
+        assert Incident.objects.get(pk=self.incident.pk).pipeline_id == lane.id
 
     def test_stages_without_check_skips_check_stage(self):
         PipelineDefinition.objects.create(
@@ -132,17 +171,30 @@ class StageSelectionFromStagesListTests(TestCase):
 class DownstreamStagesHelperTests(TestCase):
     """Direct unit tests for _downstream_stages edge cases."""
 
-    def _incident(self, source="cluster"):
-        incident = Incident.objects.create(title="x", severity="critical")
-        Alert.objects.create(
+    def _alert(self, source="cluster", labels=None, incident=None):
+        return Alert.objects.create(
             fingerprint=f"fp-{source}",
             source=source,
             name="cpu",
             severity="critical",
             started_at=timezone.now(),
             incident=incident,
+            labels=labels or {},
         )
-        return incident
+
+    def _incident_alert(self, source="cluster"):
+        incident = Incident.objects.create(title="x", severity="critical")
+        return self._alert(source=source, incident=incident), incident
+
+    def _downstream(self, alert_id, origin="incoming_webhook", skip_checkers=False):
+        return PipelineOrchestrator()._downstream_stages(
+            alert_id, origin, skip_checkers=skip_checkers
+        )
+
+    def _resolved(self, alert_id, origin="incoming_webhook", skip_checkers=False):
+        return PipelineOrchestrator()._downstream_stages_or_default(
+            alert_id, origin, skip_checkers=skip_checkers
+        )
 
     def test_junk_stages_value_degrades_instead_of_failing_the_run(self):
         """A hand-edited lane must not turn every run into an endless retryable failure.
@@ -151,73 +203,330 @@ class DownstreamStagesHelperTests(TestCase):
         handler would turn into FAILED/retryable=True *after* INGEST already succeeded.
         Normalising on the model degrades to the valid subset instead.
         """
-        incident = self._incident()
+        alert, _ = self._incident_alert()
         PipelineDefinition.objects.create(
             name="junk", match=[], priority=1, stages=["sparkle", "notify"]
         )
         with self.assertLogs("apps.orchestration.orchestrator", level="WARNING") as logs:
-            stages = PipelineOrchestrator()._downstream_stages(incident.id, skip_checkers=False)
+            stages = self._downstream(alert.id)
         assert stages == [PipelineStage.NOTIFY]
         # The warning names the lane so an operator can find the bad row.
         assert "junk" in logs.output[0]
 
     def test_valid_lane_logs_no_warning(self):
-        incident = self._incident()
+        alert, _ = self._incident_alert()
         PipelineDefinition.objects.create(
             name="clean", match=[], priority=1, stages=["check", "notify"]
         )
         with patch("apps.orchestration.orchestrator.logger") as mock_logger:
-            stages = PipelineOrchestrator()._downstream_stages(incident.id, skip_checkers=False)
+            stages = self._downstream(alert.id)
         assert stages == [PipelineStage.CHECK, PipelineStage.NOTIFY]
         mock_logger.warning.assert_not_called()
 
     def test_skip_checkers_removes_check_from_a_matched_lane(self):
-        incident = self._incident()
+        alert, _ = self._incident_alert()
         PipelineDefinition.objects.create(
             name="lane-with-check", match=[], priority=1, stages=["check", "notify"]
         )
-        stages = PipelineOrchestrator()._downstream_stages(incident.id, skip_checkers=True)
-        assert stages == [PipelineStage.NOTIFY]
+        assert self._downstream(alert.id, skip_checkers=True) == [PipelineStage.NOTIFY]
 
     def test_skip_checkers_is_a_noop_for_a_lane_without_check(self):
-        incident = self._incident()
+        alert, _ = self._incident_alert()
         PipelineDefinition.objects.create(
             name="lane-no-check", match=[], priority=1, stages=["analyze", "notify"]
         )
-        stages = PipelineOrchestrator()._downstream_stages(incident.id, skip_checkers=True)
-        assert stages == [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+        assert self._downstream(alert.id, skip_checkers=True) == [
+            PipelineStage.ANALYZE,
+            PipelineStage.NOTIFY,
+        ]
 
     def test_matched_lane_stages_arrive_in_listed_order(self):
         """The list an operator saved is the list the orchestrator executes."""
-        incident = self._incident()
+        alert, _ = self._incident_alert()
         PipelineDefinition.objects.create(
             name="lane-full", match=[], priority=1, stages=["check", "analyze", "notify"]
         )
-        stages = PipelineOrchestrator()._downstream_stages(incident.id, skip_checkers=False)
-        assert stages == [PipelineStage.CHECK, PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+        assert self._downstream(alert.id) == [
+            PipelineStage.CHECK,
+            PipelineStage.ANALYZE,
+            PipelineStage.NOTIFY,
+        ]
 
-    def test_no_incident_id_returns_full_default(self):
-        stages = PipelineOrchestrator()._downstream_stages(None, skip_checkers=False)
-        assert stages == [PipelineStage.CHECK, PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+    def test_no_alert_id_returns_empty_list(self):
+        """Nothing to route is not an error — and not the default lane either."""
+        assert self._downstream(None) == []
 
-    def test_no_incident_id_with_skip_checkers(self):
-        stages = PipelineOrchestrator()._downstream_stages(None, skip_checkers=True)
-        assert stages == [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+    def test_missing_alert_row_returns_empty_list(self):
+        assert self._downstream(999999) == []
 
-    def test_missing_incident_returns_default(self):
-        stages = PipelineOrchestrator()._downstream_stages(999999, skip_checkers=False)
-        assert PipelineStage.CHECK in stages
+    def test_no_matching_lane_returns_none(self):
+        """``None`` means "an alert exists but nothing routed it" — distinct from ``[]``."""
+        alert, _ = self._incident_alert()
+        PipelineDefinition.objects.create(
+            name="grafana-only",
+            priority=1,
+            match=[{"field": "source", "op": "is", "value": "grafana"}],
+        )
+        assert self._downstream(alert.id) is None
+
+    def test_or_default_falls_back_to_the_default_order_on_no_match(self):
+        """Task 6 replaces this fallback with a seeded catch-all + no_route."""
+        alert, _ = self._incident_alert()
+        PipelineDefinition.objects.create(
+            name="grafana-only",
+            priority=1,
+            match=[{"field": "source", "op": "is", "value": "grafana"}],
+        )
+        assert self._resolved(alert.id) == [
+            PipelineStage.CHECK,
+            PipelineStage.ANALYZE,
+            PipelineStage.NOTIFY,
+        ]
+        assert self._resolved(alert.id, skip_checkers=True) == [
+            PipelineStage.ANALYZE,
+            PipelineStage.NOTIFY,
+        ]
+
+    def test_or_default_passes_a_matched_lane_through_unchanged(self):
+        alert, _ = self._incident_alert()
+        PipelineDefinition.objects.create(name="lane", match=[], priority=1, stages=["notify"])
+        assert self._resolved(alert.id) == [PipelineStage.NOTIFY]
+
+    def test_or_default_keeps_an_empty_list_empty(self):
+        """No alert must NOT fall back to the default order."""
+        assert self._resolved(None) == []
+
+    def test_alert_without_an_incident_still_routes(self):
+        """Routing needs the alert, not the incident; the stamp is just skipped."""
+        alert = self._alert(source="cluster")
+        PipelineDefinition.objects.create(name="lane", match=[], priority=1, stages=["notify"])
+        assert self._downstream(alert.id) == [PipelineStage.NOTIFY]
+
+    def test_lane_matching_on_origin_selects_the_stages(self):
+        alert, incident = self._incident_alert()
+        checker_lane = PipelineDefinition.objects.create(
+            name="checker-lane",
+            priority=1,
+            match=[{"field": "origin", "op": "is", "value": "checker_generated"}],
+            stages=["notify"],
+        )
+        assert self._downstream(alert.id, origin="checker_generated") == [PipelineStage.NOTIFY]
+        assert Incident.objects.get(pk=incident.pk).pipeline_id == checker_lane.id
+        # A different origin does not match that lane at all.
+        assert self._downstream(alert.id, origin="incoming_webhook") is None
+
+    def test_routes_on_the_subject_alerts_own_facts_not_a_merge(self):
+        """Regression: facts must come from ONE alert.
+
+        The old ``facts_from_incident`` merged every alert on the incident — labels
+        from the OLDEST (later ``update()`` calls won) and source from the NEWEST.
+        Here the older alert carries ``env=prod`` and the subject alert carries
+        ``env=staging``; the merge would have picked the decoy lane.
+        """
+        incident = Incident.objects.create(title="x", severity="critical")
+        self._alert(
+            source="grafana", labels={"env": "prod", "hostname": "web-01"}, incident=incident
+        )
+        subject = self._alert(
+            source="cluster", labels={"env": "staging", "hostname": "web-02"}, incident=incident
+        )
+        subject_lane = PipelineDefinition.objects.create(
+            name="subject-lane",
+            priority=1,
+            match=[
+                {"field": "source", "op": "is", "value": "cluster"},
+                {"field": "instance", "op": "is", "value": "web-02"},
+                {"field": "label:env", "op": "is", "value": "staging"},
+            ],
+            stages=["notify"],
+        )
+        PipelineDefinition.objects.create(
+            name="merged-facts-decoy",
+            priority=2,
+            match=[{"field": "label:env", "op": "is", "value": "prod"}],
+            stages=["check", "analyze"],
+        )
+
+        assert self._downstream(subject.id) == [PipelineStage.NOTIFY]
+        assert Incident.objects.get(pk=incident.pk).pipeline_id == subject_lane.id
+
+    def test_the_incident_rides_the_alert_query(self):
+        """``alert.incident`` is read on every matched run, so it must be joined.
+
+        Asserts the join on the alert the orchestrator itself loaded, rather than a
+        query count — a count would also fail, misleadingly naming select_related,
+        if resolve_pipeline ever added a query of its own.
+
+        The snapshot is taken inside the facts_from_alert call, which runs *before*
+        ``_downstream_stages`` touches ``alert.incident``: that access populates
+        fields_cache lazily, so checking afterwards would pass either way.
+        """
+        alert, _ = self._incident_alert()
+        PipelineDefinition.objects.create(name="ca", match=[], priority=1, stages=["notify"])
+        joined = []
+        real_facts = routing.facts_from_alert
+
+        def spy(a, origin):
+            joined.append("incident" in a._state.fields_cache)
+            return real_facts(a, origin)
+
+        with patch.object(routing, "facts_from_alert", spy):
+            assert self._downstream(alert.id) == [PipelineStage.NOTIFY]
+
+        assert joined == [True]
 
     def test_already_stamped_pipeline_is_not_re_saved(self):
-        incident = self._incident()
+        alert, incident = self._incident_alert()
         p = PipelineDefinition.objects.create(
             name="ca", match=[], priority=1, stages=["check", "analyze", "notify"]
         )
         incident.pipeline = p
         incident.save(update_fields=["pipeline"])
-        before = incident.updated_at
-        stages = PipelineOrchestrator()._downstream_stages(incident.id, skip_checkers=False)
-        incident.refresh_from_db()
-        assert incident.pipeline_id == p.id
-        assert incident.updated_at == before  # idempotent: no redundant save
+        before = Incident.objects.get(pk=incident.pk).updated_at
+        stages = self._downstream(alert.id)
+        reloaded = Incident.objects.get(pk=incident.pk)
+        assert reloaded.pipeline_id == p.id
+        assert reloaded.updated_at == before  # idempotent: no redundant save
         assert stages == [PipelineStage.CHECK, PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+
+
+class ResumeRoutesOnTheSnapshotAlertTests(TestCase):
+    """A resumed run re-routes from the alert_id stored in the INGEST snapshot."""
+
+    def setUp(self):
+        self.incident = Incident.objects.create(title="High CPU", severity="critical")
+        self.alert = Alert.objects.create(
+            fingerprint="fp-resume",
+            source="cluster",
+            name="cpu",
+            severity="critical",
+            started_at=timezone.now(),
+            incident=self.incident,
+            labels={"instance_id": "web-09"},
+        )
+
+    def _fake_exec(self, pipeline_run, stage, payload, previous_results, incident_id):
+        return {
+            PipelineStage.CHECK: CheckResult(checks_run=1),
+            PipelineStage.ANALYZE: AnalyzeResult(summary="s"),
+            PipelineStage.NOTIFY: NotifyResult(channels_succeeded=1),
+        }[stage]
+
+    def test_resume_reads_alert_id_from_the_ingest_snapshot(self):
+        lane = PipelineDefinition.objects.create(
+            name="web-09-lane",
+            priority=1,
+            match=[{"field": "instance", "op": "is", "value": "web-09"}],
+            stages=["notify"],
+        )
+        run = PipelineRun.objects.create(
+            trace_id="t-resume",
+            run_id="r-resume",
+            source="cluster",
+            status=PipelineStatus.FAILED,
+            origin=PipelineOrigin.INCOMING_WEBHOOK,
+        )
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage=PipelineStage.INGEST,
+            status=StageStatus.SUCCEEDED,
+            output_snapshot={"alert_id": self.alert.id, "incident_id": self.incident.id},
+        )
+        with patch.object(
+            PipelineOrchestrator, "_execute_stage_with_retry", side_effect=self._fake_exec
+        ):
+            result = PipelineOrchestrator().resume_pipeline(run_id="r-resume", payload={})
+
+        assert result.stages_completed == [PipelineStage.NOTIFY]
+        assert Incident.objects.get(pk=self.incident.pk).pipeline_id == lane.id
+
+
+class LegacySnapshotResumeTests(TestCase):
+    """A run whose INGEST snapshot predates ``alert_id`` must still drain.
+
+    33 such runs existed on the dev database when this was written — all FAILED,
+    all resumable via the resume endpoint or the admin's "Mark for Retry". Without
+    the fallback they resume to a COMPLETED run that executed nothing, leaving the
+    incident unstamped and the diagnosis strip reporting ``never_ran``.
+    """
+
+    def setUp(self):
+        self.incident = Incident.objects.create(title="High CPU", severity="critical")
+        self.warning = Alert.objects.create(
+            fingerprint="fp-warn",
+            source="cluster",
+            name="cpu",
+            severity="warning",
+            started_at=timezone.now(),
+            incident=self.incident,
+            labels={"instance_id": "web-07"},
+        )
+        self.critical = Alert.objects.create(
+            fingerprint="fp-crit",
+            source="cluster",
+            name="cpu",
+            severity="critical",
+            started_at=timezone.now(),
+            incident=self.incident,
+            labels={"instance_id": "web-07"},
+        )
+
+    def _fake_exec(self, pipeline_run, stage, payload, previous_results, incident_id):
+        return {
+            PipelineStage.CHECK: CheckResult(checks_run=1),
+            PipelineStage.ANALYZE: AnalyzeResult(summary="s"),
+            PipelineStage.NOTIFY: NotifyResult(channels_succeeded=1),
+        }[stage]
+
+    def _legacy_run(self, snapshot):
+        run = PipelineRun.objects.create(
+            trace_id="t-legacy",
+            run_id="r-legacy",
+            source="cluster",
+            status=PipelineStatus.FAILED,
+            origin=PipelineOrigin.INCOMING_WEBHOOK,
+        )
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage=PipelineStage.INGEST,
+            status=StageStatus.SUCCEEDED,
+            output_snapshot=snapshot,
+        )
+        with patch.object(
+            PipelineOrchestrator, "_execute_stage_with_retry", side_effect=self._fake_exec
+        ):
+            return PipelineOrchestrator().resume_pipeline(run_id="r-legacy", payload={})
+
+    def test_snapshot_without_alert_id_still_routes_and_drains(self):
+        lane = PipelineDefinition.objects.create(
+            name="web-07-lane",
+            priority=1,
+            match=[{"field": "instance", "op": "is", "value": "web-07"}],
+            stages=["check", "notify"],
+        )
+        result = self._legacy_run({"incident_id": self.incident.id, "severity": "critical"})
+
+        assert result.stages_completed == [PipelineStage.CHECK, PipelineStage.NOTIFY]
+        # The incident is stamped, so the diagnosis strip agrees with what ran.
+        assert Incident.objects.get(pk=self.incident.pk).pipeline_id == lane.id
+
+    def test_legacy_subject_is_the_most_severe_alert(self):
+        """Same selection rule as ingest, so the lane sees the severity ingest saw."""
+        PipelineDefinition.objects.create(
+            name="critical-only",
+            priority=1,
+            match=[{"field": "severity", "op": "is", "value": "critical"}],
+            stages=["notify"],
+        )
+        result = self._legacy_run({"incident_id": self.incident.id})
+        assert result.stages_completed == [PipelineStage.NOTIFY]
+        assert PipelineOrchestrator()._legacy_subject_alert_id(self.incident.id) == self.critical.id
+
+    def test_snapshot_with_neither_id_still_stops_cleanly(self):
+        PipelineDefinition.objects.create(name="ca", match=[], priority=1, stages=["notify"])
+        result = self._legacy_run({"severity": "critical"})
+        assert result.stages_completed == []
+
+    def test_incident_with_no_alerts_yields_no_subject(self):
+        empty = Incident.objects.create(title="ghost", severity="info")
+        assert PipelineOrchestrator()._legacy_subject_alert_id(empty.id) is None

@@ -119,28 +119,110 @@ class ResolvePipelineTests(TestCase):
         self.assertEqual(resolve_pipeline({"source": "x"}), active)
 
 
-class FactsFromIncidentTests(TestCase):
-    def test_pulls_source_labels_instance_from_alerts(self):
+class FactsFromAlertTests(TestCase):
+    """Facts come from ONE alert — never merged across an incident's alerts."""
+
+    def _alert(self, **kwargs):
         from django.utils import timezone
 
-        from apps.alerts.models import Alert, Incident
-        from apps.orchestration.routing import facts_from_incident
+        from apps.alerts.models import Alert
 
-        incident = Incident.objects.create(title="High CPU", severity="critical")
-        Alert.objects.create(
-            fingerprint="fp",
-            source="cluster",
-            name="cpu",
-            severity="critical",
-            started_at=timezone.now(),
-            incident=incident,
-            labels={"instance_id": "web-03", "env": "prod"},
-        )
-        facts = facts_from_incident(incident)
+        defaults = {
+            "fingerprint": "fp",
+            "source": "cluster",
+            "name": "cpu",
+            "severity": "critical",
+            "started_at": timezone.now(),
+            "labels": {"instance_id": "web-03", "env": "prod"},
+        }
+        defaults.update(kwargs)
+        return Alert.objects.create(**defaults)
+
+    def test_pulls_source_severity_instance_labels_from_the_alert(self):
+        from apps.orchestration.routing import facts_from_alert
+
+        facts = facts_from_alert(self._alert(), origin="incoming_webhook")
         self.assertEqual(facts["source"], "cluster")
         self.assertEqual(facts["severity"], "critical")
         self.assertEqual(facts["instance"], "web-03")
         self.assertEqual(facts["labels"]["env"], "prod")
+        self.assertEqual(facts["origin"], "incoming_webhook")
+
+    def test_severity_is_the_alerts_own_not_the_incidents(self):
+        """An incident's severity is the max across its alerts; a warning alert
+        on a critical incident must route as ``warning``."""
+        from apps.alerts.models import Incident
+        from apps.orchestration.routing import facts_from_alert
+
+        incident = Incident.objects.create(title="High CPU", severity="critical")
+        alert = self._alert(severity="warning", incident=incident)
+        self.assertEqual(facts_from_alert(alert, "incoming_webhook")["severity"], "warning")
+
+    def test_origin_is_passed_through_verbatim(self):
+        """No default: an omitted origin would silently satisfy every is-not lane."""
+        from apps.orchestration.routing import facts_from_alert
+
+        self.assertEqual(facts_from_alert(self._alert(), "manual")["origin"], "manual")
+
+    def test_blank_source_and_severity_normalise_to_empty_string(self):
+        from apps.orchestration.routing import facts_from_alert
+
+        facts = facts_from_alert(self._alert(source="", severity=""), "incoming_webhook")
+        self.assertEqual(facts["source"], "")
+        self.assertEqual(facts["severity"], "")
+
+    def test_instance_falls_through_instance_id_instance_hostname(self):
+        from apps.orchestration.routing import facts_from_alert
+
+        cases = [
+            ({"instance_id": "a", "instance": "b", "hostname": "c"}, "a"),
+            ({"instance": "b", "hostname": "c"}, "b"),
+            ({"hostname": "c"}, "c"),
+            ({}, ""),
+        ]
+        for i, (labels, expected) in enumerate(cases):
+            with self.subTest(labels=labels):
+                alert = self._alert(fingerprint=f"fp-{i}", labels=labels)
+                self.assertEqual(facts_from_alert(alert, "incoming_webhook")["instance"], expected)
+
+    def test_non_dict_labels_yield_empty_labels_and_instance(self):
+        from apps.orchestration.routing import facts_from_alert
+
+        facts = facts_from_alert(self._alert(labels="pwned"), "incoming_webhook")
+        self.assertEqual(facts["labels"], {})
+        self.assertEqual(facts["instance"], "")
+
+
+class OriginMatchingTests(TestCase):
+    """``origin`` is a first-class routing fact — lanes can match the entry point."""
+
+    def _lane(self, origin_value):
+        return PipelineDefinition(
+            name="p", match=[{"field": "origin", "op": "is", "value": origin_value}]
+        )
+
+    def test_lane_matches_its_origin_and_not_another(self):
+        lane = self._lane("checker_generated")
+        self.assertTrue(lane.matches({"origin": "checker_generated"}))
+        self.assertFalse(lane.matches({"origin": "incoming_webhook"}))
+        self.assertFalse(lane.matches({"origin": ""}))
+
+    def test_resolve_pipeline_picks_the_lane_for_this_origin(self):
+        from apps.orchestration.routing import resolve_pipeline
+
+        webhook = PipelineDefinition.objects.create(
+            name="webhook-lane",
+            priority=10,
+            match=[{"field": "origin", "op": "is", "value": "incoming_webhook"}],
+        )
+        checker = PipelineDefinition.objects.create(
+            name="checker-lane",
+            priority=20,
+            match=[{"field": "origin", "op": "is", "value": "checker_generated"}],
+        )
+        self.assertEqual(resolve_pipeline({"origin": "incoming_webhook"}), webhook)
+        self.assertEqual(resolve_pipeline({"origin": "checker_generated"}), checker)
+        self.assertIsNone(resolve_pipeline({"origin": "manual"}))
 
 
 class RouteIncidentTests(TestCase):

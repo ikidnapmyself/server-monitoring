@@ -724,3 +724,36 @@ class TestPipelineDefinitionStagesForm(TestCase):
         )
         assert response.status_code == 200  # redisplayed with errors, not saved
         assert "Unknown stage" in response.content.decode()
+
+
+class RoutingHelpTextDiscoverabilityTests(SimpleTestCase):
+    """Every routable fact must be discoverable where operators write ``match``."""
+
+    def _routing_description(self):
+        from django.contrib.admin.sites import site
+
+        from apps.orchestration.models import PipelineDefinition
+
+        fieldsets = dict(
+            (name, opts) for name, opts in site._registry[PipelineDefinition].fieldsets
+        )
+        return fieldsets["Routing"]["description"]
+
+    def test_all_routing_fact_names_are_documented(self):
+        from apps.alerts.models import Alert
+        from apps.orchestration.routing import facts_from_alert
+
+        description = self._routing_description()
+        facts = facts_from_alert(Alert(source="s", severity="critical", labels={}), "manual")
+        for fact in facts:
+            if fact == "labels":
+                continue  # exposed as the label:<k> prefix, not a bare field name
+            assert fact in description, f"routing fact {fact!r} is undocumented in the admin"
+        assert "label:<k>" in description
+
+    def test_origin_values_are_documented(self):
+        from apps.orchestration.models import PipelineOrigin
+
+        description = self._routing_description()
+        for value in PipelineOrigin.values:
+            assert value in description

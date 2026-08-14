@@ -320,7 +320,7 @@ class PipelineOrchestrator:
         # checks_only / skip_checkers remain CLI/back-compat overrides. Otherwise
         # INGEST always runs first; the downstream stages are resolved AFTER ingest
         # from the matched pipeline's stages list (see _downstream_stages), because
-        # routing needs the incident's facts (source/severity/labels).
+        # routing needs this run's subject alert (source/severity/labels/origin).
         checks_only = payload.get("checks_only", False)
         skip_checkers = payload.get("skip_checkers", False)
         if checks_only:
@@ -339,6 +339,7 @@ class PipelineOrchestrator:
         # Track previous stage results for context
         previous_results: dict[str, dict[str, Any]] = {}
         incident_id: int | None = None
+        alert_id: int | None = None
 
         try:
             for stage in active_stages:
@@ -354,9 +355,14 @@ class PipelineOrchestrator:
                         previous_results[stage] = prev_execution.output_snapshot
                         if stage == PipelineStage.INGEST:
                             incident_id = prev_execution.output_snapshot.get("incident_id")
+                            alert_id = prev_execution.output_snapshot.get("alert_id")
+                            if not alert_id and incident_id:
+                                alert_id = self._legacy_subject_alert_id(incident_id)
                     # Resolve downstream even on resume, so a resumed run still routes.
                     if stage == PipelineStage.INGEST:
-                        downstream = self._downstream_stages(incident_id, skip_checkers)
+                        downstream = self._downstream_stages_or_default(
+                            alert_id, pipeline_run.origin, skip_checkers
+                        )
                         active_stages.extend(downstream)  # in-place: the loop sees new items
                         final_status = self._final_status(downstream)
                     continue
@@ -377,6 +383,7 @@ class PipelineOrchestrator:
                 # Update incident ID if discovered
                 if stage == PipelineStage.INGEST and isinstance(stage_result, IngestResult):
                     incident_id = stage_result.incident_id
+                    alert_id = stage_result.alert_id
                     pipeline_run.incident_id = incident_id
                     pipeline_run.alert_fingerprint = stage_result.alert_fingerprint or ""
                     pipeline_run.normalized_payload_ref = stage_result.normalized_payload_ref or ""
@@ -388,9 +395,11 @@ class PipelineOrchestrator:
                             "updated_at",
                         ]
                     )
-                    # Now that we know the incident, resolve + stamp the matched
-                    # pipeline and take the downstream stages from its stages list.
-                    downstream = self._downstream_stages(incident_id, skip_checkers)
+                    # Now that we know this run's subject alert, resolve + stamp the
+                    # matched lane and take the downstream stages from its stages list.
+                    downstream = self._downstream_stages_or_default(
+                        alert_id, pipeline_run.origin, skip_checkers
+                    )
                     active_stages.extend(downstream)  # in-place: the loop sees new items
                     final_status = self._final_status(downstream)
 
@@ -495,34 +504,55 @@ class PipelineOrchestrator:
         result.completed_at = pipeline_run.completed_at
         return result
 
-    def _downstream_stages(
-        self, incident_id: int | None, skip_checkers: bool
-    ) -> list[PipelineStage]:
-        """Stages after INGEST, from the matched pipeline's ``stages`` list.
+    @staticmethod
+    def _legacy_subject_alert_id(incident_id: int) -> int | None:
+        """Subject alert for an INGEST snapshot written before ``alert_id`` existed.
 
-        Resolves the pipeline for the incident, stamps it on the incident, and
-        returns the enabled downstream stages. Falls back to today's full order
-        (minus CHECK when skip_checkers) when there is no incident or no match,
-        so behaviour is unchanged for un-routed traffic.
+        LEGACY-SNAPSHOT COMPATIBILITY — delete once no pre-``alert_id`` snapshots
+        remain. Such a run is resumable (FAILED/RETRYING, via the resume endpoint
+        or the admin's "Mark for Retry"), and without this it would route on
+        nothing: every downstream stage silently skipped, the run reported
+        COMPLETED, and the incident left unstamped so the diagnosis strip calls
+        check/analyze/notify ``never_ran``.
+
+        Re-derives the subject with the same rule ingest uses. It reads the
+        incident's alerts rather than this push's, which is exactly the
+        cross-alert widening the new code avoids — acceptable only because a
+        legacy snapshot has no record of which alerts its push touched.
         """
-        default = [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
-        if not skip_checkers:
-            default = [PipelineStage.CHECK] + default
+        from apps.alerts.models import Alert
+        from apps.orchestration.routing import subject_alert
 
-        if not incident_id:
-            return default
+        subject = subject_alert(Alert.objects.filter(incident_id=incident_id))
+        return subject.id if subject is not None else None
 
-        from apps.alerts.models import Incident
-        from apps.orchestration.routing import facts_from_incident, resolve_pipeline
+    def _downstream_stages(
+        self, alert_id: int | None, origin: str, skip_checkers: bool
+    ) -> list[PipelineStage] | None:
+        """Stages after the entry stage, from the matched lane.
 
-        incident = Incident.objects.filter(id=incident_id).first()
-        if incident is None:
-            return default
-        matched = resolve_pipeline(facts_from_incident(incident))
+        ``[]`` means nothing to run downstream — either no alert to route, or a
+        lane matched that lists no stages. ``None`` means an alert exists and no
+        lane claimed it; today the caller falls back to the default order (see
+        ``_downstream_stages_or_default``), and Task 6 replaces that with a
+        non-retryable ``no_route`` failure.
+        """
+        from apps.alerts.models import Alert
+        from apps.orchestration.routing import facts_from_alert, resolve_pipeline
+
+        if not alert_id:
+            return []
+        # select_related: alert.incident is read below on every matched run.
+        alert = Alert.objects.select_related("incident").filter(id=alert_id).first()
+        if alert is None:
+            return []
+
+        matched = resolve_pipeline(facts_from_alert(alert, origin))
         if matched is None:
-            return default
+            return None
 
-        if incident.pipeline_id != matched.id:
+        incident = alert.incident
+        if incident is not None and incident.pipeline_id != matched.id:
             incident.pipeline = matched
             incident.save(update_fields=["pipeline", "updated_at"])
 
@@ -541,6 +571,24 @@ class PipelineOrchestrator:
         if skip_checkers and PipelineStage.CHECK in stages:
             stages.remove(PipelineStage.CHECK)
         return stages
+
+    def _downstream_stages_or_default(
+        self, alert_id: int | None, origin: str, skip_checkers: bool
+    ) -> list[PipelineStage]:
+        """``_downstream_stages`` plus the pre-catch-all fallback. Temporary.
+
+        TASK 6 deletes this method: once a catch-all lane is seeded, a ``None``
+        from ``_downstream_stages`` becomes a non-retryable ``no_route`` failure
+        instead of silently running today's default order, and both call sites go
+        back to ``_downstream_stages``. Until then an un-routed run behaves
+        exactly as it did before.
+        """
+        downstream = self._downstream_stages(alert_id, origin, skip_checkers)
+        if downstream is None:
+            downstream = [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+            if not skip_checkers:
+                downstream = [PipelineStage.CHECK] + downstream
+        return downstream
 
     @staticmethod
     def _final_status(downstream: list[PipelineStage]) -> PipelineStatus:

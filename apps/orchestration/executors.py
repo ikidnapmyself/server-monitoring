@@ -59,7 +59,8 @@ class IngestExecutor(BaseExecutor):
         result = IngestResult()
 
         try:
-            from apps.alerts.services import AlertOrchestrator, severity_rank
+            from apps.alerts.services import AlertOrchestrator
+            from apps.orchestration.routing import subject_alert
 
             payload = ctx.payload
             driver = payload.get("driver")
@@ -83,18 +84,11 @@ class IngestExecutor(BaseExecutor):
             result.errors = list(proc_result.errors)
             result.source = ctx.source
 
-            # Subject = the most severe alert THIS call touched, ties broken by
-            # name then fingerprint. Deliberately not a global query: two nodes
-            # pushing as source=cluster must never route on each other's alerts.
-            # The fingerprint key makes the order total: one grouped alertmanager
-            # notification can carry the same alertname at the same severity for
-            # two instances, and those belong to different (name, instance)
-            # incidents — an arbitrary pick would swing incident_id and title.
-            subject = min(
-                proc_result.alerts,
-                key=lambda a: (-severity_rank(a.severity), a.name, a.fingerprint),
-                default=None,
-            )
+            # Subject = the most severe alert THIS call touched. Deliberately not
+            # a global query: two nodes pushing as source=cluster must never route
+            # on each other's alerts. The selection rule itself lives in routing so
+            # the resume path and CheckExecutor share one definition.
+            subject = subject_alert(proc_result.alerts)
             if subject is not None:
                 result.alert_id = subject.id
                 result.incident_id = subject.incident_id
