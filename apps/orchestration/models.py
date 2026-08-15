@@ -548,8 +548,10 @@ class PipelineDefinition(models.Model):
         blank=True,
         help_text=(
             'Ordered downstream stages, e.g. ["check", "analyze", "notify"]. The entry '
-            "stage (ingest) is not listed: it has already run by the time this lane is "
-            "resolved. Checker-generated runs do not consult a lane at all today."
+            "stage is not listed: it has already run by the time this lane is resolved. "
+            "INGEST is the entry stage for webhook traffic and CHECK for checker-generated "
+            "runs (run_pipeline --checks-only); either way the lane is resolved from the "
+            "alert that stage produced."
         ),
     )
     channel = models.ForeignKey(

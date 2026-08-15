@@ -324,6 +324,13 @@ uv run python manage.py preflight          # All system checks, grouped
 uv run python manage.py preflight --json   # JSON output for CI
 ```
 
+The `--json` output lists routing lanes under `definitions[]`, each with `name`,
+`active`, `priority`, `channel` (the channel's name, or `null` when the lane
+targets none) and `channel_routes` (whether that channel is active enough to
+actually deliver). A lane wired to a deactivated channel reports its name with
+`channel_routes: false` — reporting the name alone would claim a route that does
+not exist.
+
 ### Health checks
 
 ```bash
@@ -349,6 +356,72 @@ For Docker:
 ```bash
 docker compose -f deploy/docker/docker-compose.yml logs inbox
 ```
+
+---
+
+## Upgrading an existing install to row-based routing
+
+Routing now lives entirely in `PipelineDefinition` rows: the three `run_*`
+booleans became one ordered `stages` list, the `channels` M2M became a single
+`channel` FK, and the orchestrator's implicit "run everything" fallback is gone.
+Migrations `0010`–`0014` carry an existing install across.
+
+### Migrate first, then restart — the order is not symmetric
+
+```bash
+uv run python manage.py migrate      # 1. rows first
+sudo systemctl restart server-monitoring server-monitoring-inbox   # 2. code second
+```
+
+**Migrating before the restart is safe.** The old code's fallback is simply never
+reached, because the seeded `catch-all` lane reproduces exactly the default order
+that fallback used to hard-code.
+
+**Deploying the code first is not.** Until the rows exist, anything no lane claims
+fails **non-retryably** as `no_route`. Those runs are not in the inbox, nothing
+auto-retries them, and each one needs a manual resume once routing is configured.
+
+### Back up before migrating
+
+Both destructive steps are reversible, but one of them cannot restore what it
+discards:
+
+- **`0010`** backfills `stages` from the three booleans, then drops the columns.
+- **`0011`** keeps **one** channel per lane — the same one delivery already picked,
+  the alphabetically first *active* one — and discards the rest when the join table
+  is dropped. No behaviour changes, since the discarded channels were never
+  consulted, but the rows are gone: `backwards()` restores only the survivor.
+  `forwards()` logs a warning naming every lane and every channel it drops, so
+  check the `migrate` output and re-create anything you still want.
+
+### Re-check `severity` and `instance` conditions
+
+Routing facts now come from **one** alert rather than a merge across the incident,
+so two fields are computed differently: `severity` is the subject alert's own (no
+longer the incident's maximum across alerts), and `instance` falls through
+`instance_id` → `instance` → `hostname` (no longer `instance_id` alone).
+
+This is a superset of the *value*, but **not** of the *match outcome*. For `is-not`
+and `not-in`, a fact moving from `""` to populated flips a previously-matching lane
+to not-matching. Audit any lane that conditions on either field:
+
+```bash
+uv run python manage.py shell -c "
+from apps.orchestration.models import PipelineDefinition
+for d in PipelineDefinition.objects.all():
+    for c in (d.match or []):
+        if c.get('field') in ('severity', 'instance'):
+            print(d.name, c)"
+```
+
+### After the restart
+
+```bash
+uv run python manage.py preflight --json   # definitions[]: stages, channel, channel_routes
+```
+
+Confirm every lane you rely on still has the `stages` you expect and a
+`channel_routes: true` where it is meant to deliver.
 
 ---
 
@@ -394,36 +467,80 @@ The sections below describe the equivalent manual `.env` setup.
 
 ### How the hub routes an incident to a channel
 
-Guided hub setup does not leave the notification channel bare — it binds it to a
-**catch-all `PipelineDefinition`** (name `default-catch-all`, empty `match`, low
-`priority`). Notification routing is pipeline-driven:
+Guided hub setup does not leave the notification channel bare — it binds it to the
+**catch-all `PipelineDefinition`** that actually wins routing (on a fresh install
+that is the seeded `catch-all` lane; if no catch-all exists at all it creates
+`default-catch-all`). Notification routing is pipeline-driven:
 
 - Each active `PipelineDefinition` has a `match` (a list of `{field, op, value}`
-  conditions; `field` is `source`, `severity`, `instance`, or `label:<key>`;
-  `op` is `is` / `is-not` / `in` / `not-in`) and a `priority`.
-- For an incident, pipelines are evaluated by ascending `priority` and the **first
-  match wins**. An empty `match` matches everything, so the catch-all is the
-  backstop. The matched pipeline is **stamped on the `Incident`** right after
-  ingest, and the notify stage sends to that pipeline's **primary active channel**
-  (the first active channel by name).
-- The pipeline's `run_checkers` / `run_intelligence` / `run_notify` flags **select
-  which stages run** after ingest. For example, a pipeline with `run_checkers=False`
-  produces an AI-analysed notify without re-running checks; clearing `run_notify`
-  records the incident without notifying. A pipeline with all three cleared just
-  records the alert (ingest only).
+  conditions; `field` is `source`, `severity`, `instance`, `origin`, or
+  `label:<key>`; `op` is `is` / `is-not` / `in` / `not-in`) and a `priority`.
+  `origin` is where the run started — `incoming_webhook`, `checker_generated`, or
+  `manual`.
+- Facts come from the run's **subject alert** — one alert, not a merge across the
+  incident. `severity` is that alert's own severity, and `instance` falls through
+  `instance_id` → `instance` → `hostname`.
+- Pipelines are evaluated by ascending `priority` (ties broken by `id`) and the
+  **first match wins**. An empty `match` matches everything, so the catch-all is
+  the backstop. The matched pipeline is **stamped on the `Incident`**, and the
+  notify stage sends to that pipeline's `channel`.
+- The pipeline's `stages` column is **one ordered list** naming the downstream
+  stages to run — a subset of `["check", "analyze", "notify"]`, always in that
+  order. The entry stage is not listed: the lane is resolved *from* the alert the
+  entry stage produced, so it has already run. For example, `["analyze", "notify"]`
+  produces an AI-analysed notify without re-running checks; `["check", "analyze"]`
+  records and analyses without notifying; `[]` records the alert and stops.
 - To route specific traffic elsewhere (e.g. send `severity: critical` from a given
   node to a dedicated channel, or silence a noisy source), add a higher-priority
   pipeline in **Orchestration → Pipeline definitions** with the narrower `match`,
-  its own channel, and the flags you want. Lower `priority` numbers win, so an
-  exception rule sits *above* the general one.
+  its own channel, and the `stages` you want. Lower `priority` numbers win, so an
+  exception rule sits *above* the general one. Convention: **below 100** for system
+  lanes that must pre-empt operator rules, **100** (the default) for your own
+  lanes, **1000** for a catch-all that should only fire when nothing else claimed
+  the alert.
+
+Lanes seeded out of the box:
+
+| Lane | Priority | Match | Stages |
+|------|----------|-------|--------|
+| `cluster-nodes` | 50 | `source is cluster` | `analyze`, `notify` |
+| `hub-self-check` | 50 | `origin is checker_generated` | *(none)* |
+| `catch-all` | 1000 | *(empty)* | `check`, `analyze`, `notify` |
+
+None of these are special-cased in code — they are ordinary rows, editable and
+deletable like any lane you create.
 
 Notes:
 
-- **No-match is non-breaking:** if no active pipeline matches, the full pipeline
-  (checks → intelligence → notify) runs, exactly as before routing existed.
-- The CLI overrides `--checks-only` / `skip_checkers` still take precedence over a
-  pipeline's flags.
-- Only one channel per pipeline is used today; multi-channel fan-out is future work.
+- **There is no implicit fallback.** An alert that no active lane matches fails
+  **non-retryably** as `no_route`: nothing is checked, analysed or notified, and
+  no retry can conjure a lane. The seeded `catch-all` row is what keeps a fresh
+  install routing everything; deleting or deactivating it is a supported choice,
+  and it means unmatched traffic fails loudly instead of silently taking a route
+  nobody configured. `preflight` warns when no active pipeline definitions exist.
+- A lane with an empty `match` is a catch-all, and lanes are evaluated by
+  `(priority, id)`. **Several catch-alls at the same priority means the lowest
+  `id` wins and the rest never route** — check the `stages` and `channel` columns
+  on the Pipeline definitions changelist if a lane you expect never fires.
+- **A lane targets exactly one channel.** Delivery has never fanned out; the
+  `channel` FK simply makes the field match the behaviour. An **inactive** channel
+  routes nowhere — the lane delivers nothing through it and notify falls back to
+  payload-driven selection — so the changelist marks such a channel `(inactive)`.
+- `run_pipeline --checks-only` is an **entry stage**, not an override: CHECK runs,
+  and the lane is resolved from the alert CHECK produced, exactly as INGEST does.
+  Adding `--no-incidents` makes it a silent diagnostic — the run stops at CHECKED,
+  resolves no lane, and analyses and notifies nothing. Alerts are still recorded.
+- **The hub self-check is record-only by default.** `hub-self-check` ships with
+  empty `stages`: it records alerts, opens incidents, stamps the lane and carries
+  the run's `trace_id` — so hub self-checks are traceable in the admin like any
+  other traffic — and then stops. It is empty because this traffic *repeats*:
+  `bin/install/cron.sh` runs `run_pipeline --checks-only` every five minutes, and a
+  still-firing alert is re-reported on every tick, so listing `analyze` and
+  `notify` would mean roughly 288 AI calls and 288 identical messages a day about
+  one unchanged problem. `apps/notify` has no cooldown or de-duplication yet (only
+  the PagerDuty driver has a `dedup_key`) — a known gap, not an oversight. Add
+  `"notify"` to that row's `stages` to page on hub problems (and `"analyze"` for an
+  AI summary), and expect one message per cron run for as long as the alert fires.
 - Alerts created **within a pipeline run** carry the run's `trace_id` (the journey
   chain). Alerts ingested directly outside a run — the synchronous webhook fallback
   and the node ingest handler — currently have a blank `trace_id`. Cluster-ingested

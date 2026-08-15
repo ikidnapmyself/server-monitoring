@@ -226,6 +226,16 @@ uv run python manage.py run_pipeline --checks-only --json
 This command runs all enabled checkers, creates alerts for any issues found, and optionally
 creates incidents for critical problems. Output is logged to `cron.log` in the project root.
 
+CHECK is the **entry stage** here: the run resolves a routing lane from the alert the
+checks produced, exactly as webhook traffic resolves one from the alert INGEST produced.
+The seeded `hub-self-check` lane (`origin is checker_generated`) matches this traffic and
+ships with **empty `stages`** — it records the alerts, opens incidents and stamps the lane
+so the run is traceable, then stops. That default exists because cron repeats: a
+still-firing alert is re-reported on every tick, and notification de-duplication does not
+exist yet, so paging here would mean one message per run for as long as the alert fires.
+Add `"notify"` to that lane's `stages` in **Orchestration → Pipeline definitions** to page
+on local problems (and `"analyze"` for an AI summary).
+
 Verify cron is set up:
 
 ```bash
@@ -548,7 +558,7 @@ uv run python manage.py setup_cluster
 
 ### Checker doesn't run
 
-All registered checkers run by default; a routing pipeline can disable the CHECK stage via run_checkers=false.
+All registered checkers run by default; a routing pipeline can drop the CHECK stage by omitting `"check"` from its `stages` list (as the seeded `cluster-nodes` lane does — the node already ran its own checkers).
 
 ### Intelligence provider times out
 
