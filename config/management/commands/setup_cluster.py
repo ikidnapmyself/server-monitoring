@@ -220,14 +220,20 @@ class Command(BaseCommand):
                 },
             )
         notify = PipelineStage.NOTIFY.value
+        # Read through routable_stages() rather than the raw column: clean() only runs
+        # on admin forms, so a fixture or shell edit can persist junk. A bare string
+        # would substring-match ("notify" in "notify") and skip the repair, and
+        # unhashable junk would make the set() below raise TypeError instead of being
+        # normalised away.
+        current_stages = pipeline.routable_stages()
         if not created and not (
-            pipeline.is_active and pipeline.match == [] and notify in (pipeline.stages or [])
+            pipeline.is_active and pipeline.match == [] and notify in current_stages
         ):
             pipeline.is_active = True
             pipeline.match = []
             # Keep whatever stages the operator selected, but guarantee NOTIFY,
             # inserted in canonical order.
-            selected = set(pipeline.stages or []) | {notify}
+            selected = set(current_stages) | {notify}
             pipeline.stages = [s for s in PipelineDefinition.ROUTABLE_STAGES if s in selected]
             pipeline.save(update_fields=["is_active", "match", "stages", "updated_at"])
         # A lane has exactly one channel. Claim the slot when it is empty or holds a

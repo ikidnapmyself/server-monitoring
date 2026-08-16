@@ -227,6 +227,33 @@ class SetupClusterHubTests(TestCase):
         # in canonical order rather than overwritten.
         self.assertEqual(catchall.stages, ["check", "notify"])
 
+    def test_a_malformed_stages_column_is_repaired_not_skipped(self):
+        """A bare string in ``stages`` must not fool the repair check.
+
+        ``clean()`` only runs on admin forms, so a fixture or shell edit can persist
+        ``stages="notify"``. Testing membership against the raw column would substring
+        -match (``"notify" in "notify"`` is True) and skip the repair, leaving a lane
+        that ``routable_stages()`` normalises to ``[]`` — configured, matched, and
+        running nothing. Reading through ``routable_stages()`` makes both the check
+        and the repair input honest.
+        """
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+
+        clear_lanes()
+        PipelineDefinition.objects.create(
+            name="default-catch-all", is_active=True, match=[], stages="notify"
+        )
+        # Binding only runs when there is a channel to bind, so the lane needs one
+        # for the repair path to be reached at all.
+        NotificationChannel.objects.create(
+            name="existing", driver="slack", config={"webhook_url": "https://hooks.slack.com/x"}
+        )
+        with tempfile.TemporaryDirectory() as d:
+            self._run_hub(d, "--no-notify")
+        catchall = PipelineDefinition.objects.get(name="default-catch-all")
+        self.assertEqual(catchall.stages, ["notify"])
+
     def test_the_channel_lands_on_the_lane_that_actually_routes(self):
         """The regression this file could not previously see.
 

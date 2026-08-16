@@ -49,10 +49,10 @@ class _FakeProcessingResult:
     alerts: list = field(default_factory=list)
 
 
-def _mock_alert(*, name, severity, fingerprint, id=1, incident_id=None, title=None):
+def _mock_alert(*, name, severity, fingerprint, pk=1, incident_id=None, title=None):
     """A duck-typed stand-in for an Alert row (``name`` needs explicit assignment)."""
     alert = MagicMock()
-    alert.id = id
+    alert.id = pk
     alert.name = name
     alert.severity = severity
     alert.fingerprint = fingerprint
@@ -76,7 +76,7 @@ class TestIngestExecutorSuccess(TestCase):
                     name="disk",
                     severity="critical",
                     fingerprint="fp-123",
-                    id=7,
+                    pk=7,
                     incident_id=42,
                     title="Disk full on web-01",
                 )

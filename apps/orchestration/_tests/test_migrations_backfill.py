@@ -299,8 +299,8 @@ channel_migration = importlib.import_module(
 
 
 class _FakeChannel:
-    def __init__(self, id, name, is_active=True):
-        self.id = id
+    def __init__(self, pk, name, is_active=True):
+        self.id = pk
         self.name = name
         self.is_active = is_active
 
