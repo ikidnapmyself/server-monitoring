@@ -64,7 +64,7 @@ See the [Setup Guide](Setup-Guide) for step-by-step walkthroughs.
 
 Stage behavior is controlled through routing pipelines and Django Admin — not environment variables:
 
-- **Routing**: `PipelineDefinition` (Django Admin) matches an incident and its `run_checkers`/`run_intelligence`/`run_notify` flags select which stages run; its `channels` are the notify targets.
+- **Routing**: `PipelineDefinition` (Django Admin) matches the run's subject alert and its ordered `stages` list selects which downstream stages run; its single `channel` is the notify target. Unmatched traffic fails non-retryably as `no_route` — there is no implicit fallback.
 - **Intelligence**: The `IntelligenceProvider` model (Django Admin) controls which AI provider is active.
 - **Notify**: The `NotificationChannel` model (Django Admin) controls which channels are active via `is_active`.
 
@@ -145,11 +145,14 @@ All apps register their models at `/admin/`:
 **Location:** `apps/orchestration/orchestrator.py`
 
 Fixed 4-stage sequence: INGEST → CHECK → ANALYZE → NOTIFY, each with a dedicated
-executor class. The pipeline's *shape* is data, not code: after INGEST, the
-orchestrator resolves the matching `PipelineDefinition` for the incident
-(`routing.py`, first-match-wins by `priority`) and runs the stages its
-`run_checkers` / `run_intelligence` / `run_notify` flags enable; NOTIFY sends to the
-matched pipeline's channels. A no-match runs the full order.
+executor class. The pipeline's *shape* is data, not code: after the **entry stage**
+(INGEST for webhook traffic, CHECK for `run_pipeline --checks-only`), the
+orchestrator resolves the matching `PipelineDefinition` from the alert that stage
+produced (`routing.py`, first-match-wins by `priority`, ties on `id`) and runs the
+downstream stages listed in its `stages` column, in that order; NOTIFY sends to the
+matched pipeline's single `channel`. A no-match is a non-retryable `no_route`
+failure — migration `0012` seeds a `catch-all` lane so unmatched traffic is a row
+an operator can read and edit rather than a constant in the orchestrator.
 
 - **Endpoints:** `POST /orchestration/pipeline/` (async — records a `PENDING` run for
   the `process_inbox` drain) and `/pipeline/sync/` (runs inline).
@@ -158,7 +161,7 @@ matched pipeline's channels. A no-match runs the full order.
 
 Routing pipelines are managed in **Django Admin** (`/admin/orchestration/pipelinedefinition/`)
 or wired by the guided `setup_cluster`. The legacy node/edge graph engine was retired
-in Phase D — `PipelineDefinition` is now purely a routing rule (match → flags → channels).
+in Phase D — `PipelineDefinition` is now purely a routing rule (match → ordered stages → one channel).
 
 **Observability:** a "Journey" panel on the Alert/Incident admin, `manage.py trace
 <alert|trace_id>`, and `manage.py report` (per-node incidents, per-pipeline routing
@@ -188,7 +191,7 @@ PipelineDefinition (standalone config)
 | `PipelineRun` | orchestration | Pipeline execution tracking (status, timing, correlation IDs) |
 | `StageExecution` | orchestration | Per-stage execution within a pipeline (input/output snapshots) |
 | `NotificationChannel` | notify | Persistent channel configuration (driver, config, enabled) |
-| `PipelineDefinition` | orchestration | Routing rule: match -> run_* flags -> notify channels |
+| `PipelineDefinition` | orchestration | Routing rule: match -> ordered stages -> one notify channel |
 
 ### State Machine
 

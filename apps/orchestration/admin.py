@@ -321,7 +321,10 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
         "name",
         "priority",
         "is_active",
-        "channel_count",
+        # One compact, join-free column that shows a lane's whole routing decision —
+        # something three separate booleans could never do at a glance.
+        "stages",
+        "channel_name",
         "created_by",
         "updated_at",
     ]
@@ -329,7 +332,6 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
     search_fields = ["name", "description", "created_by"]
     readonly_fields = ["version", "created_at", "updated_at"]
     ordering = ["priority", "-updated_at"]
-    filter_horizontal = ["channels"]
     formfield_overrides = {db_models.JSONField: {"widget": JSONEditorWidget}}
 
     fieldsets = [
@@ -345,16 +347,18 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
                 "fields": [
                     "match",
                     "priority",
-                    "run_checkers",
-                    "run_intelligence",
-                    "run_notify",
-                    "channels",
+                    "stages",
+                    "channel",
                 ],
                 "description": (
-                    "match: [{field, op, value}] (field: source|severity|instance|label:<k>; "
-                    "op: is|is-not|in|not-in). Empty match = catch-all. Lower priority is "
-                    "evaluated first; first match wins. Flags select stages; channels are the "
-                    "notify targets."
+                    "match: [{field, op, value}] (field: source|severity|instance|origin|"
+                    "label:<k>; op: is|is-not|in|not-in). origin is where the run started: "
+                    "incoming_webhook | checker_generated | manual. Facts come from "
+                    "the run's subject alert. Empty match = catch-all. Lower priority is "
+                    "evaluated first; first match wins. stages is the ordered downstream "
+                    'list, e.g. ["check", "analyze", "notify"] — the entry stage is already '
+                    "done by the time this lane is picked, so it is not listed. channel is "
+                    "the single notify target — delivery has never fanned out."
                 ),
             },
         ),
@@ -367,13 +371,41 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
     ]
 
     def get_queryset(self, request):
-        """Prefetch channels so the changelist's channel_count avoids an N+1."""
-        return super().get_queryset(request).prefetch_related("channels")
+        """Join the channel so the changelist's channel_name avoids an N+1."""
+        return super().get_queryset(request).select_related("channel")
 
-    @admin.display(description="Channels")
-    def channel_count(self, obj):
-        """Number of notify channels wired to this pipeline (uses the prefetch cache)."""
-        return len(obj.channels.all())
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        """Pre-fill a new lane's ``stages`` with the full downstream pipeline.
+
+        The model default stays ``[]`` so an ingest-only lane remains expressible
+        without a sentinel. But a blank Add form is a footgun: an operator who fills
+        in ``match``, attaches a channel and leaves ``stages`` alone would create a
+        lane that swallows every matching incident and delivers nothing. Seeding the
+        *form* makes the common case the path of least resistance while leaving
+        "empty means empty" intact in the data model. On a change form the instance's
+        own value wins, so an explicitly emptied list is not silently refilled.
+        """
+        if db_field.name == "stages":
+            kwargs.setdefault("initial", list(PipelineDefinition.ROUTABLE_STAGES))
+        return super().formfield_for_dbfield(db_field, request, **kwargs)
+
+    @admin.display(description="Channel", ordering="channel__name")
+    def channel_name(self, obj):
+        """Name of the notify channel this lane targets, or an em dash when unset.
+
+        A deactivated channel is marked, because ``_route_incident`` treats it as no
+        channel at all: delivery silently falls back to payload-driven selection. A
+        bare name here would tell an operator the lane routes when it does not — the
+        same "config that lies" this field's own FK refactor was meant to end.
+        """
+        if obj.channel is None:
+            return "—"
+        if obj.routed_channel() is not None:
+            return obj.channel.name
+        return format_html(
+            '{} <span style="color:#999;font-size:11px;">(inactive)</span>',
+            obj.channel.name,
+        )
 
     def save_model(self, request, obj, form, change):
         """Default created_by to the acting user."""

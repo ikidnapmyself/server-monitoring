@@ -59,8 +59,8 @@ class IngestExecutor(BaseExecutor):
         result = IngestResult()
 
         try:
-            from apps.alerts.models import Alert
             from apps.alerts.services import AlertOrchestrator
+            from apps.orchestration.routing import subject_alert
 
             payload = ctx.payload
             driver = payload.get("driver")
@@ -84,21 +84,22 @@ class IngestExecutor(BaseExecutor):
             result.errors = list(proc_result.errors)
             result.source = ctx.source
 
-            # Find the incident from the most recent alert. Scope by source when
-            # it is known (not the auto-detect "unknown" sentinel) to reduce
-            # cross-source contamination on a shared hub. Fingerprint-level
-            # correctness under concurrent same-source pushes is a separately
-            # tracked limitation.
-            alert_qs = Alert.objects.order_by("-received_at")
-            if ctx.source and ctx.source != "unknown":
-                alert_qs = alert_qs.filter(source=ctx.source)
-            latest_alert = alert_qs.select_related("incident").first()
-            if latest_alert and latest_alert.incident_id:
-                result.incident_id = latest_alert.incident_id
-                result.alert_fingerprint = latest_alert.fingerprint
-                result.severity = latest_alert.severity
-                if latest_alert.incident and latest_alert.incident.title:
-                    result.incident_title = latest_alert.incident.title
+            # Subject = the most severe alert THIS call touched. Deliberately not
+            # a global query: two nodes pushing as source=cluster must never route
+            # on each other's alerts. The selection rule itself lives in routing so
+            # the resume path and CheckExecutor share one definition.
+            subject = subject_alert(proc_result.alerts)
+            if subject is not None:
+                result.alert_id = subject.id
+                result.incident_id = subject.incident_id
+                result.alert_fingerprint = subject.fingerprint
+                result.severity = subject.severity
+                # Gate on the already-loaded FK id so no-incident runs skip the
+                # lazy fetch of subject.incident entirely; binding the result
+                # also keeps it to one access and lets mypy narrow the Optional.
+                incident = subject.incident if subject.incident_id else None
+                if incident is not None and incident.title:
+                    result.incident_title = incident.title
 
             # Generate payload reference (hash-based, no secrets)
             result.normalized_payload_ref = f"payload:{ctx.trace_id}:{ctx.run_id}:ingest"
@@ -125,6 +126,7 @@ class CheckExecutor(BaseExecutor):
 
         try:
             from apps.alerts.check_integration import CheckAlertBridge
+            from apps.orchestration.routing import subject_alert
 
             payload = ctx.payload
             hostname = payload.get("hostname")
@@ -170,6 +172,21 @@ class CheckExecutor(BaseExecutor):
             result.checks_passed = bridge_result.checks_run - len(bridge_result.errors)
             result.checks_failed = len(bridge_result.errors)
             result.errors = list(bridge_result.errors)
+
+            # Subject = the most severe alert THIS batch of checks touched, chosen
+            # by the same routing helper IngestExecutor uses. CHECK is the entry
+            # stage for checker-generated runs, so this is what the lane resolves
+            # from; a second selection rule here would let the hub route on one
+            # alert and report another. None when nothing was touched.
+            subject = subject_alert(bridge_result.alerts)
+            if subject is not None:
+                result.alert_id = subject.id
+                # The incident is what NotifyExecutor reads to find the lane's
+                # channel, and what every signal tag carries. Read from the
+                # already-loaded FK id: --no-incidents and OK results leave it
+                # None, which is a valid outcome, not an error.
+                result.incident_id = subject.incident_id
+                result.alert_fingerprint = subject.fingerprint
 
             # Store checks in structured format
             result.checks = []
@@ -294,12 +311,12 @@ class NotifyExecutor(BaseExecutor):
     """
 
     def _route_incident(self, ctx: StageContext) -> str | None:
-        """Return the matched pipeline's primary active channel name.
+        """Return the matched pipeline's channel name, when it is active.
 
         The pipeline is resolved and stamped on the incident right after INGEST
         (Phase B), so notify just reads ``incident.pipeline`` here. Returns None
         (→ caller keeps today's payload-driven selection) when there is no
-        incident, no stamped pipeline, or the pipeline names no active channel.
+        incident, no stamped pipeline, or the lane's channel is unset/inactive.
         """
         if not ctx.incident_id:
             return None
@@ -309,7 +326,7 @@ class NotifyExecutor(BaseExecutor):
         pipeline = incident.pipeline if incident else None
         if pipeline is None:
             return None
-        channel = pipeline.channels.filter(is_active=True).order_by("name").first()
+        channel = pipeline.routed_channel()
         return channel.name if channel else None
 
     def execute(self, ctx: StageContext) -> NotifyResult:
@@ -346,8 +363,8 @@ class NotifyExecutor(BaseExecutor):
 
             # Phase A routing: resolve the pipeline that matches this incident,
             # stamp it on the incident (for the notify target + journey view), and
-            # if it names channels, route notify to its (primary) channel. If no
-            # pipeline matches, fall back to today's payload-driven selection.
+            # if it names an active channel, route notify there. If no pipeline
+            # matches, fall back to today's payload-driven selection.
             matched_channel_name = self._route_incident(ctx)
 
             # Centralize provider/channel selection via NotifySelector

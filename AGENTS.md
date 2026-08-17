@@ -110,7 +110,7 @@ Apps under `apps/` should follow this layout. A few legacy `views.py` modules �
 - **Driver/Provider Pattern** — all integrations inherit from abstract base classes (e.g. `BaseDriver`, `BaseChecker`, `BaseProvider`).
 - **DTOs** — normalized data objects between stages (`ParsedPayload`, `CheckResult`, `AnalysisResult`).
 - **Correlation IDs** — every pipeline run has `trace_id` and `run_id` for tracing.
-- **Stage configuration** — pipeline definitions control which checkers/drivers/providers run; `NotificationChannel.is_active` and `IntelligenceProvider.is_active` for DB-level enable/disable.
+- **Stage configuration** — `PipelineDefinition` rows are the routing table: `match` conditions select a lane, its ordered `stages` list (a subset of `["check", "analyze", "notify"]`) selects which downstream stages run, and its single `channel` FK is the notify target. Unmatched traffic fails non-retryably as `no_route` — there is no implicit fallback, only the seeded `catch-all` row. `NotificationChannel.is_active` and `IntelligenceProvider.is_active` for DB-level enable/disable.
 
 ### Where stage-specific contracts live
 

@@ -8,6 +8,8 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase
 
+from apps.orchestration.routing import resolve_pipeline
+from apps.orchestration.testing import clear_lanes
 from config.management.commands.setup_cluster import env_upsert, explain_http_error
 from config.models import APIKey
 from config.security.url_validation import URLNotAllowedError
@@ -86,16 +88,23 @@ class SetupClusterHubTests(TestCase):
                 "--notify-webhook",
                 "https://hooks.slack.com/services/T/B/x",
             )
-        from apps.orchestration.models import PipelineDefinition
 
         ch = NotificationChannel.objects.get(driver="slack")
         self.assertTrue(ch.is_active)
         self.assertEqual(ch.config["webhook_url"], "https://hooks.slack.com/services/T/B/x")
         self.assertIn("slack channel active", out)
-        # The channel is wired THROUGH a catch-all pipeline, not left bare.
-        catchall = PipelineDefinition.objects.get(name="default-catch-all")
+        # The channel is wired THROUGH the lane routing actually picks, not a lane
+        # this command owns by name. Reading the row by name is what hid the
+        # shadowing bug: migration 0012's `catch-all` outranked `default-catch-all`
+        # on the id tiebreak, so the named row existed, held the channel, and never
+        # ran. Ask the router.
+        catchall = resolve_pipeline({"source": "grafana", "severity": "critical"})
+        self.assertIsNotNone(catchall)
         self.assertEqual(catchall.match, [])
-        self.assertIn(ch, catchall.channels.all())
+        self.assertEqual(catchall.routed_channel(), ch)
+        # ...and the winning lane actually lists stages: an empty list would attach
+        # the channel to a lane that swallows every incident and delivers nothing.
+        self.assertIn("notify", catchall.stages)
 
     def test_hub_creates_generic_channel(self):
         from apps.notify.models import NotificationChannel
@@ -129,22 +138,82 @@ class SetupClusterHubTests(TestCase):
             out = self._run_hub(d, "--no-notify")
         self.assertIn("routed via the catch-all pipeline", out)
         self.assertEqual(NotificationChannel.objects.count(), 1)
-        # The existing channel gets bound to the catch-all pipeline too.
+        # The existing channel gets bound to the winning catch-all lane too.
+        catchall = resolve_pipeline({"source": "grafana", "severity": "critical"})
+        self.assertEqual(catchall.routed_channel(), existing)
+
+    def test_hub_keeps_an_already_wired_active_channel(self):
+        """A lane has one channel slot; an operator's active choice is not clobbered."""
+        from apps.notify.models import NotificationChannel
         from apps.orchestration.models import PipelineDefinition
 
+        chosen = NotificationChannel.objects.create(
+            name="operator-pick",
+            driver="slack",
+            config={"webhook_url": "https://hooks.slack.com/a"},
+        )
+        PipelineDefinition.objects.create(
+            name="default-catch-all",
+            match=[],
+            stages=["check", "analyze", "notify"],
+            channel=chosen,
+        )
+        with tempfile.TemporaryDirectory() as d:
+            self._run_hub(
+                d,
+                "--notify-driver",
+                "slack",
+                "--notify-webhook",
+                "https://hooks.slack.com/services/T/B/x",
+            )
         catchall = PipelineDefinition.objects.get(name="default-catch-all")
-        self.assertIn(existing, catchall.channels.all())
+        self.assertEqual(catchall.channel, chosen)
+
+    def test_hub_replaces_an_inactive_channel_on_the_catchall(self):
+        """A dead channel would falsify the printed "routed via the catch-all" claim."""
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+
+        dead = NotificationChannel.objects.create(
+            name="dead-pick",
+            driver="slack",
+            config={"webhook_url": "https://hooks.slack.com/a"},
+            is_active=False,
+        )
+        PipelineDefinition.objects.create(
+            name="default-catch-all",
+            match=[],
+            stages=["check", "analyze", "notify"],
+            channel=dead,
+        )
+        with tempfile.TemporaryDirectory() as d:
+            out = self._run_hub(
+                d,
+                "--notify-driver",
+                "slack",
+                "--notify-webhook",
+                "https://hooks.slack.com/services/T/B/x",
+            )
+        catchall = PipelineDefinition.objects.get(name="default-catch-all")
+        self.assertNotEqual(catchall.channel, dead)
+        self.assertTrue(catchall.channel.is_active)
+        self.assertIn("routed via the catch-all pipeline", out)
 
     def test_hub_repairs_broken_catchall_pipeline(self):
         from apps.notify.models import NotificationChannel
         from apps.orchestration.models import PipelineDefinition
 
+        # The repair path only runs when nothing already routes catch-all traffic,
+        # so drop the lanes migration 0012 seeds -- otherwise the seeded `catch-all`
+        # wins, and leaving a disabled lane disabled is the correct outcome (see
+        # test_broken_named_lane_is_left_alone_when_a_seeded_lane_wins).
+        clear_lanes()
         # A pre-existing catch-all that is inactive and not actually catch-all.
         PipelineDefinition.objects.create(
             name="default-catch-all",
             is_active=False,
             match=[{"field": "source", "op": "is", "value": "x"}],
-            run_notify=False,
+            stages=["check"],
         )
         NotificationChannel.objects.create(
             name="existing", driver="slack", config={"webhook_url": "https://hooks.slack.com/x"}
@@ -154,7 +223,92 @@ class SetupClusterHubTests(TestCase):
         catchall = PipelineDefinition.objects.get(name="default-catch-all")
         self.assertTrue(catchall.is_active)
         self.assertEqual(catchall.match, [])
-        self.assertTrue(catchall.run_notify)
+        # NOTIFY is guaranteed, and the operator's existing selection is preserved
+        # in canonical order rather than overwritten.
+        self.assertEqual(catchall.stages, ["check", "notify"])
+
+    def test_a_malformed_stages_column_is_repaired_not_skipped(self):
+        """A bare string in ``stages`` must not fool the repair check.
+
+        ``clean()`` only runs on admin forms, so a fixture or shell edit can persist
+        ``stages="notify"``. Testing membership against the raw column would substring
+        -match (``"notify" in "notify"`` is True) and skip the repair, leaving a lane
+        that ``routable_stages()`` normalises to ``[]`` — configured, matched, and
+        running nothing. Reading through ``routable_stages()`` makes both the check
+        and the repair input honest.
+        """
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+
+        clear_lanes()
+        PipelineDefinition.objects.create(
+            name="default-catch-all", is_active=True, match=[], stages="notify"
+        )
+        # Binding only runs when there is a channel to bind, so the lane needs one
+        # for the repair path to be reached at all.
+        NotificationChannel.objects.create(
+            name="existing", driver="slack", config={"webhook_url": "https://hooks.slack.com/x"}
+        )
+        with tempfile.TemporaryDirectory() as d:
+            self._run_hub(d, "--no-notify")
+        catchall = PipelineDefinition.objects.get(name="default-catch-all")
+        self.assertEqual(catchall.stages, ["notify"])
+
+    def test_the_channel_lands_on_the_lane_that_actually_routes(self):
+        """The regression this file could not previously see.
+
+        Every other assertion here reads the lane by name, so all of them passed
+        while the bound lane never ran: 0012's ``catch-all`` and this command's
+        ``default-catch-all`` both sit at priority 1000, the tie breaks on ``id``,
+        and ``migrate`` runs before ``setup_cluster`` — so the seed always won and
+        delivery fell through to "first active channel by name". Two channels
+        exist here precisely so that fallback cannot mask the bug: the wrong one
+        sorts first alphabetically.
+        """
+        from apps.notify.models import NotificationChannel
+
+        decoy = NotificationChannel.objects.create(
+            name="aaa-decoy", driver="generic", config={"webhook_url": "https://ex.example.com/d"}
+        )
+        with tempfile.TemporaryDirectory() as d:
+            self._run_hub(
+                d,
+                "--notify-driver",
+                "slack",
+                "--notify-webhook",
+                "https://hooks.slack.com/services/T/B/x",
+            )
+        # _ensure_notification_channel adopts the existing active channel, so the
+        # decoy IS the channel under test -- and it must be reachable by routing.
+        # Deliberately NOT source=cluster: that is claimed by the seeded
+        # cluster-nodes lane, which carries no channel by design.
+        lane = resolve_pipeline({"source": "grafana", "severity": "critical", "labels": {}})
+        self.assertIsNotNone(lane)
+        self.assertEqual(lane.routed_channel(), decoy)
+
+    def test_broken_named_lane_is_left_alone_when_a_seeded_lane_wins(self):
+        """No resurrection of a lane an operator disabled.
+
+        With the seeded catch-all present there is nothing to repair: it already
+        routes. Reactivating ``default-catch-all`` would silently re-enable a lane
+        the operator turned off.
+        """
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+
+        disabled = PipelineDefinition.objects.create(
+            name="default-catch-all", is_active=False, match=[], stages=["notify"]
+        )
+        NotificationChannel.objects.create(
+            name="existing", driver="slack", config={"webhook_url": "https://hooks.slack.com/x"}
+        )
+        with tempfile.TemporaryDirectory() as d:
+            self._run_hub(d, "--no-notify")
+        disabled.refresh_from_db()
+        self.assertFalse(disabled.is_active)
+        self.assertIsNone(disabled.channel)
+        # The seeded lane took the channel instead.
+        self.assertEqual(resolve_pipeline({"source": "grafana"}).name, "catch-all")
 
     def test_hub_interactive_slack_channel(self):
         from apps.notify.models import NotificationChannel

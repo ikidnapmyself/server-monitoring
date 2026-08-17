@@ -22,6 +22,7 @@ from apps.checkers.checks import (
 )
 from apps.notify.models import NotificationChannel
 from apps.orchestration.models import PipelineDefinition
+from apps.orchestration.testing import clear_lanes
 
 
 class SystemChecksTests(TestCase):
@@ -286,6 +287,9 @@ class PipelineChecksTests(TestCase):
 
     def test_pipeline_status_info_with_definitions(self):
         """Test pipeline status reports active/inactive counts."""
+        # Migration 0012 seeds two routing lanes; this assertion is about the
+        # count/shape of definitions, so start from an empty table.
+        clear_lanes()
         PipelineDefinition.objects.create(name="pipeline-active", is_active=True)
         PipelineDefinition.objects.create(name="pipeline-inactive", is_active=False)
         errors = check_pipeline_status(app_configs=None)
@@ -296,6 +300,9 @@ class PipelineChecksTests(TestCase):
 
     def test_pipeline_status_info_with_none(self):
         """Zero definitions reads as optional, not a problem."""
+        # Migration 0012 seeds two routing lanes; this assertion is about the
+        # count/shape of definitions, so start from an empty table.
+        clear_lanes()
         errors = check_pipeline_status(app_configs=None)
         self.assertEqual(len(errors), 1)
         self.assertEqual(errors[0].id, "checkers.I001")

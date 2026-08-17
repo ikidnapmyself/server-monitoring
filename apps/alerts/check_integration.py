@@ -76,6 +76,9 @@ class CheckAlertResult:
     incidents_updated: int = 0
     checks_run: int = 0
     errors: list[str] = field(default_factory=list)
+    # Alert rows these checks created, updated or resolved, in checker order.
+    # Bounded to one run; see ProcessingResult.alerts for the consumer caveats.
+    alerts: list[Alert] = field(default_factory=list)
 
     @property
     def has_errors(self) -> bool:
@@ -301,6 +304,7 @@ class CheckAlertBridge:
         ):
             self.orchestrator._create_or_attach_incident(alert, result)
 
+        result.alerts.append(alert)
         return alert
 
     def _update_alert(
@@ -341,6 +345,7 @@ class CheckAlertBridge:
         result.alerts_updated += 1
         logger.info(f"Updated alert from check: {alert.name}")
 
+        result.alerts.append(alert)
         return alert
 
     def _resolve_alert(
@@ -365,6 +370,7 @@ class CheckAlertBridge:
         result.alerts_resolved += 1
         logger.info(f"Resolved alert from check: {alert.name}")
 
+        result.alerts.append(alert)
         return alert
 
     def _check_incident_resolution(self):
@@ -454,6 +460,7 @@ class CheckAlertBridge:
                 result.alerts_resolved += processing_result.alerts_resolved
                 result.incidents_created += processing_result.incidents_created
                 result.incidents_updated += processing_result.incidents_updated
+                result.alerts.extend(processing_result.alerts)
 
                 if processing_result.has_errors:
                     result.errors.extend(processing_result.errors)

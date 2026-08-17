@@ -1,8 +1,30 @@
 """Shared test fixtures for orchestration app."""
 
+import logging
+
 import pytest
 
 from apps.orchestration.models import PipelineDefinition
+
+
+@pytest.fixture
+def apps_logging_propagates():
+    """Let ``caplog`` see records emitted under the ``apps.*`` logger.
+
+    ``config.settings.LOGGING`` gives the ``apps`` logger ``propagate: False``, so its
+    records never reach the root handler pytest installs and ``caplog.text`` comes back
+    empty while the code under test is logging correctly. Restoring propagation for the
+    duration of a test makes plain ``caplog.at_level`` work, and keeps ``caplog.records``
+    available so assertions can pin the logged *facts* via ``record.args`` rather than
+    the wording of the sentence.
+    """
+    logger = logging.getLogger("apps")
+    previous = logger.propagate
+    logger.propagate = True
+    try:
+        yield
+    finally:
+        logger.propagate = previous
 
 
 @pytest.fixture

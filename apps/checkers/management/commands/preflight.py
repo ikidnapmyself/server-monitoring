@@ -138,7 +138,14 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.SUCCESS(name_line))
                 else:
                     self.stdout.write(f"\033[2m{name_line}\033[0m")
-                self.stdout.write(f"    priority {defn['priority']}, {defn['channels']} channel(s)")
+                if defn["channel"] is None:
+                    channel = "no channel"
+                elif defn["channel_routes"]:
+                    channel = defn["channel"]
+                else:
+                    # Say it plainly: notify skips this lane's channel entirely.
+                    channel = f"{defn['channel']} (inactive — routes nowhere)"
+                self.stdout.write(f"    priority {defn['priority']}, channel: {channel}")
 
         self.stdout.write("")
 

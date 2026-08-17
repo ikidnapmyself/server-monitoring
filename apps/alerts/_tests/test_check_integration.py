@@ -438,6 +438,58 @@ class CheckAlertBridgeTests(TestCase):
 
             self.assertIn("Unknown checker: nonexistent", str(ctx.exception))
 
+    def _fake_checker(self, *, checker_name, status=CheckStatus.CRITICAL):
+        checker_class = MagicMock()
+        checker_class.return_value.run.return_value = CheckResult(
+            status=status,
+            message=f"{checker_name} says hi",
+            metrics={},
+            checker_name=checker_name,
+        )
+        return checker_class
+
+    def test_run_checks_and_alert_collects_the_alerts_it_touched(self):
+        """The batch result carries the Alert rows, not just counts.
+
+        Downstream routing selects a subject from this list, so an empty list
+        would look like a routing bug rather than a missing append.
+        """
+        registry = {
+            "cpu": self._fake_checker(checker_name="cpu"),
+            "disk": self._fake_checker(checker_name="disk"),
+        }
+
+        with patch.dict("apps.alerts.check_integration.CHECKER_REGISTRY", registry, clear=True):
+            result = self.bridge.run_checks_and_alert(["cpu", "disk"])
+
+        self.assertEqual(result.alerts_created, 2)
+        self.assertEqual(
+            {a.name for a in result.alerts},
+            {"CPU Check Alert", "DISK Check Alert"},
+        )
+        self.assertTrue(all(a.pk is not None for a in result.alerts))
+
+    def test_run_checks_and_alert_collects_updated_and_resolved_alerts(self):
+        """The update and resolve paths append too, not just creation."""
+        firing = {"cpu": self._fake_checker(checker_name="cpu")}
+        with patch.dict("apps.alerts.check_integration.CHECKER_REGISTRY", firing, clear=True):
+            first = self.bridge.run_checks_and_alert(["cpu"])
+            # Same checker still critical → _update_alert path.
+            second = self.bridge.run_checks_and_alert(["cpu"])
+
+        recovered = {"cpu": self._fake_checker(checker_name="cpu", status=CheckStatus.OK)}
+        with patch.dict("apps.alerts.check_integration.CHECKER_REGISTRY", recovered, clear=True):
+            third = self.bridge.run_checks_and_alert(["cpu"])
+
+        self.assertEqual(first.alerts_created, 1)
+        self.assertEqual(second.alerts_updated, 1)
+        self.assertEqual(third.alerts_resolved, 1)
+        for batch in (first, second, third):
+            self.assertEqual([a.name for a in batch.alerts], ["CPU Check Alert"])
+
+    def test_check_alert_result_alerts_defaults_to_empty_list(self):
+        self.assertEqual(CheckAlertResult().alerts, [])
+
     def test_run_checks_and_alert_catches_checker_exception(self):
         """Test that exceptions from individual checkers are caught in batch."""
         mock_ok = MagicMock()

@@ -18,9 +18,7 @@ class ProcessInboxTests(TestCase):
             name="ingest-only",
             match=[],
             priority=1,
-            run_checkers=False,
-            run_intelligence=False,
-            run_notify=False,
+            stages=[],
         )
 
     def _pending(self, name="x"):
@@ -107,9 +105,7 @@ class WebhookToDrainIntegrationTests(TestCase):
             name="ingest-only",
             match=[],
             priority=1,
-            run_checkers=False,
-            run_intelligence=False,
-            run_notify=False,
+            stages=[],
         )
 
     def test_webhook_then_process_inbox_creates_alert(self):

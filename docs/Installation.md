@@ -314,8 +314,10 @@ uv run python manage.py setup_intelligence   # optional: pick an AI provider
 ```
 
 The CHECK stage runs all registered checkers by default; a routing `PipelineDefinition`'s
-`run_checkers` / `run_intelligence` / `run_notify` flags select which stages run for a
-matched incident, and its `channels` are the notify targets.
+ordered `stages` list — a subset of `["check", "analyze", "notify"]` — selects which
+downstream stages run for a matched alert, and its single `channel` is the notify
+target. Traffic no active lane matches fails as `no_route`, so keep a catch-all lane
+(empty `match`) unless you deliberately want unrouted alerts to fail loudly.
 
 ### Step 2: Preview with a dry-run
 
@@ -327,7 +329,9 @@ sm-run-pipeline --sample --dry-run
 
 ```bash
 sm-run-pipeline --sample          # full demo run (real checks + notify)
-sm-run-pipeline --checks-only     # local monitoring: checks → notify only
+sm-run-pipeline --checks-only     # local monitoring: CHECK is the entry stage, then
+                                  # the lane matched from the alert it produced runs
+                                  # (the seeded `hub-self-check` lane records only)
 ```
 
 ### More examples

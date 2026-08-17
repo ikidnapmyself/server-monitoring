@@ -66,6 +66,46 @@ class PreflightCommandTests(TestCase):
         PipelineDefinition.objects.create(name="test-pipe", is_active=True)
         output, _ = self._call()
         self.assertIn("test-pipe", output)
+        # A lane with no channel says so rather than printing a bare "None".
+        self.assertIn("channel: no channel", output)
+
+    @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
+    @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
+    def test_definition_channel_name_shown(self, mock_log, mock_read):
+        """The lane's channel name reaches the rendered dashboard, not just the dict."""
+        from apps.notify.models import NotificationChannel
+
+        mock_read.return_value = None
+        ch = NotificationChannel.objects.create(
+            name="ops-slack", driver="slack", config={"webhook_url": "https://hooks.slack.com/x"}
+        )
+        PipelineDefinition.objects.create(name="wired-pipe", is_active=True, channel=ch)
+        output, _ = self._call()
+        self.assertIn("channel: ops-slack", output)
+        self.assertNotIn("routes nowhere", output)
+
+    @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
+    @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
+    def test_definition_inactive_channel_marked_as_routing_nowhere(self, mock_log, mock_read):
+        """An active lane wired to a dead channel must not read as routed."""
+        from apps.notify.models import NotificationChannel
+
+        mock_read.return_value = None
+        ch = NotificationChannel.objects.create(
+            name="dead-slack",
+            driver="slack",
+            config={"webhook_url": "https://hooks.slack.com/x"},
+            is_active=False,
+        )
+        PipelineDefinition.objects.create(name="stale-pipe", is_active=True, channel=ch)
+        output, _ = self._call()
+        # Assert the two facts, not the sentence: the operator must see WHICH channel
+        # is wired (so they can fix it) and that it does not route. Pinning the exact
+        # prose would make a wording change a test failure.
+        self.assertIn("dead-slack", output)
+        self.assertIn("routes nowhere", output)
 
     @patch("apps.checkers.preflight.checks._read_file")
     @patch("apps.checkers.preflight.logger.log_results")

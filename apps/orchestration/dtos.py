@@ -54,6 +54,8 @@ class IngestResult:
     Result from apps.alerts (Stage 1: Ingest).
 
     Output:
+    - alert_id: The alert chosen as this run's subject (most severe alert of
+      this push, ties broken by name)
     - incident_id: The created/updated incident ID
     - incident_title: Human title of the associated incident (for notifications)
     - alert_fingerprint: Unique identifier for deduplication
@@ -62,6 +64,7 @@ class IngestResult:
     - normalized_payload_ref: Reference to stored normalized payload
     """
 
+    alert_id: int | None = None
     incident_id: int | None = None
     incident_title: str = ""
     alert_fingerprint: str | None = None
@@ -90,12 +93,26 @@ class CheckResult:
     Result from apps.checkers (Stage 2: Diagnose).
 
     Output:
+    - alert_id: The alert chosen as this run's subject (most severe alert these
+      checks created/updated/resolved, ties broken by name) — set for the same
+      reason ``IngestResult.alert_id`` is: CHECK is the entry stage for
+      checker-generated runs, and the orchestrator routes on the entry stage's
+      subject alert. None when the checks touched no alerts — a clean run has
+      nothing to route.
+    - incident_id: The subject alert's incident, when it has one. Stays None for
+      alerts the bridge opened without an incident (including under
+      ``--no-incidents``, whose runs stop at CHECKED anyway); that is not an
+      error, it just means notify has no lane channel to read.
+    - alert_fingerprint: The subject alert's fingerprint, for correlation tags.
     - checks: List of check results with status and metrics
     - timings: Timing information for each check
     - errors: Any errors that occurred
     - checker_output_ref: Reference to stored checker output
     """
 
+    alert_id: int | None = None
+    incident_id: int | None = None
+    alert_fingerprint: str | None = None
     checks: list[dict[str, Any]] = field(default_factory=list)
     checks_run: int = 0
     checks_passed: int = 0

@@ -43,12 +43,43 @@ Required tags/fields:
 
 There is one fixed stage order — `INGEST → CHECK → ANALYZE → NOTIFY` — run by
 `PipelineOrchestrator` via the four executors in `executors.py`. The *shape* is data:
-after INGEST, the orchestrator resolves the matching `PipelineDefinition` for the
-incident (`routing.py`, first-match-wins by `priority`) and runs the stages its
-`run_checkers`/`run_intelligence`/`run_notify` flags enable; `notify` sends to the
-matched pipeline's channels. The legacy node/edge graph (`DefinitionBasedOrchestrator`,
-the `nodes/` package, `PipelineDefinition.config`) was **retired in Phase D** — do not
-reintroduce it.
+after the **entry stage**, the orchestrator resolves the matching `PipelineDefinition`
+from the alert that stage produced (`routing.py`, first-match-wins by `priority`, ties
+on `id`) and runs the downstream stages listed in its `stages` column, in that order;
+`notify` sends to the matched pipeline's `channel` — a single FK, because delivery has
+never fanned out. An inactive channel routes nowhere (`routed_channel()` returns
+`None`) and notify falls back to payload-driven selection.
+
+**Entry stages.** INGEST is the entry stage for webhook traffic; CHECK is the entry
+stage for `run_pipeline --checks-only` (the hub's own cron). One rule covers both — the
+entry stage produces an alert, the lane is resolved from that alert, the lane's stages
+run. `--checks-only` is an invocation flag selecting the entry stage, *not* a routing
+override. `--checks-only --no-incidents` is the one silent case: it routes nothing and
+ends at CHECKED, while the bridge still records the alerts it found.
+
+`stages` is an ordered subset of `["check", "analyze", "notify"]` —
+`PipelineDefinition.ROUTABLE_STAGES`. It deliberately excludes `ingest`: a lane is
+resolved *from* the alert the entry stage produced, so no lane can control the entry
+stage. Read it via `PipelineDefinition.routable_stages()`, never the raw column —
+`clean()` only runs on admin forms, so fixtures and shell edits can persist junk.
+
+**Routing facts come from ONE alert** (`facts_from_alert(alert, origin)`), never merged
+across an incident: `source`, `severity` (that alert's own), `instance`
+(`instance_id` → `instance` → `hostname`, via `instance_key_from_labels`), `labels`,
+and `origin` (`incoming_webhook`/`checker_generated`/`manual`).
+
+**There is no implicit fallback.** A no-match raises a non-retryable `no_route`
+`StageExecutionError`, attributed to `routing` rather than to the entry stage that
+just succeeded. Do not reintroduce a default stage order in Python: migration `0012`
+seeds `cluster-nodes` (priority 50, `source is cluster`, `["analyze", "notify"]`) and
+`catch-all` (priority 1000, empty match, full order), and `0014` seeds
+`hub-self-check` (priority 50, `origin is checker_generated`, **empty `stages`** —
+records and correlates, deliberately does not notify, because cron repeats every five
+minutes and `apps.notify` has no de-duplication yet). None of these rows are special-
+cased in code; `apps/orchestration/testing.py` documents their effect on tests.
+
+The legacy node/edge graph (`DefinitionBasedOrchestrator`, the `nodes/` package,
+`PipelineDefinition.config`) was **retired in Phase D** — do not reintroduce it.
 
 **Observability (projections, no new models):** journey panel on the Alert/Incident
 admin; `manage.py trace <alert|trace_id>` (the chain); `manage.py report` (per-node

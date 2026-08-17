@@ -37,10 +37,14 @@ from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
 
 
 class ClusterDriver(BaseAlertDriver):
-    """Driver for alerts from sibling server-monitoring instances."""
+    """Driver for alerts from sibling server-monitoring instances.
+
+    Parsing only — this driver makes no routing decision. That node-pushed
+    alerts skip the hub's CHECK stage is the ``cluster-nodes`` lane, seeded by
+    orchestration migration ``0012``, whose ``description`` explains why.
+    """
 
     name = "cluster"
-    skip_checkers = True
 
     def validate(self, payload: dict[str, Any]) -> bool:
         """Validate that this payload is from a cluster agent."""

@@ -4,8 +4,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.test import TestCase
+from django.utils import timezone
 
-from apps.alerts.models import Node
+from apps.alerts.models import Alert, Node
 from apps.orchestration.dtos import (
     AnalyzeResult,
     CheckResult,
@@ -13,6 +14,7 @@ from apps.orchestration.dtos import (
     NotifyResult,
 )
 from apps.orchestration.models import (
+    PipelineDefinition,
     PipelineOrigin,
     PipelineStage,
     PipelineStatus,
@@ -20,6 +22,27 @@ from apps.orchestration.models import (
     StageStatus,
 )
 from apps.orchestration.orchestrator import PipelineOrchestrator, StageExecutionError
+
+
+def make_subject_alert(fingerprint="fp-subject"):
+    """A real Alert row for a run to route on.
+
+    Downstream stages come from the lane matched against the run's *subject alert*
+    (``IngestResult.alert_id``), so a flow test that expects CHECK/ANALYZE/NOTIFY
+    to run needs an actual alert — an ingest that produced none has nothing to
+    route and legitimately stops after INGEST.
+
+    Named ``make_`` to stay distinct from ``routing.subject_alert``, which picks
+    the subject out of a batch rather than creating one.
+    """
+    return Alert.objects.create(
+        fingerprint=fingerprint,
+        source="test",
+        name="cpu",
+        severity="critical",
+        started_at=timezone.now(),
+        labels={},
+    )
 
 
 class OrchestratorTests(TestCase):
@@ -63,8 +86,9 @@ class OrchestratorTests(TestCase):
     def test_run_pipeline_full_flow(self, mock_execute):
         """Test full pipeline execution flow."""
         # Mock stage results - incident_id=None to avoid FK issues
+        alert = make_subject_alert()
         mock_execute.side_effect = [
-            IngestResult(incident_id=None, alerts_created=1),
+            IngestResult(alert_id=alert.id, incident_id=None, alerts_created=1),
             CheckResult(checks_run=2),
             AnalyzeResult(summary="Test summary"),
             NotifyResult(channels_succeeded=1),
@@ -85,8 +109,9 @@ class OrchestratorTests(TestCase):
     def test_run_pipeline_with_fallback(self, mock_execute):
         """Test pipeline with intelligence fallback."""
         # Mock stage results with fallback analyze - incident_id=None
+        alert = make_subject_alert()
         mock_execute.side_effect = [
-            IngestResult(incident_id=None),
+            IngestResult(alert_id=alert.id, incident_id=None),
             CheckResult(checks_run=1),
             AnalyzeResult(summary="AI unavailable", fallback_used=True),
             NotifyResult(channels_succeeded=1),
@@ -194,7 +219,11 @@ class SkipCompletedStagesTests(TestCase):
             stage=PipelineStage.INGEST,
             attempt=1,
             status=StageStatus.SUCCEEDED,
-            output_snapshot={"incident_id": 42, "severity": "critical"},
+            output_snapshot={
+                "alert_id": make_subject_alert().id,
+                "incident_id": 42,
+                "severity": "critical",
+            },
         )
 
         # Set status to FAILED so we can resume
@@ -225,7 +254,7 @@ class SkipCompletedStagesTests(TestCase):
             stage=PipelineStage.INGEST,
             attempt=1,
             status=StageStatus.SUCCEEDED,
-            output_snapshot={"incident_id": 42},
+            output_snapshot={"alert_id": make_subject_alert().id, "incident_id": 42},
         )
         StageExecution.objects.create(
             pipeline_run=pipeline_run,
@@ -251,7 +280,11 @@ class SkipCompletedStagesTests(TestCase):
 
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_resume_skips_completed_stage_without_output_snapshot(self, mock_execute):
-        """Completed stage with no output_snapshot is still skipped."""
+        """Completed INGEST with no output_snapshot is skipped and stops the run.
+
+        No snapshot means no subject alert, and routing needs one — so there is
+        nothing downstream to run. The stage is still skipped rather than re-executed.
+        """
         orchestrator = PipelineOrchestrator()
         pipeline_run = orchestrator.start_pipeline(payload={}, source="test")
 
@@ -267,16 +300,12 @@ class SkipCompletedStagesTests(TestCase):
         pipeline_run.status = PipelineStatus.FAILED
         pipeline_run.save(update_fields=["status"])
 
-        mock_execute.side_effect = [
-            CheckResult(checks_run=1),
-            AnalyzeResult(summary="ok"),
-            NotifyResult(channels_succeeded=1),
-        ]
-
         result = orchestrator.resume_pipeline(run_id=pipeline_run.run_id, payload={"payload": {}})
 
         assert result.status == "COMPLETED"
-        assert mock_execute.call_count == 3
+        assert result.stages_completed == []
+        assert mock_execute.call_count == 0
+        assert StageExecution.objects.filter(pipeline_run=pipeline_run).count() == 1
 
 
 class AnalyzeFallbackContinuesTests(TestCase):
@@ -285,8 +314,9 @@ class AnalyzeFallbackContinuesTests(TestCase):
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_analyze_with_errors_and_fallback_continues(self, mock_execute):
         """When analyze has errors but fallback_used=True, pipeline continues."""
+        alert = make_subject_alert()
         mock_execute.side_effect = [
-            IngestResult(incident_id=None),
+            IngestResult(alert_id=alert.id, incident_id=None),
             CheckResult(checks_run=1),
             AnalyzeResult(
                 summary="Fallback summary",
@@ -327,8 +357,9 @@ class StageErrorInExecutePipelineTests(TestCase):
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_check_stage_with_errors_raises(self, mock_execute):
         """CheckResult with errors triggers StageExecutionError in _execute_pipeline."""
+        alert = make_subject_alert()
         mock_execute.side_effect = [
-            IngestResult(incident_id=None),
+            IngestResult(alert_id=alert.id, incident_id=None),
             CheckResult(checks_run=1, errors=["Check failed"]),
         ]
 
@@ -519,7 +550,7 @@ class StageRetryWithBackoffTests(TestCase):
 
         # Set up INGEST and CHECK to succeed normally
         ingest_mock = MagicMock()
-        ingest_mock.execute.return_value = IngestResult(incident_id=None)
+        ingest_mock.execute.return_value = IngestResult(alert_id=make_subject_alert().id)
         orchestrator.executors[PipelineStage.INGEST] = ingest_mock
 
         check_mock = MagicMock()
@@ -604,8 +635,9 @@ class ChecksOnlyTests(TestCase):
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_normal_pipeline_still_runs_all_stages(self, mock_execute):
         """Without checks_only, all 4 stages run (regression guard)."""
+        alert = make_subject_alert()
         mock_execute.side_effect = [
-            IngestResult(incident_id=None, alerts_created=1),
+            IngestResult(alert_id=alert.id, incident_id=None, alerts_created=1),
             CheckResult(checks_run=2),
             AnalyzeResult(summary="ok"),
             NotifyResult(channels_succeeded=1),
@@ -623,23 +655,34 @@ class ChecksOnlyTests(TestCase):
         assert PipelineStage.CHECK in result.stages_completed
 
 
-class SkipCheckersTests(TestCase):
-    """Tests for skip_checkers mode that omits only the CHECK stage."""
+class CheckOmittingLaneTests(TestCase):
+    """A lane that lists no CHECK runs INGEST -> ANALYZE -> NOTIFY and ends NOTIFIED.
+
+    Was ``SkipCheckersTests``, which drove the same two outcomes through a
+    ``payload["skip_checkers"]`` flag. The flag is gone; the outcomes are not, so
+    they are re-driven through the only thing that selects stages now — the
+    matched lane's ``stages`` list. Terminal status still comes from the *last*
+    stage that ran, which is what makes a three-stage lane worth asserting
+    separately from the full four.
+    """
+
+    def _lane_without_check(self):
+        PipelineDefinition.objects.create(
+            name="analyze-notify", match=[], priority=1, stages=["analyze", "notify"]
+        )
 
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
-    def test_skip_checkers_omits_check_but_reaches_notify(self, mock_execute):
-        """When skip_checkers=True, CHECK is skipped but the pipeline still notifies."""
+    def test_lane_without_check_omits_check_but_reaches_notify(self, mock_execute):
+        self._lane_without_check()
+        alert = make_subject_alert()
         mock_execute.side_effect = [
-            IngestResult(incident_id=None, alerts_created=1),
+            IngestResult(alert_id=alert.id, incident_id=None, alerts_created=1),
             AnalyzeResult(summary="ok"),
             NotifyResult(channels_succeeded=1),
         ]
 
         orchestrator = PipelineOrchestrator()
-        result = orchestrator.run_pipeline(
-            payload={"skip_checkers": True},
-            source="test",
-        )
+        result = orchestrator.run_pipeline(payload={"payload": {}}, source="test")
 
         assert result.status == "COMPLETED"
         assert mock_execute.call_count == 3
@@ -649,16 +692,17 @@ class SkipCheckersTests(TestCase):
         assert PipelineStage.NOTIFY in result.stages_completed
 
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
-    def test_skip_checkers_pipeline_marked_notified(self, mock_execute):
-        """skip_checkers run still completes with NOTIFIED status."""
+    def test_lane_without_check_is_marked_notified(self, mock_execute):
+        self._lane_without_check()
+        alert = make_subject_alert()
         mock_execute.side_effect = [
-            IngestResult(incident_id=None, alerts_created=1),
+            IngestResult(alert_id=alert.id, incident_id=None, alerts_created=1),
             AnalyzeResult(summary="ok"),
             NotifyResult(channels_succeeded=1),
         ]
 
         orchestrator = PipelineOrchestrator()
-        orchestrator.run_pipeline(payload={"skip_checkers": True}, source="test")
+        orchestrator.run_pipeline(payload={"payload": {}}, source="test")
 
         from apps.orchestration.models import PipelineRun
 

@@ -39,6 +39,7 @@ from apps.checkers.preflight.checks import (
     check_venv_exists,
     run_all,
 )
+from apps.orchestration.testing import clear_lanes
 
 # ---------------------------------------------------------------------------
 # Helper function tests
@@ -776,10 +777,24 @@ class CheckPipelineStateTests(TestCase):
         warns = [r for r in results if r.level == "warn"]
         self.assertTrue(any("notification channel" in r.message.lower() for r in warns))
 
-    def test_no_active_definitions(self):
+    def test_no_active_definitions_warns_that_routing_is_dead(self):
+        """Zero lanes is not "optional" any more — it means every alert no_routes.
+
+        Was ``test_no_active_definitions``, which asserted this landed at ``info``
+        alongside a hint saying "the default pipeline runs without one". That
+        default pipeline no longer exists.
+        """
+        clear_lanes()
         results = check_pipeline_state()
-        infos = [r for r in results if r.level == "info"]
-        self.assertTrue(any("pipeline definition" in r.message.lower() for r in infos))
+        warns = [r for r in results if r.level == "warn"]
+        offender = [r for r in warns if "pipeline definition" in r.message.lower()]
+        self.assertEqual(len(offender), 1)
+        self.assertIn("no_route", offender[0].hint)
+        self.assertNotIn("optional", offender[0].message.lower())
+        # No info-level duplicate left behind saying the opposite.
+        self.assertFalse(
+            any("pipeline definition" in r.message.lower() for r in results if r.level == "info")
+        )
 
     @override_settings(ORCHESTRATION_INTELLIGENCE_FALLBACK_ENABLED=False)
     def test_intelligence_fallback_disabled(self):

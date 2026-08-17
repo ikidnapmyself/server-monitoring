@@ -107,7 +107,12 @@ class Command(BaseCommand):
         parser.add_argument(
             "--no-incidents",
             action="store_true",
-            help="Skip automatic incident creation.",
+            help=(
+                "Skip automatic incident creation. With --checks-only this also "
+                "makes the run purely diagnostic: it stops at CHECKED, so no lane "
+                "is resolved and nothing is analyzed or notified. Alerts are still "
+                "recorded."
+            ),
         )
         parser.add_argument(
             "--warning-threshold",

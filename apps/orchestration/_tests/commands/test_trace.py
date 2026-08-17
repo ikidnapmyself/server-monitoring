@@ -14,7 +14,7 @@ class TraceCommandTests(TestCase):
     def _chain(self, *, handled=True, with_pipeline=True):
         pipeline = None
         if with_pipeline:
-            pipeline = PipelineDefinition.objects.create(name="catch-all", match=[], priority=3)
+            pipeline = PipelineDefinition.objects.create(name="trace-lane", match=[], priority=3)
         incident = Incident.objects.create(title="High CPU", severity="critical", pipeline=pipeline)
         alert = Alert.objects.create(
             fingerprint="fp",
@@ -57,7 +57,7 @@ class TraceCommandTests(TestCase):
         self.assertEqual(data["trace_id"], "tr-1")
         self.assertTrue(data["handled"])
         self.assertEqual(data["runs"][0]["run_id"], "run-1")
-        self.assertEqual(data["pipeline"]["name"], "catch-all")
+        self.assertEqual(data["pipeline"]["name"], "trace-lane")
 
     def test_unhandled_alert_shows_inbox(self):
         alert, _ = self._chain(handled=False)

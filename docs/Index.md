@@ -756,21 +756,21 @@ Methods: `mark_started()`, `mark_succeeded()`, `mark_failed()`, `mark_skipped()`
 
 #### PipelineDefinition
 
-A routing rule: match conditions → behaviour flags → notify channels (first-match-wins by `priority`).
+A routing rule: match conditions → ordered stages → one notify channel (first-match-wins by `priority`, ties on `id`).
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | CharField (unique) | Pipeline identifier |
 | `description` | TextField | Pipeline description |
-| `match` | JSONField | Conditions `[{field, op, value}]`; empty = catch-all |
-| `priority` | IntegerField (indexed) | Lower evaluated first (first match wins) |
-| `run_checkers` / `run_intelligence` / `run_notify` | BooleanField | Which stages run after ingest |
-| `channels` | M2M → NotificationChannel | Notify targets |
+| `match` | JSONField | Conditions `[{field, op, value}]`; `field` is `source`/`severity`/`instance`/`origin`/`label:<k>`; empty = catch-all |
+| `priority` | IntegerField (indexed) | Lower evaluated first (first match wins). `<100` system, `100` operator, `1000` catch-all |
+| `stages` | JSONField | Ordered downstream stages, a subset of `["check", "analyze", "notify"]`; excludes the entry stage |
+| `channel` | FK → NotificationChannel (nullable) | The single notify target; inactive channel routes nowhere |
 | `is_active` | BooleanField (indexed) | Whether active |
 | `tags` | JSONField | Arbitrary tags |
 | `created_by` | CharField | Creator identifier |
 
-Methods: `matches(facts)` — see `apps.orchestration.routing`.
+Methods: `matches(facts)`, `routable_stages()` (the stored `stages`, filtered to known values and forced into canonical order — read this, never the raw column), `routed_channel()` (the channel this lane actually notifies, or `None` when unset or inactive). See `apps.orchestration.routing`.
 
 ### DTOs
 
@@ -854,10 +854,14 @@ PENDING -> INGESTED -> CHECKED -> ANALYZED -> NOTIFIED (success)
 
 ### Routing
 
-After INGEST, the orchestrator resolves the matching `PipelineDefinition` for the
-incident (`apps.orchestration.routing`, first-match-wins by `priority`) and runs the
-stages its `run_*` flags enable; NOTIFY sends to the matched pipeline's channels.
-Observability: the Journey admin panel, `manage.py trace`, and `manage.py report`.
+After the entry stage (INGEST for webhook traffic, CHECK for `run_pipeline
+--checks-only`), the orchestrator resolves the matching `PipelineDefinition` from the
+alert that stage produced (`apps.orchestration.routing`, first-match-wins by
+`priority`, ties on `id`) and runs the downstream stages listed in its `stages`
+column; NOTIFY sends to the matched pipeline's single `channel`. A no-match is a
+non-retryable `no_route` failure — the seeded `catch-all` lane is what routes
+otherwise-unmatched traffic. Observability: the Journey admin panel, `manage.py
+trace`, and `manage.py report`.
 
 ### Monitoring Signals
 
