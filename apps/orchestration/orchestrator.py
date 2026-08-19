@@ -325,8 +325,22 @@ class PipelineOrchestrator:
         # scheduled checks (bin/install/cron.sh). Either way the downstream stages
         # are resolved AFTER the entry stage (see _downstream_stages), because
         # routing needs that run's subject alert (source/severity/labels/origin).
+        #
+        # A downstream run is the third case: it has NO entry stage at all. Its
+        # incident was ingested by the parent run, so there is nothing here to
+        # ingest and nothing to re-diagnose a subject from — the lane is resolved
+        # straight from the incident's subject alert and exactly those stages run.
+        # Forcing an entry stage would be worse than wasteful: a resolved incident
+        # routes to a notify-only lane, and an entry stage would call the AI on an
+        # all-clear.
+        downstream_incident_id = payload.get("downstream_incident_id")
         checks_only = payload.get("checks_only", False)
-        if checks_only:
+        if downstream_incident_id:
+            # Resolved inside the try below, so a no_route fails the run rather
+            # than escaping _execute_pipeline.
+            active_stages = []
+            final_status = PipelineStatus.INGESTED  # recomputed once the lane is known
+        elif checks_only:
             active_stages = [PipelineStage.CHECK]
             final_status = PipelineStatus.CHECKED  # recomputed once downstream is known
         else:
@@ -340,7 +354,9 @@ class PipelineOrchestrator:
         # a CHECK that runs because a lane asked for it must not re-resolve the
         # route, and when the entry stage is itself CHECK the second pass is simply
         # skipped as already-succeeded (see _stage_completed) — visible, not guarded.
-        entry_stage = active_stages[0]
+        # None for a downstream run, which has no entry stage and therefore no
+        # stage that may route (``run_routes`` below says the same thing).
+        entry_stage = active_stages[0] if active_stages else None
         # ``--checks-only --no-incidents`` is a manual diagnostic: "just check,
         # don't disturb anything". Such a run does not route — no lane, no ANALYZE,
         # no NOTIFY — and ends at CHECKED. Like checks_only itself this is a CLI
@@ -349,7 +365,11 @@ class PipelineOrchestrator:
         # executors know nothing about it. Alert creation is deliberately NOT
         # suppressed — the bridge still records what it found (that is what
         # --no-incidents already meant); only the downstream fan-out is.
-        run_routes = not (checks_only and payload.get("no_incidents", False))
+        # A downstream run does not route from a stage either: it already routed,
+        # before the loop, from the incident it was handed.
+        run_routes = not downstream_incident_id and not (
+            checks_only and payload.get("no_incidents", False)
+        )
         # Routing happens exactly once per run. This is not a guard on CHECK's
         # execution (that stays unguarded: _stage_completed skips the second pass
         # and the skip is visible in the run record) — it is termination. A lane
@@ -360,12 +380,22 @@ class PipelineOrchestrator:
 
         # Emit pipeline started
         emit_pipeline_started(base_tags)
-        pipeline_run.mark_started(active_stages[0])
+        # None for a downstream run: its first stage is not known until the lane is
+        # resolved below, and ``current_stage`` is nullable precisely for that.
+        pipeline_run.mark_started(active_stages[0] if active_stages else None)
 
         # Track previous stage results for context
         previous_results: dict[str, dict[str, Any]] = {}
         incident_id: int | None = None
         alert_id: int | None = None
+        if downstream_incident_id:
+            # Set BEFORE the loop: every stage is handed this incident_id, which is
+            # what NotifyExecutor reads the lane's channel off and what the signal
+            # tags carry. No stage in a downstream run discovers it.
+            incident_id = downstream_incident_id
+            alert_id = self._incident_subject_alert_id(downstream_incident_id)
+            pipeline_run.incident_id = incident_id
+            pipeline_run.save(update_fields=["incident_id", "updated_at"])
 
         def route_from_entry_stage(stage: PipelineStage) -> None:
             """Resolve this run's lane, once, from the entry stage's subject alert.
@@ -398,6 +428,13 @@ class PipelineOrchestrator:
             final_status = self._final_status(downstream, entry_stage)
 
         try:
+            if downstream_incident_id:
+                # Inside the try so a no_route becomes a non-retryable FAILED run
+                # like every other routing failure. INGEST is the status floor: the
+                # parent's ingest is what put this incident here.
+                active_stages.extend(self._downstream_or_fail(alert_id, pipeline_run.origin))
+                final_status = self._final_status(active_stages, PipelineStage.INGEST)
+
             for stage in active_stages:
                 # Skip stages that are already completed (for resume)
                 if self._stage_completed(pipeline_run, stage):
@@ -426,7 +463,7 @@ class PipelineOrchestrator:
                             # CHECK snapshot without alert_id must land on None ->
                             # no downstream -> CHECKED, the behaviour it always had.
                             if stage == PipelineStage.INGEST and not alert_id and incident_id:
-                                alert_id = self._legacy_subject_alert_id(incident_id)
+                                alert_id = self._incident_subject_alert_id(incident_id)
                     # Resolve downstream even on resume, so a resumed run still routes.
                     route_from_entry_stage(stage)
                     continue
@@ -576,11 +613,17 @@ class PipelineOrchestrator:
         return result
 
     @staticmethod
-    def _legacy_subject_alert_id(incident_id: int) -> int | None:
-        """Subject alert for an INGEST snapshot written before ``alert_id`` existed.
+    def _incident_subject_alert_id(incident_id: int) -> int | None:
+        """Subject alert of an incident, by the same rule ingest uses on a batch.
 
-        LEGACY-SNAPSHOT COMPATIBILITY — delete once no pre-``alert_id`` snapshots
-        remain. Such a run is resumable (FAILED/RETRYING, via the resume endpoint
+        Two callers, both of which have an incident and no record of the push that
+        created it:
+
+        * a **downstream run**, whose unit of work IS the incident — the parent run
+          selected it as material and handed nothing else across;
+        * a **legacy INGEST snapshot** written before ``alert_id`` existed
+          (LEGACY-SNAPSHOT COMPATIBILITY — that *call site* goes away once no such
+          snapshots remain; this method does not). Such a run is resumable (FAILED/RETRYING, via the resume endpoint
         or the admin's "Mark for Retry"), and without this it would route on
         nothing: every downstream stage silently skipped, the run reported
         COMPLETED, and the incident left unstamped so the diagnosis strip calls

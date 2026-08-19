@@ -515,7 +515,9 @@ class LegacySnapshotResumeTests(TestCase):
         )
         result = self._legacy_run({"incident_id": self.incident.id})
         assert result.stages_completed == [PipelineStage.NOTIFY]
-        assert PipelineOrchestrator()._legacy_subject_alert_id(self.incident.id) == self.critical.id
+        assert (
+            PipelineOrchestrator()._incident_subject_alert_id(self.incident.id) == self.critical.id
+        )
 
     def test_snapshot_with_neither_id_still_stops_cleanly(self):
         PipelineDefinition.objects.create(name="ca", match=[], priority=1, stages=["notify"])
@@ -524,7 +526,7 @@ class LegacySnapshotResumeTests(TestCase):
 
     def test_incident_with_no_alerts_yields_no_subject(self):
         empty = Incident.objects.create(title="ghost", severity="info")
-        assert PipelineOrchestrator()._legacy_subject_alert_id(empty.id) is None
+        assert PipelineOrchestrator()._incident_subject_alert_id(empty.id) is None
 
 
 class SeededDefaultLanesTests(TestCase):

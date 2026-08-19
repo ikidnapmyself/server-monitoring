@@ -787,3 +787,121 @@ def test_incoming_run_with_non_string_instance_id_has_null_node():
     payload = {"payload": {"instance_id": ["not", "a", "string"]}}
     run = PipelineOrchestrator().start_pipeline(payload=payload, source="cluster")
     assert run.node is None
+
+
+class DownstreamRunTests(TestCase):
+    """A downstream run has no entry stage: it runs exactly its lane.
+
+    Its incident was ingested by the parent run, so re-ingesting is not merely
+    wasteful, it is wrong — there is no payload to ingest. Treating ANALYZE as an
+    entry stage would be worse: a resolved incident routes to a notify-only lane,
+    and forcing an entry stage would call the AI on an all-clear.
+    """
+
+    def _incident_with_alert(self, severity="critical", status="firing"):
+        from apps.alerts.models import Incident
+
+        incident = Incident.objects.create(title="Disk full", severity=severity)
+        Alert.objects.create(
+            fingerprint=f"fp-{incident.id}",
+            source="cluster",
+            name="disk",
+            severity=severity,
+            status=status,
+            started_at=timezone.now(),
+            labels={},
+            incident=incident,
+        )
+        return incident
+
+    def _downstream_run(self, incident, run_id="r-1"):
+        from apps.orchestration.models import PipelineRun
+
+        return PipelineRun.objects.create(
+            trace_id=f"t-{run_id}",
+            run_id=run_id,
+            source="cluster",
+            origin=PipelineOrigin.INCOMING_WEBHOOK,
+            status=PipelineStatus.PENDING,
+            inbound_payload={"downstream_incident_id": incident.id},
+        )
+
+    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
+    def test_downstream_run_executes_only_its_lane_stages(self, mock_execute):
+        mock_execute.return_value = NotifyResult(channels_succeeded=1)
+        incident = self._incident_with_alert()
+        PipelineDefinition.objects.create(
+            name="lane-notify-only", match=[], stages=["notify"], priority=10, is_active=True
+        )
+        run = self._downstream_run(incident)
+
+        result = PipelineOrchestrator().execute_run(run)
+
+        assert result.status == "COMPLETED"
+        assert result.stages_completed == [PipelineStage.NOTIFY]
+        assert mock_execute.call_count == 1
+        assert mock_execute.call_args[1]["stage"] == PipelineStage.NOTIFY
+
+    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
+    def test_downstream_run_carries_its_incident_into_every_stage(self, mock_execute):
+        """notify reads incident_id to find the lane's channel; nothing re-derives it."""
+        mock_execute.return_value = NotifyResult(channels_succeeded=1)
+        incident = self._incident_with_alert()
+        PipelineDefinition.objects.create(
+            name="lane-notify-only", match=[], stages=["notify"], priority=10, is_active=True
+        )
+        run = self._downstream_run(incident)
+
+        result = PipelineOrchestrator().execute_run(run)
+
+        assert mock_execute.call_args[1]["incident_id"] == incident.id
+        assert result.incident_id == incident.id
+        run.refresh_from_db()
+        assert run.incident_id == incident.id
+
+    def test_downstream_run_with_no_matching_lane_fails_no_route(self):
+        incident = self._incident_with_alert()
+        PipelineDefinition.objects.all().delete()
+        run = self._downstream_run(incident, run_id="r-2")
+
+        PipelineOrchestrator().execute_run(run)
+
+        run.refresh_from_db()
+        assert run.status == PipelineStatus.FAILED
+        assert "no_route" in run.last_error_message
+        assert run.last_error_retryable is False
+
+    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
+    def test_downstream_run_never_ingests(self, mock_execute):
+        """The parent already ingested; there is no payload here to ingest."""
+        mock_execute.return_value = AnalyzeResult(summary="ok")
+        incident = self._incident_with_alert()
+        PipelineDefinition.objects.create(
+            name="analyze-only", match=[], stages=["analyze"], priority=10, is_active=True
+        )
+        run = self._downstream_run(incident, run_id="r-3")
+
+        result = PipelineOrchestrator().execute_run(run)
+
+        assert result.status == "COMPLETED"
+        assert PipelineStage.INGEST not in result.stages_completed
+        assert result.stages_completed == [PipelineStage.ANALYZE]
+        run.refresh_from_db()
+        assert run.status == PipelineStatus.ANALYZED
+
+    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
+    def test_downstream_lane_with_no_stages_completes_cleanly(self, mock_execute):
+        """An empty stage list is legal: nothing to run is not a failure."""
+        incident = self._incident_with_alert()
+        PipelineDefinition.objects.create(
+            name="lane-empty", match=[], stages=[], priority=10, is_active=True
+        )
+        run = self._downstream_run(incident, run_id="r-4")
+
+        result = PipelineOrchestrator().execute_run(run)
+
+        assert result.status == "COMPLETED"
+        assert result.stages_completed == []
+        assert mock_execute.call_count == 0
+        run.refresh_from_db()
+        assert run.status == PipelineStatus.INGESTED
