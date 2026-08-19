@@ -66,6 +66,9 @@ def facts_from_alert(alert: Any, origin: str) -> dict:
     return {
         "source": alert.source or "",
         "severity": alert.severity or "",
+        # firing / resolved. A lane matches on it to route an all-clear away from
+        # ANALYZE: there is nothing left to diagnose once a thing has recovered.
+        "status": alert.status or "",
         "instance": instance_key_from_labels(labels),
         "labels": labels,
         "origin": origin,

@@ -189,6 +189,26 @@ class FactsFromAlertTests(TestCase):
                 alert = self._alert(fingerprint=f"fp-{i}", labels=labels)
                 self.assertEqual(facts_from_alert(alert, "incoming_webhook")["instance"], expected)
 
+    def test_status_is_a_routing_fact(self):
+        """A lane cannot match on a fact that is not produced.
+
+        The seeded ``resolved-all-clear`` lane routes on it: an all-clear has
+        nothing left to diagnose, so it notifies without an LLM call.
+        """
+        from apps.orchestration.routing import facts_from_alert
+
+        firing = facts_from_alert(self._alert(status="firing"), "incoming_webhook")
+        resolved = facts_from_alert(
+            self._alert(fingerprint="fp-res", status="resolved"), "incoming_webhook"
+        )
+        self.assertEqual(firing["status"], "firing")
+        self.assertEqual(resolved["status"], "resolved")
+
+    def test_blank_status_normalises_to_empty_string(self):
+        from apps.orchestration.routing import facts_from_alert
+
+        self.assertEqual(facts_from_alert(self._alert(status=""), "incoming_webhook")["status"], "")
+
     def test_non_dict_labels_yield_empty_labels_and_instance(self):
         from apps.orchestration.routing import facts_from_alert
 

@@ -672,6 +672,63 @@ class SeededDefaultLanesTests(TestCase):
         assert self._downstream(alert.id) is None
 
 
+class SeededResolvedLaneTests(TestCase):
+    """An all-clear reaches the operator without an LLM call.
+
+    This is a lane, not code: routing on ``status`` is what keeps "resolved means
+    notify only" configurable, and an operator can widen or delete it like any
+    other row.
+    """
+
+    def _alert(self, status, source="cluster", severity="critical"):
+        incident = Incident.objects.create(title="x", severity=severity)
+        return Alert.objects.create(
+            fingerprint=f"fp-resolved-{status}",
+            source=source,
+            name="cpu",
+            severity=severity,
+            status=status,
+            started_at=timezone.now(),
+            incident=incident,
+            labels={"instance_id": "web-03"},
+        )
+
+    def test_resolved_incidents_route_to_notify_only(self):
+        lane = PipelineDefinition.objects.get(name="resolved-all-clear")
+        assert lane.routable_stages() == ["notify"]
+        assert lane.matches({"status": "resolved"})
+        assert not lane.matches({"status": "firing"})
+        assert lane.is_active
+
+    def test_a_resolved_alert_actually_resolves_to_that_lane(self):
+        """Read the outcome, not the row: priority 40 must beat cluster-nodes (50).
+
+        A resolved node alert would otherwise take the node lane and pay for an
+        analysis of something that has already recovered.
+        """
+        alert = self._alert(status="resolved")
+
+        stages = PipelineOrchestrator()._downstream_stages(alert.id, "incoming_webhook")
+
+        assert stages == [PipelineStage.NOTIFY]
+        assert Incident.objects.get(pk=alert.incident_id).pipeline.name == "resolved-all-clear"
+
+    def test_a_firing_alert_is_untouched_by_it(self):
+        alert = self._alert(status="firing")
+
+        PipelineOrchestrator()._downstream_stages(alert.id, "incoming_webhook")
+
+        assert Incident.objects.get(pk=alert.incident_id).pipeline.name == "cluster-nodes"
+
+    def test_the_lane_is_deletable_like_any_operator_row(self):
+        PipelineDefinition.objects.filter(name="resolved-all-clear").delete()
+        alert = self._alert(status="resolved")
+
+        stages = PipelineOrchestrator()._downstream_stages(alert.id, "incoming_webhook")
+
+        assert stages == [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+
+
 class NoRouteFailsTheRunTests(TestCase):
     """An alert nothing claims fails the run instead of silently defaulting."""
 
