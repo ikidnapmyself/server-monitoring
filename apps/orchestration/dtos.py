@@ -77,6 +77,10 @@ class IngestResult:
     incidents_created: int = 0
     incidents_updated: int = 0
     errors: list[str] = field(default_factory=list)
+    #: Incidents that materially changed in this run and therefore each deserve
+    #: their own downstream run — see apps.alerts.materiality. Deduplicated, in
+    #: first-seen order; a superset of ``incident_id`` whenever that is set.
+    material_incident_ids: list[int] = field(default_factory=list)
     duration_ms: float = 0.0
 
     @property
@@ -120,6 +124,10 @@ class CheckResult:
     timings: dict[str, float] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     checker_output_ref: str | None = None
+    #: Incidents that materially changed in this run and therefore each deserve
+    #: their own downstream run — see apps.alerts.materiality. Deduplicated, in
+    #: first-seen order; a superset of ``incident_id`` whenever that is set.
+    material_incident_ids: list[int] = field(default_factory=list)
     duration_ms: float = 0.0
 
     @property

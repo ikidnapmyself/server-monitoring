@@ -81,6 +81,8 @@ class CheckAlertResult:
     # Alert rows these checks created, updated or resolved, in checker order.
     # Bounded to one run; see ProcessingResult.alerts for the consumer caveats.
     alerts: list[Alert] = field(default_factory=list)
+    # The subset of `alerts` whose write was material — see apps.alerts.materiality.
+    material_alerts: list[Alert] = field(default_factory=list)
 
     @property
     def has_errors(self) -> bool:
@@ -485,6 +487,7 @@ class CheckAlertBridge:
                 result.incidents_created += processing_result.incidents_created
                 result.incidents_updated += processing_result.incidents_updated
                 result.alerts.extend(processing_result.alerts)
+                result.material_alerts.extend(processing_result.material_alerts)
 
                 if processing_result.has_errors:
                     result.errors.extend(processing_result.errors)

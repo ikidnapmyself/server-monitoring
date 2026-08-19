@@ -47,6 +47,7 @@ class _FakeProcessingResult:
     incidents_updated: int = 0
     errors: list = field(default_factory=list)
     alerts: list = field(default_factory=list)
+    material_alerts: list = field(default_factory=list)
 
 
 def _mock_alert(*, name, severity, fingerprint, pk=1, incident_id=None, title=None):
@@ -278,6 +279,80 @@ class TestIngestExecutorSubjectOrderingIsTotal(TestCase):
         assert reverse.alert_fingerprint == forward.alert_fingerprint
 
 
+class TestIngestExecutorMaterialIncidents(TestCase):
+    """Every materially-changed incident leaves the entry stage, not just the subject.
+
+    The subject is one alert; fan-out needs the whole set, or a push carrying two
+    hosts' problems only ever diagnoses one of them.
+    """
+
+    def _payload(self, instances):
+        return {
+            "version": "4",
+            "groupKey": "test",
+            "receiver": "webhook",
+            "status": "firing",
+            "alerts": [
+                {
+                    "status": "firing",
+                    "labels": {
+                        "alertname": "HighCPU",
+                        "severity": "warning",
+                        "instance": instance,
+                    },
+                    "annotations": {"description": "hot"},
+                    "startsAt": "2024-01-08T10:00:00Z",
+                    "fingerprint": f"fp-{instance}",
+                }
+                for instance in instances
+            ],
+            "groupLabels": {},
+            "commonLabels": {},
+        }
+
+    def _ingest(self, instances):
+        return IngestExecutor().execute(
+            _ctx(payload={"driver": "alertmanager", "payload": self._payload(instances)})
+        )
+
+    def _execute_with(self, alerts, material):
+        mock_orch = MagicMock()
+        mock_orch.process_webhook.return_value = _FakeProcessingResult(
+            alerts=alerts, material_alerts=material
+        )
+        with patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch):
+            return IngestExecutor().execute(
+                _ctx(payload={"driver": "generic", "payload": {"k": "v"}})
+            )
+
+    def test_ingest_result_carries_every_material_incident(self):
+        result = self._ingest(["a", "b"])
+
+        assert not result.errors
+        assert len(set(result.material_incident_ids)) == 2
+        assert result.incident_id in result.material_incident_ids
+
+    def test_identical_repush_carries_no_material_incident(self):
+        self._ingest(["a", "b"])
+
+        assert self._ingest(["a", "b"]).material_incident_ids == []
+
+    def test_material_alert_without_an_incident_is_skipped(self):
+        """An alert opened without an incident has no downstream run to enqueue."""
+        alert = _mock_alert(name="cpu", severity="info", fingerprint="fp", incident_id=None)
+
+        assert self._execute_with([alert], [alert]).material_incident_ids == []
+
+    def test_the_same_incident_twice_is_carried_once(self):
+        """Two alerts of one incident are one unit of work, not two."""
+        alerts = [
+            _mock_alert(name="cpu", severity="warning", fingerprint="fp-1", pk=1, incident_id=7),
+            _mock_alert(name="disk", severity="warning", fingerprint="fp-2", pk=2, incident_id=7),
+        ]
+
+        assert self._execute_with(alerts, alerts).material_incident_ids == [7]
+
+
 class TestIngestExecutorError(SimpleTestCase):
     def test_exception_captured(self):
         with patch(
@@ -300,6 +375,7 @@ class TestCheckExecutorSuccess(SimpleTestCase):
             checks_run: int = 3
             errors: list = field(default_factory=list)
             alerts: list = field(default_factory=list)
+            material_alerts: list = field(default_factory=list)
 
         mock_bridge = MagicMock()
         mock_bridge.run_checks_and_alert.return_value = FakeBridgeResult()
@@ -322,6 +398,7 @@ class TestCheckExecutorSuccess(SimpleTestCase):
             checks_run: int = 2
             errors: list = field(default_factory=lambda: ["cpu failed"])
             alerts: list = field(default_factory=list)
+            material_alerts: list = field(default_factory=list)
 
         mock_bridge = MagicMock()
         mock_bridge.run_checks_and_alert.return_value = FakeBridgeResult()
@@ -347,6 +424,7 @@ class TestCheckExecutorSuccess(SimpleTestCase):
             checks_run: int = 1
             errors: list = field(default_factory=list)
             alerts: list = field(default_factory=list)
+            material_alerts: list = field(default_factory=list)
             check_results: list = field(default_factory=lambda: [FakeCheck()])
 
         mock_bridge = MagicMock()
@@ -470,6 +548,39 @@ class TestCheckExecutorSubjectAlert(SimpleTestCase):
         assert result.alert_id == 44
         assert result.incident_id is None
         assert result.alert_fingerprint == "fp-c"
+
+
+class TestCheckExecutorMaterialIncidents(SimpleTestCase):
+    """The checker entry stage carries the same set, from its own bridge result."""
+
+    @staticmethod
+    def _run(alerts, material):
+        mock_bridge = MagicMock()
+        mock_bridge.run_checks_and_alert.return_value = MagicMock(
+            checks_run=len(alerts),
+            errors=[],
+            check_results=[],
+            alerts=alerts,
+            material_alerts=material,
+        )
+        with patch(
+            "apps.alerts.check_integration.CheckAlertBridge",
+            return_value=mock_bridge,
+        ):
+            return CheckExecutor().execute(_ctx(payload={"checker_names": ["cpu"]}))
+
+    def test_every_material_incident_is_carried(self):
+        alerts = [
+            _FakeAlert(id=11, severity="warning", name="cpu", fingerprint="fp-c", incident_id=1),
+            _FakeAlert(id=22, severity="critical", name="disk", fingerprint="fp-d", incident_id=2),
+        ]
+        assert sorted(self._run(alerts, alerts).material_incident_ids) == [1, 2]
+
+    def test_unchanged_checks_carry_nothing(self):
+        alerts = [
+            _FakeAlert(id=11, severity="warning", name="cpu", fingerprint="fp-c", incident_id=1)
+        ]
+        assert self._run(alerts, []).material_incident_ids == []
 
 
 class TestCheckExecutorError(SimpleTestCase):

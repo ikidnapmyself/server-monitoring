@@ -60,7 +60,7 @@ class IngestExecutor(BaseExecutor):
 
         try:
             from apps.alerts.services import AlertOrchestrator
-            from apps.orchestration.routing import subject_alert
+            from apps.orchestration.routing import material_incident_ids, subject_alert
 
             payload = ctx.payload
             driver = payload.get("driver")
@@ -101,6 +101,10 @@ class IngestExecutor(BaseExecutor):
                 if incident is not None and incident.title:
                     result.incident_title = incident.title
 
+            # Every material incident, not just the subject: the orchestrator
+            # enqueues one downstream run per entry here.
+            result.material_incident_ids = material_incident_ids(proc_result.material_alerts)
+
             # Generate payload reference (hash-based, no secrets)
             result.normalized_payload_ref = f"payload:{ctx.trace_id}:{ctx.run_id}:ingest"
 
@@ -126,7 +130,7 @@ class CheckExecutor(BaseExecutor):
 
         try:
             from apps.alerts.check_integration import CheckAlertBridge
-            from apps.orchestration.routing import subject_alert
+            from apps.orchestration.routing import material_incident_ids, subject_alert
 
             payload = ctx.payload
             hostname = payload.get("hostname")
@@ -187,6 +191,8 @@ class CheckExecutor(BaseExecutor):
                 # None, which is a valid outcome, not an error.
                 result.incident_id = subject.incident_id
                 result.alert_fingerprint = subject.fingerprint
+
+            result.material_incident_ids = material_incident_ids(bridge_result.material_alerts)
 
             # Store checks in structured format
             result.checks = []
