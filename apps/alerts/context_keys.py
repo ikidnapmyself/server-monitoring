@@ -16,8 +16,23 @@ Two producers write metrics into annotations and both are read here:
 * ``apps.alerts.drivers.cluster`` (node push) stores the whole metrics dict as a
   JSON string under ``annotations["metrics"]`` — what ``parse_metrics`` reads.
 * ``apps.alerts.check_integration`` (hub-local checker runs) writes one
-  ``str(value)`` annotation per metric key and no ``metrics`` blob at all, so a
-  list metric arrives as its ``repr`` (``"[8080, 22]"``, which is also valid JSON).
+  ``str(value)`` annotation per metric key and no ``metrics`` blob at all, so
+  values arrive as their ``repr``.
+
+``_normalized_metrics`` reconciles the two so builders only ever see decoded
+values; a builder should never have to ask which producer wrote the alert.
+
+Known limitation — the key reflects the *node's* verdict
+--------------------------------------------------------
+``_listening_ports_key`` reads ``metrics["unexpected_ports"]``, which is the node's
+flagged set computed against the node's own local allowlist. Hub-side allowlist
+re-evaluation (``apps.alerts.reevaluation._score_allowlist``) independently
+recomputes flagged ports from ``metrics["listening"]`` against
+``Node.config["listening_ports"]["allowlist"]`` and does not write its result back
+into the metrics, so the two hub-side registries can disagree: a port the hub has
+deliberately allowlisted still moves the context key. The consequence is a possible
+spurious downstream run, never a silenced one, so this is left alone here — the fix
+belongs with the re-evaluation owner.
 """
 
 import hashlib
@@ -25,7 +40,7 @@ import json
 import logging
 from collections.abc import Callable
 
-from apps.alerts.reevaluation import parse_metrics
+from apps.alerts.metrics import parse_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -36,44 +51,56 @@ logger = logging.getLogger(__name__)
 MAX_PLAIN_KEY_LENGTH = 200
 
 
-def _as_list(value: object) -> list | None:
-    """Coerce a metric value to a list, accepting both annotation shapes.
+def _decode(value: object) -> object:
+    """Best-effort JSON-decode of a stringified metric value.
 
-    Elements are left as decoded; the caller decides which of them are ports.
-
-    Returns None (→ no key) for anything that is not a list or a JSON string
-    encoding one.
+    ``"[8080, 22]"`` → ``[8080, 22]`` and ``"91.2"`` → ``91.2``, while plain text
+    such as ``"web-01"`` is returned unchanged.
     """
-    if isinstance(value, list):
+    if not isinstance(value, str):
         return value
-    if isinstance(value, str):
-        try:
-            decoded = json.loads(value)
-        except (TypeError, ValueError):
-            return None
-        return decoded if isinstance(decoded, list) else None
-    return None
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        return value
 
 
-def _bound(joined: str) -> str:
-    """Keep the key inside the column without losing injectivity."""
-    if len(joined) <= MAX_PLAIN_KEY_LENGTH:
-        return joined
-    return f"sha256:{hashlib.sha256(joined.encode()).hexdigest()}"
+def _normalized_metrics(annotations: dict) -> dict:
+    """One shape for builders: decoded values, whichever producer wrote them."""
+    nested = parse_metrics(annotations)
+    if nested is not None:
+        return nested
+    return {key: _decode(value) for key, value in annotations.items()}
+
+
+def _fit_to_column(key: str) -> str:
+    """Keep the key inside ``Alert.context_key`` without losing injectivity.
+
+    Applied centrally in :func:`context_key_for`, so the bound is an invariant of
+    this module rather than something each builder has to remember. Idempotent for
+    any key already within the bound.
+    """
+    if len(key) <= MAX_PLAIN_KEY_LENGTH:
+        return key
+    return f"sha256:{hashlib.sha256(key.encode()).hexdigest()}"
 
 
 def _listening_ports_key(metrics: dict) -> str:
-    """The sorted set of flagged ports. Empty when nothing is flagged."""
-    ports = _as_list(metrics.get("unexpected_ports"))
-    if ports is None:
+    """The sorted set of flagged ports, namespaced by checker.
+
+    A clean scan yields ``"listening_ports:"`` — a real situation — which must not
+    be confused with ``""``, meaning this module has nothing to compare.
+    """
+    ports = metrics.get("unexpected_ports")
+    if not isinstance(ports, list):
         return ""
     numbers = sorted({p for p in ports if isinstance(p, int) and not isinstance(p, bool)})
-    return _bound(",".join(str(p) for p in numbers))
+    return "listening_ports:" + ",".join(str(p) for p in numbers)
 
 
 #: checker name -> (metrics) -> key. A checker with no entry has no key, which means
 #: severity and status alone decide whether its re-push is material.
-CONTEXT_KEYS: dict[str, Callable[[dict], str]] = {
+KEY_BUILDERS: dict[str, Callable[[dict], str]] = {
     "listening_ports": _listening_ports_key,
 }
 
@@ -85,17 +112,14 @@ def context_key_for(checker: str, annotations: object) -> str:
     raising builder all degrade to severity/status-only gating, which over-notifies
     rather than silencing. Silence is the dangerous direction here.
     """
-    builder = CONTEXT_KEYS.get(checker or "")
+    builder = KEY_BUILDERS.get(checker or "")
     if builder is None:
         return ""
     if not isinstance(annotations, dict):
         return ""
-    metrics = parse_metrics(annotations)
-    if not isinstance(metrics, dict):
-        # No (or unparseable) metrics blob: the flat per-key annotation shape.
-        metrics = annotations
+    metrics = _normalized_metrics(annotations)
     try:
-        return builder(metrics)
+        return _fit_to_column(str(builder(metrics)))
     except Exception:  # noqa: BLE001 - fail-open contract: never raise into ingest
         logger.exception("context_key builder failed for checker %r", checker)
         return ""

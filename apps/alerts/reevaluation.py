@@ -12,8 +12,12 @@ import logging
 from collections.abc import Callable
 
 from apps.alerts.drivers.base import ParsedAlert
+from apps.alerts.metrics import parse_metrics
 
 logger = logging.getLogger(__name__)
+
+# Re-exported for the existing callers that import it from here.
+__all__ = ["parse_metrics", "reevaluate_severity", "SCORERS", "REEVALUATORS"]
 
 # checker -> the metric key carrying its primary numeric value
 PRIMARY_METRIC = {
@@ -25,22 +29,6 @@ PRIMARY_METRIC = {
     "cpu_temp": "hottest_c",
     "io_strain": "busiest_util_percent",
 }
-
-
-def parse_metrics(annotations: dict | None) -> dict | None:
-    """Parse the JSON `metrics` string stashed in an alert's annotations.
-
-    Shared by ingest (`ParsedAlert`) and config-change re-eval (`Alert`).
-    Returns the dict, or None when absent / unparseable / not a dict.
-    """
-    raw = (annotations or {}).get("metrics")
-    if not raw:
-        return None
-    try:
-        data = json.loads(raw)
-    except (TypeError, ValueError):
-        return None
-    return data if isinstance(data, dict) else None
 
 
 def _metrics(parsed: ParsedAlert) -> dict | None:
