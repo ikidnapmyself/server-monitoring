@@ -636,3 +636,75 @@ class CheckAlertBridgeTests(TestCase):
         incident.refresh_from_db()
         self.assertEqual(incident.severity, "critical")  # unchanged
         self.assertEqual(result.incidents_updated, 1)
+
+
+class CheckAlertBridgeMaterialityTests(TestCase):
+    """The change gate on the checker ingest path.
+
+    This is the path listening_ports travels, so it is the path whose re-pushes
+    must stay quiet unless the situation itself moved.
+    """
+
+    def setUp(self):
+        self.bridge = CheckAlertBridge(
+            auto_create_incidents=True,
+            hostname="test-server",
+        )
+
+    def _warning_result(self):
+        return CheckResult(
+            status=CheckStatus.WARNING,
+            message="Memory usage at 75%",
+            metrics={"memory_percent": 75.0},
+            checker_name="memory",
+        )
+
+    def _ports_result(self, unexpected):
+        return CheckResult(
+            status=CheckStatus.WARNING,
+            message=f"{len(unexpected)} unexpected port(s) listening",
+            metrics={
+                "unexpected_ports": unexpected,
+                "listening_count": 12,
+                "allowlist": [],
+            },
+            checker_name="listening_ports",
+        )
+
+    def _ok_ports_result(self):
+        return CheckResult(
+            status=CheckStatus.OK,
+            message="No unexpected ports listening",
+            metrics={"unexpected_ports": [], "listening_count": 12, "allowlist": []},
+            checker_name="listening_ports",
+        )
+
+    def test_new_check_alert_is_material(self):
+        result = self.bridge.process_check_result(self._warning_result())
+        self.assertEqual(len(result.material_alerts), 1)
+
+    def test_identical_check_repush_is_not_material(self):
+        self.bridge.process_check_result(self._warning_result())
+        result = self.bridge.process_check_result(self._warning_result())
+        self.assertEqual(result.material_alerts, [])
+
+    def test_new_unexpected_port_at_same_severity_is_material(self):
+        self.bridge.process_check_result(self._ports_result(unexpected=[22]))
+        result = self.bridge.process_check_result(self._ports_result(unexpected=[22, 8080]))
+        self.assertEqual(len(result.material_alerts), 1)
+
+    def test_same_ports_reordered_is_not_material(self):
+        self.bridge.process_check_result(self._ports_result(unexpected=[22, 8080]))
+        result = self.bridge.process_check_result(self._ports_result(unexpected=[8080, 22]))
+        self.assertEqual(result.material_alerts, [])
+
+    def test_resolution_is_material(self):
+        self.bridge.process_check_result(self._ports_result(unexpected=[22]))
+        result = self.bridge.process_check_result(self._ok_ports_result())
+        self.assertEqual(len(result.material_alerts), 1)
+
+    def test_already_resolved_repush_is_not_material(self):
+        self.bridge.process_check_result(self._ports_result(unexpected=[22]))
+        self.bridge.process_check_result(self._ok_ports_result())
+        result = self.bridge.process_check_result(self._ok_ports_result())
+        self.assertEqual(result.material_alerts, [])

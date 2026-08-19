@@ -29,7 +29,9 @@ from typing import Any
 from django.db import transaction
 from django.utils import timezone
 
+from apps.alerts.context_keys import context_key_for
 from apps.alerts.drivers.base import ParsedAlert, ParsedPayload
+from apps.alerts.materiality import is_material_change
 from apps.alerts.models import (
     Alert,
     AlertHistory,
@@ -283,6 +285,9 @@ class CheckAlertBridge:
             started_at=parsed.started_at,
             trace_id=self.trace_id,
             node=resolve_node(parsed.labels),
+            context_key=context_key_for(
+                (parsed.labels or {}).get("checker", ""), parsed.annotations
+            ),
         )
 
         AlertHistory.objects.create(
@@ -305,6 +310,8 @@ class CheckAlertBridge:
             self.orchestrator._create_or_attach_incident(alert, result)
 
         result.alerts.append(alert)
+        # A brand-new alert is always material: there is no prior state to compare.
+        result.material_alerts.append(alert)
         return alert
 
     def _update_alert(
@@ -315,17 +322,22 @@ class CheckAlertBridge:
     ) -> Alert:
         """Update an existing alert with new data."""
         old_severity = alert.severity
+        old_status = alert.status
+        old_key = alert.context_key
+        new_key = context_key_for((parsed.labels or {}).get("checker", ""), parsed.annotations)
 
         alert.severity = parsed.severity
         alert.description = parsed.description
         alert.annotations = parsed.annotations
         alert.raw_payload = parsed.raw_payload
+        alert.context_key = new_key
         alert.save(
             update_fields=[
                 "severity",
                 "description",
                 "annotations",
                 "raw_payload",
+                "context_key",
                 "updated_at",
             ]
         )
@@ -346,6 +358,15 @@ class CheckAlertBridge:
         logger.info(f"Updated alert from check: {alert.name}")
 
         result.alerts.append(alert)
+        if is_material_change(
+            old_severity=old_severity,
+            new_severity=parsed.severity,
+            old_status=old_status,
+            new_status=parsed.status,
+            old_key=old_key,
+            new_key=new_key,
+        ):
+            result.material_alerts.append(alert)
         return alert
 
     def _resolve_alert(
@@ -371,6 +392,9 @@ class CheckAlertBridge:
         logger.info(f"Resolved alert from check: {alert.name}")
 
         result.alerts.append(alert)
+        # This method is only reached on a FIRING -> RESOLVED transition, which the
+        # design counts as material: the all-clear is what the resolved lane notifies on.
+        result.material_alerts.append(alert)
         return alert
 
     def _check_incident_resolution(self):
