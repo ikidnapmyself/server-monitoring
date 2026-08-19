@@ -16,7 +16,10 @@ from apps.alerts.metrics import parse_metrics
 
 logger = logging.getLogger(__name__)
 
-# Re-exported for the existing callers that import it from here.
+# parse_metrics now LIVES in apps.alerts.metrics — apps.alerts.context_keys needs the
+# same "read a node's metrics back out of annotations" rule, and importing it from here
+# would couple the fan-out gate to the severity re-evaluator. It stays exported from this
+# module so the existing callers that import it from here keep working.
 __all__ = ["parse_metrics", "reevaluate_severity", "SCORERS", "REEVALUATORS"]
 
 # checker -> the metric key carrying its primary numeric value
