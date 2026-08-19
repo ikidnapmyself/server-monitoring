@@ -13,12 +13,14 @@ from typing import Any
 from django.db import transaction
 from django.utils import timezone
 
+from apps.alerts.context_keys import context_key_for
 from apps.alerts.drivers import (
     BaseAlertDriver,
     ParsedAlert,
     detect_driver,
     get_driver,
 )
+from apps.alerts.materiality import is_material_change
 from apps.alerts.models import (
     Alert,
     AlertHistory,
@@ -129,6 +131,12 @@ class ProcessingResult:
     #   - _check_incident_resolution() runs after the loop and mutates Incident
     #     rows, so a cached .incident on a retained alert may be stale.
     alerts: list[Alert] = field(default_factory=list)
+
+    # Alerts whose write deserves its own downstream pipeline run — see
+    # apps.alerts.materiality. Populated as alerts are written, because by the time
+    # a caller sees this list the old severity/status/context_key are already gone.
+    # A subset of `alerts`, and subject to the same two traps documented above.
+    material_alerts: list[Alert] = field(default_factory=list)
 
     @property
     def total_processed(self) -> int:
@@ -285,6 +293,9 @@ class AlertOrchestrator:
             ended_at=parsed.ended_at,
             trace_id=self.trace_id,
             node=resolve_node(parsed.labels),
+            context_key=context_key_for(
+                (parsed.labels or {}).get("checker", ""), parsed.annotations
+            ),
         )
 
         # Record history
@@ -303,6 +314,8 @@ class AlertOrchestrator:
             self._create_or_attach_incident(alert, result)
 
         result.alerts.append(alert)
+        # A brand-new alert is always material: there is no prior state to compare.
+        result.material_alerts.append(alert)
         return alert
 
     # Fields compared on re-fire. raw_payload (noisy/large) and name
@@ -327,6 +340,9 @@ class AlertOrchestrator:
     ) -> Alert:
         """Update an existing alert with new data."""
         old_status = alert.status
+        old_severity = alert.severity
+        old_key = alert.context_key
+        new_key = context_key_for((parsed.labels or {}).get("checker", ""), parsed.annotations)
 
         # Snapshot what changed BEFORE overwriting fields below.
         changed = self._diff_alert(alert, parsed)
@@ -338,6 +354,7 @@ class AlertOrchestrator:
         alert.labels = parsed.labels
         alert.annotations = parsed.annotations
         alert.raw_payload = parsed.raw_payload
+        alert.context_key = new_key
 
         # Handle status change
         if parsed.status != old_status:
@@ -372,6 +389,15 @@ class AlertOrchestrator:
 
         alert.save()
         result.alerts.append(alert)
+        if is_material_change(
+            old_severity=old_severity,
+            new_severity=parsed.severity,
+            old_status=old_status,
+            new_status=parsed.status,
+            old_key=old_key,
+            new_key=new_key,
+        ):
+            result.material_alerts.append(alert)
         return alert
 
     def _create_or_attach_incident(
