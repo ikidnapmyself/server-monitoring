@@ -12,6 +12,7 @@ from apps.orchestration.models import (
     PipelineRun,
     PipelineStage,
     PipelineStatus,
+    StageExecution,
 )
 
 
@@ -150,10 +151,21 @@ class WebhookClusterLaneRoutingTests(TestCase):
         lanes that never reach CHECK pay nothing for the patch.
         """
         mock_bridge = MagicMock()
-        mock_bridge.run_checks_and_alert.return_value = SimpleNamespace(checks_run=0, errors=[])
+        mock_bridge.run_checks_and_alert.return_value = SimpleNamespace(
+            checks_run=0, errors=[], alerts=[], material_alerts=[]
+        )
         with patch("apps.alerts.check_integration.CheckAlertBridge", return_value=mock_bridge):
             inbox.drain_run(run.run_id)
-        return list(run.stage_executions.order_by("id").values_list("stage", flat=True))
+            # The push run only ingests now; its lane runs in the downstream runs
+            # it enqueued, which the same drain picks up on its next pass. Drain
+            # them here so this stays the end-to-end test it was.
+            while inbox.drain(limit=10):
+                pass
+        return list(
+            StageExecution.objects.filter(pipeline_run__trace_id=run.trace_id)
+            .order_by("id")
+            .values_list("stage", flat=True)
+        )
 
     def test_wrapper_payload_carries_only_driver_and_payload(self):
         """The view no longer smuggles a routing decision into the wrapper."""

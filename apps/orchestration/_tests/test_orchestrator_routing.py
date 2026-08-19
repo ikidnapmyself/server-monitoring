@@ -34,6 +34,40 @@ from apps.orchestration.orchestrator import PipelineOrchestrator
 from apps.orchestration.testing import clear_lanes
 
 
+def deliveries_in_trace(trace_id):
+    """Every delivery a NOTIFY stage recorded anywhere in this trace.
+
+    NOTIFY runs in a downstream run now, so its ``NotifyResult`` is not the one
+    ``run_pipeline`` returns. The persisted stage snapshot is the same data and is
+    where an operator would read it.
+    """
+    out = []
+    for execution in StageExecution.objects.filter(
+        pipeline_run__trace_id=trace_id,
+        stage=PipelineStage.NOTIFY,
+        status=StageStatus.SUCCEEDED,
+    ).order_by("id"):
+        out.extend((execution.output_snapshot or {}).get("deliveries") or [])
+    return out
+
+
+def drain_children(trace_id, parent_run_id):
+    """Execute the downstream runs a push or resume enqueued, as process_inbox would.
+
+    Fan-out moved every stage after the entry stage into its own PENDING run.
+    ``run_pipeline`` drains its own children; ``resume_pipeline`` deliberately does
+    not, so a resume test has to drain them the way the cron drain would.
+    """
+    from apps.orchestration.inbox import drain_run
+
+    for run_id in (
+        PipelineRun.objects.filter(trace_id=trace_id, status=PipelineStatus.PENDING)
+        .exclude(run_id=parent_run_id)
+        .values_list("run_id", flat=True)
+    ):
+        drain_run(run_id)
+
+
 class StageSelectionFromStagesListTests(TestCase):
     def setUp(self):
         self.incident = Incident.objects.create(title="High CPU", severity="critical")
@@ -48,16 +82,30 @@ class StageSelectionFromStagesListTests(TestCase):
         )
 
     def _fake_exec(self, pipeline_run, stage, payload, previous_results, incident_id):
+        # Recorded across the WHOLE trace: after fan-out the lane's stages run in
+        # the downstream run the push enqueues, not on the push run itself, so
+        # "which stages did this traffic run" can no longer be read off the push
+        # run's own stages_completed.
+        self.executed.append(stage)
         return {
             PipelineStage.INGEST: IngestResult(
-                alert_id=self.alert.id, incident_id=self.incident.id, alerts_created=1
+                alert_id=self.alert.id,
+                incident_id=self.incident.id,
+                alerts_created=1,
+                material_incident_ids=[self.incident.id],
             ),
-            PipelineStage.CHECK: CheckResult(checks_run=1),
+            PipelineStage.CHECK: CheckResult(
+                checks_run=1,
+                alert_id=self.alert.id,
+                incident_id=self.incident.id,
+                material_incident_ids=[self.incident.id],
+            ),
             PipelineStage.ANALYZE: AnalyzeResult(summary="s"),
             PipelineStage.NOTIFY: NotifyResult(channels_succeeded=1),
         }[stage]
 
     def _run(self, payload=None, origin=None):
+        self.executed = []
         with patch.object(
             PipelineOrchestrator, "_execute_stage_with_retry", side_effect=self._fake_exec
         ):
@@ -78,13 +126,13 @@ class StageSelectionFromStagesListTests(TestCase):
             match=[{"field": "origin", "op": "is", "value": "checker_generated"}],
             stages=["notify"],
         )
-        result = self._run(origin=PipelineOrigin.CHECKER_GENERATED)
-        assert result.stages_completed == [PipelineStage.INGEST, PipelineStage.NOTIFY]
+        self._run(origin=PipelineOrigin.CHECKER_GENERATED)
+        assert self.executed == [PipelineStage.INGEST, PipelineStage.NOTIFY]
 
         # The same payload from a webhook does not match that lane; it falls
         # through to the seeded cluster-nodes lane instead.
-        webhook = self._run(origin=PipelineOrigin.INCOMING_WEBHOOK)
-        assert webhook.stages_completed == [
+        self._run(origin=PipelineOrigin.INCOMING_WEBHOOK)
+        assert self.executed == [
             PipelineStage.INGEST,
             PipelineStage.ANALYZE,
             PipelineStage.NOTIFY,
@@ -99,33 +147,33 @@ class StageSelectionFromStagesListTests(TestCase):
             match=[{"field": "instance", "op": "is", "value": "web-03"}],
             stages=["notify"],
         )
-        result = self._run()
-        assert result.stages_completed == [PipelineStage.INGEST, PipelineStage.NOTIFY]
+        self._run()
+        assert self.executed == [PipelineStage.INGEST, PipelineStage.NOTIFY]
         assert Incident.objects.get(pk=self.incident.pk).pipeline_id == lane.id
 
     def test_stages_without_check_skips_check_stage(self):
         PipelineDefinition.objects.create(
             name="no-check", match=[], priority=1, stages=["analyze", "notify"]
         )
-        result = self._run()
-        assert PipelineStage.CHECK not in result.stages_completed
-        assert PipelineStage.NOTIFY in result.stages_completed
+        self._run()
+        assert PipelineStage.CHECK not in self.executed
+        assert PipelineStage.NOTIFY in self.executed
 
     def test_stages_without_analyze_skips_analyze_stage(self):
         PipelineDefinition.objects.create(
             name="no-ai", match=[], priority=1, stages=["check", "notify"]
         )
-        result = self._run()
-        assert PipelineStage.ANALYZE not in result.stages_completed
-        assert PipelineStage.CHECK in result.stages_completed
-        assert PipelineStage.NOTIFY in result.stages_completed
+        self._run()
+        assert PipelineStage.ANALYZE not in self.executed
+        assert PipelineStage.CHECK in self.executed
+        assert PipelineStage.NOTIFY in self.executed
 
     def test_stages_without_notify_stops_before_notify(self):
         PipelineDefinition.objects.create(
             name="silent", match=[], priority=1, stages=["check", "analyze"]
         )
-        result = self._run()
-        assert PipelineStage.NOTIFY not in result.stages_completed
+        self._run()
+        assert PipelineStage.NOTIFY not in self.executed
 
     def test_empty_stages_runs_only_ingest(self):
         PipelineDefinition.objects.create(
@@ -135,7 +183,7 @@ class StageSelectionFromStagesListTests(TestCase):
             stages=[],
         )
         result = self._run()
-        assert result.stages_completed == [PipelineStage.INGEST]
+        assert self.executed == [PipelineStage.INGEST]
         run = PipelineRun.objects.get(run_id=result.run_id)
         assert run.status == PipelineStatus.INGESTED
 
@@ -151,8 +199,8 @@ class StageSelectionFromStagesListTests(TestCase):
             match=[{"field": "source", "op": "is", "value": "grafana"}],
             priority=1,
         )
-        result = self._run()
-        assert result.stages_completed == [
+        self._run()
+        assert self.executed == [
             PipelineStage.INGEST,
             PipelineStage.ANALYZE,
             PipelineStage.NOTIFY,
@@ -164,8 +212,8 @@ class StageSelectionFromStagesListTests(TestCase):
         A fresh install with nothing configured still routes, because the routes
         are rows now rather than a constant in the orchestrator.
         """
-        result = self._run()
-        assert result.stages_completed == [
+        self._run()
+        assert self.executed == [
             PipelineStage.INGEST,
             PipelineStage.ANALYZE,
             PipelineStage.NOTIFY,
@@ -189,14 +237,14 @@ class StageSelectionFromStagesListTests(TestCase):
         PipelineDefinition.objects.create(
             name="full", match=[], priority=1, stages=["check", "analyze", "notify"]
         )
-        result = self._run()
-        assert PipelineStage.CHECK in result.stages_completed
-        assert PipelineStage.NOTIFY in result.stages_completed
+        self._run()
+        assert PipelineStage.CHECK in self.executed
+        assert PipelineStage.NOTIFY in self.executed
 
     def test_checks_only_payload_override_runs_only_check(self):
         PipelineDefinition.objects.create(name="full", match=[], priority=1)
         result = self._run(payload={"payload": {}, "checks_only": True})
-        assert result.stages_completed == [PipelineStage.CHECK]
+        assert self.executed == [PipelineStage.CHECK]
         run = PipelineRun.objects.get(run_id=result.run_id)
         assert run.status == PipelineStatus.CHECKED
 
@@ -401,6 +449,7 @@ class ResumeRoutesOnTheSnapshotAlertTests(TestCase):
         )
 
     def _fake_exec(self, pipeline_run, stage, payload, previous_results, incident_id):
+        self.executed.append(stage)
         return {
             PipelineStage.CHECK: CheckResult(checks_run=1),
             PipelineStage.ANALYZE: AnalyzeResult(summary="s"),
@@ -427,12 +476,16 @@ class ResumeRoutesOnTheSnapshotAlertTests(TestCase):
             status=StageStatus.SUCCEEDED,
             output_snapshot={"alert_id": self.alert.id, "incident_id": self.incident.id},
         )
+        self.executed = []
         with patch.object(
             PipelineOrchestrator, "_execute_stage_with_retry", side_effect=self._fake_exec
         ):
-            result = PipelineOrchestrator().resume_pipeline(run_id="r-resume", payload={})
+            PipelineOrchestrator().resume_pipeline(run_id="r-resume", payload={})
+            # The resumed run enqueues from the snapshot's incident; the lane is
+            # resolved inside that child, which is also where the stamp happens.
+            drain_children("t-resume", "r-resume")
 
-        assert result.stages_completed == [PipelineStage.NOTIFY]
+        assert self.executed == [PipelineStage.NOTIFY]
         assert Incident.objects.get(pk=self.incident.pk).pipeline_id == lane.id
 
 
@@ -467,6 +520,7 @@ class LegacySnapshotResumeTests(TestCase):
         )
 
     def _fake_exec(self, pipeline_run, stage, payload, previous_results, incident_id):
+        self.executed.append(stage)
         return {
             PipelineStage.CHECK: CheckResult(checks_run=1),
             PipelineStage.ANALYZE: AnalyzeResult(summary="s"),
@@ -487,10 +541,16 @@ class LegacySnapshotResumeTests(TestCase):
             status=StageStatus.SUCCEEDED,
             output_snapshot=snapshot,
         )
+        self.executed = []
         with patch.object(
             PipelineOrchestrator, "_execute_stage_with_retry", side_effect=self._fake_exec
         ):
-            return PipelineOrchestrator().resume_pipeline(run_id="r-legacy", payload={})
+            result = PipelineOrchestrator().resume_pipeline(run_id="r-legacy", payload={})
+            # A legacy snapshot carries no material_incident_ids, so resume falls
+            # back to its one incident and enqueues a child for it; process_inbox
+            # is what runs that child in production.
+            drain_children("t-legacy", "r-legacy")
+        return result
 
     def test_snapshot_without_alert_id_still_routes_and_drains(self):
         lane = PipelineDefinition.objects.create(
@@ -499,9 +559,9 @@ class LegacySnapshotResumeTests(TestCase):
             match=[{"field": "instance", "op": "is", "value": "web-07"}],
             stages=["check", "notify"],
         )
-        result = self._legacy_run({"incident_id": self.incident.id, "severity": "critical"})
+        self._legacy_run({"incident_id": self.incident.id, "severity": "critical"})
 
-        assert result.stages_completed == [PipelineStage.CHECK, PipelineStage.NOTIFY]
+        assert self.executed == [PipelineStage.CHECK, PipelineStage.NOTIFY]
         # The incident is stamped, so the diagnosis strip agrees with what ran.
         assert Incident.objects.get(pk=self.incident.pk).pipeline_id == lane.id
 
@@ -513,16 +573,16 @@ class LegacySnapshotResumeTests(TestCase):
             match=[{"field": "severity", "op": "is", "value": "critical"}],
             stages=["notify"],
         )
-        result = self._legacy_run({"incident_id": self.incident.id})
-        assert result.stages_completed == [PipelineStage.NOTIFY]
+        self._legacy_run({"incident_id": self.incident.id})
+        assert self.executed == [PipelineStage.NOTIFY]
         assert (
             PipelineOrchestrator()._incident_subject_alert_id(self.incident.id) == self.critical.id
         )
 
     def test_snapshot_with_neither_id_still_stops_cleanly(self):
         PipelineDefinition.objects.create(name="ca", match=[], priority=1, stages=["notify"])
-        result = self._legacy_run({"severity": "critical"})
-        assert result.stages_completed == []
+        self._legacy_run({"severity": "critical"})
+        assert self.executed == []
 
     def test_incident_with_no_alerts_yields_no_subject(self):
         empty = Incident.objects.create(title="ghost", severity="info")
@@ -632,12 +692,21 @@ class NoRouteFailsTheRunTests(TestCase):
     def _fake_exec(self, pipeline_run, stage, payload, previous_results, incident_id):
         return {
             PipelineStage.INGEST: IngestResult(
-                alert_id=self.alert.id, incident_id=self.incident.id, alerts_created=1
+                alert_id=self.alert.id,
+                incident_id=self.incident.id,
+                alerts_created=1,
+                material_incident_ids=[self.incident.id],
             ),
             PipelineStage.CHECK: CheckResult(checks_run=1),
             PipelineStage.ANALYZE: AnalyzeResult(summary="s"),
             PipelineStage.NOTIFY: NotifyResult(channels_succeeded=1),
         }[stage]
+
+    def _child(self, result):
+        """The downstream run this push enqueued — where routing now happens."""
+        return (
+            PipelineRun.objects.filter(trace_id=result.trace_id).exclude(run_id=result.run_id).get()
+        )
 
     def _run(self, payload=None):
         with patch.object(
@@ -648,17 +717,24 @@ class NoRouteFailsTheRunTests(TestCase):
             )
 
     def test_unmatched_alert_fails_the_run_non_retryably(self):
+        """The failure moved to the run that does the routing: the child.
+
+        The push run ingested successfully — it has an INGEST row saying so — and
+        the incident it handed on is the thing nothing claims, so that is the run
+        an operator must see FAILED.
+        """
         result = self._run()
-        assert result.status == "FAILED"
-        assert "no_route" in result.final_error.message
-        assert result.final_error.retryable is False
-        run = PipelineRun.objects.get(run_id=result.run_id)
-        assert run.status == PipelineStatus.FAILED
-        assert run.last_error_retryable is False
-        assert "no_route" in run.last_error_message
+
+        assert result.status == "COMPLETED"
+        child = self._child(result)
+        assert child.status == PipelineStatus.FAILED
+        assert child.last_error_retryable is False
+        assert "no_route" in child.last_error_message
 
     def test_unmatched_alert_does_not_run_downstream_stages(self):
         result = self._run()
+        child = self._child(result)
+        assert not StageExecution.objects.filter(pipeline_run=child).exists()
         assert PipelineStage.NOTIFY not in result.stages_completed
         assert PipelineStage.CHECK not in result.stages_completed
         assert PipelineStage.ANALYZE not in result.stages_completed
@@ -684,14 +760,12 @@ class NoRouteFailsTheRunTests(TestCase):
     def test_failure_is_attributed_to_routing_not_to_ingest(self):
         """Blaming ingest would send an operator to debug the one stage that worked.
 
-        The same trace records INGEST as SUCCEEDED, so "Stage ingest failed" is a
-        message contradicted by its own child row.
+        The same trace records INGEST as SUCCEEDED on the push run, so "Stage
+        ingest failed" would be a message contradicted by its own trace.
         """
-        result = self._run()
-        assert "Stage routing failed" in result.final_error.message
-        assert "Stage ingest failed" not in result.final_error.message
-        run = PipelineRun.objects.get(run_id=result.run_id)
-        assert "Stage routing failed" in run.last_error_message
+        child = self._child(self._run())
+        assert "Stage routing failed" in child.last_error_message
+        assert "Stage ingest failed" not in child.last_error_message
 
     def test_a_matched_lane_with_no_stages_completes_instead_of_raising(self):
         """``[]`` is a route that runs nothing — it is not a no-route."""
@@ -734,10 +808,15 @@ class NoRouteFailsTheRunTests(TestCase):
         with patch.object(
             PipelineOrchestrator, "_execute_stage_with_retry", side_effect=self._fake_exec
         ):
-            result = PipelineOrchestrator().resume_pipeline(run_id="r-noroute", payload={})
-        assert result.status == "FAILED"
-        assert "no_route" in result.final_error.message
-        assert result.final_error.retryable is False
+            PipelineOrchestrator().resume_pipeline(run_id="r-noroute", payload={})
+            drain_children("t-noroute", "r-noroute")
+
+        # Resume enqueues from the snapshot; the child is where routing runs, so
+        # the no_route lands there rather than falling back to a default lane.
+        child = PipelineRun.objects.filter(trace_id="t-noroute").exclude(run_id="r-noroute").get()
+        assert child.status == PipelineStatus.FAILED
+        assert "no_route" in child.last_error_message
+        assert child.last_error_retryable is False
 
 
 class CheckAsEntryStageRoutingTests(TestCase):
@@ -773,10 +852,16 @@ class CheckAsEntryStageRoutingTests(TestCase):
     def _result_for(self, stage):
         return {
             PipelineStage.INGEST: lambda: IngestResult(
-                alert_id=self.alert.id, incident_id=self.incident.id, alerts_created=1
+                alert_id=self.alert.id,
+                incident_id=self.incident.id,
+                alerts_created=1,
+                material_incident_ids=[self.incident.id],
             ),
             PipelineStage.CHECK: lambda: CheckResult(
-                checks_run=1, alert_id=self.check_result_alert_id
+                checks_run=1,
+                alert_id=self.check_result_alert_id,
+                incident_id=self.incident.id if self.check_result_alert_id else None,
+                material_incident_ids=([self.incident.id] if self.check_result_alert_id else []),
             ),
             PipelineStage.ANALYZE: lambda: AnalyzeResult(summary="s"),
             PipelineStage.NOTIFY: lambda: NotifyResult(channels_succeeded=1),
@@ -818,7 +903,7 @@ class CheckAsEntryStageRoutingTests(TestCase):
         """
         result = self._run()
         assert result.status == "COMPLETED"
-        assert result.stages_completed == [PipelineStage.CHECK]
+        assert self.calls == [PipelineStage.CHECK]
         run = PipelineRun.objects.get(run_id=result.run_id)
         assert run.status == PipelineStatus.CHECKED
         # The lane that actually ran is recorded on the incident, so this asserts
@@ -832,8 +917,12 @@ class CheckAsEntryStageRoutingTests(TestCase):
         lane.stages = ["notify"]
         lane.save(update_fields=["stages"])
         result = self._run()
-        assert result.stages_completed == [PipelineStage.CHECK, PipelineStage.NOTIFY]
-        assert PipelineRun.objects.get(run_id=result.run_id).status == PipelineStatus.NOTIFIED
+        assert self.calls == [PipelineStage.CHECK, PipelineStage.NOTIFY]
+        # NOTIFY runs in the child, so that is where NOTIFIED is recorded.
+        child = (
+            PipelineRun.objects.filter(trace_id=result.trace_id).exclude(run_id=result.run_id).get()
+        )
+        assert child.status == PipelineStatus.NOTIFIED
 
     def test_the_lane_is_resolved_from_the_check_result_alert(self):
         """A lane matching the subject alert's instance wins, proving alert_id routes."""
@@ -843,8 +932,8 @@ class CheckAsEntryStageRoutingTests(TestCase):
             match=[{"field": "instance", "op": "is", "value": "hub-01"}],
             stages=["notify"],
         )
-        result = self._run()
-        assert result.stages_completed == [PipelineStage.CHECK, PipelineStage.NOTIFY]
+        self._run()
+        assert self.calls == [PipelineStage.CHECK, PipelineStage.NOTIFY]
         assert Incident.objects.get(pk=self.incident.pk).pipeline_id == lane.id
 
     def test_the_check_snapshot_carries_the_alert_id_routing_reads(self):
@@ -868,17 +957,30 @@ class CheckAsEntryStageRoutingTests(TestCase):
         result = self._run(payload={"checks_only": True})
         assert result.status == "COMPLETED"
         assert result.stages_completed == [PipelineStage.CHECK]
+        assert (
+            not PipelineRun.objects.filter(trace_id=result.trace_id)
+            .exclude(run_id=result.run_id)
+            .exists()
+        )
         assert PipelineRun.objects.get(run_id=result.run_id).status == PipelineStatus.CHECKED
         assert self.calls == [PipelineStage.CHECK]
 
     def test_unmatched_checks_only_run_fails_no_route_with_check_recorded(self):
-        """Same failure as the ingest path — and CHECK is not erased from the run."""
+        """Same failure as the ingest path — and CHECK is not erased from the run.
+
+        Routing moved into the downstream run, so the ``no_route`` lands there;
+        the push run keeps its succeeded CHECK, which is the point of the test.
+        """
         clear_lanes()
         result = self._run()
-        assert result.status == "FAILED"
-        assert "no_route" in result.final_error.message
-        assert result.final_error.retryable is False
+        child = (
+            PipelineRun.objects.filter(trace_id=result.trace_id).exclude(run_id=result.run_id).get()
+        )
+        assert child.status == PipelineStatus.FAILED
+        assert "no_route" in child.last_error_message
+        assert child.last_error_retryable is False
         # The stage demonstrably succeeded; routing failed after it.
+        assert result.status == "COMPLETED"
         assert result.stages_completed == [PipelineStage.CHECK]
         assert StageExecution.objects.filter(
             pipeline_run__run_id=result.run_id,
@@ -902,8 +1004,17 @@ class CheckAsEntryStageRoutingTests(TestCase):
             stages=["check", "analyze"],
         )
         result = self._run()
-        assert self.calls == [PipelineStage.CHECK, PipelineStage.ANALYZE]
-        assert result.stages_completed == [PipelineStage.CHECK, PipelineStage.ANALYZE]
+        # The child is a separate run with no stage history, so a lane that lists
+        # ``check`` for checker-origin traffic checks a SECOND time — once as the
+        # push run's entry stage, once in the child. Within each run the "exactly
+        # once" rule still holds. Nothing loops: the re-check finds the same
+        # situation, the gate calls it immaterial, and no further run is enqueued.
+        assert self.calls == [
+            PipelineStage.CHECK,
+            PipelineStage.CHECK,
+            PipelineStage.ANALYZE,
+        ]
+        assert result.stages_completed == [PipelineStage.CHECK]
         assert (
             StageExecution.objects.filter(
                 pipeline_run__run_id=result.run_id, stage=PipelineStage.CHECK
@@ -919,16 +1030,15 @@ class CheckAsEntryStageRoutingTests(TestCase):
         """
         PipelineDefinition.objects.filter(name="hub-self-check").delete()
         result = self._run()
+        # CHECK twice for the reason given in the previous test: the catch-all
+        # lists ``check`` and the child has no history of the push run's CHECK.
         assert self.calls == [
             PipelineStage.CHECK,
-            PipelineStage.ANALYZE,
-            PipelineStage.NOTIFY,
-        ]
-        assert result.stages_completed == [
             PipelineStage.CHECK,
             PipelineStage.ANALYZE,
             PipelineStage.NOTIFY,
         ]
+        assert result.stages_completed == [PipelineStage.CHECK]
         assert Incident.objects.get(pk=self.incident.pk).pipeline.name == "catch-all"
 
     def test_an_ingest_run_does_not_re_route_at_check(self):
@@ -938,11 +1048,14 @@ class CheckAsEntryStageRoutingTests(TestCase):
             name="webhook-lane", priority=1, match=[], stages=["check", "analyze"]
         )
         result = self._run(payload={"payload": {}}, origin=PipelineOrigin.INCOMING_WEBHOOK)
-        assert result.stages_completed == [
+        assert self.calls == [
             PipelineStage.INGEST,
             PipelineStage.CHECK,
             PipelineStage.ANALYZE,
         ]
+        assert result.stages_completed == [PipelineStage.INGEST]
+        # One routing decision for the whole trace: the child does not route again
+        # off its own CHECK, or the lane would append itself forever.
         assert self.calls.count(PipelineStage.ANALYZE) == 1
 
     def test_resume_of_a_checks_only_run_routes_from_the_check_snapshot(self):
@@ -974,12 +1087,19 @@ class CheckAsEntryStageRoutingTests(TestCase):
             status=StageStatus.SUCCEEDED,
             output_snapshot={"alert_id": self.alert.id, "incident_id": self.incident.id},
         )
-        result = self._orchestrator().resume_pipeline(
-            run_id="r-hub-resume", payload={"checks_only": True}
+        orchestrator = self._orchestrator()
+        result = orchestrator.resume_pipeline(run_id="r-hub-resume", payload={"checks_only": True})
+        # The snapshot predates material_incident_ids, so resume falls back to its
+        # incident and enqueues one child; the drain is process_inbox's job.
+        child = (
+            PipelineRun.objects.filter(trace_id="t-hub-resume").exclude(run_id="r-hub-resume").get()
         )
-        assert result.stages_completed == [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+        assert child.incident_id == self.incident.id
+        with patch("apps.orchestration.inbox.PipelineOrchestrator", lambda: orchestrator):
+            drain_children("t-hub-resume", "r-hub-resume")
+
         assert self.calls == [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
-        assert PipelineRun.objects.get(pk=run.pk).status == PipelineStatus.NOTIFIED
+        assert PipelineRun.objects.get(pk=child.pk).status == PipelineStatus.NOTIFIED
         assert result.incident_id == self.incident.id
 
     def test_a_legacy_check_snapshot_without_alert_id_resumes_to_checked(self):
@@ -1058,6 +1178,7 @@ class CheckerGeneratedNotifiesThroughItsLaneChannelTests(TestCase):
                     alert_id=outer.alert.id,
                     incident_id=outer.incident.id,
                     alert_fingerprint=outer.alert.fingerprint,
+                    material_incident_ids=[outer.incident.id],
                 )
 
         orchestrator = PipelineOrchestrator()
@@ -1082,9 +1203,8 @@ class CheckerGeneratedNotifiesThroughItsLaneChannelTests(TestCase):
 
     def test_delivery_goes_to_the_channel_the_lane_names(self):
         result = self._run()
-        assert result.stages_completed == [PipelineStage.CHECK, PipelineStage.NOTIFY]
-        assert [d["driver"] for d in result.notify.deliveries] == ["zzz-lane-channel"]
-        assert result.notify.channels_succeeded == 1
+        assert result.stages_completed == [PipelineStage.CHECK]
+        assert [d["driver"] for d in deliveries_in_trace(result.trace_id)] == ["zzz-lane-channel"]
 
     def test_the_run_and_its_signals_carry_the_incident(self):
         """incident_id reaches the run record, so signal tags stop being null."""
@@ -1130,10 +1250,11 @@ class CheckerGeneratedNotifiesThroughItsLaneChannelTests(TestCase):
             result = PipelineOrchestrator().resume_pipeline(
                 run_id="r-chan-resume", payload={"checks_only": True}
             )
-        assert result.stages_completed == [PipelineStage.NOTIFY]
+            drain_children("t-chan-resume", "r-chan-resume")
+
         # Delivery first: it is the assertion that fails informatively, naming the
         # wrong channel rather than a null id.
-        assert [d["driver"] for d in result.notify.deliveries] == ["zzz-lane-channel"]
+        assert [d["driver"] for d in deliveries_in_trace("t-chan-resume")] == ["zzz-lane-channel"]
         assert result.incident_id == self.incident.id
 
     def test_an_inactive_lane_channel_falls_back(self):
@@ -1141,7 +1262,7 @@ class CheckerGeneratedNotifiesThroughItsLaneChannelTests(TestCase):
         self.lane_channel.is_active = False
         self.lane_channel.save(update_fields=["is_active"])
         result = self._run()
-        assert [d["driver"] for d in result.notify.deliveries] == ["aaa-fallback"]
+        assert [d["driver"] for d in deliveries_in_trace(result.trace_id)] == ["aaa-fallback"]
 
 
 class NoIncidentsIsADiagnosticRunTests(TestCase):
@@ -1177,8 +1298,14 @@ class NoIncidentsIsADiagnosticRunTests(TestCase):
             def run_checks_and_alert(self, **kwargs):
                 from apps.alerts.check_integration import CheckAlertResult
 
-                # A host with a real problem: the bridge opened an alert.
-                return CheckAlertResult(checks_run=1, alerts_created=1, alerts=[outer.alert])
+                # A host with a real problem: the bridge opened an alert, and
+                # opening one is always material.
+                return CheckAlertResult(
+                    checks_run=1,
+                    alerts_created=1,
+                    alerts=[outer.alert],
+                    material_alerts=[outer.alert],
+                )
 
         class _Recording:
             def __init__(self, stage, inner):
@@ -1254,7 +1381,10 @@ class NoIncidentsIsADiagnosticRunTests(TestCase):
             def execute(self, ctx):
                 outer.calls.append(PipelineStage.INGEST)
                 return IngestResult(
-                    alert_id=outer.alert.id, incident_id=outer.incident.id, alerts_created=1
+                    alert_id=outer.alert.id,
+                    incident_id=outer.incident.id,
+                    alerts_created=1,
+                    material_incident_ids=[outer.incident.id],
                 )
 
         # A lane without ``check``: the seeded catch-all lists it, and CHECK here
@@ -1280,7 +1410,12 @@ class NoIncidentsIsADiagnosticRunTests(TestCase):
                 source="grafana",
                 origin=PipelineOrigin.INCOMING_WEBHOOK,
             )
-        assert result.stages_completed == [PipelineStage.INGEST, PipelineStage.NOTIFY]
+        # The run routed: INGEST on the push run, NOTIFY in the child it enqueued.
+        # (Only INGEST is wrapped for recording here, so the child's NOTIFY is
+        # observed through what it delivered.)
+        assert result.stages_completed == [PipelineStage.INGEST]
+        assert self.calls == [PipelineStage.INGEST]
+        assert deliveries_in_trace(result.trace_id)
 
     def test_a_resumed_diagnostic_run_still_declines_to_route(self):
         """The resume call site is scoped by the same flag, not just the fresh one."""
@@ -1332,7 +1467,9 @@ class NoIncidentsIsADiagnosticRunTests(TestCase):
             stages=["analyze", "notify"],
         )
         result = self._run(no_incidents=False)
-        assert result.stages_completed == [
+        # CHECK on the push run, the lane's stages in the child it enqueued.
+        assert result.stages_completed == [PipelineStage.CHECK]
+        assert self.calls == [
             PipelineStage.CHECK,
             PipelineStage.ANALYZE,
             PipelineStage.NOTIFY,

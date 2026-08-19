@@ -247,7 +247,31 @@ class PipelineOrchestrator:
             origin=origin,
         )
 
-        return self._execute_pipeline(pipeline_run, payload)
+        result = self._execute_pipeline(pipeline_run, payload)
+
+        # Synchronous callers (manage.py run_pipeline, CLI diagnostics, tests)
+        # expect one call to carry the whole pipeline through, and after fan-out
+        # everything downstream of the entry stage lives in the children. Drain the
+        # ones this run enqueued, and only those: execute_run() deliberately does
+        # not, because process_inbox is already the drain and would recurse.
+        # Claimed the same way process_inbox claims, so a concurrent drain can
+        # never double-execute a child — but executed through ``self`` rather than
+        # inbox.drain_run's fresh orchestrator, so the caller's retry/backoff
+        # settings and executors apply to the children as well as to the push.
+        from apps.orchestration.inbox import claim
+
+        for child_pk in (
+            PipelineRun.objects.filter(
+                trace_id=pipeline_run.trace_id, status=PipelineStatus.PENDING
+            )
+            .exclude(run_id=pipeline_run.run_id)
+            .values_list("pk", flat=True)
+        ):
+            if claim(child_pk):
+                child = PipelineRun.objects.get(pk=child_pk)
+                self.execute_run(child)
+
+        return result
 
     def resume_pipeline(self, run_id: str, payload: dict[str, Any]) -> PipelineResult:
         """
@@ -269,6 +293,14 @@ class PipelineOrchestrator:
             raise ValueError(f"Pipeline cannot be resumed from status: {pipeline_run.status}")
 
         pipeline_run.mark_retrying()
+        # A downstream run IS its stored payload: the one incident it was created
+        # for. The resume endpoint builds `payload` from the caller's request body
+        # (views.py:229), which cannot describe that — resuming a child with it
+        # would drop the marker and send the run back through INGEST against an
+        # empty payload. The caller has nothing to add here, so the stored payload
+        # wins for children only; a push run still resumes on what it is given.
+        if pipeline_run.inbound_payload.get("downstream_incident_id"):
+            payload = pipeline_run.inbound_payload
         return self._execute_pipeline(pipeline_run, payload)
 
     def execute_run(self, pipeline_run: PipelineRun) -> PipelineResult:
@@ -423,9 +455,29 @@ class PipelineOrchestrator:
             if stage != entry_stage or not run_routes or routed:
                 return
             routed = True
-            downstream = self._downstream_or_fail(alert_id, pipeline_run.origin)
-            active_stages.extend(downstream)  # in-place: the loop sees new items
-            final_status = self._final_status(downstream, entry_stage)
+            # The push run does NOT extend its own stage list any more. Every
+            # incident this push materially changed becomes its own PENDING run,
+            # each of which resolves its own lane from its own incident (see the
+            # downstream branch above). A push that collapsed to one subject used
+            # to diagnose one incident and silently drop the rest.
+            snapshot = previous_results.get(stage, {})
+            if "material_incident_ids" in snapshot:
+                material = snapshot["material_incident_ids"] or []
+            else:
+                # LEGACY-SNAPSHOT COMPATIBILITY — delete once no pre-fan-out
+                # snapshots remain. A run whose entry stage succeeded BEFORE
+                # fan-out shipped recorded no material list, and it can still be
+                # resumed (FAILED/RETRYING, via the resume endpoint or the admin's
+                # "Mark for Retry") after the deploy. Without this its downstream
+                # work would vanish silently: no lane, no analysis, no message for
+                # the one incident the old model would have carried. Filtered to
+                # incidents that still exist, because a resume can happen long
+                # after the failure and a deleted incident would otherwise take the
+                # whole drain down with an FK error.
+                material = self._surviving_incident_ids(incident_id)
+            self._enqueue_downstream_runs(pipeline_run, material)
+            # This run ends where it began: the entry stage is all it ran.
+            final_status = STAGE_TO_STATUS[entry_stage]
 
         try:
             if downstream_incident_id:
@@ -611,6 +663,55 @@ class PipelineOrchestrator:
 
         result.completed_at = pipeline_run.completed_at
         return result
+
+    @staticmethod
+    def _surviving_incident_ids(incident_id: int | None) -> list[int]:
+        """``[incident_id]`` when that incident is still there, else ``[]``."""
+        from apps.alerts.models import Incident
+
+        if not incident_id:
+            return []
+        return list(Incident.objects.filter(id=incident_id).values_list("id", flat=True))
+
+    def _enqueue_downstream_runs(
+        self, parent: PipelineRun, incident_ids: list[int]
+    ) -> list[PipelineRun]:
+        """Record one PENDING run per materially-changed incident.
+
+        Each child carries the parent's ``trace_id`` — so one push is still one
+        story in ``manage.py trace`` — with its own ``run_id``, and routes itself
+        from its own incident rather than from the push's single subject.
+
+        They are left PENDING for ``process_inbox`` rather than run inline: a node
+        with eight material incidents would otherwise make eight LLM calls inside
+        one drain tick, which is the memory pressure durable ingest exists to
+        avoid. ``run_pipeline`` (the synchronous entry point) drains its own
+        children afterwards, because its callers expect one call to finish the job.
+        """
+        children = []
+        with transaction.atomic():
+            for incident_id in incident_ids:
+                children.append(
+                    PipelineRun.objects.create(
+                        trace_id=parent.trace_id,
+                        run_id=str(uuid.uuid4()),
+                        source=parent.source,
+                        environment=parent.environment,
+                        status=PipelineStatus.PENDING,
+                        max_retries=self.max_retries,
+                        inbound_payload={"downstream_incident_id": incident_id},
+                        origin=parent.origin,
+                        node=parent.node,
+                        incident_id=incident_id,
+                    )
+                )
+        logger.info(
+            "Enqueued %d downstream run(s) for trace_id=%s",
+            len(children),
+            parent.trace_id,
+            extra={"trace_id": parent.trace_id, "run_id": parent.run_id},
+        )
+        return children
 
     @staticmethod
     def _incident_subject_alert_id(incident_id: int) -> int | None:
