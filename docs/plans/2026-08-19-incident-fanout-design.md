@@ -44,8 +44,16 @@ Python, not in `PipelineDefinition` rows, so no amount of reading lane data reve
 3. **Downstream runs are started via the inbox**, recorded as `PENDING` `PipelineRun` rows and
    drained by `process_inbox` like any other work. This reuses the Phase C machinery wholesale:
    durability, atomic claim, stale-reclaim, `INBOX_DEPTH_WARN` backpressure, and per-incident
-   retry. The alternative — looping inline inside the push run — would execute N LLM calls in one
-   drain tick, which is the memory-pressure shape Phase C exists to prevent.
+   retry. The alternative — looping inline inside the push run — would hold one run open across
+   N analyses, and a crash mid-loop would lose all of them.
+
+   (Corrected during implementation: an earlier draft said the inline alternative "would execute
+   N LLM calls in one drain tick, which is the memory-pressure shape Phase C exists to prevent",
+   implying the inbox prevents that. It does not. `inbox.drain()` snapshots pending PKs up front,
+   so children wait for the *next* pass — but that pass claims all of them if `--limit` allows,
+   and runs them sequentially. What the inbox actually buys is that N analyses become N
+   independently claimed, independently retryable, crash-isolated runs, bounded by `--limit`
+   rather than by the payload.)
 
 4. **Correlation is free.** Downstream runs inherit the push's `trace_id` and get their own
    `run_id`. Both fields exist (`apps/orchestration/models.py:65-70`), indexed as a pair
