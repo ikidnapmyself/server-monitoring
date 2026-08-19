@@ -62,8 +62,12 @@ to a single subject and the other incidents were opened, counted, and then silen
 dropped — no lane, no analysis, no message. See
 `docs/plans/2026-08-19-incident-fanout-design.md`.
 
-Children are drained by `process_inbox` like any other inbox work — *not* inline, so a
-node with eight incidents cannot make eight LLM calls inside one drain tick. The one
+Children are drained by `process_inbox` like any other inbox work — *not* inline. This
+is not a cap on how much analysis a tick may do (`drain()` snapshots pending PKs up
+front, so children wait for the *next* pass, but that pass will claim all of them if
+`--limit` allows). What it buys is that N analyses become N independently claimed,
+independently retryable runs bounded by `--limit`, instead of an unbounded loop held
+open inside one run whose crash would lose the lot. The one
 exception is `run_pipeline()`, the synchronous entry point (CLI, tests), which drains
 the children it enqueued: it claims through `inbox.claim` but executes through `self`,
 so the caller's retry/backoff settings and executors apply to children too.
