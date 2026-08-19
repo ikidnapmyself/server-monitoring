@@ -229,7 +229,7 @@ class PipelineRun(models.Model):
         return f"Pipeline {self.run_id} [{self.status}]"
 
     def mark_started(self, stage: str | None):
-        """Mark pipeline as started, on a stage when one is known yet.
+        """Mark pipeline as started, naming its first stage when one is known.
 
         ``None`` for a downstream run: its stages come from a lane resolved after
         the run is already under way, and ``current_stage`` is nullable for it.
