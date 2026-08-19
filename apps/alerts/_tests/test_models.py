@@ -45,6 +45,22 @@ class AlertModelTests(TestCase):
 
         self.assertEqual(alert.context_key, "")
 
+    def test_alert_context_key_survives_an_update_fields_save(self):
+        alert = Alert.objects.create(
+            fingerprint="ck-update",
+            source="test",
+            name="CPU Check Alert",
+            severity=AlertSeverity.WARNING,
+            status=AlertStatus.FIRING,
+            started_at=timezone.now(),
+        )
+
+        alert.context_key = "22,8080"
+        alert.save(update_fields=["context_key"])
+        alert.refresh_from_db()
+
+        self.assertEqual(alert.context_key, "22,8080")
+
 
 class IncidentModelTests(TestCase):
     """Tests for Incident model."""
