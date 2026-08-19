@@ -63,8 +63,12 @@ Nothing. Because each downstream run carries exactly one incident, `StageExecuti
 (`executors.py:404`) stays correct. Retries, resume, signals and the audit trail all keep working
 untouched.
 
-One orchestrator change is required: ANALYZE must be accepted as an entry stage, since a
-downstream run does not re-ingest.
+One orchestrator change is required: a downstream run must execute with **no entry stage at
+all**, since it does not re-ingest. (Corrected during implementation: an earlier draft said
+"ANALYZE must be accepted as an entry stage". Treating ANALYZE as an entry stage would force it
+to run — and a resolved incident routes to a lane listing only `notify`, so that would call the
+AI on an all-clear. The run instead resolves its lane from the incident it was handed and runs
+exactly what that lane lists, which may be nothing.)
 
 ## 3. The gate
 
@@ -102,14 +106,21 @@ That string changes on nearly every tick, so a diff-based gate would suppress al
 
 ### The context key
 
-`BaseChecker` gains one optional method returning a stable string describing *what situation this
-alert is about*. Default is empty, meaning severity and status alone decide, so no existing
+A **hub-side registry keyed by the `checker` label** (`apps/alerts/context_keys.py`) maps a
+checker to a builder returning a stable string describing *what situation this alert is about*.
+A checker with no entry has no key, meaning severity and status alone decide, so no existing
 checker changes behaviour.
+
+(Corrected during implementation: an earlier draft made this an optional method on
+`BaseChecker`. It cannot be — checkers run on **nodes**, while the gate runs on the **hub** over
+`Alert` rows, so the hub never holds the checker object. The registry mirrors
+`apps.alerts.reevaluation`'s `SCORERS`/`REEVALUATORS` dicts, reads the metrics both producers
+already write into annotations, and therefore requires **no node redeploy**.)
 
 - `listening_ports` returns its sorted port set, read from `metrics` — the same source
   `_score_allowlist` already reads (`apps/alerts/reevaluation.py:120-144`). A new
   non-allowlisted port therefore notifies even though severity is unchanged.
-- `cpu`, `memory` and the other metric checkers return nothing, so percentage jitter can never
+- `cpu`, `memory` and the other metric checkers have no entry, so percentage jitter can never
   defeat the gate.
 
 The previous key is stored in a new nullable `context_key` CharField on `Alert`, giving an O(1)
@@ -149,9 +160,9 @@ like any other lane.
 ## 6. Blast radius
 
 - **Migration:** one — `Alert.context_key`.
-- **Changed:** `IngestExecutor`/`CheckExecutor` subject handling, orchestrator entry-stage
-  handling for ANALYZE, the new gate module, one method on `BaseChecker`, one override on
-  `listening_ports`, and a seeded `resolved` lane.
+- **Changed:** `IngestExecutor`/`CheckExecutor` subject handling, orchestrator handling for a
+  run with no entry stage, the new gate module, the hub-side context-key registry, and a seeded
+  `resolved` lane.
 - **Untouched:** `StageExecution` schema and constraints, retry logic, idempotency keys, the
   signal set, `PipelineDefinition`, and the inbox drain itself.
 
