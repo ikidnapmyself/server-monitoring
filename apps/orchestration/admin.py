@@ -351,8 +351,9 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
                     "channel",
                 ],
                 "description": (
-                    "match: [{field, op, value}] (field: source|severity|instance|origin|"
-                    "label:<k>; op: is|is-not|in|not-in). origin is where the run started: "
+                    "match: [{field, op, value}] (field: source|severity|status|instance|"
+                    "origin|label:<k>; op: is|is-not|in|not-in). status is firing or "
+                    "resolved. origin is where the run started: "
                     "incoming_webhook | checker_generated | manual. Facts come from "
                     "the run's subject alert. Empty match = catch-all. Lower priority is "
                     "evaluated first; first match wins. stages is the ordered downstream "

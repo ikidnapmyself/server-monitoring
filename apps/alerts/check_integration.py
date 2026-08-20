@@ -29,7 +29,9 @@ from typing import Any
 from django.db import transaction
 from django.utils import timezone
 
+from apps.alerts.context_keys import context_key_for
 from apps.alerts.drivers.base import ParsedAlert, ParsedPayload
+from apps.alerts.materiality import is_material_change
 from apps.alerts.models import (
     Alert,
     AlertHistory,
@@ -79,6 +81,8 @@ class CheckAlertResult:
     # Alert rows these checks created, updated or resolved, in checker order.
     # Bounded to one run; see ProcessingResult.alerts for the consumer caveats.
     alerts: list[Alert] = field(default_factory=list)
+    # The subset of `alerts` whose write was material — see apps.alerts.materiality.
+    material_alerts: list[Alert] = field(default_factory=list)
 
     @property
     def has_errors(self) -> bool:
@@ -283,6 +287,9 @@ class CheckAlertBridge:
             started_at=parsed.started_at,
             trace_id=self.trace_id,
             node=resolve_node(parsed.labels),
+            context_key=context_key_for(
+                (parsed.labels or {}).get("checker", ""), parsed.annotations
+            ),
         )
 
         AlertHistory.objects.create(
@@ -305,6 +312,8 @@ class CheckAlertBridge:
             self.orchestrator._create_or_attach_incident(alert, result)
 
         result.alerts.append(alert)
+        # A brand-new alert is always material: there is no prior state to compare.
+        result.material_alerts.append(alert)
         return alert
 
     def _update_alert(
@@ -315,20 +324,48 @@ class CheckAlertBridge:
     ) -> Alert:
         """Update an existing alert with new data."""
         old_severity = alert.severity
+        old_status = alert.status
+        old_key = alert.context_key
+        new_key = context_key_for((parsed.labels or {}).get("checker", ""), parsed.annotations)
 
         alert.severity = parsed.severity
         alert.description = parsed.description
         alert.annotations = parsed.annotations
         alert.raw_payload = parsed.raw_payload
-        alert.save(
-            update_fields=[
-                "severity",
-                "description",
-                "annotations",
-                "raw_payload",
-                "updated_at",
-            ]
-        )
+        alert.context_key = new_key
+        update_fields = [
+            "severity",
+            "description",
+            "annotations",
+            "raw_payload",
+            "context_key",
+            "updated_at",
+        ]
+
+        # A re-push of something that had recovered arrives here, not in
+        # _resolve_alert: _process_alert only special-cases firing -> resolved, so
+        # resolved -> firing lands in this method. Reopening is not cosmetic. The
+        # row's status is a ROUTING FACT (facts_from_alert), so an alert left
+        # RESOLVED while its host is on fire matches the resolved lane and the
+        # downstream run delivers an all-clear for a critical problem. Mirrors
+        # AlertOrchestrator._update_alert, down to the `refired` event name, so one
+        # incident reads the same however its alerts arrived.
+        refired = alert.status == AlertStatus.RESOLVED and parsed.status == "firing"
+        if refired:
+            alert.status = AlertStatus.FIRING
+            alert.ended_at = None
+            update_fields += ["status", "ended_at"]
+
+        alert.save(update_fields=update_fields)
+
+        if refired:
+            AlertHistory.objects.create(
+                alert=alert,
+                event="refired",
+                old_status=AlertStatus.RESOLVED,
+                new_status=AlertStatus.FIRING,
+                details={"checker": (parsed.labels or {}).get("checker", "")},
+            )
 
         if old_severity != parsed.severity:
             AlertHistory.objects.create(
@@ -346,6 +383,15 @@ class CheckAlertBridge:
         logger.info(f"Updated alert from check: {alert.name}")
 
         result.alerts.append(alert)
+        if is_material_change(
+            old_severity=old_severity,
+            new_severity=parsed.severity,
+            old_status=old_status,
+            new_status=parsed.status,
+            old_key=old_key,
+            new_key=new_key,
+        ):
+            result.material_alerts.append(alert)
         return alert
 
     def _resolve_alert(
@@ -371,6 +417,9 @@ class CheckAlertBridge:
         logger.info(f"Resolved alert from check: {alert.name}")
 
         result.alerts.append(alert)
+        # This method is only reached on a FIRING -> RESOLVED transition, which the
+        # design counts as material: the all-clear is what the resolved lane notifies on.
+        result.material_alerts.append(alert)
         return alert
 
     def _check_incident_resolution(self):
@@ -461,6 +510,7 @@ class CheckAlertBridge:
                 result.incidents_created += processing_result.incidents_created
                 result.incidents_updated += processing_result.incidents_updated
                 result.alerts.extend(processing_result.alerts)
+                result.material_alerts.extend(processing_result.material_alerts)
 
                 if processing_result.has_errors:
                     result.errors.extend(processing_result.errors)

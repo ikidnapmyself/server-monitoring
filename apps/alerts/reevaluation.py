@@ -12,8 +12,15 @@ import logging
 from collections.abc import Callable
 
 from apps.alerts.drivers.base import ParsedAlert
+from apps.alerts.metrics import parse_metrics
 
 logger = logging.getLogger(__name__)
+
+# parse_metrics now LIVES in apps.alerts.metrics — apps.alerts.context_keys needs the
+# same "read a node's metrics back out of annotations" rule, and importing it from here
+# would couple the fan-out gate to the severity re-evaluator. It stays exported from this
+# module so the existing callers that import it from here keep working.
+__all__ = ["parse_metrics", "reevaluate_severity", "SCORERS", "REEVALUATORS"]
 
 # checker -> the metric key carrying its primary numeric value
 PRIMARY_METRIC = {
@@ -25,22 +32,6 @@ PRIMARY_METRIC = {
     "cpu_temp": "hottest_c",
     "io_strain": "busiest_util_percent",
 }
-
-
-def parse_metrics(annotations: dict | None) -> dict | None:
-    """Parse the JSON `metrics` string stashed in an alert's annotations.
-
-    Shared by ingest (`ParsedAlert`) and config-change re-eval (`Alert`).
-    Returns the dict, or None when absent / unparseable / not a dict.
-    """
-    raw = (annotations or {}).get("metrics")
-    if not raw:
-        return None
-    try:
-        data = json.loads(raw)
-    except (TypeError, ValueError):
-        return None
-    return data if isinstance(data, dict) else None
 
 
 def _metrics(parsed: ParsedAlert) -> dict | None:

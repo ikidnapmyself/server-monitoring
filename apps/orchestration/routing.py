@@ -30,6 +30,25 @@ def subject_alert(alerts: Any) -> Any:
     )
 
 
+def material_incident_ids(alerts: Any) -> list[int]:
+    """Incident ids of a batch's material alerts, deduplicated, first-seen order.
+
+    One unit of work per incident, not per alert: two alerts of the same incident
+    are one situation and must not each start a downstream run. Alerts with no
+    incident are dropped — there is nothing for a downstream run to take as its
+    subject. Lives here beside ``subject_alert`` so both entry stages share one
+    definition rather than keeping two copies in sync.
+    """
+    seen: set[int] = set()
+    ids: list[int] = []
+    for alert in alerts:
+        incident_id = alert.incident_id
+        if incident_id and incident_id not in seen:
+            seen.add(incident_id)
+            ids.append(incident_id)
+    return ids
+
+
 def facts_from_alert(alert: Any, origin: str) -> dict:
     """Routing facts for ONE alert.
 
@@ -47,6 +66,9 @@ def facts_from_alert(alert: Any, origin: str) -> dict:
     return {
         "source": alert.source or "",
         "severity": alert.severity or "",
+        # firing / resolved. A lane matches on it to route an all-clear away from
+        # ANALYZE: there is nothing left to diagnose once a thing has recovered.
+        "status": alert.status or "",
         "instance": instance_key_from_labels(labels),
         "labels": labels,
         "origin": origin,

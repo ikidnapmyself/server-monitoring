@@ -1,3 +1,4 @@
+import copy
 from typing import Any, cast
 
 from django.test import TestCase
@@ -224,6 +225,29 @@ class AlertOrchestratorTests(TestCase):
         self.assertEqual(alert.severity, "info")
         self.assertEqual(alert.status, "resolved")
         self.assertIn("severity_reevaluated", alert.annotations)
+
+    def test_new_alert_is_material(self):
+        result = self.orchestrator.process_webhook(self.alertmanager_payload)
+        self.assertEqual(len(result.material_alerts), 1)
+
+    def test_identical_repush_is_not_material(self):
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+        result = self.orchestrator.process_webhook(self.alertmanager_payload)
+        self.assertEqual(result.material_alerts, [])
+
+    def test_severity_change_is_material(self):
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+        escalated = copy.deepcopy(self.alertmanager_payload)
+        escalated["alerts"][0]["labels"]["severity"] = "critical"
+        result = self.orchestrator.process_webhook(escalated)
+        self.assertEqual(len(result.material_alerts), 1)
+
+    def test_description_only_change_is_not_material(self):
+        self.orchestrator.process_webhook(self.alertmanager_payload)
+        noisy = copy.deepcopy(self.alertmanager_payload)
+        noisy["alerts"][0]["annotations"]["description"] = "Test description 91.4%"
+        result = self.orchestrator.process_webhook(noisy)
+        self.assertEqual(result.material_alerts, [])
 
 
 class AlertOrchestratorEdgeCaseTests(TestCase):

@@ -25,6 +25,33 @@ Output contract (to orchestrator):
 - `apps/alerts/timeline.py` — `build_incident_timeline(incident)`: a **pure** aggregator that merges `AlertHistory` + `StageExecution` + `PipelineRun` into one chronological list (with `trace_id`/`run_id`), rendered read-only + escaped as the "Merged chronological timeline" on the Incident admin. No models/queries with side effects.
 - `apps/alerts/reevaluation.py` — **hub-side per-node severity re-evaluation (ingest-time)**. Nodes report raw metrics + a default severity; the hub recomputes severity against per-node policy in `Node.config` and overrides it. Called at the top of `AlertOrchestrator._process_alert` (covers create + update), so nodes stay unchanged. Fail-open: any missing/invalid input (or exception) passes the alert through unchanged. Two checker-types wired: numeric-threshold override for the 7 numeric checkers (`_score_numeric` + `PRIMARY_METRIC`) and a `listening_ports` **allowlist** evaluator (`_score_allowlist`, re-flagging the reported `listening` inventory against `Node.config["listening_ports"]["allowlist"]`; empty allowlist → exposed-only). Extend per checker-type by adding a pure scorer to `SCORERS` + an evaluator to `REEVALUATORS`. Overrides are audited in `annotations["severity_reevaluated"]`. The pure scorers in `SCORERS` are the shared, testable units reused by the config-change re-eval below. See `docs/plans/2026-08-07-hub-node-severity-reeval-design.md` and `docs/plans/2026-08-09-listening-ports-allowlist-reeval-design.md`.
 - `apps/alerts/reeval_existing.py` — **hub-side re-evaluation of a node's EXISTING open alerts on config change** (operator-triggered, distinct from ingest-time above). Re-scores a node's firing alerts from their stored metrics by dispatching through the shared `SCORERS` registry (numeric + `listening_ports` allowlist), then on apply resolves / adjusts severity, writes `AlertHistory` + a distinct `annotations["reevaluated_on_config_change"]` audit key, and auto-resolves incidents whose alerts all resolved — all in one transaction; idempotent. `preview_node_alert_reeval` (no writes) / `apply_node_alert_reeval`. Two surfaces: the **Re-evaluate open alerts** Node admin action (confirmation dialog, gated on change permission) and the `reevaluate_node_alerts <instance_id>` management command (`--dry-run`, confirm prompt, `--noinput`). See `docs/plans/2026-08-08-reeval-existing-alerts-design.md`.
+- `apps/alerts/materiality.py` — **the fan-out change gate**: one predicate,
+  `is_material_change(...)`, answering "does this write deserve its own downstream
+  pipeline run?" True when severity changed either way, status transitioned
+  (firing↔resolved), or the context key moved. **Both ingest paths must call it** —
+  `AlertOrchestrator._update_alert` and `CheckAlertBridge._update_alert`/`_resolve_alert`
+  — and both record the result on `ProcessingResult.material_alerts` (the bridge
+  aggregates onto `CheckAlertResult.material_alerts`). The comparison happens *inside*
+  the write path, because by the time a caller sees the result the old severity, status
+  and key have already been overwritten. A new alert is always material. Deliberately
+  excluded: `description` — for checker alerts it is `CheckResult.message`, which
+  carries live metric values and would make every push look material. Deliberately NOT
+  built on `AlertHistory` events: the two paths write different events, so a
+  history-based gate would behave differently by origin.
+- `apps/alerts/context_keys.py` — **hub-side per-checker "what situation is this?" keys**,
+  stored on `Alert.context_key` and compared by the gate. A registry keyed by the
+  `checker` label (`KEY_BUILDERS`), mirroring `reevaluation.SCORERS` — *not* a
+  `BaseChecker` method, because checkers run on nodes and the gate runs on the hub over
+  `Alert` rows, so no node redeploy is involved. Reads metrics back out of annotations
+  and normalises the two producers' shapes (`cluster` writes a JSON `metrics` blob,
+  `check_integration` writes one `str(value)` per key). Keys are namespaced
+  (`"listening_ports:22,8080"`; a clean scan is `"listening_ports:"`, never `""`) and
+  digested above 200 chars so two port sets sharing a prefix cannot collapse. **Fails
+  open**: an unknown checker, unparseable annotations or a raising builder all return
+  `""`, which degrades to severity/status-only gating — over-notifying, never silencing.
+  Add a checker by adding a pure builder to `KEY_BUILDERS`.
+- `apps/alerts/metrics.py` — `parse_metrics(annotations)`, shared by `reevaluation` and
+  `context_keys` so "read a node's metrics back" means one thing.
 - `apps/alerts/urls.py` — URL routing for this app
 
 ## Boundary rules

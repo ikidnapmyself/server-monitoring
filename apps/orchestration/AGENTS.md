@@ -50,6 +50,41 @@ on `id`) and runs the downstream stages listed in its `stages` column, in that o
 never fanned out. An inactive channel routes nowhere (`routed_channel()` returns
 `None`) and notify falls back to payload-driven selection.
 
+**The unit of work is an incident event, not a push.** A push run executes its entry
+stage and stops. Every incident that push *materially changed* becomes its own PENDING
+`PipelineRun` — a **downstream run** — carrying `{"downstream_incident_id": <id>}` as
+its `inbound_payload`. Each child resolves its **own** lane from its own incident's
+subject alert and runs exactly that lane's stages; it has no entry stage, because its
+incident was already ingested by the parent. Children inherit the parent's `trace_id`
+(and node, origin, source, environment) with their own `run_id`, so one push is still
+one story in `manage.py trace` and no parent FK exists. Before this, a push collapsed
+to a single subject and the other incidents were opened, counted, and then silently
+dropped — no lane, no analysis, no message. See
+`docs/plans/2026-08-19-incident-fanout-design.md`.
+
+Children are drained by `process_inbox` like any other inbox work — *not* inline. This
+is not a cap on how much analysis a tick may do (`drain()` snapshots pending PKs up
+front, so children wait for the *next* pass, but that pass will claim all of them if
+`--limit` allows). What it buys is that N analyses become N independently claimed,
+independently retryable runs bounded by `--limit`, instead of an unbounded loop held
+open inside one run whose crash would lose the lot. The one
+exception is `run_pipeline()`, the synchronous entry point (CLI, tests), which drains
+the children it enqueued: it claims through `inbox.claim` but executes through `self`,
+so the caller's retry/backoff settings and executors apply to children too.
+`execute_run()` deliberately does not drain — `process_inbox` already is the drain.
+
+Two consequences worth knowing before changing this code:
+
+- **A `no_route` now fails the child**, not the push. The push run keeps its succeeded
+  entry-stage row; the run an operator sees FAILED is the one carrying the unroutable
+  incident.
+- **A downstream run resumes on its stored payload.** `resume_pipeline` prefers
+  `inbound_payload` when it carries the downstream marker, because the resume endpoint
+  builds its payload from the request body, which cannot describe a child.
+- **A lane that lists the same stage the push run entered on will run it twice** (once
+  as the entry stage, once in the child, which has no stage history of its own).
+  Nothing loops — the re-run is immaterial and enqueues nothing.
+
 **Entry stages.** INGEST is the entry stage for webhook traffic; CHECK is the entry
 stage for `run_pipeline --checks-only` (the hub's own cron). One rule covers both — the
 entry stage produces an alert, the lane is resolved from that alert, the lane's stages
@@ -64,9 +99,12 @@ stage. Read it via `PipelineDefinition.routable_stages()`, never the raw column 
 `clean()` only runs on admin forms, so fixtures and shell edits can persist junk.
 
 **Routing facts come from ONE alert** (`facts_from_alert(alert, origin)`), never merged
-across an incident: `source`, `severity` (that alert's own), `instance`
-(`instance_id` → `instance` → `hostname`, via `instance_key_from_labels`), `labels`,
-and `origin` (`incoming_webhook`/`checker_generated`/`manual`).
+across an incident: `source`, `severity` (that alert's own), `status`
+(`firing`/`resolved`), `instance` (`instance_id` → `instance` → `hostname`, via
+`instance_key_from_labels`), `labels`, and `origin`
+(`incoming_webhook`/`checker_generated`/`manual`). Add a fact here and the admin's
+Routing help text must name it — a completeness test in `_tests/test_admin.py`
+enforces that, because an undiscoverable fact is one no operator can route on.
 
 **There is no implicit fallback.** A no-match raises a non-retryable `no_route`
 `StageExecutionError`, attributed to `routing` rather than to the entry stage that
@@ -75,7 +113,10 @@ seeds `cluster-nodes` (priority 50, `source is cluster`, `["analyze", "notify"]`
 `catch-all` (priority 1000, empty match, full order), and `0014` seeds
 `hub-self-check` (priority 50, `origin is checker_generated`, **empty `stages`** —
 records and correlates, deliberately does not notify, because cron repeats every five
-minutes and `apps.notify` has no de-duplication yet). None of these rows are special-
+minutes and `apps.notify` has no de-duplication yet), and `0016` seeds
+`resolved-all-clear` (priority 40, `status is resolved`, `["notify"]` — an all-clear
+has nothing left to diagnose, and it sits above `cluster-nodes` so a resolved node
+alert takes it rather than paying for an analysis). None of these rows are special-
 cased in code; `apps/orchestration/testing.py` documents their effect on tests.
 
 The legacy node/edge graph (`DefinitionBasedOrchestrator`, the `nodes/` package,

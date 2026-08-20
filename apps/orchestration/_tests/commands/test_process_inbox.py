@@ -37,10 +37,22 @@ class ProcessInboxTests(TestCase):
         self.assertEqual(Alert.objects.count(), 1)  # ingest actually ran via the stored wrapper
 
     def test_limit_bounds_the_pass(self):
-        for i in range(3):
-            self._pending(name=f"a{i}")
+        """--limit bounds how many INBOUND runs a pass claims.
+
+        Counted by run_id rather than by rows: a drained push enqueues its own
+        downstream runs, which are PENDING too and are legitimately left for the
+        next pass.
+        """
+        pending = [self._pending(name=f"a{i}") for i in range(3)]
+
         call_command("process_inbox", "--limit", "1")
-        self.assertEqual(PipelineRun.objects.filter(status=PipelineStatus.PENDING).count(), 2)
+
+        still_pending = set(
+            PipelineRun.objects.filter(status=PipelineStatus.PENDING).values_list(
+                "run_id", flat=True
+            )
+        )
+        assert len({run.run_id for run in pending} & still_pending) == 2
 
     def test_id_targets_one_run(self):
         r1, r2 = self._pending("r1"), self._pending("r2")

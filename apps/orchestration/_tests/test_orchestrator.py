@@ -13,6 +13,7 @@ from apps.orchestration.dtos import (
     IngestResult,
     NotifyResult,
 )
+from apps.orchestration.inbox import drain_run
 from apps.orchestration.models import (
     PipelineDefinition,
     PipelineOrigin,
@@ -43,6 +44,38 @@ def make_subject_alert(fingerprint="fp-subject"):
         started_at=timezone.now(),
         labels={},
     )
+
+
+def make_subject_incident(fingerprint="fp-subject"):
+    """A real Incident plus its subject Alert, for a run that fans out.
+
+    After fan-out, everything downstream of the entry stage runs in a *child* run,
+    and a child routes from its own incident's subject alert — so a flow test needs
+    a real incident row, not just a real alert.
+    """
+    from apps.alerts.models import Incident
+
+    incident = Incident.objects.create(title="cpu", severity="critical")
+    alert = make_subject_alert(fingerprint)
+    alert.incident = incident
+    alert.save(update_fields=["incident"])
+    return incident, alert
+
+
+def executed_stages(mock_execute):
+    """Stages this call executed anywhere in the trace, parent and children, in order.
+
+    ``result.stages_completed`` is now the PUSH run's own record — its entry stage
+    alone. The lane's stages run in the children ``run_pipeline`` drains, so "what
+    did this push cause to run" is read off the shared executor mock.
+    """
+    return [call.kwargs["stage"] for call in mock_execute.call_args_list]
+
+
+def children_of(result):
+    from apps.orchestration.models import PipelineRun
+
+    return PipelineRun.objects.filter(trace_id=result.trace_id).exclude(run_id=result.run_id)
 
 
 class OrchestratorTests(TestCase):
@@ -84,11 +117,15 @@ class OrchestratorTests(TestCase):
 
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_run_pipeline_full_flow(self, mock_execute):
-        """Test full pipeline execution flow."""
-        # Mock stage results - incident_id=None to avoid FK issues
-        alert = make_subject_alert()
+        """A push ingests, then its child carries the lane's stages."""
+        incident, alert = make_subject_incident()
         mock_execute.side_effect = [
-            IngestResult(alert_id=alert.id, incident_id=None, alerts_created=1),
+            IngestResult(
+                alert_id=alert.id,
+                incident_id=incident.id,
+                alerts_created=1,
+                material_incident_ids=[incident.id],
+            ),
             CheckResult(checks_run=2),
             AnalyzeResult(summary="Test summary"),
             NotifyResult(channels_succeeded=1),
@@ -101,17 +138,27 @@ class OrchestratorTests(TestCase):
         )
 
         assert result.status == "COMPLETED"
-        assert len(result.stages_completed) == 4
-        assert PipelineStage.INGEST in result.stages_completed
-        assert PipelineStage.NOTIFY in result.stages_completed
+        # The push run itself ends at its entry stage...
+        assert result.stages_completed == [PipelineStage.INGEST]
+        # ...and all four stages still ran for this push, across parent + child.
+        assert executed_stages(mock_execute) == [
+            PipelineStage.INGEST,
+            PipelineStage.CHECK,
+            PipelineStage.ANALYZE,
+            PipelineStage.NOTIFY,
+        ]
+        assert children_of(result).get().status == PipelineStatus.NOTIFIED
 
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_run_pipeline_with_fallback(self, mock_execute):
-        """Test pipeline with intelligence fallback."""
-        # Mock stage results with fallback analyze - incident_id=None
-        alert = make_subject_alert()
+        """The fallback is recorded on the child run that analysed."""
+        incident, alert = make_subject_incident()
         mock_execute.side_effect = [
-            IngestResult(alert_id=alert.id, incident_id=None),
+            IngestResult(
+                alert_id=alert.id,
+                incident_id=incident.id,
+                material_incident_ids=[incident.id],
+            ),
             CheckResult(checks_run=1),
             AnalyzeResult(summary="AI unavailable", fallback_used=True),
             NotifyResult(channels_succeeded=1),
@@ -124,7 +171,11 @@ class OrchestratorTests(TestCase):
         )
 
         assert result.status == "COMPLETED"
-        assert result.analyze.fallback_used is True
+        # ANALYZE belongs to the child now, so the downgrade is recorded there —
+        # which is where an operator tracing the incident would look for it.
+        child = children_of(result).get()
+        assert child.intelligence_fallback_used is True
+        assert child.status == PipelineStatus.NOTIFIED
 
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_run_pipeline_stage_failure(self, mock_execute):
@@ -209,7 +260,14 @@ class SkipCompletedStagesTests(TestCase):
 
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_resume_skips_completed_ingest_stage(self, mock_execute):
-        """When resuming, completed INGEST stage is skipped and incident_id extracted."""
+        """A pre-fan-out INGEST snapshot is skipped and still carries its incident.
+
+        The snapshot predates ``material_incident_ids``, so resume falls back to
+        the one incident the old model would have carried downstream — otherwise a
+        run that failed before the deploy would silently lose its analysis and
+        notification on retry.
+        """
+        incident, alert = make_subject_incident()
         orchestrator = PipelineOrchestrator()
         pipeline_run = orchestrator.start_pipeline(payload={}, source="test")
 
@@ -220,8 +278,8 @@ class SkipCompletedStagesTests(TestCase):
             attempt=1,
             status=StageStatus.SUCCEEDED,
             output_snapshot={
-                "alert_id": make_subject_alert().id,
-                "incident_id": 42,
+                "alert_id": alert.id,
+                "incident_id": incident.id,
                 "severity": "critical",
             },
         )
@@ -240,11 +298,32 @@ class SkipCompletedStagesTests(TestCase):
         result = orchestrator.resume_pipeline(run_id=pipeline_run.run_id, payload={"payload": {}})
 
         assert result.status == "COMPLETED"
-        assert mock_execute.call_count == 3
+        # INGEST is skipped, and nothing else runs on the push run itself.
+        assert result.stages_completed == []
+        # resume_pipeline does not drain (only run_pipeline does), so the child is
+        # left PENDING for process_inbox — exactly like a fresh push's children.
+        child = children_of(result).get()
+        assert child.status == PipelineStatus.PENDING
+        assert child.incident_id == incident.id
+
+        drain_run(child.run_id)
+
+        assert executed_stages(mock_execute) == [
+            PipelineStage.CHECK,
+            PipelineStage.ANALYZE,
+            PipelineStage.NOTIFY,
+        ]
 
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_resume_skips_completed_non_ingest_stage(self, mock_execute):
-        """When resuming, completed non-INGEST stage is skipped (no incident_id extraction)."""
+        """A completed CHECK on the PUSH run is skipped; the child still runs its lane.
+
+        The push run's own CHECK row is what resume skips. The child is a separate
+        run with no stage history of its own, so the lane's CHECK runs there — the
+        assertion is about the push run not repeating work, not about the trace
+        never checking again.
+        """
+        incident, alert = make_subject_incident()
         orchestrator = PipelineOrchestrator()
         pipeline_run = orchestrator.start_pipeline(payload={}, source="test")
 
@@ -254,7 +333,7 @@ class SkipCompletedStagesTests(TestCase):
             stage=PipelineStage.INGEST,
             attempt=1,
             status=StageStatus.SUCCEEDED,
-            output_snapshot={"alert_id": make_subject_alert().id, "incident_id": 42},
+            output_snapshot={"alert_id": alert.id, "incident_id": incident.id},
         )
         StageExecution.objects.create(
             pipeline_run=pipeline_run,
@@ -267,8 +346,8 @@ class SkipCompletedStagesTests(TestCase):
         pipeline_run.status = PipelineStatus.FAILED
         pipeline_run.save(update_fields=["status"])
 
-        # Only ANALYZE and NOTIFY should be executed
         mock_execute.side_effect = [
+            CheckResult(checks_run=1),
             AnalyzeResult(summary="ok"),
             NotifyResult(channels_succeeded=1),
         ]
@@ -276,7 +355,16 @@ class SkipCompletedStagesTests(TestCase):
         result = orchestrator.resume_pipeline(run_id=pipeline_run.run_id, payload={"payload": {}})
 
         assert result.status == "COMPLETED"
-        assert mock_execute.call_count == 2
+        # Neither INGEST nor the push run's CHECK is re-executed on the parent.
+        assert result.stages_completed == []
+
+        drain_run(children_of(result).get().run_id)
+
+        assert executed_stages(mock_execute) == [
+            PipelineStage.CHECK,
+            PipelineStage.ANALYZE,
+            PipelineStage.NOTIFY,
+        ]
 
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_resume_skips_completed_stage_without_output_snapshot(self, mock_execute):
@@ -314,9 +402,13 @@ class AnalyzeFallbackContinuesTests(TestCase):
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_analyze_with_errors_and_fallback_continues(self, mock_execute):
         """When analyze has errors but fallback_used=True, pipeline continues."""
-        alert = make_subject_alert()
+        incident, alert = make_subject_incident()
         mock_execute.side_effect = [
-            IngestResult(alert_id=alert.id, incident_id=None),
+            IngestResult(
+                alert_id=alert.id,
+                incident_id=incident.id,
+                material_incident_ids=[incident.id],
+            ),
             CheckResult(checks_run=1),
             AnalyzeResult(
                 summary="Fallback summary",
@@ -330,8 +422,12 @@ class AnalyzeFallbackContinuesTests(TestCase):
         result = orchestrator.run_pipeline(payload={"payload": {}}, source="test")
 
         assert result.status == "COMPLETED"
-        assert result.analyze.fallback_used is True
-        assert result.analyze.has_errors is True
+        # A failed-but-fallen-back ANALYZE must not stop the run it belongs to:
+        # NOTIFY still ran after it, and the child reached NOTIFIED.
+        assert executed_stages(mock_execute)[-1] == PipelineStage.NOTIFY
+        child = children_of(result).get()
+        assert child.status == PipelineStatus.NOTIFIED
+        assert child.intelligence_fallback_used is True
 
 
 class StageErrorInExecutePipelineTests(TestCase):
@@ -356,18 +452,26 @@ class StageErrorInExecutePipelineTests(TestCase):
 
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_check_stage_with_errors_raises(self, mock_execute):
-        """CheckResult with errors triggers StageExecutionError in _execute_pipeline."""
-        alert = make_subject_alert()
+        """CheckResult with errors fails the run it ran in — now the child run."""
+        incident, alert = make_subject_incident()
         mock_execute.side_effect = [
-            IngestResult(alert_id=alert.id, incident_id=None),
+            IngestResult(
+                alert_id=alert.id,
+                incident_id=incident.id,
+                material_incident_ids=[incident.id],
+            ),
             CheckResult(checks_run=1, errors=["Check failed"]),
         ]
 
         orchestrator = PipelineOrchestrator()
         result = orchestrator.run_pipeline(payload={"payload": {}}, source="test")
 
-        assert result.status == "FAILED"
-        assert "Check failed" in result.final_error.message
+        # The push run ingested successfully; the failure is the child's, which is
+        # the point of per-incident runs — one bad check does not fail the push.
+        assert result.status == "COMPLETED"
+        child = children_of(result).get()
+        assert child.status == PipelineStatus.FAILED
+        assert "Check failed" in child.last_error_message
 
 
 class GenericExceptionHandlerTests(TestCase):
@@ -549,8 +653,13 @@ class StageRetryWithBackoffTests(TestCase):
         orchestrator = PipelineOrchestrator(max_retries=2, backoff_factor=2.0)
 
         # Set up INGEST and CHECK to succeed normally
+        incident, alert = make_subject_incident()
         ingest_mock = MagicMock()
-        ingest_mock.execute.return_value = IngestResult(alert_id=make_subject_alert().id)
+        ingest_mock.execute.return_value = IngestResult(
+            alert_id=alert.id,
+            incident_id=incident.id,
+            material_incident_ids=[incident.id],
+        )
         orchestrator.executors[PipelineStage.INGEST] = ingest_mock
 
         check_mock = MagicMock()
@@ -634,10 +743,15 @@ class ChecksOnlyTests(TestCase):
 
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_normal_pipeline_still_runs_all_stages(self, mock_execute):
-        """Without checks_only, all 4 stages run (regression guard)."""
-        alert = make_subject_alert()
+        """Without checks_only, all 4 stages still run across the trace."""
+        incident, alert = make_subject_incident()
         mock_execute.side_effect = [
-            IngestResult(alert_id=alert.id, incident_id=None, alerts_created=1),
+            IngestResult(
+                alert_id=alert.id,
+                incident_id=incident.id,
+                alerts_created=1,
+                material_incident_ids=[incident.id],
+            ),
             CheckResult(checks_run=2),
             AnalyzeResult(summary="ok"),
             NotifyResult(channels_succeeded=1),
@@ -650,9 +764,12 @@ class ChecksOnlyTests(TestCase):
         )
 
         assert result.status == "COMPLETED"
-        assert mock_execute.call_count == 4
-        assert len(result.stages_completed) == 4
-        assert PipelineStage.CHECK in result.stages_completed
+        assert executed_stages(mock_execute) == [
+            PipelineStage.INGEST,
+            PipelineStage.CHECK,
+            PipelineStage.ANALYZE,
+            PipelineStage.NOTIFY,
+        ]
 
 
 class CheckOmittingLaneTests(TestCase):
@@ -671,44 +788,44 @@ class CheckOmittingLaneTests(TestCase):
             name="analyze-notify", match=[], priority=1, stages=["analyze", "notify"]
         )
 
-    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
-    def test_lane_without_check_omits_check_but_reaches_notify(self, mock_execute):
+    def _push(self, mock_execute):
         self._lane_without_check()
-        alert = make_subject_alert()
+        incident, alert = make_subject_incident()
         mock_execute.side_effect = [
-            IngestResult(alert_id=alert.id, incident_id=None, alerts_created=1),
+            IngestResult(
+                alert_id=alert.id,
+                incident_id=incident.id,
+                alerts_created=1,
+                material_incident_ids=[incident.id],
+            ),
             AnalyzeResult(summary="ok"),
             NotifyResult(channels_succeeded=1),
         ]
+        return PipelineOrchestrator().run_pipeline(payload={"payload": {}}, source="test")
 
-        orchestrator = PipelineOrchestrator()
-        result = orchestrator.run_pipeline(payload={"payload": {}}, source="test")
+    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
+    def test_lane_without_check_omits_check_but_reaches_notify(self, mock_execute):
+        result = self._push(mock_execute)
 
         assert result.status == "COMPLETED"
-        assert mock_execute.call_count == 3
-        assert PipelineStage.CHECK not in result.stages_completed
-        assert PipelineStage.INGEST in result.stages_completed
-        assert PipelineStage.ANALYZE in result.stages_completed
-        assert PipelineStage.NOTIFY in result.stages_completed
+        # The lane belongs to the child run; CHECK is absent from the whole trace.
+        assert executed_stages(mock_execute) == [
+            PipelineStage.INGEST,
+            PipelineStage.ANALYZE,
+            PipelineStage.NOTIFY,
+        ]
 
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_lane_without_check_is_marked_notified(self, mock_execute):
-        self._lane_without_check()
-        alert = make_subject_alert()
-        mock_execute.side_effect = [
-            IngestResult(alert_id=alert.id, incident_id=None, alerts_created=1),
-            AnalyzeResult(summary="ok"),
-            NotifyResult(channels_succeeded=1),
-        ]
+        """Terminal status still comes from the last stage that ran — on the child.
 
-        orchestrator = PipelineOrchestrator()
-        orchestrator.run_pipeline(payload={"payload": {}}, source="test")
+        The push run ends at INGESTED by construction now, so the three-stage
+        lane's terminal status is only observable where those stages ran.
+        """
+        result = self._push(mock_execute)
 
-        from apps.orchestration.models import PipelineRun
-
-        run = PipelineRun.objects.order_by("-started_at").first()
-        assert run is not None
-        assert run.status == PipelineStatus.NOTIFIED
+        child = children_of(result).get()
+        assert child.status == PipelineStatus.NOTIFIED
 
 
 @pytest.mark.django_db
@@ -787,3 +904,368 @@ def test_incoming_run_with_non_string_instance_id_has_null_node():
     payload = {"payload": {"instance_id": ["not", "a", "string"]}}
     run = PipelineOrchestrator().start_pipeline(payload=payload, source="cluster")
     assert run.node is None
+
+
+class DownstreamRunTests(TestCase):
+    """A downstream run has no entry stage: it runs exactly its lane.
+
+    Its incident was ingested by the parent run, so re-ingesting is not merely
+    wasteful, it is wrong — there is no payload to ingest. Treating ANALYZE as an
+    entry stage would be worse: a resolved incident routes to a notify-only lane,
+    and forcing an entry stage would call the AI on an all-clear.
+    """
+
+    def _incident_with_alert(self, severity="critical", status="firing"):
+        from apps.alerts.models import Incident
+
+        incident = Incident.objects.create(title="Disk full", severity=severity)
+        Alert.objects.create(
+            fingerprint=f"fp-{incident.id}",
+            source="cluster",
+            name="disk",
+            severity=severity,
+            status=status,
+            started_at=timezone.now(),
+            labels={},
+            incident=incident,
+        )
+        return incident
+
+    def _downstream_run(self, incident, run_id="r-1"):
+        from apps.orchestration.models import PipelineRun
+
+        return PipelineRun.objects.create(
+            trace_id=f"t-{run_id}",
+            run_id=run_id,
+            source="cluster",
+            origin=PipelineOrigin.INCOMING_WEBHOOK,
+            status=PipelineStatus.PENDING,
+            inbound_payload={"downstream_incident_id": incident.id},
+        )
+
+    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
+    def test_downstream_run_executes_only_its_lane_stages(self, mock_execute):
+        mock_execute.return_value = NotifyResult(channels_succeeded=1)
+        incident = self._incident_with_alert()
+        PipelineDefinition.objects.create(
+            name="lane-notify-only", match=[], stages=["notify"], priority=10, is_active=True
+        )
+        run = self._downstream_run(incident)
+
+        result = PipelineOrchestrator().execute_run(run)
+
+        assert result.status == "COMPLETED"
+        assert result.stages_completed == [PipelineStage.NOTIFY]
+        assert mock_execute.call_count == 1
+        assert mock_execute.call_args[1]["stage"] == PipelineStage.NOTIFY
+
+    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
+    def test_downstream_run_carries_its_incident_into_every_stage(self, mock_execute):
+        """notify reads incident_id to find the lane's channel; nothing re-derives it."""
+        mock_execute.return_value = NotifyResult(channels_succeeded=1)
+        incident = self._incident_with_alert()
+        PipelineDefinition.objects.create(
+            name="lane-notify-only", match=[], stages=["notify"], priority=10, is_active=True
+        )
+        run = self._downstream_run(incident)
+
+        result = PipelineOrchestrator().execute_run(run)
+
+        assert mock_execute.call_args[1]["incident_id"] == incident.id
+        assert result.incident_id == incident.id
+        run.refresh_from_db()
+        assert run.incident_id == incident.id
+
+    def test_downstream_run_with_no_matching_lane_fails_no_route(self):
+        incident = self._incident_with_alert()
+        PipelineDefinition.objects.all().delete()
+        run = self._downstream_run(incident, run_id="r-2")
+
+        PipelineOrchestrator().execute_run(run)
+
+        run.refresh_from_db()
+        assert run.status == PipelineStatus.FAILED
+        assert "no_route" in run.last_error_message
+        assert run.last_error_retryable is False
+
+    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
+    def test_downstream_run_never_ingests(self, mock_execute):
+        """The parent already ingested; there is no payload here to ingest."""
+        mock_execute.return_value = AnalyzeResult(summary="ok")
+        incident = self._incident_with_alert()
+        PipelineDefinition.objects.create(
+            name="analyze-only", match=[], stages=["analyze"], priority=10, is_active=True
+        )
+        run = self._downstream_run(incident, run_id="r-3")
+
+        result = PipelineOrchestrator().execute_run(run)
+
+        assert result.status == "COMPLETED"
+        assert PipelineStage.INGEST not in result.stages_completed
+        assert result.stages_completed == [PipelineStage.ANALYZE]
+        run.refresh_from_db()
+        assert run.status == PipelineStatus.ANALYZED
+
+    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
+    def test_downstream_lane_with_no_stages_completes_cleanly(self, mock_execute):
+        """An empty stage list is legal: nothing to run is not a failure."""
+        incident = self._incident_with_alert()
+        PipelineDefinition.objects.create(
+            name="lane-empty", match=[], stages=[], priority=10, is_active=True
+        )
+        run = self._downstream_run(incident, run_id="r-4")
+
+        result = PipelineOrchestrator().execute_run(run)
+
+        assert result.status == "COMPLETED"
+        assert result.stages_completed == []
+        assert mock_execute.call_count == 0
+        run.refresh_from_db()
+        assert run.status == PipelineStatus.INGESTED
+
+
+def cluster_push(checkers, instance_id="web-03", severity="critical"):
+    """A node push carrying one firing alert per checker.
+
+    Each checker is a different alert name on the same host, so incident grouping
+    (name, instance) opens one incident per checker — the exact shape the fan-out
+    exists for.
+    """
+    return {
+        "source": "cluster",
+        "instance_id": instance_id,
+        "hostname": instance_id,
+        "version": "1.0",
+        "alerts": [
+            {
+                "fingerprint": f"{checker}-{instance_id}",
+                "name": f"{checker} alert",
+                "status": "firing",
+                "severity": severity,
+                "started_at": "2026-08-19T12:00:00Z",
+                "labels": {"checker": checker, "hostname": instance_id},
+                "annotations": {"message": f"{checker} is unhappy"},
+            }
+            for checker in checkers
+        ],
+    }
+
+
+class FanOutTests(TestCase):
+    """A push enqueues one downstream run per materially-changed incident.
+
+    The old model collapsed a push to one subject incident and dropped the rest;
+    these tests pin that every incident now gets its own run, and that a re-push
+    saying nothing new gets none.
+    """
+
+    def setUp(self):
+        PipelineDefinition.objects.create(
+            name="fanout-lane", match=[], stages=["notify"], priority=1, is_active=True
+        )
+
+    def _push(self, checkers, **kwargs):
+        return PipelineOrchestrator().run_pipeline(
+            payload={"driver": "cluster", "payload": cluster_push(checkers, **kwargs)},
+            source="cluster",
+        )
+
+    @staticmethod
+    def _children(result):
+        from apps.orchestration.models import PipelineRun
+
+        return PipelineRun.objects.filter(trace_id=result.trace_id).exclude(run_id=result.run_id)
+
+    def test_push_with_three_material_incidents_enqueues_three_runs(self):
+        from apps.alerts.models import Incident
+
+        result = self._push(["cpu", "disk", "memory"])
+
+        children = self._children(result)
+        assert children.count() == 3
+        assert sorted(c.inbound_payload["downstream_incident_id"] for c in children) == sorted(
+            Incident.objects.values_list("id", flat=True)
+        )
+
+    def test_identical_repush_enqueues_nothing(self):
+        from apps.orchestration.models import PipelineRun
+
+        self._push(["cpu", "disk", "memory"])
+        before = PipelineRun.objects.count()
+
+        result = self._push(["cpu", "disk", "memory"])
+
+        # One new parent run, no new children.
+        assert PipelineRun.objects.count() == before + 1
+        assert self._children(result).count() == 0
+
+    def test_escalated_repush_enqueues_only_the_incident_that_moved(self):
+        self._push(["cpu", "disk"], severity="warning")
+
+        payload = cluster_push(["cpu", "disk"], severity="warning")
+        payload["alerts"][0]["severity"] = "critical"
+        result = PipelineOrchestrator().run_pipeline(
+            payload={"driver": "cluster", "payload": payload}, source="cluster"
+        )
+
+        children = self._children(result)
+        assert children.count() == 1
+        from apps.alerts.models import Incident
+
+        moved = Incident.objects.get(title__contains="cpu")
+        assert children.first().inbound_payload["downstream_incident_id"] == moved.id
+
+    def test_healthy_push_still_produces_its_parent_run(self):
+        from apps.orchestration.models import PipelineRun
+
+        result = self._push([])
+
+        assert PipelineRun.objects.filter(run_id=result.run_id).exists()
+        assert self._children(result).count() == 0
+
+    def test_children_inherit_trace_node_and_origin(self):
+        from apps.orchestration.models import PipelineRun
+
+        Node.objects.create(instance_id="web-03", hostname="web-03")
+        result = self._push(["cpu"])
+
+        parent = PipelineRun.objects.get(run_id=result.run_id)
+        child = self._children(result).first()
+        assert child.trace_id == parent.trace_id
+        assert child.run_id != parent.run_id
+        assert child.node_id == parent.node_id
+        assert child.node_id is not None
+        assert child.origin == parent.origin
+        assert child.source == parent.source
+        assert child.environment == parent.environment
+
+    def test_the_parent_run_ends_at_its_entry_stage(self):
+        """The push run ingests and stops; the work moved to the children."""
+        from apps.orchestration.models import PipelineRun
+
+        result = self._push(["cpu"])
+
+        parent = PipelineRun.objects.get(run_id=result.run_id)
+        assert parent.status == PipelineStatus.INGESTED
+        assert result.stages_completed == [PipelineStage.INGEST]
+
+
+class SynchronousDrainTests(TestCase):
+    """run_pipeline() carries the whole pipeline, children included.
+
+    manage.py run_pipeline, CLI diagnostics and much of the suite call this and
+    expect one call to finish the job. Only this entry point drains: execute_run
+    must not, or process_inbox would recurse into nested drains.
+    """
+
+    def setUp(self):
+        PipelineDefinition.objects.create(
+            name="fanout-lane", match=[], stages=["notify"], priority=1, is_active=True
+        )
+
+    def test_run_pipeline_leaves_no_pending_child(self):
+        result = PipelineOrchestrator().run_pipeline(
+            payload={"driver": "cluster", "payload": cluster_push(["cpu", "disk", "memory"])},
+            source="cluster",
+        )
+
+        from apps.orchestration.models import PipelineRun
+
+        children = PipelineRun.objects.filter(trace_id=result.trace_id).exclude(
+            run_id=result.run_id
+        )
+        assert children.count() == 3
+        assert {c.status for c in children} == {PipelineStatus.NOTIFIED}
+
+    def test_execute_run_does_not_drain(self):
+        """The drain entry point must not recurse into a nested drain."""
+        from apps.orchestration.inbox import drain_run
+        from apps.orchestration.models import PipelineRun
+
+        orchestrator = PipelineOrchestrator()
+        parent = orchestrator.start_pipeline(
+            payload={"driver": "cluster", "payload": cluster_push(["cpu", "disk"])},
+            source="cluster",
+        )
+        orchestrator.execute_run(parent)
+
+        children = PipelineRun.objects.filter(trace_id=parent.trace_id).exclude(
+            run_id=parent.run_id
+        )
+        assert {c.status for c in children} == {PipelineStatus.PENDING}
+
+        for child in children:
+            assert drain_run(child.run_id) == 1
+
+
+class SynchronousDrainConcurrencyTests(TestCase):
+    """The synchronous drain claims like any other drain, and yields when it loses.
+
+    ``run_pipeline`` and a running ``process_inbox`` can reach the same child; the
+    atomic claim is what stops both executing it.
+    """
+
+    def setUp(self):
+        PipelineDefinition.objects.create(
+            name="fanout-lane", match=[], stages=["notify"], priority=1, is_active=True
+        )
+
+    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
+    def test_a_child_claimed_by_a_concurrent_drain_is_left_alone(self, mock_execute):
+        incident, alert = make_subject_incident()
+        mock_execute.side_effect = [
+            IngestResult(
+                alert_id=alert.id,
+                incident_id=incident.id,
+                material_incident_ids=[incident.id],
+            ),
+        ]
+
+        with patch("apps.orchestration.inbox.claim", return_value=False):
+            result = PipelineOrchestrator().run_pipeline(payload={"payload": {}}, source="test")
+
+        assert result.status == "COMPLETED"
+        # Not executed here, and not consumed either: still PENDING for the drain
+        # that won the claim.
+        assert mock_execute.call_count == 1
+        assert children_of(result).get().status == PipelineStatus.PENDING
+
+
+class DownstreamRunResumeTests(TestCase):
+    """A downstream run that failed mid-lane resumes without repeating itself.
+
+    The lane is re-resolved from the incident, but a stage this run already
+    completed is skipped — the same rule the push run has always had, now
+    exercised where multi-stage lanes actually run.
+    """
+
+    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
+    def test_a_completed_stage_is_not_repeated_on_resume(self, mock_execute):
+        from apps.orchestration.models import PipelineRun
+
+        incident, alert = make_subject_incident()
+        PipelineDefinition.objects.create(
+            name="analyze-notify", match=[], stages=["analyze", "notify"], priority=1
+        )
+        run = PipelineRun.objects.create(
+            trace_id="t-child",
+            run_id="r-child",
+            source="cluster",
+            status=PipelineStatus.FAILED,
+            inbound_payload={"downstream_incident_id": incident.id},
+        )
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage=PipelineStage.ANALYZE,
+            attempt=1,
+            status=StageStatus.SUCCEEDED,
+            output_snapshot={"summary": "already analysed"},
+        )
+        mock_execute.side_effect = [NotifyResult(channels_succeeded=1)]
+
+        result = PipelineOrchestrator().resume_pipeline(run_id="r-child", payload={})
+
+        assert result.status == "COMPLETED"
+        assert executed_stages(mock_execute) == [PipelineStage.NOTIFY]
+        run.refresh_from_db()
+        assert run.status == PipelineStatus.NOTIFIED

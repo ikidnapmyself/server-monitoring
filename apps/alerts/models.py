@@ -44,6 +44,16 @@ class Alert(models.Model):
         db_index=True,
         help_text="Unique identifier for this alert (used for deduplication).",
     )
+    context_key = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "Stable digest of the situation this alert describes, used to decide "
+            "whether a re-push is materially new. Empty means severity and status "
+            "alone decide. See apps.alerts.context_keys."
+        ),
+    )
     source = models.CharField(
         max_length=100,
         db_index=True,

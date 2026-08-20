@@ -154,6 +154,18 @@ matched pipeline's single `channel`. A no-match is a non-retryable `no_route`
 failure — migration `0012` seeds a `catch-all` lane so unmatched traffic is a row
 an operator can read and edit rather than a constant in the orchestrator.
 
+**One run per incident event, not per push.** A push run executes its entry stage and
+stops. Every incident that push *materially changed* — created, severity moved, status
+transitioned, or its per-checker context key changed — becomes its own `PENDING`
+downstream run that resolves its own lane and runs it. A steady-state re-push that says
+nothing new starts no run at all, which is also what keeps a five-minute cron from
+re-notifying ~288 times a day. Downstream runs inherit the push's `trace_id` with their
+own `run_id`, so one push still reads as one story in `manage.py trace`; they are
+drained by `process_inbox` like any other inbox work. Migration `0016` seeds
+`resolved-all-clear`, which notifies an all-clear without paying for an AI analysis of
+something that has already recovered. See
+`docs/plans/2026-08-19-incident-fanout-design.md`.
+
 - **Endpoints:** `POST /orchestration/pipeline/` (async — records a `PENDING` run for
   the `process_inbox` drain) and `/pipeline/sync/` (runs inline).
 - **CLI:** `python manage.py run_pipeline --sample` / `--checks-only` / `--dry-run`.

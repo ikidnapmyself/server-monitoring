@@ -3,7 +3,7 @@ from datetime import timedelta
 from django.test import TestCase
 from django.utils import timezone
 
-from apps.alerts.models import Alert, AlertStatus, Incident, IncidentStatus
+from apps.alerts.models import Alert, AlertSeverity, AlertStatus, Incident, IncidentStatus
 
 
 class AlertModelTests(TestCase):
@@ -32,6 +32,34 @@ class AlertModelTests(TestCase):
 
         duration = alert.duration
         self.assertGreaterEqual(duration.total_seconds(), 7200)
+
+    def test_alert_context_key_defaults_to_empty(self):
+        alert = Alert.objects.create(
+            fingerprint="ck-default",
+            source="test",
+            name="CPU Check Alert",
+            severity=AlertSeverity.WARNING,
+            status=AlertStatus.FIRING,
+            started_at=timezone.now(),
+        )
+
+        self.assertEqual(alert.context_key, "")
+
+    def test_alert_context_key_survives_an_update_fields_save(self):
+        alert = Alert.objects.create(
+            fingerprint="ck-update",
+            source="test",
+            name="CPU Check Alert",
+            severity=AlertSeverity.WARNING,
+            status=AlertStatus.FIRING,
+            started_at=timezone.now(),
+        )
+
+        alert.context_key = "22,8080"
+        alert.save(update_fields=["context_key"])
+        alert.refresh_from_db()
+
+        self.assertEqual(alert.context_key, "22,8080")
 
 
 class IncidentModelTests(TestCase):
