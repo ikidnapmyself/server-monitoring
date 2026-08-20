@@ -62,15 +62,42 @@ differs, then delegates:
 
 ```python
 def _process_alert(self, parsed, source, result):
-    # The one checker-specific rule: an OK result for a fingerprint we have never
-    # alerted on is not news. Without this guard every healthy checker would create
-    # a resolved Alert row on its first run.
+    # The one checker-specific rule left here: an OK result for a fingerprint we
+    # have never alerted on is not news. Without this guard every healthy checker
+    # would create a resolved Alert row on its first run.
     if parsed.status != "firing" and not Alert.objects.filter(
         fingerprint=parsed.fingerprint, source=source
     ).exists():
         return None
     return self.orchestrator._process_alert(parsed, source, result)
 ```
+
+### 2.1.1 The quiet re-push, moved into the orchestrator
+
+The bridge has a second short-circuit today — *already resolved, still OK → do nothing* — and it
+does **not** move into the shell. It moves into `AlertOrchestrator._process_alert`, so both paths
+get it:
+
+```python
+        if existing and existing.status == AlertStatus.RESOLVED and parsed.status == "resolved":
+            # Nothing to record: a re-push of something already quiet. Nodes push OK
+            # results every tick (push_to_hub.py:112), and the orchestrator used to
+            # run these through _update_alert, writing an `updated` AlertHistory row
+            # each time — on the order of 30k rows a day across a healthy fleet, none
+            # of which says anything. Never material either, so no downstream run was
+            # ever involved.
+            return existing
+```
+
+This is the one place the unification *changes the webhook path* rather than only the checker
+path: a repeated resolved push stops rewriting `annotations`/`raw_payload` and stops appending
+history. That is the intended effect.
+
+**A difference this design does NOT remove:** the hub's own OK checks still create no `Alert` row
+until they first fire (the shell's guard above), while a node's first push *does* create resolved
+rows for its healthy checkers (the orchestrator creates on unknown fingerprint whatever the
+status). Making those consistent means deciding whether the hub should hold a row per healthy
+remote checker at all — a separate question, deliberately not answered here.
 
 `_create_alert`, `_update_alert`, `_resolve_alert` and `_check_incident_resolution` are **deleted**
 from the bridge — four methods, ~110 lines. No new wiring is needed: the bridge already holds a
@@ -123,6 +150,10 @@ All four are on checker traffic only, and none is silent:
 3. `alerts_updated` counts only non-status-change updates, matching the webhook path.
 4. Auto-resolution sets the summary "All alerts resolved automatically" and no longer resolves an
    alert-less incident.
+
+And one change on the **webhook** path, from §2.1.1: a re-push of an already-resolved alert now
+writes nothing at all — no field update, no `updated` history row. Node traffic is what makes this
+worth doing; it is also the only behaviour this work changes outside the checker path.
 
 The incident-creation gate *looks* different between the paths — the bridge gates on
 `severity in (critical, warning)`, the orchestrator on `status == "firing"` — but is equivalent in
