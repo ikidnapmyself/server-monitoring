@@ -333,16 +333,39 @@ class CheckAlertBridge:
         alert.annotations = parsed.annotations
         alert.raw_payload = parsed.raw_payload
         alert.context_key = new_key
-        alert.save(
-            update_fields=[
-                "severity",
-                "description",
-                "annotations",
-                "raw_payload",
-                "context_key",
-                "updated_at",
-            ]
-        )
+        update_fields = [
+            "severity",
+            "description",
+            "annotations",
+            "raw_payload",
+            "context_key",
+            "updated_at",
+        ]
+
+        # A re-push of something that had recovered arrives here, not in
+        # _resolve_alert: _process_alert only special-cases firing -> resolved, so
+        # resolved -> firing lands in this method. Reopening is not cosmetic. The
+        # row's status is a ROUTING FACT (facts_from_alert), so an alert left
+        # RESOLVED while its host is on fire matches the resolved lane and the
+        # downstream run delivers an all-clear for a critical problem. Mirrors
+        # AlertOrchestrator._update_alert, down to the `refired` event name, so one
+        # incident reads the same however its alerts arrived.
+        refired = alert.status == AlertStatus.RESOLVED and parsed.status == "firing"
+        if refired:
+            alert.status = AlertStatus.FIRING
+            alert.ended_at = None
+            update_fields += ["status", "ended_at"]
+
+        alert.save(update_fields=update_fields)
+
+        if refired:
+            AlertHistory.objects.create(
+                alert=alert,
+                event="refired",
+                old_status=AlertStatus.RESOLVED,
+                new_status=AlertStatus.FIRING,
+                details={"checker": (parsed.labels or {}).get("checker", "")},
+            )
 
         if old_severity != parsed.severity:
             AlertHistory.objects.create(

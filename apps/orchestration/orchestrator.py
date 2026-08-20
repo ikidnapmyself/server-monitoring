@@ -682,11 +682,15 @@ class PipelineOrchestrator:
         story in ``manage.py trace`` — with its own ``run_id``, and routes itself
         from its own incident rather than from the push's single subject.
 
-        They are left PENDING for ``process_inbox`` rather than run inline: a node
-        with eight material incidents would otherwise make eight LLM calls inside
-        one drain tick, which is the memory pressure durable ingest exists to
-        avoid. ``run_pipeline`` (the synchronous entry point) drains its own
-        children afterwards, because its callers expect one call to finish the job.
+        They are left PENDING for ``process_inbox`` rather than run inline. This is
+        NOT a throttle: ``inbox.drain`` still executes up to ``--limit`` runs
+        sequentially in one pass, and children only miss the pass that created them
+        because ``drain`` snapshots its PK list up front. What it buys is that N
+        analyses become N independently claimed, independently retryable,
+        crash-isolated runs bounded by ``--limit``, rather than an unbounded loop
+        held open inside one run whose crash would lose the lot. ``run_pipeline``
+        (the synchronous entry point) drains its own children afterwards, because
+        its callers expect one call to finish the job.
         """
         children = []
         with transaction.atomic():

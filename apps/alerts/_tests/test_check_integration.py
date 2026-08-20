@@ -4,7 +4,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.alerts.check_integration import CheckAlertBridge, CheckAlertResult
-from apps.alerts.models import Alert, AlertStatus, Incident, IncidentStatus
+from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus
 from apps.checkers.checkers import CheckResult, CheckStatus
 
 
@@ -708,3 +708,71 @@ class CheckAlertBridgeMaterialityTests(TestCase):
         self.bridge.process_check_result(self._ok_ports_result())
         result = self.bridge.process_check_result(self._ok_ports_result())
         self.assertEqual(result.material_alerts, [])
+
+
+class CheckAlertBridgeRefireTests(TestCase):
+    """A checker alert that fires again after resolving must reopen.
+
+    The bridge routes a resolved->firing re-push into ``_update_alert`` (only
+    firing->resolved is special-cased), and that method used to update severity and
+    annotations without touching ``status``/``ended_at``. The row therefore stayed
+    RESOLVED while the host was on fire.
+
+    Fan-out made that actively dangerous rather than merely untidy: the run IS
+    material (a status transition), so a downstream run is enqueued — and it routes
+    on the alert's stored facts, which still said ``resolved``. The seeded
+    ``resolved-all-clear`` lane then delivered an all-clear for a CRITICAL problem.
+    """
+
+    def setUp(self):
+        self.bridge = CheckAlertBridge(auto_create_incidents=True, hostname="test-server")
+
+    def _result(self, status, message="cpu"):
+        return CheckResult(
+            status=status, message=message, metrics={"cpu_percent": 95.0}, checker_name="cpu"
+        )
+
+    def _fire_resolve_refire(self):
+        self.bridge.process_check_result(self._result(CheckStatus.CRITICAL))
+        self.bridge.process_check_result(self._result(CheckStatus.OK))
+        return self.bridge.process_check_result(self._result(CheckStatus.CRITICAL))
+
+    def test_a_refire_reopens_the_alert(self):
+        self._fire_resolve_refire()
+
+        alert = Alert.objects.get()
+        assert alert.status == AlertStatus.FIRING
+        assert alert.ended_at is None
+
+    def test_a_refire_routes_as_firing(self):
+        """The consequence that matters: it must not take the resolved lane."""
+        from apps.orchestration.routing import facts_from_alert
+
+        self._fire_resolve_refire()
+
+        alert = Alert.objects.get()
+        assert facts_from_alert(alert, "checker_generated")["status"] == "firing"
+
+    def test_a_refire_is_recorded_in_history(self):
+        """Same event name the webhook path writes, so the timeline reads alike."""
+        self._fire_resolve_refire()
+
+        events = list(
+            AlertHistory.objects.order_by("id").values_list("event", "old_status", "new_status")
+        )
+        assert events[-1] == ("refired", AlertStatus.RESOLVED, AlertStatus.FIRING)
+
+    def test_a_refire_is_material(self):
+        result = self._fire_resolve_refire()
+
+        assert len(result.material_alerts) == 1
+
+    def test_an_ordinary_firing_update_is_not_recorded_as_a_refire(self):
+        """No spurious event when the alert was already firing."""
+        self.bridge.process_check_result(self._result(CheckStatus.CRITICAL))
+        self.bridge.process_check_result(self._result(CheckStatus.WARNING))
+
+        assert not AlertHistory.objects.filter(event="refired").exists()
+        alert = Alert.objects.get()
+        assert alert.status == AlertStatus.FIRING
+        assert alert.ended_at is None
