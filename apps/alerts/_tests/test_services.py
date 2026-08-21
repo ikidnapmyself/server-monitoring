@@ -1034,12 +1034,13 @@ class RefireReopensIncidentTests(TestCase):
 
         self.assertEqual(self._incident().status, IncidentStatus.ACKNOWLEDGED)
 
-    def test_a_sibling_open_incident_blocks_the_reopen(self):
-        """One situation, one open incident.
+    def test_a_refire_joins_a_sibling_open_incident(self):
+        """One situation, one open incident — and the alert points at it.
 
         While this alert's incident was resolved, a sibling with the same
-        (name, instance) opened its own. Reopening both would mean two downstream
-        runs and two notifications for one situation.
+        (name, instance) opened its own. Reopening ours would mean two open
+        incidents for one situation; leaving ours resolved would leave a FIRING
+        alert under it. So the alert joins the sibling.
         """
         from apps.alerts.models import Incident
 
@@ -1048,11 +1049,33 @@ class RefireReopensIncidentTests(TestCase):
         sibling = copy.deepcopy(self.payload)
         sibling["alerts"][0]["fingerprint"] = "flap-2"
         self.orchestrator.process_webhook(sibling)
+        sibling_incident = Alert.objects.get(fingerprint="flap-2").incident
 
         self.orchestrator.process_webhook(self.payload)
 
         statuses = sorted(Incident.objects.values_list("status", flat=True))
         self.assertEqual(statuses, [IncidentStatus.OPEN, IncidentStatus.RESOLVED])
+        self.assertEqual(self._incident().pk, sibling_incident.pk)
+        self.assertEqual(self._incident().status, IncidentStatus.OPEN)
+
+    def test_joining_a_sibling_escalates_its_severity(self):
+        """Joining is the same operation the create path performs, escalation included."""
+        from apps.alerts.models import Incident
+
+        warning = copy.deepcopy(self.payload)
+        warning["alerts"][0]["labels"]["severity"] = "warning"
+        self.orchestrator.process_webhook(warning)
+        resolved = copy.deepcopy(warning)
+        resolved["alerts"][0]["status"] = "resolved"
+        self.orchestrator.process_webhook(resolved)
+        sibling = copy.deepcopy(warning)
+        sibling["alerts"][0]["fingerprint"] = "flap-2"
+        self.orchestrator.process_webhook(sibling)
+
+        self.orchestrator.process_webhook(self.payload)  # refires at critical
+
+        joined = Incident.objects.get(pk=self._incident().pk)
+        self.assertEqual(joined.severity, "critical")
 
     def test_an_alert_without_an_incident_does_not_raise(self):
         """--no-incidents runs have no incident to reopen."""

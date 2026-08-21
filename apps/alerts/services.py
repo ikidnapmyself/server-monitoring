@@ -390,19 +390,18 @@ class AlertOrchestrator:
                 # so nothing else would ever revisit it. Left alone, a FIRING alert
                 # sits under a RESOLVED incident: notify reports an incident marked
                 # resolved, and the admin contradicts itself.
+                # A sibling alert with the same (name, instance) may have opened
+                # its own incident while ours was resolved — _find_open_incident
+                # ignores RESOLVED/CLOSED rows. Join it rather than reopening ours:
+                # one situation is one open incident, and the alert must end up
+                # under it either way, because a FIRING alert pointing at a resolved
+                # incident is the invariant this whole branch exists to hold (and is
+                # what the downstream run would be enqueued against).
+                sibling = self._find_open_incident(alert)
                 incident = alert.incident
-                # ...but only when no OTHER incident already holds this group.
-                # _find_open_incident ignores RESOLVED/CLOSED rows, so while this
-                # incident was resolved a sibling alert with the same
-                # (name, instance) may have opened its own. Reopening then leaves
-                # TWO open incidents for one situation — two downstream runs, two
-                # notifications — which is exactly what (name, instance) grouping
-                # exists to prevent. Leaving it resolved in that case is no worse
-                # than the behaviour before reopen existed, and the open sibling is
-                # the one an operator should be looking at.
-                if incident is not None and self._find_open_incident(alert) is not None:
-                    incident = None
-                if incident is not None and incident.status in (
+                if sibling is not None:
+                    self._attach_to_incident(alert, sibling, result)
+                elif incident is not None and incident.status in (
                     IncidentStatus.RESOLVED,
                     IncidentStatus.CLOSED,
                 ):
@@ -455,19 +454,7 @@ class AlertOrchestrator:
         existing_incident = self._find_open_incident(alert)
 
         if existing_incident:
-            # Attach to existing incident
-            alert.incident = existing_incident
-            alert.save(update_fields=["incident"])
-
-            # Update incident severity if this alert is more severe
-            if self._severity_rank(alert.severity) > self._severity_rank(
-                existing_incident.severity
-            ):
-                existing_incident.severity = alert.severity
-                existing_incident.save(update_fields=["severity", "updated_at"])
-
-            result.incidents_updated += 1
-            return existing_incident
+            return self._attach_to_incident(alert, existing_incident, result)
 
         # Create new incident
         incident = Incident.objects.create(
@@ -482,6 +469,27 @@ class AlertOrchestrator:
         result.incidents_created += 1
         logger.info(f"Created incident: {incident.title}")
 
+        return incident
+
+    def _attach_to_incident(
+        self,
+        alert: Alert,
+        incident: Incident,
+        result: ProcessingResult,
+    ) -> Incident:
+        """Point the alert at this incident, escalating its severity if needed.
+
+        Shared by the create path and the refire path so "join an existing
+        incident" means one thing, severity escalation included.
+        """
+        alert.incident = incident
+        alert.save(update_fields=["incident"])
+
+        if self._severity_rank(alert.severity) > self._severity_rank(incident.severity):
+            incident.severity = alert.severity
+            incident.save(update_fields=["severity", "updated_at"])
+
+        result.incidents_updated += 1
         return incident
 
     def _find_open_incident(self, alert) -> "Incident | None":
