@@ -383,6 +383,17 @@ class AlertOrchestrator:
                 # sits under a RESOLVED incident: notify reports an incident marked
                 # resolved, and the admin contradicts itself.
                 incident = alert.incident
+                # ...but only when no OTHER incident already holds this group.
+                # _find_open_incident ignores RESOLVED/CLOSED rows, so while this
+                # incident was resolved a sibling alert with the same
+                # (name, instance) may have opened its own. Reopening then leaves
+                # TWO open incidents for one situation — two downstream runs, two
+                # notifications — which is exactly what (name, instance) grouping
+                # exists to prevent. Leaving it resolved in that case is no worse
+                # than the behaviour before reopen existed, and the open sibling is
+                # the one an operator should be looking at.
+                if incident is not None and self._find_open_incident(alert) is not None:
+                    incident = None
                 if incident is not None and incident.status in (
                     IncidentStatus.RESOLVED,
                     IncidentStatus.CLOSED,

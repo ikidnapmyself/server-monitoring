@@ -151,6 +151,12 @@ All four are on checker traffic only, and none is silent:
 4. Auto-resolution sets the summary "All alerts resolved automatically" and no longer resolves an
    alert-less incident.
 
+5. **Resolving a checker alert now rewrites `severity`.** The deleted `_resolve_alert` saved only
+   `status`/`ended_at`, so a resolved checker alert kept `severity=critical`; the unified path
+   drops it to `info` the way the webhook path always has. This is the delta with consequences:
+   `severity` is a routing fact (`facts_from_alert`) and a `subject_alert` ranking key, so a lane
+   matching `severity: critical` + `status: resolved` stops matching.
+
 And one change on the **webhook** path, from §2.1.1: a re-push of an already-resolved alert now
 writes nothing at all — no field update, no `updated` history row. Node traffic is what makes this
 worth doing; it is also the only behaviour this work changes outside the checker path.
@@ -194,7 +200,14 @@ coverage on changed code is enforced; and each task is one commit, individually 
   reachable by runs that failed before the fan-out deploy, and deleting it early means any such
   run silently loses its downstream work when retried.
 - **Grouping by `Alert.fingerprint`** (the source's own dedup key), `_find_open_incident`'s
-  unordered `.first()`, and incident severity never de-escalating. All pre-existing.
+  unordered `.first()`, and incident severity never de-escalating. All pre-existing. Reopen makes
+  the last one newly visible: an incident can come back OPEN at `warning` while the alert that
+  reopened it fired at `critical`, because escalation lives only in `_create_or_attach_incident`.
+- **A refire never creates an incident.** `_create_or_attach_incident` runs only from
+  `_create_alert`, so an alert that was first seen resolved (a node's healthy checker on its first
+  push, per §2.1.1) has `incident=None` forever — and `material_incident_ids` drops incident-less
+  alerts, so its eventual refire produces no downstream run at all. Pre-existing and verified
+  identical on `main`; named here because §2.2's guard is where a reader would expect it handled.
 
 ---
 

@@ -1034,6 +1034,26 @@ class RefireReopensIncidentTests(TestCase):
 
         self.assertEqual(self._incident().status, IncidentStatus.ACKNOWLEDGED)
 
+    def test_a_sibling_open_incident_blocks_the_reopen(self):
+        """One situation, one open incident.
+
+        While this alert's incident was resolved, a sibling with the same
+        (name, instance) opened its own. Reopening both would mean two downstream
+        runs and two notifications for one situation.
+        """
+        from apps.alerts.models import Incident
+
+        self.orchestrator.process_webhook(self.payload)
+        self.orchestrator.process_webhook(self._resolved())
+        sibling = copy.deepcopy(self.payload)
+        sibling["alerts"][0]["fingerprint"] = "flap-2"
+        self.orchestrator.process_webhook(sibling)
+
+        self.orchestrator.process_webhook(self.payload)
+
+        statuses = sorted(Incident.objects.values_list("status", flat=True))
+        self.assertEqual(statuses, [IncidentStatus.OPEN, IncidentStatus.RESOLVED])
+
     def test_an_alert_without_an_incident_does_not_raise(self):
         """--no-incidents runs have no incident to reopen."""
         orchestrator = AlertOrchestrator(auto_create_incidents=False)
