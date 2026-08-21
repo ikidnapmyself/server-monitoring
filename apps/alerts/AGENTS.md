@@ -20,7 +20,7 @@ Output contract (to orchestrator):
 
 - `apps/alerts/drivers/` — payload parsers (Alertmanager, Grafana, PagerDuty, etc.)
   - Drivers should implement `validate()` and `parse()`.
-- `apps/alerts/services.py` — business logic (`AlertOrchestrator`, `IncidentManager`)
+- `apps/alerts/services.py` — business logic (`AlertOrchestrator`, `IncidentManager`). `AlertOrchestrator` is **the** alert write path — see below.
 - `apps/alerts/models.py` — `Alert`, `Incident`, `AlertHistory`, `Node`. `Node` is the **agent registry**, keyed by `instance_id` and upserted on each accepted cluster push (`Node.upsert`); the hub is *not* represented as a node. Alert/incident grouping resolves the owning node from the `instance_id` label (see `incident_instance_key` / `resolve_node` in `services.py`); the hub's own checker-generated runs carry no `instance_id` and group by `hostname`.
 - `apps/alerts/timeline.py` — `build_incident_timeline(incident)`: a **pure** aggregator that merges `AlertHistory` + `StageExecution` + `PipelineRun` into one chronological list (with `trace_id`/`run_id`), rendered read-only + escaped as the "Merged chronological timeline" on the Incident admin. No models/queries with side effects.
 - `apps/alerts/reevaluation.py` — **hub-side per-node severity re-evaluation (ingest-time)**. Nodes report raw metrics + a default severity; the hub recomputes severity against per-node policy in `Node.config` and overrides it. Called at the top of `AlertOrchestrator._process_alert` (covers create + update), so nodes stay unchanged. Fail-open: any missing/invalid input (or exception) passes the alert through unchanged. Two checker-types wired: numeric-threshold override for the 7 numeric checkers (`_score_numeric` + `PRIMARY_METRIC`) and a `listening_ports` **allowlist** evaluator (`_score_allowlist`, re-flagging the reported `listening` inventory against `Node.config["listening_ports"]["allowlist"]`; empty allowlist → exposed-only). Extend per checker-type by adding a pure scorer to `SCORERS` + an evaluator to `REEVALUATORS`. Overrides are audited in `annotations["severity_reevaluated"]`. The pure scorers in `SCORERS` are the shared, testable units reused by the config-change re-eval below. See `docs/plans/2026-08-07-hub-node-severity-reeval-design.md` and `docs/plans/2026-08-09-listening-ports-allowlist-reeval-design.md`.
@@ -28,16 +28,18 @@ Output contract (to orchestrator):
 - `apps/alerts/materiality.py` — **the fan-out change gate**: one predicate,
   `is_material_change(...)`, answering "does this write deserve its own downstream
   pipeline run?" True when severity changed either way, status transitioned
-  (firing↔resolved), or the context key moved. **Both ingest paths must call it** —
-  `AlertOrchestrator._update_alert` and `CheckAlertBridge._update_alert`/`_resolve_alert`
-  — and both record the result on `ProcessingResult.material_alerts` (the bridge
-  aggregates onto `CheckAlertResult.material_alerts`). The comparison happens *inside*
+  (firing↔resolved), or the context key moved. Called from exactly one place —
+  `AlertOrchestrator._update_alert`, the only update path there is — which records the
+  result on `ProcessingResult.material_alerts` (the bridge aggregates onto
+  `CheckAlertResult.material_alerts`). The comparison happens *inside*
   the write path, because by the time a caller sees the result the old severity, status
   and key have already been overwritten. A new alert is always material. Deliberately
   excluded: `description` — for checker alerts it is `CheckResult.message`, which
   carries live metric values and would make every push look material. Deliberately NOT
   built on `AlertHistory` events: the two paths write different events, so a
-  history-based gate would behave differently by origin.
+  history-based gate would behave differently by origin (that reasoning predates the
+  write-path unification and still holds — origin is a property of the caller, not of
+  the write).
 - `apps/alerts/context_keys.py` — **hub-side per-checker "what situation is this?" keys**,
   stored on `Alert.context_key` and compared by the gate. A registry keyed by the
   `checker` label (`KEY_BUILDERS`), mirroring `reevaluation.SCORERS` — *not* a
@@ -53,6 +55,49 @@ Output contract (to orchestrator):
 - `apps/alerts/metrics.py` — `parse_metrics(annotations)`, shared by `reevaluation` and
   `context_keys` so "read a node's metrics back" means one thing.
 - `apps/alerts/urls.py` — URL routing for this app
+
+## The alert write path (one, not two)
+
+`AlertOrchestrator._process_alert` → `_create_alert` / `_update_alert` is the **only** code
+that writes `Alert` rows. Both ingest sources reach it: webhooks via
+`AlertOrchestrator.process_webhook`, and checker results (the hub's own cron *and* every node
+push, i.e. all node traffic) via `CheckAlertBridge`.
+
+`CheckAlertBridge` (`apps/alerts/check_integration.py`):
+- **Does:** convert a `CheckResult` into a `ParsedAlert` (`check_result_to_parsed_alert`) —
+  its actual job — then delegate to the orchestrator it already holds fully configured
+  (`auto_create_incidents`, `auto_resolve_incidents`, `trace_id`), and aggregate
+  `ProcessingResult` counters/lists onto `CheckAlertResult`.
+- **Does not:** write alerts, write `AlertHistory`, or touch incidents.
+- **Holds exactly one checker-specific rule**, in `_process_alert`: an OK result for a
+  fingerprint the hub has never alerted on returns `None` and creates nothing. The
+  orchestrator creates a row for any unknown fingerprint whatever its status, so without
+  this guard every healthy checker would open a resolved `Alert` row on its first run.
+
+**So: new alert-write behaviour goes in `AlertOrchestrator`, and reaches both paths from
+there.** Do not add a create/update/resolve method to the bridge. The bridge used to carry
+its own set and they drifted three separate times — a permanently empty
+`CheckAlertResult.alerts`, materiality recorded on two of three bridge methods, and a refire
+that never restored `status`/`ended_at`, so the `resolved-all-clear` lane delivered an
+all-clear for a CRITICAL problem. Branch coverage caught none of them: both paths executed,
+one just had no effect. See `docs/plans/2026-08-21-alert-write-path-unification-design.md`.
+
+**The quiet re-push short-circuit.** `_process_alert` returns early, writing *nothing*, when
+an already-`RESOLVED` alert is re-pushed as resolved. This is the one place the pipeline
+deliberately records no evidence of an ingest, so know it is there before you go looking for
+a missing `AlertHistory` row. Nodes push OK results every tick; running those through
+`_update_alert` wrote an `updated` history row each time (~30k/day across a healthy fleet)
+saying nothing, and never material, so no downstream run was ever involved. The *first*
+resolve is a status transition and does not come through here.
+
+**Refire reopens the incident.** In `_update_alert`, a `resolved → firing` transition calls
+`Incident.reopen()` (a lifecycle method alongside `resolve()`/`close()`: status back to OPEN,
+`resolved_at`/`closed_at` cleared, `summary` kept) when the alert's incident is RESOLVED or
+CLOSED. CLOSED reopens too — one rule, nothing to remember. `Alert` rows are reused per
+fingerprint and `_find_open_incident` only considers OPEN/ACKNOWLEDGED, so without this the
+alert stays bolted to a resolved incident forever and notify reports an incident marked
+resolved for something actively firing. The accompanying `refired` `AlertHistory` event is
+what surfaces the reopen on the merged incident timeline.
 
 ## Boundary rules
 
