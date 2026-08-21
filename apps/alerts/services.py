@@ -263,6 +263,15 @@ class AlertOrchestrator:
             source=source,
         ).first()
 
+        if existing and existing.status == AlertStatus.RESOLVED and parsed.status == "resolved":
+            # Nothing to record: a re-push of something already quiet. Nodes push OK
+            # results every tick (push_to_hub.py:112), and running those through
+            # _update_alert wrote an `updated` AlertHistory row each time — ~30k rows
+            # a day across a healthy fleet, none of which says anything. Never
+            # material either, so no downstream run was ever involved. The FIRST
+            # resolve is a status transition and does not come through here.
+            return existing
+
         if existing:
             return self._update_alert(existing, parsed, result)
         else:

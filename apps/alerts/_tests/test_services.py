@@ -886,3 +886,83 @@ class DiffAlertTests(TestCase):
             self.alert, self._parsed(name="B", raw_payload={"huge": "churn"})
         )
         self.assertEqual(diff, {})
+
+
+class QuietRepushTests(TestCase):
+    """An OK re-push of something already quiet must write nothing at all.
+
+    Nodes push resolved results every tick (push_to_hub.py:112). Running those
+    through _update_alert wrote an `updated` AlertHistory row each time — on the
+    order of 30k rows a day across a healthy fleet, none of which says anything.
+    """
+
+    def setUp(self):
+        self.orchestrator = AlertOrchestrator()
+        self.payload = {
+            "version": "4",
+            "groupKey": "test",
+            "receiver": "webhook",
+            "status": "firing",
+            "alerts": [
+                {
+                    "status": "firing",
+                    "labels": {"alertname": "TestAlert", "severity": "warning"},
+                    "annotations": {"description": "hot"},
+                    "startsAt": "2024-01-08T10:00:00Z",
+                    "fingerprint": "quiet-1",
+                }
+            ],
+            "groupLabels": {},
+            "commonLabels": {},
+        }
+
+    def _resolved(self, description="cool"):
+        payload = copy.deepcopy(self.payload)
+        payload["alerts"][0]["status"] = "resolved"
+        payload["alerts"][0]["annotations"]["description"] = description
+        return payload
+
+    def test_a_repeated_resolved_push_writes_no_history(self):
+        self.orchestrator.process_webhook(self.payload)
+        self.orchestrator.process_webhook(self._resolved())
+        before = AlertHistory.objects.count()
+
+        self.orchestrator.process_webhook(self._resolved(description="cool again"))
+
+        self.assertEqual(AlertHistory.objects.count(), before)
+
+    def test_a_repeated_resolved_push_does_not_touch_the_row(self):
+        self.orchestrator.process_webhook(self.payload)
+        self.orchestrator.process_webhook(self._resolved())
+        alert = Alert.objects.get(fingerprint="quiet-1")
+        stamp = alert.updated_at
+
+        result = self.orchestrator.process_webhook(self._resolved(description="cool again"))
+
+        alert.refresh_from_db()
+        self.assertEqual(alert.updated_at, stamp)
+        self.assertEqual(alert.description, "cool")  # not overwritten
+        self.assertEqual(result.alerts_updated, 0)
+        self.assertEqual(result.material_alerts, [])
+
+    def test_the_first_resolve_still_records_normally(self):
+        """The short-circuit must not swallow the transition itself."""
+        self.orchestrator.process_webhook(self.payload)
+
+        result = self.orchestrator.process_webhook(self._resolved())
+
+        self.assertEqual(result.alerts_resolved, 1)
+        self.assertTrue(AlertHistory.objects.filter(event="resolved").exists())
+        self.assertEqual(len(result.material_alerts), 1)
+
+    def test_a_refire_after_the_quiet_period_still_fires(self):
+        """A firing push is never short-circuited."""
+        self.orchestrator.process_webhook(self.payload)
+        self.orchestrator.process_webhook(self._resolved())
+        self.orchestrator.process_webhook(self._resolved())
+
+        result = self.orchestrator.process_webhook(self.payload)
+
+        alert = Alert.objects.get(fingerprint="quiet-1")
+        self.assertEqual(alert.status, AlertStatus.FIRING)
+        self.assertEqual(len(result.material_alerts), 1)
