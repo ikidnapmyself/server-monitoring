@@ -966,3 +966,81 @@ class QuietRepushTests(TestCase):
         alert = Alert.objects.get(fingerprint="quiet-1")
         self.assertEqual(alert.status, AlertStatus.FIRING)
         self.assertEqual(len(result.material_alerts), 1)
+
+
+class RefireReopensIncidentTests(TestCase):
+    """A firing alert must never sit under a non-open incident.
+
+    The alert's status is a ROUTING FACT and the incident is what notify reports,
+    so the two disagreeing is not cosmetic.
+    """
+
+    def setUp(self):
+        self.orchestrator = AlertOrchestrator()
+        self.payload = {
+            "version": "4",
+            "groupKey": "t",
+            "receiver": "webhook",
+            "status": "firing",
+            "alerts": [
+                {
+                    "status": "firing",
+                    "labels": {"alertname": "Flapper", "severity": "critical"},
+                    "annotations": {"description": "d"},
+                    "startsAt": "2024-01-08T10:00:00Z",
+                    "fingerprint": "flap-1",
+                }
+            ],
+            "groupLabels": {},
+            "commonLabels": {},
+        }
+
+    def _resolved(self):
+        payload = copy.deepcopy(self.payload)
+        payload["alerts"][0]["status"] = "resolved"
+        return payload
+
+    def _incident(self):
+        return Alert.objects.get(fingerprint="flap-1").incident
+
+    def test_a_refire_reopens_a_resolved_incident(self):
+        self.orchestrator.process_webhook(self.payload)
+        self.orchestrator.process_webhook(self._resolved())
+        self.assertEqual(self._incident().status, IncidentStatus.RESOLVED)
+
+        self.orchestrator.process_webhook(self.payload)
+
+        incident = self._incident()
+        self.assertEqual(incident.status, IncidentStatus.OPEN)
+        self.assertIsNone(incident.resolved_at)
+
+    def test_a_refire_reopens_a_closed_incident(self):
+        self.orchestrator.process_webhook(self.payload)
+        self.orchestrator.process_webhook(self._resolved())
+        incident = self._incident()
+        incident.close()
+
+        self.orchestrator.process_webhook(self.payload)
+
+        self.assertEqual(self._incident().status, IncidentStatus.OPEN)
+
+    def test_an_acknowledged_incident_is_left_alone(self):
+        """ACKNOWLEDGED is not an end state — reopening would erase operator intent."""
+        self.orchestrator.process_webhook(self.payload)
+        incident = self._incident()
+        incident.acknowledge()
+
+        self.orchestrator.process_webhook(self.payload)
+
+        self.assertEqual(self._incident().status, IncidentStatus.ACKNOWLEDGED)
+
+    def test_an_alert_without_an_incident_does_not_raise(self):
+        """--no-incidents runs have no incident to reopen."""
+        orchestrator = AlertOrchestrator(auto_create_incidents=False)
+        orchestrator.process_webhook(self.payload)
+        orchestrator.process_webhook(self._resolved())
+
+        result = orchestrator.process_webhook(self.payload)
+
+        self.assertFalse(result.has_errors)
+        self.assertIsNone(self._incident())

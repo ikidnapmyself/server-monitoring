@@ -376,6 +376,18 @@ class AlertOrchestrator:
             else:
                 alert.ended_at = None
                 event = "refired"
+                # The incident must follow the alert. An alert row is reused per
+                # fingerprint, so its FK still points at the incident that was
+                # resolved — and _find_open_incident only considers OPEN/ACKNOWLEDGED,
+                # so nothing else would ever revisit it. Left alone, a FIRING alert
+                # sits under a RESOLVED incident: notify reports an incident marked
+                # resolved, and the admin contradicts itself.
+                incident = alert.incident
+                if incident is not None and incident.status in (
+                    IncidentStatus.RESOLVED,
+                    IncidentStatus.CLOSED,
+                ):
+                    incident.reopen()
 
             AlertHistory.objects.create(
                 alert=alert,

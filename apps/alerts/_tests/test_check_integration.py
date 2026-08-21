@@ -773,6 +773,18 @@ class CheckAlertBridgeRefireTests(TestCase):
 
         assert len(result.material_alerts) == 1
 
+    def test_a_checker_refire_reopens_the_incident_too(self):
+        """Written nowhere in the bridge: it comes free from the shared write path."""
+        self.bridge.process_check_result(self._result(CheckStatus.CRITICAL))
+        self.bridge.process_check_result(self._result(CheckStatus.OK))
+        incident = Alert.objects.get().incident
+        self.assertEqual(incident.status, IncidentStatus.RESOLVED)
+
+        self.bridge.process_check_result(self._result(CheckStatus.CRITICAL))
+
+        incident.refresh_from_db()
+        self.assertEqual(incident.status, IncidentStatus.OPEN)
+
     def test_an_ordinary_firing_update_is_not_recorded_as_a_refire(self):
         """No spurious event when the alert was already firing."""
         self.bridge.process_check_result(self._result(CheckStatus.CRITICAL))
