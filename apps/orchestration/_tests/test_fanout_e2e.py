@@ -251,3 +251,22 @@ class FanOutAcceptanceTests(TestCase):
         assert by_run[result.run_id] == [PipelineStage.INGEST]
         for child in children:
             assert by_run[child.run_id] == [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+
+    # 8 ---------------------------------------------------------------------
+    def test_a_refire_notifies_as_firing_not_as_an_all_clear(self):
+        """The original bug, end to end.
+
+        A refired alert used to stay RESOLVED in the database, so the downstream run
+        routed on `status: resolved`, took the seeded resolved-all-clear lane, and
+        delivered an all-clear for a CRITICAL problem.
+        """
+        self.push([checker_alert("cpu")])
+        self.push([checker_alert("cpu", severity="info", status="resolved")])
+
+        result = self.push([checker_alert("cpu")])
+
+        child = self.children(result).get()
+        assert self.stages_of(child) == [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+        incident = Incident.objects.get(pk=child.incident_id)
+        assert incident.pipeline.name == "e2e-firing"
+        assert incident.status == "open"
