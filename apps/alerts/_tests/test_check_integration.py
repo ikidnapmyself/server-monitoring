@@ -579,7 +579,12 @@ class CheckAlertBridgeTests(TestCase):
         self.assertEqual(incident.status, IncidentStatus.OPEN)
 
     def test_update_alert_with_changed_severity_creates_history(self):
-        """Test that updating an alert with different severity creates history."""
+        """A severity change is recorded on the checker path.
+
+        The unified write path names the event `updated` and carries the change in
+        the `{"changed": ...}` diff, rather than the bridge's old
+        `severity_changed` event.
+        """
         from apps.alerts.models import AlertHistory
 
         # Create a warning alert
@@ -600,8 +605,9 @@ class CheckAlertBridgeTests(TestCase):
         )
         self.bridge.process_check_result(critical)
 
-        severity_changes = AlertHistory.objects.filter(event="severity_changed").count()
-        self.assertEqual(severity_changes, 1)
+        updates = AlertHistory.objects.filter(event="updated")
+        self.assertEqual(updates.count(), 1)
+        self.assertEqual(updates.get().details["changed"]["severity"], ["warning", "critical"])
 
     def test_existing_incident_attach_without_severity_upgrade(self):
         """Test attaching to existing incident without upgrading severity."""
@@ -776,3 +782,31 @@ class CheckAlertBridgeRefireTests(TestCase):
         alert = Alert.objects.get()
         assert alert.status == AlertStatus.FIRING
         assert alert.ended_at is None
+
+
+class CheckerSpecificGuardTests(TestCase):
+    """The one rule delegation must NOT lose.
+
+    An OK result for a fingerprint the hub has never alerted on is not news. The
+    orchestrator creates a row for any unknown fingerprint whatever its status, so
+    without this guard every healthy checker would open a resolved Alert row on its
+    first run.
+    """
+
+    def setUp(self):
+        self.bridge = CheckAlertBridge(auto_create_incidents=True, hostname="test-server")
+
+    def test_an_ok_result_for_an_unknown_fingerprint_creates_nothing(self):
+        result = self.bridge.process_check_result(
+            CheckResult(
+                status=CheckStatus.OK,
+                message="fine",
+                metrics={"cpu_percent": 5.0},
+                checker_name="cpu",
+            )
+        )
+
+        self.assertEqual(Alert.objects.count(), 0)
+        self.assertEqual(Incident.objects.count(), 0)
+        self.assertEqual(result.alerts_created, 0)
+        self.assertEqual(result.material_alerts, [])

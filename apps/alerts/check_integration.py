@@ -29,18 +29,12 @@ from typing import Any
 from django.db import transaction
 from django.utils import timezone
 
-from apps.alerts.context_keys import context_key_for
 from apps.alerts.drivers.base import ParsedAlert, ParsedPayload
-from apps.alerts.materiality import is_material_change
 from apps.alerts.models import (
     Alert,
-    AlertHistory,
     AlertSeverity,
-    AlertStatus,
-    Incident,
-    IncidentStatus,
 )
-from apps.alerts.services import AlertOrchestrator, ProcessingResult, resolve_node
+from apps.alerts.services import AlertOrchestrator, ProcessingResult
 from apps.checkers.checkers import (
     CHECKER_REGISTRY,
     CheckResult,
@@ -227,7 +221,7 @@ class CheckAlertBridge:
 
             # Handle incident auto-resolution
             if self.orchestrator.auto_resolve_incidents:
-                self._check_incident_resolution()
+                self.orchestrator._check_incident_resolution()
 
         except Exception as e:
             logger.exception("Error processing check result")
@@ -241,201 +235,26 @@ class CheckAlertBridge:
         source: str,
         result: ProcessingResult,
     ) -> Alert | None:
-        """Process a single parsed alert - create, update, or resolve."""
-        # Look for existing alert with same fingerprint
-        existing_alert = Alert.objects.filter(
-            fingerprint=parsed.fingerprint,
-            source=source,
-        ).first()
+        """Delegate to the one alert write path, keeping one checker-specific rule.
 
-        if existing_alert:
-            if parsed.status == "resolved" and existing_alert.status == AlertStatus.FIRING:
-                return self._resolve_alert(existing_alert, parsed, result)
-            elif parsed.status == "firing":
-                return self._update_alert(existing_alert, parsed, result)
-            else:
-                # Already resolved, no change needed
-                return existing_alert
-        else:
-            if parsed.status == "firing":
-                return self._create_alert(parsed, source, result)
-            else:
-                # Resolved alert for something we don't have - skip
-                return None
+        This bridge used to carry its own create/update/resolve implementations. They
+        drifted from AlertOrchestrator's three separate times — an empty
+        ``CheckAlertResult.alerts``, missing materiality on resolve, and a refire that
+        never reopened the row and so notified an all-clear for a critical problem.
+        Converting a CheckResult into a ParsedAlert is this class's actual job; writing
+        alerts is not. See docs/plans/2026-08-21-alert-write-path-unification-design.md.
 
-    def _create_alert(
-        self,
-        parsed: ParsedAlert,
-        source: str,
-        result: ProcessingResult,
-    ) -> Alert:
-        """Create a new alert from parsed data.
-
-        trace_id/node are stamped at creation only (origin semantics); a later
-        refire updates the alert via _update_alert but keeps its original stamps.
+        The surviving rule: an OK result for a fingerprint the hub has never alerted on
+        is not news. The orchestrator creates a row for any unknown fingerprint whatever
+        its status, so without this every healthy checker would open a resolved Alert
+        row on its first run.
         """
-        alert = Alert.objects.create(
-            fingerprint=parsed.fingerprint,
-            source=source,
-            name=parsed.name,
-            severity=parsed.severity,
-            status=AlertStatus.FIRING,
-            description=parsed.description,
-            labels=parsed.labels,
-            annotations=parsed.annotations,
-            raw_payload=parsed.raw_payload,
-            started_at=parsed.started_at,
-            trace_id=self.trace_id,
-            node=resolve_node(parsed.labels),
-            context_key=context_key_for(
-                (parsed.labels or {}).get("checker", ""), parsed.annotations
-            ),
-        )
-
-        AlertHistory.objects.create(
-            alert=alert,
-            event="created",
-            new_status=AlertStatus.FIRING,
-            details={"source": source, "checker": parsed.labels.get("checker", "")},
-        )
-
-        result.alerts_created += 1
-        logger.info(f"Created alert from check: {alert.name} ({alert.fingerprint})")
-
-        # Auto-create incident if enabled and this is critical/warning. Delegate to
-        # the orchestrator's unified (name, instance)-scoped grouping — no separate
-        # checker grouping path.
-        if self.orchestrator.auto_create_incidents and parsed.severity in (
-            AlertSeverity.CRITICAL,
-            AlertSeverity.WARNING,
+        if (
+            parsed.status != "firing"
+            and not Alert.objects.filter(fingerprint=parsed.fingerprint, source=source).exists()
         ):
-            self.orchestrator._create_or_attach_incident(alert, result)
-
-        result.alerts.append(alert)
-        # A brand-new alert is always material: there is no prior state to compare.
-        result.material_alerts.append(alert)
-        return alert
-
-    def _update_alert(
-        self,
-        alert: Alert,
-        parsed: ParsedAlert,
-        result: ProcessingResult,
-    ) -> Alert:
-        """Update an existing alert with new data."""
-        old_severity = alert.severity
-        old_status = alert.status
-        old_key = alert.context_key
-        new_key = context_key_for((parsed.labels or {}).get("checker", ""), parsed.annotations)
-
-        alert.severity = parsed.severity
-        alert.description = parsed.description
-        alert.annotations = parsed.annotations
-        alert.raw_payload = parsed.raw_payload
-        alert.context_key = new_key
-        update_fields = [
-            "severity",
-            "description",
-            "annotations",
-            "raw_payload",
-            "context_key",
-            "updated_at",
-        ]
-
-        # A re-push of something that had recovered arrives here, not in
-        # _resolve_alert: _process_alert only special-cases firing -> resolved, so
-        # resolved -> firing lands in this method. Reopening is not cosmetic. The
-        # row's status is a ROUTING FACT (facts_from_alert), so an alert left
-        # RESOLVED while its host is on fire matches the resolved lane and the
-        # downstream run delivers an all-clear for a critical problem. Mirrors
-        # AlertOrchestrator._update_alert, down to the `refired` event name, so one
-        # incident reads the same however its alerts arrived.
-        refired = alert.status == AlertStatus.RESOLVED and parsed.status == "firing"
-        if refired:
-            alert.status = AlertStatus.FIRING
-            alert.ended_at = None
-            update_fields += ["status", "ended_at"]
-
-        alert.save(update_fields=update_fields)
-
-        if refired:
-            AlertHistory.objects.create(
-                alert=alert,
-                event="refired",
-                old_status=AlertStatus.RESOLVED,
-                new_status=AlertStatus.FIRING,
-                details={"checker": (parsed.labels or {}).get("checker", "")},
-            )
-
-        if old_severity != parsed.severity:
-            AlertHistory.objects.create(
-                alert=alert,
-                event="severity_changed",
-                old_status=alert.status,
-                new_status=alert.status,
-                details={
-                    "old_severity": old_severity,
-                    "new_severity": parsed.severity,
-                },
-            )
-
-        result.alerts_updated += 1
-        logger.info(f"Updated alert from check: {alert.name}")
-
-        result.alerts.append(alert)
-        if is_material_change(
-            old_severity=old_severity,
-            new_severity=parsed.severity,
-            old_status=old_status,
-            new_status=parsed.status,
-            old_key=old_key,
-            new_key=new_key,
-        ):
-            result.material_alerts.append(alert)
-        return alert
-
-    def _resolve_alert(
-        self,
-        alert: Alert,
-        parsed: ParsedAlert,
-        result: ProcessingResult,
-    ) -> Alert:
-        """Resolve an existing alert."""
-        alert.status = AlertStatus.RESOLVED
-        alert.ended_at = parsed.ended_at or timezone.now()
-        alert.save(update_fields=["status", "ended_at", "updated_at"])
-
-        AlertHistory.objects.create(
-            alert=alert,
-            event="resolved",
-            old_status=AlertStatus.FIRING,
-            new_status=AlertStatus.RESOLVED,
-            details={"resolved_by": "check"},
-        )
-
-        result.alerts_resolved += 1
-        logger.info(f"Resolved alert from check: {alert.name}")
-
-        result.alerts.append(alert)
-        # This method is only reached on a FIRING -> RESOLVED transition, which the
-        # design counts as material: the all-clear is what the resolved lane notifies on.
-        result.material_alerts.append(alert)
-        return alert
-
-    def _check_incident_resolution(self):
-        """Check if any incidents should be auto-resolved."""
-        # Find open incidents where all alerts are resolved
-        open_incidents = Incident.objects.filter(
-            status__in=[IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED],
-        ).prefetch_related("alerts")
-
-        for incident in open_incidents:
-            firing_alerts = incident.alerts.filter(status=AlertStatus.FIRING).count()
-            if firing_alerts == 0:
-                incident.status = IncidentStatus.RESOLVED
-                incident.resolved_at = timezone.now()
-                incident.save(update_fields=["status", "resolved_at", "updated_at"])
-                logger.info(f"Auto-resolved incident: {incident.title}")
+            return None
+        return self.orchestrator._process_alert(parsed, source, result)
 
     def run_check_and_alert(
         self,
