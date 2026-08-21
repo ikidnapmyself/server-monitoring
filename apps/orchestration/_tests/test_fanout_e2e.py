@@ -267,6 +267,22 @@ class FanOutAcceptanceTests(TestCase):
         assert "[CRITICAL]" in sent[-1].title
         assert "cpu" in sent[-1].title.lower()
 
+    def test_a_checker_first_seen_healthy_still_fans_out_when_it_breaks(self):
+        """The shape every node produces: OK first, CRITICAL later.
+
+        A node reports every checker every tick, so the hub sees `cpu` resolved on
+        push one and opens no incident for it. Fan-out routes on incident ids, so
+        the eventual CRITICAL used to produce no downstream run at all.
+        """
+        self.push([checker_alert("cpu", severity="info", status="resolved")])
+        assert Incident.objects.count() == 0
+
+        result = self.push([checker_alert("cpu")])
+
+        child = self.children(result).get()
+        assert child.incident_id == Incident.objects.get().id
+        assert self.stages_of(child) == [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+
     # 7 ---------------------------------------------------------------------
     def test_children_share_the_parents_trace_and_show_up_in_manage_trace(self):
         """One push is still one story: correlation is free, with no parent FK."""

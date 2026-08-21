@@ -1077,6 +1077,42 @@ class RefireReopensIncidentTests(TestCase):
         joined = Incident.objects.get(pk=self._incident().pk)
         self.assertEqual(joined.severity, "critical")
 
+    def test_a_refire_opens_an_incident_when_the_alert_never_had_one(self):
+        """An alert first seen RESOLVED has no incident, and a refire must give it one.
+
+        A node reports every checker every tick, so a healthy one is first seen
+        resolved and _create_alert (which only attaches an incident to a firing
+        alert) leaves incident=None. Fan-out routes on incident ids — routing.py's
+        material_incident_ids drops incident-less alerts — so without this the
+        checker's eventual CRITICAL produced no downstream run at all: no lane, no
+        analysis, no message.
+        """
+        from apps.alerts.models import Incident
+
+        self.orchestrator.process_webhook(self._resolved())
+        alert = Alert.objects.get(fingerprint="flap-1")
+        self.assertIsNone(alert.incident)
+
+        result = self.orchestrator.process_webhook(self.payload)
+
+        alert.refresh_from_db()
+        self.assertIsNotNone(alert.incident)
+        self.assertEqual(alert.incident.status, IncidentStatus.OPEN)
+        self.assertEqual(alert.incident.severity, "critical")
+        self.assertEqual(len(result.material_alerts), 1)
+        self.assertEqual(Incident.objects.count(), 1)
+
+    def test_no_incident_is_opened_when_auto_create_is_off(self):
+        """--no-incidents means what it says, on the refire path too."""
+        from apps.alerts.models import Incident
+
+        orchestrator = AlertOrchestrator(auto_create_incidents=False)
+        orchestrator.process_webhook(self._resolved())
+
+        orchestrator.process_webhook(self.payload)
+
+        self.assertEqual(Incident.objects.count(), 0)
+
     def test_an_alert_without_an_incident_does_not_raise(self):
         """--no-incidents runs have no incident to reopen."""
         orchestrator = AlertOrchestrator(auto_create_incidents=False)

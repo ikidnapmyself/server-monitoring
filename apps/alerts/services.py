@@ -406,6 +406,15 @@ class AlertOrchestrator:
                     IncidentStatus.CLOSED,
                 ):
                     incident.reopen()
+                elif incident is None and self.auto_create_incidents:
+                    # An alert first seen RESOLVED never got an incident:
+                    # _create_alert only attaches one to a firing alert, and a node
+                    # reports every checker every tick, so a healthy one is first
+                    # seen resolved. Fan-out routes on incident ids
+                    # (routing.material_incident_ids drops incident-less alerts), so
+                    # without this the checker's eventual CRITICAL produced no
+                    # downstream run at all — no lane, no analysis, no message.
+                    self._create_or_attach_incident(alert, result)
 
             AlertHistory.objects.create(
                 alert=alert,
