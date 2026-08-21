@@ -66,13 +66,15 @@ push, i.e. all node traffic) via `CheckAlertBridge`.
 `CheckAlertBridge` (`apps/alerts/check_integration.py`):
 - **Does:** convert a `CheckResult` into a `ParsedAlert` (`check_result_to_parsed_alert`) —
   its actual job — then delegate to the orchestrator it already holds fully configured
-  (`auto_create_incidents`, `auto_resolve_incidents`, `trace_id`), and aggregate
-  `ProcessingResult` counters/lists onto `CheckAlertResult`.
-- **Does not:** write alerts, write `AlertHistory`, or touch incidents.
-- **Holds exactly one checker-specific rule**, in `_process_alert`: an OK result for a
-  fingerprint the hub has never alerted on returns `None` and creates nothing. The
-  orchestrator creates a row for any unknown fingerprint whatever its status, so without
-  this guard every healthy checker would open a resolved `Alert` row on its first run.
+  (`auto_create_incidents`, `auto_resolve_incidents`, `trace_id`, `create_from_resolved`),
+  and aggregate `ProcessingResult` counters/lists onto `CheckAlertResult`.
+- **Does not:** write alerts, write `AlertHistory`, touch incidents, or hold any write
+  policy of its own. It configures the orchestrator; it does not second-guess it.
+- The one checker-specific *policy* is `create_from_resolved=False`, a constructor flag on
+  the orchestrator alongside its siblings: a first sighting that is already resolved opens
+  no row. Checkers report every checker every tick, so a healthy one would otherwise open a
+  resolved `Alert` row on its first run. Webhook traffic keeps the default `True`, where a
+  resolved notification for an unseen alert is still a record.
 
 **So: new alert-write behaviour goes in `AlertOrchestrator`, and reaches both paths from
 there.** Do not add a create/update/resolve method to the bridge. The bridge used to carry

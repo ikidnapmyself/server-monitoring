@@ -113,6 +113,9 @@ class CheckAlertBridge:
             auto_create_incidents=auto_create_incidents,
             auto_resolve_incidents=auto_resolve_incidents,
             trace_id=trace_id,
+            # Checkers report every checker every tick; a healthy one has nothing
+            # to record until it first fires.
+            create_from_resolved=False,
         )
         self.hostname = hostname or socket.gethostname()
         self.trace_id = trace_id
@@ -217,7 +220,7 @@ class CheckAlertBridge:
         try:
             with transaction.atomic():
                 for parsed_alert in parsed.alerts:
-                    self._process_alert(parsed_alert, parsed.source, result)
+                    self.orchestrator._process_alert(parsed_alert, parsed.source, result)
 
             # Handle incident auto-resolution
             if self.orchestrator.auto_resolve_incidents:
@@ -228,33 +231,6 @@ class CheckAlertBridge:
             result.errors.append(str(e))
 
         return result
-
-    def _process_alert(
-        self,
-        parsed: ParsedAlert,
-        source: str,
-        result: ProcessingResult,
-    ) -> Alert | None:
-        """Delegate to the one alert write path, keeping one checker-specific rule.
-
-        This bridge used to carry its own create/update/resolve implementations. They
-        drifted from AlertOrchestrator's three separate times — an empty
-        ``CheckAlertResult.alerts``, missing materiality on resolve, and a refire that
-        never reopened the row and so notified an all-clear for a critical problem.
-        Converting a CheckResult into a ParsedAlert is this class's actual job; writing
-        alerts is not. See docs/plans/2026-08-21-alert-write-path-unification-design.md.
-
-        The surviving rule: an OK result for a fingerprint the hub has never alerted on
-        is not news. The orchestrator creates a row for any unknown fingerprint whatever
-        its status, so without this every healthy checker would open a resolved Alert
-        row on its first run.
-        """
-        if (
-            parsed.status != "firing"
-            and not Alert.objects.filter(fingerprint=parsed.fingerprint, source=source).exists()
-        ):
-            return None
-        return self.orchestrator._process_alert(parsed, source, result)
 
     def run_check_and_alert(
         self,

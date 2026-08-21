@@ -303,7 +303,9 @@ class CheckAlertBridgeTests(TestCase):
             checker_name="cpu",
         )
 
-        with patch.object(self.bridge, "_process_alert", side_effect=Exception("db error")):
+        with patch.object(
+            self.bridge.orchestrator, "_process_alert", side_effect=Exception("db error")
+        ):
             processing_result = self.bridge.process_check_result(result)
 
         self.assertTrue(processing_result.has_errors)

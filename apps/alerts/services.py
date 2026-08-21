@@ -169,6 +169,7 @@ class AlertOrchestrator:
         auto_create_incidents: bool = True,
         auto_resolve_incidents: bool = True,
         trace_id: str = "",
+        create_from_resolved: bool = True,
     ):
         """
         Initialize the orchestrator.
@@ -177,10 +178,16 @@ class AlertOrchestrator:
             auto_create_incidents: Automatically create incidents for new alerts.
             auto_resolve_incidents: Automatically resolve incidents when all alerts resolve.
             trace_id: Correlation ID stamped on alerts created by this run.
+            create_from_resolved: Open a row for a first sighting that is already
+                resolved. True for webhook traffic, where a resolved notification for
+                an unseen alert is still a record. False for the checker bridge, whose
+                sources report every checker every tick — a healthy one would otherwise
+                open a resolved row on its first run.
         """
         self.auto_create_incidents = auto_create_incidents
         self.auto_resolve_incidents = auto_resolve_incidents
         self.trace_id = trace_id
+        self.create_from_resolved = create_from_resolved
 
     def process_webhook(
         self,
@@ -249,8 +256,8 @@ class AlertOrchestrator:
         parsed: ParsedAlert,
         source: str,
         result: ProcessingResult,
-    ) -> Alert:
-        """Process a single parsed alert."""
+    ) -> Alert | None:
+        """Process a single parsed alert. None when nothing was recorded."""
         from apps.alerts.reevaluation import reevaluate_severity
 
         # Recompute severity/status against the sending node's per-checker policy
@@ -274,8 +281,9 @@ class AlertOrchestrator:
 
         if existing:
             return self._update_alert(existing, parsed, result)
-        else:
-            return self._create_alert(parsed, source, result)
+        if parsed.status == AlertStatus.RESOLVED and not self.create_from_resolved:
+            return None
+        return self._create_alert(parsed, source, result)
 
     def _create_alert(
         self,
