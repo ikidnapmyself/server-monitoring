@@ -303,7 +303,9 @@ class CheckAlertBridgeTests(TestCase):
             checker_name="cpu",
         )
 
-        with patch.object(self.bridge, "_process_alert", side_effect=Exception("db error")):
+        with patch.object(
+            self.bridge.orchestrator, "_process_alert", side_effect=Exception("db error")
+        ):
             processing_result = self.bridge.process_check_result(result)
 
         self.assertTrue(processing_result.has_errors)
@@ -579,7 +581,12 @@ class CheckAlertBridgeTests(TestCase):
         self.assertEqual(incident.status, IncidentStatus.OPEN)
 
     def test_update_alert_with_changed_severity_creates_history(self):
-        """Test that updating an alert with different severity creates history."""
+        """A severity change is recorded on the checker path.
+
+        The unified write path names the event `updated` and carries the change in
+        the `{"changed": ...}` diff, rather than the bridge's old
+        `severity_changed` event.
+        """
         from apps.alerts.models import AlertHistory
 
         # Create a warning alert
@@ -600,8 +607,9 @@ class CheckAlertBridgeTests(TestCase):
         )
         self.bridge.process_check_result(critical)
 
-        severity_changes = AlertHistory.objects.filter(event="severity_changed").count()
-        self.assertEqual(severity_changes, 1)
+        updates = AlertHistory.objects.filter(event="updated")
+        self.assertEqual(updates.count(), 1)
+        self.assertEqual(updates.get().details["changed"]["severity"], ["warning", "critical"])
 
     def test_existing_incident_attach_without_severity_upgrade(self):
         """Test attaching to existing incident without upgrading severity."""
@@ -767,6 +775,18 @@ class CheckAlertBridgeRefireTests(TestCase):
 
         assert len(result.material_alerts) == 1
 
+    def test_a_checker_refire_reopens_the_incident_too(self):
+        """Written nowhere in the bridge: it comes free from the shared write path."""
+        self.bridge.process_check_result(self._result(CheckStatus.CRITICAL))
+        self.bridge.process_check_result(self._result(CheckStatus.OK))
+        incident = Alert.objects.get().incident
+        self.assertEqual(incident.status, IncidentStatus.RESOLVED)
+
+        self.bridge.process_check_result(self._result(CheckStatus.CRITICAL))
+
+        incident.refresh_from_db()
+        self.assertEqual(incident.status, IncidentStatus.OPEN)
+
     def test_an_ordinary_firing_update_is_not_recorded_as_a_refire(self):
         """No spurious event when the alert was already firing."""
         self.bridge.process_check_result(self._result(CheckStatus.CRITICAL))
@@ -776,3 +796,31 @@ class CheckAlertBridgeRefireTests(TestCase):
         alert = Alert.objects.get()
         assert alert.status == AlertStatus.FIRING
         assert alert.ended_at is None
+
+
+class CheckerSpecificGuardTests(TestCase):
+    """The one rule delegation must NOT lose.
+
+    An OK result for a fingerprint the hub has never alerted on is not news. The
+    orchestrator creates a row for any unknown fingerprint whatever its status, so
+    without this guard every healthy checker would open a resolved Alert row on its
+    first run.
+    """
+
+    def setUp(self):
+        self.bridge = CheckAlertBridge(auto_create_incidents=True, hostname="test-server")
+
+    def test_an_ok_result_for_an_unknown_fingerprint_creates_nothing(self):
+        result = self.bridge.process_check_result(
+            CheckResult(
+                status=CheckStatus.OK,
+                message="fine",
+                metrics={"cpu_percent": 5.0},
+                checker_name="cpu",
+            )
+        )
+
+        self.assertEqual(Alert.objects.count(), 0)
+        self.assertEqual(Incident.objects.count(), 0)
+        self.assertEqual(result.alerts_created, 0)
+        self.assertEqual(result.material_alerts, [])

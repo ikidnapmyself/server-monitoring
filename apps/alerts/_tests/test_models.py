@@ -84,3 +84,50 @@ class IncidentModelTests(TestCase):
 
         incident.status = IncidentStatus.RESOLVED
         self.assertFalse(incident.is_open)
+
+
+class IncidentReopenTests(TestCase):
+    """reopen() is the inverse of resolve()/close(), for an alert that fired again."""
+
+    def _incident(self, status):
+        return Incident.objects.create(title="t", severity="critical", status=status)
+
+    def test_reopen_from_resolved_clears_resolved_at(self):
+        incident = self._incident(IncidentStatus.OPEN)
+        incident.resolve(summary="done")
+
+        incident.reopen()
+
+        incident.refresh_from_db()
+        self.assertEqual(incident.status, IncidentStatus.OPEN)
+        self.assertIsNone(incident.resolved_at)
+
+    def test_reopen_from_closed_clears_closed_at(self):
+        incident = self._incident(IncidentStatus.OPEN)
+        incident.close()
+
+        incident.reopen()
+
+        incident.refresh_from_db()
+        self.assertEqual(incident.status, IncidentStatus.OPEN)
+        self.assertIsNone(incident.closed_at)
+
+    def test_reopen_keeps_the_summary(self):
+        """The old summary is history, not something a reopen should erase."""
+        incident = self._incident(IncidentStatus.OPEN)
+        incident.resolve(summary="was fixed by restarting")
+
+        incident.reopen()
+
+        incident.refresh_from_db()
+        self.assertEqual(incident.summary, "was fixed by restarting")
+
+    def test_reopen_without_save_does_not_write(self):
+        """Mirrors resolve()/close(): save=False lets a caller batch the write."""
+        incident = self._incident(IncidentStatus.OPEN)
+        incident.resolve()
+
+        incident.reopen(save=False)
+
+        self.assertEqual(incident.status, IncidentStatus.OPEN)
+        self.assertEqual(Incident.objects.get(pk=incident.pk).status, IncidentStatus.RESOLVED)

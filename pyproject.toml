@@ -28,11 +28,14 @@ dependencies = [
     #   pyasn1       PYSEC-2026-3455..3457 (quadratic decode DoS)            -> 0.6.4
     #   sqlparse     CVE-2026-71491, CVE-2026-59894, CVE-2026-59893,
     #                CVE-2026-54284 (DoS / snippet injection)                -> 0.6.0
+    #   pip          PYSEC-2026-3721 (doubly-encoded index URLs write to
+    #                arbitrary paths); audited because it is in the venv       -> 26.2
     "aiohttp>=3.14.3",
     "click>=8.3.3",
     "cryptography>=50.0.0",
     "msgpack>=1.2.1",
     "pyasn1>=0.6.4",
+    "pip>=26.2",
     "sqlparse>=0.6.0",
 ]
 

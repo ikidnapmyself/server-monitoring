@@ -169,6 +169,7 @@ class AlertOrchestrator:
         auto_create_incidents: bool = True,
         auto_resolve_incidents: bool = True,
         trace_id: str = "",
+        create_from_resolved: bool = True,
     ):
         """
         Initialize the orchestrator.
@@ -177,10 +178,16 @@ class AlertOrchestrator:
             auto_create_incidents: Automatically create incidents for new alerts.
             auto_resolve_incidents: Automatically resolve incidents when all alerts resolve.
             trace_id: Correlation ID stamped on alerts created by this run.
+            create_from_resolved: Open a row for a first sighting that is already
+                resolved. True for webhook traffic, where a resolved notification for
+                an unseen alert is still a record. False for the checker bridge, whose
+                sources report every checker every tick — a healthy one would otherwise
+                open a resolved row on its first run.
         """
         self.auto_create_incidents = auto_create_incidents
         self.auto_resolve_incidents = auto_resolve_incidents
         self.trace_id = trace_id
+        self.create_from_resolved = create_from_resolved
 
     def process_webhook(
         self,
@@ -249,8 +256,8 @@ class AlertOrchestrator:
         parsed: ParsedAlert,
         source: str,
         result: ProcessingResult,
-    ) -> Alert:
-        """Process a single parsed alert."""
+    ) -> Alert | None:
+        """Process a single parsed alert. None when nothing was recorded."""
         from apps.alerts.reevaluation import reevaluate_severity
 
         # Recompute severity/status against the sending node's per-checker policy
@@ -263,10 +270,20 @@ class AlertOrchestrator:
             source=source,
         ).first()
 
+        if existing and existing.status == AlertStatus.RESOLVED and parsed.status == "resolved":
+            # Nothing to record: a re-push of something already quiet. Nodes push OK
+            # results every tick (push_to_hub.py:112), and running those through
+            # _update_alert wrote an `updated` AlertHistory row each time — ~30k rows
+            # a day across a healthy fleet, none of which says anything. Never
+            # material either, so no downstream run was ever involved. The FIRST
+            # resolve is a status transition and does not come through here.
+            return existing
+
         if existing:
             return self._update_alert(existing, parsed, result)
-        else:
-            return self._create_alert(parsed, source, result)
+        if parsed.status == AlertStatus.RESOLVED and not self.create_from_resolved:
+            return None
+        return self._create_alert(parsed, source, result)
 
     def _create_alert(
         self,
@@ -367,6 +384,28 @@ class AlertOrchestrator:
             else:
                 alert.ended_at = None
                 event = "refired"
+                # The incident must follow the alert. An alert row is reused per
+                # fingerprint, so its FK still points at the incident that was
+                # resolved — and _find_open_incident only considers OPEN/ACKNOWLEDGED,
+                # so nothing else would ever revisit it. Left alone, a FIRING alert
+                # sits under a RESOLVED incident: notify reports an incident marked
+                # resolved, and the admin contradicts itself.
+                # A sibling alert with the same (name, instance) may have opened
+                # its own incident while ours was resolved — _find_open_incident
+                # ignores RESOLVED/CLOSED rows. Join it rather than reopening ours:
+                # one situation is one open incident, and the alert must end up
+                # under it either way, because a FIRING alert pointing at a resolved
+                # incident is the invariant this whole branch exists to hold (and is
+                # what the downstream run would be enqueued against).
+                sibling = self._find_open_incident(alert)
+                incident = alert.incident
+                if sibling is not None:
+                    self._attach_to_incident(alert, sibling, result)
+                elif incident is not None and incident.status in (
+                    IncidentStatus.RESOLVED,
+                    IncidentStatus.CLOSED,
+                ):
+                    incident.reopen()
 
             AlertHistory.objects.create(
                 alert=alert,
@@ -415,19 +454,7 @@ class AlertOrchestrator:
         existing_incident = self._find_open_incident(alert)
 
         if existing_incident:
-            # Attach to existing incident
-            alert.incident = existing_incident
-            alert.save(update_fields=["incident"])
-
-            # Update incident severity if this alert is more severe
-            if self._severity_rank(alert.severity) > self._severity_rank(
-                existing_incident.severity
-            ):
-                existing_incident.severity = alert.severity
-                existing_incident.save(update_fields=["severity", "updated_at"])
-
-            result.incidents_updated += 1
-            return existing_incident
+            return self._attach_to_incident(alert, existing_incident, result)
 
         # Create new incident
         incident = Incident.objects.create(
@@ -442,6 +469,27 @@ class AlertOrchestrator:
         result.incidents_created += 1
         logger.info(f"Created incident: {incident.title}")
 
+        return incident
+
+    def _attach_to_incident(
+        self,
+        alert: Alert,
+        incident: Incident,
+        result: ProcessingResult,
+    ) -> Incident:
+        """Point the alert at this incident, escalating its severity if needed.
+
+        Shared by the create path and the refire path so "join an existing
+        incident" means one thing, severity escalation included.
+        """
+        alert.incident = incident
+        alert.save(update_fields=["incident"])
+
+        if self._severity_rank(alert.severity) > self._severity_rank(incident.severity):
+            incident.severity = alert.severity
+            incident.save(update_fields=["severity", "updated_at"])
+
+        result.incidents_updated += 1
         return incident
 
     def _find_open_incident(self, alert) -> "Incident | None":

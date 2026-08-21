@@ -294,6 +294,22 @@ class Incident(models.Model):
         if save:
             self.save(update_fields=["status", "closed_at", "updated_at"])
 
+    def reopen(self, save: bool = True):
+        """Return a resolved or closed incident to OPEN because it fired again.
+
+        Both end states reopen. An operator's close is a deliberate final word, but a
+        thing firing again is new evidence — and leaving it closed puts a FIRING alert
+        under a non-open incident, which is the mismatch this exists to remove.
+
+        ``summary`` is deliberately kept: what the last resolution concluded is part of
+        the incident's history, not something a reopen should erase.
+        """
+        self.status = IncidentStatus.OPEN
+        self.resolved_at = None
+        self.closed_at = None
+        if save:
+            self.save(update_fields=["status", "resolved_at", "closed_at", "updated_at"])
+
 
 class AlertHistory(models.Model):
     """
