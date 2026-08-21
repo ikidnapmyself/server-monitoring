@@ -1306,3 +1306,88 @@ class TestNotifyExecutorProviderIds(TestCase):
             result = NotifyExecutor().execute(_ctx(payload={}, previous_results={"analyze": {}}))
 
         assert result.provider_ids == ["12345"]
+
+
+class TestNotifyExecutorDownstreamHeadline(TestCase):
+    """A downstream run has no ingest snapshot, so the headline comes from the incident.
+
+    Fan-out (PR #208) moved NOTIFY into a per-incident downstream run, which never
+    runs INGEST. derive_headline read severity and title off the ingest snapshot
+    only, so every notification the hub sent afterwards was titled
+    "[INFO] monitoring: incident" with the body "monitoring: monitoring event" —
+    routed correctly, and saying nothing.
+    """
+
+    def _incident(self, severity="critical", title="DISK Check Alert", status="open"):
+        from django.utils import timezone
+
+        from apps.alerts.models import Alert, Incident
+
+        incident = Incident.objects.create(title=title, severity=severity, status=status)
+        Alert.objects.create(
+            fingerprint="fp-d",
+            source="cluster",
+            name=title,
+            severity=severity,
+            started_at=timezone.now(),
+            incident=incident,
+        )
+        return incident
+
+    def _notify(self, incident_id, previous=None):
+        driver_cls, driver_inst = _mock_driver_cls()
+        with patch.dict("apps.notify.views.DRIVER_REGISTRY", {"generic": driver_cls}, clear=False):
+            NotifyExecutor().execute(
+                _ctx(
+                    payload={"notify_driver": "generic"},
+                    previous_results=previous or {},
+                    incident_id=incident_id,
+                )
+            )
+        return driver_inst.send.call_args[0][0]
+
+    def test_the_headline_comes_from_the_incident(self):
+        incident = self._incident()
+
+        message = self._notify(incident.id)
+
+        assert message.severity == "critical"
+        assert "DISK Check Alert" in message.title
+        assert "[CRITICAL]" in message.title
+
+    def test_a_resolved_incident_keeps_its_own_severity(self):
+        """An all-clear is notified through the resolved lane; it is still about a
+        critical thing that recovered."""
+        incident = self._incident(severity="warning", status="resolved")
+
+        message = self._notify(incident.id)
+
+        assert message.severity == "warning"
+
+    def test_an_ingest_snapshot_still_wins_when_present(self):
+        """The push-run path is unchanged: a real snapshot is authoritative."""
+        incident = self._incident()
+
+        message = self._notify(
+            incident.id,
+            previous={"ingest": {"severity": "info", "incident_title": "From snapshot"}},
+        )
+
+        assert message.severity == "info"
+        assert "From snapshot" in message.title
+
+    def test_a_vanished_incident_still_sends(self):
+        """A run can outlive its incident; that must not stop the message."""
+        incident = self._incident()
+        incident_id = incident.id
+        incident.delete()
+
+        message = self._notify(incident_id)
+
+        assert message.severity == "info"
+
+    def test_no_incident_and_no_snapshot_still_sends(self):
+        """A run with neither must not raise; the generic headline is correct there."""
+        message = self._notify(None)
+
+        assert message.severity == "info"

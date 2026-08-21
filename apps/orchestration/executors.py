@@ -335,6 +335,30 @@ class NotifyExecutor(BaseExecutor):
         channel = pipeline.routed_channel()
         return channel.name if channel else None
 
+    @staticmethod
+    def _headline_facts(incident_id: int | None) -> dict[str, Any]:
+        """Ingest-shaped headline facts, read from the incident itself.
+
+        The incident is the unit of work for a downstream run, so its severity and
+        title are what the message is about. Shaped like an ingest snapshot so
+        ``derive_headline`` stays pure and has one input format.
+        """
+        if not incident_id:
+            return {}
+
+        from apps.alerts.models import Incident
+
+        incident = Incident.objects.filter(id=incident_id).first()
+        if incident is None:
+            return {}
+
+        subject = incident.alerts.order_by("-received_at").first()
+        return {
+            "severity": incident.severity,
+            "incident_title": incident.title,
+            "source": subject.source if subject is not None else "monitoring",
+        }
+
     def execute(self, ctx: StageContext) -> NotifyResult:
         """Execute notification dispatch."""
         start_time = time.perf_counter()
@@ -359,6 +383,12 @@ class NotifyExecutor(BaseExecutor):
 
             ingest_prev = previous.get("ingest") or {}
             check_prev = previous.get("check") or {}
+            if not ingest_prev:
+                # A downstream run never runs INGEST — its incident was ingested by
+                # the parent push — so there is no snapshot to read the headline
+                # from. Without this every fan-out notification went out as
+                # "[INFO] monitoring: incident": routed correctly, saying nothing.
+                ingest_prev = self._headline_facts(ctx.incident_id)
             title, severity, lead = derive_headline(ingest_prev, check_prev)
             message_body = lead
 
