@@ -316,7 +316,22 @@ class NotifyExecutor(BaseExecutor):
     Uses idempotency keys to prevent duplicate messages.
     """
 
-    def _route_incident(self, ctx: StageContext) -> str | None:
+    @staticmethod
+    def _load_incident(incident_id: int | None) -> "Any | None":
+        """This run's incident, fetched once for both routing and the headline.
+
+        ``select_related("pipeline")`` because ``_route_incident`` reads the lane
+        stamped on it; without it a downstream notify costs two incident queries
+        plus a pipeline query.
+        """
+        if not incident_id:
+            return None
+        from apps.alerts.models import Incident
+
+        return Incident.objects.select_related("pipeline").filter(id=incident_id).first()
+
+    @staticmethod
+    def _route_incident(incident: "Any | None") -> str | None:
         """Return the matched pipeline's channel name, when it is active.
 
         The pipeline is resolved and stamped on the incident right after INGEST
@@ -324,16 +339,29 @@ class NotifyExecutor(BaseExecutor):
         (→ caller keeps today's payload-driven selection) when there is no
         incident, no stamped pipeline, or the lane's channel is unset/inactive.
         """
-        if not ctx.incident_id:
-            return None
-        from apps.alerts.models import Incident
-
-        incident = Incident.objects.filter(id=ctx.incident_id).first()
-        pipeline = incident.pipeline if incident else None
+        pipeline = incident.pipeline if incident is not None else None
         if pipeline is None:
             return None
         channel = pipeline.routed_channel()
         return channel.name if channel else None
+
+    @staticmethod
+    def _headline_facts(incident: "Any | None") -> dict[str, Any]:
+        """Ingest-shaped headline facts, read from the incident itself.
+
+        The incident is the unit of work for a downstream run, so its severity and
+        title are what the message is about. Shaped like an ingest snapshot so
+        ``derive_headline`` stays pure and has one input format.
+        """
+        if incident is None:
+            return {}
+
+        subject = incident.alerts.order_by("-received_at").first()
+        return {
+            "severity": incident.severity,
+            "incident_title": incident.title,
+            "source": subject.source if subject is not None else "monitoring",
+        }
 
     def execute(self, ctx: StageContext) -> NotifyResult:
         """Execute notification dispatch."""
@@ -357,8 +385,17 @@ class NotifyExecutor(BaseExecutor):
             # from AI. Intelligence recommendations only ENRICH the body below.
             from apps.orchestration.formatters import derive_headline
 
+            # One fetch, two consumers: the headline below and _route_incident later.
+            incident = self._load_incident(ctx.incident_id)
+
             ingest_prev = previous.get("ingest") or {}
             check_prev = previous.get("check") or {}
+            if not ingest_prev:
+                # A downstream run never runs INGEST — its incident was ingested by
+                # the parent push — so there is no snapshot to read the headline
+                # from. Without this every fan-out notification went out as
+                # "[INFO] monitoring: incident": routed correctly, saying nothing.
+                ingest_prev = self._headline_facts(incident)
             title, severity, lead = derive_headline(ingest_prev, check_prev)
             message_body = lead
 
@@ -371,7 +408,7 @@ class NotifyExecutor(BaseExecutor):
             # stamp it on the incident (for the notify target + journey view), and
             # if it names an active channel, route notify there. If no pipeline
             # matches, fall back to today's payload-driven selection.
-            matched_channel_name = self._route_incident(ctx)
+            matched_channel_name = self._route_incident(incident)
 
             # Centralize provider/channel selection via NotifySelector
             from apps.notify.services import NotifySelector

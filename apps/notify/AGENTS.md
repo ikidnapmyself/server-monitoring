@@ -16,7 +16,11 @@ Output contract (to orchestrator):
 **Content sourcing (Phase 2 contract).** A notification's **title and severity come
 from the alert/check data** — the orchestrator's `NotifyExecutor` derives them via
 `apps.orchestration.formatters.derive_headline(ingest, check)` (severity from the
-firing alert on the ingest result; title from the incident title). **Intelligence
+firing alert on the ingest result; title from the incident title). **A downstream
+fan-out run has no ingest snapshot** — its incident was ingested by the parent push —
+so `NotifyExecutor._headline_facts()` reads severity and title off the incident itself
+and hands `derive_headline` the same shape. Without that, every fan-out notification
+went out as `[INFO] monitoring: incident`: correctly routed, saying nothing. **Intelligence
 (local rule-based or hosted AI) only *enriches the body*** with recommendations — it
 never sets severity/title and never suppresses a notification. Consequence: a
 checkers-only node with **no paid AI configured still sends a useful, correctly-severe

@@ -284,7 +284,7 @@ class RouteIncidentTests(TestCase):
     def _route(self, ctx):
         from apps.orchestration.executors import NotifyExecutor
 
-        return NotifyExecutor()._route_incident(ctx)
+        return NotifyExecutor()._route_incident(NotifyExecutor()._load_incident(ctx.incident_id))
 
     def _stamp(self, incident, **defn_kwargs):
         p = PipelineDefinition.objects.create(priority=10, match=[], **defn_kwargs)

@@ -228,6 +228,61 @@ class FanOutAcceptanceTests(TestCase):
 
         assert self.children(self.push([reversed_])).count() == 0
 
+    def test_the_notification_says_what_the_incident_is(self):
+        """Routing correctly and saying nothing are different failures.
+
+        Every stage after the entry stage runs in a downstream run, which has no
+        ingest snapshot — so for a while every notification the hub sent read
+        "[INFO] monitoring: incident".
+        """
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.dtos import AnalyzeResult
+
+        NotificationChannel.objects.create(
+            name="e2e-channel", driver="generic", is_active=True, config={}
+        )
+        sent = []
+
+        def _capture(self, message, *args, **kwargs):
+            sent.append(message)
+            return {"success": True, "message_id": "stub"}
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    "apps.orchestration.executors.AnalyzeExecutor.execute",
+                    return_value=AnalyzeResult(summary="stub"),
+                )
+            )
+            stack.enter_context(
+                patch("apps.notify.drivers.generic.GenericNotifyDriver.send", _capture)
+            )
+            PipelineOrchestrator().run_pipeline(
+                payload={"driver": "cluster", "payload": node_push([checker_alert("cpu")])},
+                source="cluster",
+            )
+
+        assert sent, "no notification was delivered"
+        assert sent[-1].severity == "critical"
+        assert "[CRITICAL]" in sent[-1].title
+        assert "cpu" in sent[-1].title.lower()
+
+    def test_a_checker_first_seen_healthy_still_fans_out_when_it_breaks(self):
+        """The shape every node produces: OK first, CRITICAL later.
+
+        A node reports every checker every tick, so the hub sees `cpu` resolved on
+        push one and opens no incident for it. Fan-out routes on incident ids, so
+        the eventual CRITICAL used to produce no downstream run at all.
+        """
+        self.push([checker_alert("cpu", severity="info", status="resolved")])
+        assert Incident.objects.count() == 0
+
+        result = self.push([checker_alert("cpu")])
+
+        child = self.children(result).get()
+        assert child.incident_id == Incident.objects.get().id
+        assert self.stages_of(child) == [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+
     # 7 ---------------------------------------------------------------------
     def test_children_share_the_parents_trace_and_show_up_in_manage_trace(self):
         """One push is still one story: correlation is free, with no parent FK."""
