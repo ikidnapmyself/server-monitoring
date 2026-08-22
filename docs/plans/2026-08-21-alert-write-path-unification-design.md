@@ -203,9 +203,7 @@ coverage on changed code is enforced; and each task is one commit, individually 
   unordered `.first()`, and incident severity never de-escalating. All pre-existing. Reopen makes
   the last one newly visible: an incident can come back OPEN at `warning` while the alert that
   reopened it fired at `critical`, because escalation lives only in `_create_or_attach_incident`.
-- ~~**A refire never creates an incident.**~~ **FIXED 2026-08-21**, after this design shipped —
-  the refire branch now calls `_create_or_attach_incident` when the alert has none. Original
-  text:** `_create_or_attach_incident` runs only from
+- **A refire never creates an incident.** `_create_or_attach_incident` runs only from
   `_create_alert`, so an alert that was first seen resolved (a node's healthy checker on its first
   push, per §2.1.1) has `incident=None` forever — and `material_incident_ids` drops incident-less
   alerts, so its eventual refire produces no downstream run at all. Pre-existing and verified

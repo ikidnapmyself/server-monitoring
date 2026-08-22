@@ -1376,6 +1376,21 @@ class TestNotifyExecutorDownstreamHeadline(TestCase):
         assert message.severity == "info"
         assert "From snapshot" in message.title
 
+    def test_the_incident_is_fetched_once(self):
+        """The headline and the lane read the same row, not two queries for it."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        incident = self._incident()
+
+        with CaptureQueriesContext(connection) as captured:
+            self._notify(incident.id)
+
+        incident_queries = [
+            q for q in captured.captured_queries if "alerts_incident" in q["sql"].lower()
+        ]
+        assert len(incident_queries) == 1, [q["sql"] for q in incident_queries]
+
     def test_a_vanished_incident_still_sends(self):
         """A run can outlive its incident; that must not stop the message."""
         incident = self._incident()
