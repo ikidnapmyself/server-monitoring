@@ -17,8 +17,10 @@ install is seeded so that failure never fires on a correctly set-up hub.
 **Architecture:** Three moves. A migration seeds the default lanes and binds the single active
 channel to those that deliver. `NotifySelector.resolve` keeps its default-channel pick but only for
 callers that opt in (`allow_default_channel=True`), which the interactive callers do and the
-pipeline does not. `NotifyExecutor` raises a non-retryable `no_channel` when it has no channel to
-send to. Readiness and preflight report lanes that route but cannot deliver.
+pipeline does not. And `no_channel` is not a second hand-rolled failure beside `no_route` — both
+come from one `routing_gap()` factory in a new `apps/orchestration/errors.py`, which also ends the
+circular import that kept `StageExecutionError` out of reach of the executors. Readiness and
+preflight report lanes that route but cannot deliver.
 
 **Tech stack:** Django 5.2, pytest + pytest-django, `uv`.
 
@@ -35,8 +37,9 @@ Read `docs/plans/2026-08-22-lane-channel-required-design.md` first.
 - `apps/orchestration/executors.py` — `NotifyExecutor.execute`; `_route_incident` (`:329`),
   `_load_incident` (`:315`), the `requested = matched_channel_name or payload.get("notify_driver")`
   line (`:415`), the `NotifySelector.resolve(...)` call (`:433`).
-- `apps/orchestration/orchestrator.py` — `StageExecutionError`; `_execute_stage_with_retry`
-  re-raises immediately when `retryable=False`, which is what makes `no_channel` terminal.
+- `apps/orchestration/orchestrator.py` — `StageExecutionError` (`:982`, moved in Task 2);
+  `_downstream_or_fail` raises today's `no_route`; `_execute_stage_with_retry` re-raises
+  immediately when `retryable=False`, which is what makes both failures terminal.
 - `apps/orchestration/models.py` — `PipelineDefinition.routed_channel()` (`:620`) is the ONE rule
   for "does this lane deliver". Never re-derive it.
 - `apps/orchestration/migrations/0016_seed_resolved_lane.py` — the seed pattern to copy
@@ -49,9 +52,9 @@ Read `docs/plans/2026-08-22-lane-channel-required-design.md` first.
 
 ### Three traps
 
-1. **`StageExecutionError` cannot be imported at module level in `executors.py`** — `orchestrator`
-   imports `executors`, so it would be circular. Import it inside the method, as the file already
-   does for other orchestration imports.
+1. **`StageExecutionError` currently lives in `orchestrator.py`, which imports `executors`** — so
+   an executor cannot import it at module level. Task 2 moves it to
+   `apps/orchestration/errors.py` rather than working around it with a function-local import.
 2. **A lane that lists no `notify` stage needs no channel.** `hub-self-check` has `stages: []`.
    Anything that reports or fails on "no channel" must first ask whether the lane delivers at all —
    `"notify" in lane.routable_stages()`.
@@ -179,13 +182,55 @@ git commit -m "refactor(notify): the single-channel default is opt-in"
 
 ---
 
-## Task 2: A lane with no channel fails `no_channel`
+## Task 2: One "operator must fix this" failure, raised from two places
+
+`no_route` and `no_channel` are the same kind of failure: the routing table does not say where the
+work goes, and no retry can change that. They must not be two hand-rolled `StageExecutionError`
+constructions that drift — `_downstream_or_fail`'s docstring already carries the reasoning for
+`retryable=False`, and a second copy of that reasoning is how the two stop agreeing.
 
 **Files:**
+- Create: `apps/orchestration/errors.py`
+- Modify: `apps/orchestration/orchestrator.py` — remove the class body, re-export, use the factory
+  in `_downstream_or_fail`
 - Modify: `apps/orchestration/executors.py` — `NotifyExecutor.execute`
-- Test: `apps/orchestration/_tests/test_executors.py`
+- Test: `apps/orchestration/_tests/test_executors.py`, `apps/orchestration/_tests/test_errors.py`
 
 **Step 1: Write the failing tests**
+
+For the shared construct (`apps/orchestration/_tests/test_errors.py`):
+
+```python
+class RoutingGapTests(SimpleTestCase):
+    """One construct for 'the routing table does not say where this goes'.
+
+    no_route (no lane matched) and no_channel (the lane names no active channel)
+    differ only in which half is missing. Both are terminal until an operator edits
+    a row, so both must be non-retryable — and that must be stated once.
+    """
+
+    def test_a_routing_gap_is_never_retryable(self):
+        from apps.orchestration.errors import routing_gap
+
+        error = routing_gap("routing", "no_route", "no active pipeline matched this alert")
+
+        self.assertFalse(error.retryable)
+
+    def test_the_code_leads_the_message(self):
+        """Operators and log searches key on the code, so it must be the prefix."""
+        from apps.orchestration.errors import routing_gap
+
+        error = routing_gap("notify", "no_channel", "the matched lane names no active channel")
+
+        self.assertTrue(error.errors[0].startswith("no_channel: "))
+
+    def test_it_carries_the_stage_it_was_raised_for(self):
+        from apps.orchestration.errors import routing_gap
+
+        self.assertEqual(routing_gap("notify", "no_channel", "x").stage, "notify")
+```
+
+For the behaviour (`test_executors.py`):
 
 ```python
 class TestNotifyExecutorNoChannel(TestCase):
@@ -195,7 +240,7 @@ class TestNotifyExecutorNoChannel(TestCase):
     first by name, which is silent and wrong rather than loud and fixable.
     """
 
-    def _incident_on_lane(self, channel=None, is_active=True):
+    def _incident_on_lane(self, channel=None):
         from django.utils import timezone
 
         from apps.alerts.models import Alert, Incident
@@ -216,7 +261,7 @@ class TestNotifyExecutorNoChannel(TestCase):
         return incident
 
     def test_no_channel_fails_non_retryably(self):
-        from apps.orchestration.orchestrator import StageExecutionError
+        from apps.orchestration.errors import StageExecutionError
 
         incident = self._incident_on_lane()
 
@@ -229,7 +274,7 @@ class TestNotifyExecutorNoChannel(TestCase):
     def test_an_inactive_channel_is_no_channel(self):
         """routed_channel() is the one rule for 'active', and notify honours it."""
         from apps.notify.models import NotificationChannel
-        from apps.orchestration.orchestrator import StageExecutionError
+        from apps.orchestration.errors import StageExecutionError
 
         channel = NotificationChannel.objects.create(
             name="off", driver="generic", is_active=False, config={}
@@ -257,39 +302,74 @@ class TestNotifyExecutorNoChannel(TestCase):
 **Step 2: Run and watch them fail**
 
 ```bash
-uv run pytest apps/orchestration/_tests/test_executors.py -k NoChannel -v
+uv run pytest apps/orchestration/_tests/test_errors.py apps/orchestration/_tests/test_executors.py -k "RoutingGap or NoChannel" -v
 ```
 
-Expected: no exception is raised — delivery succeeds via the (now opt-in-only) default, or fails
-with "Unknown notify driver" rather than `no_channel`.
+Expected: `ModuleNotFoundError: apps.orchestration.errors`.
 
-**Step 3: Raise it**
+**Step 3: Extract the error and add the factory**
+
+Create `apps/orchestration/errors.py` and MOVE `StageExecutionError` there verbatim (it is
+currently at `orchestrator.py:982`). Then:
+
+```python
+def routing_gap(stage: str, code: str, detail: str) -> StageExecutionError:
+    """The routing table does not say where this work goes. Never retryable.
+
+    Two shapes of the same failure: ``no_route`` (no lane matched the alert) and
+    ``no_channel`` (the matched lane names no active channel). Neither can be
+    fixed by trying again — the alert is stuck until an operator edits a row, and
+    a retryable failure would spin forever. One factory so that reasoning is
+    stated once and the two cannot drift apart.
+
+    ``code`` leads the message because operators and log searches key on it.
+    """
+    return StageExecutionError(stage=stage, errors=[f"{code}: {detail}"], retryable=False)
+```
+
+In `orchestrator.py`, delete the class body and re-export so existing importers keep working:
+
+```python
+from apps.orchestration.errors import StageExecutionError, routing_gap  # noqa: F401
+```
+
+Keep a one-line comment saying the re-export is for the many modules and tests that import
+`StageExecutionError` from here.
+
+Then rewrite `_downstream_or_fail`'s raise to use the factory:
+
+```python
+            raise routing_gap(
+                "routing", "no_route", "no active pipeline matched this alert"
+            )
+```
+
+Its docstring already explains why the failure is attributed to `routing` rather than to the entry
+stage, and why it is non-retryable — trim the `retryable=False` half of that reasoning, since the
+factory now owns it, and leave the attribution reasoning in place.
+
+**Step 4: Raise it from NotifyExecutor**
 
 In `NotifyExecutor.execute`, right after `requested = matched_channel_name or
 payload.get("notify_driver")`:
 
 ```python
             if not requested:
-                # No lane channel and nothing named by the caller. Fail the way an
-                # unroutable alert fails: loudly and non-retryably. Delivering to
-                # "the first active channel by name" instead is how a critical alert
-                # ends up in whatever channel sorts first — silent and wrong, where
-                # this is loud and fixable. Nothing about a retry can conjure a
-                # channel, so retryable=False; the run waits for an operator.
-                from apps.orchestration.orchestrator import StageExecutionError
-
-                raise StageExecutionError(
-                    stage=PipelineStage.NOTIFY,
-                    errors=[
-                        "no_channel: the matched lane names no active notification channel"
-                    ],
-                    retryable=False,
+                # No lane channel and nothing named by the caller. Same failure as an
+                # unroutable alert, in the other half of the routing table: delivering
+                # to "the first active channel by name" instead is how a critical
+                # alert ends up wherever the alphabet points.
+                raise routing_gap(
+                    PipelineStage.NOTIFY,
+                    "no_channel",
+                    "the matched lane names no active notification channel",
                 )
 ```
 
-The import is local because `orchestrator` imports `executors` — module level would be circular.
+`from apps.orchestration.errors import routing_gap` goes at module level — the whole point of the
+extraction is that this import is no longer circular.
 
-**Step 4: Run the full suite**
+**Step 5: Run the full suite**
 
 ```bash
 uv run pytest -q
@@ -300,7 +380,10 @@ test is about delivery, give its lane or payload a channel — that is the setup
 has. If the test is about something else and merely tripped over notify, the same fix applies. Do
 not weaken an assertion, and do not re-add the fallback to make a test pass.
 
-**Step 5: Commit**
+Also check nothing imports `StageExecutionError` in a way the re-export misses:
+`grep -rn "StageExecutionError" apps/`.
+
+**Step 6: Commit**
 
 ```bash
 git add apps/orchestration/
