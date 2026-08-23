@@ -10,17 +10,27 @@ parent: Plans
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan
 > task-by-task.
 
-**Goal:** Remove the last implicit fallback in the delivery path. A pipeline lane with no active
-channel fails loudly instead of delivering to whatever channel sorts first by name — and a fresh
-install is seeded so that failure never fires on a correctly set-up hub.
+**Goal:** Remove the last implicit fallback in the delivery path. A lane that claims it will
+deliver and cannot now fails loudly instead of delivering to whatever channel sorts first by name —
+and the routing table is seeded to match how the hub is actually configured, so that failure never
+fires on a hub that never claimed to deliver.
 
-**Architecture:** Three moves. A migration seeds the default lanes and binds the single active
-channel to those that deliver. `NotifySelector.resolve` keeps its default-channel pick but only for
-callers that opt in (`allow_default_channel=True`), which the interactive callers do and the
-pipeline does not. And `no_channel` is not a second hand-rolled failure beside `no_route` — both
-come from one `routing_gap()` factory in a new `apps/orchestration/errors.py`, which also ends the
-circular import that kept `StageExecutionError` out of reach of the executors. Readiness and
-preflight report lanes that route but cannot deliver.
+**Architecture:** Three moves.
+
+1. **A channel-aware seed.** A migration seeds the default lanes shaped by how many channels are
+   active: zero means the lanes do not list `notify` at all, so a recording hub records instead of
+   failing; one means they list it and are bound to it; two or more leaves the choice to an
+   operator. A channel is optional — a lane that lists `notify` is not.
+2. **One failure, three codes.** `no_route`, `no_channel` and `no_driver` are the routing table's
+   three ways of not saying where work goes, and all come from one `routing_gap()` factory in a new
+   `apps/orchestration/errors.py` — which also ends the circular import that kept
+   `StageExecutionError` out of reach of the executors. `no_driver` replaces a retry loop that
+   exists today against a driver that cannot appear.
+3. **An opt-in default.** `NotifySelector.resolve` keeps its single-channel pick, but only for
+   callers that ask (`allow_default_channel=True`): the interactive ones do, the pipeline does not.
+
+Readiness and preflight then report a lane that cannot deliver as an error, and a recording hub as
+information rather than a fault.
 
 **Tech stack:** Django 5.2, pytest + pytest-django, `uv`.
 
