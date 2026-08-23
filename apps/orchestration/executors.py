@@ -408,8 +408,8 @@ class NotifyExecutor(BaseExecutor):
 
             # Phase A routing: resolve the pipeline that matches this incident,
             # stamp it on the incident (for the notify target + journey view), and
-            # if it names an active channel, route notify there. If no pipeline
-            # matches, fall back to today's payload-driven selection.
+            # route notify to the channel it names. A lane with no active channel
+            # names nothing, and a caller that names nothing either fails below.
             matched_channel_name = self._route_incident(incident)
 
             # Centralize provider/channel selection via NotifySelector
@@ -447,7 +447,7 @@ class NotifyExecutor(BaseExecutor):
             # Note: do NOT treat payload.notify_channel as a channel-name selector
             # for choosing a NotificationChannel record. The selection priority is:
             # 1) If payload.notify_driver matches a NotificationChannel.name -> use DB channel
-            # 2) If payload.notify_driver omitted -> pick first active NotificationChannel
+            # 2) If payload.notify_driver omitted and the lane named no channel -> no_channel
             # 3) Otherwise treat payload.notify_driver as a provider key and use payload.notify_config
             # The payload.notify_channel is only a hint for the message destination (e.g. Slack channel)
             # and should not be used to select the provider. This avoids overlapping semantics.

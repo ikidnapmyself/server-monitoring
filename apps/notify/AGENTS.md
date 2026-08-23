@@ -27,6 +27,26 @@ checkers-only node with **no paid AI configured still sends a useful, correctly-
 alert**. Do not reintroduce AI-derived titles/severity or "no recommendations" as the
 headline.
 
+**Channel selection (`NotifySelector.resolve`).** Priority: a named `provider_arg`
+matching an active `NotificationChannel` wins; otherwise the argument is treated as a
+provider key (`slack`, `generic`, …) against payload-supplied config. **The
+"first active channel ordered by name" default is opt-in** — `resolve` selects it only
+for callers passing `allow_default_channel=True`. The two interactive callers opt in
+(`views.py`'s send endpoint and `manage.py test_notify`): an operator asking for a send
+means "use my channel". **The pipeline does not**, and must not be changed to: picking a
+channel by alphabetical accident is how a critical alert lands in `#aaa-general`.
+
+For a pipeline run, delivery has exactly one source of truth:
+`PipelineDefinition.routed_channel()` — the lane's `channel` FK, and only while that
+channel is active. Never re-derive "active" and never read the FK directly. A lane that
+routes to NOTIFY without one **fails** (`no_channel`, non-retryably) rather than
+defaulting to another channel: the failure this introduces is loud and fixable, the one
+it replaces was silent delivery to the wrong place. A hub with no channel at all is not
+misconfigured — its lanes simply do not list `notify` (see
+`apps/orchestration/AGENTS.md` and
+`docs/plans/2026-08-22-lane-channel-required-design.md`). A lane whose channel names a
+driver absent from `DRIVER_REGISTRY` fails the same way as `no_driver`.
+
 ## Key modules
 
 - `apps/notify/drivers/` — notification drivers/backends

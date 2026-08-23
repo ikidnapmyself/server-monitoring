@@ -47,8 +47,12 @@ after the **entry stage**, the orchestrator resolves the matching `PipelineDefin
 from the alert that stage produced (`routing.py`, first-match-wins by `priority`, ties
 on `id`) and runs the downstream stages listed in its `stages` column, in that order;
 `notify` sends to the matched pipeline's `channel` — a single FK, because delivery has
-never fanned out. An inactive channel routes nowhere (`routed_channel()` returns
-`None`) and notify falls back to payload-driven selection.
+never fanned out. **`PipelineDefinition.routed_channel()` is the one rule for whether a
+lane delivers**: it returns the channel only when the FK is set *and* the channel is
+active. Every reader — the executor, the readiness panel, preflight, the seed — asks it
+that way rather than re-deriving "active", so they cannot drift. A lane that lists
+`notify` and whose `routed_channel()` is `None` no longer falls back to payload-driven
+selection; it fails `no_channel` (see below).
 
 **The unit of work is an incident event, not a push.** A push run executes its entry
 stage and stops. Every incident that push *materially changed* becomes its own PENDING
@@ -106,9 +110,29 @@ across an incident: `source`, `severity` (that alert's own), `status`
 Routing help text must name it — a completeness test in `_tests/test_admin.py`
 enforces that, because an undiscoverable fact is one no operator can route on.
 
-**There is no implicit fallback.** A no-match raises a non-retryable `no_route`
-`StageExecutionError`, attributed to `routing` rather than to the entry stage that
-just succeeded. Do not reintroduce a default stage order in Python: migration `0012`
+**There is no implicit fallback — in either half of the routing table.** The table can
+fail to say where work goes in exactly three ways, and all three raise the same
+non-retryable `StageExecutionError` through `routing_gap(stage, code, detail)` in
+`apps/orchestration/errors.py`:
+
+| Code | Missing | Raised by |
+|---|---|---|
+| `no_route` | no lane matched the alert | `_downstream_or_fail` (stage `routing`) |
+| `no_channel` | the matched lane names no active channel | `NotifyExecutor.execute` |
+| `no_driver` | the lane's channel names a driver that is not in `DRIVER_REGISTRY` | `NotifyExecutor.execute` |
+
+The set is closed: it is the routing table's own structure, not an open-ended list of
+missing components. **None is retryable** — the alert is stuck until an operator edits a
+row, so a retryable failure would just spin (`no_driver` used to: three attempts, then a
+"Mark for Retry" button, against a typo). `routing_gap` exists so that reasoning is
+stated once; `code` leads the message because operators and log searches key on it, and
+the `no_driver` message carries the registered driver names because that is what turns
+the code into a fix. `StageExecutionError` lives in `errors.py`, not `orchestrator.py`,
+because `orchestrator` imports `executors` — an executor could not otherwise import it at
+module level. `orchestrator.py` re-exports it for existing importers.
+
+`no_route` is attributed to `routing` rather than to the entry stage that just succeeded.
+Do not reintroduce a default stage order in Python: migration `0012`
 seeds `cluster-nodes` (priority 50, `source is cluster`, `["analyze", "notify"]`) and
 `catch-all` (priority 1000, empty match, full order), and `0014` seeds
 `hub-self-check` (priority 50, `origin is checker_generated`, **empty `stages`** —
@@ -118,6 +142,27 @@ minutes and `apps.notify` has no de-duplication yet), and `0016` seeds
 has nothing left to diagnose, and it sits above `cluster-nodes` so a resolved node
 alert takes it rather than paying for an analysis). None of these rows are special-
 cased in code; `apps/orchestration/testing.py` documents their effect on tests.
+
+**The seed reads the hub instead of assuming it.** `0017` re-seeds the full default set
+through `apps/orchestration/seeding.py`, shaped by how many channels are active: zero
+means `notify` is dropped from every lane and `resolved-all-clear` is seeded inactive, so
+a **recording hub** records rather than failing `no_channel` for an intent it never
+expressed; one means `notify` is listed and bound to it; two or more lists `notify` and
+binds nothing, because picking by name is the bug being removed. **A channel is optional;
+a lane that lists `notify` is not.** `get_or_create` on `name` means an operator's row is
+never rewritten, and binding only fills a `channel` that is `NULL` — the seed body is
+shared with its tests (models are passed in) rather than living unexercised inside a
+migration. Anything that reports on delivery must first ask whether the lane delivers at
+all (`"notify" in lane.routable_stages()`): `hub-self-check` lists no stages and is not
+broken, it is quiet by design.
+
+**Two read-only surfaces say so before an incident does.** The readiness panel's
+`lane_channels` entry (`config/dashboard.py:build_readiness`) is `error` only when a lane
+claims `notify` and `routed_channel()` is `None`; `info` ("recording only") when no lane
+delivers and no channel is active — a supported way to run this hub, never red; and `ok`
+otherwise, with a nudge in `detail` when a channel exists that no lane points at.
+`check_pipeline_state` reports the same finding as a `warn` naming the offending lanes.
+See `docs/plans/2026-08-22-lane-channel-required-design.md`.
 
 The legacy node/edge graph (`DefinitionBasedOrchestrator`, the `nodes/` package,
 `PipelineDefinition.config`) was **retired in Phase D** — do not reintroduce it.
