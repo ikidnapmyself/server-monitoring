@@ -9,13 +9,34 @@ def _by_key(readiness):
 
 
 @pytest.mark.django_db
-def test_channels_error_when_none_active():
+def test_channels_error_when_none_active_and_a_lane_promises_delivery():
+    """Red because something asked for a channel, not merely because none exists."""
     from apps.notify.models import NotificationChannel
 
     NotificationChannel.objects.create(name="c1", driver="slack", is_active=False)
     r = _by_key(build_readiness())["channels"]
     assert r["status"] == "error"
     assert r["url"] == reverse("admin:notify_notificationchannel_changelist")
+
+
+@pytest.mark.django_db
+def test_channels_info_when_no_channel_and_no_lane_delivers():
+    """A hub that reads the admin daily and notifies nobody is not broken.
+
+    Painting it red is how a readiness panel becomes something operators learn to
+    ignore, which costs them the entries that do matter.
+    """
+    from apps.orchestration.models import PipelineDefinition
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    PipelineDefinition.objects.create(
+        name="records", match=[], stages=["check", "analyze"], priority=1
+    )
+
+    r = _by_key(build_readiness())["channels"]
+    assert r["status"] == "info"
+    assert "recording only" in r["detail"].lower()
 
 
 @pytest.mark.django_db

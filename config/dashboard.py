@@ -49,13 +49,26 @@ def build_readiness():
     now = timezone.now()
     out = []
 
+    # Which lanes promise delivery — read before the channel entry below, because
+    # whether "no channel" is a fault depends entirely on whether anything asked
+    # for one.
+    lanes = PipelineDefinition.objects.filter(is_active=True).select_related("channel")
+    delivering = [lane for lane in lanes if "notify" in lane.routable_stages()]
+
     # Channels
     total = NotificationChannel.objects.count()
     active = NotificationChannel.objects.filter(is_active=True).count()
-    if active == 0:
-        c_status, detail = "error", "No active channel — alerts will not be delivered"
-    else:
+    if active:
         c_status, detail = "ok", f"{active}/{total} channels active"
+    elif delivering:
+        c_status, detail = (
+            "error",
+            f"No active channel — {len(delivering)} lane(s) promise delivery",
+        )
+    else:
+        # A hub that reads the admin daily and notifies nobody is a supported
+        # setup, not a fault. Painting it red trains operators to ignore the panel.
+        c_status, detail = "info", "No channel configured — recording only"
     out.append(
         {
             "key": "channels",
@@ -71,8 +84,6 @@ def build_readiness():
     # and only one is red: a hub with no channel and no delivering lane never made
     # the promise, and reporting it as a fault would train operators to ignore the
     # panel. See docs/plans/2026-08-22-lane-channel-required-design.md §2.3.
-    lanes = PipelineDefinition.objects.filter(is_active=True).select_related("channel")
-    delivering = [lane for lane in lanes if "notify" in lane.routable_stages()]
     undeliverable = sorted(lane.name for lane in delivering if lane.routed_channel() is None)
     if undeliverable:
         l_status = "error"
