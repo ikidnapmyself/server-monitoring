@@ -1,8 +1,14 @@
 """Seed the routing table to match how this hub is actually configured.
 
-Shared by ``setup_cluster`` and the admin; migration ``0017`` deliberately keeps
-its own frozen copy (see the note there). The models are passed in because the
-callers differ in which classes they hold.
+This is the LIVE version, for the callers that must track today's design:
+``setup_cluster`` and the admin. Migration ``0017`` carries a frozen copy of the
+lane constants and the create/repair body, and that duplication is deliberate —
+if the migration imported this module, replaying it on a fresh database would run
+whatever this module had become in the meantime, and a future edit here would
+make fresh installs diverge from upgraded ones on the same migration number. Edit
+this file freely; the snapshot in ``0017`` stays where it is (a test pins it).
+
+The models are passed in because the callers differ in which classes they hold.
 
 The rule that shapes everything here: **a channel is optional, a lane that lists
 ``notify`` is not.** ``stages`` is the operator's statement of intent — a hub with
