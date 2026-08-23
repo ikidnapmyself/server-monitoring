@@ -387,6 +387,8 @@ class TestMapView:
         body = admin_client.get(reverse("admin:netmap")).content.decode()
         # state banners
         assert "shadowed by <em>bound-lane</em>" in body
+        # the rendered banner element, not the CSS rule or a delivery line
+        assert '<div class="lane-banner banner-inactive">(inactive)</div>' in body
         assert "(inactive)" in body  # text, not color-only — survives screen readers
         assert "never matches &mdash; malformed match" in body
         # seed-shaped badge (shaping, not provenance)
