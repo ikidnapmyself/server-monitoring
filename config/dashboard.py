@@ -80,15 +80,20 @@ def build_readiness():
     )
 
     # Lane delivery. A lane that lists NOTIFY is a promise to deliver;
-    # routed_channel() is the one rule for whether it can keep it. Three states,
+    # delivery_gap() is the one rule for whether it can keep it — an active channel
+    # is not enough, since a channel naming an unregistered driver fails the run as
+    # no_driver just as surely as no channel at all fails it as no_channel. Three states,
     # and only one is red: a hub with no channel and no delivering lane never made
     # the promise, and reporting it as a fault would train operators to ignore the
     # panel. See docs/plans/2026-08-22-lane-channel-required-design.md §2.3.
-    undeliverable = sorted(lane.name for lane in delivering if lane.routed_channel() is None)
+    undeliverable = sorted(
+        (lane.name, gap) for lane in delivering if (gap := lane.delivery_gap()) is not None
+    )
     if undeliverable:
         l_status = "error"
-        detail = "{} lane(s) route to notify with no active channel: {}".format(
-            len(undeliverable), ", ".join(undeliverable)
+        detail = "{} lane(s) cannot deliver: {}".format(
+            len(undeliverable),
+            ", ".join(f"{name} ({gap})" for name, gap in undeliverable),
         )
     elif delivering:
         l_status = "ok"

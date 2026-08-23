@@ -264,3 +264,37 @@ def test_an_inactive_lane_cannot_fail_so_it_is_not_reported():
     _lane("disabled", ["notify"], is_active=False)
 
     assert _by_key(build_readiness())["lane_channels"]["status"] == "info"
+
+
+@pytest.mark.django_db
+def test_a_lane_bound_to_an_unregistered_driver_is_an_error():
+    """The third gap: an active channel is not the same as a deliverable one.
+
+    ``routed_channel()`` answers "is there an active channel", which readiness read
+    as "this lane delivers". A channel whose driver is not in DRIVER_REGISTRY —
+    removed, or a typo — passed that read while every run on the lane failed
+    ``no_driver``. The panel exists so the hub going quiet is diagnosable before an
+    incident, so it has to see it.
+    """
+    from apps.notify.models import NotificationChannel
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    ghost = NotificationChannel.objects.create(name="teams", driver="teams", is_active=True)
+    _lane("delivers", ["notify"], channel=ghost)
+
+    entry = _by_key(build_readiness())["lane_channels"]
+    assert entry["status"] == "error"
+    assert "delivers" in entry["detail"]
+    assert "no_driver" in entry["detail"]
+
+
+@pytest.mark.django_db
+def test_a_lane_with_no_channel_still_says_no_channel():
+    """Naming which of the two gaps it is, because the fixes differ."""
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    _lane("mute", ["notify"])
+
+    assert "no_channel" in _by_key(build_readiness())["lane_channels"]["detail"]
