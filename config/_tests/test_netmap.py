@@ -57,6 +57,17 @@ class TestCondImplied:
             ),
             # default op is "is" (mirrors matches())
             ([{"field": "sev", "value": "high"}], cond("sev", "is", "high"), True),
+            # unhashable JSON values are unprovable, never a crash
+            ([cond("sev", "in", [["a"], "b"])], cond("sev", "is", "b"), False),
+            ([cond("sev", "is", "b")], cond("sev", "in", [["a"], "b"]), False),
+            ([cond("sev", "is", ["b"])], cond("sev", "in", ["b", "c"]), False),
+            ([cond("sev", "is", ["b"])], cond("sev", "not-in", ["z"]), False),
+            ([cond("sev", "in", ["x"])], cond("sev", "is", ["x"]), False),
+            ([cond("sev", "in", ["x"])], cond("sev", "is-not", ["y"]), False),
+            ([cond("sev", "is-not", ["y"])], cond("sev", "not-in", [["y"]]), False),
+            ([cond("sev", "not-in", ["x"])], cond("sev", "is-not", ["x"]), False),
+            # membership op with a non-list value on the B side is unprovable
+            ([cond("sev", "in", "xy")], cond("sev", "is", "x"), False),
         ],
     )
     def test_implication_table(self, b, a, expected):
@@ -103,11 +114,9 @@ class TestNeverMatches:
         assert _never_matches(match) is expected
 
 
-def lane(name, match, active=True, priority=100):
+def lane(name, match, active=True):
     """Stand-in with the attributes _annotate_shadows reads."""
-    return type(
-        "L", (), {"name": name, "match": match, "is_active": active, "priority": priority}
-    )()
+    return type("L", (), {"name": name, "match": match, "is_active": active})()
 
 
 class TestAnnotateShadows:
@@ -143,3 +152,20 @@ class TestAnnotateShadows:
     def test_truthy_non_list_match_neither_shadows_nor_crashes(self):
         lanes = [lane("junky", "junk"), lane("b", [cond("s", "is", "x")])]
         assert _annotate_shadows(lanes) == {}
+
+    def test_unhashable_match_values_neither_shadow_nor_crash(self):
+        lanes = [
+            lane("weird", [cond("s", "in", [["a"], "b"])]),
+            lane("plain", [cond("s", "is", "b")]),
+        ]
+        assert _annotate_shadows(lanes) == {}
+
+    def test_shadowed_lane_still_joins_candidates(self):
+        # "mid" is marked shadowed yet stays a candidate for later lanes;
+        # attribution names the first prover in lane order ("wide").
+        lanes = [
+            lane("wide", [cond("s", "in", ["x", "y"])]),
+            lane("mid", [cond("s", "in", ["x", "y"])]),
+            lane("narrow", [cond("s", "in", ["x", "y"]), cond("t", "is", "1")]),
+        ]
+        assert _annotate_shadows(lanes) == {"mid": "wide", "narrow": "wide"}
