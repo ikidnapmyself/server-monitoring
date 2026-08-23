@@ -2,7 +2,16 @@
 
 import pytest
 
-from config.netmap import _annotate_shadows, _cond_implied, _lane_shadows, _never_matches
+from apps.notify.models import NotificationChannel
+from apps.orchestration.models import PipelineDefinition
+from apps.orchestration.testing import clear_lanes
+from config.netmap import (
+    _annotate_shadows,
+    _cond_implied,
+    _lane_shadows,
+    _never_matches,
+    get_map_context,
+)
 
 
 def cond(field, op, value):
@@ -182,3 +191,101 @@ class TestAnnotateShadows:
             lane("C-name", [cond("s", "in", [])]),
         ]
         assert _annotate_shadows(lanes) == {"B-name": "A-name", "C-name": "B-name"}
+
+
+@pytest.mark.django_db
+class TestGetMapContext:
+    @pytest.fixture(autouse=True)
+    def _empty_table(self):
+        # Migration 0012 seeds lanes into every test DB; these tests assert on
+        # exact lane lists, so they must start from an empty routing table.
+        clear_lanes()
+
+    def _lane(self, name, priority, **kw):
+        return PipelineDefinition.objects.create(name=name, priority=priority, **kw)
+
+    def test_lanes_in_match_order(self):
+        # Mirrors resolve_pipeline's order_by("priority", "id"), minus is_active.
+        self._lane("late", priority=200, match=[])
+        self._lane("early", priority=10, match=[])
+        self._lane("tie-second", priority=10, match=[])
+        names = [c["name"] for c in get_map_context()["lanes"]]
+        assert names == ["early", "tie-second", "late"]
+
+    def test_card_fields_bound_lane(self):
+        ch = NotificationChannel.objects.create(
+            name="ops", driver="email", is_active=True, config={}
+        )
+        lane_row = self._lane(
+            "cluster",
+            priority=10,
+            match=[{"field": "source", "op": "is", "value": "cluster"}],
+            stages=["check", "analyze", "notify"],
+            channel=ch,
+            tags={"seed_shape": "record-only"},
+        )
+        card = get_map_context()["lanes"][0]
+        assert card["state"] == "ok"
+        assert card["conditions"] == ["source is cluster"]
+        assert card["stages"] == ["check", "analyze", "notify"]
+        assert card["delivery"] == {"state": "bound", "channel": "ops"}
+        assert card["seeded"] is True
+        assert card["admin_url"].endswith(f"/{lane_row.pk}/change/")
+
+    def test_delivery_states(self):
+        self._lane(
+            "rec", priority=1, match=[{"field": "s", "op": "is", "value": "a"}], stages=["check"]
+        )
+        self._lane(
+            "gap", priority=2, match=[{"field": "s", "op": "is", "value": "b"}], stages=["notify"]
+        )
+        ch = NotificationChannel.objects.create(
+            name="ghost", driver="not-a-driver", is_active=True, config={}
+        )
+        self._lane(
+            "bad",
+            priority=3,
+            match=[{"field": "s", "op": "is", "value": "c"}],
+            stages=["notify"],
+            channel=ch,
+        )
+        by_name = {c["name"]: c for c in get_map_context()["lanes"]}
+        assert by_name["rec"]["delivery"] == {"state": "recording-only", "channel": None}
+        assert by_name["gap"]["delivery"] == {"state": "no_channel", "channel": None}
+        assert by_name["bad"]["delivery"] == {"state": "no_driver", "channel": "ghost"}
+
+    def test_states_precedence_and_catch_all_label(self):
+        self._lane("all", priority=1, match=[])
+        self._lane("shadowed", priority=2, match=[{"field": "s", "op": "is", "value": "x"}])
+        self._lane("off", priority=3, match=[], is_active=False)
+        self._lane("broken", priority=4, match=[{"field": "s", "op": "zap", "value": 1}])
+        by_name = {c["name"]: c for c in get_map_context()["lanes"]}
+        assert by_name["all"]["conditions"] == []
+        assert by_name["all"]["catch_all"] is True
+        assert by_name["all"]["state"] == "ok"
+        assert by_name["shadowed"]["state"] == "shadowed"
+        assert by_name["shadowed"]["shadowed_by"] == "all"
+        assert by_name["off"]["state"] == "inactive"
+        assert by_name["broken"]["state"] == "never-matches"
+
+    def test_junk_columns_render_without_crashing(self):
+        # Non-list match, non-dict conds, non-dict tags: objects.create() bypasses
+        # clean(), so readers must not trust the columns.
+        self._lane("junk-match", priority=1, match={"field": "s"}, tags=["not-a-dict"])
+        self._lane("junk-cond", priority=2, match=["not-a-dict"])
+        by_name = {c["name"]: c for c in get_map_context()["lanes"]}
+        assert by_name["junk-match"]["state"] == "never-matches"
+        assert by_name["junk-match"]["conditions"] == []
+        assert by_name["junk-match"]["seeded"] is False
+        assert by_name["junk-cond"]["state"] == "never-matches"
+        assert by_name["junk-cond"]["conditions"] == ["'not-a-dict'"]
+
+    def test_list_valued_condition_renders_bracketed(self):
+        self._lane(
+            "listy", priority=1, match=[{"field": "sev", "op": "in", "value": ["high", "crit"]}]
+        )
+        card = get_map_context()["lanes"][0]
+        assert card["conditions"] == ["sev in [high, crit]"]
+
+    def test_empty_table(self):
+        assert get_map_context()["lanes"] == []

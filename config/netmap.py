@@ -8,6 +8,11 @@ normal lane (fail toward "not shadowed").
 Design: docs/plans/2026-08-23-network-map-design.md
 """
 
+from django.urls import reverse
+
+from apps.orchestration.models import PipelineDefinition
+from apps.orchestration.seeding import SEED_SHAPE_KEY
+
 
 def _as_set(value) -> set | None:
     if not isinstance(value, (list, tuple)):
@@ -127,3 +132,62 @@ def _annotate_shadows(lanes) -> dict[str, str]:
                     break
             candidates.append(b)
     return shadowed
+
+
+def _render_condition(c: dict) -> str:
+    op, value = c.get("op", "is"), c.get("value")
+    if isinstance(value, (list, tuple)):
+        value = "[" + ", ".join(str(v) for v in value) + "]"
+    return f"{c.get('field')} {op} {value}"
+
+
+def _delivery(lane) -> dict:
+    """Delivery state for one lane, asking the model helpers — never re-derived."""
+    if "notify" not in lane.routable_stages():
+        return {"state": "recording-only", "channel": None}
+    gap = lane.delivery_gap()
+    if gap is None:
+        return {"state": "bound", "channel": lane.routed_channel().name}
+    return {"state": gap, "channel": lane.channel.name if lane.channel else None}
+
+
+def get_map_context() -> dict:
+    """Template context for the network map: one card per lane, in match order.
+
+    The ordering copies ``resolve_pipeline`` exactly — ``order_by("priority",
+    "id")`` — minus its ``is_active`` filter: the map shows every lane, active
+    or not.
+    """
+    lanes = list(PipelineDefinition.objects.select_related("channel").order_by("priority", "id"))
+    shadows = _annotate_shadows(lanes)
+    cards = []
+    for lane in lanes:
+        conds = lane.match if isinstance(lane.match, list) else []
+        if not lane.is_active:
+            state = "inactive"
+        elif _never_matches(lane.match):
+            state = "never-matches"
+        elif lane.name in shadows:
+            state = "shadowed"
+        else:
+            state = "ok"
+        cards.append(
+            {
+                "name": lane.name,
+                "state": state,
+                "shadowed_by": shadows.get(lane.name),
+                "catch_all": not conds,
+                "conditions": [
+                    _render_condition(c) if isinstance(c, dict) else repr(c) for c in conds
+                ],
+                "stages": lane.routable_stages(),
+                "delivery": _delivery(lane),
+                "seeded": (
+                    bool(lane.tags.get(SEED_SHAPE_KEY)) if isinstance(lane.tags, dict) else False
+                ),
+                "admin_url": reverse(
+                    "admin:orchestration_pipelinedefinition_change", args=[lane.pk]
+                ),
+            }
+        )
+    return {"lanes": cards}
