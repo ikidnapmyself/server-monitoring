@@ -22,9 +22,16 @@ This is the same defect class as the routing fallback deleted in the routing sim
 default that lives in code, is invisible in the data, and cannot be read or edited by an operator.
 
 **It is not an edge case — it is the current default path.** The seeded lanes carry no channel FK
-(migration `0012`), and `_bind_catchall_pipeline` — the `setup_cluster` step its docstring refers
-to — no longer exists. So unless an operator has set a lane's channel by hand, *every* notification
-this hub sends is resolved by the fallback. Deleting it without replacing it would silence the hub.
+(migration `0012`). `setup_cluster._bind_catchall_pipeline`
+(`config/management/commands/setup_cluster.py:180`) binds one lane only — the winning *empty-match*
+lane, i.e. the catch-all. It never touches `cluster-nodes` (`source is cluster`) or
+`resolved-all-clear` (`status is resolved`), which between them carry node pushes and every
+all-clear: the hub's primary traffic. Those deliver today purely through the fallback. Deleting it
+without replacing it would silence exactly them.
+
+*(Corrected during implementation: an earlier draft of this section claimed `_bind_catchall_pipeline`
+"no longer exists", from a grep that only covered `apps/*/management/commands/`. It lives under
+`config/`, is the documented install path, and the correction is why §2.4 exists at all.)*
 
 ## 2. The shape
 
@@ -89,6 +96,24 @@ after:
   a channel exists but no lane points at it, which is a hub one edit away from delivering.
 - **Preflight** (`check_pipeline_state`) — the same finding as a `warn` with a hint naming the
   admin page.
+
+### 2.4 Configuring a channel is a configuration-time decision
+
+**The pipeline definition is hub-side truth. Runtime executes it; it never reinterprets it.** A
+NOTIFY stage that noticed the hub had no channels and quietly downgraded itself would be exactly
+that — an agent overriding a decision at runtime — so it is not an option, however convenient.
+
+Which means a hub seeded record-only (§2.1) does not start delivering because a channel appeared.
+The *definition* has to change, and it changes where an operator configures the channel:
+`setup_cluster` calls `seeding.enable_delivery()`, which restores `notify` on the lanes still
+carrying the record-only shape this seed wrote and binds them. A lane an operator has edited is
+theirs and is left alone; an admin-added channel leaves the definitions untouched, and the
+readiness nudge (§2.3) says so.
+
+The seed itself must also **repair, not merely create**: migrations `0012`/`0014`/`0016` run first,
+so on any install the rows already exist and `get_or_create`'s defaults would be discarded. A row
+still carrying exactly the shape those migrations seeded has never been edited, so reshaping it is
+repair rather than overwriting a decision.
 
 ## 3. Behaviour changes
 
