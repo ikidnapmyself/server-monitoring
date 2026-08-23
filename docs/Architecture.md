@@ -148,8 +148,8 @@ no models, no stored state, just `PipelineDefinition` rows in the exact order
 and a state banner: **ok**, **shadowed** (an earlier lane provably matches everything
 this one would, and is named), **inactive**, or **never matches** (malformed match).
 Below that, a delivery line mirrors `delivery_gap()` 1:1: bound to a channel,
-recording only (no `notify` stage), no channel configured, channel inactive, or
-channel driver not registered.
+recording only (no `notify` stage), no channel (none configured, or the bound
+channel is inactive), or channel driver not registered.
 
 ## Pipeline Execution
 
