@@ -60,3 +60,45 @@ def _cond_implied(b_conds: list[dict], a_cond: dict) -> bool:
 def _lane_shadows(a_match: list, b_match: list) -> bool:
     """True if lane A (earlier, active) provably matches everything lane B matches."""
     return all(_cond_implied(b_match, a_cond) for a_cond in a_match)
+
+
+_MATCH_OPS = ("is", "is-not", "in", "not-in")
+
+
+def _never_matches(match) -> bool:
+    """Static mirror of ``PipelineDefinition.matches()`` fail-closed rules.
+
+    A condition that can never hold — non-dict, unknown op, membership without a
+    list — makes the whole lane unmatchable. A non-list ``match`` iterates as
+    empty in ``matches()`` (catch-all), so it is NOT never-matching.
+    """
+    if not isinstance(match, list):
+        return False
+    for c in match:
+        if not isinstance(c, dict):
+            return True
+        op = c.get("op", "is")
+        if op not in _MATCH_OPS:
+            return True
+        if op in ("in", "not-in") and not isinstance(c.get("value"), (list, tuple)):
+            return True
+    return False
+
+
+def _annotate_shadows(lanes) -> dict[str, str]:
+    """Map lane name → name of the earlier active lane that provably shadows it.
+
+    ``lanes`` must already be in match (priority) order. Inactive and
+    never-matching lanes neither shadow nor get marked shadowed — they have
+    their own states on the map.
+    """
+    shadowed: dict[str, str] = {}
+    candidates: list = []  # earlier lanes that can actually win traffic
+    for b in lanes:
+        if b.is_active and not _never_matches(b.match):
+            for a in candidates:
+                if _lane_shadows(a.match or [], b.match or []):
+                    shadowed[b.name] = a.name
+                    break
+            candidates.append(b)
+    return shadowed

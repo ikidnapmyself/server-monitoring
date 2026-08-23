@@ -2,7 +2,7 @@
 
 import pytest
 
-from config.netmap import _cond_implied, _lane_shadows
+from config.netmap import _annotate_shadows, _cond_implied, _lane_shadows, _never_matches
 
 
 def cond(field, op, value):
@@ -79,3 +79,61 @@ class TestLaneShadows:
         a = [cond("source", "is", "cluster")]
         b = [cond("source", "is", "cluster"), cond("sev", "is", "high")]
         assert _lane_shadows(a, b) is True
+
+
+class TestNeverMatches:
+    """Static mirror of matches() fail-closed rules."""
+
+    @pytest.mark.parametrize(
+        "match,expected",
+        [
+            ([], False),
+            ([cond("sev", "is", "high")], False),
+            (["not-a-dict"], True),
+            ([cond("sev", "frobnicate", "x")], True),
+            ([cond("sev", "in", "high")], True),  # membership needs a list
+            ([cond("sev", "not-in", "high")], True),
+            (None, False),  # match may be None/junk JSON
+            ("junk", False),  # non-list treated as no conds
+        ],
+    )
+    def test_table(self, match, expected):
+        assert _never_matches(match) is expected
+
+
+def lane(name, match, active=True, priority=100):
+    """Stand-in with the attributes _annotate_shadows reads."""
+    return type(
+        "L", (), {"name": name, "match": match, "is_active": active, "priority": priority}
+    )()
+
+
+class TestAnnotateShadows:
+    def test_earlier_catch_all_shadows_later(self):
+        lanes = [lane("catch-all", []), lane("cluster", [cond("source", "is", "cluster")])]
+        assert _annotate_shadows(lanes) == {"cluster": "catch-all"}
+
+    def test_first_shadower_named(self):
+        lanes = [
+            lane("a", [cond("s", "in", ["x", "y"])]),
+            lane("b", [cond("s", "in", ["x", "y", "z"])]),
+            lane("c", [cond("s", "is", "x")]),
+        ]
+        # c is shadowed by a (first prover wins); b is not shadowed by a
+        assert _annotate_shadows(lanes) == {"c": "a"}
+
+    def test_inactive_lane_does_not_shadow(self):
+        lanes = [lane("off", [], active=False), lane("cluster", [cond("s", "is", "x")])]
+        assert _annotate_shadows(lanes) == {}
+
+    def test_inactive_and_never_match_lanes_not_marked_shadowed(self):
+        lanes = [
+            lane("catch-all", []),
+            lane("off", [cond("s", "is", "x")], active=False),
+            lane("broken", [cond("s", "bad-op", "x")]),
+        ]
+        assert _annotate_shadows(lanes) == {}
+
+    def test_never_matching_lane_does_not_shadow(self):
+        lanes = [lane("broken", [cond("s", "bad-op", "x")]), lane("b", [cond("s", "is", "x")])]
+        assert _annotate_shadows(lanes) == {}
