@@ -182,7 +182,10 @@ def get_map_context() -> dict:
                 ],
                 "stages": lane.routable_stages(),
                 "delivery": _delivery(lane),
-                "seeded": (
+                # SEED_SHAPE_KEY means "the seed stripped `notify` from this lane on a
+                # channel-less hub; delivery auto-restores once a channel is configured"
+                # — NOT "row created by the seed". The badge must say that.
+                "seed_shaped": (
                     bool(lane.tags.get(SEED_SHAPE_KEY)) if isinstance(lane.tags, dict) else False
                 ),
                 "admin_url": reverse(

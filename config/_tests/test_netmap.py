@@ -222,6 +222,7 @@ class TestGetMapContext:
             match=[{"field": "source", "op": "is", "value": "cluster"}],
             stages=["check", "analyze", "notify"],
             channel=ch,
+            # Deliberate literal, not SEED_SHAPE_KEY: pins the wire format of the tag.
             tags={"seed_shape": "record-only"},
         )
         card = get_map_context()["lanes"][0]
@@ -229,8 +230,24 @@ class TestGetMapContext:
         assert card["conditions"] == ["source is cluster"]
         assert card["stages"] == ["check", "analyze", "notify"]
         assert card["delivery"] == {"state": "bound", "channel": "ops"}
-        assert card["seeded"] is True
+        assert card["seed_shaped"] is True
         assert card["admin_url"].endswith(f"/{lane_row.pk}/change/")
+
+    def test_no_channel_carries_inactive_channel_name(self):
+        # A lane bound to an INACTIVE channel is a no_channel gap, but the card
+        # still names the bound channel so the map can say "bound to X (inactive)".
+        ch = NotificationChannel.objects.create(
+            name="dormant", driver="email", is_active=False, config={}
+        )
+        self._lane(
+            "sleepy",
+            priority=1,
+            match=[{"field": "s", "op": "is", "value": "z"}],
+            stages=["notify"],
+            channel=ch,
+        )
+        card = get_map_context()["lanes"][0]
+        assert card["delivery"] == {"state": "no_channel", "channel": "dormant"}
 
     def test_delivery_states(self):
         self._lane(
@@ -276,7 +293,7 @@ class TestGetMapContext:
         by_name = {c["name"]: c for c in get_map_context()["lanes"]}
         assert by_name["junk-match"]["state"] == "never-matches"
         assert by_name["junk-match"]["conditions"] == []
-        assert by_name["junk-match"]["seeded"] is False
+        assert by_name["junk-match"]["seed_shaped"] is False
         assert by_name["junk-cond"]["state"] == "never-matches"
         assert by_name["junk-cond"]["conditions"] == ["'not-a-dict'"]
 
