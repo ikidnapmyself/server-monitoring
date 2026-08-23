@@ -28,30 +28,45 @@ this hub sends is resolved by the fallback. Deleting it without replacing it wou
 
 ## 2. The shape
 
-### 2.1 A fresh, complete routing table, seeded
+### 2.1 A fresh routing table that matches how the hub is actually configured
 
-A new migration `get_or_create`s the four default lanes and **binds an active channel** to each
-lane that actually delivers:
+**A channel is optional; a lane that lists `notify` is not.** The `stages` column *is* the
+statement of intent — `hub-self-check` already ships with `stages: []` to mean "record it, tell
+nobody", which is a supported way to run this hub. An operator who reads the admin daily and runs
+no Slack is not misconfigured; they simply have no lane that claims to deliver.
 
-| Lane | Priority | Stages | Channel |
+So the seed must not manufacture an intent the operator never expressed. It reads how many active
+channels exist and seeds accordingly:
+
+| Active channels | Seeded stages | Channel | Readiness |
 |---|---|---|---|
-| `resolved-all-clear` | 40 | `notify` | bound |
-| `cluster-nodes` | 50 | `analyze`, `notify` | bound |
-| `hub-self-check` | 50 | *(none)* | — |
-| `catch-all` | 1000 | `check`, `analyze`, `notify` | bound |
+| **0** | `notify` omitted — e.g. `catch-all` → `check`, `analyze` | — | `info`: recording only |
+| **1** | as designed, `notify` included | bound | `ok` |
+| **2+** | `notify` included | left unset | `error`: pick one |
 
-It binds **only when exactly one active channel exists**. With two or more there is no
-non-arbitrary answer, and picking one by name is precisely the bug being removed; those lanes stay
-unbound and are reported (§2.3) until an operator chooses. `hub-self-check` lists no stages, never
-notifies, and needs no channel.
+The lanes themselves:
 
-`get_or_create` on `name` means an operator's existing row is never overwritten, and binding only
-fills a `channel` that is `NULL` — a lane an operator has already pointed somewhere is left alone.
+| Lane | Priority | Stages (with a channel) | Stages (without) |
+|---|---|---|---|
+| `resolved-all-clear` | 40 | `notify` | *(inactive — it exists only to notify)* |
+| `cluster-nodes` | 50 | `analyze`, `notify` | `analyze` |
+| `hub-self-check` | 50 | *(none)* | *(none)* |
+| `catch-all` | 1000 | `check`, `analyze`, `notify` | `check`, `analyze` |
+
+Binding happens **only when exactly one active channel exists**. With two or more there is no
+non-arbitrary answer, and picking one by name is precisely the bug being removed. `get_or_create`
+on `name` means an operator's existing row is never overwritten, and binding only fills a `channel`
+that is `NULL`.
+
+`resolved-all-clear` is seeded `is_active=False` on a channel-less hub: its whole purpose is to
+notify an all-clear without analysing, so with nothing to notify it would only shadow the lanes
+below it. Everything else keeps routing.
 
 ### 2.2 The pipeline stops guessing
 
 A lane with no active channel now fails NOTIFY as a **non-retryable `no_channel`**
-`StageExecutionError`, the same shape as `no_route`. Nothing about a retry can conjure a channel;
+`StageExecutionError`, the same shape as `no_route`. Given §2.1 this fires only when a row
+*claims* it will deliver and cannot — never merely because the hub has no channel. Nothing about a retry can conjure a channel;
 the run is undeliverable until an operator configures one, and a retryable failure would spin.
 
 The fallback itself is not deleted from `NotifySelector` — it is *scoped*. `resolve()` gains
@@ -69,22 +84,30 @@ Two read-only surfaces, so "the hub went quiet" is diagnosable before an inciden
 after:
 
 - **Readiness panel** (`config/dashboard.py:build_readiness`) — a new entry counting lanes that
-  route to NOTIFY but have no active channel. `error` when any exist.
+  route to NOTIFY but have no active channel. `error` when any exist; `info` ("recording only")
+  when no lane delivers and no channel is configured, which is a valid way to run; and a nudge when
+  a channel exists but no lane points at it, which is a hub one edit away from delivering.
 - **Preflight** (`check_pipeline_state`) — the same finding as a `warn` with a hint naming the
   admin page.
 
 ## 3. Behaviour changes
 
 1. A pipeline run whose lane has no active channel **fails** instead of delivering somewhere else.
-   This is the point of the change, and the reason §2.1 seeds the binding first.
+   This is the point of the change, and the reason §2.1 seeds intent to match the hub first: a
+   channel-less hub records rather than failing, because it never claimed to deliver.
 2. Nothing changes for `test_notify` or the notify webhook.
 3. Nothing changes for a lane that already names an active channel.
 
 ## 4. Testing
 
-- The seed binds when exactly one active channel exists, binds nothing when zero or several, and
-  never overwrites a channel an operator already set.
+- The seed with **zero** channels omits `notify` from every lane, deactivates
+  `resolved-all-clear`, and produces a hub where nothing fails.
+- The seed with **one** channel includes `notify` and binds it; with **two or more** it includes
+  `notify` and binds nothing.
+- The seed never overwrites a channel or a `stages` list an operator already set.
 - `hub-self-check` (no stages) is not bound and not reported.
+- `no_driver`: a lane naming a channel whose driver is not registered fails non-retryably rather
+  than retrying three times.
 - A downstream run whose lane has no active channel fails `no_channel`, non-retryably, and delivers
   nothing.
 - An inactive channel on a lane behaves as no channel (`routed_channel()` is the one rule).
@@ -98,7 +121,31 @@ is silent (delivery to the wrong place). That trade is the whole point. The resi
 operator with several channels who never binds one: their lanes fail rather than misdeliver, and
 both surfaces in §2.3 name the fix.
 
-## 6. Out of scope
+## 6. A third gap, same construct: `no_driver`
+
+A lane can name a channel whose `driver` is not in `DRIVER_REGISTRY` — a driver removed, a typo in
+the field. Today `NotifyExecutor` appends "Unknown notify driver/provider" to the result, which the
+orchestrator turns into a **retryable** failure: three attempts, then a FAILED run an operator can
+"Mark for Retry" to spin again. No retry can invent a driver.
+
+That is the third and last way the routing table fails to say where work goes:
+
+| Code | Missing |
+|---|---|
+| `no_route` | no lane matched the alert |
+| `no_channel` | the lane names no active channel |
+| `no_driver` | the lane names a channel whose driver does not exist |
+
+All three use `routing_gap()`. The set is closed — it is the routing table's own structure, not an
+open-ended list of components.
+
+**Deliberately NOT gaps:** a missing AI provider (intelligence failure is a *designed* downgrade —
+`fallback_used`, recorded per-run, notification still sent) and an unconfigured optional
+integration such as PagerDuty or Grafana. The rule that keeps preflight readable: **diagnose
+dangling references, not absences.** Report a row that points at something missing; never report
+that an optional thing is simply not there.
+
+## 7. Out of scope
 
 - Per-lane multi-channel fan-out. Delivery has never fanned out; `channel` is a single FK.
 - Reviving `setup_cluster`. The migration covers a fresh install; the admin covers the rest.
