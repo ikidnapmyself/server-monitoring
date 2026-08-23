@@ -169,3 +169,16 @@ class TestAnnotateShadows:
             lane("narrow", [cond("s", "in", ["x", "y"]), cond("t", "is", "1")]),
         ]
         assert _annotate_shadows(lanes) == {"mid": "wide", "narrow": "wide"}
+
+    def test_chained_attribution_when_provability_is_not_transitive(self):
+        # Provability is not transitive for degenerate empty-list values: A proves
+        # B (b's ``in ["x"]`` gives ``bs == {"x"}``), and B proves C (``∅ ⊆ {"x"}``),
+        # but A does not prove C directly (``∅ == {"x"}`` fails). C is still
+        # semantically dead — its shadower is itself shadowed — so attribution may
+        # name an itself-shadowed lane, and that chain is truthful, not a bug.
+        lanes = [
+            lane("A-name", [cond("s", "is", "x")]),
+            lane("B-name", [cond("s", "in", ["x"])]),
+            lane("C-name", [cond("s", "in", [])]),
+        ]
+        assert _annotate_shadows(lanes) == {"B-name": "A-name", "C-name": "B-name"}
