@@ -348,7 +348,48 @@ Its docstring already explains why the failure is attributed to `routing` rather
 stage, and why it is non-retryable — trim the `retryable=False` half of that reasoning, since the
 factory now owns it, and leave the attribution reasoning in place.
 
-**Step 4: Raise it from NotifyExecutor**
+**Step 4: Raise both gaps from NotifyExecutor**
+
+Two call sites, one construct. Add to the Task 2 tests first:
+
+```python
+    def test_an_unregistered_driver_fails_non_retryably(self):
+        """A lane naming a driver that does not exist retries three times today.
+
+        No retry can invent a driver, and "Mark for Retry" in the admin spins it
+        again — a pointless loop against a typo in a config field.
+        """
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.errors import StageExecutionError
+
+        channel = NotificationChannel.objects.create(
+            name="ghost", driver="does-not-exist", is_active=True, config={}
+        )
+        incident = self._incident_on_lane(channel=channel)
+
+        with self.assertRaises(StageExecutionError) as caught:
+            NotifyExecutor().execute(_ctx(payload={}, incident_id=incident.id))
+
+        self.assertFalse(caught.exception.retryable)
+        self.assertIn("no_driver", "; ".join(caught.exception.errors))
+```
+
+Then replace the existing `driver_cls is None` branch (`executors.py:450`), which currently appends
+to `result.errors` and returns — becoming a *retryable* failure:
+
+```python
+            if driver_cls is None:
+                raise routing_gap(
+                    PipelineStage.NOTIFY,
+                    "no_driver",
+                    f"{provider_name!r} is not a registered driver "
+                    f"(available: {', '.join(sorted(DRIVER_REGISTRY))})",
+                )
+```
+
+The available-driver list stays in the message: it is what turns "no_driver" into a fix.
+
+**Step 5: Raise `no_channel`**
 
 In `NotifyExecutor.execute`, right after `requested = matched_channel_name or
 payload.get("notify_driver")`:
@@ -369,7 +410,7 @@ payload.get("notify_driver")`:
 `from apps.orchestration.errors import routing_gap` goes at module level — the whole point of the
 extraction is that this import is no longer circular.
 
-**Step 5: Run the full suite**
+**Step 6: Run the full suite**
 
 ```bash
 uv run pytest -q
@@ -383,34 +424,37 @@ not weaken an assertion, and do not re-add the fallback to make a test pass.
 Also check nothing imports `StageExecutionError` in a way the re-export misses:
 `grep -rn "StageExecutionError" apps/`.
 
-**Step 6: Commit**
+**Step 7: Commit**
 
 ```bash
 git add apps/orchestration/
-git commit -m "feat(orchestration): a lane with no active channel fails no_channel"
+git commit -m "feat(orchestration): the routing table's three gaps share one failure"
 ```
 
 ---
 
-## Task 3: Seed the lanes and bind the channel
+## Task 3: Seed a routing table that matches how the hub is configured
 
 **Files:**
-- Create: `apps/orchestration/migrations/0017_bind_lane_channels.py`
-- Test: `apps/orchestration/_tests/test_orchestrator_routing.py` (beside `SeededDefaultLanesTests`)
+- Create: `apps/orchestration/seeding.py`
+- Create: `apps/orchestration/migrations/0017_seed_routing_table.py`
+- Test: `apps/orchestration/_tests/test_seeding.py`
+
+Read design §2.1 first. The rule this task exists to honour: **a channel is optional, a lane that
+lists `notify` is not.** An operator who reads the admin daily and runs no Slack is not
+misconfigured — they have no lane claiming to deliver. The seed must not manufacture an intent they
+never expressed and then fail every run for it.
 
 **Step 1: Write the failing tests**
 
-The migration's *effect* is what to test, not the migration mechanics — call the same helper the
-migration uses:
-
 ```python
-class LaneChannelSeedTests(TestCase):
-    """A fresh install delivers without hand-configuration — when the answer is unambiguous."""
+class SeedRoutingTableTests(TestCase):
+    """The seed reads the hub instead of assuming it.
 
-    def _lane(self, name, stages, channel=None):
-        return PipelineDefinition.objects.create(
-            name=name, match=[], stages=stages, priority=100, channel=channel
-        )
+    Zero channels means "this hub records" — every lane keeps routing, none claims
+    to deliver, and nothing fails. One channel means "this hub delivers there".
+    Two or more is the only case a human has to resolve.
+    """
 
     def _channel(self, name="ops", is_active=True):
         from apps.notify.models import NotificationChannel
@@ -419,124 +463,243 @@ class LaneChannelSeedTests(TestCase):
             name=name, driver="generic", is_active=is_active, config={}
         )
 
-    def test_one_active_channel_is_bound_to_delivering_lanes(self):
-        from apps.orchestration.seeding import bind_lane_channels
+    def _seed(self):
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import seed_routing_table
 
+        PipelineDefinition.objects.all().delete()
+        return seed_routing_table(PipelineDefinition, NotificationChannel)
+
+    def _lane(self, name):
+        from apps.orchestration.models import PipelineDefinition
+
+        return PipelineDefinition.objects.get(name=name)
+
+    # --- zero channels: a recording hub -----------------------------------
+    def test_no_channel_seeds_lanes_that_do_not_claim_to_deliver(self):
+        self._seed()
+
+        self.assertEqual(self._lane("catch-all").stages, ["check", "analyze"])
+        self.assertEqual(self._lane("cluster-nodes").stages, ["analyze"])
+        self.assertIsNone(self._lane("catch-all").channel_id)
+
+    def test_no_channel_deactivates_the_resolved_lane(self):
+        """Its only purpose is to notify an all-clear; active it would just shadow."""
+        self._seed()
+
+        self.assertFalse(self._lane("resolved-all-clear").is_active)
+
+    def test_no_channel_still_routes_everything(self):
+        """Recording is not silence: alerts still match, check and analyse."""
+        from apps.orchestration.models import PipelineDefinition
+
+        self._seed()
+
+        self.assertTrue(
+            PipelineDefinition.objects.filter(is_active=True, match=[]).exists()
+        )
+
+    # --- one channel: a delivering hub ------------------------------------
+    def test_one_channel_seeds_notify_and_binds_it(self):
         channel = self._channel()
-        lane = self._lane("delivers", ["analyze", "notify"])
 
-        bind_lane_channels(PipelineDefinition, type(channel))
+        self._seed()
 
-        lane.refresh_from_db()
+        lane = self._lane("catch-all")
+        self.assertEqual(lane.stages, ["check", "analyze", "notify"])
         self.assertEqual(lane.channel_id, channel.id)
+        self.assertTrue(self._lane("resolved-all-clear").is_active)
 
-    def test_a_lane_that_never_notifies_is_left_alone(self):
-        from apps.orchestration.seeding import bind_lane_channels
+    def test_an_inactive_channel_does_not_count(self):
+        self._channel(is_active=False)
 
-        channel = self._channel()
-        lane = self._lane("records-only", [])
+        self._seed()
 
-        bind_lane_channels(PipelineDefinition, type(channel))
+        self.assertEqual(self._lane("catch-all").stages, ["check", "analyze"])
 
-        lane.refresh_from_db()
-        self.assertIsNone(lane.channel_id)
-
-    def test_two_active_channels_bind_nothing(self):
-        """Alphabetical accident is the bug; there is no non-arbitrary answer here."""
-        from apps.orchestration.seeding import bind_lane_channels
-
-        first = self._channel("aaa")
+    # --- two or more: the operator chooses --------------------------------
+    def test_several_channels_seed_notify_but_bind_nothing(self):
+        """Alphabetical accident is the bug being removed; there is no right answer."""
+        self._channel("aaa")
         self._channel("zzz")
-        lane = self._lane("delivers", ["notify"])
 
-        bind_lane_channels(PipelineDefinition, type(first))
+        self._seed()
 
-        lane.refresh_from_db()
+        lane = self._lane("catch-all")
+        self.assertIn("notify", lane.stages)
         self.assertIsNone(lane.channel_id)
 
-    def test_an_operator_choice_is_never_overwritten(self):
-        from apps.orchestration.seeding import bind_lane_channels
+    # --- idempotence and operator intent ----------------------------------
+    def test_an_existing_lane_is_never_rewritten(self):
+        """get_or_create on name: an operator's row is theirs."""
+        from apps.orchestration.models import PipelineDefinition
 
-        chosen = self._channel("chosen")
-        lane = self._lane("delivers", ["notify"], channel=chosen)
-        # A second channel would make the seed ambiguous anyway; this proves the
-        # guard is "already set", not "only one exists".
-        bind_lane_channels(PipelineDefinition, type(chosen))
+        self._channel()
+        PipelineDefinition.objects.create(
+            name="catch-all", match=[], stages=[], priority=7, is_active=False
+        )
 
-        lane.refresh_from_db()
-        self.assertEqual(lane.channel_id, chosen.id)
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.seeding import seed_routing_table
 
-    def test_an_inactive_channel_is_not_bound(self):
-        from apps.orchestration.seeding import bind_lane_channels
+        seed_routing_table(PipelineDefinition, NotificationChannel)
 
-        channel = self._channel(is_active=False)
-        lane = self._lane("delivers", ["notify"])
+        lane = self._lane("catch-all")
+        self.assertEqual(lane.stages, [])
+        self.assertEqual(lane.priority, 7)
 
-        bind_lane_channels(PipelineDefinition, type(channel))
+    def test_seeding_twice_changes_nothing(self):
+        self._channel()
 
-        lane.refresh_from_db()
-        self.assertIsNone(lane.channel_id)
+        self._seed()
+        before = list(
+            self._lane("catch-all").__class__.objects.values_list("name", "stages", "channel")
+        )
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import seed_routing_table
+
+        seed_routing_table(PipelineDefinition, NotificationChannel)
+
+        after = list(PipelineDefinition.objects.values_list("name", "stages", "channel"))
+        self.assertEqual(before, after)
+
+    def test_hub_self_check_never_gets_a_channel(self):
+        """It lists no stages, so it never delivers and needs nothing bound."""
+        self._channel()
+
+        self._seed()
+
+        self.assertIsNone(self._lane("hub-self-check").channel_id)
 ```
 
 **Step 2: Run and watch them fail**
 
 ```bash
-uv run pytest apps/orchestration/_tests/test_orchestrator_routing.py -k LaneChannelSeed -v
+uv run pytest apps/orchestration/_tests/test_seeding.py -v
 ```
 
 Expected: `ModuleNotFoundError: apps.orchestration.seeding`.
 
-**Step 3: Write the helper**
+**Step 3: Write the seeding module**
 
 Create `apps/orchestration/seeding.py`. It takes the model classes as arguments so the migration
-can pass its historical models and the tests can pass the real ones:
+can pass its historical models and the tests can pass the real ones — one implementation, exercised
+by both, instead of a migration body no test ever runs.
 
 ```python
-"""Seed helpers shared by data migrations and their tests.
+"""Seed the routing table to match how this hub is actually configured.
 
-Migrations must use ``apps.get_model``; tests want the real classes. Passing the
-models in keeps one implementation for both instead of a migration body no test
-ever executes.
+Shared by the data migration and its tests: migrations must use
+``apps.get_model``, tests want the real classes, so the models are passed in.
+
+The rule that shapes everything here: **a channel is optional, a lane that lists
+``notify`` is not.** ``stages`` is the operator's statement of intent — a hub with
+no channel is not broken, it simply has no lane claiming to deliver, and seeding
+``notify`` onto it would manufacture an intent it can never satisfy (every run
+then failing ``no_channel``). See
+docs/plans/2026-08-22-lane-channel-required-design.md §2.1.
 """
 
+_LANES = [
+    {
+        "name": "resolved-all-clear",
+        "description": (
+            "Resolved incidents notify without analysis: there is nothing left to "
+            "diagnose, and an LLM call on an all-clear is pure cost."
+        ),
+        "match": [{"field": "status", "op": "is", "value": "resolved"}],
+        "stages": ["notify"],
+        "priority": 40,
+    },
+    {
+        "name": "cluster-nodes",
+        "description": (
+            "Alerts pushed by a node. CHECK is omitted: the node already ran its own "
+            "checkers, so hub-side checks would report the hub's CPU and disk."
+        ),
+        "match": [{"field": "source", "op": "is", "value": "cluster"}],
+        "stages": ["analyze", "notify"],
+        "priority": 50,
+    },
+    {
+        "name": "hub-self-check",
+        "description": (
+            "The hub's own scheduled checks. Records and correlates only: the cron "
+            "repeats every five minutes and a still-firing alert is re-reported each "
+            "time."
+        ),
+        "match": [{"field": "origin", "op": "is", "value": "checker_generated"}],
+        "stages": [],
+        "priority": 50,
+    },
+    {
+        "name": "catch-all",
+        "description": "Everything else. The routing table's last word, as an editable row.",
+        "match": [],
+        "stages": ["check", "analyze", "notify"],
+        "priority": 1000,
+    },
+]
 
-def bind_lane_channels(pipeline_model, channel_model) -> int:
-    """Point every delivering lane at the single active channel. Return how many.
 
-    Binds only when exactly one active channel exists: with several there is no
-    non-arbitrary answer, and picking by name is the misroute this exists to
-    remove. Only fills a NULL channel — a lane an operator has already pointed
-    somewhere is never repointed. A lane that does not list ``notify`` never
-    delivers and needs no channel.
+def seed_routing_table(pipeline_model, channel_model) -> dict:
+    """Create the default lanes, shaped by how many channels are active.
+
+    Returns ``{"created": n, "bound": n, "delivering": bool}`` for the caller to
+    log. Idempotent: ``get_or_create`` on ``name`` never rewrites an operator's row.
     """
     channels = list(channel_model.objects.filter(is_active=True)[:2])
-    if len(channels) != 1:
-        return 0
+    delivering = bool(channels)
 
-    bound = 0
-    for lane in pipeline_model.objects.filter(channel__isnull=True):
-        if "notify" not in (lane.stages or []):
-            continue
-        lane.channel = channels[0]
-        lane.save(update_fields=["channel"])
-        bound += 1
-    return bound
+    created = bound = 0
+    for lane in _LANES:
+        fields = dict(lane)
+        name = fields.pop("name")
+        stages = list(fields.pop("stages"))
+        if not delivering:
+            # Nothing to deliver to: the lane must not claim it will.
+            stages = [s for s in stages if s != "notify"]
+        # A lane that exists only to notify has nothing left to do.
+        is_active = bool(stages) or name == "hub-self-check"
+
+        obj, was_created = pipeline_model.objects.get_or_create(
+            name=name, defaults={**fields, "stages": stages, "is_active": is_active}
+        )
+        created += int(was_created)
+
+        # Bind only when the answer is not arbitrary, and only into an empty slot.
+        if len(channels) == 1 and obj.channel_id is None and "notify" in (obj.stages or []):
+            obj.channel = channels[0]
+            obj.save(update_fields=["channel"])
+            bound += 1
+
+    return {"created": created, "bound": bound, "delivering": delivering}
 ```
 
-Note it reads `lane.stages` directly rather than `routable_stages()`, because a migration's
-historical model has no methods.
+Note `hub-self-check` stays active with empty stages — that is its designed shape (record and
+correlate), not an accident of this seed.
 
 **Step 4: Write the migration**
 
-`apps/orchestration/migrations/0017_bind_lane_channels.py`, following `0016`'s structure: a module
-docstring explaining why the row exists, `get_or_create` for the lanes, then `bind_lane_channels`.
-Re-seed all four defaults (`resolved-all-clear`, `cluster-nodes`, `hub-self-check`, `catch-all`)
-with the shapes recorded in the design's table — an operator may have deleted them, and this
-migration is what makes a wiped table whole again.
+`apps/orchestration/migrations/0017_seed_routing_table.py`, following `0016`'s structure. Its
+module docstring must say why the seed is channel-aware, not just what it does. Body:
 
-`backwards` unbinds nothing and deletes nothing: it is not this migration's business to remove an
-operator's channel choice. State that in the docstring rather than leaving an empty function
-unexplained.
+```python
+def forwards(apps, schema_editor):
+    seed_routing_table(
+        apps.get_model("orchestration", "PipelineDefinition"),
+        apps.get_model("notify", "NotificationChannel"),
+    )
+```
+
+`backwards` deletes nothing and unbinds nothing — it is not this migration's business to remove an
+operator's lanes or their channel choice. Say that in the docstring rather than leaving an empty
+function unexplained.
+
+Add the `notify` app to the migration's `dependencies` (it reads `NotificationChannel`), alongside
+`("orchestration", "0016_seed_resolved_lane")`.
 
 **Step 5: Apply and test**
 
@@ -544,11 +707,15 @@ unexplained.
 uv run python manage.py migrate && uv run pytest apps/orchestration/_tests/ -q
 ```
 
+Note the migration is a no-op on this developer database, where `0012`/`0014`/`0016` already
+seeded the lanes — `get_or_create` finds them. That is correct and is what the idempotence test
+covers.
+
 **Step 6: Commit**
 
 ```bash
 git add apps/orchestration/
-git commit -m "feat(orchestration): seed the default lanes and bind their channel"
+git commit -m "feat(orchestration): seed a routing table shaped by the hub's channels"
 ```
 
 ---
@@ -566,19 +733,32 @@ git commit -m "feat(orchestration): seed the default lanes and bind their channe
 One per surface. Assert the *finding*, not the wording:
 
 ```python
-def test_readiness_reports_a_lane_that_cannot_deliver(self):
-    from config.dashboard import build_readiness
-
+def test_a_lane_that_claims_to_deliver_but_cannot_is_an_error(self):
     PipelineDefinition.objects.create(
         name="mute", match=[], stages=["notify"], priority=1, channel=None
     )
 
-    entry = next(e for e in build_readiness() if e["key"] == "lane_channels")
-    assert entry["status"] == "error"
+    assert self._entry()["status"] == "error"
 
-def test_readiness_is_ok_when_every_delivering_lane_has_a_channel(self):
+def test_a_recording_hub_is_not_an_error(self):
+    """No channel and no delivering lane is a supported setup, not a fault.
+
+    An operator who reads the admin daily and runs no Slack must not see red.
+    """
+    PipelineDefinition.objects.create(name="records", match=[], stages=["analyze"], priority=1)
+
+    assert self._entry()["status"] == "info"
+
+def test_every_delivering_lane_bound_is_ok(self):
     ...
+    assert self._entry()["status"] == "ok"
+
+def test_a_channel_nobody_delivers_to_is_a_nudge_not_an_alarm(self):
+    """One edit away from delivering — say so, do not shout."""
+    ...
+    entry = self._entry()
     assert entry["status"] == "ok"
+    assert "no lane" in entry["detail"].lower()
 
 def test_a_lane_that_never_notifies_is_not_reported(self):
     """hub-self-check lists no stages; it is not broken, it is quiet by design."""
@@ -590,10 +770,17 @@ Find the existing `build_readiness` tests first and match their setup style.
 
 **Step 3: Implement**
 
-In `build_readiness`, after the Channels entry, count lanes where
-`"notify" in lane.routable_stages()` and `routed_channel()` is None. Status `error` when any,
-`ok` otherwise; `url` points at the pipeline-definition changelist. Use `routed_channel()` — do not
-re-derive "active".
+In `build_readiness`, after the Channels entry, add a `lane_channels` entry with three states —
+see design §2.3:
+
+- **`error`** — at least one lane lists `notify` and `routed_channel()` is None. A row claims to
+  deliver and cannot.
+- **`info`** — no lane delivers AND no channel is active. "Recording only": a supported way to run
+  this hub, not a fault. Must not read as a problem.
+- **`ok`** — every delivering lane has an active channel. When a channel exists but no lane points
+  at it, keep `ok` and say so in `detail` ("no lane delivers to it yet") — a nudge, not an alarm.
+
+Use `routed_channel()` and `routable_stages()`; do not re-derive "active" or parse `stages`.
 
 In `check_pipeline_state`, add a `warn` for the same condition, with a hint naming the admin page
 and saying such a run now fails as `no_channel` rather than delivering elsewhere.
