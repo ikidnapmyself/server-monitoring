@@ -1,7 +1,8 @@
 """Seed the routing table to match how this hub is actually configured.
 
-Shared by the data migration and its tests: migrations must use
-``apps.get_model``, tests want the real classes, so the models are passed in.
+Shared by ``setup_cluster`` and the admin; migration ``0017`` deliberately keeps
+its own frozen copy (see the note there). The models are passed in because the
+callers differ in which classes they hold.
 
 The rule that shapes everything here: **a channel is optional, a lane that lists
 ``notify`` is not.** ``stages`` is the operator's statement of intent — a hub with
@@ -10,12 +11,25 @@ no channel is not broken, it simply has no lane claiming to deliver, and seeding
 then failing ``no_channel``). See
 docs/plans/2026-08-22-lane-channel-required-design.md §2.1.
 
+And the rule that limits it: **the pipeline definition is hub-side truth.** Only a
+configuration-time action changes one, and none of them may silently undo an
+operator's decision. Concretely, shaping may only ever turn a lane OFF (a lane
+that cannot deliver is safely quiet), never ON, and only a lane still carrying
+this seed's own provenance marker is restored later.
+
 Everything here reads ``stages`` as a plain list rather than calling
-``routable_stages()``: a migration's historical models carry fields only, never
-methods, and this module runs under both.
+``routable_stages()``: historical models carry fields only, never methods.
 """
 
 from typing import Any
+
+#: Provenance, written into ``PipelineDefinition.tags``. The seed strips ``notify``
+#: from a lane on a channel-less hub; this records that it did, so
+#: ``enable_delivery`` can restore exactly those lanes later. Shape cannot answer
+#: that question — an operator can type the same ``stages`` list by hand, and that
+#: row is theirs, not the seed's to rewrite.
+SEED_SHAPE_KEY = "seed_shape"
+RECORD_ONLY = "record-only"
 
 # Annotated so ``stages`` reads back as a list rather than ``object``: the values
 # here are heterogeneous (str, list, int) and an inferred ``dict[str, object]``
@@ -73,6 +87,11 @@ _PRIOR_STAGES = {
 }
 
 
+def _tags(obj) -> dict:
+    """``tags`` as a dict. It is a JSONField, so a fixture can persist a list."""
+    return dict(obj.tags) if isinstance(obj.tags, dict) else {}
+
+
 def seed_routing_table(pipeline_model, channel_model) -> dict:
     """Create or repair the default lanes, shaped by how many channels are active.
 
@@ -84,6 +103,11 @@ def seed_routing_table(pipeline_model, channel_model) -> dict:
     ``get_or_create``'s defaults would be discarded — the channel-aware shaping would
     never run on the one case it was written for. So a row still carrying exactly the
     shape those migrations seeded is reshaped; a row an operator has touched is not.
+
+    **Repair may only switch a lane off.** A lane that cannot deliver is safely
+    quiet, so removing ``notify`` and disabling a lane left with nothing to do is a
+    repair. Turning one back on is not: an operator who disabled the ``catch-all``
+    must not find it running again because ``migrate`` ran.
     """
     channels = list(channel_model.objects.filter(is_active=True)[:2])
     delivering = bool(channels)
@@ -92,23 +116,40 @@ def seed_routing_table(pipeline_model, channel_model) -> dict:
     for lane in _LANES:
         fields = dict(lane)
         name = fields.pop("name")
-        stages = list(fields.pop("stages"))
-        if not delivering:
+        wanted = list(fields.pop("stages"))
+        stages = wanted
+        record_only = False
+        if not delivering and "notify" in wanted:
             # Nothing to deliver to: the lane must not claim it will.
-            stages = [s for s in stages if s != "notify"]
-        # A lane that exists only to notify has nothing left to do.
-        is_active = bool(stages) or name == "hub-self-check"
+            stages = [s for s in wanted if s != "notify"]
+            record_only = True
+        # A lane reshaped down to nothing exists only to notify, so it has nothing
+        # left to do. ``hub-self-check`` is not reshaped and stays on by design.
+        is_active = bool(stages) or not record_only
+        tags = {SEED_SHAPE_KEY: RECORD_ONLY} if record_only else {}
 
         obj, was_created = pipeline_model.objects.get_or_create(
-            name=name, defaults={**fields, "stages": stages, "is_active": is_active}
+            name=name,
+            defaults={**fields, "stages": stages, "is_active": is_active, "tags": tags},
         )
         created += int(was_created)
 
         if not was_created and list(obj.stages or []) == _PRIOR_STAGES.get(name):
-            if list(obj.stages or []) != stages or obj.is_active != is_active:
+            changed = []
+            if list(obj.stages or []) != stages:
                 obj.stages = stages
-                obj.is_active = is_active
-                obj.save(update_fields=["stages", "is_active"])
+                changed.append("stages")
+            if record_only and not stages and obj.is_active:
+                # Off, never on: see the docstring.
+                obj.is_active = False
+                changed.append("is_active")
+            if record_only:
+                marked = _tags(obj)
+                marked[SEED_SHAPE_KEY] = RECORD_ONLY
+                obj.tags = marked
+                changed.append("tags")
+            if changed:
+                obj.save(update_fields=changed)
                 repaired += 1
 
         # Bind only when the answer is not arbitrary, and only into an empty slot on
@@ -134,7 +175,7 @@ def seed_routing_table(pipeline_model, channel_model) -> dict:
 
 
 def enable_delivery(pipeline_model, channel) -> int:
-    """Restore ``notify`` on seeded lanes that were shaped for a channel-less hub.
+    """Restore ``notify`` on the lanes THIS seed shaped for a channel-less hub.
 
     The seed strips ``notify`` when no channel exists, because a lane must not
     promise what the hub cannot do. Configuring a channel is the operator saying
@@ -142,8 +183,16 @@ def enable_delivery(pipeline_model, channel) -> int:
     pipeline never reinterprets a definition; it executes it. So the definition is
     what changes.
 
-    Only lanes still carrying the record-only shape this module wrote are touched;
-    a lane an operator has edited is theirs. Returns how many were restored.
+    Which lanes those are is read from the ``seed_shape`` marker, not guessed from
+    ``stages``: an operator whose ``catch-all`` records by choice writes the very
+    same list, and that row is theirs. Restoring a lane spends the claim, so the
+    marker is cleared. A lane that still carries the marker but no longer carries
+    the shape has been edited since, and is likewise left alone.
+
+    Reactivation is bounded the same way. The seed only ever switched off a lane it
+    had reshaped down to *nothing* (``resolved-all-clear``), so only that case is
+    switched back on; a lane the operator disabled stays disabled. Returns how many
+    lanes were restored plus how many were bound.
     """
     restored = 0
     for lane in _LANES:
@@ -153,11 +202,17 @@ def enable_delivery(pipeline_model, channel) -> int:
             continue
         stripped = [s for s in wanted if s != "notify"]
         obj = pipeline_model.objects.filter(name=name).first()
-        if obj is None or list(obj.stages or []) != stripped:
+        if obj is None or _tags(obj).get(SEED_SHAPE_KEY) != RECORD_ONLY:
+            continue
+        if list(obj.stages or []) != stripped:
             continue
         obj.stages = wanted
-        obj.is_active = True
-        obj.save(update_fields=["stages", "is_active"])
+        if not stripped:
+            obj.is_active = True
+        tags = _tags(obj)
+        tags.pop(SEED_SHAPE_KEY)
+        obj.tags = tags
+        obj.save(update_fields=["stages", "is_active", "tags"])
         restored += 1
     return restored + bind_delivering_lanes(pipeline_model, channel)
 

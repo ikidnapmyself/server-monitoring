@@ -421,3 +421,215 @@ class EnableDeliveryTests(TestCase):
         enable_delivery(PipelineDefinition, channel)
 
         self.assertEqual(enable_delivery(PipelineDefinition, channel), 0)
+
+
+class SeedShapeMarkerTests(TestCase):
+    """Provenance, not shape-guessing: the seed records what it did.
+
+    ``stages`` cannot answer "did the seed write this?" — an operator can type the
+    same list by hand, and an operator can edit a list the seed wrote. ``tags`` is
+    a JSON dict on the row, so the seed marks the lanes it shaped record-only and
+    later configuration-time actions read the marker instead of re-deriving intent
+    from a shape.
+    """
+
+    def _channel(self, name="ops"):
+        from apps.notify.models import NotificationChannel
+
+        return NotificationChannel.objects.create(
+            name=name, driver="generic", is_active=True, config={}
+        )
+
+    def _seed(self):
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import seed_routing_table
+
+        return seed_routing_table(PipelineDefinition, NotificationChannel)
+
+    def _lane(self, name):
+        from apps.orchestration.models import PipelineDefinition
+
+        return PipelineDefinition.objects.get(name=name)
+
+    def _clear(self):
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.all().delete()
+
+    def test_a_created_record_only_lane_carries_the_marker(self):
+        from apps.orchestration.seeding import RECORD_ONLY, SEED_SHAPE_KEY
+
+        self._clear()
+        self._seed()
+
+        for name in ("catch-all", "cluster-nodes", "resolved-all-clear"):
+            self.assertEqual(self._lane(name).tags.get(SEED_SHAPE_KEY), RECORD_ONLY, name)
+
+    def test_a_lane_the_seed_did_not_reshape_carries_no_marker(self):
+        """hub-self-check never lists notify, so nothing was taken away from it."""
+        from apps.orchestration.seeding import SEED_SHAPE_KEY
+
+        self._clear()
+        self._seed()
+
+        self.assertNotIn(SEED_SHAPE_KEY, self._lane("hub-self-check").tags)
+
+    def test_a_delivering_seed_marks_nothing(self):
+        from apps.orchestration.seeding import SEED_SHAPE_KEY
+
+        self._clear()
+        self._channel()
+        self._seed()
+
+        self.assertNotIn(SEED_SHAPE_KEY, self._lane("catch-all").tags)
+
+    def test_a_repaired_record_only_lane_carries_the_marker(self):
+        """Repair is the path a real install takes: 0012/0014/0016 ran first."""
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import RECORD_ONLY, SEED_SHAPE_KEY
+
+        self._clear()
+        PipelineDefinition.objects.create(
+            name="catch-all", match=[], stages=["check", "analyze", "notify"], priority=1000
+        )
+
+        self._seed()
+
+        self.assertEqual(self._lane("catch-all").tags.get(SEED_SHAPE_KEY), RECORD_ONLY)
+
+    def test_junk_in_tags_does_not_break_the_marker(self):
+        """``tags`` is a JSONField: a fixture or shell edit can persist a non-dict."""
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import RECORD_ONLY, SEED_SHAPE_KEY
+
+        self._clear()
+        PipelineDefinition.objects.create(
+            name="catch-all",
+            match=[],
+            stages=["check", "analyze", "notify"],
+            priority=1000,
+            tags=["not", "a", "dict"],
+        )
+
+        self._seed()
+
+        self.assertEqual(self._lane("catch-all").tags.get(SEED_SHAPE_KEY), RECORD_ONLY)
+
+
+class RepairNeverResurrectsTests(TestCase):
+    """Shaping may turn a lane OFF; it may never turn one ON.
+
+    A lane that cannot deliver is safely quiet, so switching it off is a repair. An
+    operator who disabled a lane made a decision, and ``migrate`` running again is
+    not the moment to overrule it — the definition is hub-side truth and only an
+    operator changes what it says.
+    """
+
+    def _seed(self):
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import seed_routing_table
+
+        return seed_routing_table(PipelineDefinition, NotificationChannel)
+
+    def _prior_row(self, name, stages, priority, is_active=True):
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.all().delete()
+        return PipelineDefinition.objects.create(
+            name=name, match=[], stages=stages, priority=priority, is_active=is_active
+        )
+
+    def test_a_disabled_lane_stays_disabled_through_a_repair(self):
+        from apps.notify.models import NotificationChannel
+
+        NotificationChannel.objects.create(name="ops", driver="generic", is_active=True, config={})
+        lane = self._prior_row("catch-all", ["check", "analyze", "notify"], 1000, is_active=False)
+
+        self._seed()
+
+        lane.refresh_from_db()
+        self.assertFalse(lane.is_active)
+
+    def test_a_disabled_lane_stays_disabled_on_a_channel_less_hub(self):
+        lane = self._prior_row("catch-all", ["check", "analyze", "notify"], 1000, is_active=False)
+
+        self._seed()
+
+        lane.refresh_from_db()
+        self.assertFalse(lane.is_active)
+        self.assertEqual(lane.stages, ["check", "analyze"])
+
+
+class EnableDeliveryProvenanceTests(TestCase):
+    """Only the lanes the seed itself shaped are restored, and only once."""
+
+    def _channel(self):
+        from apps.notify.models import NotificationChannel
+
+        return NotificationChannel.objects.create(
+            name="ops", driver="generic", is_active=True, config={}
+        )
+
+    def _record_only_seed(self):
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import seed_routing_table
+
+        PipelineDefinition.objects.all().delete()
+        seed_routing_table(PipelineDefinition, NotificationChannel)
+
+    def _lane(self, name):
+        from apps.orchestration.models import PipelineDefinition
+
+        return PipelineDefinition.objects.get(name=name)
+
+    def test_a_lane_the_seed_never_shaped_is_left_alone(self):
+        """Same stages the seed would have written, but the seed did not write them.
+
+        Shape is not provenance: an operator whose catch-all records by choice must
+        not start delivering because a channel appeared.
+        """
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import enable_delivery
+
+        PipelineDefinition.objects.all().delete()
+        PipelineDefinition.objects.create(
+            name="catch-all", match=[], stages=["check", "analyze"], priority=1000
+        )
+        channel = self._channel()
+
+        restored = enable_delivery(PipelineDefinition, channel)
+
+        self.assertEqual(restored, 0)
+        self.assertEqual(self._lane("catch-all").stages, ["check", "analyze"])
+
+    def test_restoring_clears_the_marker(self):
+        """The claim is spent: the lane is no longer the shape the seed wrote."""
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import SEED_SHAPE_KEY, enable_delivery
+
+        self._record_only_seed()
+        channel = self._channel()
+
+        enable_delivery(PipelineDefinition, channel)
+
+        self.assertNotIn(SEED_SHAPE_KEY, self._lane("catch-all").tags)
+
+    def test_an_operator_disabled_lane_is_not_re_enabled(self):
+        """The seed only ever switched off ``resolved-all-clear``; the rest is theirs."""
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import enable_delivery
+
+        self._record_only_seed()
+        lane = self._lane("catch-all")
+        lane.is_active = False
+        lane.save(update_fields=["is_active"])
+        channel = self._channel()
+
+        enable_delivery(PipelineDefinition, channel)
+
+        lane.refresh_from_db()
+        self.assertFalse(lane.is_active)
+        self.assertIsNone(lane.channel_id)
