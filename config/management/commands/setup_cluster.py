@@ -130,23 +130,30 @@ class Command(BaseCommand):
         from apps.notify.models import NotificationChannel
         from apps.notify.views import DRIVER_REGISTRY
 
-        # Two is enough to know the answer is arbitrary; no need to fetch more.
-        active = list(NotificationChannel.objects.filter(is_active=True)[:2])
+        active = list(NotificationChannel.objects.filter(is_active=True))
         if len(active) > 1:
-            # ``first()`` on a Meta.ordering = ["name"] queryset picks alphabetically,
-            # and binding now covers EVERY delivering lane — so guessing here would
-            # land the hub's whole traffic on whichever channel sorts first. That is
-            # the misroute this whole change removes, so it is the operator's call.
-            self.stdout.write(
-                self.style.WARNING(
-                    f"Notifications: {len(active)} channels active — nothing bound. "
-                    "There is no non-arbitrary choice, so pick one per lane in Django "
-                    "admin (Orchestration → Pipeline definitions)."
+            # Taking the first one is a UX affordance — "you already have a channel,
+            # I won't ask again" — and with one channel it cannot be wrong. With
+            # several it can: Meta.ordering = ["name"] makes it alphabetical, and
+            # binding now covers EVERY delivering lane, so a guess here would land
+            # the hub's whole traffic on whichever channel sorts first. So ask rather
+            # than guess, and keep the affordance by offering a default.
+            existing = self._choose_channel(options, active)
+            if existing is None:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"Notifications: {len(active)} channels active — nothing bound. "
+                        "Pick one per lane in Django admin "
+                        "(Orchestration → Pipeline definitions)."
+                    )
                 )
-            )
-            return
-        if active:
+                return
+        elif active:
             existing = active[0]
+        else:
+            existing = None
+
+        if existing is not None:
             self._bind_catchall_pipeline(existing)
             self.stdout.write(
                 f"Notifications: active ({existing.driver}: {existing.name}), "
@@ -191,6 +198,23 @@ class Command(BaseCommand):
                 f"Notifications: {driver} channel active, routed via the catch-all pipeline."
             )
         )
+
+    def _choose_channel(self, options, channels):
+        """Ask which of several active channels to route through. None = skip.
+
+        Only asks when there is a real question (more than one) and someone is
+        there to answer: a scripted run (``--no-notify`` or ``--notify-driver``)
+        must never block on input, and binds nothing rather than guessing.
+        ``--notify-driver`` cannot name a channel — argparse restricts it to
+        ``slack|generic`` — so it selects nothing here.
+        """
+        if options.get("no_notify") or options.get("notify_driver"):
+            return None
+
+        by_name = {c.name: c for c in channels}
+        names = ", ".join(sorted(by_name))
+        answer = input(f"Which channel should the lanes deliver to? [{names}/skip]: ").strip()
+        return by_name.get(answer)
 
     def _bind_catchall_pipeline(self, channel) -> None:
         """Route the channel through the catch-all lane that actually wins.

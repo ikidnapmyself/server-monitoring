@@ -167,6 +167,49 @@ class SetupClusterHubTests(TestCase):
         self.assertIn("Pipeline definitions", out)
         self.assertIn("2 channels active", out)
 
+    def test_several_channels_can_be_chosen_interactively(self):
+        """Taking the first channel is a UX affordance, not a default.
+
+        With one channel it cannot be wrong, so it stays silent. With several it
+        can be — Meta.ordering is by name and binding covers every delivering lane
+        — so it asks instead of guessing, rather than dropping the affordance and
+        refusing to help.
+        """
+        from apps.notify.models import NotificationChannel
+
+        NotificationChannel.objects.create(
+            name="aaa-first", driver="generic", config={"webhook_url": "https://ex.example.com/a"}
+        )
+        chosen = NotificationChannel.objects.create(
+            name="zzz-second", driver="slack", config={"webhook_url": "https://hooks.slack.com/z"}
+        )
+
+        with tempfile.TemporaryDirectory() as d:
+            with patch("builtins.input", return_value="zzz-second"):
+                self._run_hub(d)
+
+        catchall = resolve_pipeline({"source": "grafana", "severity": "critical"})
+        self.assertEqual(catchall.routed_channel(), chosen)
+
+    def test_an_unrecognised_answer_binds_nothing(self):
+        """A typo must not fall back to a guess."""
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+
+        NotificationChannel.objects.create(
+            name="aaa-first", driver="generic", config={"webhook_url": "https://ex.example.com/a"}
+        )
+        NotificationChannel.objects.create(
+            name="zzz-second", driver="slack", config={"webhook_url": "https://hooks.slack.com/z"}
+        )
+
+        with tempfile.TemporaryDirectory() as d:
+            with patch("builtins.input", return_value="nope"):
+                out = self._run_hub(d)
+
+        self.assertFalse(PipelineDefinition.objects.filter(channel__isnull=False).exists())
+        self.assertIn("nothing bound", out)
+
     def test_hub_leaves_the_lane_shapes_alone_when_several_channels_are_active(self):
         """No binding means no enable_delivery either: the lanes stay as seeded."""
         from apps.notify.models import NotificationChannel
