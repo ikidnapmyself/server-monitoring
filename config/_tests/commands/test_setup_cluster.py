@@ -142,6 +142,49 @@ class SetupClusterHubTests(TestCase):
         catchall = resolve_pipeline({"source": "grafana", "severity": "critical"})
         self.assertEqual(catchall.routed_channel(), existing)
 
+    def test_hub_binds_nothing_when_several_channels_are_active(self):
+        """With two channels there is no non-arbitrary answer, so it must not pick.
+
+        ``filter(is_active=True).first()`` plus ``Meta.ordering = ["name"]`` picks
+        alphabetically — and since binding now covers EVERY delivering lane, that
+        accident would land the hub's whole traffic on whichever channel sorts
+        first. That is precisely the misroute this branch removes; the operator
+        chooses, per lane.
+        """
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+
+        NotificationChannel.objects.create(
+            name="aaa-first", driver="generic", config={"webhook_url": "https://ex.example.com/a"}
+        )
+        NotificationChannel.objects.create(
+            name="zzz-second", driver="slack", config={"webhook_url": "https://hooks.slack.com/z"}
+        )
+        with tempfile.TemporaryDirectory() as d:
+            out = self._run_hub(d, "--no-notify")
+
+        self.assertFalse(PipelineDefinition.objects.filter(channel__isnull=False).exists())
+        self.assertIn("Pipeline definitions", out)
+        self.assertIn("2 channels active", out)
+
+    def test_hub_leaves_the_lane_shapes_alone_when_several_channels_are_active(self):
+        """No binding means no enable_delivery either: the lanes stay as seeded."""
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+
+        NotificationChannel.objects.create(
+            name="aaa-first", driver="generic", config={"webhook_url": "https://ex.example.com/a"}
+        )
+        NotificationChannel.objects.create(
+            name="zzz-second", driver="slack", config={"webhook_url": "https://hooks.slack.com/z"}
+        )
+        before = sorted(PipelineDefinition.objects.values_list("name", "stages", "is_active"))
+        with tempfile.TemporaryDirectory() as d:
+            self._run_hub(d, "--no-notify")
+
+        after = sorted(PipelineDefinition.objects.values_list("name", "stages", "is_active"))
+        self.assertEqual(before, after)
+
     def test_hub_keeps_an_already_wired_active_channel(self):
         """A lane has one channel slot; an operator's active choice is not clobbered."""
         from apps.notify.models import NotificationChannel

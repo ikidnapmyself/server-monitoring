@@ -130,8 +130,23 @@ class Command(BaseCommand):
         from apps.notify.models import NotificationChannel
         from apps.notify.views import DRIVER_REGISTRY
 
-        existing = NotificationChannel.objects.filter(is_active=True).first()
-        if existing:
+        # Two is enough to know the answer is arbitrary; no need to fetch more.
+        active = list(NotificationChannel.objects.filter(is_active=True)[:2])
+        if len(active) > 1:
+            # ``first()`` on a Meta.ordering = ["name"] queryset picks alphabetically,
+            # and binding now covers EVERY delivering lane — so guessing here would
+            # land the hub's whole traffic on whichever channel sorts first. That is
+            # the misroute this whole change removes, so it is the operator's call.
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Notifications: {len(active)} channels active — nothing bound. "
+                    "There is no non-arbitrary choice, so pick one per lane in Django "
+                    "admin (Orchestration → Pipeline definitions)."
+                )
+            )
+            return
+        if active:
+            existing = active[0]
             self._bind_catchall_pipeline(existing)
             self.stdout.write(
                 f"Notifications: active ({existing.driver}: {existing.name}), "
