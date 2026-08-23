@@ -48,7 +48,7 @@ class MonitoringAdminSite(AdminSite):
         return custom + super().get_urls()
 
     def map_view(self, request):
-        context = {**self.each_context(request), "title": "Network map", **get_map_context()}
+        context = {**self.each_context(request), **get_map_context(), "title": "Network map"}
         return render(request, "admin/map.html", context)
 
     def index(self, request, extra_context=None):

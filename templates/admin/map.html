@@ -36,7 +36,7 @@
     font-size: 12px;
   }
 
-  .lane-gutter .lane-priority {
+  .lane-gutter .lane-order {
     display: block;
     font-size: 15px;
     font-weight: bold;
@@ -72,7 +72,7 @@
     margin-right: 4px;
   }
 
-  .lane-catch-all {
+  .lane-muted {
     color: var(--body-quiet-color, #666);
     font-style: italic;
   }
@@ -131,6 +131,7 @@
   }
 
   .lane-banner.banner-shadowed { color: var(--body-quiet-color, #666); }
+  .lane-banner.banner-inactive { color: var(--body-quiet-color, #666); }
   .lane-banner.banner-never { color: #dc3545; }
 </style>
 
@@ -142,7 +143,7 @@
     {% for lane in lanes %}
     <li class="lane-card {{ lane.state }}">
       <div class="lane-gutter">
-        <span class="lane-priority">{{ forloop.counter }}</span>
+        <span class="lane-order">{{ forloop.counter }}</span>
         {% if not forloop.last %}&#8595;{% endif %}
       </div>
       <div class="lane-body">
@@ -151,7 +152,9 @@
           <span class="seed-badge">seed-shaped &middot; delivery auto-restores with a channel</span>
         {% endif %}
 
-        {% if lane.state == "shadowed" %}
+        {% if lane.state == "inactive" %}
+          <div class="lane-banner banner-inactive">(inactive)</div>
+        {% elif lane.state == "shadowed" %}
           <div class="lane-banner banner-shadowed">shadowed by <em>{{ lane.shadowed_by }}</em></div>
         {% elif lane.state == "never-matches" %}
           <div class="lane-banner banner-never">never matches &mdash; malformed match</div>
@@ -159,14 +162,14 @@
 
         <div class="lane-conditions">
           {% if lane.catch_all %}
-            <span class="lane-catch-all">matches everything</span>
+            <span class="lane-muted">matches everything</span>
           {% else %}
             {% for c in lane.conditions %}<code>{{ c }}</code>{% endfor %}
           {% endif %}
         </div>
 
         <div class="lane-stages">
-          {% for s in lane.stages %}{% if not forloop.first %} &rarr; {% endif %}<span class="stage-chip">{{ s }}</span>{% empty %}<span class="lane-catch-all">no stages</span>{% endfor %}
+          {% for s in lane.stages %}{% if not forloop.first %} &rarr; {% endif %}<span class="stage-chip">{{ s }}</span>{% empty %}<span class="lane-muted">no stages</span>{% endfor %}
         </div>
 
         <div class="lane-delivery">

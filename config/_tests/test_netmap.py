@@ -1,6 +1,7 @@
 """Tests for the network-map projection (config/netmap.py)."""
 
 import pytest
+from django.urls import reverse
 
 from apps.notify.models import NotificationChannel
 from apps.orchestration.models import PipelineDefinition
@@ -315,16 +316,85 @@ class TestMapView:
         clear_lanes()
 
     def test_requires_staff(self, client):
-        assert client.get("/admin/map/").status_code == 302  # redirected to login
+        assert client.get(reverse("admin:netmap")).status_code == 302  # redirected to login
 
     def test_renders(self, admin_client):
         PipelineDefinition.objects.create(name="catch-all", priority=100, match=[])
-        resp = admin_client.get("/admin/map/")
+        resp = admin_client.get(reverse("admin:netmap"))
         assert resp.status_code == 200
         assert b"catch-all" in resp.content
         assert b"matches everything" in resp.content
         assert b"Traffic takes the first matching lane." in resp.content
 
     def test_empty_table_message(self, admin_client):
-        resp = admin_client.get("/admin/map/")
+        resp = admin_client.get(reverse("admin:netmap"))
         assert b"No routing configured" in resp.content
+
+    def test_template_branches_render_each_state(self, admin_client):
+        # Context tests cannot catch a typo'd key inside a template branch (it
+        # renders empty and stays green), so every non-happy branch is asserted
+        # against the actual HTML here.
+        active = NotificationChannel.objects.create(
+            name="ops", driver="email", is_active=True, config={}
+        )
+        dormant = NotificationChannel.objects.create(
+            name="dormant", driver="email", is_active=False, config={}
+        )
+        ghost = NotificationChannel.objects.create(
+            name="ghost", driver="not-a-driver", is_active=True, config={}
+        )
+
+        def lane(name, priority, **kw):
+            return PipelineDefinition.objects.create(name=name, priority=priority, **kw)
+
+        lane(
+            "bound-lane",
+            priority=1,
+            match=[{"field": "s", "op": "is", "value": "a"}],
+            stages=["check", "notify"],
+            channel=active,
+            tags={"seed_shape": "record-only"},
+        )
+        lane(
+            "shadowed-lane",
+            priority=2,
+            match=[{"field": "s", "op": "is", "value": "a"}],
+            stages=["check"],
+        )
+        lane("inactive-lane", priority=3, match=[], is_active=False)
+        lane("broken-lane", priority=4, match=[{"field": "s", "op": "zap", "value": 1}])
+        lane(
+            "no-channel-lane",
+            priority=5,
+            match=[{"field": "s", "op": "is", "value": "b"}],
+            stages=["notify"],
+        )
+        lane(
+            "dormant-lane",
+            priority=6,
+            match=[{"field": "s", "op": "is", "value": "c"}],
+            stages=["notify"],
+            channel=dormant,
+        )
+        lane(
+            "ghost-lane",
+            priority=7,
+            match=[{"field": "s", "op": "is", "value": "d"}],
+            stages=["notify"],
+            channel=ghost,
+        )
+
+        body = admin_client.get(reverse("admin:netmap")).content.decode()
+        # state banners
+        assert "shadowed by <em>bound-lane</em>" in body
+        assert "(inactive)" in body  # text, not color-only — survives screen readers
+        assert "never matches &mdash; malformed match" in body
+        # seed-shaped badge (shaping, not provenance)
+        assert "seed-shaped" in body
+        assert "delivery auto-restores with a channel" in body
+        # the four delivery lines
+        assert "&rarr; ops" in body
+        assert "recording only" in body
+        assert "cannot deliver: no channel" in body
+        assert "bound to dormant (inactive)" in body
+        assert "cannot deliver: driver not registered (ghost)" in body
