@@ -306,3 +306,25 @@ class TestGetMapContext:
 
     def test_empty_table(self):
         assert get_map_context()["lanes"] == []
+
+
+@pytest.mark.django_db
+class TestMapView:
+    @pytest.fixture(autouse=True)
+    def _empty_table(self):
+        clear_lanes()
+
+    def test_requires_staff(self, client):
+        assert client.get("/admin/map/").status_code == 302  # redirected to login
+
+    def test_renders(self, admin_client):
+        PipelineDefinition.objects.create(name="catch-all", priority=100, match=[])
+        resp = admin_client.get("/admin/map/")
+        assert resp.status_code == 200
+        assert b"catch-all" in resp.content
+        assert b"matches everything" in resp.content
+        assert b"Traffic takes the first matching lane." in resp.content
+
+    def test_empty_table_message(self, admin_client):
+        resp = admin_client.get("/admin/map/")
+        assert b"No routing configured" in resp.content
