@@ -12,8 +12,12 @@ def _by_key(readiness):
 def test_channels_error_when_none_active_and_a_lane_promises_delivery():
     """Red because something asked for a channel, not merely because none exists."""
     from apps.notify.models import NotificationChannel
+    from apps.orchestration.models import PipelineDefinition
 
     NotificationChannel.objects.create(name="c1", driver="slack", is_active=False)
+    # The seeded lanes omit ``notify`` on a channel-less hub, so the promise has to
+    # be made explicitly — that promise is exactly what this entry reports on.
+    PipelineDefinition.objects.create(name="delivers", match=[], stages=["notify"], priority=1)
     r = _by_key(build_readiness())["channels"]
     assert r["status"] == "error"
     assert r["url"] == reverse("admin:notify_notificationchannel_changelist")

@@ -167,3 +167,257 @@ class SeedRoutingTableTests(TestCase):
         lane = self._lane("hub-self-check")
         self.assertEqual(lane.stages, [])
         self.assertTrue(lane.is_active)
+
+
+class SeedOverPriorMigrationsTests(TestCase):
+    """The state the migration ACTUALLY meets: rows 0012/0014/0016 already created.
+
+    Every other test in this module clears the table first, which is the one state
+    a fresh install never presents — 0012/0014/0016 run before 0017, so the rows
+    exist and `get_or_create`'s defaults are discarded. Seeding into an empty table
+    proves nothing about production.
+    """
+
+    def _prior_seed(self):
+        """Recreate what the earlier migrations leave behind."""
+        from apps.orchestration.models import PipelineDefinition
+
+        PipelineDefinition.objects.all().delete()
+        for name, stages, match, priority in [
+            (
+                "resolved-all-clear",
+                ["notify"],
+                [{"field": "status", "op": "is", "value": "resolved"}],
+                40,
+            ),
+            (
+                "cluster-nodes",
+                ["analyze", "notify"],
+                [{"field": "source", "op": "is", "value": "cluster"}],
+                50,
+            ),
+            (
+                "hub-self-check",
+                [],
+                [{"field": "origin", "op": "is", "value": "checker_generated"}],
+                50,
+            ),
+            ("catch-all", ["check", "analyze", "notify"], [], 1000),
+        ]:
+            PipelineDefinition.objects.create(
+                name=name, stages=stages, match=match, priority=priority, is_active=True
+            )
+
+    def _seed(self):
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import seed_routing_table
+
+        return seed_routing_table(PipelineDefinition, NotificationChannel)
+
+    def _lane(self, name):
+        from apps.orchestration.models import PipelineDefinition
+
+        return PipelineDefinition.objects.get(name=name)
+
+    def test_a_channel_less_hub_is_repaired_to_record_only(self):
+        """Nothing was created, so only repair can shape these rows."""
+        self._prior_seed()
+
+        report = self._seed()
+
+        self.assertEqual(report["created"], 0)
+        self.assertEqual(self._lane("catch-all").stages, ["check", "analyze"])
+        self.assertEqual(self._lane("cluster-nodes").stages, ["analyze"])
+        self.assertFalse(self._lane("resolved-all-clear").is_active)
+
+    def test_a_single_channel_hub_binds_every_delivering_lane(self):
+        """Not just the catch-all: node pushes and all-clears take their own lanes."""
+        from apps.notify.models import NotificationChannel
+
+        channel = NotificationChannel.objects.create(
+            name="ops", driver="generic", is_active=True, config={}
+        )
+        self._prior_seed()
+
+        self._seed()
+
+        for name in ("catch-all", "cluster-nodes", "resolved-all-clear"):
+            self.assertEqual(self._lane(name).channel_id, channel.id, name)
+        self.assertIsNone(self._lane("hub-self-check").channel_id)
+
+    def test_an_edited_lane_is_not_repaired(self):
+        """Repair is for untouched rows; an operator's shape is theirs."""
+        self._prior_seed()
+        lane = self._lane("catch-all")
+        lane.stages = ["notify"]
+        lane.save(update_fields=["stages"])
+
+        self._seed()
+
+        self.assertEqual(self._lane("catch-all").stages, ["notify"])
+
+    def test_repair_is_idempotent(self):
+        self._prior_seed()
+        self._seed()
+
+        report = self._seed()
+
+        self.assertEqual(report["repaired"], 0)
+
+
+class BindDeliveringLanesTests(TestCase):
+    """setup_cluster binds every lane that promises delivery, not only the catch-all."""
+
+    def _lane(self, name, stages, channel=None):
+        from apps.orchestration.models import PipelineDefinition
+
+        return PipelineDefinition.objects.create(
+            name=name, match=[], stages=stages, priority=100, channel=channel
+        )
+
+    def _channel(self, name="ops"):
+        from apps.notify.models import NotificationChannel
+
+        return NotificationChannel.objects.create(
+            name=name, driver="generic", is_active=True, config={}
+        )
+
+    def test_every_unbound_delivering_lane_is_bound(self):
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import bind_delivering_lanes
+
+        PipelineDefinition.objects.all().delete()
+        channel = self._channel()
+        self._lane("a", ["notify"])
+        self._lane("b", ["analyze", "notify"])
+
+        bound = bind_delivering_lanes(PipelineDefinition, channel)
+
+        self.assertEqual(bound, 2)
+
+    def test_a_lane_that_never_delivers_is_skipped(self):
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import bind_delivering_lanes
+
+        PipelineDefinition.objects.all().delete()
+        channel = self._channel()
+        lane = self._lane("records", ["check", "analyze"])
+
+        bind_delivering_lanes(PipelineDefinition, channel)
+
+        lane.refresh_from_db()
+        self.assertIsNone(lane.channel_id)
+
+    def test_a_disabled_lane_is_not_bound(self):
+        """A lane an operator switched off routes nothing and needs no channel."""
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import bind_delivering_lanes
+
+        PipelineDefinition.objects.all().delete()
+        channel = self._channel()
+        lane = self._lane("off", ["notify"])
+        lane.is_active = False
+        lane.save(update_fields=["is_active"])
+
+        bind_delivering_lanes(PipelineDefinition, channel)
+
+        lane.refresh_from_db()
+        self.assertIsNone(lane.channel_id)
+
+    def test_an_operator_choice_is_never_replaced(self):
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import bind_delivering_lanes
+
+        PipelineDefinition.objects.all().delete()
+        chosen = self._channel("chosen")
+        other = self._channel("other")
+        lane = self._lane("a", ["notify"], channel=chosen)
+
+        bind_delivering_lanes(PipelineDefinition, other)
+
+        lane.refresh_from_db()
+        self.assertEqual(lane.channel_id, chosen.id)
+
+
+class EnableDeliveryTests(TestCase):
+    """Configuring a channel is the operator saying "deliver" — at configuration time.
+
+    The pipeline never reinterprets a definition at runtime; it executes it. So a
+    hub seeded record-only does not start delivering because notify noticed a
+    channel appeared — the definition changes, here, when the operator configures
+    one.
+    """
+
+    def _channel(self):
+        from apps.notify.models import NotificationChannel
+
+        return NotificationChannel.objects.create(
+            name="ops", driver="generic", is_active=True, config={}
+        )
+
+    def _record_only_seed(self):
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import seed_routing_table
+
+        PipelineDefinition.objects.all().delete()
+        seed_routing_table(PipelineDefinition, NotificationChannel)
+
+    def _lane(self, name):
+        from apps.orchestration.models import PipelineDefinition
+
+        return PipelineDefinition.objects.get(name=name)
+
+    def test_a_record_only_hub_starts_delivering(self):
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import enable_delivery
+
+        self._record_only_seed()
+        channel = self._channel()
+
+        enable_delivery(PipelineDefinition, channel)
+
+        for name in ("catch-all", "cluster-nodes", "resolved-all-clear"):
+            lane = self._lane(name)
+            self.assertIn("notify", lane.stages, name)
+            self.assertEqual(lane.channel_id, channel.id, name)
+            self.assertTrue(lane.is_active, name)
+
+    def test_the_record_only_lane_that_never_notifies_is_untouched(self):
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import enable_delivery
+
+        self._record_only_seed()
+        channel = self._channel()
+
+        enable_delivery(PipelineDefinition, channel)
+
+        lane = self._lane("hub-self-check")
+        self.assertEqual(lane.stages, [])
+        self.assertIsNone(lane.channel_id)
+
+    def test_an_edited_lane_is_left_alone(self):
+        """Restoration is for the shape this module wrote, not an operator's."""
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import enable_delivery
+
+        self._record_only_seed()
+        lane = self._lane("catch-all")
+        lane.stages = ["check"]
+        lane.save(update_fields=["stages"])
+        channel = self._channel()
+
+        enable_delivery(PipelineDefinition, channel)
+
+        self.assertEqual(self._lane("catch-all").stages, ["check"])
+
+    def test_it_is_idempotent(self):
+        from apps.orchestration.models import PipelineDefinition
+        from apps.orchestration.seeding import enable_delivery
+
+        self._record_only_seed()
+        channel = self._channel()
+        enable_delivery(PipelineDefinition, channel)
+
+        self.assertEqual(enable_delivery(PipelineDefinition, channel), 0)

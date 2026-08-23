@@ -113,8 +113,21 @@ class WebhookClusterLaneRoutingTests(TestCase):
     """
 
     def setUp(self):
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.seeding import enable_delivery
+
         self.client = Client()
         self.url = reverse("alerts:webhook_driver", kwargs={"driver": "cluster"})
+        # The seed shapes the lanes by how the hub is configured, and a test
+        # database has no channel — so the seeded lanes record rather than
+        # deliver. These tests assert delivery end to end, so they have to be the
+        # configured hub they describe: `enable_delivery` restores NOTIFY on the
+        # seeded lanes and binds them. The generic driver treats an empty config
+        # as a no-op, so NOTIFY runs for real without touching the network.
+        channel = NotificationChannel.objects.create(
+            name="ops", driver="generic", is_active=True, config={}
+        )
+        enable_delivery(PipelineDefinition, channel)
 
     def _push(self):
         """POST one firing cluster alert; return its PENDING run."""

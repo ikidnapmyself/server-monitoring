@@ -74,18 +74,20 @@ class FanOutAcceptanceTests(TestCase):
             priority=30,
             is_active=True,
         )
-        # Every lane that lists NOTIFY needs a channel to deliver to — a lane
-        # without one now fails `no_channel` instead of picking the first active
-        # channel by name. This is the setup a delivering hub has.
+        # A test database has no active channel, so the seeded lanes are seeded
+        # record-only: NOTIFY stripped, and `resolved-all-clear` — which exists
+        # only to notify — switched off. Configuring a channel is the operator
+        # saying "deliver", so these acceptance runs need that decision made:
+        # `enable_delivery` restores NOTIFY on the seeded lanes and binds every
+        # delivering lane, this file's own included, to the channel. Without it a
+        # lane that lists NOTIFY fails `no_channel`.
         from apps.notify.models import NotificationChannel
+        from apps.orchestration.seeding import enable_delivery
 
         self.channel = NotificationChannel.objects.create(
             name="e2e-ops", driver="generic", is_active=True, config={}
         )
-        for lane in PipelineDefinition.objects.all():
-            if "notify" in (lane.stages or []):
-                lane.channel = self.channel
-                lane.save(update_fields=["channel"])
+        enable_delivery(PipelineDefinition, self.channel)
 
     def _stub_outbound(self, stack):
         """Stub the LLM call and the message send — nothing else.

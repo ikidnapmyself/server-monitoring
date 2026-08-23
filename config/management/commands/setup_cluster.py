@@ -244,6 +244,19 @@ class Command(BaseCommand):
             pipeline.channel = channel
             pipeline.save(update_fields=["channel", "updated_at"])
 
+        # Now make the OTHER seeded lanes deliver too. The catch-all is not the only
+        # lane that notifies: node pushes take ``cluster-nodes`` and all-clears take
+        # ``resolved-all-clear``, which is the hub's primary traffic. Two things are
+        # needed, both configuration-time: a hub seeded without a channel has those
+        # lanes shaped record-only, and configuring a channel is the operator saying
+        # "deliver" — so the definition gets NOTIFY back and the channel bound.
+        # Binding the catch-all alone was survivable only while notify fell through
+        # to "first active channel by name"; a lane listing NOTIFY with no channel
+        # now fails ``no_channel``.
+        from apps.orchestration.seeding import enable_delivery
+
+        enable_delivery(PipelineDefinition, channel)
+
     def _setup_agent(self, options) -> None:
         hub_url = options.get("hub_url") or input("HUB_URL (https://...): ").strip()
         default_id = socket.gethostname()
