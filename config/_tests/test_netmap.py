@@ -93,8 +93,10 @@ class TestNeverMatches:
             ([cond("sev", "frobnicate", "x")], True),
             ([cond("sev", "in", "high")], True),  # membership needs a list
             ([cond("sev", "not-in", "high")], True),
-            (None, False),  # match may be None/junk JSON
-            ("junk", False),  # non-list treated as no conds
+            (None, False),  # falsy non-list → catch-all in matches()
+            ({}, False),  # falsy dict → catch-all
+            ("junk", True),  # truthy non-list iterates junk in matches() → fails closed
+            ({"a": 1}, True),  # truthy non-list
         ],
     )
     def test_table(self, match, expected):
@@ -136,4 +138,8 @@ class TestAnnotateShadows:
 
     def test_never_matching_lane_does_not_shadow(self):
         lanes = [lane("broken", [cond("s", "bad-op", "x")]), lane("b", [cond("s", "is", "x")])]
+        assert _annotate_shadows(lanes) == {}
+
+    def test_truthy_non_list_match_neither_shadows_nor_crashes(self):
+        lanes = [lane("junky", "junk"), lane("b", [cond("s", "is", "x")])]
         assert _annotate_shadows(lanes) == {}

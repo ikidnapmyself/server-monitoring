@@ -69,11 +69,13 @@ def _never_matches(match) -> bool:
     """Static mirror of ``PipelineDefinition.matches()`` fail-closed rules.
 
     A condition that can never hold — non-dict, unknown op, membership without a
-    list — makes the whole lane unmatchable. A non-list ``match`` iterates as
-    empty in ``matches()`` (catch-all), so it is NOT never-matching.
+    list — makes the whole lane unmatchable. A falsy non-list ``match`` (None,
+    ``{}``) iterates as empty in ``matches()`` (catch-all), so it is NOT
+    never-matching; a truthy non-list iterates junk there and fails closed, so
+    it IS.
     """
     if not isinstance(match, list):
-        return False
+        return bool(match)  # falsy → catch-all in matches(); truthy → iterates junk, fails closed
     for c in match:
         if not isinstance(c, dict):
             return True
