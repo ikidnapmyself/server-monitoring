@@ -162,7 +162,14 @@ class Command(BaseCommand):
             driver_class,
             channel_obj,
             final_channel,
-        ) = NotifySelector.resolve(requested, payload_config, options.get("channel"))
+        ) = NotifySelector.resolve(
+            requested,
+            payload_config,
+            options.get("channel"),
+            # "send a test message" with no driver named means "use my channel":
+            # this caller is the operator, so it opts in to the default.
+            allow_default_channel=True,
+        )
 
         # If NotifySelector returned None for driver_class (unknown provider), allow a
         # fallback where the user provided a driver arg and we build config from CLI options

@@ -19,12 +19,14 @@ from apps.orchestration.dtos import (
     NotifyResult,
     StageContext,
 )
+from apps.orchestration.errors import StageExecutionError, routing_gap
 from apps.orchestration.formatters import (
     build_notification_body,
     format_check_summary,
     format_ingest_summary,
     format_intelligence_summary,
 )
+from apps.orchestration.models import PipelineStage
 
 logger = logging.getLogger(__name__)
 
@@ -406,14 +408,24 @@ class NotifyExecutor(BaseExecutor):
 
             # Phase A routing: resolve the pipeline that matches this incident,
             # stamp it on the incident (for the notify target + journey view), and
-            # if it names an active channel, route notify there. If no pipeline
-            # matches, fall back to today's payload-driven selection.
+            # route notify to the channel it names. A lane with no active channel
+            # names nothing, and a caller that names nothing either fails below.
             matched_channel_name = self._route_incident(incident)
 
             # Centralize provider/channel selection via NotifySelector
             from apps.notify.services import NotifySelector
 
             requested = matched_channel_name or payload.get("notify_driver")
+            if not requested:
+                # No lane channel and nothing named by the caller. Same failure as an
+                # unroutable alert, in the other half of the routing table: delivering
+                # to "the first active channel by name" instead is how a critical
+                # alert ends up wherever the alphabet points.
+                raise routing_gap(
+                    PipelineStage.NOTIFY,
+                    "no_channel",
+                    "the matched lane names no active notification channel",
+                )
             payload_config = payload.get("notify_config", {}) or {}
 
             # Strip template keys so untrusted payloads cannot inject Jinja2
@@ -435,7 +447,7 @@ class NotifyExecutor(BaseExecutor):
             # Note: do NOT treat payload.notify_channel as a channel-name selector
             # for choosing a NotificationChannel record. The selection priority is:
             # 1) If payload.notify_driver matches a NotificationChannel.name -> use DB channel
-            # 2) If payload.notify_driver omitted -> pick first active NotificationChannel
+            # 2) If payload.notify_driver omitted and the lane named no channel -> no_channel
             # 3) Otherwise treat payload.notify_driver as a provider key and use payload.notify_config
             # The payload.notify_channel is only a hint for the message destination (e.g. Slack channel)
             # and should not be used to select the provider. This avoids overlapping semantics.
@@ -448,10 +460,12 @@ class NotifyExecutor(BaseExecutor):
 
             # Ensure we have a concrete driver class (selector returns None when unknown)
             if driver_cls is None:
-                result.errors.append(
-                    f"Unknown notify driver/provider: {provider_name}. Available: {list(DRIVER_REGISTRY.keys())}"
+                raise routing_gap(
+                    PipelineStage.NOTIFY,
+                    "no_driver",
+                    f"{provider_name!r} is not a registered driver "
+                    f"(available: {', '.join(sorted(DRIVER_REGISTRY))})",
                 )
-                return result
 
             # Build NotificationMessage using the base dataclass fields. Put
             # idempotency info into tags and the intelligence/check output into context.
@@ -608,6 +622,11 @@ class NotifyExecutor(BaseExecutor):
                 },
             )
 
+        except StageExecutionError:
+            # A routing gap is the operator's to fix, not this stage's to report as
+            # a retryable error result. The blanket handler below would turn it into
+            # `result.errors`, which the orchestrator retries three times.
+            raise
         except Exception as e:
             logger.exception("Error in NotifyExecutor")
             result.errors.append(f"Notify error: {str(e)}")

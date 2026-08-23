@@ -86,7 +86,14 @@ class NotifyView(View):
                 driver_class,
                 channel_obj,
                 final_channel,
-            ) = NotifySelector.resolve(requested, payload_config, requested_channel)
+            ) = NotifySelector.resolve(
+                requested,
+                payload_config,
+                requested_channel,
+                # An operator asking for a send with no driver named means "use my
+                # channel", so this caller opts in to the single-channel default.
+                allow_default_channel=True,
+            )
 
             if driver_class is None:
                 return JsonResponse(

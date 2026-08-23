@@ -772,10 +772,20 @@ class CheckDjangoSystemTests(TestCase):
 
 
 class CheckPipelineStateTests(TestCase):
-    def test_no_active_channels(self):
+    def test_a_hub_with_no_channel_and_no_delivering_lane_is_not_a_problem(self):
+        """Recording only is a supported way to run this hub, not a finding.
+
+        Was ``test_no_active_channels``, which asserted a bare "No active
+        notification channels" warning. That predates the seed: the lanes on a
+        channel-less hub omit ``notify``, so nothing promises delivery and nothing
+        is wrong. Preflight now agrees with the readiness panel — the absence is
+        reported as ``info``, and only a lane that *claims* to deliver and cannot
+        is a fault. Diagnose dangling references, not absences.
+        """
         results = check_pipeline_state()
-        warns = [r for r in results if r.level == "warn"]
-        self.assertTrue(any("notification channel" in r.message.lower() for r in warns))
+        self.assertFalse([r for r in results if r.level in ("warn", "error")])
+        infos = [r for r in results if r.level == "info"]
+        self.assertTrue(any("recording only" in r.message.lower() for r in infos))
 
     def test_no_active_definitions_warns_that_routing_is_dead(self):
         """Zero lanes is not "optional" any more — it means every alert no_routes.
@@ -805,12 +815,80 @@ class CheckPipelineStateTests(TestCase):
         infos = [r for r in results if r.level == "info"]
         self.assertTrue(any("fallback" in r.message.lower() for r in infos))
 
+    def test_a_lane_that_claims_to_deliver_but_cannot_is_an_error(self):
+        """A lane listing NOTIFY with no active channel now fails at run time.
+
+        Preflight is where that is cheap to learn: after this change such a run
+        ends as ``no_channel`` instead of delivering to whatever channel sorts
+        first by name, so the finding has to name the row and the fix. It was a
+        ``warn`` while readiness called the same state red; a broken promise to
+        deliver is an error on both surfaces or on neither.
+        """
+        from apps.orchestration.models import PipelineDefinition
+
+        clear_lanes()
+        PipelineDefinition.objects.create(
+            name="mute", match=[], stages=["notify"], priority=1, is_active=True
+        )
+        results = check_pipeline_state()
+        errors = [r for r in results if r.level == "error" and "mute" in r.message]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("no_channel", errors[0].hint)
+
+    def test_a_lane_bound_to_an_unregistered_driver_is_an_error(self):
+        """The third gap, invisible to preflight until now.
+
+        The lane names an ACTIVE channel, so "has a channel" said yes — while every
+        run on it failed non-retryably as ``no_driver``. Preflight has to ask the
+        question the executor asks.
+        """
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+
+        clear_lanes()
+        ghost = NotificationChannel.objects.create(name="teams", driver="teams", is_active=True)
+        PipelineDefinition.objects.create(
+            name="ghost-lane", match=[], stages=["notify"], priority=1, channel=ghost
+        )
+        results = check_pipeline_state()
+        errors = [r for r in results if r.level == "error" and "ghost-lane" in r.message]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("no_driver", errors[0].message)
+
+    def test_a_channel_that_no_lane_delivers_to_is_not_reported(self):
+        """An absence is not a dangling reference; the readiness panel nudges instead."""
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.models import PipelineDefinition
+
+        clear_lanes()
+        NotificationChannel.objects.create(name="ops", driver="slack", is_active=True)
+        PipelineDefinition.objects.create(
+            name="records", match=[], stages=["analyze"], priority=1, is_active=True
+        )
+        results = check_pipeline_state()
+        self.assertFalse([r for r in results if r.level in ("warn", "error")])
+        self.assertFalse(any("recording only" in r.message.lower() for r in results))
+
+    def test_a_recording_hub_does_not_warn_about_delivery(self):
+        """No lane claims to deliver, so there is nothing to be wrong about."""
+        from apps.orchestration.models import PipelineDefinition
+
+        clear_lanes()
+        PipelineDefinition.objects.create(
+            name="records", match=[], stages=["analyze"], priority=1, is_active=True
+        )
+        results = check_pipeline_state()
+        self.assertFalse(any("no_channel" in (r.hint or "") for r in results))
+
     def test_all_ok(self):
         from apps.notify.models import NotificationChannel
         from apps.orchestration.models import PipelineDefinition
 
+        # The seeded lanes list NOTIFY; bind them, which is the state a real
+        # deployment has, so "all ok" means all ok rather than "all but delivery".
+        channel = NotificationChannel.objects.create(name="ch", driver="slack", is_active=True)
         PipelineDefinition.objects.create(name="test", is_active=True)
-        NotificationChannel.objects.create(name="ch", driver="slack", is_active=True)
+        PipelineDefinition.objects.update(channel=channel)
         results = check_pipeline_state()
         ok_results = [r for r in results if r.level == "ok"]
         self.assertTrue(len(ok_results) >= 1)

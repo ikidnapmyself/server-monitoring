@@ -174,3 +174,48 @@ class TestRoutedChannel(TestCase):
         reread = PipelineDefinition.objects.get(pk=lane.pk)
         assert reread.channel_id == channel.id
         assert reread.routed_channel() is None
+
+
+class TestDeliveryGap(TestCase):
+    """Why a lane cannot deliver, named the way the run would fail.
+
+    The routing table has exactly three ways of not saying where work goes:
+    ``no_route`` (no lane matched), ``no_channel`` (the lane names no active
+    channel) and ``no_driver`` (it names a channel whose driver does not exist).
+    The last one used to be invisible to every read-only surface while
+    ``NotifyExecutor`` failed on it, so both questions live here now, asked once.
+    """
+
+    def _channel(self, driver="slack", *, is_active=True):
+        from apps.notify.models import NotificationChannel
+
+        return NotificationChannel.objects.create(
+            name=f"ch-{driver}",
+            driver=driver,
+            config={"webhook_url": "https://hooks.slack.com/x"},
+            is_active=is_active,
+        )
+
+    def _lane(self, stages, channel=None):
+        return PipelineDefinition.objects.create(
+            name="lane", match=[], stages=stages, channel=channel
+        )
+
+    def test_a_lane_that_never_notifies_has_no_gap(self):
+        """Recording is a supported shape, not a missing channel."""
+        assert self._lane(["check", "analyze"]).delivery_gap() is None
+
+    def test_a_bound_lane_with_a_real_driver_has_no_gap(self):
+        assert self._lane(["notify"], self._channel()).delivery_gap() is None
+
+    def test_no_channel(self):
+        assert self._lane(["notify"]).delivery_gap() == "no_channel"
+
+    def test_an_inactive_channel_is_no_channel(self):
+        """routed_channel() stays the one rule; this adds a question, not a second rule."""
+        assert self._lane(["notify"], self._channel(is_active=False)).delivery_gap() == "no_channel"
+
+    def test_an_unregistered_driver_is_no_driver(self):
+        """A driver removed, or a typo in the field — the FK cannot catch either."""
+        lane = self._lane(["notify"], self._channel(driver="teams"))
+        assert lane.delivery_gap() == "no_driver"

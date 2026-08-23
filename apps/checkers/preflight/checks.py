@@ -459,15 +459,6 @@ def check_pipeline_state() -> list[CheckResult]:
     active_channels = NotificationChannel.objects.filter(is_active=True).count()
     active_providers = IntelligenceProvider.objects.filter(is_active=True)
 
-    if active_channels == 0:
-        results.append(
-            CheckResult(
-                level="warn",
-                message="No active notification channels",
-                hint="Add one via Django Admin.",
-            )
-        )
-
     if active_defs == 0:
         results.append(
             CheckResult(
@@ -478,6 +469,54 @@ def check_pipeline_state() -> list[CheckResult]:
                     "no_route and nothing is checked, analysed or notified. Migration "
                     "0012 seeds a catch-all lane; re-add one in Django Admin "
                     "(Orchestration → Pipeline definitions) with an empty match."
+                ),
+            )
+        )
+
+    # A lane that lists NOTIFY promises delivery; delivery_gap() is the one rule for
+    # whether it can keep that promise, and it asks both questions the executor
+    # asks — is there an active channel (no_channel), and does its driver exist
+    # (no_driver). Since the channel fallback was removed, a lane that cannot
+    # deliver is not a lane that delivers elsewhere: it is a run that fails
+    # non-retryably. That is an error, matching the readiness panel, and preflight
+    # is the cheap place to find it.
+    delivering = [
+        lane
+        for lane in PipelineDefinition.objects.filter(is_active=True).select_related("channel")
+        if "notify" in lane.routable_stages()
+    ]
+    undeliverable = sorted(
+        (lane.name, gap) for lane in delivering if (gap := lane.delivery_gap()) is not None
+    )
+    if undeliverable:
+        results.append(
+            CheckResult(
+                level="error",
+                message=(
+                    f"{len(undeliverable)} pipeline(s) promise delivery and cannot: "
+                    + ", ".join(f"{name} ({gap})" for name, gap in undeliverable)
+                ),
+                hint=(
+                    "Such a run now fails non-retryably \u2014 no_channel when the lane "
+                    "names no active channel, no_driver when it names one whose driver "
+                    "is not registered. Fix the lane in Django Admin (Orchestration "
+                    "\u2192 Pipeline definitions), or drop notify from its stages if "
+                    "this hub only records."
+                ),
+            )
+        )
+    elif not delivering and active_channels == 0:
+        # No lane claims to deliver and no channel exists: the hub records, which is
+        # a supported way to run it. Reporting an absence here is how a preflight
+        # becomes noise; report dangling references instead. See
+        # docs/plans/2026-08-22-lane-channel-required-design.md \u00a76.
+        results.append(
+            CheckResult(
+                level="info",
+                message="Recording only \u2014 no lane delivers, no channel configured",
+                hint=(
+                    "Add a channel and point a lane at it in Django Admin if this hub "
+                    "should notify."
                 ),
             )
         )

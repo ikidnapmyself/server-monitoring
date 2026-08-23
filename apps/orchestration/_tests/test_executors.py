@@ -957,7 +957,9 @@ class TestNotifyExecutorSuccess(TestCase):
             "apps.notify.services.NotifySelector.resolve",
             return_value=_resolve_return(driver_cls),
         ):
-            result = NotifyExecutor().execute(_ctx(payload={}, previous_results=previous))
+            result = NotifyExecutor().execute(
+                _ctx(payload={"notify_driver": "slack"}, previous_results=previous)
+            )
 
         msg = result.messages[0]
         assert msg["severity"] == "critical"
@@ -987,7 +989,9 @@ class TestNotifyExecutorSuccess(TestCase):
             "apps.notify.services.NotifySelector.resolve",
             return_value=_resolve_return(driver_cls),
         ):
-            result = NotifyExecutor().execute(_ctx(payload={}, previous_results=previous))
+            result = NotifyExecutor().execute(
+                _ctx(payload={"notify_driver": "slack"}, previous_results=previous)
+            )
 
         msg = result.messages[0]
         # Alert-authoritative: AI's critical recommendation did NOT raise it.
@@ -1008,7 +1012,9 @@ class TestNotifyExecutorSuccess(TestCase):
             "apps.notify.services.NotifySelector.resolve",
             return_value=_resolve_return(driver_cls),
         ):
-            result = NotifyExecutor().execute(_ctx(payload={}, previous_results=previous))
+            result = NotifyExecutor().execute(
+                _ctx(payload={"notify_driver": "slack"}, previous_results=previous)
+            )
 
         msg = result.messages[0]
         assert msg["severity"] == "info"
@@ -1034,7 +1040,9 @@ class TestNotifyExecutorSuccess(TestCase):
             "apps.notify.services.NotifySelector.resolve",
             return_value=_resolve_return(driver_cls),
         ):
-            result = NotifyExecutor().execute(_ctx(payload={}, previous_results=previous))
+            result = NotifyExecutor().execute(
+                _ctx(payload={"notify_driver": "slack"}, previous_results=previous)
+            )
 
         msg = result.messages[0]
         assert msg["severity"] == "critical"
@@ -1044,16 +1052,24 @@ class TestNotifyExecutorSuccess(TestCase):
 
 class TestNotifyExecutorDriverFailures(TestCase):
     def test_unknown_driver(self):
+        """An unresolvable driver is a routing gap, not a delivery failure.
+
+        It used to land in ``result.errors``, which the orchestrator retries three
+        times against a driver that cannot appear.
+        """
+        from apps.orchestration.errors import StageExecutionError
+
         with patch(
             "apps.notify.services.NotifySelector.resolve",
             return_value=("unknown", {}, "unknown", None, None, "default"),
         ):
-            result = NotifyExecutor().execute(
-                _ctx(payload={"notify_driver": "unknown"}, previous_results={"analyze": {}})
-            )
+            with self.assertRaises(StageExecutionError) as caught:
+                NotifyExecutor().execute(
+                    _ctx(payload={"notify_driver": "unknown"}, previous_results={"analyze": {}})
+                )
 
-        assert result.channels_attempted == 0
-        assert any("Unknown notify driver" in e for e in result.errors)
+        assert caught.exception.retryable is False
+        assert "no_driver" in "; ".join(caught.exception.errors)
 
     def test_invalid_config(self):
         driver_cls, driver_inst = _mock_driver_cls()
@@ -1063,7 +1079,9 @@ class TestNotifyExecutorDriverFailures(TestCase):
             "apps.notify.services.NotifySelector.resolve",
             return_value=_resolve_return(driver_cls),
         ):
-            result = NotifyExecutor().execute(_ctx(payload={}, previous_results={"analyze": {}}))
+            result = NotifyExecutor().execute(
+                _ctx(payload={"notify_driver": "slack"}, previous_results={"analyze": {}})
+            )
 
         assert any("Invalid configuration" in e for e in result.errors)
 
@@ -1075,7 +1093,9 @@ class TestNotifyExecutorDriverFailures(TestCase):
             "apps.notify.services.NotifySelector.resolve",
             return_value=_resolve_return(driver_cls),
         ):
-            result = NotifyExecutor().execute(_ctx(payload={}, previous_results={"analyze": {}}))
+            result = NotifyExecutor().execute(
+                _ctx(payload={"notify_driver": "slack"}, previous_results={"analyze": {}})
+            )
 
         assert result.channels_failed == 1
         assert any("Send error" in e for e in result.errors)
@@ -1088,7 +1108,9 @@ class TestNotifyExecutorDriverFailures(TestCase):
             "apps.notify.services.NotifySelector.resolve",
             return_value=_resolve_return(driver_cls),
         ):
-            result = NotifyExecutor().execute(_ctx(payload={}, previous_results={"analyze": {}}))
+            result = NotifyExecutor().execute(
+                _ctx(payload={"notify_driver": "slack"}, previous_results={"analyze": {}})
+            )
 
         assert result.channels_failed == 1
         assert result.channels_succeeded == 0
@@ -1111,7 +1133,9 @@ class TestNotifyExecutorTemplateRendering(TestCase):
             "apps.notify.services.NotifySelector.resolve",
             return_value=resolve_ret,
         ):
-            result = NotifyExecutor().execute(_ctx(payload={}, previous_results={"analyze": {}}))
+            result = NotifyExecutor().execute(
+                _ctx(payload={"notify_driver": "slack"}, previous_results={"analyze": {}})
+            )
 
         assert not result.errors
         msg = result.messages[0]
@@ -1137,6 +1161,7 @@ class TestNotifyExecutorTemplateRendering(TestCase):
             result = NotifyExecutor().execute(
                 _ctx(
                     payload={
+                        "notify_driver": "slack",
                         # This template must NOT be rendered; the executor
                         # ignores payload-sourced templates entirely.
                         "notify_config": {"template": "Payload: {{ title }}"},
@@ -1170,7 +1195,9 @@ class TestNotifyExecutorTemplateRendering(TestCase):
             "apps.notify.services.NotifySelector.resolve",
             return_value=resolve_ret,
         ):
-            result = NotifyExecutor().execute(_ctx(payload={}, previous_results={"analyze": {}}))
+            result = NotifyExecutor().execute(
+                _ctx(payload={"notify_driver": "slack"}, previous_results={"analyze": {}})
+            )
 
         # Falls back to build_notification_body — no error in result
         assert not result.errors
@@ -1193,6 +1220,7 @@ class TestNotifyExecutorTemplateRendering(TestCase):
             result = NotifyExecutor().execute(
                 _ctx(
                     payload={
+                        "notify_driver": "slack",
                         "notify_config": {"template": "{{ 7*7 }}"},
                     },
                     previous_results={"analyze": {}},
@@ -1228,6 +1256,7 @@ class TestNotifyExecutorTemplateRendering(TestCase):
             NotifyExecutor().execute(
                 _ctx(
                     payload={
+                        "notify_driver": "slack",
                         "notify_config": {
                             "template": "{{ 7*7 }}",
                             "payload_template": "bad",
@@ -1254,7 +1283,9 @@ class TestNotifyExecutorError(SimpleTestCase):
             "apps.notify.services.NotifySelector.resolve",
             side_effect=RuntimeError("selector broken"),
         ):
-            result = NotifyExecutor().execute(_ctx(payload={}, previous_results={"analyze": {}}))
+            result = NotifyExecutor().execute(
+                _ctx(payload={"notify_driver": "slack"}, previous_results={"analyze": {}})
+            )
 
         assert any("Notify error" in e for e in result.errors)
         assert result.duration_ms > 0
@@ -1272,7 +1303,9 @@ class TestNotifyExecutorProviderIds(TestCase):
             "apps.notify.services.NotifySelector.resolve",
             return_value=_resolve_return(driver_cls),
         ):
-            result = NotifyExecutor().execute(_ctx(payload={}, previous_results={"analyze": {}}))
+            result = NotifyExecutor().execute(
+                _ctx(payload={"notify_driver": "slack"}, previous_results={"analyze": {}})
+            )
 
         assert result.provider_ids == ["id-1", "id-2"]
 
@@ -1287,7 +1320,9 @@ class TestNotifyExecutorProviderIds(TestCase):
             "apps.notify.services.NotifySelector.resolve",
             return_value=_resolve_return(driver_cls),
         ):
-            result = NotifyExecutor().execute(_ctx(payload={}, previous_results={"analyze": {}}))
+            result = NotifyExecutor().execute(
+                _ctx(payload={"notify_driver": "slack"}, previous_results={"analyze": {}})
+            )
 
         assert result.provider_ids == []
         assert result.channels_succeeded == 1
@@ -1303,7 +1338,9 @@ class TestNotifyExecutorProviderIds(TestCase):
             "apps.notify.services.NotifySelector.resolve",
             return_value=_resolve_return(driver_cls),
         ):
-            result = NotifyExecutor().execute(_ctx(payload={}, previous_results={"analyze": {}}))
+            result = NotifyExecutor().execute(
+                _ctx(payload={"notify_driver": "slack"}, previous_results={"analyze": {}})
+            )
 
         assert result.provider_ids == ["12345"]
 
@@ -1406,3 +1443,87 @@ class TestNotifyExecutorDownstreamHeadline(TestCase):
         message = self._notify(None)
 
         assert message.severity == "info"
+
+
+class TestNotifyExecutorRoutingGaps(TestCase):
+    """A lane that routes to NOTIFY but names no active channel fails loudly.
+
+    The alternative is what this replaces: delivering to whatever channel sorts
+    first by name, which is silent and wrong rather than loud and fixable.
+    """
+
+    def _incident_on_lane(self, channel=None):
+        from django.utils import timezone
+
+        from apps.alerts.models import Alert, Incident
+        from apps.orchestration.models import PipelineDefinition
+
+        lane = PipelineDefinition.objects.create(
+            name="lane", match=[], stages=["notify"], priority=1, channel=channel
+        )
+        incident = Incident.objects.create(title="Disk", severity="critical", pipeline=lane)
+        Alert.objects.create(
+            fingerprint="fp-nc",
+            source="cluster",
+            name="Disk",
+            severity="critical",
+            started_at=timezone.now(),
+            incident=incident,
+        )
+        return incident
+
+    def test_no_channel_fails_non_retryably(self):
+        from apps.orchestration.errors import StageExecutionError
+
+        incident = self._incident_on_lane()
+
+        with self.assertRaises(StageExecutionError) as caught:
+            NotifyExecutor().execute(_ctx(payload={}, incident_id=incident.id))
+
+        self.assertFalse(caught.exception.retryable)
+        self.assertIn("no_channel", "; ".join(caught.exception.errors))
+
+    def test_an_inactive_channel_is_no_channel(self):
+        """routed_channel() is the one rule for 'active', and notify honours it."""
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.errors import StageExecutionError
+
+        channel = NotificationChannel.objects.create(
+            name="off", driver="generic", is_active=False, config={}
+        )
+        incident = self._incident_on_lane(channel=channel)
+
+        with self.assertRaises(StageExecutionError):
+            NotifyExecutor().execute(_ctx(payload={}, incident_id=incident.id))
+
+    def test_a_payload_named_driver_still_sends(self):
+        """CLI/manual runs that name their own driver are unaffected."""
+        driver_cls, driver_inst = _mock_driver_cls()
+        incident = self._incident_on_lane()
+
+        with patch.dict("apps.notify.views.DRIVER_REGISTRY", {"generic": driver_cls}, clear=False):
+            result = NotifyExecutor().execute(
+                _ctx(payload={"notify_driver": "generic"}, incident_id=incident.id)
+            )
+
+        self.assertFalse(result.has_errors)
+
+    def test_an_unregistered_driver_fails_non_retryably(self):
+        """A lane naming a driver that does not exist retries three times today.
+
+        No retry can invent a driver, and "Mark for Retry" in the admin spins it
+        again — a pointless loop against a typo in a config field.
+        """
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.errors import StageExecutionError
+
+        channel = NotificationChannel.objects.create(
+            name="ghost", driver="does-not-exist", is_active=True, config={}
+        )
+        incident = self._incident_on_lane(channel=channel)
+
+        with self.assertRaises(StageExecutionError) as caught:
+            NotifyExecutor().execute(_ctx(payload={}, incident_id=incident.id))
+
+        self.assertFalse(caught.exception.retryable)
+        self.assertIn("no_driver", "; ".join(caught.exception.errors))

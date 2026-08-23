@@ -630,6 +630,29 @@ class PipelineDefinition(models.Model):
         """
         return self.channel if self.channel and self.channel.is_active else None
 
+    def delivery_gap(self) -> str | None:
+        """Why this lane cannot deliver — ``no_channel``, ``no_driver`` — or None.
+
+        The two halves of "the routing table does not say where this goes" that a
+        lane can carry (``no_route``, the third, is the absence of a lane), named
+        exactly as ``NotifyExecutor`` fails on them. It lives here for the same
+        reason ``routed_channel()`` does: readiness, preflight and delivery must ask
+        one question one way. Reading only ``routed_channel()`` is what let a lane
+        naming an ACTIVE channel with an unregistered driver look healthy on both
+        read-only surfaces while every run on it failed non-retryably.
+
+        A lane that does not list ``notify`` promises nothing and has no gap.
+        """
+        if "notify" not in self.routable_stages():
+            return None
+        channel = self.routed_channel()
+        if channel is None:
+            return "no_channel"
+        # Imported here: apps.notify.views imports models at module scope.
+        from apps.notify.views import DRIVER_REGISTRY
+
+        return None if channel.driver in DRIVER_REGISTRY else "no_driver"
+
     @staticmethod
     def _fact(facts: dict, field: str | None):
         if field and field.startswith("label:"):

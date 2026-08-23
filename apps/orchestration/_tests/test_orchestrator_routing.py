@@ -130,12 +130,12 @@ class StageSelectionFromStagesListTests(TestCase):
         assert self.executed == [PipelineStage.INGEST, PipelineStage.NOTIFY]
 
         # The same payload from a webhook does not match that lane; it falls
-        # through to the seeded cluster-nodes lane instead.
+        # through to the seeded cluster-nodes lane instead. That lane is seeded
+        # ANALYZE-only here: no channel is configured, so it does not list NOTIFY.
         self._run(origin=PipelineOrigin.INCOMING_WEBHOOK)
         assert self.executed == [
             PipelineStage.INGEST,
             PipelineStage.ANALYZE,
-            PipelineStage.NOTIFY,
         ]
         assert Incident.objects.get(pk=self.incident.pk).pipeline.name == "cluster-nodes"
 
@@ -192,7 +192,9 @@ class StageSelectionFromStagesListTests(TestCase):
 
         That name described the deleted Python fallback. The observable behaviour
         is now a seeded row, so the assertion moves with it: a cluster alert no
-        operator lane claims lands on ``cluster-nodes``, which omits CHECK.
+        operator lane claims lands on ``cluster-nodes``, which omits CHECK — and,
+        on this channel-less hub, NOTIFY too. What separates it from the catch-all
+        is still visible: the catch-all would have run CHECK.
         """
         PipelineDefinition.objects.create(
             name="grafana-only",
@@ -203,20 +205,20 @@ class StageSelectionFromStagesListTests(TestCase):
         assert self.executed == [
             PipelineStage.INGEST,
             PipelineStage.ANALYZE,
-            PipelineStage.NOTIFY,
         ]
 
     def test_no_operator_lanes_at_all_still_routes_on_the_seeds(self):
         """Was ``test_no_pipelines_at_all_runs_full_order`` — same reason as above.
 
         A fresh install with nothing configured still routes, because the routes
-        are rows now rather than a constant in the orchestrator.
+        are rows now rather than a constant in the orchestrator. "Nothing
+        configured" includes no channel, so the seeded lane it lands on records
+        rather than delivers.
         """
         self._run()
         assert self.executed == [
             PipelineStage.INGEST,
             PipelineStage.ANALYZE,
-            PipelineStage.NOTIFY,
         ]
 
     def test_incident_stamped_with_matched_pipeline(self):
@@ -354,7 +356,6 @@ class DownstreamStagesHelperTests(TestCase):
         # the seeded cluster-nodes lane, which lists different stages.
         assert self._downstream(alert.id, origin="incoming_webhook") == [
             PipelineStage.ANALYZE,
-            PipelineStage.NOTIFY,
         ]
         assert Incident.objects.get(pk=incident.pk).pipeline.name == "cluster-nodes"
 
@@ -625,7 +626,7 @@ class SeededDefaultLanesTests(TestCase):
     def test_cluster_nodes_lane_matches_a_cluster_alert_and_omits_check(self):
         """A node already ran its own checkers; hub-side CHECK would measure the hub."""
         alert = self._alert("cluster")
-        assert self._downstream(alert.id) == [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+        assert self._downstream(alert.id) == [PipelineStage.ANALYZE]
         assert Incident.objects.get(pk=alert.incident_id).pipeline.name == "cluster-nodes"
 
     def test_catch_all_lane_matches_when_nothing_else_does(self):
@@ -633,7 +634,6 @@ class SeededDefaultLanesTests(TestCase):
         assert self._downstream(alert.id) == [
             PipelineStage.CHECK,
             PipelineStage.ANALYZE,
-            PipelineStage.NOTIFY,
         ]
         assert Incident.objects.get(pk=alert.incident_id).pipeline.name == "catch-all"
 
@@ -678,7 +678,21 @@ class SeededResolvedLaneTests(TestCase):
     This is a lane, not code: routing on ``status`` is what keeps "resolved means
     notify only" configurable, and an operator can widen or delete it like any
     other row.
+
+    The lane exists *only* to notify, so on a channel-less hub the seed switches it
+    off rather than leave it shadowing the lanes below it. Everything here is about
+    a hub that does deliver, so ``setUp`` configures the channel that makes that
+    true — the operator decision the seed was waiting for.
     """
+
+    def setUp(self):
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.seeding import enable_delivery
+
+        channel = NotificationChannel.objects.create(
+            name="ops", driver="generic", is_active=True, config={}
+        )
+        enable_delivery(PipelineDefinition, channel)
 
     def _alert(self, status, source="cluster", severity="critical"):
         incident = Incident.objects.create(title="x", severity=severity)
@@ -1083,7 +1097,9 @@ class CheckAsEntryStageRoutingTests(TestCase):
         """No guard keeps ``hub-self-check`` alive; the catch-all then claims it.
 
         The catch-all lists ``check``, which is why the skip above matters: the
-        run still executes CHECK once and continues to analyze and notify.
+        run still executes CHECK once and continues to analyze. NOTIFY is absent
+        because no channel is configured here, not because the fall-through
+        stopped short.
         """
         PipelineDefinition.objects.filter(name="hub-self-check").delete()
         result = self._run()
@@ -1093,7 +1109,6 @@ class CheckAsEntryStageRoutingTests(TestCase):
             PipelineStage.CHECK,
             PipelineStage.CHECK,
             PipelineStage.ANALYZE,
-            PipelineStage.NOTIFY,
         ]
         assert result.stages_completed == [PipelineStage.CHECK]
         assert Incident.objects.get(pk=self.incident.pk).pipeline.name == "catch-all"
@@ -1190,8 +1205,8 @@ class CheckerGeneratedNotifiesThroughItsLaneChannelTests(TestCase):
     the lane's channel FK is dead for this traffic and NotifySelector silently
     falls back to "first active channel by name".
 
-    The two channels are named so that the fallback and the routed answer differ:
-    ``aaa-fallback`` sorts first and is what an unrouted run picks, so asserting
+    The two channels are named so a misroute stays visible: ``aaa-fallback`` sorts
+    first by name, which is where the deleted default sent everything, so asserting
     the delivery went to ``zzz-lane-channel`` asserts the routing OUTCOME rather
     than merely that the lane row exists.
 
@@ -1314,12 +1329,32 @@ class CheckerGeneratedNotifiesThroughItsLaneChannelTests(TestCase):
         assert [d["driver"] for d in deliveries_in_trace("t-chan-resume")] == ["zzz-lane-channel"]
         assert result.incident_id == self.incident.id
 
-    def test_an_inactive_lane_channel_falls_back(self):
-        """``routed_channel`` is the one rule for "active"; notify honours it."""
+    def test_an_inactive_lane_channel_is_no_channel(self):
+        """``routed_channel`` is the one rule for "active"; notify honours it.
+
+        The lane still lists NOTIFY, so it claims a delivery it can no longer
+        make. That is now a terminal ``no_channel`` failure rather than a message
+        to ``aaa-fallback`` — the whole point being that an inactive channel is
+        not a usable channel, and the alphabet is not a routing table.
+        """
         self.lane_channel.is_active = False
         self.lane_channel.save(update_fields=["is_active"])
+
         result = self._run()
-        assert [d["driver"] for d in deliveries_in_trace(result.trace_id)] == ["aaa-fallback"]
+
+        assert deliveries_in_trace(result.trace_id) == []
+        child = (
+            PipelineRun.objects.filter(trace_id=result.trace_id).exclude(run_id=result.run_id).get()
+        )
+        assert child.status == PipelineStatus.FAILED
+        assert "no_channel" in child.last_error_message
+        # Non-retryable: NOTIFY was attempted once, not three times.
+        assert (
+            StageExecution.objects.filter(
+                pipeline_run=child, stage=PipelineStage.NOTIFY, status=StageStatus.FAILED
+            ).count()
+            == 1
+        )
 
 
 class NoIncidentsIsADiagnosticRunTests(TestCase):
@@ -1447,8 +1482,18 @@ class NoIncidentsIsADiagnosticRunTests(TestCase):
         # A lane without ``check``: the seeded catch-all lists it, and CHECK here
         # is the REAL executor, which would run the host's every checker for real.
         clear_lanes()
+        from apps.notify.models import NotificationChannel
+
         PipelineDefinition.objects.create(
-            name="webhook-lane", priority=1, match=[], stages=["notify"]
+            name="webhook-lane",
+            priority=1,
+            match=[],
+            stages=["notify"],
+            # A lane that lists NOTIFY must name a channel or the run fails
+            # `no_channel`; the generic driver's send is stubbed below.
+            channel=NotificationChannel.objects.create(
+                name="webhook-ops", driver="generic", is_active=True, config={}
+            ),
         )
 
         orchestrator = PipelineOrchestrator()

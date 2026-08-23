@@ -6,8 +6,10 @@ based on payloads, CLI args, or DB-stored NotificationChannel records.
 Selection priority:
 - If `provider_arg` matches a NotificationChannel.name (and is active), use that
   channel's driver and stored config.
-- If `provider_arg` is not provided, select the first active NotificationChannel
-  ordered by name and use its driver/config.
+- If `provider_arg` is not provided AND the caller opted in with
+  `allow_default_channel=True`, select the first active NotificationChannel
+  ordered by name and use its driver/config. Without the opt-in no channel is
+  selected: for the pipeline that default would be a guess about routing.
 - Otherwise treat `provider_arg` as a provider key (e.g. 'slack') and use the
   provided payload_config.
 
@@ -34,6 +36,7 @@ class NotifySelector:
         provider_arg: str | None,
         payload_config: dict | None = None,
         requested_channel: str | None = None,
+        allow_default_channel: bool = False,
     ) -> tuple[str, dict, str, type | None, NotificationChannel | None, str]:
         """Resolve provider name, config, selected label, driver class, channel object, and final channel.
 
@@ -41,6 +44,9 @@ class NotifySelector:
             provider_arg: Optional provider key or channel name provided by caller.
             payload_config: Optional dict containing payload-supplied config.
             requested_channel: Optional hint for destination channel (e.g., Slack channel).
+            allow_default_channel: Opt in to the single-channel default when no
+                provider is named. Interactive callers ("send a test message") mean
+                it; the pipeline does not.
 
         Returns:
             (provider_name, config, selected_label, driver_class, channel_obj, final_channel)
@@ -64,8 +70,16 @@ class NotifySelector:
                 selected_label = provider_arg
 
         else:
-            # Pick the first active channel when no provider arg provided
-            channel = NotificationChannel.objects.filter(is_active=True).order_by("name").first()
+            # The single-channel default is opt-in. For an interactive caller
+            # ("send a test message") it is the intent; for the pipeline it would be
+            # a guess about routing, and picking by name is how a critical alert
+            # ends up in whatever channel sorts first. See
+            # docs/plans/2026-08-22-lane-channel-required-design.md.
+            channel = (
+                NotificationChannel.objects.filter(is_active=True).order_by("name").first()
+                if allow_default_channel
+                else None
+            )
             if channel:
                 provider_name = channel.driver
                 config = channel.config or {}

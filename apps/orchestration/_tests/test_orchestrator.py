@@ -72,6 +72,26 @@ def executed_stages(mock_execute):
     return [call.kwargs["stage"] for call in mock_execute.call_args_list]
 
 
+def enable_seeded_delivery():
+    """Configure a channel, so the seeded lanes deliver.
+
+    A test database has no active channel, so migration 0017 seeds the lanes
+    record-only — the catch-all lists CHECK and ANALYZE and stops there, because a
+    lane must not promise a delivery the hub cannot perform. A test whose subject
+    is that the pipeline reaches NOTIFY is describing a *configured* hub, so it has
+    to make that configuration: creating the channel and calling ``enable_delivery``
+    restores NOTIFY on the seeded lanes and binds them to it.
+    """
+    from apps.notify.models import NotificationChannel
+    from apps.orchestration.seeding import enable_delivery
+
+    channel = NotificationChannel.objects.create(
+        name="ops", driver="generic", is_active=True, config={}
+    )
+    enable_delivery(PipelineDefinition, channel)
+    return channel
+
+
 def children_of(result):
     from apps.orchestration.models import PipelineRun
 
@@ -80,6 +100,9 @@ def children_of(result):
 
 class OrchestratorTests(TestCase):
     """Test PipelineOrchestrator."""
+
+    def setUp(self):
+        enable_seeded_delivery()
 
     def test_start_pipeline_creates_run(self):
         """Test that start_pipeline creates a PipelineRun."""
@@ -258,6 +281,9 @@ class ResumePipelineTests(TestCase):
 class SkipCompletedStagesTests(TestCase):
     """Tests for skipping already-completed stages on resume."""
 
+    def setUp(self):
+        enable_seeded_delivery()
+
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_resume_skips_completed_ingest_stage(self, mock_execute):
         """A pre-fan-out INGEST snapshot is skipped and still carries its incident.
@@ -398,6 +424,9 @@ class SkipCompletedStagesTests(TestCase):
 
 class AnalyzeFallbackContinuesTests(TestCase):
     """Tests for ANALYZE stage with fallback_used continuing pipeline."""
+
+    def setUp(self):
+        enable_seeded_delivery()
 
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_analyze_with_errors_and_fallback_continues(self, mock_execute):
@@ -706,6 +735,9 @@ class SafetyNetTests(TestCase):
 
 class ChecksOnlyTests(TestCase):
     """Tests for checks_only mode that skips ingest/analyze/notify stages."""
+
+    def setUp(self):
+        enable_seeded_delivery()
 
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_checks_only_runs_only_check_stage(self, mock_execute):
@@ -1159,8 +1191,21 @@ class SynchronousDrainTests(TestCase):
     """
 
     def setUp(self):
+        from apps.notify.models import NotificationChannel
+
+        # A lane that lists NOTIFY needs a channel: without one the run now fails
+        # `no_channel`. The generic driver treats an empty config as a no-op, so
+        # this delivers without touching the network.
+        channel = NotificationChannel.objects.create(
+            name="drain-ops", driver="generic", is_active=True, config={}
+        )
         PipelineDefinition.objects.create(
-            name="fanout-lane", match=[], stages=["notify"], priority=1, is_active=True
+            name="fanout-lane",
+            match=[],
+            stages=["notify"],
+            priority=1,
+            is_active=True,
+            channel=channel,
         )
 
     def test_run_pipeline_leaves_no_pending_child(self):
