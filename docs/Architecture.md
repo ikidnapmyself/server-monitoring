@@ -140,6 +140,17 @@ All apps register their models at `/admin/`:
 | `/admin/notify/` | NotificationChannel |
 | `/admin/orchestration/` | PipelineRun, StageExecution, PipelineDefinition |
 
+#### Network map
+
+`/admin/map/` (staff-only) renders the routing table as a read-time projection —
+no models, no stored state, just `PipelineDefinition` rows in the exact order
+`resolve_pipeline` consults them. Each lane shows its match conditions, stage list,
+and a state banner: **ok**, **shadowed** (an earlier lane provably matches everything
+this one would, and is named), **inactive**, or **never matches** (malformed match).
+Below that, a delivery line mirrors `delivery_gap()` 1:1: bound to a channel,
+recording only (no `notify` stage), no channel configured, channel inactive, or
+channel driver not registered.
+
 ## Pipeline Execution
 
 **Location:** `apps/orchestration/orchestrator.py`
