@@ -180,8 +180,14 @@ intent.
 uv run pytest apps/notify/_tests/ apps/orchestration/_tests/ -q
 ```
 
-Expected: PASS. If an orchestration test fails here, it is relying on the pipeline's implicit
-default — leave it failing and fix it in Task 2, where that behaviour is replaced deliberately.
+Expected: PASS, except that `test_an_inactive_lane_channel_falls_back`
+(`test_orchestrator_routing.py`) will fail — it asserts the very fallback being removed. Rewrite it
+**in this task**, against what the lane now does: an inactive channel selects nothing, so the run
+delivers only if the caller named a driver.
+
+Do NOT leave it red for Task 2. The pre-commit hook runs the full suite, so a red test makes an
+honest commit impossible — and skipping the hook (`--no-verify`, `SKIP=pytest`, or any other
+route) is never the answer. If you find yourself reaching for one, stop and report instead.
 
 **Step 6: Commit**
 

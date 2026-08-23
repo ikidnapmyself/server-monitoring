@@ -1159,8 +1159,21 @@ class SynchronousDrainTests(TestCase):
     """
 
     def setUp(self):
+        from apps.notify.models import NotificationChannel
+
+        # A lane that lists NOTIFY needs a channel: without one the run now fails
+        # `no_channel`. The generic driver treats an empty config as a no-op, so
+        # this delivers without touching the network.
+        channel = NotificationChannel.objects.create(
+            name="drain-ops", driver="generic", is_active=True, config={}
+        )
         PipelineDefinition.objects.create(
-            name="fanout-lane", match=[], stages=["notify"], priority=1, is_active=True
+            name="fanout-lane",
+            match=[],
+            stages=["notify"],
+            priority=1,
+            is_active=True,
+            channel=channel,
         )
 
     def test_run_pipeline_leaves_no_pending_child(self):

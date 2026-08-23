@@ -74,6 +74,18 @@ class FanOutAcceptanceTests(TestCase):
             priority=30,
             is_active=True,
         )
+        # Every lane that lists NOTIFY needs a channel to deliver to — a lane
+        # without one now fails `no_channel` instead of picking the first active
+        # channel by name. This is the setup a delivering hub has.
+        from apps.notify.models import NotificationChannel
+
+        self.channel = NotificationChannel.objects.create(
+            name="e2e-ops", driver="generic", is_active=True, config={}
+        )
+        for lane in PipelineDefinition.objects.all():
+            if "notify" in (lane.stages or []):
+                lane.channel = self.channel
+                lane.save(update_fields=["channel"])
 
     def _stub_outbound(self, stack):
         """Stub the LLM call and the message send — nothing else.

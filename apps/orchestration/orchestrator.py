@@ -35,6 +35,9 @@ from apps.orchestration.dtos import (
     StageContext,
     StageError,
 )
+
+# Re-exported: many modules and tests import StageExecutionError from here.
+from apps.orchestration.errors import StageExecutionError, routing_gap  # noqa: F401
 from apps.orchestration.executors import (
     AnalyzeExecutor,
     BaseExecutor,
@@ -803,18 +806,10 @@ class PipelineOrchestrator:
         variable); ``StageExecutionError.stage`` is typed ``str`` and is only
         interpolated into the human-readable message on ``PipelineResult`` and
         ``PipelineRun.last_error_message``.
-
-        ``retryable=False`` because nothing about a retry can conjure a lane: the
-        alert is unroutable until an operator adds one, and a retryable failure
-        would spin forever.
         """
         downstream = self._downstream_stages(alert_id, origin)
         if downstream is None:
-            raise StageExecutionError(
-                stage="routing",
-                errors=["no_route: no active pipeline matched this alert"],
-                retryable=False,
-            )
+            raise routing_gap("routing", "no_route", "no active pipeline matched this alert")
         return downstream
 
     @staticmethod
@@ -977,13 +972,3 @@ class PipelineOrchestrator:
             stage=stage,
             status=StageStatus.SUCCEEDED,
         ).exists()
-
-
-class StageExecutionError(Exception):
-    """Exception raised when a stage fails execution."""
-
-    def __init__(self, stage: str, errors: list[str], retryable: bool = True):
-        self.stage = stage
-        self.errors = errors
-        self.retryable = retryable
-        super().__init__(f"Stage {stage} failed: {'; '.join(errors)}")

@@ -1190,8 +1190,8 @@ class CheckerGeneratedNotifiesThroughItsLaneChannelTests(TestCase):
     the lane's channel FK is dead for this traffic and NotifySelector silently
     falls back to "first active channel by name".
 
-    The two channels are named so that the fallback and the routed answer differ:
-    ``aaa-fallback`` sorts first and is what an unrouted run picks, so asserting
+    The two channels are named so a misroute stays visible: ``aaa-fallback`` sorts
+    first by name, which is where the deleted default sent everything, so asserting
     the delivery went to ``zzz-lane-channel`` asserts the routing OUTCOME rather
     than merely that the lane row exists.
 
@@ -1314,12 +1314,32 @@ class CheckerGeneratedNotifiesThroughItsLaneChannelTests(TestCase):
         assert [d["driver"] for d in deliveries_in_trace("t-chan-resume")] == ["zzz-lane-channel"]
         assert result.incident_id == self.incident.id
 
-    def test_an_inactive_lane_channel_falls_back(self):
-        """``routed_channel`` is the one rule for "active"; notify honours it."""
+    def test_an_inactive_lane_channel_is_no_channel(self):
+        """``routed_channel`` is the one rule for "active"; notify honours it.
+
+        The lane still lists NOTIFY, so it claims a delivery it can no longer
+        make. That is now a terminal ``no_channel`` failure rather than a message
+        to ``aaa-fallback`` — the whole point being that an inactive channel is
+        not a usable channel, and the alphabet is not a routing table.
+        """
         self.lane_channel.is_active = False
         self.lane_channel.save(update_fields=["is_active"])
+
         result = self._run()
-        assert [d["driver"] for d in deliveries_in_trace(result.trace_id)] == ["aaa-fallback"]
+
+        assert deliveries_in_trace(result.trace_id) == []
+        child = (
+            PipelineRun.objects.filter(trace_id=result.trace_id).exclude(run_id=result.run_id).get()
+        )
+        assert child.status == PipelineStatus.FAILED
+        assert "no_channel" in child.last_error_message
+        # Non-retryable: NOTIFY was attempted once, not three times.
+        assert (
+            StageExecution.objects.filter(
+                pipeline_run=child, stage=PipelineStage.NOTIFY, status=StageStatus.FAILED
+            ).count()
+            == 1
+        )
 
 
 class NoIncidentsIsADiagnosticRunTests(TestCase):
@@ -1447,8 +1467,18 @@ class NoIncidentsIsADiagnosticRunTests(TestCase):
         # A lane without ``check``: the seeded catch-all lists it, and CHECK here
         # is the REAL executor, which would run the host's every checker for real.
         clear_lanes()
+        from apps.notify.models import NotificationChannel
+
         PipelineDefinition.objects.create(
-            name="webhook-lane", priority=1, match=[], stages=["notify"]
+            name="webhook-lane",
+            priority=1,
+            match=[],
+            stages=["notify"],
+            # A lane that lists NOTIFY must name a channel or the run fails
+            # `no_channel`; the generic driver's send is stubbed below.
+            channel=NotificationChannel.objects.create(
+                name="webhook-ops", driver="generic", is_active=True, config={}
+            ),
         )
 
         orchestrator = PipelineOrchestrator()
