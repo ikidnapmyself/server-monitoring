@@ -123,3 +123,119 @@ def test_nodes_warn_when_some_stale():
     stale = Node.objects.create(instance_id="agent-partial-stale")
     Node.objects.filter(pk=stale.pk).update(last_seen=timezone.now() - timedelta(minutes=30))
     assert _by_key(build_readiness())["nodes"]["status"] == "warn"
+
+
+# ---------------------------------------------------------------------------
+# Lane delivery — three states, and only one of them is red
+# ---------------------------------------------------------------------------
+#
+# A lane that lists ``notify`` promises delivery. Whether it can keep that
+# promise is ``routed_channel()``, and nothing else. The states that follow are
+# the difference between a hub that is misconfigured and a hub that simply never
+# claimed to deliver. See docs/plans/2026-08-22-lane-channel-required-design.md
+# §2.3.
+
+
+def _lane(name, stages, channel=None, is_active=True):
+    from apps.orchestration.models import PipelineDefinition
+
+    return PipelineDefinition.objects.create(
+        name=name, match=[], stages=stages, priority=1, channel=channel, is_active=is_active
+    )
+
+
+def _channel(name="ops", is_active=True):
+    from apps.notify.models import NotificationChannel
+
+    return NotificationChannel.objects.create(
+        name=name, driver="generic", is_active=is_active, config={}
+    )
+
+
+@pytest.mark.django_db
+def test_lane_that_claims_to_deliver_but_cannot_is_an_error():
+    """The only red state: a row says NOTIFY and delivery has nowhere to go."""
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    _lane("mute", ["notify"])
+
+    entry = _by_key(build_readiness())["lane_channels"]
+    assert entry["status"] == "error"
+    assert "mute" in entry["detail"]
+    assert entry["url"] == reverse("admin:orchestration_pipelinedefinition_changelist")
+
+
+@pytest.mark.django_db
+def test_a_recording_hub_is_not_an_error():
+    """No channel and no delivering lane is a supported setup, not a fault.
+
+    An operator who reads the admin daily and runs no Slack must not see red.
+    """
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    _lane("records", ["analyze"])
+
+    assert _by_key(build_readiness())["lane_channels"]["status"] == "info"
+
+
+@pytest.mark.django_db
+def test_every_delivering_lane_bound_is_ok():
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    _lane("delivers", ["notify"], channel=_channel())
+
+    entry = _by_key(build_readiness())["lane_channels"]
+    assert entry["status"] == "ok"
+    assert "1" in entry["detail"]
+
+
+@pytest.mark.django_db
+def test_an_inactive_channel_on_a_lane_is_no_channel():
+    """routed_channel() is the one rule for "active"; readiness re-derives nothing."""
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    _lane("delivers", ["notify"], channel=_channel(is_active=False))
+
+    assert _by_key(build_readiness())["lane_channels"]["status"] == "error"
+
+
+@pytest.mark.django_db
+def test_a_channel_nobody_delivers_to_is_a_nudge_not_an_alarm():
+    """One edit away from delivering — say so, do not shout."""
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    _channel()
+    _lane("records", ["analyze"])
+
+    entry = _by_key(build_readiness())["lane_channels"]
+    assert entry["status"] == "ok"
+    assert "no lane" in entry["detail"].lower()
+
+
+@pytest.mark.django_db
+def test_a_lane_that_never_notifies_is_not_reported():
+    """hub-self-check lists no stages; it is not broken, it is quiet by design."""
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    _lane("hub-self-check", [])
+
+    entry = _by_key(build_readiness())["lane_channels"]
+    assert entry["status"] == "info"
+    assert "hub-self-check" not in entry["detail"]
+
+
+@pytest.mark.django_db
+def test_an_inactive_lane_cannot_fail_so_it_is_not_reported():
+    """A lane that never runs delivers nothing; red would be noise."""
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    _lane("disabled", ["notify"], is_active=False)
+
+    assert _by_key(build_readiness())["lane_channels"]["status"] == "info"

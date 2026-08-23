@@ -215,8 +215,11 @@ class PreflightCommandTests(TestCase):
             return None
 
         mock_read.side_effect = side_effect
-        NotificationChannel.objects.create(name="ch", driver="slack", is_active=True)
+        channel = NotificationChannel.objects.create(name="ch", driver="slack", is_active=True)
         PipelineDefinition.objects.create(name="p", is_active=True)
+        # The seeded lanes list NOTIFY; a clean summary means delivery works too,
+        # so bind them the way a real deployment is bound.
+        PipelineDefinition.objects.update(channel=channel)
         # Mock stat so .env permissions check doesn't see real file as world-readable
         mock_stat = patch(
             "pathlib.Path.stat", return_value=os.stat_result((0o600, 0, 0, 0, 0, 0, 0, 0, 0, 0))

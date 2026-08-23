@@ -482,6 +482,32 @@ def check_pipeline_state() -> list[CheckResult]:
             )
         )
 
+    # A lane that lists NOTIFY promises delivery; routed_channel() is the one rule
+    # for whether it can keep that promise. Since the channel fallback was removed,
+    # a lane that cannot is not a lane that delivers elsewhere — it is a run that
+    # fails. Preflight is the cheap place to find that out.
+    undeliverable = sorted(
+        lane.name
+        for lane in PipelineDefinition.objects.filter(is_active=True).select_related("channel")
+        if "notify" in lane.routable_stages() and lane.routed_channel() is None
+    )
+    if undeliverable:
+        results.append(
+            CheckResult(
+                level="warn",
+                message=(
+                    f"{len(undeliverable)} pipeline(s) route to notify with no active "
+                    f"channel: {', '.join(undeliverable)}"
+                ),
+                hint=(
+                    "Such a run now fails as no_channel rather than delivering to "
+                    "whatever channel sorts first by name. Set the lane's channel in "
+                    "Django Admin (Orchestration \u2192 Pipeline definitions), or drop "
+                    "notify from its stages if this hub only records."
+                ),
+            )
+        )
+
     fallback = getattr(settings, "ORCHESTRATION_INTELLIGENCE_FALLBACK_ENABLED", True)
     if active_providers.exists() and not fallback:
         results.append(

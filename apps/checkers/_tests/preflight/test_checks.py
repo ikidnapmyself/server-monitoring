@@ -805,12 +805,44 @@ class CheckPipelineStateTests(TestCase):
         infos = [r for r in results if r.level == "info"]
         self.assertTrue(any("fallback" in r.message.lower() for r in infos))
 
+    def test_a_lane_that_claims_to_deliver_but_cannot_warns(self):
+        """A lane listing NOTIFY with no active channel now fails at run time.
+
+        Preflight is where that is cheap to learn: after this change such a run
+        ends as ``no_channel`` instead of delivering to whatever channel sorts
+        first by name, so the warning has to name the row and the fix.
+        """
+        from apps.orchestration.models import PipelineDefinition
+
+        clear_lanes()
+        PipelineDefinition.objects.create(
+            name="mute", match=[], stages=["notify"], priority=1, is_active=True
+        )
+        results = check_pipeline_state()
+        warns = [r for r in results if r.level == "warn" and "mute" in r.message]
+        self.assertEqual(len(warns), 1)
+        self.assertIn("no_channel", warns[0].hint)
+
+    def test_a_recording_hub_does_not_warn_about_delivery(self):
+        """No lane claims to deliver, so there is nothing to be wrong about."""
+        from apps.orchestration.models import PipelineDefinition
+
+        clear_lanes()
+        PipelineDefinition.objects.create(
+            name="records", match=[], stages=["analyze"], priority=1, is_active=True
+        )
+        results = check_pipeline_state()
+        self.assertFalse(any("no_channel" in (r.hint or "") for r in results))
+
     def test_all_ok(self):
         from apps.notify.models import NotificationChannel
         from apps.orchestration.models import PipelineDefinition
 
+        # The seeded lanes list NOTIFY; bind them, which is the state a real
+        # deployment has, so "all ok" means all ok rather than "all but delivery".
+        channel = NotificationChannel.objects.create(name="ch", driver="slack", is_active=True)
         PipelineDefinition.objects.create(name="test", is_active=True)
-        NotificationChannel.objects.create(name="ch", driver="slack", is_active=True)
+        PipelineDefinition.objects.update(channel=channel)
         results = check_pipeline_state()
         ok_results = [r for r in results if r.level == "ok"]
         self.assertTrue(len(ok_results) >= 1)

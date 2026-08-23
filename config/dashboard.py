@@ -31,7 +31,7 @@ def prettify_json(data):
 def build_readiness():
     """Configuration-readiness signals for the dashboard.
 
-    Each entry: {key, label, status (ok|warn|error|neutral), detail, url}.
+    Each entry: {key, label, status (ok|info|warn|error|neutral), detail, url}.
     Pure read-aggregation; safe on empty tables.
     """
     from datetime import timedelta
@@ -44,7 +44,7 @@ def build_readiness():
     from apps.intelligence.models import IntelligenceProvider
     from apps.notify.models import NotificationChannel
     from apps.orchestration.inbox import DEFAULT_STALE_MINUTES
-    from apps.orchestration.models import PipelineRun, PipelineStatus
+    from apps.orchestration.models import PipelineDefinition, PipelineRun, PipelineStatus
 
     now = timezone.now()
     out = []
@@ -63,6 +63,40 @@ def build_readiness():
             "status": c_status,
             "detail": detail,
             "url": reverse("admin:notify_notificationchannel_changelist"),
+        }
+    )
+
+    # Lane delivery. A lane that lists NOTIFY is a promise to deliver;
+    # routed_channel() is the one rule for whether it can keep it. Three states,
+    # and only one is red: a hub with no channel and no delivering lane never made
+    # the promise, and reporting it as a fault would train operators to ignore the
+    # panel. See docs/plans/2026-08-22-lane-channel-required-design.md §2.3.
+    lanes = PipelineDefinition.objects.filter(is_active=True).select_related("channel")
+    delivering = [lane for lane in lanes if "notify" in lane.routable_stages()]
+    undeliverable = sorted(lane.name for lane in delivering if lane.routed_channel() is None)
+    if undeliverable:
+        l_status = "error"
+        detail = "{} lane(s) route to notify with no active channel: {}".format(
+            len(undeliverable), ", ".join(undeliverable)
+        )
+    elif delivering:
+        l_status = "ok"
+        detail = f"{len(delivering)} lane(s) deliver to an active channel"
+    elif active:
+        # One edit from delivering: a nudge, not an alarm.
+        l_status = "ok"
+        detail = "Channel active, but no lane delivers to it yet"
+    else:
+        # Recording only — a supported way to run this hub, not a fault.
+        l_status = "info"
+        detail = "Recording only — no lane delivers, no channel configured"
+    out.append(
+        {
+            "key": "lane_channels",
+            "label": "Lane delivery",
+            "status": l_status,
+            "detail": detail,
+            "url": reverse("admin:orchestration_pipelinedefinition_changelist"),
         }
     )
 
