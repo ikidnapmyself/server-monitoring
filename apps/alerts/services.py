@@ -6,6 +6,7 @@ creating/updating incidents, and managing alert lifecycle.
 """
 
 import logging
+import uuid
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
@@ -573,6 +574,7 @@ class IncidentManager:
             incident.save(update_fields=["metadata"])
 
         logger.info(f"Incident acknowledged: {incident.title}")
+        IncidentManager._announce(incident)
         return incident
 
     @staticmethod
@@ -596,6 +598,7 @@ class IncidentManager:
             incident.save(update_fields=["metadata"])
 
         logger.info(f"Incident resolved: {incident.title}")
+        IncidentManager._announce(incident)
         return incident
 
     @staticmethod
@@ -613,7 +616,24 @@ class IncidentManager:
         incident.close()
 
         logger.info(f"Incident closed: {incident.title}")
+        IncidentManager._announce(incident)
         return incident
+
+    @staticmethod
+    def _announce(incident: Incident) -> None:
+        """A human changed the incident: one inbox run, same as when a node does."""
+        # Imported here: orchestration imports alerts, so alerts must not import it at module level.
+        from apps.orchestration.inbox import enqueue_incident_runs
+        from apps.orchestration.models import PipelineOrigin
+
+        subject = incident.alerts.order_by("-received_at").first()
+        enqueue_incident_runs(
+            [incident.id],
+            trace_id=str(uuid.uuid4()),
+            origin=PipelineOrigin.MANUAL,
+            source=subject.source if subject else "",
+            node=subject.node if subject else None,
+        )
 
     @staticmethod
     def add_note(incident_id: int, note: str, author: str = "") -> Incident:

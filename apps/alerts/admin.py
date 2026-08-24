@@ -15,7 +15,7 @@ from django_object_actions import action as object_action
 from apps.alerts.diagnosis import diagnose_incident
 from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus, Node
 from apps.alerts.reeval_existing import apply_node_alert_reeval, preview_node_alert_reeval
-from apps.alerts.services import instance_key_from_labels
+from apps.alerts.services import IncidentManager, instance_key_from_labels
 from apps.alerts.timeline import build_incident_timeline
 from apps.checkers.admin_charts import render_sparkline
 from apps.checkers.models import CheckRun, PreflightRun
@@ -338,7 +338,7 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
     def acknowledge_selected(self, request, queryset):
         count = 0
         for incident in queryset.filter(status=IncidentStatus.OPEN):
-            incident.acknowledge()
+            IncidentManager.acknowledge(incident.id, acknowledged_by=request.user.get_username())
             count += 1
         self.message_user(request, f"{count} incident(s) acknowledged.")
 
@@ -348,14 +348,14 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         for incident in queryset.exclude(
             status__in=[IncidentStatus.RESOLVED, IncidentStatus.CLOSED]
         ):
-            incident.resolve()
+            IncidentManager.resolve(incident.id, resolved_by=request.user.get_username())
             count += 1
         self.message_user(request, f"{count} incident(s) resolved.")
 
     @object_action(label="Acknowledge", description="Mark this incident as acknowledged")
     def acknowledge_incident(self, request, obj):
         if obj.status == IncidentStatus.OPEN:
-            obj.acknowledge()
+            IncidentManager.acknowledge(obj.id, acknowledged_by=request.user.get_username())
             self.message_user(request, f"Incident '{obj.title}' acknowledged.")
         else:
             self.message_user(
@@ -365,7 +365,7 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
     @object_action(label="Resolve", description="Mark this incident as resolved")
     def resolve_incident(self, request, obj):
         if obj.status not in (IncidentStatus.RESOLVED, IncidentStatus.CLOSED):
-            obj.resolve()
+            IncidentManager.resolve(obj.id, resolved_by=request.user.get_username())
             self.message_user(request, f"Incident '{obj.title}' resolved.")
         else:
             self.message_user(request, f"Already {obj.status}.", level="warning")
@@ -373,7 +373,7 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
     @object_action(label="Close", description="Mark this incident as closed")
     def close_incident(self, request, obj):
         if obj.status != IncidentStatus.CLOSED:
-            obj.close()
+            IncidentManager.close(obj.id)
             self.message_user(request, f"Incident '{obj.title}' closed.")
         else:
             self.message_user(request, "Already closed.", level="warning")

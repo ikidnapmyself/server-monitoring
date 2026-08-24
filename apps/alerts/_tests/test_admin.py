@@ -10,7 +10,13 @@ from apps.alerts.models import (
     IncidentStatus,
     Node,
 )
-from apps.orchestration.models import PipelineRun, PipelineStatus
+from apps.orchestration.models import PipelineOrigin, PipelineRun, PipelineStatus
+
+
+def _manual_runs(incident):
+    return PipelineRun.objects.filter(
+        incident=incident, status=PipelineStatus.PENDING, origin=PipelineOrigin.MANUAL
+    )
 
 
 class TestAdminQueryOptimization(TestCase):
@@ -77,6 +83,7 @@ class TestBulkActions(TestCase):
         assert response.status_code == 302
         i1.refresh_from_db()
         assert i1.status == IncidentStatus.RESOLVED
+        assert _manual_runs(i1).count() == 1
 
     def test_resolve_selected_alerts(self):
         a1 = Alert.objects.create(
@@ -130,6 +137,7 @@ class TestPerObjectActions(TestCase):
         assert response.status_code == 302
         incident.refresh_from_db()
         assert incident.status == IncidentStatus.ACKNOWLEDGED
+        assert _manual_runs(incident).count() == 1
 
     def test_resolve_button_works(self):
         incident = Incident.objects.create(
@@ -143,6 +151,7 @@ class TestPerObjectActions(TestCase):
         assert response.status_code == 302
         incident.refresh_from_db()
         assert incident.status == IncidentStatus.RESOLVED
+        assert _manual_runs(incident).count() == 1
 
     def test_close_button_works(self):
         incident = Incident.objects.create(
@@ -156,6 +165,7 @@ class TestPerObjectActions(TestCase):
         assert response.status_code == 302
         incident.refresh_from_db()
         assert incident.status == IncidentStatus.CLOSED
+        assert _manual_runs(incident).count() == 1
 
 
 class TestJsonPrettyDisplay(TestCase):

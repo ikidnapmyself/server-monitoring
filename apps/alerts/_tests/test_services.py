@@ -347,6 +347,41 @@ class IncidentManagerTests(TestCase):
         self.assertEqual(incident.status, IncidentStatus.CLOSED)
         self.assertIsNotNone(incident.closed_at)
 
+    def test_resolve_enqueues_one_manual_pending_run(self):
+        from apps.orchestration.models import (
+            PipelineOrigin,
+            PipelineRun,
+            PipelineStatus,
+            StageExecution,
+        )
+
+        alert = Alert.objects.create(
+            fingerprint="fp-svc",
+            source="grafana",
+            name="A",
+            severity="critical",
+            status=AlertStatus.FIRING,
+            started_at=timezone.now(),
+            incident=self.incident,
+        )
+        IncidentManager.resolve(self.incident.pk, resolved_by="ops")
+
+        run = PipelineRun.objects.get()
+        self.assertEqual(run.status, PipelineStatus.PENDING)
+        self.assertEqual(run.origin, PipelineOrigin.MANUAL)
+        self.assertEqual(run.incident_id, self.incident.pk)
+        self.assertEqual(run.source, alert.source)
+        self.assertEqual(run.inbound_payload, {"downstream_incident_id": self.incident.pk})
+        self.assertEqual(StageExecution.objects.count(), 0)  # nothing ran in-request
+
+    def test_acknowledge_and_close_enqueue_too(self):
+        from apps.orchestration.models import PipelineRun
+
+        IncidentManager.acknowledge(self.incident.pk)
+        IncidentManager.close(self.incident.pk)
+        self.assertEqual(PipelineRun.objects.count(), 2)
+        self.assertEqual(set(PipelineRun.objects.values_list("source", flat=True)), {""})
+
     def test_add_note(self):
         incident = IncidentManager.add_note(
             self.incident.pk,
