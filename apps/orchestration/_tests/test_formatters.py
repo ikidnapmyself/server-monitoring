@@ -209,3 +209,26 @@ class DeriveHeadlineTests(SimpleTestCase):
         self.assertEqual(severity, "warning")
         self.assertNotIn("alert(s)", lead)  # coerced to 0 → no count part
         self.assertIn("monitoring event", lead)
+
+    def test_prefixes_resolved_status(self):
+        title, severity, _ = derive_headline(
+            {"severity": "critical", "incident_title": "Disk full", "status": "resolved"}, {}
+        )
+        self.assertEqual(title, "[RESOLVED] Disk full")
+        self.assertEqual(severity, "critical")
+
+    def test_prefixes_acknowledged_status(self):
+        title, _, _ = derive_headline(
+            {"severity": "warning", "incident_title": "T", "status": "acknowledged"}, {}
+        )
+        self.assertEqual(title, "[ACKNOWLEDGED] T")
+
+    def test_open_keeps_severity_prefix(self):
+        title, _, _ = derive_headline(
+            {"severity": "warning", "incident_title": "T", "status": "open"}, {}
+        )
+        self.assertEqual(title, "[WARNING] T")
+
+    def test_closed_without_title_prefixes_the_fallback(self):
+        title, _, _ = derive_headline({"severity": "info", "status": "closed"}, {})
+        self.assertEqual(title, "[CLOSED] monitoring: incident")

@@ -1400,6 +1400,16 @@ class TestNotifyExecutorDownstreamHeadline(TestCase):
         message = self._notify(incident.id)
 
         assert message.severity == "warning"
+        assert message.title.startswith("[RESOLVED]")
+
+    def test_headline_facts_carry_the_incident_status(self):
+        """The title says what the incident is now, not only how bad it was."""
+        incident = self._incident(status="acknowledged")
+
+        facts = NotifyExecutor._headline_facts(incident)
+
+        assert facts["status"] == "acknowledged"
+        assert facts["severity"] == "critical"
 
     def test_an_ingest_snapshot_still_wins_when_present(self):
         """The push-run path is unchanged: a real snapshot is authoritative."""
