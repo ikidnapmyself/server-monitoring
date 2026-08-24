@@ -356,6 +356,8 @@ class AlertOrchestrator:
         result: ProcessingResult,
     ) -> Alert:
         """Update an existing alert with new data."""
+        from apps.alerts.incident_gate import follow_alert
+
         old_status = alert.status
         old_severity = alert.severity
         old_key = alert.context_key
@@ -374,6 +376,7 @@ class AlertOrchestrator:
         alert.context_key = new_key
 
         # Handle status change
+        refired = False
         if parsed.status != old_status:
             alert.status = parsed.status
 
@@ -383,30 +386,8 @@ class AlertOrchestrator:
                 event = "resolved"
             else:
                 alert.ended_at = None
+                refired = True
                 event = "refired"
-                # Decide WHICH incident this firing alert belongs under. Whether
-                # that incident reopens, and whether anyone hears about it, is
-                # decided after save() by apps.alerts.incident_gate.follow_alert —
-                # not here. An alert row is reused per fingerprint, so its FK may
-                # still point at an incident that was resolved; _find_open_incident
-                # only considers OPEN/ACKNOWLEDGED, so nothing else revisits it.
-                # A sibling alert with the same (name, instance) may have opened
-                # its own incident meanwhile — join it rather than reopening ours:
-                # one situation is one open incident, and the alert must end up
-                # under it either way (it is what the downstream run is enqueued
-                # against).
-                sibling = self._find_open_incident(alert)
-                if sibling is not None:
-                    self._attach_to_incident(alert, sibling, result)
-                elif alert.incident is None and self.auto_create_incidents:
-                    # An alert first seen RESOLVED never got an incident:
-                    # _create_alert only attaches one to a firing alert, and a node
-                    # reports every checker every tick, so a healthy one is first
-                    # seen resolved. Fan-out routes on incident ids
-                    # (routing.material_incident_ids drops incident-less alerts), so
-                    # without this the checker's eventual CRITICAL produced no
-                    # downstream run at all — no lane, no analysis, no message.
-                    self._create_or_attach_incident(alert, result)
 
             AlertHistory.objects.create(
                 alert=alert,
@@ -427,6 +408,35 @@ class AlertOrchestrator:
                 details={"changed": changed},
             )
 
+        # Decide WHICH incident a firing alert belongs under. Whether that incident
+        # reopens, and whether anyone hears about it, is decided below by
+        # apps.alerts.incident_gate.follow_alert — not here. An alert row is
+        # reused per fingerprint, so its FK may still point at a resolved
+        # incident; the gate handles that. But a sibling alert with the same
+        # (name, instance) may have opened its own incident meanwhile — join it
+        # rather than reopening ours: one situation is one open incident, and
+        # the alert must end up under it either way (it is what the downstream
+        # run is enqueued against). This runs on every refire, and also on a
+        # severity-only change of an alert whose incident is no longer open.
+        incident = alert.incident
+        under_closed = incident is None or incident.status in (
+            IncidentStatus.RESOLVED,
+            IncidentStatus.CLOSED,
+        )
+        if alert.status == AlertStatus.FIRING and (refired or under_closed):
+            sibling = self._find_open_incident(alert)
+            if sibling is not None:
+                self._attach_to_incident(alert, sibling, result)
+            elif incident is None and self.auto_create_incidents:
+                # An alert first seen RESOLVED never got an incident:
+                # _create_alert only attaches one to a firing alert, and a node
+                # reports every checker every tick, so a healthy one is first
+                # seen resolved. Fan-out routes on incident ids
+                # (routing.material_incident_ids drops incident-less alerts), so
+                # without this the checker's eventual CRITICAL produced no
+                # downstream run at all — no lane, no analysis, no message.
+                self._create_or_attach_incident(alert, result)
+
         alert.save()
         result.alerts.append(alert)
         if is_material_change(
@@ -437,13 +447,11 @@ class AlertOrchestrator:
             old_key=old_key,
             new_key=new_key,
         ):
-            from apps.alerts.incident_gate import follow_alert
-
             incident = alert.incident
             reopen, notify = follow_alert(
                 incident, old_severity, parsed.severity, old_status, parsed.status
             )
-            if reopen and incident is not None:
+            if reopen and incident is not None:  # typing: gate never returns reopen for None
                 incident.reopen()
             if notify:
                 result.material_alerts.append(alert)

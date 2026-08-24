@@ -1140,6 +1140,29 @@ class RefireReopensIncidentTests(TestCase):
         self.assertEqual(self._incident().status, IncidentStatus.OPEN)
         self.assertEqual([a.fingerprint for a in result.material_alerts], ["flap-1"])
 
+    def test_severity_change_under_a_resolved_incident_joins_a_sibling(self):
+        """The 'which incident' step is not only for refires.
+
+        The alert never stopped firing; an operator resolved its incident and a
+        sibling opened its own. A severity change must join the sibling, not
+        reopen the resolved one — one situation, one open incident.
+        """
+        self.orchestrator.process_webhook(self._with_severity("warning"))
+        original = self._incident()
+        original.resolve()
+        sibling = copy.deepcopy(self.payload)
+        sibling["alerts"][0]["fingerprint"] = "flap-2"
+        self.orchestrator.process_webhook(sibling)
+        sibling_incident = Alert.objects.get(fingerprint="flap-2").incident
+
+        result = self.orchestrator.process_webhook(self._with_severity("critical"))
+
+        self.assertEqual(self._incident().pk, sibling_incident.pk)
+        self.assertEqual(self._incident().status, IncidentStatus.OPEN)
+        original.refresh_from_db()
+        self.assertEqual(original.status, IncidentStatus.RESOLVED)
+        self.assertEqual([a.fingerprint for a in result.material_alerts], ["flap-1"])
+
     def test_escalation_breaks_an_ack(self):
         self.orchestrator.process_webhook(self._with_severity("warning"))
         self._incident().acknowledge()
