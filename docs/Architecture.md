@@ -172,7 +172,10 @@ downstream run that resolves its own lane and runs it. A steady-state re-push th
 nothing new starts no run at all, which is also what keeps a five-minute cron from
 re-notifying ~288 times a day. Downstream runs inherit the push's `trace_id` with their
 own `run_id`, so one push still reads as one story in `manage.py trace`; they are
-drained by `process_inbox` like any other inbox work. Migration `0016` seeds
+drained by `process_inbox` like any other inbox work. Operator transitions
+(`IncidentManager.acknowledge`/`resolve`/`close`) are a second producer of the same runs
+(`origin=manual`), so an acknowledgement or resolution is announced on the next drain,
+and the headline reads the incident's live status. Migration `0016` seeds
 `resolved-all-clear`, which notifies an all-clear without paying for an AI analysis of
 something that has already recovered. See
 `docs/plans/2026-08-19-incident-fanout-design.md`.
