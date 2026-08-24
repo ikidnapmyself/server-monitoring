@@ -118,7 +118,9 @@ synchronously and, in the same transaction, enqueues one `PENDING` run with
 `origin=manual` via `apps.orchestration.inbox.enqueue_incident_runs` — it *announces*.
 Nothing executes in-request; the next `process_inbox` drain delivers, and the headline
 (`derive_headline`) reads the incident's live status, so the message says `[RESOLVED]`.
-Do not flip `Incident.status` from anywhere else. See
+Do not flip `Incident.status` from anywhere else. Known silent exception:
+`reeval_existing._resolve_incidents_for` (config-change re-eval) resolves without a run —
+a follow-up, not a pattern to copy. See
 `docs/plans/2026-08-24-incident-lifecycle-orchestration-design.md`.
 
 ## Boundary rules

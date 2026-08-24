@@ -452,7 +452,8 @@ class AlertOrchestrator:
             reopen, notify = follow_alert(
                 incident, old_severity, parsed.severity, old_status, parsed.status
             )
-            if reopen and incident is not None:  # typing: gate never returns reopen for None
+            if reopen:
+                assert incident is not None  # the gate never reopens a missing incident
                 incident.reopen()
             if notify:
                 result.material_alerts.append(alert)
