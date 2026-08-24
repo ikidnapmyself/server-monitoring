@@ -3,20 +3,26 @@
 The "inbox" is the set of PENDING/PROCESSING ``PipelineRun`` records left by durable
 ingest. These pure, importable functions claim and execute those runs. They are the
 single source of truth for the claim/drain/reclaim logic shared by the
-``process_inbox`` management command and the admin Inbox monitor actions.
+``process_inbox`` management command and the admin Inbox monitor actions. It is
+also where every downstream incident run is recorded (``enqueue_incident_runs``).
 
 The claim is atomic (PENDING -> PROCESSING) so overlapping drains never
 double-process, and a crashed drain's PROCESSING runs are reclaimed after the
 timeout.
 """
 
+import logging
+import uuid
 from collections.abc import Iterable
 from datetime import timedelta
 
+from django.db import transaction
 from django.utils import timezone
 
 from apps.orchestration.models import PipelineRun, PipelineStatus
 from apps.orchestration.orchestrator import PipelineOrchestrator
+
+logger = logging.getLogger(__name__)
 
 # Single source of truth for the stall timeout: how long a run may sit PROCESSING
 # before it is considered a crashed/stalled drain and reclaimed. Referenced by
@@ -85,3 +91,48 @@ def drain_run(run_id: str) -> int:
         return 0
     _execute(run)
     return 1
+
+
+def enqueue_incident_runs(
+    incident_ids,
+    *,
+    trace_id: str,
+    origin: str,
+    source: str = "",
+    environment: str = "",
+    node=None,
+    max_retries: int = 3,
+    parent_run_id: str = "",
+) -> list[PipelineRun]:
+    """Record one PENDING run per incident — the ONE way an incident change reaches on-call.
+
+    Two producers call this: the alert write path (a node changed an incident) and
+    ``IncidentService`` (a human did). Neither runs anything; ``drain`` is the only
+    executor. Left PENDING rather than run inline for the reasons on
+    ``PipelineOrchestrator._enqueue_downstream_runs``.
+    """
+    runs: list[PipelineRun] = []
+    with transaction.atomic():
+        for incident_id in incident_ids:
+            runs.append(
+                PipelineRun.objects.create(
+                    trace_id=trace_id,
+                    run_id=str(uuid.uuid4()),
+                    source=source,
+                    environment=environment,
+                    status=PipelineStatus.PENDING,
+                    max_retries=max_retries,
+                    inbound_payload={"downstream_incident_id": incident_id},
+                    origin=origin,
+                    node=node,
+                    incident_id=incident_id,
+                )
+            )
+    if runs:
+        logger.info(
+            "Enqueued %d incident run(s) for trace_id=%s",
+            len(runs),
+            trace_id,
+            extra={"trace_id": trace_id, "run_id": parent_run_id},
+        )
+    return runs
