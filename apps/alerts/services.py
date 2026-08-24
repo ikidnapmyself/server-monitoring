@@ -551,7 +551,8 @@ class IncidentManager:
     Service for managing incidents.
 
     Provides methods for incident lifecycle management beyond
-    what the orchestrator handles automatically.
+    what the orchestrator handles automatically. Every transition enqueues a
+    MANUAL inbox run atomically with the status change (see ``_announce``).
     """
 
     @staticmethod
@@ -566,15 +567,17 @@ class IncidentManager:
         Returns:
             Updated incident.
         """
-        incident = Incident.objects.get(pk=incident_id)
-        incident.acknowledge()
+        with transaction.atomic():
+            incident = Incident.objects.get(pk=incident_id)
+            incident.acknowledge()
 
-        if acknowledged_by:
-            incident.metadata["acknowledged_by"] = acknowledged_by
-            incident.save(update_fields=["metadata"])
+            if acknowledged_by:
+                incident.metadata["acknowledged_by"] = acknowledged_by
+                incident.save(update_fields=["metadata"])
+
+            IncidentManager._announce(incident)
 
         logger.info(f"Incident acknowledged: {incident.title}")
-        IncidentManager._announce(incident)
         return incident
 
     @staticmethod
@@ -590,15 +593,17 @@ class IncidentManager:
         Returns:
             Updated incident.
         """
-        incident = Incident.objects.get(pk=incident_id)
-        incident.resolve(summary=summary)
+        with transaction.atomic():
+            incident = Incident.objects.get(pk=incident_id)
+            incident.resolve(summary=summary)
 
-        if resolved_by:
-            incident.metadata["resolved_by"] = resolved_by
-            incident.save(update_fields=["metadata"])
+            if resolved_by:
+                incident.metadata["resolved_by"] = resolved_by
+                incident.save(update_fields=["metadata"])
+
+            IncidentManager._announce(incident)
 
         logger.info(f"Incident resolved: {incident.title}")
-        IncidentManager._announce(incident)
         return incident
 
     @staticmethod
@@ -612,11 +617,12 @@ class IncidentManager:
         Returns:
             Updated incident.
         """
-        incident = Incident.objects.get(pk=incident_id)
-        incident.close()
+        with transaction.atomic():
+            incident = Incident.objects.get(pk=incident_id)
+            incident.close()
+            IncidentManager._announce(incident)
 
         logger.info(f"Incident closed: {incident.title}")
-        IncidentManager._announce(incident)
         return incident
 
     @staticmethod

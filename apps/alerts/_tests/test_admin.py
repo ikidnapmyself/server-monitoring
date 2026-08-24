@@ -73,6 +73,8 @@ class TestBulkActions(TestCase):
         i2.refresh_from_db()
         assert i1.status == IncidentStatus.ACKNOWLEDGED
         assert i2.status == IncidentStatus.ACKNOWLEDGED
+        assert _manual_runs(i1).count() == 1
+        assert _manual_runs(i2).count() == 1
 
     def test_resolve_selected_incidents(self):
         i1 = Incident.objects.create(title="Inc1", severity="critical", status=IncidentStatus.OPEN)

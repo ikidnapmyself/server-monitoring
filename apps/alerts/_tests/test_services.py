@@ -1,5 +1,6 @@
 import copy
 from typing import Any, cast
+from unittest import mock
 
 from django.test import TestCase
 from django.utils import timezone
@@ -374,13 +375,27 @@ class IncidentManagerTests(TestCase):
         self.assertEqual(run.inbound_payload, {"downstream_incident_id": self.incident.pk})
         self.assertEqual(StageExecution.objects.count(), 0)  # nothing ran in-request
 
-    def test_acknowledge_and_close_enqueue_too(self):
+    def test_acknowledge_and_close_enqueue_with_empty_source_when_no_alerts(self):
         from apps.orchestration.models import PipelineRun
 
         IncidentManager.acknowledge(self.incident.pk)
         IncidentManager.close(self.incident.pk)
         self.assertEqual(PipelineRun.objects.count(), 2)
         self.assertEqual(set(PipelineRun.objects.values_list("source", flat=True)), {""})
+
+    def test_failed_enqueue_rolls_back_the_transition(self):
+        from apps.orchestration.models import PipelineRun
+
+        with mock.patch(
+            "apps.orchestration.inbox.enqueue_incident_runs", side_effect=RuntimeError("db down")
+        ):
+            with self.assertRaises(RuntimeError):
+                IncidentManager.resolve(self.incident.pk, resolved_by="ops")
+
+        self.incident.refresh_from_db()
+        self.assertEqual(self.incident.status, IncidentStatus.OPEN)
+        self.assertEqual(self.incident.metadata, {})
+        self.assertEqual(PipelineRun.objects.count(), 0)
 
     def test_add_note(self):
         incident = IncidentManager.add_note(

@@ -107,7 +107,7 @@ def enqueue_incident_runs(
     """Record one PENDING run per incident — the ONE way an incident change reaches on-call.
 
     Two producers call this: the alert write path (a node changed an incident) and
-    ``IncidentService`` (a human did). Neither runs anything; ``drain`` is the only
+    ``IncidentManager`` (a human did). Neither runs anything; ``drain`` is the only
     executor. Left PENDING rather than run inline for the reasons on
     ``PipelineOrchestrator._enqueue_downstream_runs``.
     """
