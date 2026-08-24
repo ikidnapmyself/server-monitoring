@@ -5,7 +5,7 @@ ALERT changed; this decides what that means for its INCIDENT. Both alert write
 paths go through ``AlertOrchestrator._update_alert``, which is the only caller.
 """
 
-from apps.alerts.models import IncidentStatus
+from apps.alerts.models import AlertStatus, IncidentStatus
 
 
 def follow_alert(
@@ -22,12 +22,14 @@ def follow_alert(
       are absorbed (history row only).
     - RESOLVED / CLOSED: a firing alert reopens and notifies, whether it refired
       or merely changed severity. An alert going quiet is absorbed.
+
+    ``old_status`` is part of the change record but does not affect the decision.
     """
     from apps.alerts.services import severity_rank
 
     if incident is None:
         return False, False
-    firing = new_status == "firing"
+    firing = new_status == AlertStatus.FIRING
     if incident.status == IncidentStatus.OPEN:
         return False, True
     if incident.status == IncidentStatus.ACKNOWLEDGED:

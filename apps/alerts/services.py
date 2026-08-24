@@ -384,29 +384,21 @@ class AlertOrchestrator:
             else:
                 alert.ended_at = None
                 event = "refired"
-                # The incident must follow the alert. An alert row is reused per
-                # fingerprint, so its FK still points at the incident that was
-                # resolved — and _find_open_incident only considers OPEN/ACKNOWLEDGED,
-                # so nothing else would ever revisit it. Left alone, a FIRING alert
-                # sits under a RESOLVED incident: notify reports an incident marked
-                # resolved, and the admin contradicts itself.
+                # Decide WHICH incident this firing alert belongs under. Whether
+                # that incident reopens, and whether anyone hears about it, is
+                # decided after save() by apps.alerts.incident_gate.follow_alert —
+                # not here. An alert row is reused per fingerprint, so its FK may
+                # still point at an incident that was resolved; _find_open_incident
+                # only considers OPEN/ACKNOWLEDGED, so nothing else revisits it.
                 # A sibling alert with the same (name, instance) may have opened
-                # its own incident while ours was resolved — _find_open_incident
-                # ignores RESOLVED/CLOSED rows. Join it rather than reopening ours:
+                # its own incident meanwhile — join it rather than reopening ours:
                 # one situation is one open incident, and the alert must end up
-                # under it either way, because a FIRING alert pointing at a resolved
-                # incident is the invariant this whole branch exists to hold (and is
-                # what the downstream run would be enqueued against).
+                # under it either way (it is what the downstream run is enqueued
+                # against).
                 sibling = self._find_open_incident(alert)
-                incident = alert.incident
                 if sibling is not None:
                     self._attach_to_incident(alert, sibling, result)
-                elif incident is not None and incident.status in (
-                    IncidentStatus.RESOLVED,
-                    IncidentStatus.CLOSED,
-                ):
-                    incident.reopen()
-                elif incident is None and self.auto_create_incidents:
+                elif alert.incident is None and self.auto_create_incidents:
                     # An alert first seen RESOLVED never got an incident:
                     # _create_alert only attaches one to a firing alert, and a node
                     # reports every checker every tick, so a healthy one is first
@@ -445,7 +437,16 @@ class AlertOrchestrator:
             old_key=old_key,
             new_key=new_key,
         ):
-            result.material_alerts.append(alert)
+            from apps.alerts.incident_gate import follow_alert
+
+            incident = alert.incident
+            reopen, notify = follow_alert(
+                incident, old_severity, parsed.severity, old_status, parsed.status
+            )
+            if reopen and incident is not None:
+                incident.reopen()
+            if notify:
+                result.material_alerts.append(alert)
         return alert
 
     def _create_or_attach_incident(

@@ -1123,3 +1123,40 @@ class RefireReopensIncidentTests(TestCase):
 
         self.assertFalse(result.has_errors)
         self.assertIsNone(self._incident())
+
+    def _with_severity(self, severity):
+        payload = copy.deepcopy(self.payload)
+        payload["alerts"][0]["labels"]["severity"] = severity
+        return payload
+
+    def test_severity_change_on_a_resolved_incident_reopens_and_is_material(self):
+        """Resolved -> firing at a NEW severity: the gate's RESOLVED row, not the
+        refire branch. Any firing alert reopens and notifies."""
+        self.orchestrator.process_webhook(self._with_severity("warning"))
+        self.orchestrator.process_webhook(self._resolved())
+
+        result = self.orchestrator.process_webhook(self._with_severity("critical"))
+
+        self.assertEqual(self._incident().status, IncidentStatus.OPEN)
+        self.assertEqual([a.fingerprint for a in result.material_alerts], ["flap-1"])
+
+    def test_escalation_breaks_an_ack(self):
+        self.orchestrator.process_webhook(self._with_severity("warning"))
+        self._incident().acknowledge()
+
+        result = self.orchestrator.process_webhook(self._with_severity("critical"))
+
+        self.assertEqual(self._incident().status, IncidentStatus.OPEN)
+        self.assertEqual(len(result.material_alerts), 1)
+
+    def test_deescalation_under_ack_is_absorbed(self):
+        self.orchestrator.process_webhook(self.payload)
+        self._incident().acknowledge()
+
+        result = self.orchestrator.process_webhook(self._with_severity("warning"))
+
+        self.assertEqual(self._incident().status, IncidentStatus.ACKNOWLEDGED)
+        self.assertEqual(result.material_alerts, [])
+        self.assertTrue(
+            AlertHistory.objects.filter(alert__fingerprint="flap-1", event="updated").exists()
+        )
