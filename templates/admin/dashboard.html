@@ -213,6 +213,13 @@
     font-size: 13px;
   }
 
+  /* Link to the routing network map, beside the readiness heading */
+  #readiness h2 .netmap-link {
+    font-size: 13px;
+    font-weight: normal;
+    margin-left: 10px;
+  }
+
   /* Readiness cards */
   .readiness-card {
     display: block;
@@ -275,7 +282,7 @@
 </style>
 
 <div id="readiness">
-  <h2>Readiness</h2>
+  <h2>Readiness <a class="netmap-link" href="{% url 'admin:netmap' %}">Network map</a></h2>
   <div class="dashboard-row">
     {% for r in readiness %}
       <a class="readiness-card readiness-{{ r.status }}" href="{{ r.url }}">

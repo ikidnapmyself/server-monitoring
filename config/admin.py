@@ -2,9 +2,12 @@
 
 from django.contrib import admin, messages
 from django.contrib.admin import AdminSite
+from django.shortcuts import render
+from django.urls import path
 from django.utils.text import slugify
 
 from config.dashboard import get_dashboard_context
+from config.netmap import get_map_context
 
 SECTION_MAP = {
     "Operations": [
@@ -37,6 +40,16 @@ class MonitoringAdminSite(AdminSite):
     site_title = "Server Monitoring"
     index_title = "Dashboard"
     index_template = "admin/dashboard.html"
+
+    def get_urls(self):
+        custom = [
+            path("map/", self.admin_view(self.map_view), name="netmap"),
+        ]
+        return custom + super().get_urls()
+
+    def map_view(self, request):
+        context = {**self.each_context(request), **get_map_context(), "title": "Network map"}
+        return render(request, "admin/map.html", context)
 
     def index(self, request, extra_context=None):
         extra_context = extra_context or {}

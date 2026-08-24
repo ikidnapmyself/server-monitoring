@@ -1,0 +1,194 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<style>
+  #netmap {
+    max-width: 720px;
+  }
+
+  #netmap .netmap-caption {
+    color: var(--body-quiet-color, #666);
+    font-size: 13px;
+    margin: 4px 0 16px;
+  }
+
+  #netmap ol.lane-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .lane-card {
+    display: flex;
+    gap: 12px;
+    border: 1px solid var(--hairline-color, #ddd);
+    border-radius: 4px;
+    padding: 12px;
+    margin-bottom: 4px;
+    background: var(--body-bg, #fff);
+  }
+
+  /* Priority gutter: top wins. */
+  .lane-gutter {
+    flex: 0 0 48px;
+    text-align: center;
+    color: var(--body-quiet-color, #888);
+    font-size: 12px;
+  }
+
+  .lane-gutter .lane-order {
+    display: block;
+    font-size: 15px;
+    font-weight: bold;
+    color: var(--body-fg, #333);
+  }
+
+  .lane-body {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .lane-name {
+    font-weight: bold;
+    font-size: 14px;
+    text-decoration: none;
+  }
+
+  .lane-banner {
+    font-size: 12px;
+    margin-top: 4px;
+  }
+
+  .lane-conditions {
+    margin-top: 6px;
+    font-size: 13px;
+  }
+
+  .lane-conditions code {
+    background: var(--darkened-bg, #f8f9fa);
+    border: 1px solid var(--hairline-color, #ddd);
+    border-radius: 3px;
+    padding: 1px 5px;
+    margin-right: 4px;
+  }
+
+  .lane-muted {
+    color: var(--body-quiet-color, #666);
+    font-style: italic;
+  }
+
+  .lane-stages {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--body-quiet-color, #666);
+  }
+
+  .stage-chip {
+    display: inline-block;
+    background: var(--darkened-bg, #f0f0f0);
+    border-radius: 10px;
+    padding: 1px 8px;
+  }
+
+  .lane-delivery {
+    margin-top: 6px;
+    font-size: 13px;
+  }
+
+  .delivery-bound { color: #28a745; }
+  .delivery-recording { color: var(--body-quiet-color, #666); }
+  .delivery-gap { color: #dc3545; }
+
+  /* Seed *shaping*, not provenance: the seed stripped notify on a
+     channel-less hub; delivery auto-restores once a channel exists. */
+  .seed-badge {
+    display: inline-block;
+    font-size: 11px;
+    color: var(--body-quiet-color, #666);
+    border: 1px dashed var(--hairline-color, #bbb);
+    border-radius: 10px;
+    padding: 0 8px;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+
+  /* Lane states */
+  .lane-card.shadowed {
+    opacity: .55;
+    background: var(--darkened-bg, #f4f4f4);
+  }
+
+  .lane-card.inactive {
+    opacity: .55;
+  }
+
+  .lane-card.inactive .lane-name {
+    text-decoration: line-through;
+  }
+
+  .lane-card.never-matches {
+    border-color: #dc3545;
+  }
+
+  .lane-banner.banner-shadowed { color: var(--body-quiet-color, #666); }
+  .lane-banner.banner-inactive { color: var(--body-quiet-color, #666); }
+  .lane-banner.banner-never { color: #dc3545; }
+</style>
+
+<div id="netmap">
+  <p class="netmap-caption">&#8595; Traffic takes the first matching lane.</p>
+
+  {% if lanes %}
+  <ol class="lane-list">
+    {% for lane in lanes %}
+    <li class="lane-card {{ lane.state }}">
+      <div class="lane-gutter">
+        <span class="lane-order">{{ forloop.counter }}</span>
+        {% if not forloop.last %}&#8595;{% endif %}
+      </div>
+      <div class="lane-body">
+        <a class="lane-name" href="{{ lane.admin_url }}">{{ lane.name }}</a>
+        {% if lane.seed_shaped %}
+          <span class="seed-badge">seed-shaped &middot; delivery auto-restores with a channel</span>
+        {% endif %}
+
+        {% if lane.state == "inactive" %}
+          <div class="lane-banner banner-inactive">(inactive)</div>
+        {% elif lane.state == "shadowed" %}
+          <div class="lane-banner banner-shadowed">shadowed by <em>{{ lane.shadowed_by }}</em></div>
+        {% elif lane.state == "never-matches" %}
+          <div class="lane-banner banner-never">never matches &mdash; malformed match</div>
+        {% endif %}
+
+        <div class="lane-conditions">
+          {% if lane.catch_all %}
+            <span class="lane-muted">matches everything</span>
+          {% else %}
+            {% for c in lane.conditions %}<code>{{ c }}</code>{% endfor %}
+          {% endif %}
+        </div>
+
+        <div class="lane-stages">
+          {% for s in lane.stages %}{% if not forloop.first %} &rarr; {% endif %}<span class="stage-chip">{{ s }}</span>{% empty %}<span class="lane-muted">no stages</span>{% endfor %}
+        </div>
+
+        <div class="lane-delivery">
+          {% if lane.delivery.state == "bound" %}
+            <span class="delivery-bound">&rarr; {{ lane.delivery.channel }}</span>
+          {% elif lane.delivery.state == "recording-only" %}
+            <span class="delivery-recording">recording only</span>
+          {% elif lane.delivery.state == "no_channel" %}
+            <span class="delivery-gap">cannot deliver: no channel{% if lane.delivery.channel %} &mdash; bound to {{ lane.delivery.channel }} (inactive){% endif %}</span>
+          {% elif lane.delivery.state == "no_driver" %}
+            <span class="delivery-gap">cannot deliver: driver not registered ({{ lane.delivery.channel }})</span>
+          {% endif %}
+        </div>
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p>No routing configured.</p>
+  {% endif %}
+</div>
+{% endblock %}

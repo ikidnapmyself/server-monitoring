@@ -21,3 +21,4 @@ def test_dashboard_renders_readiness_and_sections(client):
     assert "readiness-ok" in body  # channel is active -> ok class
     assert "Operations" in body and "Configuration" in body  # grouped nav grid
     assert reverse("admin:alerts_incident_changelist") in body  # a model link in the grid
+    assert reverse("admin:netmap") in body  # readiness heading links to the network map
