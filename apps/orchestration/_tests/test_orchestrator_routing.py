@@ -910,7 +910,7 @@ class CheckAsEntryStageRoutingTests(TestCase):
         self.incident = Incident.objects.create(title="Disk 95%", severity="critical")
         self.alert = Alert.objects.create(
             fingerprint="fp-hub-disk",
-            source="server-checkers",
+            source="cluster",
             name="DISK Check Alert",
             severity="critical",
             started_at=timezone.now(),
@@ -958,33 +958,42 @@ class CheckAsEntryStageRoutingTests(TestCase):
     def _run(self, payload=None, origin=PipelineOrigin.CHECKER_GENERATED):
         return self._orchestrator().run_pipeline(
             payload=payload if payload is not None else {"checks_only": True},
-            source="server-checkers",
+            source="cluster",
             origin=origin,
         )
 
-    def test_the_seeded_hub_lane_records_and_correlates_without_notifying(self):
-        """``hub-self-check`` ships with empty stages: it routes, then stops.
+    def test_the_hubs_own_checks_take_the_node_lane(self):
+        """No lane of its own: a hub-local run routes exactly like a pushed one.
 
-        An empty lane is a route that ends, not a missing route — it must reach
-        COMPLETED/CHECKED rather than raising ``no_route``. The correlation is the
-        point: the lane is stamped on the incident and the run keeps its trace_id,
-        so a hub self-check is traceable in the admin like any other traffic. The
-        cron fires every five minutes and a still-firing alert is re-reported each
-        time, so notifying by default would mean ~288 identical messages a day.
+        ``hub-self-check`` is retired, so the facts this run carries — ``source:
+        cluster`` and ``origin: checker_generated`` — resolve to ``cluster-nodes``.
+        The seeded lane here lists only ``analyze`` because this test database has
+        no active channel (the seed refuses to promise delivery it cannot make);
+        the point is that the hub reaches the same lane a node's push does, rather
+        than a record-only siding. The lane is stamped on the incident, so this
+        asserts the routing OUTCOME, not merely that the row exists.
         """
         result = self._run()
         assert result.status == "COMPLETED"
-        assert self.calls == [PipelineStage.CHECK]
+        assert self.calls == [PipelineStage.CHECK, PipelineStage.ANALYZE]
         run = PipelineRun.objects.get(run_id=result.run_id)
         assert run.status == PipelineStatus.CHECKED
-        # The lane that actually ran is recorded on the incident, so this asserts
-        # routing resolved to it rather than merely that the row exists.
-        assert Incident.objects.get(pk=self.incident.pk).pipeline.name == "hub-self-check"
+        assert Incident.objects.get(pk=self.incident.pk).pipeline.name == "cluster-nodes"
         assert run.trace_id
 
-    def test_adding_notify_to_the_seeded_lane_enables_paging(self):
-        """The description's promise: this is one column edit away from paging."""
+    def test_the_retired_hub_lane_no_longer_routes(self):
+        """0018 deactivates the row rather than deleting it: history stays readable.
+
+        The row is still there — every incident it ever handled still names it —
+        but ``resolve_pipeline`` filters on ``is_active``, so it claims nothing.
+        """
         lane = PipelineDefinition.objects.get(name="hub-self-check")
+        assert lane.is_active is False
+        assert lane.stages == []
+
+    def test_adding_notify_to_the_node_lane_enables_paging(self):
+        """One column edit away from paging: the hub pages about its own disk."""
+        lane = PipelineDefinition.objects.get(name="cluster-nodes")
         lane.stages = ["notify"]
         lane.save(update_fields=["stages"])
         result = self._run()
@@ -1093,15 +1102,15 @@ class CheckAsEntryStageRoutingTests(TestCase):
             == 1
         )
 
-    def test_deleting_the_hub_lane_falls_through_to_the_catch_all(self):
-        """No guard keeps ``hub-self-check`` alive; the catch-all then claims it.
+    def test_deleting_the_node_lane_falls_through_to_the_catch_all(self):
+        """No guard keeps ``cluster-nodes`` alive; the catch-all then claims it.
 
         The catch-all lists ``check``, which is why the skip above matters: the
         run still executes CHECK once and continues to analyze. NOTIFY is absent
         because no channel is configured here, not because the fall-through
         stopped short.
         """
-        PipelineDefinition.objects.filter(name="hub-self-check").delete()
+        PipelineDefinition.objects.filter(name="cluster-nodes").delete()
         result = self._run()
         # CHECK twice for the reason given in the previous test: the catch-all
         # lists ``check`` and the child has no history of the push run's CHECK.
@@ -1149,7 +1158,7 @@ class CheckAsEntryStageRoutingTests(TestCase):
         run = PipelineRun.objects.create(
             trace_id="t-hub-resume",
             run_id="r-hub-resume",
-            source="server-checkers",
+            source="cluster",
             status=PipelineStatus.FAILED,
             origin=PipelineOrigin.CHECKER_GENERATED,
         )
@@ -1179,7 +1188,7 @@ class CheckAsEntryStageRoutingTests(TestCase):
         run = PipelineRun.objects.create(
             trace_id="t-hub-legacy",
             run_id="r-hub-legacy",
-            source="server-checkers",
+            source="cluster",
             status=PipelineStatus.FAILED,
             origin=PipelineOrigin.CHECKER_GENERATED,
         )
@@ -1233,7 +1242,7 @@ class CheckerGeneratedNotifiesThroughItsLaneChannelTests(TestCase):
         self.incident = Incident.objects.create(title="Disk 95%", severity="critical")
         self.alert = Alert.objects.create(
             fingerprint="fp-hub-chan",
-            source="server-checkers",
+            source="cluster",
             name="DISK Check Alert",
             severity="critical",
             started_at=timezone.now(),
@@ -1269,7 +1278,7 @@ class CheckerGeneratedNotifiesThroughItsLaneChannelTests(TestCase):
         ):
             return orchestrator.run_pipeline(
                 payload={"checks_only": True},
-                source="server-checkers",
+                source="cluster",
                 origin=PipelineOrigin.CHECKER_GENERATED,
             )
 
@@ -1299,7 +1308,7 @@ class CheckerGeneratedNotifiesThroughItsLaneChannelTests(TestCase):
         run = PipelineRun.objects.create(
             trace_id="t-chan-resume",
             run_id="r-chan-resume",
-            source="server-checkers",
+            source="cluster",
             status=PipelineStatus.FAILED,
             origin=PipelineOrigin.CHECKER_GENERATED,
         )
@@ -1372,7 +1381,7 @@ class NoIncidentsIsADiagnosticRunTests(TestCase):
         self.incident = Incident.objects.create(title="Disk 95%", severity="critical")
         self.alert = Alert.objects.create(
             fingerprint="fp-diag",
-            source="server-checkers",
+            source="cluster",
             name="DISK Check Alert",
             severity="critical",
             started_at=timezone.now(),
@@ -1437,7 +1446,7 @@ class NoIncidentsIsADiagnosticRunTests(TestCase):
         ):
             return orchestrator.run_pipeline(
                 payload=payload,
-                source="server-checkers",
+                source="cluster",
                 origin=PipelineOrigin.CHECKER_GENERATED,
             )
 
@@ -1524,7 +1533,7 @@ class NoIncidentsIsADiagnosticRunTests(TestCase):
         run = PipelineRun.objects.create(
             trace_id="t-diag-resume",
             run_id="r-diag-resume",
-            source="server-checkers",
+            source="cluster",
             status=PipelineStatus.FAILED,
             origin=PipelineOrigin.CHECKER_GENERATED,
         )
@@ -1558,8 +1567,8 @@ class NoIncidentsIsADiagnosticRunTests(TestCase):
         """The scheduled cron run is unaffected — this is the contrast case.
 
         Uses an operator lane that lists the downstream stages: the seeded
-        ``hub-self-check`` is deliberately record-only, so routing to it would
-        also end at CHECKED and the two cases would be indistinguishable.
+        ``cluster-nodes`` lane drops ``notify`` on a channel-less hub, so routing
+        to it would deliver nothing and the contrast would be lost.
         """
         clear_lanes()
         PipelineDefinition.objects.create(

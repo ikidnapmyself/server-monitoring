@@ -62,17 +62,6 @@ _LANES: list[dict[str, Any]] = [
         "priority": 50,
     },
     {
-        "name": "hub-self-check",
-        "description": (
-            "The hub's own scheduled checks. Records and correlates only: the cron "
-            "repeats every five minutes and a still-firing alert is re-reported each "
-            "time."
-        ),
-        "match": [{"field": "origin", "op": "is", "value": "checker_generated"}],
-        "stages": [],
-        "priority": 50,
-    },
-    {
         "name": "catch-all",
         "description": "Everything else. The routing table's last word, as an editable row.",
         "match": [],
@@ -88,7 +77,6 @@ _LANES: list[dict[str, Any]] = [
 _PRIOR_STAGES = {
     "resolved-all-clear": ["notify"],
     "cluster-nodes": ["analyze", "notify"],
-    "hub-self-check": [],
     "catch-all": ["check", "analyze", "notify"],
 }
 
@@ -130,7 +118,8 @@ def seed_routing_table(pipeline_model, channel_model) -> dict:
             stages = [s for s in wanted if s != "notify"]
             record_only = True
         # A lane reshaped down to nothing exists only to notify, so it has nothing
-        # left to do. ``hub-self-check`` is not reshaped and stays on by design.
+        # left to do. A lane the seed never reshaped keeps whatever it lists and
+        # stays on: only stripping ``notify`` can empty a lane here.
         is_active = bool(stages) or not record_only
         tags = {SEED_SHAPE_KEY: RECORD_ONLY} if record_only else {}
 
@@ -204,8 +193,9 @@ def enable_delivery(pipeline_model, channel) -> int:
     for lane in _LANES:
         name = lane["name"]
         wanted = list(lane["stages"])
-        if "notify" not in wanted:
-            continue
+        # No "does this lane notify?" guard: the marker below is the whole gate. The
+        # seed writes it only onto a lane it stripped ``notify`` from, so a lane that
+        # never promised delivery cannot carry one and is skipped there.
         stripped = [s for s in wanted if s != "notify"]
         obj = pipeline_model.objects.filter(name=name).first()
         if obj is None or _tags(obj).get(SEED_SHAPE_KEY) != RECORD_ONLY:

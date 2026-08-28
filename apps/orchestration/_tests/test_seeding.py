@@ -57,7 +57,7 @@ class SeedRoutingTableTests(TestCase):
         """The caller logs this; a recording hub must be visible as a choice."""
         report = self._seed()
 
-        self.assertEqual(report["created"], 4)
+        self.assertEqual(report["created"], 3)
         self.assertEqual(report["bound"], 0)
         self.assertFalse(report["delivering"])
 
@@ -152,21 +152,27 @@ class SeedRoutingTableTests(TestCase):
         after = list(PipelineDefinition.objects.values_list("name", "stages", "channel"))
         self.assertEqual(before, after)
 
-    def test_hub_self_check_never_gets_a_channel(self):
-        """It lists no stages, so it never delivers and needs nothing bound."""
-        self._channel()
+    def test_hub_self_check_lane_is_not_seeded(self):
+        """Retired: the hub's own checks route through ``cluster-nodes`` like a node's.
+
+        The lane existed to keep a five-minute cron quiet. The incident change gate
+        closed that, and the lane had become a silent rival to ``cluster-nodes`` at
+        the same priority once checker alerts moved to ``source: cluster``.
+        """
+        from apps.orchestration.models import PipelineDefinition
 
         self._seed()
 
-        self.assertIsNone(self._lane("hub-self-check").channel_id)
+        self.assertFalse(PipelineDefinition.objects.filter(name="hub-self-check").exists())
 
-    def test_hub_self_check_stays_active_with_no_stages(self):
-        """Record-and-correlate is its designed shape, not an accident of the seed."""
+    def test_only_delivering_lanes_are_bound(self):
+        """A lane is bound because it lists ``notify``, not because it exists."""
+        channel = self._channel()
+
         self._seed()
 
-        lane = self._lane("hub-self-check")
-        self.assertEqual(lane.stages, [])
-        self.assertTrue(lane.is_active)
+        for name in ("catch-all", "cluster-nodes", "resolved-all-clear"):
+            self.assertEqual(self._lane(name).channel_id, channel.id, name)
 
 
 class SeedOverPriorMigrationsTests(TestCase):
@@ -244,6 +250,8 @@ class SeedOverPriorMigrationsTests(TestCase):
 
         for name in ("catch-all", "cluster-nodes", "resolved-all-clear"):
             self.assertEqual(self._lane(name).channel_id, channel.id, name)
+        # 0014 left this row behind and 0018 retired it. The seed no longer lists it,
+        # so it must be passed over entirely rather than quietly bound.
         self.assertIsNone(self._lane("hub-self-check").channel_id)
 
     def test_an_edited_lane_is_not_repaired(self):
@@ -384,17 +392,26 @@ class EnableDeliveryTests(TestCase):
             self.assertEqual(lane.channel_id, channel.id, name)
             self.assertTrue(lane.is_active, name)
 
-    def test_the_record_only_lane_that_never_notifies_is_untouched(self):
+    def test_a_lane_that_never_delivers_is_untouched(self):
+        """Restoration and binding both act on ``notify``; a recording lane has none.
+
+        (This used to assert on the seeded ``hub-self-check`` lane, retired in
+        ``0018``. Every seeded lane now lists ``notify``, so the case is exercised
+        with an operator's own recording lane, which is where it still occurs.)
+        """
         from apps.orchestration.models import PipelineDefinition
         from apps.orchestration.seeding import enable_delivery
 
         self._record_only_seed()
+        PipelineDefinition.objects.create(
+            name="records-by-choice", match=[], stages=["check", "analyze"], priority=100
+        )
         channel = self._channel()
 
         enable_delivery(PipelineDefinition, channel)
 
-        lane = self._lane("hub-self-check")
-        self.assertEqual(lane.stages, [])
+        lane = self._lane("records-by-choice")
+        self.assertEqual(lane.stages, ["check", "analyze"])
         self.assertIsNone(lane.channel_id)
 
     def test_an_edited_lane_is_left_alone(self):
@@ -466,23 +483,16 @@ class SeedShapeMarkerTests(TestCase):
         for name in ("catch-all", "cluster-nodes", "resolved-all-clear"):
             self.assertEqual(self._lane(name).tags.get(SEED_SHAPE_KEY), RECORD_ONLY, name)
 
-    def test_a_lane_the_seed_did_not_reshape_carries_no_marker(self):
-        """hub-self-check never lists notify, so nothing was taken away from it."""
-        from apps.orchestration.seeding import SEED_SHAPE_KEY
-
-        self._clear()
-        self._seed()
-
-        self.assertNotIn(SEED_SHAPE_KEY, self._lane("hub-self-check").tags)
-
     def test_a_delivering_seed_marks_nothing(self):
+        """Nothing was taken away, so no lane carries a claim to restore."""
         from apps.orchestration.seeding import SEED_SHAPE_KEY
 
         self._clear()
         self._channel()
         self._seed()
 
-        self.assertNotIn(SEED_SHAPE_KEY, self._lane("catch-all").tags)
+        for name in ("catch-all", "cluster-nodes", "resolved-all-clear"):
+            self.assertNotIn(SEED_SHAPE_KEY, self._lane(name).tags, name)
 
     def test_a_repaired_record_only_lane_carries_the_marker(self):
         """Repair is the path a real install takes: 0012/0014/0016 ran first."""

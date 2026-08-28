@@ -336,3 +336,39 @@ class RouteIncidentTests(TestCase):
         incident = self._incident_with_alert()
         self._stamp(incident, name="no-ch")
         self.assertIsNone(self._route(self._ctx(incident.id)))
+
+
+class HubLocalRunRoutesLikeANodeTests(TestCase):
+    """The hub's own checks take the node lane, against the SEEDED routing table.
+
+    A hub-local check run carries both facts at once: ``source`` is ``cluster``
+    (checker alerts share one identity whether the machine pushed them or ran them
+    here) and ``origin`` is ``checker_generated``. It must reach the lane that
+    notifies, so the hub can page about its own full disk exactly as it pages about
+    any other node's. Nothing is cleared here on purpose — the seeded rows are what
+    a fresh install routes on, and a second lane at priority 50 matching the same
+    run would be settled by nothing better than id order.
+    """
+
+    def test_hub_local_run_routes_to_the_node_lane(self):
+        from apps.orchestration.routing import resolve_pipeline
+
+        facts = {
+            "source": "cluster",
+            "severity": "critical",
+            "status": "firing",
+            "instance": "hub-01",
+            "labels": {"instance_id": "hub-01"},
+            "origin": "checker_generated",
+        }
+
+        self.assertEqual(resolve_pipeline(facts).name, "cluster-nodes")
+
+    def test_no_other_seeded_lane_ties_with_the_node_lane(self):
+        """The win must come from the table, not from which row was inserted first."""
+        node = PipelineDefinition.objects.get(name="cluster-nodes")
+        rivals = PipelineDefinition.objects.filter(is_active=True, priority=node.priority).exclude(
+            pk=node.pk
+        )
+
+        self.assertEqual(list(rivals), [])
