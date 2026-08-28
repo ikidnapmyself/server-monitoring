@@ -81,8 +81,7 @@ info "Cluster role: $_role"
 # ---------------------------------------------------------------------------
 
 INSTANCE_ID=$(prompt_with_default "$_ENV_FILE" "INSTANCE_ID" \
-    "INSTANCE_ID" \
-    "$(hostname 2>/dev/null || echo "node")-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')")
+    "INSTANCE_ID" "$(dotenv_default_instance_id)")
 dotenv_set "$_ENV_FILE" "INSTANCE_ID" "$INSTANCE_ID"
 
 # ---------------------------------------------------------------------------

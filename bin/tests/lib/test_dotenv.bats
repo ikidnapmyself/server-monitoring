@@ -129,3 +129,11 @@ teardown() {
     run cat "$TEST_TMPDIR/.env"
     assert_output ""
 }
+@test "dotenv_default_instance_id is not a bare hostname and is unique" {
+    first="$(dotenv_default_instance_id)"
+    second="$(dotenv_default_instance_id)"
+    [ -n "$first" ]
+    [ "$first" != "$(hostname)" ]
+    [[ "$first" =~ -[0-9a-f]+$ ]]
+    [ "$first" != "$second" ]
+}

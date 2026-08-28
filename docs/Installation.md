@@ -154,7 +154,9 @@ After running the installer, save the configuration:
 ./bin/install.sh --save-profile prod-web
 ```
 
-This creates `.install-profile-prod-web` containing all non-sensitive configuration values.
+This creates `.install-profile-prod-web` containing the portable configuration values.
+Secrets are excluded, and so is `INSTANCE_ID`: it is machine-unique, not portable — a
+restoring machine generates its own rather than inheriting the source machine's identity.
 
 ### Loading a Profile
 
@@ -174,7 +176,7 @@ For automated deployments, combine `--profile` with `--yes` to accept all defaul
 ./bin/install.sh --profile prod-web --yes
 ```
 
-Only secrets (`DJANGO_SECRET_KEY`, `HUB_API_KEY`) will still be prompted since they are never stored in profiles.
+Only secrets (`DJANGO_SECRET_KEY`, `HUB_API_KEY`) will still be prompted since they are never stored in profiles. `INSTANCE_ID` is not prompted in this mode — loading a profile generates one for the machine if it does not already have one.
 
 ---
 

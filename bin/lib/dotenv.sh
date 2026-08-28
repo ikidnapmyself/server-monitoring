@@ -74,6 +74,18 @@ dotenv_set_if_missing() {
     printf "%s=%s\n" "$key" "$value" >> "$file"
 }
 
+# dotenv_default_instance_id
+#
+# Generate this machine's INSTANCE_ID: hostname plus a short random suffix.
+# INSTANCE_ID keys the machine's Node row and its check:{instance_id}:{checker}
+# alert fingerprints, so a bare hostname is not enough — two stock machines
+# report the same one and would collapse into a single identity.
+dotenv_default_instance_id() {
+    printf '%s-%s\n' \
+        "$(hostname 2>/dev/null || echo "node")" \
+        "$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+}
+
 prompt_non_empty() {
     local prompt="$1"
     local value=""
