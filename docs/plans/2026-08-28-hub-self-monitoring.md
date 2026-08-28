@@ -21,7 +21,8 @@ parent: Plans
 2. **One source name for checker-origin alerts.** Alert identity is `(fingerprint, source)`, verified at `apps/alerts/services.py:269`. Two source names means two rows for one condition, so `CheckAlertBridge.SOURCE_NAME` moves from `server-checkers` to `cluster`. Under "the hub is a node" that name is honest for both transports.
 3. **Alert name must be stable.** `_find_open_incident` groups on `alert.name` (`apps/alerts/services.py:521`). The cluster path builds `f"{checker}: {message}"`, and the message carries live metrics, so the name drifts every tick and grouping silently splits. Both paths move to the bridge's stable `f"{CHECKER} Check Alert"`.
 4. **`check_health` writes alerts by default, `--no-alert` opts out.** This follows the `preflight` precedent, which persists by default with `--no-save` for CI.
-5. **The self node registers from both local paths.** A machine that produces truth about itself belongs in the registry the moment it does so.
+5. **`hub-self-check` is retired.** Decided 2026-08-28. The hub's own checks route through `cluster-nodes` like any other node's, so the hub can page about itself. See Task 7.
+6. **The self node registers from both local paths.** A machine that produces truth about itself belongs in the registry the moment it does so.
 
 ## Known consequences, accepted
 
@@ -490,7 +491,51 @@ git commit -m "feat(checkers): check_health records alerts locally without the i
 
 ---
 
-## Task 7: `push_to_hub --local`
+## Task 7: Retire the `hub-self-check` lane
+
+**Files:**
+- Modify: `apps/orchestration/seeding.py`
+- Create: `apps/orchestration/migrations/00XX_retire_hub_self_check.py`
+- Test: `apps/orchestration/_tests/` (seeding and routing tests)
+
+**Why.** A lane named `hub-self-check` already exists at `apps/orchestration/seeding.py:65`. It matches `origin is checker_generated`, carries `stages: []`, and is record-only. `cluster-nodes` matches `source is cluster` with `["analyze", "notify"]`. Both sit at priority 50, and `resolve_pipeline` breaks ties by `id` (`apps/orchestration/routing.py:82`), so after the Task 2 source rename a hub-local run matches both and silently takes whichever was seeded first.
+
+The lane's stated reason is that a five-minute cron re-reports a still-firing alert every tick. The incident change gate closed that: a repeat of an unchanged alert is absorbed and enqueues nothing. And a hub that never pages about its own full disk is not monitoring itself. The lane's premise, that the hub's own checks are a special case, is exactly what this branch abolishes.
+
+**Consequence, accepted:** `run_pipeline --checks-only` sets the same `checker_generated` origin (`apps/orchestration/management/commands/run_pipeline.py:144`), so it starts analyzing and notifying too. That is the only other producer of that origin.
+
+**Step 1: Write the failing test**
+
+```python
+def test_hub_local_run_routes_to_the_node_lane(self):
+    seed_routing_table(PipelineDefinition, NotificationChannel)
+    facts = {"source": "cluster", "origin": "checker_generated", ...}
+    self.assertEqual(resolve_pipeline(facts).name, "cluster-nodes")
+
+def test_hub_self_check_lane_is_not_seeded(self):
+    seed_routing_table(PipelineDefinition, NotificationChannel)
+    self.assertFalse(PipelineDefinition.objects.filter(name="hub-self-check").exists())
+```
+
+**Step 2: Run, confirm it resolves to `hub-self-check` today.**
+
+**Step 3: Implement**
+
+- Remove the `hub-self-check` entry from the seed list and from `_PRIOR_STAGES` in `seeding.py`.
+- Add a data migration that DEACTIVATES the existing row (`is_active=False`), never deletes it: `Incident.pipeline` is a `SET_NULL` FK (`apps/alerts/models.py:240`), so deleting would blank which lane handled every past incident. Deactivate only when the row still carries the shape the earlier migrations seeded (`match` on `origin is checker_generated`, empty `stages`, priority 50). Reuse the module's existing principle, stated at `seeding.py:85`: a row still carrying exactly the seeded shape has never been edited, so reshaping it is repair rather than overwriting an operator's decision. An edited row is left alone and the migration logs that it was kept.
+- Update the orchestration routing fixtures that pass `source="server-checkers"` as a literal so they exercise the real `source="cluster"` pairing.
+
+**Step 4: Run** `uv run pytest apps/orchestration apps/alerts -q`, then the full suite.
+
+**Step 5: Commit**
+
+```bash
+git commit -m "feat(orchestration): the hub's own checks route like any node"
+```
+
+---
+
+## Task 8: `push_to_hub --local`
 
 **Files:**
 - Modify: `apps/alerts/management/commands/push_to_hub.py` (arguments, `handle`)
@@ -579,7 +624,7 @@ git commit -m "feat(alerts): push_to_hub --local records a run instead of POSTin
 
 ---
 
-## Task 8: Installation sets a collision-resistant `INSTANCE_ID` for every role
+## Task 9: Installation sets a collision-resistant `INSTANCE_ID` for every role
 
 **Files:**
 - Modify: `bin/install/cluster.sh:71-81`
@@ -615,10 +660,11 @@ git commit -m "feat(install): every role gets a collision-resistant INSTANCE_ID"
 
 ---
 
-## Task 9: Docs
+## Task 10: Docs
 
 **Files:**
 - Modify: `apps/alerts/AGENTS.md`, `apps/checkers/AGENTS.md`, `apps/checkers/README.md`, `AGENTS.md`, `docs/Architecture.md`
+- Modify: `docs/Deployment.md` (lines ~507, ~533), `docs/Setup-Guide.md` (~231), `docs/Installation.md` (~334) — all still describe the retired `hub-self-check` lane as live routing behaviour
 - Modify: `apps/alerts/models.py:356` (the `Node` docstring)
 
 Cover:
@@ -665,4 +711,5 @@ Confirm in the admin that one `Node` row exists for this machine, that `cpu` pro
 
 - `_check_incident_resolution` scans every open incident on every bridge run. Fine at eight nodes, not at eighty.
 - The readiness panel has no way to say "this machine has no schedule, and that is intentional".
+- `checker_fingerprint` does not validate `instance_id`. On the hub side that value arrives off the wire in a cluster payload, so a blank or attacker-chosen id becomes a fingerprint. Ingest should reject blank ids rather than key on them. Related to the deferred node-bound-key work.
 - Preflight stays node-local, as decided.
