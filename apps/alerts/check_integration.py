@@ -33,6 +33,7 @@ from apps.alerts.identity import checker_fingerprint, local_instance_id
 from apps.alerts.models import (
     Alert,
     AlertSeverity,
+    Node,
 )
 from apps.alerts.services import AlertOrchestrator, ProcessingResult
 from apps.checkers.checkers import (
@@ -104,6 +105,7 @@ class CheckAlertBridge:
         hostname: str | None = None,
         instance_id: str | None = None,
         trace_id: str = "",
+        register_node: bool = True,
     ):
         """
         Initialize the bridge.
@@ -116,6 +118,11 @@ class CheckAlertBridge:
                 fingerprint and links the alert to its Node. Defaults to
                 ``local_instance_id()``.
             trace_id: Correlation ID stamped on alerts + CheckRuns from this run.
+            register_node: Register this machine in the Node registry before writing
+                alerts. Decline it when the bridge is not describing the machine it
+                runs on: hub-side diagnosis runs the checkers here but labels the
+                alerts with the subject incident's hostname, so that caller must not
+                claim that hostname for this machine's registry row.
         """
         self.orchestrator = AlertOrchestrator(
             auto_create_incidents=auto_create_incidents,
@@ -128,6 +135,7 @@ class CheckAlertBridge:
         self.hostname = hostname or socket.gethostname()
         self.instance_id = instance_id or local_instance_id()
         self.trace_id = trace_id
+        self.register_node = register_node
 
     def check_result_to_parsed_alert(
         self,
@@ -225,6 +233,18 @@ class CheckAlertBridge:
 
         try:
             with transaction.atomic():
+                if self.register_node:
+                    # The machine we just checked belongs in the registry the moment
+                    # it produces truth about itself. Same row a cluster push would
+                    # create if this machine pushed to a hub, so the hub is a node
+                    # like any other. Must precede alert creation: _create_alert
+                    # resolves the node from the instance_id label and only links to
+                    # an already-registered row.
+                    Node.upsert(
+                        instance_id=self.instance_id,
+                        hostname=self.hostname,
+                        source="local",
+                    )
                 for parsed_alert in parsed.alerts:
                     self.orchestrator._process_alert(parsed_alert, parsed.source, result)
 

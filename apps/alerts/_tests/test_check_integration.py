@@ -4,7 +4,14 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.alerts.check_integration import CheckAlertBridge, CheckAlertResult
-from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus
+from apps.alerts.models import (
+    Alert,
+    AlertHistory,
+    AlertStatus,
+    Incident,
+    IncidentStatus,
+    Node,
+)
 from apps.checkers.checkers import CheckResult, CheckStatus
 
 
@@ -898,3 +905,60 @@ class BridgeIdentityTests(TestCase):
         parsed = bridge.check_result_to_parsed_alert(self._cpu_result())
 
         self.assertEqual(parsed.fingerprint, "check:explicit:cpu")
+
+
+class BridgeSelfRegistrationTests(TestCase):
+    """A machine that checks itself registers itself in the Node registry.
+
+    ``_create_alert`` links an alert to its node with ``resolve_node(labels)``,
+    which only links to an already-registered row — creation is owned by the
+    cluster push. A machine checking itself never pushes, so the bridge is the
+    only place that row can come from.
+    """
+
+    @staticmethod
+    def _cpu_result():
+        return CheckResult(
+            status=CheckStatus.CRITICAL,
+            message="CPU usage at 95%",
+            metrics={"cpu_percent": 95.0},
+            checker_name="cpu",
+        )
+
+    @override_settings(INSTANCE_ID="hub-1")
+    def test_local_run_registers_this_machine_as_a_node(self):
+        bridge = CheckAlertBridge(hostname="hub-host")
+
+        bridge.process_check_result(self._cpu_result())
+
+        node = Node.objects.get(instance_id="hub-1")
+        self.assertEqual(node.hostname, "hub-host")
+        self.assertEqual(node.last_source, "local")
+
+    @override_settings(INSTANCE_ID="hub-1")
+    def test_alert_links_to_the_registered_node(self):
+        bridge = CheckAlertBridge(hostname="hub-host")
+
+        bridge.process_check_result(self._cpu_result())
+
+        alert = Alert.objects.get(fingerprint="check:hub-1:cpu")
+        self.assertEqual(alert.node.instance_id, "hub-1")
+
+    @override_settings(INSTANCE_ID="hub-1")
+    def test_registration_can_be_declined(self):
+        """Hub-side diagnosis runs here but describes another machine."""
+        bridge = CheckAlertBridge(hostname="someone-elses-host", register_node=False)
+
+        bridge.process_check_result(self._cpu_result())
+
+        self.assertFalse(Node.objects.filter(instance_id="hub-1").exists())
+
+    @override_settings(INSTANCE_ID="hub-1")
+    def test_registration_refreshes_an_existing_node(self):
+        Node.objects.create(instance_id="hub-1", hostname="old-name")
+        bridge = CheckAlertBridge(hostname="hub-host")
+
+        bridge.process_check_result(self._cpu_result())
+
+        self.assertEqual(Node.objects.get(instance_id="hub-1").hostname, "hub-host")
+        self.assertEqual(Node.objects.count(), 1)

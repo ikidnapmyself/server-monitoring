@@ -9,6 +9,9 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase
 
+from apps.alerts.models import Node
+from apps.checkers.checkers import CheckResult as CheckerResult
+from apps.checkers.checkers import CheckStatus
 from apps.orchestration.dtos import (
     AnalyzeResult,
     CheckResult,
@@ -473,7 +476,40 @@ class TestCheckExecutorHostnameAndNoIncidents(SimpleTestCase):
             hostname="web-01",
             auto_create_incidents=False,
             trace_id="t",
+            register_node=False,
         )
+
+
+class TestCheckExecutorDoesNotRegisterANode(TestCase):
+    """Diagnosis runs on the hub but is labelled with the subject's hostname.
+
+    Registering from here would stamp a remote machine's hostname onto this
+    machine's own Node row, so CHECK must decline registration.
+    """
+
+    def test_check_stage_creates_no_node_for_the_local_instance(self):
+        checker_class = MagicMock()
+        checker_class.return_value.run.return_value = CheckerResult(
+            status=CheckStatus.CRITICAL,
+            message="hot",
+            metrics={},
+            checker_name="cpu",
+        )
+
+        ctx = StageContext(
+            trace_id="t",
+            run_id="r",
+            payload={"hostname": "web-01", "checker_names": ["cpu"]},
+        )
+
+        with patch.dict(
+            "apps.alerts.check_integration.CHECKER_REGISTRY",
+            {"cpu": checker_class},
+            clear=True,
+        ):
+            CheckExecutor().execute(ctx)
+
+        assert Node.objects.count() == 0
 
 
 @dataclass

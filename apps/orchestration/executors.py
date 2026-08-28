@@ -143,6 +143,10 @@ class CheckExecutor(BaseExecutor):
                 bridge_kwargs["hostname"] = hostname
             bridge_kwargs["auto_create_incidents"] = not no_incidents
             bridge_kwargs["trace_id"] = ctx.trace_id
+            # Diagnosis runs on the hub but labels alerts with the subject incident's
+            # hostname, so this bridge is not describing this machine. Registering
+            # here would stamp a remote hostname onto the hub's own Node row.
+            bridge_kwargs["register_node"] = False
 
             bridge = CheckAlertBridge(**bridge_kwargs)
 
