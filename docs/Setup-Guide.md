@@ -228,13 +228,13 @@ creates incidents for critical problems. Output is logged to `cron.log` in the p
 
 CHECK is the **entry stage** here: the run resolves a routing lane from the alert the
 checks produced, exactly as webhook traffic resolves one from the alert INGEST produced.
-The seeded `hub-self-check` lane (`origin is checker_generated`) matches this traffic and
-ships with **empty `stages`** — it records the alerts, opens incidents and stamps the lane
-so the run is traceable, then stops. That default exists because cron repeats: a
-still-firing alert is re-reported on every tick, and notification de-duplication does not
-exist yet, so paging here would mean one message per run for as long as the alert fires.
-Add `"notify"` to that lane's `stages` in **Orchestration → Pipeline definitions** to page
-on local problems (and `"analyze"` for an AI summary).
+Checker-origin alerts carry `source: cluster`, so this traffic matches the seeded
+`cluster-nodes` lane and is **analysed and notified like any node's** — this machine can
+page about its own full disk. (The old record-only `hub-self-check` lane is retired: the
+incident change gate now absorbs a repeat that says nothing new, so a still-firing alert
+no longer re-notifies on every tick.) To keep local checks record-only instead, add a
+higher-priority lane in **Orchestration → Pipeline definitions** matching
+`origin is checker_generated` with empty `stages`.
 
 The script then offers a second job on the same schedule. On a machine with a `HUB_URL` it
 is **push to hub**; on a machine without one it is **local self-checks**

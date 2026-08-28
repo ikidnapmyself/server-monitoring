@@ -340,7 +340,8 @@ sm-run-pipeline --sample --dry-run
 sm-run-pipeline --sample          # full demo run (real checks + notify)
 sm-run-pipeline --checks-only     # local monitoring: CHECK is the entry stage, then
                                   # the lane matched from the alert it produced runs
-                                  # (the seeded `hub-self-check` lane records only)
+                                  # (checker alerts are `source: cluster`, so the
+                                  #  seeded `cluster-nodes` lane analyses + notifies)
 ```
 
 ### More examples

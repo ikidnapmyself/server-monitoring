@@ -21,7 +21,7 @@ Output contract (to orchestrator):
 - `apps/alerts/drivers/` — payload parsers (Alertmanager, Grafana, PagerDuty, etc.)
   - Drivers should implement `validate()` and `parse()`.
 - `apps/alerts/services.py` — business logic (`AlertOrchestrator`, `IncidentManager`). `AlertOrchestrator` is **the** alert write path — see below.
-- `apps/alerts/models.py` — `Alert`, `Incident`, `AlertHistory`, `Node`. `Node` is the **agent registry**, keyed by `instance_id` and upserted on each accepted cluster push (`Node.upsert`); the hub is *not* represented as a node. Alert/incident grouping resolves the owning node from the `instance_id` label (see `incident_instance_key` / `resolve_node` in `services.py`); the hub's own checker-generated runs carry no `instance_id` and group by `hostname`.
+- `apps/alerts/models.py` — `Alert`, `Incident`, `AlertHistory`, `Node`. `Node` is the **registry of every machine that produces truth about itself**, keyed by `instance_id` and upserted (`Node.upsert`) on each accepted cluster push *and* on each local check run that records alerts here — so **the hub is a node in its own registry**. `last_source` distinguishes `cluster` (arrived by push) from `local` (registered by a local check run). Alert/incident grouping resolves the owning node from the `instance_id` label (see `incident_instance_key` / `resolve_node` in `services.py`), and hub-local checker alerts now carry that label like any node's.
 - `apps/alerts/timeline.py` — `build_incident_timeline(incident)`: a **pure** aggregator that merges `AlertHistory` + `StageExecution` + `PipelineRun` into one chronological list (with `trace_id`/`run_id`), rendered read-only + escaped as the "Merged chronological timeline" on the Incident admin. No models/queries with side effects.
 - `apps/alerts/reevaluation.py` — **hub-side per-node severity re-evaluation (ingest-time)**. Nodes report raw metrics + a default severity; the hub recomputes severity against per-node policy in `Node.config` and overrides it. Called at the top of `AlertOrchestrator._process_alert` (covers create + update), so nodes stay unchanged. Fail-open: any missing/invalid input (or exception) passes the alert through unchanged. Two checker-types wired: numeric-threshold override for the 7 numeric checkers (`_score_numeric` + `PRIMARY_METRIC`) and a `listening_ports` **allowlist** evaluator (`_score_allowlist`, re-flagging the reported `listening` inventory against `Node.config["listening_ports"]["allowlist"]`; empty allowlist → exposed-only). Extend per checker-type by adding a pure scorer to `SCORERS` + an evaluator to `REEVALUATORS`. Overrides are audited in `annotations["severity_reevaluated"]`. The pure scorers in `SCORERS` are the shared, testable units reused by the config-change re-eval below. See `docs/plans/2026-08-07-hub-node-severity-reeval-design.md` and `docs/plans/2026-08-09-listening-ports-allowlist-reeval-design.md`.
 - `apps/alerts/reeval_existing.py` — **hub-side re-evaluation of a node's EXISTING open alerts on config change** (operator-triggered, distinct from ingest-time above). Re-scores a node's firing alerts from their stored metrics by dispatching through the shared `SCORERS` registry (numeric + `listening_ports` allowlist), then on apply resolves / adjusts severity, writes `AlertHistory` + a distinct `annotations["reevaluated_on_config_change"]` audit key, and auto-resolves incidents whose alerts all resolved — all in one transaction; idempotent. `preview_node_alert_reeval` (no writes) / `apply_node_alert_reeval`. Two surfaces: the **Re-evaluate open alerts** Node admin action (confirmation dialog, gated on change permission) and the `reevaluate_node_alerts <instance_id>` management command (`--dry-run`, confirm prompt, `--noinput`). See `docs/plans/2026-08-08-reeval-existing-alerts-design.md`.
@@ -55,6 +55,37 @@ Output contract (to orchestrator):
 - `apps/alerts/metrics.py` — `parse_metrics(annotations)`, shared by `reevaluation` and
   `context_keys` so "read a node's metrics back" means one thing.
 - `apps/alerts/urls.py` — URL routing for this app
+
+## Checker-alert identity
+
+A checker-origin alert is identified by **`check:{instance_id}:{checker_name}`**
+(`apps/alerts/identity.py`, `checker_fingerprint`). `local_instance_id()` is this
+machine's key: `settings.INSTANCE_ID`, falling back to the hostname when unconfigured.
+
+- **Keyed on `instance_id`, not hostname.** Hostnames collide across stock installs
+  (three fresh boxes all called `ubuntu`) and change on rename, either of which merges
+  or splits histories that should not move. The instance id is the `Node` primary key,
+  so it is the same thing the registry and the grouping code already key on.
+- **`(fingerprint, source)` is the dedup pair** — the lookup in
+  `AlertOrchestrator._process_alert` (`apps/alerts/services.py:269`). Both halves must
+  agree across producers or one condition on one machine becomes two `Alert` rows, so
+  **both producers use `source = "cluster"`**: `CheckAlertBridge.SOURCE_NAME` (it used
+  to be `server-checkers`) and the payload `push_to_hub` builds. Migration
+  `apps/alerts/migrations/0011_checker_alert_identity.py` rewrote existing rows onto
+  this identity, parking collisions under `:legacy:<pk>` so two histories never merge.
+- **The alert name is deliberately stable:** `f"{checker_name.upper()} Check Alert"`,
+  written identically by the bridge and by `push_to_hub._result_to_alert`. Incident
+  grouping matches on `alert.name` (`_find_open_incident`, `apps/alerts/services.py:517`),
+  so a name carrying live metrics — the old `f"{checker}: {message}"` — drifted every
+  tick and silently split one situation into a new incident per tick. Live text belongs in
+  `description`; metrics belong in labels/annotations.
+
+**Self-registration.** `CheckAlertBridge` upserts the machine it just checked into the
+`Node` registry (`source="local"`) inside the same transaction, *before* writing alerts —
+`_create_alert` resolves the node from the `instance_id` label and only links to an
+already-registered row. `register_node=False` opts out, and `CheckExecutor` uses it:
+hub-side diagnosis runs the checkers here but labels the alerts with the *subject*
+incident's hostname, so it must not claim that hostname for this machine's registry row.
 
 ## The alert write path (one, not two)
 

@@ -60,6 +60,38 @@ Alert -> Intelligence -> Notify         (ai-analyzed)
 
 See the [Setup Guide](Setup-Guide) for step-by-step walkthroughs.
 
+### Hub Self-Monitoring
+
+**A hub is a node in its own registry.** Whenever a machine records checker results
+locally, `CheckAlertBridge` upserts that machine into the `Node` table
+(`last_source = "local"`; a push from another machine sets `"cluster"`). So the box
+running the hub appears in the fleet it aggregates, and its own full disk becomes an
+alert, an incident and a page exactly like any agent's.
+
+Two delivery modes, and when each applies:
+
+| Mode | Command | What happens | Use when |
+|------|---------|--------------|----------|
+| **Inline** | `check_health` | Runs the checkers and records `Alert`/`Incident` rows synchronously. Records by default; `--no-alert` prints only. **Enqueues nothing** | A single machine with no hub, no cron and nobody draining an inbox — you still want alerts and incidents |
+| **Through the inbox** | `push_to_hub --local` | Runs the checkers and records the same `PENDING` `PipelineRun` a remote agent's POST would have recorded, then `process_inbox` drains it through `IngestExecutor` + `ClusterDriver` | You want the hub's own checks to take the full pipeline — routing, analysis, notification — identically to a peer's push |
+
+`bin/install/cron.sh` offers the second job automatically: **push to hub** on a machine
+with a `HUB_URL`, **local self-checks** (`push_to_hub --local`) on one without.
+
+**One identity, both producers.** A checker-origin alert is fingerprinted
+`check:{instance_id}:{checker_name}` under `source: cluster`, with the stable name
+`"<CHECKER> Check Alert"`. `instance_id` (from `INSTANCE_ID`, hostname when unset) is
+used rather than the hostname because hostnames collide across stock installs and change
+on rename. Alert identity is the pair `(fingerprint, source)` and incident grouping
+matches on the alert *name*, so both producers — the local bridge and the pushed payload —
+must agree on all three or one condition on one machine splits into several rows and
+several incidents.
+
+**No lane of its own.** The hub's checker traffic routes through `cluster-nodes` like any
+node's; the old record-only `hub-self-check` lane is retired (deactivated, not deleted, by
+migration `0018`) so the hub can page about itself. See
+[Deployment → Routing](Deployment.md).
+
 ### Stage Configuration
 
 Stage behavior is controlled through routing pipelines and Django Admin — not environment variables:
@@ -74,13 +106,14 @@ Stage behavior is controlled through routing pipelines and Django Admin — not 
 
 | Command | App | Purpose |
 |---------|-----|---------|
-| `check_health [checkers...]` | checkers | Run health checks, display summary. Flags: `--list`, `--json`, `--fail-on-warning`, `--fail-on-critical` |
+| `check_health [checkers...]` | checkers | Run health checks, display summary, **record alerts** for this machine. Flags: `--no-alert` (print only), `--list`, `--json`, `--fail-on-warning`, `--fail-on-critical` |
 | `run_check <checker>` | checkers | Run a single checker with checker-specific options (`--samples`, `--per-cpu`, `--paths`, `--hosts`, `--names`) |
 | `run_pipeline --checks-only` | orchestration | Run checks through pipeline. Additional flags: `--checkers`, `--no-incidents`, `--hostname`, `--label`, `--warning-threshold`, `--critical-threshold` |
 | `get_recommendations` | intelligence | Get system recommendations. Flags: `--incident-id`, `--memory`, `--disk`, `--provider`, `--json`, `--list-providers` |
 | `test_notify [driver]` | notify | Test notification delivery. Flags: per-driver config (`--webhook-url`, `--smtp-host`, etc.) |
 | `run_pipeline` | orchestration | Run pipeline end-to-end. Flags: `--sample`, `--payload`, `--file`, `--dry-run`, `--checks-only` |
 | `monitor_pipeline` | orchestration | View pipeline run history. Flags: `--limit`, `--status`, `--run-id` |
+| `push_to_hub` | alerts | Run the checkers and push the results to a hub. Flags: `--local` (record a `PENDING` run here instead of POSTing), `--dry-run`, `--json`, `--checkers` |
 
 ### HTTP Endpoints
 
@@ -134,7 +167,7 @@ All apps register their models at `/admin/`:
 
 | Admin Path | Models |
 |------------|--------|
-| `/admin/alerts/` | Alert, Incident, AlertHistory |
+| `/admin/alerts/` | Alert, Incident, AlertHistory, Node |
 | `/admin/checkers/` | CheckRun |
 | `/admin/intelligence/` | AnalysisRun |
 | `/admin/notify/` | NotificationChannel |
@@ -212,6 +245,7 @@ PipelineDefinition (standalone config)
 | `Alert` | alerts | Normalized alert record (fingerprint, status, severity, labels, raw payload) |
 | `Incident` | alerts | Groups related alerts, tracks lifecycle (open → ack → resolved → closed) |
 | `AlertHistory` | alerts | Audit trail of alert state transitions |
+| `Node` | alerts | Registry of every machine that reports on itself, keyed by `instance_id` — this hub included |
 | `CheckRun` | checkers | Health check execution log (status, metrics, timing, trace_id) |
 | `AnalysisRun` | intelligence | AI analysis execution log (provider, status, timing, recommendations) |
 | `PipelineRun` | orchestration | Pipeline execution tracking (status, timing, correlation IDs) |
