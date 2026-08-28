@@ -7,6 +7,8 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 
+from apps.alerts.check_integration import CheckAlertBridge
+from apps.alerts.management.commands.push_to_hub import Command
 from apps.checkers.checkers.base import CheckResult, CheckStatus
 from config.security.url_validation import URLNotAllowedError
 
@@ -683,3 +685,53 @@ class SendToHubHelpersTests(TestCase):
         )
         self.assertEqual(status, 202)
         self.assertIn("ok", body)
+
+
+class ResultToAlertIdentityTests(TestCase):
+    """The pushed alert must carry the same identity CheckAlertBridge writes."""
+
+    @staticmethod
+    def _result(status=CheckStatus.OK, message="CPU OK"):
+        return CheckResult(
+            status=status,
+            message=message,
+            metrics={"cpu_percent": 91.0},
+            checker_name="cpu",
+        )
+
+    def test_pushed_alert_shares_the_bridge_fingerprint(self):
+        """Fingerprint is keyed on instance_id, not the collidable hostname."""
+        alert = Command()._result_to_alert(self._result(), "node-a", "host-a")
+        self.assertEqual(alert["fingerprint"], "check:node-a:cpu")
+
+    def test_pushed_alert_name_matches_the_bridge_name(self):
+        """Name is the bridge's stable form, not the live message."""
+        alert = Command()._result_to_alert(self._result(), "node-a", "host-a")
+        self.assertEqual(alert["name"], "CPU Check Alert")
+
+    def test_name_is_stable_across_message_changes(self):
+        """Incident grouping matches on name, so it must not drift per tick."""
+        first = Command()._result_to_alert(
+            self._result(message="CPU usage 91%"), "node-a", "host-a"
+        )
+        second = Command()._result_to_alert(
+            self._result(message="CPU usage 94%"), "node-a", "host-a"
+        )
+        self.assertEqual(first["name"], second["name"])
+
+    def test_live_message_survives_in_the_description(self):
+        """The metric text moves to the description; it is not lost."""
+        alert = Command()._result_to_alert(
+            self._result(message="CPU usage 91%"), "node-a", "host-a"
+        )
+        self.assertEqual(alert["description"], "CPU usage 91%")
+
+    def test_both_producers_agree_on_identity(self):
+        """The invariant: one condition on one machine is one Alert row."""
+        result = self._result(status=CheckStatus.CRITICAL, message="CPU usage 99%")
+        pushed = Command()._result_to_alert(result, "node-a", "host-a")
+        bridged = CheckAlertBridge(
+            hostname="host-a", instance_id="node-a", register_node=False
+        ).check_result_to_parsed_alert(result)
+        self.assertEqual(pushed["fingerprint"], bridged.fingerprint)
+        self.assertEqual(pushed["name"], bridged.name)

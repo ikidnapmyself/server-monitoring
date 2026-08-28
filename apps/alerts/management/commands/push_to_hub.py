@@ -19,6 +19,7 @@ from urllib.request import Request  # noqa: TID251 — Request is a data object,
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+from apps.alerts.identity import checker_fingerprint
 from apps.checkers.checkers import CHECKER_REGISTRY
 from apps.checkers.checkers.base import CheckStatus
 from config.security.http import safe_urlopen
@@ -290,9 +291,12 @@ class Command(BaseCommand):
 
         now = datetime.now(timezone.utc).isoformat()
 
+        # Identity stays in lockstep with CheckAlertBridge: both producers write
+        # the same (fingerprint, source) pair, so the name must match too or one
+        # condition on one machine splits into separate Alert rows / incidents.
         return {
-            "fingerprint": f"{result.checker_name}-{hostname}",
-            "name": f"{result.checker_name}: {result.message}",
+            "fingerprint": checker_fingerprint(instance_id, result.checker_name),
+            "name": f"{result.checker_name.upper()} Check Alert",
             "status": status,
             "severity": severity,
             "started_at": now,
