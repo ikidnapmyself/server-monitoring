@@ -33,6 +33,14 @@ class FollowAlertTests(SimpleTestCase):
             (False, False),
         )
 
+    def test_ack_alert_resolving_still_sends_the_all_clear(self):
+        self.assertEqual(
+            follow_alert(
+                _inc(IncidentStatus.ACKNOWLEDGED), "warning", "warning", "firing", "resolved"
+            ),
+            (False, True),
+        )
+
     def test_ack_deescalation_is_absorbed(self):
         self.assertEqual(
             follow_alert(

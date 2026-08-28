@@ -103,6 +103,7 @@ paths get one answer. One table, one place:
 | Incident status | Alert change | Result |
 |---|---|---|
 | OPEN | any material | enqueue |
+| ACKNOWLEDGED | alert resolved | enqueue the all-clear, stay ACKNOWLEDGED |
 | ACKNOWLEDGED | severity **rose** | reopen (ACK → OPEN), enqueue — escalation breaks an ack |
 | ACKNOWLEDGED | refire / same or lower severity | absorb: history row only, no run |
 | RESOLVED / CLOSED | alert firing (refire **or** severity change) | reopen, enqueue |
