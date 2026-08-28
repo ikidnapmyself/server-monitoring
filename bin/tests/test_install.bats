@@ -169,3 +169,17 @@ EOF
     '
     assert_success
 }
+
+@test "install/cron.sh offers local self-checks when HUB_URL is unset" {
+    run grep -q "Schedule local self-checks?" "$BIN_DIR/install/cron.sh"
+    assert_success
+    run grep -q "push_to_hub --local" "$BIN_DIR/install/cron.sh"
+    assert_success
+    run grep -q "CRON_LOCAL_CHECK" "$BIN_DIR/install/cron.sh"
+    assert_success
+}
+
+@test "install/cron.sh local self-check job has its own crontab id" {
+    run grep -q "# server-maintanence local self-check" "$BIN_DIR/install/cron.sh"
+    assert_success
+}

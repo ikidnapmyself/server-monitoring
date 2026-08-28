@@ -56,6 +56,10 @@ chmod +x ./bin/*.sh
 - Runs Django migrations
 - Runs `python manage.py check`
 - Optionally runs health checks now
+- Asks for an `INSTANCE_ID` for every cluster role — this machine's identity. It keys the
+  machine's `Node` row and its alert fingerprints, so the default is the hostname plus a
+  short random suffix (two stock machines share a hostname). Re-running the installer keeps
+  an `INSTANCE_ID` that is already in `.env`.
 - Optionally sets up cron via `./bin/install.sh cron`
 - Optionally sets up shell aliases via `./bin/install.sh aliases`
 
@@ -82,6 +86,9 @@ uv run python manage.py run_pipeline --checks-only --json
 ```
 
 - Logs output to `cron.log` in the project root
+- Offers a second job on the same schedule: **push to hub** (`push_to_hub`) when `HUB_URL`
+  is set, or **local self-checks** (`push_to_hub --local`, which records the run on this
+  machine instead of POSTing it) when it is not. The two are mutually exclusive
 
 See the cron script in `bin/install.sh cron`.
 

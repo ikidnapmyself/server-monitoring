@@ -236,6 +236,11 @@ exist yet, so paging here would mean one message per run for as long as the aler
 Add `"notify"` to that lane's `stages` in **Orchestration → Pipeline definitions** to page
 on local problems (and `"analyze"` for an AI summary).
 
+The script then offers a second job on the same schedule. On a machine with a `HUB_URL` it
+is **push to hub**; on a machine without one it is **local self-checks**
+(`push_to_hub --local`), which runs the checkers and records the pipeline run here rather
+than POSTing it anywhere — that is how a hub monitors itself.
+
 Verify cron is set up:
 
 ```bash

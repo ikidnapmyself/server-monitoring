@@ -9,6 +9,7 @@ Usage:
     python manage.py setup_cluster --role agent ... --no-verify
 """
 
+import secrets
 import socket
 from pathlib import Path
 from urllib.error import HTTPError
@@ -34,8 +35,30 @@ def env_upsert(path: Path, key: str, value: str) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
+def env_get(path: Path, key: str) -> str:
+    """Read ``key`` from a .env file, or "" when the file or key is absent."""
+    if not path.exists():
+        return ""
+    prefix = f"{key}="
+    for line in path.read_text().splitlines():
+        stripped = line.strip()
+        if stripped.startswith(prefix):
+            return stripped[len(prefix) :].strip()
+    return ""
+
+
 def _env_path() -> Path:
     return Path(settings.BASE_DIR) / ".env"
+
+
+def default_instance_id() -> str:
+    """Hostname plus a short random suffix.
+
+    Two stock machines report the same hostname, and INSTANCE_ID keys this
+    machine's Node row and its ``check:{instance_id}:{checker}`` fingerprints —
+    a collision would merge two machines into one identity.
+    """
+    return f"{socket.gethostname() or 'node'}-{secrets.token_hex(4)}"
 
 
 def explain_http_error(code: int) -> str:
@@ -86,10 +109,32 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         role = options.get("role") or self._prompt_role()
+        # Identity first: a hub needs an INSTANCE_ID as much as an agent does,
+        # because it registers its own Node row and fingerprints its own alerts.
+        instance_id = self._ensure_instance_id(options)
         if role == "hub":
             self._setup_hub(options)
         else:
-            self._setup_agent(options)
+            self._setup_agent(options, instance_id)
+
+    def _ensure_instance_id(self, options) -> str:
+        """Prompt for and persist INSTANCE_ID, for every role.
+
+        An id already in .env wins, so re-running setup never regenerates one —
+        that would orphan every alert and Node row keyed to it.
+        """
+        instance_id = options.get("instance_id") or env_get(_env_path(), "INSTANCE_ID")
+        if not instance_id:
+            default_id = default_instance_id()
+            if options.get("role"):
+                # Scripted invocation (--role given): take the default rather
+                # than blocking a non-interactive run on stdin.
+                instance_id = default_id
+                self.stdout.write(f"INSTANCE_ID was unset — using {default_id}.")
+            else:
+                instance_id = input(f"INSTANCE_ID [{default_id}]: ").strip() or default_id
+        env_upsert(_env_path(), "INSTANCE_ID", instance_id)
+        return instance_id
 
     def _prompt_role(self) -> str:
         self.stdout.write("Set up this node as:")
@@ -296,19 +341,14 @@ class Command(BaseCommand):
 
         enable_delivery(PipelineDefinition, channel)
 
-    def _setup_agent(self, options) -> None:
+    def _setup_agent(self, options, instance_id: str) -> None:
         hub_url = options.get("hub_url") or input("HUB_URL (https://...): ").strip()
-        default_id = socket.gethostname()
-        instance_id = options.get("instance_id")
-        if not instance_id:
-            instance_id = input(f"INSTANCE_ID [{default_id}]: ").strip() or default_id
         api_key = options.get("hub_api_key") or input("HUB_API_KEY (token from the hub): ").strip()
 
         if not hub_url or not api_key:
             raise CommandError("HUB_URL and HUB_API_KEY are required for agent setup.")
 
         env_upsert(_env_path(), "HUB_URL", hub_url)
-        env_upsert(_env_path(), "INSTANCE_ID", instance_id)
         env_upsert(_env_path(), "HUB_API_KEY", api_key)
         self.stdout.write(self.style.SUCCESS("Agent config written to .env."))
 
@@ -317,7 +357,7 @@ class Command(BaseCommand):
             return
 
         self.stdout.write("Verifying with a live push...")
-        payload = build_cluster_payload(instance_id, default_id, [])
+        payload = build_cluster_payload(instance_id, socket.gethostname(), [])
         try:
             status, _ = send_to_hub(hub_url, api_key, payload)
         except URLNotAllowedError:
