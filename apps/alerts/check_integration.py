@@ -20,7 +20,6 @@ Usage:
     results = bridge.run_checks_and_alert(["cpu", "memory", "disk"])
 """
 
-import hashlib
 import logging
 import socket
 from dataclasses import dataclass, field
@@ -30,6 +29,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.alerts.drivers.base import ParsedAlert, ParsedPayload
+from apps.alerts.identity import checker_fingerprint, local_instance_id
 from apps.alerts.models import (
     Alert,
     AlertSeverity,
@@ -91,13 +91,18 @@ class CheckAlertBridge:
     Supports both one-off check-to-alert conversions and batch processing.
     """
 
-    SOURCE_NAME = "server-checkers"
+    # Alert identity is the pair ``(fingerprint, source)`` — see the lookup at
+    # apps/alerts/services.py:269. A checker alert written here and the same
+    # machine's pushed result must therefore share both halves, or one condition
+    # on one machine becomes two Alert rows.
+    SOURCE_NAME = "cluster"
 
     def __init__(
         self,
         auto_create_incidents: bool = True,
         auto_resolve_incidents: bool = True,
         hostname: str | None = None,
+        instance_id: str | None = None,
         trace_id: str = "",
     ):
         """
@@ -107,6 +112,9 @@ class CheckAlertBridge:
             auto_create_incidents: Automatically create incidents for critical alerts.
             auto_resolve_incidents: Automatically resolve incidents when alerts resolve.
             hostname: Override hostname for alert labels. Defaults to system hostname.
+            instance_id: Override this machine's registry key, which keys the alert
+                fingerprint and links the alert to its Node. Defaults to
+                ``local_instance_id()``.
             trace_id: Correlation ID stamped on alerts + CheckRuns from this run.
         """
         self.orchestrator = AlertOrchestrator(
@@ -118,6 +126,7 @@ class CheckAlertBridge:
             create_from_resolved=False,
         )
         self.hostname = hostname or socket.gethostname()
+        self.instance_id = instance_id or local_instance_id()
         self.trace_id = trace_id
 
     def check_result_to_parsed_alert(
@@ -139,6 +148,7 @@ class CheckAlertBridge:
         alert_labels = {
             "hostname": self.hostname,
             "checker": result.checker_name,
+            "instance_id": self.instance_id,
         }
         if labels:
             alert_labels.update(labels)
@@ -148,8 +158,9 @@ class CheckAlertBridge:
             if isinstance(value, (str, int, float, bool)):
                 alert_labels[f"metric_{key}"] = str(value)
 
-        # Generate fingerprint based on checker name and hostname
-        fingerprint = self._generate_fingerprint(result.checker_name, self.hostname)
+        # Fingerprint is keyed on the instance id, so the same checker on the same
+        # machine dedups whether it was run locally or pushed from a node.
+        fingerprint = checker_fingerprint(self.instance_id, result.checker_name)
 
         # Determine severity and status
         severity = STATUS_TO_SEVERITY.get(result.status, AlertSeverity.WARNING)
@@ -183,11 +194,6 @@ class CheckAlertBridge:
                 "error": result.error,
             },
         )
-
-    def _generate_fingerprint(self, checker_name: str, hostname: str) -> str:
-        """Generate a stable fingerprint for deduplication."""
-        fingerprint_str = f"{checker_name}:{hostname}"
-        return hashlib.sha256(fingerprint_str.encode()).hexdigest()[:16]
 
     def process_check_result(
         self,

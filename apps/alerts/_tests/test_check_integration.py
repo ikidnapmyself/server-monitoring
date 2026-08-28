@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.alerts.check_integration import CheckAlertBridge, CheckAlertResult
@@ -15,6 +15,11 @@ class CheckAlertBridgeTests(TestCase):
         self.bridge = CheckAlertBridge(
             auto_create_incidents=True,
             hostname="test-server",
+            # Pin the instance id too: it keys the fingerprint and, via
+            # instance_key_from_labels, the incident grouping key. Left to default it
+            # would be the developer's real hostname and would not match the
+            # "test-server" fixtures below.
+            instance_id="test-server",
         )
 
     def test_check_result_to_parsed_alert_critical(self):
@@ -66,7 +71,7 @@ class CheckAlertBridgeTests(TestCase):
         alert = Alert.objects.first()
         self.assertEqual(alert.name, "MEMORY Check Alert")
         self.assertEqual(alert.status, "firing")
-        self.assertEqual(alert.source, "server-checkers")
+        self.assertEqual(alert.source, "cluster")
 
     def test_check_created_alert_carries_trace_id(self):
         """A checker-originated alert is stamped with the run's trace_id."""
@@ -187,12 +192,22 @@ class CheckAlertBridgeTests(TestCase):
             self.assertEqual(processing_result.alerts_created, 1)
 
     def test_fingerprint_stability(self):
-        """Test that fingerprints are stable for the same checker/hostname."""
-        fp1 = self.bridge._generate_fingerprint("cpu", "server1")
-        fp2 = self.bridge._generate_fingerprint("cpu", "server1")
-        fp3 = self.bridge._generate_fingerprint("cpu", "server2")
+        """Fingerprints are stable per (instance, checker) and differ across hosts."""
+        cpu = CheckResult(
+            status=CheckStatus.CRITICAL,
+            message="hot",
+            metrics={},
+            checker_name="cpu",
+        )
+        server1 = CheckAlertBridge(hostname="server1", instance_id="server1")
+        server2 = CheckAlertBridge(hostname="server2", instance_id="server2")
+
+        fp1 = server1.check_result_to_parsed_alert(cpu).fingerprint
+        fp2 = server1.check_result_to_parsed_alert(cpu).fingerprint
+        fp3 = server2.check_result_to_parsed_alert(cpu).fingerprint
 
         self.assertEqual(fp1, fp2)
+        self.assertEqual(fp1, "check:server1:cpu")
         self.assertNotEqual(fp1, fp3)
 
     def test_run_checks_and_alert_defaults_to_all_checkers(self):
@@ -824,3 +839,62 @@ class CheckerSpecificGuardTests(TestCase):
         self.assertEqual(Incident.objects.count(), 0)
         self.assertEqual(result.alerts_created, 0)
         self.assertEqual(result.material_alerts, [])
+
+
+class BridgeIdentityTests(TestCase):
+    """The bridge keys a checker alert on instance_id, not hostname.
+
+    Alert identity is ``(fingerprint, source)`` (apps/alerts/services.py:269), so a
+    locally-run checker and the same machine's pushed result must agree on both or
+    one condition becomes two rows.
+    """
+
+    @staticmethod
+    def _cpu_result(status=CheckStatus.OK, message="CPU usage normal"):
+        return CheckResult(
+            status=status,
+            message=message,
+            metrics={"cpu_percent": 25.0},
+            checker_name="cpu",
+        )
+
+    @override_settings(INSTANCE_ID="node-a")
+    def test_fingerprint_is_instance_keyed(self):
+        bridge = CheckAlertBridge(hostname="host-a")
+
+        parsed = bridge.check_result_to_parsed_alert(self._cpu_result())
+
+        self.assertEqual(parsed.fingerprint, "check:node-a:cpu")
+
+    @override_settings(INSTANCE_ID="node-a")
+    def test_instance_id_label_present_so_node_resolves(self):
+        """``_create_alert`` links a Node via ``resolve_node(parsed.labels)``."""
+        bridge = CheckAlertBridge(hostname="host-a")
+
+        parsed = bridge.check_result_to_parsed_alert(self._cpu_result())
+
+        self.assertEqual(parsed.labels["instance_id"], "node-a")
+
+    def test_name_is_stable_across_message_changes(self):
+        """Incident grouping matches on ``alert.name`` (services.py:521)."""
+        bridge = CheckAlertBridge(hostname="host-a")
+
+        first = bridge.check_result_to_parsed_alert(
+            self._cpu_result(status=CheckStatus.CRITICAL, message="CPU usage 91%")
+        )
+        second = bridge.check_result_to_parsed_alert(
+            self._cpu_result(status=CheckStatus.CRITICAL, message="CPU usage 94%")
+        )
+
+        self.assertEqual(first.name, second.name)
+
+    def test_source_name_is_cluster(self):
+        self.assertEqual(CheckAlertBridge.SOURCE_NAME, "cluster")
+
+    @override_settings(INSTANCE_ID="")
+    def test_explicit_instance_id_argument_wins(self):
+        bridge = CheckAlertBridge(hostname="host-a", instance_id="explicit")
+
+        parsed = bridge.check_result_to_parsed_alert(self._cpu_result())
+
+        self.assertEqual(parsed.fingerprint, "check:explicit:cpu")
