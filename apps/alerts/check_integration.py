@@ -83,6 +83,18 @@ class CheckAlertResult:
     def has_errors(self) -> bool:
         return len(self.errors) > 0
 
+    def merge(self, other: "CheckAlertResult") -> None:
+        """Fold another batch's counts and rows into this one, in place."""
+        self.alerts_created += other.alerts_created
+        self.alerts_updated += other.alerts_updated
+        self.alerts_resolved += other.alerts_resolved
+        self.incidents_created += other.incidents_created
+        self.incidents_updated += other.incidents_updated
+        self.checks_run += other.checks_run
+        self.alerts.extend(other.alerts)
+        self.material_alerts.extend(other.material_alerts)
+        self.errors.extend(other.errors)
+
 
 class CheckAlertBridge:
     """
@@ -278,6 +290,21 @@ class CheckAlertBridge:
         Raises:
             ValueError: If checker_name is not in the registry or is disabled.
         """
+        check_result = self._run_checker(checker_name, checker_kwargs)
+        processing_result = self.process_check_result(check_result, labels)
+
+        return check_result, processing_result
+
+    def _run_checker(
+        self,
+        checker_name: str,
+        checker_kwargs: dict[str, Any] | None = None,
+    ) -> CheckResult:
+        """Run one registered checker and return its result. No alert is written.
+
+        Raises:
+            ValueError: If checker_name is not in the registry.
+        """
         if checker_name not in CHECKER_REGISTRY:
             raise ValueError(
                 f"Unknown checker: {checker_name}. "
@@ -286,11 +313,43 @@ class CheckAlertBridge:
 
         checker_class = CHECKER_REGISTRY[checker_name]
         checker = checker_class(**(checker_kwargs or {}))
-        check_result = checker.run(trace_id=self.trace_id)
+        return checker.run(trace_id=self.trace_id)
 
-        processing_result = self.process_check_result(check_result, labels)
+    def process_check_results(
+        self,
+        results: list[CheckResult],
+        labels: dict[str, str] | None = None,
+    ) -> CheckAlertResult:
+        """Record alerts for results this caller already ran.
 
-        return check_result, processing_result
+        ``run_checks_and_alert`` runs the checkers itself; this is the same
+        recording step for a caller that has its own results in hand.
+
+        Args:
+            results: CheckResults to record.
+            labels: Additional labels for all alerts.
+
+        Returns:
+            CheckAlertResult with aggregate counts.
+        """
+        aggregate = CheckAlertResult()
+
+        for check_result in results:
+            processing_result = self.process_check_result(check_result, labels)
+
+            aggregate.checks_run += 1
+            aggregate.alerts_created += processing_result.alerts_created
+            aggregate.alerts_updated += processing_result.alerts_updated
+            aggregate.alerts_resolved += processing_result.alerts_resolved
+            aggregate.incidents_created += processing_result.incidents_created
+            aggregate.incidents_updated += processing_result.incidents_updated
+            aggregate.alerts.extend(processing_result.alerts)
+            aggregate.material_alerts.extend(processing_result.material_alerts)
+
+            if processing_result.has_errors:
+                aggregate.errors.extend(processing_result.errors)
+
+        return aggregate
 
     def run_checks_and_alert(
         self,
@@ -309,35 +368,26 @@ class CheckAlertBridge:
         Returns:
             CheckAlertResult with aggregate counts.
         """
-        result = CheckAlertResult()
         checker_configs = checker_configs or {}
 
         if checker_names is None:
             checker_names = list(CHECKER_REGISTRY.keys())
 
+        result = CheckAlertResult()
         for checker_name in checker_names:
             try:
-                checker_kwargs = checker_configs.get(checker_name, {})
-                check_result, processing_result = self.run_check_and_alert(
-                    checker_name,
-                    checker_kwargs=checker_kwargs,
-                    labels=labels,
+                check_result = self._run_checker(
+                    checker_name, checker_configs.get(checker_name, {})
                 )
-
-                result.checks_run += 1
-                result.alerts_created += processing_result.alerts_created
-                result.alerts_updated += processing_result.alerts_updated
-                result.alerts_resolved += processing_result.alerts_resolved
-                result.incidents_created += processing_result.incidents_created
-                result.incidents_updated += processing_result.incidents_updated
-                result.alerts.extend(processing_result.alerts)
-                result.material_alerts.extend(processing_result.material_alerts)
-
-                if processing_result.has_errors:
-                    result.errors.extend(processing_result.errors)
-
             except Exception as e:
                 logger.exception(f"Error running checker {checker_name}")
                 result.errors.append(f"{checker_name}: {str(e)}")
+                continue
+
+            # Record as we go rather than batching at the end: each alert is
+            # timestamped at its own checker's completion, and a later checker
+            # that hangs or dies leaves the earlier ones already recorded.
+            # Recording is the same step a caller with its own results takes.
+            result.merge(self.process_check_results([check_result], labels))
 
         return result

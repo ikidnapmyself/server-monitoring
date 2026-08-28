@@ -160,6 +160,18 @@ uv run python manage.py check_health cpu memory disk network process
 uv run python manage.py check_health --list
 ```
 
+#### Alert recording
+
+Each run records an alert per firing checker for this machine (and registers it in
+the `Node` registry), so a single-machine install builds incident history with no hub
+and no `process_inbox`. Healthy checkers write nothing. Writes are synchronous and
+inbox-free; a write failure is reported on stderr and never changes output or exit code.
+
+```bash
+# Print only, record nothing
+uv run python manage.py check_health --no-alert
+```
+
 #### JSON output
 
 ```bash
@@ -248,6 +260,7 @@ uv run python manage.py check_health cpu memory --fail-on-critical
 | `--disk-paths` | str... | `/` | Paths to check (disk checker) |
 | `--ping-hosts` | str... | `8.8.8.8 1.1.1.1` | Hosts to ping (network checker) |
 | `--processes` | str... | — | Process names to check (process checker) |
+| `--no-alert` | flag | — | Run checks without recording alerts (print only) |
 
 ---
 

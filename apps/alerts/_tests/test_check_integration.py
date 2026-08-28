@@ -538,6 +538,78 @@ class CheckAlertBridgeTests(TestCase):
         self.assertTrue(result.has_errors)
         self.assertIn("bad: checker crashed", result.errors[0])
 
+    def test_run_checks_and_alert_records_each_checker_before_the_next_runs(self):
+        """Recording is interleaved, not batched at the end of the run.
+
+        A checker that hangs or a process that dies partway through must leave the
+        earlier checkers' alerts already written, so the second checker observes the
+        first one's alert row.
+        """
+        seen = {}
+
+        mock_first = MagicMock()
+        mock_first.return_value.run.return_value = CheckResult(
+            status=CheckStatus.CRITICAL,
+            message="first fired",
+            metrics={},
+            checker_name="first",
+        )
+
+        def _crash_after_looking(*args, **kwargs):
+            seen["alerts_when_second_ran"] = Alert.objects.count()
+            raise RuntimeError("checker crashed")
+
+        mock_second = MagicMock()
+        mock_second.return_value.run.side_effect = _crash_after_looking
+
+        with patch.dict(
+            "apps.alerts.check_integration.CHECKER_REGISTRY",
+            {"first": mock_first, "second": mock_second},
+            clear=True,
+        ):
+            result = self.bridge.run_checks_and_alert(["first", "second"])
+
+        self.assertEqual(seen["alerts_when_second_ran"], 1)
+        self.assertTrue(Alert.objects.filter(fingerprint="check:test-server:first").exists())
+        self.assertEqual(result.alerts_created, 1)
+        self.assertIn("second: checker crashed", result.errors[0])
+
+    def test_check_alert_result_merge_folds_counts_and_rows(self):
+        first = CheckAlertResult(
+            alerts_created=1,
+            alerts_updated=2,
+            alerts_resolved=3,
+            incidents_created=4,
+            incidents_updated=5,
+            checks_run=6,
+            errors=["a"],
+            alerts=["alert-a"],
+            material_alerts=["material-a"],
+        )
+        first.merge(
+            CheckAlertResult(
+                alerts_created=10,
+                alerts_updated=20,
+                alerts_resolved=30,
+                incidents_created=40,
+                incidents_updated=50,
+                checks_run=60,
+                errors=["b"],
+                alerts=["alert-b"],
+                material_alerts=["material-b"],
+            )
+        )
+
+        self.assertEqual(first.alerts_created, 11)
+        self.assertEqual(first.alerts_updated, 22)
+        self.assertEqual(first.alerts_resolved, 33)
+        self.assertEqual(first.incidents_created, 44)
+        self.assertEqual(first.incidents_updated, 55)
+        self.assertEqual(first.checks_run, 66)
+        self.assertEqual(first.errors, ["a", "b"])
+        self.assertEqual(first.alerts, ["alert-a", "alert-b"])
+        self.assertEqual(first.material_alerts, ["material-a", "material-b"])
+
     def test_run_checks_and_alert_accumulates_processing_errors(self):
         """Test that processing errors from individual checks are accumulated."""
         mock_checker = MagicMock()
