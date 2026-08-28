@@ -9,7 +9,9 @@ from django.test import TestCase, override_settings
 
 from apps.alerts.check_integration import CheckAlertBridge
 from apps.alerts.management.commands.push_to_hub import Command
+from apps.alerts.models import Alert, Node
 from apps.checkers.checkers.base import CheckResult, CheckStatus
+from apps.orchestration.models import PipelineOrigin, PipelineRun, PipelineStatus
 from config.security.url_validation import URLNotAllowedError
 
 
@@ -735,3 +737,82 @@ class ResultToAlertIdentityTests(TestCase):
         ).check_result_to_parsed_alert(result)
         self.assertEqual(pushed["fingerprint"], bridged.fingerprint)
         self.assertEqual(pushed["name"], bridged.name)
+
+
+@override_settings(INSTANCE_ID="hub-1", HUB_URL="")
+class PushToHubLocalTests(TestCase):
+    """``--local`` records the run a remote agent's POST would have recorded.
+
+    The hub monitors itself through the same path it uses for its agents: the
+    same cluster payload, minus the network, landing in the same inbox.
+    """
+
+    def setUp(self):
+        patcher = patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
+        mock_registry = patcher.start()
+        self.addCleanup(patcher.stop)
+        mock_checker_cls = MagicMock()
+        mock_checker_cls.return_value.run.return_value = CheckResult(
+            status=CheckStatus.CRITICAL,
+            message="CPU usage 99%",
+            metrics={"cpu_percent": 99.0},
+            checker_name="cpu",
+        )
+        mock_registry.items.return_value = [("cpu", mock_checker_cls)]
+        mock_registry.__contains__.return_value = True
+
+    def test_local_records_a_pending_run(self):
+        call_command("push_to_hub", "--local", "--checkers", "cpu", stdout=StringIO())
+        run = PipelineRun.objects.get()
+        self.assertEqual(run.status, PipelineStatus.PENDING)
+        self.assertEqual(run.origin, PipelineOrigin.CHECKER_GENERATED)
+        self.assertEqual(run.inbound_payload["driver"], "cluster")
+        self.assertEqual(run.inbound_payload["payload"]["source"], "cluster")
+
+    def test_local_registers_this_machine(self):
+        """A local push proves this machine is alive, exactly like a peer's."""
+        call_command("push_to_hub", "--local", "--checkers", "cpu", stdout=StringIO())
+        self.assertTrue(Node.objects.filter(instance_id="hub-1").exists())
+
+    def test_local_needs_no_hub_url(self):
+        """A hub checking itself has no hub to point at."""
+        call_command("push_to_hub", "--local", "--checkers", "cpu", stdout=StringIO())
+        self.assertEqual(PipelineRun.objects.count(), 1)
+
+    @patch("apps.alerts.management.commands.push_to_hub.send_to_hub")
+    def test_local_sends_no_http(self, mock_send):
+        call_command("push_to_hub", "--local", "--checkers", "cpu", stdout=StringIO())
+        mock_send.assert_not_called()
+
+    def test_local_run_drains_into_alerts(self):
+        """The real proof: the recorded shape is what the drain actually parses.
+
+        A run recorded in a shape ``IngestExecutor``/``ClusterDriver`` cannot read
+        would still be PENDING, still be a cluster payload, and still pass every
+        other test here. Only draining it shows the alert arrives.
+        """
+        from apps.orchestration import inbox
+
+        call_command("push_to_hub", "--local", "--checkers", "cpu", stdout=StringIO())
+        run = PipelineRun.objects.get()
+
+        self.assertEqual(inbox.drain_run(run.run_id), 1)
+
+        alert = Alert.objects.get()
+        self.assertEqual(alert.fingerprint, "check:hub-1:cpu")
+        self.assertEqual(alert.severity, "critical")
+
+    def test_local_json_output_is_parseable(self):
+        """--json means a wrapper parses stdout; --local must honour it too."""
+        out = StringIO()
+        call_command("push_to_hub", "--local", "--json", "--checkers", "cpu", stdout=out)
+        parsed = json.loads(out.getvalue())
+        run = PipelineRun.objects.get()
+        self.assertEqual(parsed["run_id"], run.run_id)
+        self.assertEqual(parsed["alerts"], 1)
+
+    def test_dry_run_with_local_records_nothing(self):
+        out = StringIO()
+        call_command("push_to_hub", "--local", "--dry-run", "--checkers", "cpu", stdout=out)
+        self.assertIn("dry run", out.getvalue().lower())
+        self.assertEqual(PipelineRun.objects.count(), 0)

@@ -6,6 +6,7 @@ Usage:
     python manage.py push_to_hub --dry-run          # Show payload, don't POST
     python manage.py push_to_hub --json             # JSON output
     python manage.py push_to_hub --checkers cpu,memory  # Specific checkers only
+    python manage.py push_to_hub --local            # Record on this instance's inbox
 """
 
 import json
@@ -148,6 +149,11 @@ class Command(BaseCommand):
             help="Output result as JSON.",
         )
         parser.add_argument(
+            "--local",
+            action="store_true",
+            help="Record results on this instance's inbox instead of POSTing to a hub.",
+        )
+        parser.add_argument(
             "--checkers",
             type=str,
             help="Comma-separated list of checkers to run (default: all).",
@@ -155,10 +161,10 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         hub_url = getattr(settings, "HUB_URL", "")
-        if not hub_url:
-            raise CommandError("HUB_URL is not configured. Set it in .env to enable agent mode.")
-        if not hub_url.rstrip("/").startswith(("https://", "http://")):
-            raise CommandError(f"HUB_URL must use http:// or https:// scheme, got: {hub_url}")
+        # A hub checking itself has no hub to point at, so HUB_URL is required
+        # only for the remote path. Every other remote validation is unchanged.
+        if not options["local"]:
+            self._require_hub_url(hub_url)
 
         instance_id = getattr(settings, "INSTANCE_ID", "") or socket.gethostname()
         hostname = socket.gethostname()
@@ -191,12 +197,19 @@ class Command(BaseCommand):
         # Build payload
         payload = build_cluster_payload(instance_id, hostname, alerts)
 
+        # --dry-run is checked first, and for both paths: it means "show what
+        # would happen, change nothing" everywhere else in this command, so
+        # --local --dry-run must print the payload and record no run either.
         if options["dry_run"]:
             if options["json_output"]:
                 self.stdout.write(json.dumps(payload, indent=2, default=str))
             else:
                 self.stdout.write(self.style.NOTICE("Dry run — payload:"))
                 self.stdout.write(json.dumps(payload, indent=2, default=str))
+            return
+
+        if options["local"]:
+            self._record_local(payload, len(alerts), options["json_output"])
             return
 
         if not api_key:
@@ -272,6 +285,46 @@ class Command(BaseCommand):
                 )
             )
             raise CommandError(f"Hub returned HTTP {status}: {resp_body}")
+
+    def _require_hub_url(self, hub_url: str) -> None:
+        """Validate the hub target for the remote path (unchanged behaviour)."""
+        if not hub_url:
+            raise CommandError("HUB_URL is not configured. Set it in .env to enable agent mode.")
+        if not hub_url.rstrip("/").startswith(("https://", "http://")):
+            raise CommandError(f"HUB_URL must use http:// or https:// scheme, got: {hub_url}")
+
+    def _record_local(self, payload: dict, alert_count: int, json_output: bool) -> None:
+        """Record the same PENDING run a remote agent's POST would have recorded.
+
+        The same payload, minus the network. Recording a run rather than writing
+        alerts directly is what makes a local push identical to a peer's: one
+        drain path, one set of executors, one routing decision. ``check_health``
+        is the inbox-free mode for a single machine; this is the pipeline one.
+
+        Imported inside the method on purpose: ``apps.alerts`` must not import
+        ``apps.orchestration`` at module level, because orchestration imports
+        alerts (see the same note by ``_announce`` in ``apps/alerts/services.py``).
+        """
+        from apps.alerts.services import register_pushing_node
+        from apps.orchestration.models import PipelineOrigin
+        from apps.orchestration.orchestrator import PipelineOrchestrator
+
+        # A push proves this machine is alive, so the Node registry updates now
+        # rather than waiting for the drain — exactly as the webhook view does.
+        register_pushing_node(payload)
+        run = PipelineOrchestrator().start_pipeline(
+            payload={"driver": "cluster", "payload": payload},
+            source="cluster",
+            origin=PipelineOrigin.CHECKER_GENERATED,
+        )
+        if json_output:
+            # --json exists so a wrapper can parse this command's stdout; a mode
+            # that ignored it would trap whoever automates the cron that runs it.
+            self.stdout.write(
+                json.dumps({"run_id": run.run_id, "alerts": alert_count}, indent=2, default=str)
+            )
+        else:
+            self.stdout.write(f"Recorded local run {run.run_id} ({alert_count} alerts)")
 
     def _result_to_alert(self, result, instance_id: str, hostname: str) -> dict:
         """Convert a CheckResult to a cluster alert dict."""

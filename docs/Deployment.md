@@ -573,6 +573,7 @@ Or run manually:
 uv run python manage.py push_to_hub              # Push all checker results
 uv run python manage.py push_to_hub --dry-run    # Preview without sending
 uv run python manage.py push_to_hub --checkers cpu,memory  # Specific checkers
+uv run python manage.py push_to_hub --local     # Hub self-monitoring: record on the local inbox
 ```
 
 > **Tip:** The installer and `bin/install.sh cron` can configure all of the above interactively. Manual `.env` editing is only needed if you skipped the prompts.
