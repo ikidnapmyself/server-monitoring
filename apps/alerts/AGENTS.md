@@ -74,6 +74,16 @@ machine's key: `settings.INSTANCE_ID`, falling back to the hostname when unconfi
   `apps/alerts/migrations/0011_checker_alert_identity.py` rewrote existing rows onto
   this identity, parking collisions under `:legacy:<pk>` so two histories never merge — and
   resolving each parked row, since no producer will ever emit that key again to close it.
+- **The hub derives it; it never trusts the push.** `ClusterDriver._parse_alert`
+  recomputes `checker_fingerprint(instance_id, labels["checker"])` from the *envelope*
+  it authenticated and ignores any `fingerprint` in the alert body. Auth is a shared
+  API key with no per-node binding, so a body-supplied fingerprint would let any key
+  holder push `check:some-other-node:cpu` and take over that machine's alert row,
+  history and incident. `push_to_hub` computes the same value with the same helper,
+  so an honest push is byte-identical. Cluster alerts with no `checker` label are not
+  checker-origin and keep the provided-or-generated fingerprint. `instance_id` must be
+  a non-blank string (`ClusterDriver.validate`, `register_pushing_node`) so a blank id
+  cannot mint identity or a `Node` row.
 - **The alert name is deliberately stable:** `f"{checker_name.upper()} Check Alert"`,
   written identically by the bridge and by `push_to_hub._result_to_alert`. Incident
   grouping matches on `alert.name` (`_find_open_incident`, `apps/alerts/services.py:517`),

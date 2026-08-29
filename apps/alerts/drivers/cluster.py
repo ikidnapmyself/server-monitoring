@@ -34,6 +34,18 @@ from typing import Any
 from django.utils import timezone
 
 from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
+from apps.alerts.identity import checker_fingerprint
+
+
+def _clean_instance_id(value: Any) -> str:
+    """The payload's instance id as a non-blank string, or ``""``.
+
+    Webhook payloads are attacker-controlled, so the value may not be a string at
+    all; anything that is not one is rejected rather than coerced.
+    """
+    if not isinstance(value, str):
+        return ""
+    return value.strip()
 
 
 class ClusterDriver(BaseAlertDriver):
@@ -47,16 +59,28 @@ class ClusterDriver(BaseAlertDriver):
     name = "cluster"
 
     def validate(self, payload: dict[str, Any]) -> bool:
-        """Validate that this payload is from a cluster agent."""
+        """Validate that this payload is from a cluster agent.
+
+        ``instance_id`` must be a non-blank string: it becomes the checker-alert
+        fingerprint and the ``Node`` registry key, and a blank or whitespace-only
+        value would silently produce identity for a machine that has no name. Only
+        non-blankness is checked — naming is not this driver's business.
+        """
         return (
             payload.get("source") == "cluster"
-            and bool(payload.get("instance_id"))
+            and bool(_clean_instance_id(payload.get("instance_id")))
             and isinstance(payload.get("alerts"), list)
         )
 
     def parse(self, payload: dict[str, Any]) -> ParsedPayload:
         """Parse cluster agent payload into normalized format."""
-        instance_id = payload.get("instance_id", "")
+        # Normalised once, here: this value is both the fingerprint input and the
+        # label the rest of the pipeline reads as "which machine". A blank one
+        # derives ``check::<checker>``, a bucket that belongs to no Node and so
+        # cannot collide with a real machine's row — the alternative, falling back
+        # to the sender's fingerprint, would hand a spoofer the takeover back by
+        # simply omitting the id.
+        instance_id = _clean_instance_id(payload.get("instance_id"))
         hostname = payload.get("hostname", "")
         alerts = []
 
@@ -91,10 +115,23 @@ class ClusterDriver(BaseAlertDriver):
         if hostname:
             labels["hostname"] = hostname
 
-        # Fingerprint: use provided or generate
-        fingerprint = alert_data.get("fingerprint", "")
-        if not fingerprint:
-            fingerprint = self.generate_fingerprint(labels, name)
+        # Fingerprint. For a checker-origin alert the hub derives it and never
+        # reads the sender's claim: identity is the pair (fingerprint, source),
+        # so it decides which machine's Alert row — and its history and incident —
+        # this push lands on. Auth is a shared API key with no per-node binding,
+        # so any holder could otherwise fingerprint a push `check:some-other-node:cpu`
+        # and take that machine's row over. The instance_id comes from the envelope
+        # the request authenticated with, the same value injected into the labels
+        # just above. The node computes this with the same helper
+        # (push_to_hub._result_to_alert), so an honest push is unaffected.
+        # Non-checker cluster alerts keep the original behaviour.
+        checker = labels.get("checker")
+        if checker:
+            fingerprint = checker_fingerprint(instance_id, checker)
+        else:
+            fingerprint = alert_data.get("fingerprint", "")
+            if not fingerprint:
+                fingerprint = self.generate_fingerprint(labels, name)
 
         # Annotations — preserve metrics if present
         annotations = alert_data.get("annotations", {})

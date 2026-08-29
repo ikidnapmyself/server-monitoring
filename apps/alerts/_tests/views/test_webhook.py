@@ -203,7 +203,7 @@ class WebhookClusterLaneRoutingTests(TestCase):
         """
         run = self._push()
         self._drained_stages(run)
-        incident = Alert.objects.get(fingerprint="cpu-web-03").incident
+        incident = Alert.objects.get(fingerprint="check:web-03:cpu").incident
         self.assertIsNotNone(incident)
         self.assertEqual(incident.pipeline.name, "cluster-nodes")
 
@@ -219,7 +219,7 @@ class WebhookClusterLaneRoutingTests(TestCase):
         run = self._push()
         stages = self._drained_stages(run)
         self.assertIn(PipelineStage.CHECK, stages)
-        incident = Alert.objects.get(fingerprint="cpu-web-03").incident
+        incident = Alert.objects.get(fingerprint="check:web-03:cpu").incident
         self.assertEqual(incident.pipeline.name, "catch-all")
 
 

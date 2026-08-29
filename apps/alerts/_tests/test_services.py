@@ -222,7 +222,9 @@ class AlertOrchestratorTests(TestCase):
             ],
         }
         self.orchestrator.process_webhook(payload, driver="cluster")
-        alert = Alert.objects.get(fingerprint="cpu-web-03")
+        # The hub derives a checker alert's fingerprint from the envelope's
+        # instance_id; the payload's "cpu-web-03" claim is deliberately ignored.
+        alert = Alert.objects.get(fingerprint="check:web-03:cpu")
         self.assertEqual(alert.severity, "info")
         self.assertEqual(alert.status, "resolved")
         self.assertIn("severity_reevaluated", alert.annotations)
