@@ -84,6 +84,25 @@ Each stage emits monitoring signals (`pipeline.stage.started`, `pipeline.stage.s
 
 **Hard boundary rule:** stage code may call internal helpers in its own app, but must not call the next app directly. Only the orchestrator advances the pipeline.
 
+**Checkers as an alert producer.** `apps.checkers` is a *stage*, but its results are also
+a **source of alerts about this machine**, converted by `CheckAlertBridge`
+(`apps/alerts/check_integration.py`) into ordinary `Alert`/`Incident` rows on two paths:
+
+- **Inline** — `manage.py check_health` records alerts by default (`--no-alert` opts out).
+  Synchronous, enqueues nothing, so a single machine with no hub, no cron and nobody
+  draining an inbox still gets alerts and incidents.
+- **Through the inbox** — `manage.py push_to_hub` POSTs the same results to a hub, and
+  `push_to_hub --local` records the identical `PENDING` `PipelineRun` on this instance
+  instead of POSTing, so a hub's own checks drain through `IngestExecutor` and
+  `ClusterDriver` exactly like a remote agent's.
+
+**This does not change the stage model.** Producing an alert is not a stage transition:
+the orchestrator still owns every transition, and neither path lets `apps.checkers` call a
+downstream app. Both producers share one identity — fingerprint
+`check:{instance_id}:{checker_name}` under `source: cluster`, with a stable alert name —
+so one condition on one machine is one row however it arrived. See
+`apps/alerts/AGENTS.md` → "Checker-alert identity".
+
 **Diagnostic I/O clarification:** stages may call external systems (HTTP APIs, monitoring vendors) when needed to produce their own stage output — e.g. `apps.checkers` fetching StatusCake/uptime data or recent PagerDuty incident history. These calls must be treated as **inputs only** (no cross-stage advancement, no direct notifications). Always enforce timeouts/retries and redact secrets.
 
 ### App structure
@@ -100,7 +119,7 @@ Apps under `apps/` should follow this layout. A few legacy `views.py` modules �
 | App | Purpose | Key Models |
 |-----|---------|------------|
 | `alerts` | Webhook ingestion (8 drivers) | Alert, Incident, AlertHistory |
-| `checkers` | Health checks (CPU, memory, disk, disk_macos, disk_linux, disk_common, disk_inodes, network, process, raid, disk_temp, cpu_temp, io_strain, listening_ports) | CheckRun |
+| `checkers` | Health checks (CPU, memory, disk, disk_macos, disk_linux, disk_common, disk_inodes, network, process, raid, disk_temp, cpu_temp, io_strain, listening_ports). Also a **producer of alert truth** about the machine it runs on, via `CheckAlertBridge` — see "Checkers as an alert producer" below | CheckRun |
 | `intelligence` | AI analysis via provider pattern | Uses StageExecution |
 | `notify` | Notification delivery (Email, Slack, PagerDuty, Generic) | NotificationChannel |
 | `orchestration` | Pipeline state machine, retry logic | PipelineRun, StageExecution, PipelineDefinition |

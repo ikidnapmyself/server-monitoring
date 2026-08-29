@@ -370,6 +370,18 @@ class PipelineOrchestrator:
         # all-clear.
         downstream_incident_id = payload.get("downstream_incident_id")
         checks_only = payload.get("checks_only", False)
+        # ``--no-notify``: run the matched lane WITHOUT its NOTIFY stage. The
+        # operator SSHes into a node and looks at it in real time — they want the
+        # analysis (AnalyzeExecutor's LocalProvider reports top memory processes,
+        # large files, cleanable logs) and they want to page nobody.
+        # ``--no-incidents`` cannot express that: it switches routing off entirely
+        # and takes ANALYZE with it. Like ``checks_only`` and ``no_incidents``
+        # this is a CLI invocation flag scoping its own run, so it is read here,
+        # in the one place invocation flags are read; the routing engine, the lane
+        # table and the executors know nothing about it. The lane that matches is
+        # exactly the lane that would have matched — only this run's execution is
+        # scoped, and only for as long as the run lasts.
+        no_notify = payload.get("no_notify", False)
         if downstream_incident_id:
             # Resolved inside the try below, so a no_route fails the run rather
             # than escaping _execute_pipeline.
@@ -478,7 +490,7 @@ class PipelineOrchestrator:
                 # after the failure and a deleted incident would otherwise take the
                 # whole drain down with an FK error.
                 material = self._surviving_incident_ids(incident_id)
-            self._enqueue_downstream_runs(pipeline_run, material)
+            self._enqueue_downstream_runs(pipeline_run, material, no_notify=no_notify)
             # This run ends where it began: the entry stage is all it ran.
             final_status = STAGE_TO_STATUS[entry_stage]
 
@@ -487,7 +499,19 @@ class PipelineOrchestrator:
                 # Inside the try so a no_route becomes a non-retryable FAILED run
                 # like every other routing failure. INGEST is the status floor: the
                 # parent's ingest is what put this incident here.
-                active_stages.extend(self._downstream_or_fail(alert_id, pipeline_run.origin))
+                # A downstream run is where NOTIFY actually happens, so this is
+                # the filter that matters: the child honours the flag its parent
+                # was invoked with (carried in its own ``inbound_payload`` by
+                # _enqueue_downstream_runs). The entry-stage path needs no filter
+                # of its own — an entry run executes only its entry stage, never a
+                # lane stage — and the final status is computed from the scoped
+                # list, so a run whose NOTIFY was filtered ends ANALYZED exactly
+                # as a lane that simply does not list NOTIFY would.
+                active_stages.extend(
+                    self._without_notify(
+                        self._downstream_or_fail(alert_id, pipeline_run.origin), no_notify
+                    )
+                )
                 final_status = self._final_status(active_stages, PipelineStage.INGEST)
 
             for stage in active_stages:
@@ -676,8 +700,18 @@ class PipelineOrchestrator:
             return []
         return list(Incident.objects.filter(id=incident_id).values_list("id", flat=True))
 
+    @staticmethod
+    def _without_notify(stages: list[PipelineStage], no_notify: bool) -> list[PipelineStage]:
+        """The lane's stages minus NOTIFY when this run was invoked ``--no-notify``.
+
+        The lane row is untouched; this scopes one run's execution only.
+        """
+        if not no_notify:
+            return stages
+        return [stage for stage in stages if stage != PipelineStage.NOTIFY]
+
     def _enqueue_downstream_runs(
-        self, parent: PipelineRun, incident_ids: list[int]
+        self, parent: PipelineRun, incident_ids: list[int], no_notify: bool = False
     ) -> list[PipelineRun]:
         """Record one PENDING run per materially-changed incident.
 
@@ -706,6 +740,7 @@ class PipelineOrchestrator:
             node=parent.node,
             max_retries=self.max_retries,
             parent_run_id=parent.run_id,
+            no_notify=no_notify,
         )
 
     @staticmethod

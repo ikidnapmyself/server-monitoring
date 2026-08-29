@@ -48,13 +48,25 @@ def resolve_node(labels: dict | None):
     return Node.objects.filter(instance_id=instance_id).first()
 
 
-def register_pushing_node(payload: dict[str, Any], driver: "str | BaseAlertDriver | None" = None):
+def register_pushing_node(
+    payload: dict[str, Any],
+    driver: "str | BaseAlertDriver | None" = None,
+    source: str = "cluster",
+):
     """Register/refresh the sending node for a cluster push (the agent registry).
 
     A cluster push proves the sender is alive, so its Node is upserted synchronously
     — at webhook time — independent of when the payload's alerts are drained. Returns
     the Node, or None if this isn't an identifiable cluster push (wrong source/driver
     or no ``instance_id``). Idempotent: shared by the webhook view and the drain path.
+
+    ``source`` is what ``Node.last_source`` records, i.e. how the row was last
+    touched, and it defaults to the webhook path's answer: ``cluster``, meaning the
+    payload arrived by push from another machine. ``push_to_hub --local`` builds the
+    same cluster payload but never leaves the machine, so it passes ``local`` —
+    otherwise a hub running both that and ``check_health`` would flip the field
+    every run and anything reading it to tell fleet from self would be wrong half
+    the time.
     """
     from apps.alerts.models import Node
 
@@ -67,7 +79,7 @@ def register_pushing_node(payload: dict[str, Any], driver: "str | BaseAlertDrive
     return Node.upsert(
         instance_id=instance_id,
         hostname=payload.get("hostname", ""),
-        source="cluster",
+        source=source,
     )
 
 

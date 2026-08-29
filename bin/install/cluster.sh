@@ -2,7 +2,7 @@
 #
 # Installer module: cluster role configuration.
 #
-# Configures: HUB_URL, INSTANCE_ID, HUB_API_KEY (+ API_KEY_AUTH_ENABLED for hubs)
+# Configures: INSTANCE_ID, HUB_URL, HUB_API_KEY (+ API_KEY_AUTH_ENABLED for hubs)
 #
 # Auth is a single API key sent as `Authorization: Bearer HUB_API_KEY`. An agent
 # stores the token; a hub mints it with `manage.py create_api_key` and enables the
@@ -44,6 +44,12 @@ echo ""
 # 1. Ask whether to configure cluster mode
 # ---------------------------------------------------------------------------
 
+# INSTANCE_ID before the gate, not after it: identity is not cluster
+# configuration. env.sh writes one on every install, but this step also runs
+# standalone (`install.sh cluster`), and an operator who declines cluster mode
+# below must still end up with an identity. Idempotent — an existing id is kept.
+dotenv_ensure_instance_id "$_ENV_FILE"
+
 _cluster_default="default_n"
 if dotenv_has_value "$_ENV_FILE" "HUB_URL" || dotenv_has_value "$_ENV_FILE" "HUB_API_KEY"; then
     _cluster_default="default_y"
@@ -68,17 +74,29 @@ _role=$(prompt_choice "$_ENV_FILE" "__CLUSTER_MODE_LOCAL" \
 info "Cluster role: $_role"
 
 # ---------------------------------------------------------------------------
-# 3. Agent or both: HUB_URL, INSTANCE_ID, HUB_API_KEY
+# 3. INSTANCE_ID — identity for every role, not just agents.
+#
+# It keys the Node row for this machine and every alert fingerprint it emits
+# (check:{instance_id}:{checker_name}), so a hub that monitors itself needs one
+# just as much as an agent that pushes. One is guaranteed to exist by now (see
+# the pre-gate call above), so this is the operator's chance to rename it, not
+# the place it is created.
+#
+# prompt_with_default prefers the existing .env value, so pressing Enter — and
+# an unattended --yes run — keeps the id a machine already has.
+# ---------------------------------------------------------------------------
+
+INSTANCE_ID=$(prompt_with_default "$_ENV_FILE" "INSTANCE_ID" "INSTANCE_ID")
+dotenv_set "$_ENV_FILE" "INSTANCE_ID" "$INSTANCE_ID"
+
+# ---------------------------------------------------------------------------
+# 4. Agent or both: HUB_URL, HUB_API_KEY
 # ---------------------------------------------------------------------------
 
 if [ "$_role" = "agent" ] || [ "$_role" = "both" ]; then
     HUB_URL=$(prompt_with_default "$_ENV_FILE" "HUB_URL" \
         "HUB_URL (e.g. https://monitoring-hub.example.com)")
     dotenv_set "$_ENV_FILE" "HUB_URL" "$HUB_URL"
-
-    INSTANCE_ID=$(prompt_with_default "$_ENV_FILE" "INSTANCE_ID" \
-        "INSTANCE_ID" "$(hostname 2>/dev/null || echo "")")
-    dotenv_set "$_ENV_FILE" "INSTANCE_ID" "$INSTANCE_ID"
 
     export PROMPT_MASK=1
     HUB_API_KEY=$(prompt_with_default "$_ENV_FILE" \
@@ -89,7 +107,7 @@ if [ "$_role" = "agent" ] || [ "$_role" = "both" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Hub or both: enable API-key auth and explain key provisioning
+# 5. Hub or both: enable API-key auth and explain key provisioning
 # ---------------------------------------------------------------------------
 
 if [ "$_role" = "hub" ] || [ "$_role" = "both" ]; then
@@ -102,7 +120,7 @@ if [ "$_role" = "hub" ] || [ "$_role" = "both" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 5. Agent or both: verify with dry-run
+# 6. Agent or both: verify with dry-run
 # ---------------------------------------------------------------------------
 
 if [ "$_role" = "agent" ] || [ "$_role" = "both" ]; then

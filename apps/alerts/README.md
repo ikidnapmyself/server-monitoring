@@ -416,6 +416,34 @@ print(f"Total alerts created: {result.alerts_created}")
 4. **Incident management**: Optionally create/update incidents for firing alerts
 5. **Auto-resolution**: When a check returns OK, the corresponding alert is resolved
 
+### Self-monitoring the hub (`push_to_hub --local`)
+
+A hub can monitor itself through the same path it uses for its agents. `--local`
+runs the checkers, builds the same cluster payload, and records the same PENDING
+`PipelineRun` the `/alerts/webhook/cluster/` view would have recorded — no
+network, no `HUB_URL` required. `manage.py process_inbox` then drains it through
+the same ingest, routing, and executors as any node's push.
+
+`--local` is the queued mode, and it only completes where something drains the
+inbox. It is NOT what the installer schedules: `bin/install/cron.sh` uses
+`run_pipeline --checks-only`, which runs the same lanes synchronously and needs
+no drain. Reach for `--local` on a hub already running `process_inbox` that wants
+its own checks queued and retried like a peer's push.
+
+```bash
+# Only where process_inbox runs; otherwise the run sits PENDING forever
+*/5 * * * * cd /path/to/project && uv run python manage.py push_to_hub --local >> push.log 2>&1
+
+# Preview without recording anything
+uv run python manage.py push_to_hub --local --dry-run
+
+# Machine-readable result: {"run_id": ..., "alerts": N}
+uv run python manage.py push_to_hub --local --json
+```
+
+Use `--local` on a hub whose inbox is drained; use `check_health` on a
+single-machine install, where it writes alerts inline with no inbox involved.
+
 ### Setting up scheduled checks
 
 Use cron to run checks periodically:

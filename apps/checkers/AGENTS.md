@@ -52,6 +52,25 @@ For `apps.checkers`, admin should make it easy to:
 
 ## Management command contracts
 
+### `check_health`
+
+Runs the registered checkers (or a named subset) and prints the results.
+
+```bash
+manage.py check_health                 # All checkers, human output
+manage.py check_health cpu memory      # Named checkers only
+manage.py check_health --json          # JSON output for CI
+manage.py check_health --no-alert      # skip alert recording (print only)
+```
+
+**Alert recording:** by default each run hands its results to `CheckAlertBridge`,
+which writes an alert (and incident) per firing checker keyed on this machine's
+`instance_id` and registers the machine as a `Node`; healthy checkers write nothing.
+Synchronous and inbox-free — the bridge enqueues no `PipelineRun`, so a single-machine
+install works with no hub and nobody draining the inbox. A write failure is reported on
+stderr and swallowed, so output (including `--json` on stdout) and the exit code are
+unaffected. `--no-alert` restores print-only behaviour.
+
 ### `preflight`
 
 Runs all Django system checks grouped by tag with formatted output.

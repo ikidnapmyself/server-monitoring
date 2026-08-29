@@ -2,7 +2,8 @@
 #
 # Installer module: cron job configuration.
 #
-# Sets up health-check cron, optional auto-update, and optional cluster push.
+# Sets up health-check cron, optional auto-update, and — for an agent with a
+# HUB_URL — a recurring push to its hub.
 #
 # Source this file from install.sh, or run directly for standalone use.
 #
@@ -115,8 +116,15 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 6. Cluster push option (only if HUB_URL is set)
+# 6. Agents only: also push results to the hub
 # ---------------------------------------------------------------------------
+
+# A machine with no HUB_URL needs nothing here. The health-check job above is
+# already its self-monitoring: run_pipeline --checks-only enters the pipeline at
+# CHECK instead of INGEST, then routes and runs the matched lane exactly like
+# webhook traffic, synchronously, draining its own downstream runs. A second
+# local job would produce the same alert on the same schedule, and its PENDING
+# run would need a process_inbox that a cron-only install does not have.
 
 _hub_url=""
 if [ -f "$_ENV_FILE" ]; then
@@ -155,7 +163,7 @@ echo "============================================"
 echo ""
 info "Health checks will run: $CRON_SCHEDULE"
 info "Log file: ${LOG_DIR:-$PROJECT_DIR/logs}/cron.log"
-if [ -n "${_hub_url:-}" ]; then
+if [ "${CRON_PUSH_TO_HUB:-0}" = "1" ]; then
     info "Push log: ${LOG_DIR:-$PROJECT_DIR/logs}/push.log"
 fi
 echo ""

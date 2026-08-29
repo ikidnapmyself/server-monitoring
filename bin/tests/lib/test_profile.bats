@@ -132,3 +132,67 @@ PROFEOF
     result="$(profile_metadata "$TEST_TMPDIR/.install-profile" "hostname")"
     [ "$result" = "web-01" ]
 }
+
+# ---------------------------------------------------------------------------
+# INSTANCE_ID is machine-unique, not portable: it keys this machine's Node row
+# and its alert fingerprints, so a profile must never carry one to a second
+# machine — that would silently merge the two into one identity.
+# ---------------------------------------------------------------------------
+
+@test "profile_save omits the machine-unique INSTANCE_ID" {
+    cat > "$TEST_TMPDIR/.env" <<'ENVEOF'
+DJANGO_ENV=prod
+INSTANCE_ID=web-03-existing
+HUB_URL=https://hub.example.com
+ENVEOF
+
+    export PROJECT_DIR="$TEST_TMPDIR"
+    profile_save "$TEST_TMPDIR/.install-profile" "test-profile"
+
+    run grep -q "DJANGO_ENV=prod" "$TEST_TMPDIR/.install-profile"
+    assert_success
+    run grep -q "HUB_URL=https://hub.example.com" "$TEST_TMPDIR/.install-profile"
+    assert_success
+    # `run` + assert_failure, not a bare `! grep`: set -e ignores a negated
+    # pipeline, so a bare `!` assertion can never fail the test.
+    run grep -q "INSTANCE_ID" "$TEST_TMPDIR/.install-profile"
+    assert_failure
+}
+
+@test "profile_load gives the restoring machine its own INSTANCE_ID" {
+    # An older or hand-edited profile may still carry the source machine's id.
+    cat > "$TEST_TMPDIR/.install-profile" <<'PROFEOF'
+# server-maintanence install profile
+# name: test
+DJANGO_ENV=prod
+INSTANCE_ID=source-machine-existing
+PROFEOF
+
+    touch "$TEST_TMPDIR/.env"
+    export PROJECT_DIR="$TEST_TMPDIR"
+    profile_load "$TEST_TMPDIR/.install-profile"
+
+    run grep -q "DJANGO_ENV=prod" "$TEST_TMPDIR/.env"
+    assert_success
+    run grep -q "source-machine-existing" "$TEST_TMPDIR/.env"
+    assert_failure
+    # A restore never leaves the identity empty.
+    run grep -qE "^INSTANCE_ID=.+" "$TEST_TMPDIR/.env"
+    assert_success
+}
+
+@test "profile_load keeps an INSTANCE_ID this machine already has" {
+    cat > "$TEST_TMPDIR/.install-profile" <<'PROFEOF'
+# server-maintanence install profile
+DJANGO_ENV=prod
+PROFEOF
+
+    printf 'INSTANCE_ID=web-03-existing\n' > "$TEST_TMPDIR/.env"
+    export PROJECT_DIR="$TEST_TMPDIR"
+    profile_load "$TEST_TMPDIR/.install-profile"
+
+    run grep -c "^INSTANCE_ID=" "$TEST_TMPDIR/.env"
+    assert_output "1"
+    run grep "^INSTANCE_ID=" "$TEST_TMPDIR/.env"
+    assert_output "INSTANCE_ID=web-03-existing"
+}

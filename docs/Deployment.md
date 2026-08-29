@@ -334,9 +334,15 @@ not exist.
 ### Health checks
 
 ```bash
-uv run python manage.py check_health       # CPU, memory, disk, network, process
+uv run python manage.py check_health            # CPU, memory, disk, network, process
 uv run python manage.py check_health --list
+uv run python manage.py check_health --no-alert  # print only, record nothing
 ```
+
+`check_health` **records alerts and incidents for this machine by default** (and
+registers it in the `Node` registry). It is synchronous and enqueues nothing, so a
+single machine with no hub, no cron and nobody draining the inbox still gets alerts.
+Use `--no-alert` when you only want to look.
 
 ### Pipeline history
 
@@ -504,7 +510,6 @@ Lanes seeded out of the box:
 | Lane | Priority | Match | Stages |
 |------|----------|-------|--------|
 | `cluster-nodes` | 50 | `source is cluster` | `analyze`, `notify` |
-| `hub-self-check` | 50 | `origin is checker_generated` | *(none)* |
 | `catch-all` | 1000 | *(empty)* | `check`, `analyze`, `notify` |
 
 None of these are special-cased in code — they are ordinary rows, editable and
@@ -530,17 +535,19 @@ Notes:
   and the lane is resolved from the alert CHECK produced, exactly as INGEST does.
   Adding `--no-incidents` makes it a silent diagnostic — the run stops at CHECKED,
   resolves no lane, and analyses and notifies nothing. Alerts are still recorded.
-- **The hub self-check is record-only by default.** `hub-self-check` ships with
-  empty `stages`: it records alerts, opens incidents, stamps the lane and carries
-  the run's `trace_id` — so hub self-checks are traceable in the admin like any
-  other traffic — and then stops. It is empty because this traffic *repeats*:
-  `bin/install/cron.sh` runs `run_pipeline --checks-only` every five minutes, and a
-  still-firing alert is re-reported on every tick, so listing `analyze` and
-  `notify` would mean roughly 288 AI calls and 288 identical messages a day about
-  one unchanged problem. `apps/notify` has no cooldown or de-duplication yet (only
-  the PagerDuty driver has a `dedup_key`) — a known gap, not an oversight. Add
-  `"notify"` to that row's `stages` to page on hub problems (and `"analyze"` for an
-  AI summary), and expect one message per cron run for as long as the alert fires.
+  Adding `--no-notify` instead keeps the lane and its ANALYZE — SSH in, look at the
+  machine in real time, read the local provider's suggestions — and pages nobody.
+- **The hub has no lane of its own — it is a node.** Checker-origin alerts carry
+  `source: cluster`, so the hub's own checks match `cluster-nodes` and are analysed
+  and notified exactly like any agent's: a hub can page about its own full disk.
+  The old record-only `hub-self-check` lane (`origin is checker_generated`, empty
+  `stages`) existed only to stop a five-minute cron re-reporting a still-firing
+  alert ~288 times a day; the incident change gate closed that — a repeat that says
+  nothing new enqueues no downstream run at all. Migration `0018` **deactivates**
+  that row rather than deleting it (`Incident.pipeline` is `SET_NULL`, so a delete
+  would blank which lane handled every incident it ever routed), and it is no longer
+  seeded on a fresh install. To keep hub checks record-only, add a higher-priority
+  lane matching `origin is checker_generated` with empty `stages`.
 - Alerts created **within a pipeline run** carry the run's `trace_id` (the journey
   chain). Alerts ingested directly outside a run — the synchronous webhook fallback
   and the node ingest handler — currently have a blank `trace_id`. Cluster-ingested
@@ -573,6 +580,7 @@ Or run manually:
 uv run python manage.py push_to_hub              # Push all checker results
 uv run python manage.py push_to_hub --dry-run    # Preview without sending
 uv run python manage.py push_to_hub --checkers cpu,memory  # Specific checkers
+uv run python manage.py push_to_hub --local     # Hub self-monitoring: record on the local inbox
 ```
 
 > **Tip:** The installer and `bin/install.sh cron` can configure all of the above interactively. Manual `.env` editing is only needed if you skipped the prompts.
@@ -631,14 +639,16 @@ uv run python manage.py check
 
 ### Node registry & `doctor`
 
-A hub keeps a first-class record of every agent that pushes to it: each accepted
-cluster push **upserts a `Node`** (by `instance_id`, tracking hostname and
-last-seen). Browse them read-only in Django admin under **Alerts → Nodes**.
+The registry holds every machine that reports on itself, **this one included**: each
+accepted cluster push **upserts a `Node`** (by `instance_id`, tracking hostname and
+last-seen) with `last_source: cluster`, and every local check run that records alerts
+upserts this machine with `last_source: local`. So a hub appears in its own registry
+alongside its agents. Browse them read-only in Django admin under **Alerts → Nodes**.
 
 `manage.py doctor` is the single read-only diagnostic — it runs the preflight
 checks and reports the node's derived role, whether it is **accepting pushes**
 (derived from active API keys + `API_KEY_AUTH_ENABLED`, the real ingest gate),
-and how many agent nodes it knows:
+and how many nodes it knows (its own row included, once it has run a local check):
 
 ```bash
 uv run python manage.py doctor          # human-readable
@@ -646,8 +656,9 @@ uv run python manage.py doctor --json   # machine-readable
 ```
 
 If `doctor` shows `Accepting pushes: False`, the hub has no active API key (or
-auth is off) — mint one with `create_api_key`. If an agent pushed but `Known
-nodes` stays 0, the push isn't being accepted (check auth / the key scope).
+auth is off) — mint one with `create_api_key`. `Known nodes` counts every row,
+including this machine's own, so if an agent pushed and the count did not go **up**,
+the push isn't being accepted (check auth / the key scope).
 
 ### Security
 

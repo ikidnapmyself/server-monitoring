@@ -644,7 +644,11 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
     #   {"cpu": {"warning_threshold": 99, "critical_threshold": 99}}
 
     def has_add_permission(self, request):
-        """Nodes are written only by the ingest path, never added in admin."""
+        """Nodes are written by code, never added in admin.
+
+        Two writers: the ingest path (a cluster push registers its sender) and
+        ``CheckAlertBridge`` (a local check run registers this machine).
+        """
         return False
 
     def has_delete_permission(self, request, obj=None):

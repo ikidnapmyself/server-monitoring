@@ -74,6 +74,42 @@ dotenv_set_if_missing() {
     printf "%s=%s\n" "$key" "$value" >> "$file"
 }
 
+# dotenv_default_instance_id
+#
+# Generate this machine's INSTANCE_ID: hostname plus a short random suffix.
+# INSTANCE_ID keys the machine's Node row and its check:{instance_id}:{checker}
+# alert fingerprints, so a bare hostname is not enough — two stock machines
+# report the same one and would collapse into a single identity.
+dotenv_default_instance_id() {
+    printf '%s-%s\n' \
+        "$(hostname 2>/dev/null || echo "node")" \
+        "$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+}
+
+# dotenv_ensure_instance_id FILE
+#
+# Guarantee FILE has a non-empty INSTANCE_ID, generating one only when it does
+# not. Every install needs an identity, not just a clustered one: a standalone
+# machine still registers a Node row and fingerprints its own alerts, and
+# without an id it falls back to the bare hostname the design rejects.
+#
+# Idempotent, and deliberately so: an id already in .env is this machine's
+# identity, and regenerating it would orphan its Node row and stop every open
+# incident's alerts from matching. Never overwrite.
+dotenv_ensure_instance_id() {
+    local file="$1"
+
+    if dotenv_has_value "$file" "INSTANCE_ID"; then
+        return 0
+    fi
+
+    local generated
+    generated="$(dotenv_default_instance_id)"
+    dotenv_set "$file" "INSTANCE_ID" "$generated"
+    info "INSTANCE_ID for this machine: $generated"
+    info "It keys this machine's identity — keep it stable once set."
+}
+
 prompt_non_empty() {
     local prompt="$1"
     local value=""

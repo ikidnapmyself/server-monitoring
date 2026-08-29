@@ -7,9 +7,11 @@ Usage:
     python manage.py check_health --list             # List available checks
     python manage.py check_health --json             # Output as JSON
     python manage.py check_health --fail-on-warning  # Exit 1 on warning or critical
+    python manage.py check_health --no-alert         # Print only, record no alerts
 """
 
 import json
+import logging
 import sys
 from typing import Any
 
@@ -18,6 +20,8 @@ from django.core.management.base import BaseCommand, CommandError
 from apps.checkers.checkers import CHECKER_REGISTRY, CheckStatus
 from apps.checkers.management.commands._metrics_format import write_metrics
 from config.security import PathNotAllowedError, resolve_safe_path
+
+logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
@@ -76,6 +80,11 @@ class Command(BaseCommand):
             nargs="+",
             help="Process names to check (for process checker).",
         )
+        parser.add_argument(
+            "--no-alert",
+            action="store_true",
+            help="Run checks without recording alerts (print only).",
+        )
 
     def handle(self, *args, **options):
         if options["list"]:
@@ -104,6 +113,9 @@ class Command(BaseCommand):
             result = checker.run()
             results.append(result)
 
+        if not options["no_alert"]:
+            self._record_alerts(results)
+
         if options["json_output"]:
             self._output_json(results)
         else:
@@ -112,6 +124,39 @@ class Command(BaseCommand):
         exit_code = self._determine_exit_code(results, options)
         if exit_code != 0:
             sys.exit(exit_code)
+
+    def _record_alerts(self, results) -> None:
+        """Record alerts for these results on this machine. Never affects output.
+
+        Synchronous and inbox-free by construction: CheckAlertBridge writes alerts
+        and incidents in one transaction and enqueues nothing. That is what makes a
+        single-machine install work with no hub, no cron, and nobody draining an
+        inbox. A missing or unmigrated database must not break a health check, so
+        failures are reported on stderr and swallowed — stderr so --json output on
+        stdout stays parseable. They are logged too: the stderr line alone would
+        leave a real bridge bug undiagnosable in the field.
+
+        Failures arrive by two routes and both must be reported. The bridge already
+        catches everything the alert write raises and folds the message into the
+        returned ``CheckAlertResult.errors`` — that is the route the missing-table
+        case actually takes, so ignoring the return value would make this reporting
+        dead code. The ``try`` still guards what happens outside the bridge: the
+        import and the constructor.
+        """
+        # Imported here: apps.checkers must not hard-depend on apps.alerts at
+        # import time.
+        from apps.alerts.check_integration import CheckAlertBridge
+
+        try:
+            result = CheckAlertBridge().process_check_results(results)
+        except Exception as exc:  # noqa: BLE001 - a health check must still print
+            logger.exception("Alert recording failed")
+            self.stderr.write(f"Alert recording skipped: {exc}")
+            return
+
+        for error in result.errors:
+            logger.error("Alert recording failed: %s", error)
+            self.stderr.write(f"Alert recording skipped: {error}")
 
     def _list_checkers(self):
         self.stdout.write(self.style.SUCCESS("Available checkers:\n"))

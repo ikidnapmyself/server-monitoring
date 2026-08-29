@@ -169,3 +169,72 @@ EOF
     '
     assert_success
 }
+
+@test "install/cron.sh schedules no second self-check job" {
+    # run_pipeline --checks-only above is already this machine's self-monitoring:
+    # it enters the pipeline at CHECK and routes the matched lane synchronously.
+    # A push_to_hub --local job would duplicate that alert on the same schedule
+    # and leave a PENDING run that a cron-only install never drains.
+    run grep -q "push_to_hub --local" "$BIN_DIR/install/cron.sh"
+    assert_failure
+}
+
+# ---------------------------------------------------------------------------
+# env.sh owns the baseline .env, and this machine's identity is part of it:
+# INSTANCE_ID keys its Node row and its check:{instance_id}:{checker} alert
+# fingerprints, so it cannot live behind the cluster step's y/N gate.
+# ---------------------------------------------------------------------------
+
+# _run_env PROJECT ANSWERS...
+#
+# Drive env.sh non-interactively against a throwaway PROJECT_DIR/.env.
+# The alarm turns a prompt that outlives its answers into a failure rather
+# than a hung run.
+_run_env() {
+    local proj="$1"
+    shift
+    printf '%s\n' "$@" > "$proj/answers"
+    perl -e 'alarm 10; exec @ARGV' \
+        env PROJECT_DIR="$proj" \
+        bash "$BIN_DIR/install/env.sh" \
+        < "$proj/answers" > "$proj/install.log" 2>&1
+}
+
+@test "env.sh writes a non-empty INSTANCE_ID on a standalone install" {
+    local proj
+    proj="$(mktemp -d)"
+    : > "$proj/.env"
+
+    # dev, bare, default debug, default hosts, auto-generate secret key
+    run _run_env "$proj" "1" "1" "" "" "y"
+    assert_success
+
+    run grep -E '^INSTANCE_ID=.+' "$proj/.env"
+    assert_success
+}
+
+@test "env.sh default INSTANCE_ID is not a bare hostname" {
+    local proj
+    proj="$(mktemp -d)"
+    : > "$proj/.env"
+
+    _run_env "$proj" "1" "1" "" "" "y"
+
+    local written
+    written="$(grep -E '^INSTANCE_ID=' "$proj/.env" | tail -1 | cut -d= -f2-)"
+    refute [ "$written" = "$(hostname)" ]
+    [[ "$written" =~ -[0-9a-f]+$ ]]
+}
+
+@test "env.sh re-run keeps an existing INSTANCE_ID unchanged" {
+    local proj
+    proj="$(mktemp -d)"
+    printf 'INSTANCE_ID=web-03-existing\n' > "$proj/.env"
+
+    _run_env "$proj" "1" "1" "" "" "y"
+
+    run grep -c '^INSTANCE_ID=' "$proj/.env"
+    assert_output "1"
+    run grep '^INSTANCE_ID=' "$proj/.env"
+    assert_output "INSTANCE_ID=web-03-existing"
+}

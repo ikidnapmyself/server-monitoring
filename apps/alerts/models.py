@@ -353,10 +353,17 @@ class AlertHistory(models.Model):
 
 
 class Node(models.Model):
-    """A peer that has pushed cluster data to this instance (agent registry).
+    """Every machine that produces truth about itself — including this one.
 
-    Upserted on every accepted cluster push, keyed by instance_id. This is the
-    queryable spine a hub uses to know its agents and that future report APIs read.
+    Keyed by instance_id and upserted whenever a machine reports on itself: on
+    every accepted cluster push, and on every local check run that records alerts
+    here. A hub therefore appears in its own registry alongside its agents, which
+    is what lets hub-local checker alerts group, route and page like any node's.
+
+    ``last_source`` says how the row was last touched: ``cluster`` (it arrived by
+    push from another machine) or ``local`` (a check run on this machine
+    registered it). This is the queryable spine a hub uses to know its fleet and
+    that report surfaces read.
     """
 
     instance_id = models.CharField(max_length=255, unique=True, db_index=True)

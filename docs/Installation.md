@@ -56,6 +56,14 @@ chmod +x ./bin/*.sh
 - Runs Django migrations
 - Runs `python manage.py check`
 - Optionally runs health checks now
+- Writes an `INSTANCE_ID` on **every** install — including a standalone machine that never
+  joins a cluster. It is this machine's identity: it keys the machine's `Node` row and its
+  alert fingerprints, so the generated value is the hostname plus a short random suffix (two
+  stock machines share a hostname). It is written during the environment step, before the
+  cluster-mode prompt, and the cluster step then offers it as the default so you can rename
+  it. **An `INSTANCE_ID` already in `.env` is never changed** on any path — re-running the
+  installer, declining or accepting cluster mode, or loading a profile all keep it. Changing
+  it would orphan the machine's `Node` row and stop open incidents' alerts from matching.
 - Optionally sets up cron via `./bin/install.sh cron`
 - Optionally sets up shell aliases via `./bin/install.sh aliases`
 
@@ -82,6 +90,9 @@ uv run python manage.py run_pipeline --checks-only --json
 ```
 
 - Logs output to `cron.log` in the project root
+- Offers a second job on the same schedule, **push to hub** (`push_to_hub`), only when
+  `HUB_URL` is set. A machine without one needs no second job: the health-check job is
+  already its self-monitoring, and it runs the full pipeline synchronously
 
 See the cron script in `bin/install.sh cron`.
 
@@ -147,7 +158,9 @@ After running the installer, save the configuration:
 ./bin/install.sh --save-profile prod-web
 ```
 
-This creates `.install-profile-prod-web` containing all non-sensitive configuration values.
+This creates `.install-profile-prod-web` containing the portable configuration values.
+Secrets are excluded, and so is `INSTANCE_ID`: it is machine-unique, not portable — a
+restoring machine generates its own rather than inheriting the source machine's identity.
 
 ### Loading a Profile
 
@@ -167,7 +180,7 @@ For automated deployments, combine `--profile` with `--yes` to accept all defaul
 ./bin/install.sh --profile prod-web --yes
 ```
 
-Only secrets (`DJANGO_SECRET_KEY`, `HUB_API_KEY`) will still be prompted since they are never stored in profiles.
+Only secrets (`DJANGO_SECRET_KEY`, `HUB_API_KEY`) will still be prompted since they are never stored in profiles. `INSTANCE_ID` is not prompted in this mode — loading a profile generates one for the machine if it does not already have one.
 
 ---
 
@@ -331,7 +344,8 @@ sm-run-pipeline --sample --dry-run
 sm-run-pipeline --sample          # full demo run (real checks + notify)
 sm-run-pipeline --checks-only     # local monitoring: CHECK is the entry stage, then
                                   # the lane matched from the alert it produced runs
-                                  # (the seeded `hub-self-check` lane records only)
+                                  # (checker alerts are `source: cluster`, so the
+                                  #  seeded `cluster-nodes` lane analyses + notifies)
 ```
 
 ### More examples

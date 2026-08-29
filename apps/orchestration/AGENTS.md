@@ -103,7 +103,11 @@ stage for `run_pipeline --checks-only` (the hub's own cron). One rule covers bot
 entry stage produces an alert, the lane is resolved from that alert, the lane's stages
 run. `--checks-only` is an invocation flag selecting the entry stage, *not* a routing
 override. `--checks-only --no-incidents` is the one silent case: it routes nothing and
-ends at CHECKED, while the bridge still records the alerts it found.
+ends at CHECKED, while the bridge still records the alerts it found. `--no-notify` is
+the narrower one: the lane still matches and its stages still run, minus NOTIFY — SSH
+in, look at a node in real time, read the local provider's suggestions, page nobody.
+It travels into the downstream runs the entry stage enqueues, because NOTIFY runs
+there and not on the run the operator invoked.
 
 `stages` is an ordered subset of `["check", "analyze", "notify"]` —
 `PipelineDefinition.ROUTABLE_STAGES`. It deliberately excludes `ingest`: a lane is
@@ -143,10 +147,7 @@ module level. `orchestrator.py` re-exports it for existing importers.
 `no_route` is attributed to `routing` rather than to the entry stage that just succeeded.
 Do not reintroduce a default stage order in Python: migration `0012`
 seeds `cluster-nodes` (priority 50, `source is cluster`, `["analyze", "notify"]`) and
-`catch-all` (priority 1000, empty match, full order), and `0014` seeds
-`hub-self-check` (priority 50, `origin is checker_generated`, **empty `stages`** —
-records and correlates, deliberately does not notify, because cron repeats every five
-minutes and `apps.notify` has no de-duplication yet), and `0016` seeds
+`catch-all` (priority 1000, empty match, full order), and `0016` seeds
 `resolved-all-clear` (priority 40, `status is resolved`, `["notify"]` — an all-clear
 has nothing left to diagnose, and it sits above `cluster-nodes` so a resolved node
 alert takes it rather than paying for an analysis). None of these rows are special-
@@ -162,8 +163,8 @@ a lane that lists `notify` is not.** `get_or_create` on `name` means an operator
 never rewritten, and binding only fills a `channel` that is `NULL` — the seed body is
 shared with its tests (models are passed in) rather than living unexercised inside a
 migration. Anything that reports on delivery must first ask whether the lane delivers at
-all (`"notify" in lane.routable_stages()`): `hub-self-check` lists no stages and is not
-broken, it is quiet by design.
+all (`"notify" in lane.routable_stages()`): a lane that lists no stages is not broken,
+it is quiet by design.
 
 **Two read-only surfaces say so before an incident does.** The readiness panel's
 `lane_channels` entry (`config/dashboard.py:build_readiness`) is `error` only when a lane
@@ -172,6 +173,16 @@ delivers and no channel is active — a supported way to run this hub, never red
 otherwise, with a nudge in `detail` when a channel exists that no lane points at.
 `check_pipeline_state` reports the same finding as a `warn` naming the offending lanes.
 See `docs/plans/2026-08-22-lane-channel-required-design.md`.
+
+**The hub is a node, so it has no lane of its own.** `0014` seeded `hub-self-check`
+(priority 50, `origin is checker_generated`, empty `stages`) to keep a five-minute cron
+from re-reporting a still-firing alert; the incident change gate closed that, and once
+checker alerts adopted `source: cluster` the lane became a silent rival to `cluster-nodes`
+at the same priority, settled by nothing better than row `id`. `0018` retires it — by
+setting `is_active=False`, never deleting: `Incident.pipeline` is `SET_NULL`, so a delete
+would blank which lane handled every incident it ever routed. A hub-local check run now
+takes `cluster-nodes` and can page about the hub's own full disk. `run_pipeline
+--checks-only` carries the same origin and analyses and notifies too, which is intended.
 
 The legacy node/edge graph (`DefinitionBasedOrchestrator`, the `nodes/` package,
 `PipelineDefinition.config`) was **retired in Phase D** — do not reintroduce it.

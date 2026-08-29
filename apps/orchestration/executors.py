@@ -143,6 +143,17 @@ class CheckExecutor(BaseExecutor):
                 bridge_kwargs["hostname"] = hostname
             bridge_kwargs["auto_create_incidents"] = not no_incidents
             bridge_kwargs["trace_id"] = ctx.trace_id
+            # A payload hostname means this diagnosis is ABOUT another machine:
+            # the checkers run here, but the alerts are labelled with the subject
+            # incident's hostname, so this run must not claim that identity for the
+            # local registry. With no payload hostname the bridge is describing THIS
+            # machine — the scheduled ``run_pipeline --checks-only`` case — and the
+            # hub belongs in its own Node registry like any other node.
+            # ``not hostname`` and not ``is None``: it is the same predicate line
+            # 139 uses to decide whether to hand the bridge a hostname at all, so a
+            # blank one cannot leave the bridge describing this machine while
+            # refusing to register it.
+            bridge_kwargs["register_node"] = not hostname
 
             bridge = CheckAlertBridge(**bridge_kwargs)
 

@@ -1,10 +1,17 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.alerts.check_integration import CheckAlertBridge, CheckAlertResult
-from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus
+from apps.alerts.models import (
+    Alert,
+    AlertHistory,
+    AlertStatus,
+    Incident,
+    IncidentStatus,
+    Node,
+)
 from apps.checkers.checkers import CheckResult, CheckStatus
 
 
@@ -15,6 +22,11 @@ class CheckAlertBridgeTests(TestCase):
         self.bridge = CheckAlertBridge(
             auto_create_incidents=True,
             hostname="test-server",
+            # Pin the instance id too: it keys the fingerprint and, via
+            # instance_key_from_labels, the incident grouping key. Left to default it
+            # would be the developer's real hostname and would not match the
+            # "test-server" fixtures below.
+            instance_id="test-server",
         )
 
     def test_check_result_to_parsed_alert_critical(self):
@@ -66,7 +78,7 @@ class CheckAlertBridgeTests(TestCase):
         alert = Alert.objects.first()
         self.assertEqual(alert.name, "MEMORY Check Alert")
         self.assertEqual(alert.status, "firing")
-        self.assertEqual(alert.source, "server-checkers")
+        self.assertEqual(alert.source, "cluster")
 
     def test_check_created_alert_carries_trace_id(self):
         """A checker-originated alert is stamped with the run's trace_id."""
@@ -187,12 +199,22 @@ class CheckAlertBridgeTests(TestCase):
             self.assertEqual(processing_result.alerts_created, 1)
 
     def test_fingerprint_stability(self):
-        """Test that fingerprints are stable for the same checker/hostname."""
-        fp1 = self.bridge._generate_fingerprint("cpu", "server1")
-        fp2 = self.bridge._generate_fingerprint("cpu", "server1")
-        fp3 = self.bridge._generate_fingerprint("cpu", "server2")
+        """Fingerprints are stable per (instance, checker) and differ across hosts."""
+        cpu = CheckResult(
+            status=CheckStatus.CRITICAL,
+            message="hot",
+            metrics={},
+            checker_name="cpu",
+        )
+        server1 = CheckAlertBridge(hostname="server1", instance_id="server1")
+        server2 = CheckAlertBridge(hostname="server2", instance_id="server2")
+
+        fp1 = server1.check_result_to_parsed_alert(cpu).fingerprint
+        fp2 = server1.check_result_to_parsed_alert(cpu).fingerprint
+        fp3 = server2.check_result_to_parsed_alert(cpu).fingerprint
 
         self.assertEqual(fp1, fp2)
+        self.assertEqual(fp1, "check:server1:cpu")
         self.assertNotEqual(fp1, fp3)
 
     def test_run_checks_and_alert_defaults_to_all_checkers(self):
@@ -516,6 +538,78 @@ class CheckAlertBridgeTests(TestCase):
         self.assertTrue(result.has_errors)
         self.assertIn("bad: checker crashed", result.errors[0])
 
+    def test_run_checks_and_alert_records_each_checker_before_the_next_runs(self):
+        """Recording is interleaved, not batched at the end of the run.
+
+        A checker that hangs or a process that dies partway through must leave the
+        earlier checkers' alerts already written, so the second checker observes the
+        first one's alert row.
+        """
+        seen = {}
+
+        mock_first = MagicMock()
+        mock_first.return_value.run.return_value = CheckResult(
+            status=CheckStatus.CRITICAL,
+            message="first fired",
+            metrics={},
+            checker_name="first",
+        )
+
+        def _crash_after_looking(*args, **kwargs):
+            seen["alerts_when_second_ran"] = Alert.objects.count()
+            raise RuntimeError("checker crashed")
+
+        mock_second = MagicMock()
+        mock_second.return_value.run.side_effect = _crash_after_looking
+
+        with patch.dict(
+            "apps.alerts.check_integration.CHECKER_REGISTRY",
+            {"first": mock_first, "second": mock_second},
+            clear=True,
+        ):
+            result = self.bridge.run_checks_and_alert(["first", "second"])
+
+        self.assertEqual(seen["alerts_when_second_ran"], 1)
+        self.assertTrue(Alert.objects.filter(fingerprint="check:test-server:first").exists())
+        self.assertEqual(result.alerts_created, 1)
+        self.assertIn("second: checker crashed", result.errors[0])
+
+    def test_check_alert_result_merge_folds_counts_and_rows(self):
+        first = CheckAlertResult(
+            alerts_created=1,
+            alerts_updated=2,
+            alerts_resolved=3,
+            incidents_created=4,
+            incidents_updated=5,
+            checks_run=6,
+            errors=["a"],
+            alerts=["alert-a"],
+            material_alerts=["material-a"],
+        )
+        first.merge(
+            CheckAlertResult(
+                alerts_created=10,
+                alerts_updated=20,
+                alerts_resolved=30,
+                incidents_created=40,
+                incidents_updated=50,
+                checks_run=60,
+                errors=["b"],
+                alerts=["alert-b"],
+                material_alerts=["material-b"],
+            )
+        )
+
+        self.assertEqual(first.alerts_created, 11)
+        self.assertEqual(first.alerts_updated, 22)
+        self.assertEqual(first.alerts_resolved, 33)
+        self.assertEqual(first.incidents_created, 44)
+        self.assertEqual(first.incidents_updated, 55)
+        self.assertEqual(first.checks_run, 66)
+        self.assertEqual(first.errors, ["a", "b"])
+        self.assertEqual(first.alerts, ["alert-a", "alert-b"])
+        self.assertEqual(first.material_alerts, ["material-a", "material-b"])
+
     def test_run_checks_and_alert_accumulates_processing_errors(self):
         """Test that processing errors from individual checks are accumulated."""
         mock_checker = MagicMock()
@@ -824,3 +918,143 @@ class CheckerSpecificGuardTests(TestCase):
         self.assertEqual(Incident.objects.count(), 0)
         self.assertEqual(result.alerts_created, 0)
         self.assertEqual(result.material_alerts, [])
+
+
+class BridgeIdentityTests(TestCase):
+    """The bridge keys a checker alert on instance_id, not hostname.
+
+    Alert identity is ``(fingerprint, source)`` (apps/alerts/services.py:269), so a
+    locally-run checker and the same machine's pushed result must agree on both or
+    one condition becomes two rows.
+    """
+
+    @staticmethod
+    def _cpu_result(status=CheckStatus.OK, message="CPU usage normal"):
+        return CheckResult(
+            status=status,
+            message=message,
+            metrics={"cpu_percent": 25.0},
+            checker_name="cpu",
+        )
+
+    @override_settings(INSTANCE_ID="node-a")
+    def test_fingerprint_is_instance_keyed(self):
+        bridge = CheckAlertBridge(hostname="host-a")
+
+        parsed = bridge.check_result_to_parsed_alert(self._cpu_result())
+
+        self.assertEqual(parsed.fingerprint, "check:node-a:cpu")
+
+    @override_settings(INSTANCE_ID="node-a")
+    def test_instance_id_label_present_so_node_resolves(self):
+        """``_create_alert`` links a Node via ``resolve_node(parsed.labels)``."""
+        bridge = CheckAlertBridge(hostname="host-a")
+
+        parsed = bridge.check_result_to_parsed_alert(self._cpu_result())
+
+        self.assertEqual(parsed.labels["instance_id"], "node-a")
+
+    def test_name_is_stable_across_message_changes(self):
+        """Incident grouping matches on ``alert.name`` (services.py:521)."""
+        bridge = CheckAlertBridge(hostname="host-a")
+
+        first = bridge.check_result_to_parsed_alert(
+            self._cpu_result(status=CheckStatus.CRITICAL, message="CPU usage 91%")
+        )
+        second = bridge.check_result_to_parsed_alert(
+            self._cpu_result(status=CheckStatus.CRITICAL, message="CPU usage 94%")
+        )
+
+        self.assertEqual(first.name, second.name)
+
+    def test_source_name_is_cluster(self):
+        self.assertEqual(CheckAlertBridge.SOURCE_NAME, "cluster")
+
+    @override_settings(INSTANCE_ID="")
+    def test_explicit_instance_id_argument_wins(self):
+        bridge = CheckAlertBridge(hostname="host-a", instance_id="explicit")
+
+        parsed = bridge.check_result_to_parsed_alert(self._cpu_result())
+
+        self.assertEqual(parsed.fingerprint, "check:explicit:cpu")
+
+    @override_settings(INSTANCE_ID="hub-1")
+    def test_caller_labels_cannot_move_the_instance_id_label(self):
+        """Fingerprint and instance_id label are one fact; a caller cannot split it.
+
+        ``run_pipeline --label instance_id=web-03`` would otherwise produce an
+        alert fingerprinted to the hub and node-linked to web-03.
+        """
+        bridge = CheckAlertBridge(hostname="host-a")
+
+        parsed = bridge.check_result_to_parsed_alert(
+            self._cpu_result(), labels={"instance_id": "web-03"}
+        )
+
+        self.assertEqual(parsed.labels["instance_id"], "hub-1")
+        self.assertEqual(parsed.fingerprint, "check:hub-1:cpu")
+
+    @override_settings(INSTANCE_ID="hub-1")
+    def test_other_caller_labels_still_apply(self):
+        bridge = CheckAlertBridge(hostname="host-a")
+
+        parsed = bridge.check_result_to_parsed_alert(self._cpu_result(), labels={"env": "prod"})
+
+        self.assertEqual(parsed.labels["env"], "prod")
+
+
+class BridgeSelfRegistrationTests(TestCase):
+    """A machine that checks itself registers itself in the Node registry.
+
+    ``_create_alert`` links an alert to its node with ``resolve_node(labels)``,
+    which only links to an already-registered row — creation is owned by the
+    cluster push. A machine checking itself never pushes, so the bridge is the
+    only place that row can come from.
+    """
+
+    @staticmethod
+    def _cpu_result():
+        return CheckResult(
+            status=CheckStatus.CRITICAL,
+            message="CPU usage at 95%",
+            metrics={"cpu_percent": 95.0},
+            checker_name="cpu",
+        )
+
+    @override_settings(INSTANCE_ID="hub-1")
+    def test_local_run_registers_this_machine_as_a_node(self):
+        bridge = CheckAlertBridge(hostname="hub-host")
+
+        bridge.process_check_result(self._cpu_result())
+
+        node = Node.objects.get(instance_id="hub-1")
+        self.assertEqual(node.hostname, "hub-host")
+        self.assertEqual(node.last_source, "local")
+
+    @override_settings(INSTANCE_ID="hub-1")
+    def test_alert_links_to_the_registered_node(self):
+        bridge = CheckAlertBridge(hostname="hub-host")
+
+        bridge.process_check_result(self._cpu_result())
+
+        alert = Alert.objects.get(fingerprint="check:hub-1:cpu")
+        self.assertEqual(alert.node.instance_id, "hub-1")
+
+    @override_settings(INSTANCE_ID="hub-1")
+    def test_registration_can_be_declined(self):
+        """Hub-side diagnosis runs here but describes another machine."""
+        bridge = CheckAlertBridge(hostname="someone-elses-host", register_node=False)
+
+        bridge.process_check_result(self._cpu_result())
+
+        self.assertFalse(Node.objects.filter(instance_id="hub-1").exists())
+
+    @override_settings(INSTANCE_ID="hub-1")
+    def test_registration_refreshes_an_existing_node(self):
+        Node.objects.create(instance_id="hub-1", hostname="old-name")
+        bridge = CheckAlertBridge(hostname="hub-host")
+
+        bridge.process_check_result(self._cpu_result())
+
+        self.assertEqual(Node.objects.get(instance_id="hub-1").hostname, "hub-host")
+        self.assertEqual(Node.objects.count(), 1)

@@ -103,6 +103,7 @@ def enqueue_incident_runs(
     node=None,
     max_retries: int = 3,
     parent_run_id: str = "",
+    no_notify: bool = False,
 ) -> list[PipelineRun]:
     """Record one PENDING run per incident — the ONE way an incident change reaches on-call.
 
@@ -110,7 +111,13 @@ def enqueue_incident_runs(
     ``IncidentManager`` (a human did). Neither runs anything; ``drain`` is the only
     executor. Left PENDING rather than run inline for the reasons on
     ``PipelineOrchestrator._enqueue_downstream_runs``.
+
+    ``no_notify`` travels with the work. NOTIFY runs in the child, not in the run
+    the operator invoked, so ``run_pipeline --no-notify`` would silence nothing if
+    the flag stopped at the parent. Written only when set, so an ordinary child's
+    stored payload is byte-identical to what it always was.
     """
+    child_payload: dict = {"no_notify": True} if no_notify else {}
     runs: list[PipelineRun] = []
     with transaction.atomic():
         for incident_id in incident_ids:
@@ -122,7 +129,7 @@ def enqueue_incident_runs(
                     environment=environment,
                     status=PipelineStatus.PENDING,
                     max_retries=max_retries,
-                    inbound_payload={"downstream_incident_id": incident_id},
+                    inbound_payload=child_payload | {"downstream_incident_id": incident_id},
                     origin=origin,
                     node=node,
                     incident_id=incident_id,

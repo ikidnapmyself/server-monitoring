@@ -10,7 +10,12 @@ from django.test import TestCase
 
 from apps.orchestration.routing import resolve_pipeline
 from apps.orchestration.testing import clear_lanes
-from config.management.commands.setup_cluster import env_upsert, explain_http_error
+from config.management.commands.setup_cluster import (
+    default_instance_id,
+    env_get,
+    env_upsert,
+    explain_http_error,
+)
 from config.models import APIKey
 from config.security.url_validation import URLNotAllowedError
 
@@ -529,8 +534,8 @@ class SetupClusterInteractiveTests(TestCase):
             with patch(
                 "config.management.commands.setup_cluster._env_path", return_value=_tmp_env(d)
             ):
-                # role=1(hub), name, notify prompt=skip
-                with patch("builtins.input", side_effect=["1", "keyname", "skip"]):
+                # role=1(hub), blank instance (→ default), name, notify prompt=skip
+                with patch("builtins.input", side_effect=["1", "", "keyname", "skip"]):
                     call_command("setup_cluster", stdout=StringIO())
         self.assertEqual(APIKey.objects.filter(name="keyname").count(), 1)
 
@@ -543,12 +548,66 @@ class SetupClusterInteractiveTests(TestCase):
                     "config.management.commands.setup_cluster.send_to_hub",
                     return_value=(202, "{}"),
                 ):
-                    # invalid role, then agent; hub_url, blank instance (→ default), key
-                    with patch("builtins.input", side_effect=["x", "2", "https://h", "", "tok"]):
+                    # invalid role, then agent; blank instance (→ default), hub_url, key
+                    with patch("builtins.input", side_effect=["x", "2", "", "https://h", "tok"]):
                         call_command("setup_cluster", stdout=StringIO())
             env_text = _tmp_env(d).read_text()
         self.assertIn("HUB_URL=https://h", env_text)
         self.assertIn("INSTANCE_ID=", env_text)  # default hostname filled in
+
+
+class InstanceIdTests(TestCase):
+    """INSTANCE_ID is identity for every role — it keys Node rows and fingerprints."""
+
+    def test_default_is_not_a_bare_hostname(self):
+        import socket
+
+        generated = default_instance_id()
+        self.assertNotEqual(generated, socket.gethostname())
+        self.assertTrue(generated.startswith(f"{socket.gethostname()}-"))
+        self.assertNotEqual(generated, default_instance_id())
+
+    def test_env_get_reads_and_misses(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = _tmp_env(d)
+            self.assertEqual(env_get(p, "INSTANCE_ID"), "")
+            p.write_text("OTHER=1\nINSTANCE_ID=web-03-a1b2c3d4\n")
+            self.assertEqual(env_get(p, "INSTANCE_ID"), "web-03-a1b2c3d4")
+            self.assertEqual(env_get(p, "MISSING"), "")
+
+    def test_hub_setup_writes_an_instance_id(self):
+        with tempfile.TemporaryDirectory() as d:
+            with patch(
+                "config.management.commands.setup_cluster._env_path", return_value=_tmp_env(d)
+            ):
+                out = StringIO()
+                call_command(
+                    "setup_cluster", "--role", "hub", "--name", "k", "--no-notify", stdout=out
+                )
+            env_text = _tmp_env(d).read_text()
+        line = [ln for ln in env_text.splitlines() if ln.startswith("INSTANCE_ID=")][0]
+        self.assertTrue(line.split("=", 1)[1])
+        # A scripted run (--role given) never blocks on stdin for it.
+        self.assertIn("INSTANCE_ID was unset", out.getvalue())
+
+    def test_existing_instance_id_survives_a_re_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            _tmp_env(d).write_text("INSTANCE_ID=web-03-a1b2c3d4\n")
+            with patch(
+                "config.management.commands.setup_cluster._env_path", return_value=_tmp_env(d)
+            ):
+                call_command(
+                    "setup_cluster",
+                    "--role",
+                    "hub",
+                    "--name",
+                    "k",
+                    "--no-notify",
+                    stdout=StringIO(),
+                )
+            env_text = _tmp_env(d).read_text()
+        self.assertIn("INSTANCE_ID=web-03-a1b2c3d4", env_text)
+        self.assertEqual(env_text.count("INSTANCE_ID="), 1)
 
 
 class ExplainHttpErrorTests(TestCase):

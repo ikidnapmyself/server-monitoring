@@ -3,8 +3,9 @@
 # Install profile helpers — save/load installer configuration.
 # Source this file — do not execute directly.
 #
-# Profiles store non-sensitive .env values and installer state variables
-# (cron schedule, alias prefix, etc.) for reproducible installations.
+# Profiles store portable .env values and installer state variables
+# (cron schedule, alias prefix, etc.) for reproducible installations. Secrets
+# and machine-unique identity are deliberately left out.
 #
 
 [[ -n "${_LIB_PROFILE_LOADED:-}" ]] && return 0
@@ -14,8 +15,14 @@ _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$_LIB_DIR/logging.sh"
 source "$_LIB_DIR/dotenv.sh"
 
-# Keys that must never appear in a profile
+# Secrets: withheld from profiles, and refused on load
 PROFILE_SENSITIVE_KEYS=(DJANGO_SECRET_KEY HUB_API_KEY)
+
+# Machine-unique — not secret, but not portable either. INSTANCE_ID keys this
+# machine's Node row and its alert fingerprints, so copying one into a profile
+# and restoring it elsewhere would silently merge two machines into one
+# identity. A restoring machine generates its own (see profile_load).
+PROFILE_MACHINE_KEYS=(INSTANCE_ID)
 
 # Installer state variables not stored in .env
 PROFILE_STATE_KEYS=(CRON_SCHEDULE CRON_AUTO_UPDATE CRON_PUSH_TO_HUB ALIAS_PREFIX)
@@ -42,11 +49,11 @@ profile_save() {
             [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
             local key="${line%%=*}"
             key="${key#"${key%%[![:space:]]*}"}"
-            local sensitive=false
-            for sk in "${PROFILE_SENSITIVE_KEYS[@]}"; do
-                [[ "$key" == "$sk" ]] && { sensitive=true; break; }
+            local skip=false
+            for sk in "${PROFILE_SENSITIVE_KEYS[@]}" "${PROFILE_MACHINE_KEYS[@]}"; do
+                [[ "$key" == "$sk" ]] && { skip=true; break; }
             done
-            $sensitive && continue
+            $skip && continue
             echo "$line"
         done < "$env_file" >> "$file"
     fi
@@ -95,6 +102,14 @@ profile_load() {
             fi
         done
 
+        # An older or hand-edited profile may still carry a machine-unique key.
+        for sk in "${PROFILE_MACHINE_KEYS[@]}"; do
+            if [[ "$key" == "$sk" ]]; then
+                info "Skipping machine-unique key '$key' — this machine keeps its own"
+                continue 2
+            fi
+        done
+
         local is_state=false
         for sk in "${PROFILE_STATE_KEYS[@]}"; do
             if [[ "$key" == "$sk" ]]; then
@@ -108,6 +123,11 @@ profile_load() {
             dotenv_set "$env_file" "$key" "$value"
         fi
     done < "$file"
+
+    # A restore must not leave this machine without an identity: the installer
+    # may run unattended (--yes), and the cluster step only prompts for
+    # INSTANCE_ID when the operator opts into cluster configuration.
+    dotenv_ensure_instance_id "$env_file"
 
     success "Profile loaded"
 }

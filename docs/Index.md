@@ -103,7 +103,7 @@ Represents a single alert received from an external source.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `fingerprint` | CharField (indexed) | Unique identifier for deduplication (SHA256-based) |
+| `fingerprint` | CharField (indexed) | Dedup identifier. Webhook drivers supply the source system's own; checker-origin alerts use `check:{instance_id}:{checker_name}` (`apps/alerts/identity.py`). Dedup is the pair **`(fingerprint, source)`** |
 | `source` | CharField (indexed) | Source system (e.g., "alertmanager", "grafana") |
 | `name` | CharField | Alert name/title |
 | `severity` | CharField (choices) | "critical", "warning", "info" |
@@ -236,7 +236,11 @@ Entry point: `AlertOrchestrator.process_webhook(payload, driver=None)`
 - **AlertOrchestrator** — Main ingestion orchestrator
 - **IncidentManager** — Static methods for incident lifecycle (acknowledge, resolve, close, add_note)
 - **AlertQueryService** — Convenience query methods (firing alerts, by severity, by source, recent)
-- **CheckAlertBridge** — Bridge converting `CheckResult` objects into Alert records
+- **CheckAlertBridge** — Bridge converting `CheckResult` objects into Alert records. Also
+  registers the machine it checked in the `Node` registry (`last_source="local"`), so the
+  hub is a node in its own registry; `register_node=False` opts out (hub-side diagnosis,
+  which labels alerts with the subject incident's hostname). Writes `source="cluster"`,
+  matching what `push_to_hub` pushes, so a machine's local and pushed results are one row
 
 ### URL Endpoints
 
