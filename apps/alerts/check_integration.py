@@ -170,10 +170,16 @@ class CheckAlertBridge:
         alert_labels = {
             "hostname": self.hostname,
             "checker": result.checker_name,
-            "instance_id": self.instance_id,
         }
         if labels:
             alert_labels.update(labels)
+        # Set AFTER the caller's labels, deliberately. The fingerprint below and
+        # this label are one fact — which machine this result is about — read by
+        # two different consumers (dedup, and resolve_node's alert→Node link). A
+        # caller must not be able to split them: ``run_pipeline --label
+        # instance_id=web-03`` would otherwise fingerprint to the hub and link to
+        # web-03. To change the identity, change ``instance_id`` on the bridge.
+        alert_labels["instance_id"] = self.instance_id
 
         # Add metrics as labels (for deduplication and grouping)
         for key, value in result.metrics.items():

@@ -978,6 +978,30 @@ class BridgeIdentityTests(TestCase):
 
         self.assertEqual(parsed.fingerprint, "check:explicit:cpu")
 
+    @override_settings(INSTANCE_ID="hub-1")
+    def test_caller_labels_cannot_move_the_instance_id_label(self):
+        """Fingerprint and instance_id label are one fact; a caller cannot split it.
+
+        ``run_pipeline --label instance_id=web-03`` would otherwise produce an
+        alert fingerprinted to the hub and node-linked to web-03.
+        """
+        bridge = CheckAlertBridge(hostname="host-a")
+
+        parsed = bridge.check_result_to_parsed_alert(
+            self._cpu_result(), labels={"instance_id": "web-03"}
+        )
+
+        self.assertEqual(parsed.labels["instance_id"], "hub-1")
+        self.assertEqual(parsed.fingerprint, "check:hub-1:cpu")
+
+    @override_settings(INSTANCE_ID="hub-1")
+    def test_other_caller_labels_still_apply(self):
+        bridge = CheckAlertBridge(hostname="host-a")
+
+        parsed = bridge.check_result_to_parsed_alert(self._cpu_result(), labels={"env": "prod"})
+
+        self.assertEqual(parsed.labels["env"], "prod")
+
 
 class BridgeSelfRegistrationTests(TestCase):
     """A machine that checks itself registers itself in the Node registry.
