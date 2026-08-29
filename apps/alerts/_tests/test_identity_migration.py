@@ -5,6 +5,8 @@ The helper is tested directly as a pure function, and the migration's
 object — ``forward`` only ever needs ``get_model``.
 """
 
+import inspect
+import re
 from importlib import import_module
 
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -15,7 +17,8 @@ from apps.alerts.models import Alert
 
 # Migration module names start with a digit, so they cannot be imported with a
 # plain ``from ... import`` statement.
-forward = import_module("apps.alerts.migrations.0011_checker_alert_identity").forward
+MIGRATION = import_module("apps.alerts.migrations.0011_checker_alert_identity")
+forward = MIGRATION.forward
 
 
 class NewFingerprintForTests(SimpleTestCase):
@@ -237,3 +240,56 @@ def _earlier(alert):
     from datetime import timedelta
 
     return alert.received_at - timedelta(hours=1)
+
+
+class FrozenHelperTests(SimpleTestCase):
+    """0011 carries its own copy of the identity helpers, and must keep it.
+
+    Importing ``apps.alerts.identity`` would mean replaying this migration on a
+    fresh database runs whatever that module has become: change the fingerprint
+    format later and fresh installs diverge from upgraded ones at the same
+    migration number. Expectations are written out in full rather than compared
+    against the live module — a test that asserted the two were equal would pass
+    a coordinated edit, which is the failure being prevented.
+    """
+
+    def test_it_does_not_import_the_live_identity_module(self):
+        source = inspect.getsource(MIGRATION)
+        self.assertIsNone(
+            re.search(r"^\s*(from|import)\s+apps\.alerts\.identity", source, re.MULTILINE)
+        )
+
+    def test_the_frozen_fingerprint_format_is_exactly_this(self):
+        self.assertEqual(MIGRATION._checker_fingerprint("n1", "cpu"), "check:n1:cpu")
+
+    def test_the_frozen_helper_prefers_the_instance_id_label(self):
+        self.assertEqual(
+            MIGRATION._new_fingerprint_for({"checker": "cpu", "instance_id": "n1"}, "fb"),
+            "check:n1:cpu",
+        )
+
+    def test_the_frozen_helper_falls_back_to_hostname_then_the_fallback(self):
+        self.assertEqual(
+            MIGRATION._new_fingerprint_for({"checker": "cpu", "hostname": "h1"}, "fb"),
+            "check:h1:cpu",
+        )
+        self.assertEqual(
+            MIGRATION._new_fingerprint_for({"checker": "cpu", "hostname": "h1"}, "fb", False),
+            "check:fb:cpu",
+        )
+        self.assertEqual(MIGRATION._new_fingerprint_for({"checker": "cpu"}, "fb"), "check:fb:cpu")
+
+    def test_the_frozen_helper_skips_non_checker_and_non_dict_labels(self):
+        self.assertIsNone(MIGRATION._new_fingerprint_for({"hostname": "h1"}, "fb"))
+        self.assertIsNone(MIGRATION._new_fingerprint_for("not-a-dict", "fb"))
+        self.assertIsNone(MIGRATION._new_fingerprint_for(None, "fb"))
+
+    @override_settings(INSTANCE_ID="configured")
+    def test_the_frozen_local_instance_id_prefers_the_setting(self):
+        self.assertEqual(MIGRATION._local_instance_id(), "configured")
+
+    @override_settings(INSTANCE_ID="")
+    def test_the_frozen_local_instance_id_falls_back_to_hostname(self):
+        import socket
+
+        self.assertEqual(MIGRATION._local_instance_id(), socket.gethostname())

@@ -21,17 +21,55 @@ fingerprint, so the rewrite is derived from data already on the row rather than
 guessed. Rows with no ``checker`` label are left exactly as they are.
 """
 
+import socket
+
+from django.conf import settings
 from django.db import migrations
 from django.utils import timezone
-
-from apps.alerts.identity import local_instance_id, new_fingerprint_for
 
 LEGACY_CHECKER_SOURCES = ["cluster", "server-checkers"]
 
 
+# DELIBERATE DUPLICATION of ``apps.alerts.identity``
+# --------------------------------------------------
+# The two helpers below are frozen copies of that module as it stood on
+# 2026-08-28, and must stay frozen. This migration used to import the live
+# module, which means replaying it on a fresh database would run whatever the
+# module had become in the meantime: change the fingerprint format next year and
+# fresh installs get the new one while every upgraded install keeps the old, from
+# the same migration number. A migration is a historical snapshot of a schema
+# *and* of the data it writes, so it carries its own copy and must never be
+# re-pointed at the live module. ``apps.alerts.identity`` stays the runtime
+# version — edit it freely; this snapshot does not move.
+# Same reasoning, same shape as ``0017_seed_routing_table`` in apps.orchestration.
+
+
+def _local_instance_id() -> str:
+    """Frozen copy of ``apps.alerts.identity.local_instance_id``."""
+    return getattr(settings, "INSTANCE_ID", "") or socket.gethostname()
+
+
+def _checker_fingerprint(instance_id: str, checker_name: str) -> str:
+    """Frozen copy of ``apps.alerts.identity.checker_fingerprint``."""
+    return f"check:{instance_id}:{checker_name}"
+
+
+def _new_fingerprint_for(labels, fallback_instance_id: str, use_hostname: bool = True):
+    """Frozen copy of ``apps.alerts.identity.new_fingerprint_for``."""
+    if not isinstance(labels, dict):
+        return None
+    checker = labels.get("checker")
+    if not checker:
+        return None
+    instance = labels.get("instance_id")
+    if not instance and use_hostname:
+        instance = labels.get("hostname")
+    return _checker_fingerprint(instance or fallback_instance_id, checker)
+
+
 def forward(apps, schema_editor):
     Alert = apps.get_model("alerts", "Alert")
-    fallback_instance_id = local_instance_id()
+    fallback_instance_id = _local_instance_id()
     seen: set[str] = set()
 
     queryset = (
@@ -45,7 +83,7 @@ def forward(apps, schema_editor):
         # those alerts with the subject incident's hostname, a remote machine
         # that never produced them. So for that source the hostname label is
         # ignored and the fallback is this machine's own instance id.
-        new = new_fingerprint_for(
+        new = _new_fingerprint_for(
             alert.labels,
             fallback_instance_id,
             use_hostname=alert.source == "cluster",
