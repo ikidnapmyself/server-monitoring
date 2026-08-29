@@ -107,20 +107,37 @@ class AlertWebhookView(View):
                 payload, driver=driver
             )
 
-            # Errors with nothing written means the payload was never usable — the
-            # driver could not be detected, or parsing failed outright. That used to
-            # fail invisibly in the drain; the sender is the only one who can fix it,
-            # so it is told. Detected structurally rather than by message text.
-            if proc_result.errors and not proc_result.alerts:
+            # Nothing understood the payload: no driver claimed it, so nothing was
+            # parsed and nothing was written. That used to fail invisibly in the
+            # drain; the sender is the only one who can fix it, and a retry would
+            # fail identically, so it is told to stop. Read off the flag the
+            # orchestrator sets rather than matching its error text.
+            if not proc_result.driver_resolved:
                 logger.warning(
-                    "Webhook payload produced nothing (driver=%s, trace_id=%s): %s",
+                    "No driver could handle the webhook payload (driver=%s, trace_id=%s): %s",
                     source,
                     trace_id,
                     "; ".join(proc_result.errors),
                 )
                 return JsonResponse(
-                    {"status": "error", "message": "Could not process payload"},
+                    {"status": "error", "message": "Could not detect a driver for the payload"},
                     status=400,
+                )
+
+            # A driver understood it and we still wrote nothing: the fault is ours,
+            # not the sender's. 400 would tell it to stop retrying and the push would
+            # be silently discarded, so this is the one ingest failure that must be a
+            # 5xx — there is no partial write for a retry to duplicate.
+            if proc_result.errors and not proc_result.alerts:
+                logger.error(
+                    "Webhook ingest wrote nothing (driver=%s, trace_id=%s): %s",
+                    source,
+                    trace_id,
+                    "; ".join(proc_result.errors),
+                )
+                return JsonResponse(
+                    {"status": "error", "message": "Failed to process payload"},
+                    status=500,
                 )
 
             # A payload that partially failed but wrote alerts is accepted: turning

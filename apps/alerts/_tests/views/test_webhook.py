@@ -127,10 +127,30 @@ class WebhookViewTests(TestCase):
         self.assertIn(response.json()["trace_id"], message)
 
     def test_an_undetectable_driver_returns_400(self):
-        """Nothing parsed and nothing written is the sender's problem to see."""
+        """No driver claimed the payload: the sender's problem, and a retry would
+        fail identically, so it is told to stop rather than retry."""
         response = self._post({"not": "an alert payload"})
 
         self.assertEqual(response.status_code, 400)
+        self.assertEqual(Alert.objects.count(), 0)
+        self.assertEqual(PipelineRun.objects.count(), 0)
+
+    def test_a_failure_after_the_driver_resolved_returns_500(self):
+        """Our fault, not the sender's: 400 here would silently discard the push.
+
+        The break is injected inside the parse — the real branch — rather than by
+        stubbing ``process_webhook``, whose own ``except`` is what turns a raise
+        into the errors-with-nothing-written result the view has to tell apart
+        from an unreadable payload.
+        """
+        with patch(
+            "apps.alerts.drivers.generic.GenericWebhookDriver.parse",
+            side_effect=RuntimeError("transient hub bug"),
+        ):
+            response = self._post({"name": "CPU high", "status": "firing"})
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["status"], "error")
         self.assertEqual(Alert.objects.count(), 0)
         self.assertEqual(PipelineRun.objects.count(), 0)
 
@@ -159,7 +179,12 @@ class WebhookViewTests(TestCase):
             severity="critical",
             started_at=timezone.now(),
         )
-        result = ProcessingResult(alerts=[alert], material_alerts=[], errors=["one alert failed"])
+        result = ProcessingResult(
+            alerts=[alert],
+            material_alerts=[],
+            errors=["one alert failed"],
+            driver_resolved=True,
+        )
 
         with (
             patch("apps.alerts.services.AlertOrchestrator.process_webhook", return_value=result),

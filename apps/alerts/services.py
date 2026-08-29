@@ -154,6 +154,12 @@ class ProcessingResult:
     # A subset of `alerts`, and subject to the same two traps documented above.
     material_alerts: list[Alert] = field(default_factory=list)
 
+    # Whether a driver was resolved for the payload — i.e. whether anything here
+    # ever understood what was sent. It exists so a caller can tell "we could not
+    # understand this payload" from "we broke while handling it": both end with
+    # errors and nothing written, but they are different answers to the sender.
+    driver_resolved: bool = False
+
     @property
     def total_processed(self) -> int:
         return self.alerts_created + self.alerts_updated + self.alerts_resolved
@@ -228,6 +234,9 @@ class AlertOrchestrator:
             if not driver_instance:
                 result.errors.append("Could not detect driver for payload")
                 return result
+            # Set the moment a usable driver exists, before anything can fail: from
+            # here on a failure is ours, not the payload's.
+            result.driver_resolved = True
 
             # Parse the payload
             parsed = driver_instance.parse(payload)

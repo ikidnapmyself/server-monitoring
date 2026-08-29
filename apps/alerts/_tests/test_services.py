@@ -548,6 +548,24 @@ class AlertOrchestratorDriverTests(TestCase):
         result = self.orchestrator.process_webhook({"unknown": "format"})
         self.assertTrue(result.has_errors)
         self.assertIn("Could not detect driver for payload", result.errors[0])
+        # Nothing here understood the payload, and the result says so structurally.
+        self.assertFalse(result.driver_resolved)
+
+    def test_driver_resolved_survives_a_failure_during_parsing(self):
+        """The flag states that a driver was found, not that the run succeeded.
+
+        A caller distinguishing "we could not read this" from "we broke reading
+        it" needs the second case to still report a resolved driver.
+        """
+        with mock.patch(
+            "apps.alerts.drivers.generic.GenericWebhookDriver.parse",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = self.orchestrator.process_webhook({"name": "cpu", "status": "firing"})
+
+        self.assertTrue(result.driver_resolved)
+        self.assertTrue(result.has_errors)
+        self.assertEqual(result.alerts, [])
 
     def test_string_driver_name(self):
         result = self.orchestrator.process_webhook(

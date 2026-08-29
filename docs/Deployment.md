@@ -302,7 +302,8 @@ never runs the pipeline inline:
 |----------|----------|
 | Alerts written; one `PENDING` run queued per changed incident | `202 Accepted` with `{status: accepted, trace_id, incidents}` |
 | Payload carried no alerts (misconfigured sender) | `202 Accepted` with `incidents: []`, logged as a warning |
-| Payload unusable — no driver matched it, nothing written | `400 Bad Request` |
+| No driver matched the payload — nothing was understood | `400 Bad Request` (do not retry) |
+| A driver matched but ingest failed and wrote nothing | `500 Internal Server Error` (retry) |
 | Body larger than 1 MiB | `413 Payload Too Large` |
 
 The [inbox drain](#durable-ingest--the-inbox-drain) then processes the queued runs. No
