@@ -92,14 +92,36 @@ a missing `AlertHistory` row. Nodes push OK results every tick; running those th
 saying nothing, and never material, so no downstream run was ever involved. The *first*
 resolve is a status transition and does not come through here.
 
-**Refire reopens the incident.** In `_update_alert`, a `resolved → firing` transition calls
-`Incident.reopen()` (a lifecycle method alongside `resolve()`/`close()`: status back to OPEN,
-`resolved_at`/`closed_at` cleared, `summary` kept) when the alert's incident is RESOLVED or
-CLOSED. CLOSED reopens too — one rule, nothing to remember. `Alert` rows are reused per
-fingerprint and `_find_open_incident` only considers OPEN/ACKNOWLEDGED, so without this the
-alert stays bolted to a resolved incident forever and notify reports an incident marked
-resolved for something actively firing. The accompanying `refired` `AlertHistory` event is
-what surfaces the reopen on the merged incident timeline.
+## Incident gate
+
+`apps/alerts/incident_gate.py` — `follow_alert(incident, old_severity, new_severity,
+old_status, new_status) -> (reopen, notify)`. `is_material_change` decides whether an
+*alert* changed; the gate decides what that means for its *incident*: does it follow the
+alert, and does anyone hear about it. `_update_alert` is the only caller, so both ingest
+paths get one answer. One table, one place:
+
+| Incident status | Alert change | Result |
+|---|---|---|
+| OPEN | any material | enqueue |
+| ACKNOWLEDGED | severity **rose** | reopen (ACK → OPEN), enqueue — escalation breaks an ack |
+| ACKNOWLEDGED | refire / same or lower severity | absorb: history row only, no run |
+| RESOLVED / CLOSED | alert firing (refire **or** severity change) | reopen, enqueue |
+| RESOLVED / CLOSED | alert resolved | absorb |
+
+A reopen calls `Incident.reopen()` (status back to OPEN, `resolved_at`/`closed_at` cleared,
+`summary` kept); the `refired` `AlertHistory` event surfaces it on the incident timeline. A
+future snooze is one more row in this table and nothing else.
+
+**Operator transitions go through `IncidentManager`** (`acknowledge` / `resolve` / `close`
+in `services.py`; the admin actions are thin wrappers). Each transitions the row
+synchronously and, in the same transaction, enqueues one `PENDING` run with
+`origin=manual` via `apps.orchestration.inbox.enqueue_incident_runs` — it *announces*.
+Nothing executes in-request; the next `process_inbox` drain delivers, and the headline
+(`derive_headline`) reads the incident's live status, so the message says `[RESOLVED]`.
+Do not flip `Incident.status` from anywhere else. Known silent exception:
+`reeval_existing._resolve_incidents_for` (config-change re-eval) resolves without a run —
+a follow-up, not a pattern to copy. See
+`docs/plans/2026-08-24-incident-lifecycle-orchestration-design.md`.
 
 ## Boundary rules
 

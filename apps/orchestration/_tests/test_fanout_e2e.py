@@ -339,3 +339,58 @@ class FanOutAcceptanceTests(TestCase):
         incident = Incident.objects.get(pk=child.incident_id)
         assert incident.pipeline.name == "e2e-firing"
         assert incident.status == "open"
+
+    # 9 ---------------------------------------------------------------------
+    def test_operator_resolve_reaches_notify_through_the_inbox(self):
+        """An operator transition is a second producer, drained like any other.
+
+        ``IncidentManager.resolve`` transitions the row synchronously and enqueues
+        one MANUAL run; nothing executes in-request. The next drain runs that
+        run's lane, and the message it delivers says what the incident *is now*.
+        See docs/plans/2026-08-24-incident-lifecycle-orchestration-design.md §1/§3.
+        """
+        from apps.alerts.services import IncidentManager
+        from apps.orchestration.models import PipelineOrigin
+
+        # 1. a push opens an incident and its downstream run notifies
+        opened = self.push([checker_alert("cpu")])
+        incident = Incident.objects.get()
+        assert self.stages_of(self.children(opened).get())[-1] == PipelineStage.NOTIFY
+        runs_before = set(PipelineRun.objects.values_list("run_id", flat=True))
+
+        # 2. the operator resolves it
+        IncidentManager.resolve(incident.id, resolved_by="ops")
+        incident.refresh_from_db()
+        assert incident.status == "resolved"
+
+        # 3. exactly one new PENDING run, origin MANUAL, nothing executed yet
+        new = PipelineRun.objects.exclude(run_id__in=runs_before)
+        run = new.get()
+        assert run.status == PipelineStatus.PENDING
+        assert run.origin == PipelineOrigin.MANUAL
+        assert run.incident_id == incident.id
+        assert run.trace_id != opened.trace_id
+        assert not StageExecution.objects.filter(pipeline_run=run).exists()
+
+        # 4. drain; that run notifies, and the message says resolved
+        sent = []
+
+        def _capture(self, message, *args, **kwargs):
+            sent.append(message)
+            return {"success": True, "message_id": "stub"}
+
+        with ExitStack() as stack:
+            self._stub_outbound(stack)
+            stack.enter_context(
+                patch("apps.notify.drivers.generic.GenericNotifyDriver.send", _capture)
+            )
+            call_command("process_inbox", stdout=StringIO())
+
+        run.refresh_from_db()
+        assert run.status == PipelineStatus.NOTIFIED
+        # The lane is still resolved from the subject alert, which is firing —
+        # the operator resolved the incident, not the alert. What the message
+        # SAYS comes from the incident row, read at format time.
+        assert PipelineStage.NOTIFY in self.stages_of(run)
+        assert sent, "no notification was delivered"
+        assert sent[-1].title.startswith("[RESOLVED]")

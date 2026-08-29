@@ -695,30 +695,18 @@ class PipelineOrchestrator:
         (the synchronous entry point) drains its own children afterwards, because
         its callers expect one call to finish the job.
         """
-        children = []
-        with transaction.atomic():
-            for incident_id in incident_ids:
-                children.append(
-                    PipelineRun.objects.create(
-                        trace_id=parent.trace_id,
-                        run_id=str(uuid.uuid4()),
-                        source=parent.source,
-                        environment=parent.environment,
-                        status=PipelineStatus.PENDING,
-                        max_retries=self.max_retries,
-                        inbound_payload={"downstream_incident_id": incident_id},
-                        origin=parent.origin,
-                        node=parent.node,
-                        incident_id=incident_id,
-                    )
-                )
-        logger.info(
-            "Enqueued %d downstream run(s) for trace_id=%s",
-            len(children),
-            parent.trace_id,
-            extra={"trace_id": parent.trace_id, "run_id": parent.run_id},
+        from apps.orchestration.inbox import enqueue_incident_runs
+
+        return enqueue_incident_runs(
+            incident_ids,
+            trace_id=parent.trace_id,
+            origin=parent.origin,
+            source=parent.source,
+            environment=parent.environment,
+            node=parent.node,
+            max_retries=self.max_retries,
+            parent_run_id=parent.run_id,
         )
-        return children
 
     @staticmethod
     def _incident_subject_alert_id(incident_id: int) -> int | None:

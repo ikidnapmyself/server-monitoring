@@ -115,3 +115,34 @@ def test_reclaim_stuck_uses_default_stale_minutes():
     assert inbox.reclaim_stuck() == 1
     run.refresh_from_db()
     assert run.status == PipelineStatus.PENDING
+
+
+@pytest.mark.django_db
+def test_enqueue_incident_runs_one_pending_run_per_incident_with_given_trace_and_origin():
+    from apps.alerts.models import Incident
+    from apps.orchestration.models import PipelineOrigin
+
+    a = Incident.objects.create(title="a", severity="critical")
+    b = Incident.objects.create(title="b", severity="warning")
+
+    runs = inbox.enqueue_incident_runs(
+        [a.id, b.id], trace_id="t-1", origin=PipelineOrigin.MANUAL, source="admin"
+    )
+
+    assert len(runs) == 2
+    for run, inc in zip(runs, (a, b)):
+        assert run.status == PipelineStatus.PENDING
+        assert run.trace_id == "t-1"
+        assert run.origin == PipelineOrigin.MANUAL
+        assert run.incident_id == inc.id
+        assert run.inbound_payload == {"downstream_incident_id": inc.id}
+    assert len({r.run_id for r in runs}) == 2
+    assert PipelineRun.objects.count() == 2
+
+
+@pytest.mark.django_db
+def test_enqueue_incident_runs_empty_list_enqueues_nothing():
+    from apps.orchestration.models import PipelineOrigin
+
+    assert inbox.enqueue_incident_runs([], trace_id="t", origin=PipelineOrigin.MANUAL) == []
+    assert PipelineRun.objects.count() == 0

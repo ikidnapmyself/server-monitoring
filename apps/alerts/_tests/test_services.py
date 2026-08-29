@@ -1,5 +1,6 @@
 import copy
 from typing import Any, cast
+from unittest import mock
 
 from django.test import TestCase
 from django.utils import timezone
@@ -346,6 +347,55 @@ class IncidentManagerTests(TestCase):
 
         self.assertEqual(incident.status, IncidentStatus.CLOSED)
         self.assertIsNotNone(incident.closed_at)
+
+    def test_resolve_enqueues_one_manual_pending_run(self):
+        from apps.orchestration.models import (
+            PipelineOrigin,
+            PipelineRun,
+            PipelineStatus,
+            StageExecution,
+        )
+
+        alert = Alert.objects.create(
+            fingerprint="fp-svc",
+            source="grafana",
+            name="A",
+            severity="critical",
+            status=AlertStatus.FIRING,
+            started_at=timezone.now(),
+            incident=self.incident,
+        )
+        IncidentManager.resolve(self.incident.pk, resolved_by="ops")
+
+        run = PipelineRun.objects.get()
+        self.assertEqual(run.status, PipelineStatus.PENDING)
+        self.assertEqual(run.origin, PipelineOrigin.MANUAL)
+        self.assertEqual(run.incident_id, self.incident.pk)
+        self.assertEqual(run.source, alert.source)
+        self.assertEqual(run.inbound_payload, {"downstream_incident_id": self.incident.pk})
+        self.assertEqual(StageExecution.objects.count(), 0)  # nothing ran in-request
+
+    def test_acknowledge_and_close_enqueue_with_empty_source_when_no_alerts(self):
+        from apps.orchestration.models import PipelineRun
+
+        IncidentManager.acknowledge(self.incident.pk)
+        IncidentManager.close(self.incident.pk)
+        self.assertEqual(PipelineRun.objects.count(), 2)
+        self.assertEqual(set(PipelineRun.objects.values_list("source", flat=True)), {""})
+
+    def test_failed_enqueue_rolls_back_the_transition(self):
+        from apps.orchestration.models import PipelineRun
+
+        with mock.patch(
+            "apps.orchestration.inbox.enqueue_incident_runs", side_effect=RuntimeError("db down")
+        ):
+            with self.assertRaises(RuntimeError):
+                IncidentManager.resolve(self.incident.pk, resolved_by="ops")
+
+        self.incident.refresh_from_db()
+        self.assertEqual(self.incident.status, IncidentStatus.OPEN)
+        self.assertEqual(self.incident.metadata, {})
+        self.assertEqual(PipelineRun.objects.count(), 0)
 
     def test_add_note(self):
         incident = IncidentManager.add_note(
@@ -1123,3 +1173,63 @@ class RefireReopensIncidentTests(TestCase):
 
         self.assertFalse(result.has_errors)
         self.assertIsNone(self._incident())
+
+    def _with_severity(self, severity):
+        payload = copy.deepcopy(self.payload)
+        payload["alerts"][0]["labels"]["severity"] = severity
+        return payload
+
+    def test_severity_change_on_a_resolved_incident_reopens_and_is_material(self):
+        """Resolved -> firing at a NEW severity: the gate's RESOLVED row, not the
+        refire branch. Any firing alert reopens and notifies."""
+        self.orchestrator.process_webhook(self._with_severity("warning"))
+        self.orchestrator.process_webhook(self._resolved())
+
+        result = self.orchestrator.process_webhook(self._with_severity("critical"))
+
+        self.assertEqual(self._incident().status, IncidentStatus.OPEN)
+        self.assertEqual([a.fingerprint for a in result.material_alerts], ["flap-1"])
+
+    def test_severity_change_under_a_resolved_incident_joins_a_sibling(self):
+        """The 'which incident' step is not only for refires.
+
+        The alert never stopped firing; an operator resolved its incident and a
+        sibling opened its own. A severity change must join the sibling, not
+        reopen the resolved one — one situation, one open incident.
+        """
+        self.orchestrator.process_webhook(self._with_severity("warning"))
+        original = self._incident()
+        original.resolve()
+        sibling = copy.deepcopy(self.payload)
+        sibling["alerts"][0]["fingerprint"] = "flap-2"
+        self.orchestrator.process_webhook(sibling)
+        sibling_incident = Alert.objects.get(fingerprint="flap-2").incident
+
+        result = self.orchestrator.process_webhook(self._with_severity("critical"))
+
+        self.assertEqual(self._incident().pk, sibling_incident.pk)
+        self.assertEqual(self._incident().status, IncidentStatus.OPEN)
+        original.refresh_from_db()
+        self.assertEqual(original.status, IncidentStatus.RESOLVED)
+        self.assertEqual([a.fingerprint for a in result.material_alerts], ["flap-1"])
+
+    def test_escalation_breaks_an_ack(self):
+        self.orchestrator.process_webhook(self._with_severity("warning"))
+        self._incident().acknowledge()
+
+        result = self.orchestrator.process_webhook(self._with_severity("critical"))
+
+        self.assertEqual(self._incident().status, IncidentStatus.OPEN)
+        self.assertEqual(len(result.material_alerts), 1)
+
+    def test_deescalation_under_ack_is_absorbed(self):
+        self.orchestrator.process_webhook(self.payload)
+        self._incident().acknowledge()
+
+        result = self.orchestrator.process_webhook(self._with_severity("warning"))
+
+        self.assertEqual(self._incident().status, IncidentStatus.ACKNOWLEDGED)
+        self.assertEqual(result.material_alerts, [])
+        self.assertTrue(
+            AlertHistory.objects.filter(alert__fingerprint="flap-1", event="updated").exists()
+        )

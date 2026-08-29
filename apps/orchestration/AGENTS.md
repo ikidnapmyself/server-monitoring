@@ -77,6 +77,15 @@ the children it enqueued: it claims through `inbox.claim` but executes through `
 so the caller's retry/backoff settings and executors apply to children too.
 `execute_run()` deliberately does not drain — `process_inbox` already is the drain.
 
+**`inbox.enqueue_incident_runs(incident_ids, *, trace_id, origin, …)` is the single
+producer entry** for downstream runs. It has two callers and no third: the alert write
+path (the orchestrator, after the entry stage, for every incident the push materially
+changed — `origin` inherited from the push) and `apps.alerts.services.IncidentManager`
+(`acknowledge` / `resolve` / `close`, `origin=manual`, fresh `trace_id`), so an operator
+transition is announced through the same drain as everything else, with the same lag.
+Do not enqueue a `PipelineRun` by hand elsewhere. See
+`docs/plans/2026-08-24-incident-lifecycle-orchestration-design.md`.
+
 Two consequences worth knowing before changing this code:
 
 - **A `no_route` now fails the child**, not the push. The push run keeps its succeeded

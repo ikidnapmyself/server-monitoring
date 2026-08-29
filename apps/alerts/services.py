@@ -6,6 +6,7 @@ creating/updating incidents, and managing alert lifecycle.
 """
 
 import logging
+import uuid
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
@@ -356,6 +357,8 @@ class AlertOrchestrator:
         result: ProcessingResult,
     ) -> Alert:
         """Update an existing alert with new data."""
+        from apps.alerts.incident_gate import follow_alert
+
         old_status = alert.status
         old_severity = alert.severity
         old_key = alert.context_key
@@ -374,6 +377,7 @@ class AlertOrchestrator:
         alert.context_key = new_key
 
         # Handle status change
+        refired = False
         if parsed.status != old_status:
             alert.status = parsed.status
 
@@ -383,38 +387,8 @@ class AlertOrchestrator:
                 event = "resolved"
             else:
                 alert.ended_at = None
+                refired = True
                 event = "refired"
-                # The incident must follow the alert. An alert row is reused per
-                # fingerprint, so its FK still points at the incident that was
-                # resolved — and _find_open_incident only considers OPEN/ACKNOWLEDGED,
-                # so nothing else would ever revisit it. Left alone, a FIRING alert
-                # sits under a RESOLVED incident: notify reports an incident marked
-                # resolved, and the admin contradicts itself.
-                # A sibling alert with the same (name, instance) may have opened
-                # its own incident while ours was resolved — _find_open_incident
-                # ignores RESOLVED/CLOSED rows. Join it rather than reopening ours:
-                # one situation is one open incident, and the alert must end up
-                # under it either way, because a FIRING alert pointing at a resolved
-                # incident is the invariant this whole branch exists to hold (and is
-                # what the downstream run would be enqueued against).
-                sibling = self._find_open_incident(alert)
-                incident = alert.incident
-                if sibling is not None:
-                    self._attach_to_incident(alert, sibling, result)
-                elif incident is not None and incident.status in (
-                    IncidentStatus.RESOLVED,
-                    IncidentStatus.CLOSED,
-                ):
-                    incident.reopen()
-                elif incident is None and self.auto_create_incidents:
-                    # An alert first seen RESOLVED never got an incident:
-                    # _create_alert only attaches one to a firing alert, and a node
-                    # reports every checker every tick, so a healthy one is first
-                    # seen resolved. Fan-out routes on incident ids
-                    # (routing.material_incident_ids drops incident-less alerts), so
-                    # without this the checker's eventual CRITICAL produced no
-                    # downstream run at all — no lane, no analysis, no message.
-                    self._create_or_attach_incident(alert, result)
 
             AlertHistory.objects.create(
                 alert=alert,
@@ -435,6 +409,35 @@ class AlertOrchestrator:
                 details={"changed": changed},
             )
 
+        # Decide WHICH incident a firing alert belongs under. Whether that incident
+        # reopens, and whether anyone hears about it, is decided below by
+        # apps.alerts.incident_gate.follow_alert — not here. An alert row is
+        # reused per fingerprint, so its FK may still point at a resolved
+        # incident; the gate handles that. But a sibling alert with the same
+        # (name, instance) may have opened its own incident meanwhile — join it
+        # rather than reopening ours: one situation is one open incident, and
+        # the alert must end up under it either way (it is what the downstream
+        # run is enqueued against). This runs on every refire, and also on a
+        # severity-only change of an alert whose incident is no longer open.
+        incident = alert.incident
+        under_closed = incident is None or incident.status in (
+            IncidentStatus.RESOLVED,
+            IncidentStatus.CLOSED,
+        )
+        if alert.status == AlertStatus.FIRING and (refired or under_closed):
+            sibling = self._find_open_incident(alert)
+            if sibling is not None:
+                self._attach_to_incident(alert, sibling, result)
+            elif incident is None and self.auto_create_incidents:
+                # An alert first seen RESOLVED never got an incident:
+                # _create_alert only attaches one to a firing alert, and a node
+                # reports every checker every tick, so a healthy one is first
+                # seen resolved. Fan-out routes on incident ids
+                # (routing.material_incident_ids drops incident-less alerts), so
+                # without this the checker's eventual CRITICAL produced no
+                # downstream run at all — no lane, no analysis, no message.
+                self._create_or_attach_incident(alert, result)
+
         alert.save()
         result.alerts.append(alert)
         if is_material_change(
@@ -445,7 +448,15 @@ class AlertOrchestrator:
             old_key=old_key,
             new_key=new_key,
         ):
-            result.material_alerts.append(alert)
+            incident = alert.incident
+            reopen, notify = follow_alert(
+                incident, old_severity, parsed.severity, old_status, parsed.status
+            )
+            if reopen:
+                assert incident is not None  # the gate never reopens a missing incident
+                incident.reopen()
+            if notify:
+                result.material_alerts.append(alert)
         return alert
 
     def _create_or_attach_incident(
@@ -541,7 +552,8 @@ class IncidentManager:
     Service for managing incidents.
 
     Provides methods for incident lifecycle management beyond
-    what the orchestrator handles automatically.
+    what the orchestrator handles automatically. Every transition enqueues a
+    MANUAL inbox run atomically with the status change (see ``_announce``).
     """
 
     @staticmethod
@@ -556,12 +568,15 @@ class IncidentManager:
         Returns:
             Updated incident.
         """
-        incident = Incident.objects.get(pk=incident_id)
-        incident.acknowledge()
+        with transaction.atomic():
+            incident = Incident.objects.get(pk=incident_id)
+            incident.acknowledge()
 
-        if acknowledged_by:
-            incident.metadata["acknowledged_by"] = acknowledged_by
-            incident.save(update_fields=["metadata"])
+            if acknowledged_by:
+                incident.metadata["acknowledged_by"] = acknowledged_by
+                incident.save(update_fields=["metadata"])
+
+            IncidentManager._announce(incident)
 
         logger.info(f"Incident acknowledged: {incident.title}")
         return incident
@@ -579,12 +594,15 @@ class IncidentManager:
         Returns:
             Updated incident.
         """
-        incident = Incident.objects.get(pk=incident_id)
-        incident.resolve(summary=summary)
+        with transaction.atomic():
+            incident = Incident.objects.get(pk=incident_id)
+            incident.resolve(summary=summary)
 
-        if resolved_by:
-            incident.metadata["resolved_by"] = resolved_by
-            incident.save(update_fields=["metadata"])
+            if resolved_by:
+                incident.metadata["resolved_by"] = resolved_by
+                incident.save(update_fields=["metadata"])
+
+            IncidentManager._announce(incident)
 
         logger.info(f"Incident resolved: {incident.title}")
         return incident
@@ -600,11 +618,29 @@ class IncidentManager:
         Returns:
             Updated incident.
         """
-        incident = Incident.objects.get(pk=incident_id)
-        incident.close()
+        with transaction.atomic():
+            incident = Incident.objects.get(pk=incident_id)
+            incident.close()
+            IncidentManager._announce(incident)
 
         logger.info(f"Incident closed: {incident.title}")
         return incident
+
+    @staticmethod
+    def _announce(incident: Incident) -> None:
+        """A human changed the incident: one inbox run, same as when a node does."""
+        # Imported here: orchestration imports alerts, so alerts must not import it at module level.
+        from apps.orchestration.inbox import enqueue_incident_runs
+        from apps.orchestration.models import PipelineOrigin
+
+        subject = incident.alerts.order_by("-received_at").first()
+        enqueue_incident_runs(
+            [incident.id],
+            trace_id=str(uuid.uuid4()),
+            origin=PipelineOrigin.MANUAL,
+            source=subject.source if subject else "",
+            node=subject.node if subject else None,
+        )
 
     @staticmethod
     def add_note(incident_id: int, note: str, author: str = "") -> Incident:

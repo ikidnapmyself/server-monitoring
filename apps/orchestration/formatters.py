@@ -85,7 +85,8 @@ def derive_headline(ingest_prev: Any, check_prev: Any) -> tuple[str, str, str]:
     """Build (title, severity, lead line) from alert/check data — never from AI.
 
     Severity is the alert severity carried on the ingest result (authoritative);
-    the title prefers the incident title, else summarizes the source. The lead
+    the title prefers the incident title, else summarizes the source, and is
+    prefixed by the incident status once it is no longer open. The lead
     line summarizes what happened so a notification is useful with zero
     recommendations.
     """
@@ -96,12 +97,19 @@ def derive_headline(ingest_prev: Any, check_prev: Any) -> tuple[str, str, str]:
     if severity not in ("critical", "warning", "info"):
         severity = "info"
 
+    # A settled incident is announced by its state, not its severity: an
+    # all-clear titled "[CRITICAL] Disk full" reads as a new fire.
+    status = (ingest.get("status") or "open").lower()
+    prefix = (
+        status.upper() if status in ("acknowledged", "resolved", "closed") else severity.upper()
+    )
+
     source = ingest.get("source") or "monitoring"
     incident_title = ingest.get("incident_title") or ""
     if incident_title:
-        title = f"[{severity.upper()}] {incident_title}"
+        title = f"[{prefix}] {incident_title}"
     else:
-        title = f"[{severity.upper()}] {source}: incident"
+        title = f"[{prefix}] {source}: incident"
 
     parts = []
     created = _as_int(ingest.get("alerts_created"))

@@ -362,6 +362,7 @@ class NotifyExecutor(BaseExecutor):
         return {
             "severity": incident.severity,
             "incident_title": incident.title,
+            "status": incident.status,
             "source": subject.source if subject is not None else "monitoring",
         }
 
