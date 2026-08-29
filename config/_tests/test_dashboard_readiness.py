@@ -298,3 +298,128 @@ def test_a_lane_with_no_channel_still_says_no_channel():
     _lane("mute", ["notify"])
 
     assert "no_channel" in _by_key(build_readiness())["lane_channels"]["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Nodes — a peer going quiet is an alarm; this machine's own row is not
+# ---------------------------------------------------------------------------
+#
+# The registry holds two kinds of row since the hub began registering itself.
+# For a peer, ``last_seen`` means "still reaching this hub", and its going stale
+# is worth waking someone for. For this instance's own row it means only "somebody
+# ran a check here", which on a hub checked by hand over SSH is stale nearly all
+# the time. Counting the two together made a healthy fleet read amber forever —
+# and a panel that is always amber is a panel operators stop reading.
+
+
+def _stale(node, minutes=30):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.alerts.models import Node
+
+    Node.objects.filter(pk=node.pk).update(last_seen=timezone.now() - timedelta(minutes=minutes))
+
+
+@pytest.mark.django_db
+def test_a_stale_self_row_does_not_dim_a_healthy_fleet(settings):
+    """The regression: 8 agents all reporting, hub checked by hand, still ok."""
+    from apps.alerts.models import Node
+
+    settings.INSTANCE_ID = "hub-1"
+    Node.objects.create(instance_id="agent-1")
+    Node.objects.create(instance_id="agent-2")
+    _stale(Node.objects.create(instance_id="hub-1"), minutes=240)
+
+    entry = _by_key(build_readiness())["nodes"]
+    assert entry["status"] == "ok"
+    assert "2/2" in entry["detail"]
+
+
+@pytest.mark.django_db
+def test_a_stale_peer_is_still_a_warning(settings):
+    """The alarm that matters has to survive the fix."""
+    from apps.alerts.models import Node
+
+    settings.INSTANCE_ID = "hub-1"
+    Node.objects.create(instance_id="hub-1")
+    _stale(Node.objects.create(instance_id="agent-stale"))
+
+    assert _by_key(build_readiness())["nodes"]["status"] == "warn"
+
+
+@pytest.mark.django_db
+def test_the_self_row_is_not_counted_in_the_peer_totals(settings):
+    """The numbers in the detail string are peer numbers, self excluded."""
+    from apps.alerts.models import Node
+
+    settings.INSTANCE_ID = "hub-1"
+    Node.objects.create(instance_id="hub-1")
+    Node.objects.create(instance_id="agent-1")
+
+    detail = _by_key(build_readiness())["nodes"]["detail"]
+    assert "1/1" in detail
+    assert "2/2" not in detail
+
+
+@pytest.mark.django_db
+def test_a_standalone_install_is_not_amber(settings):
+    """One machine monitoring itself is a correct configuration, not a fleet in trouble."""
+    from apps.alerts.models import Node
+
+    settings.INSTANCE_ID = "hub-1"
+    _stale(Node.objects.create(instance_id="hub-1"), minutes=240)
+
+    entry = _by_key(build_readiness())["nodes"]
+    assert entry["status"] not in {"warn", "error"}
+    assert "No nodes seen" not in entry["detail"]
+    assert "standalone" in entry["detail"].lower()
+
+
+@pytest.mark.django_db
+def test_a_fresh_standalone_install_is_not_amber_either(settings):
+    """Freshness of the self row changes nothing: it is information, not a verdict."""
+    from apps.alerts.models import Node
+
+    settings.INSTANCE_ID = "hub-1"
+    Node.objects.create(instance_id="hub-1")
+
+    assert _by_key(build_readiness())["nodes"]["status"] not in {"warn", "error"}
+
+
+@pytest.mark.django_db
+def test_the_self_check_age_is_surfaced_alongside_the_peer_verdict(settings):
+    """Information on the card, not an alarm — the operator can see when we last checked."""
+    from apps.alerts.models import Node
+
+    settings.INSTANCE_ID = "hub-1"
+    Node.objects.create(instance_id="agent-1")
+    _stale(Node.objects.create(instance_id="hub-1"), minutes=240)
+
+    assert "self-check" in _by_key(build_readiness())["nodes"]["detail"]
+
+
+@pytest.mark.django_db
+def test_an_empty_registry_is_still_neutral(settings):
+    """Nothing has ever reported here — neither an alarm nor a claim of health."""
+    settings.INSTANCE_ID = "hub-1"
+
+    entry = _by_key(build_readiness())["nodes"]
+    assert entry["status"] == "neutral"
+    assert entry["detail"] == "No nodes seen"
+
+
+@pytest.mark.django_db
+def test_no_peers_seen_recently_still_warns(settings):
+    """Every peer gone quiet keeps its own wording, self row or not."""
+    from apps.alerts.models import Node
+
+    settings.INSTANCE_ID = "hub-1"
+    Node.objects.create(instance_id="hub-1")
+    _stale(Node.objects.create(instance_id="agent-a"))
+    _stale(Node.objects.create(instance_id="agent-b"))
+
+    entry = _by_key(build_readiness())["nodes"]
+    assert entry["status"] == "warn"
+    assert "No node seen in" in entry["detail"]

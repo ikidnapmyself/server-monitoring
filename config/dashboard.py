@@ -38,7 +38,9 @@ def build_readiness():
 
     from django.urls import reverse
     from django.utils import timezone
+    from django.utils.timesince import timesince
 
+    from apps.alerts.identity import local_instance_id
     from apps.alerts.models import Node
     from apps.checkers.models import PreflightRun
     from apps.intelligence.models import IntelligenceProvider
@@ -174,18 +176,41 @@ def build_readiness():
     )
 
     # Nodes
-    total_nodes = Node.objects.count()
-    recent = Node.objects.filter(
-        last_seen__gte=now - timedelta(minutes=NODE_RECENT_MINUTES)
-    ).count()
-    if total_nodes == 0:
+    #
+    # "Seen recently" means two different things in this table, so it is counted
+    # against peers only. For a peer, last_seen is the machine still reaching this
+    # hub, and its going quiet is the alarm this entry exists for. This instance's
+    # own row is upserted by its local check runs, so it says only "somebody ran a
+    # check here" — on a hub checked by hand over SSH that is stale nearly always,
+    # and folding it into the count painted a healthy fleet amber forever. A panel
+    # that is permanently amber is one operators learn to skip, which costs them
+    # the peer that really did stop reporting.
+    #
+    # Us is identified by instance_id, not by last_source: a machine can be
+    # registered by both paths and the last write wins, so last_source names how
+    # the row was touched, never whose row it is.
+    self_id = local_instance_id()
+    self_node = Node.objects.filter(instance_id=self_id).first()
+    peers = Node.objects.exclude(instance_id=self_id)
+    total_nodes = peers.count()
+    recent = peers.filter(last_seen__gte=now - timedelta(minutes=NODE_RECENT_MINUTES)).count()
+    if total_nodes == 0 and self_node is None:
         n_status, detail = "neutral", "No nodes seen"
+    elif total_nodes == 0:
+        # One machine monitoring itself is a complete, correct install — there is
+        # no fleet here to be degraded. Report it, do not warn about it.
+        n_status, detail = "info", "Standalone — this machine only"
     elif recent == total_nodes:
         n_status, detail = "ok", f"{recent}/{total_nodes} seen recently"
     elif recent == 0:
         n_status, detail = "warn", f"No node seen in {NODE_RECENT_MINUTES} min"
     else:
         n_status, detail = "warn", f"{recent}/{total_nodes} seen recently"
+    # Our own last local check, appended as information. The card's detail line is
+    # one small line of text, so it gets an age and nothing more, and it never
+    # moves the status.
+    if self_node is not None:
+        detail = f"{detail} · self-check {timesince(self_node.last_seen, now)} ago"
     out.append(
         {
             "key": "nodes",
