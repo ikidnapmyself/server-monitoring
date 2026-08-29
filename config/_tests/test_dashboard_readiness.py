@@ -1,4 +1,5 @@
 import pytest
+from django.test import override_settings
 from django.urls import reverse
 
 from config.dashboard import build_readiness, get_dashboard_context
@@ -94,7 +95,12 @@ def test_inbox_ok_backlog_stuck():
     assert _by_key(build_readiness())["inbox"]["status"] == "error"
 
 
+# These three describe PEER behaviour, so this instance's own identity is pinned to
+# something no fixture uses. Without it local_instance_id() falls back to the host's
+# name, and the suite would read its own `agent-*` rows as the self row on a machine
+# that happens to be called that.
 @pytest.mark.django_db
+@override_settings(INSTANCE_ID="hub-under-test")
 def test_nodes_neutral_then_recent_ok():
     from apps.alerts.models import Node
 
@@ -116,6 +122,7 @@ def test_readiness_in_dashboard_context():
 
 
 @pytest.mark.django_db
+@override_settings(INSTANCE_ID="hub-under-test")
 def test_nodes_warn_when_stale():
     from datetime import timedelta
 
@@ -137,6 +144,7 @@ def test_preflight_unknown_status_is_neutral():
 
 
 @pytest.mark.django_db
+@override_settings(INSTANCE_ID="hub-under-test")
 def test_nodes_warn_when_some_stale():
     from datetime import timedelta
 
