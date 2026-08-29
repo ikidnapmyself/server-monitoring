@@ -83,9 +83,12 @@ machine's key: `settings.INSTANCE_ID`, falling back to the hostname when unconfi
 **Self-registration.** `CheckAlertBridge` upserts the machine it just checked into the
 `Node` registry (`source="local"`) inside the same transaction, *before* writing alerts —
 `_create_alert` resolves the node from the `instance_id` label and only links to an
-already-registered row. `register_node=False` opts out, and `CheckExecutor` uses it:
-hub-side diagnosis runs the checkers here but labels the alerts with the *subject*
-incident's hostname, so it must not claim that hostname for this machine's registry row.
+already-registered row. `register_node=False` opts out, and `CheckExecutor` sets it from
+the one condition that matters: whether the payload carries a `hostname`. A payload
+hostname means the diagnosis is *about another machine* — the checkers run here but the
+alerts are labelled with the subject incident's hostname — so that run must not claim that
+identity for this machine's registry row. With no payload hostname (the scheduled
+`run_pipeline --checks-only`) the bridge is describing *this* machine, and it registers.
 
 ## The alert write path (one, not two)
 

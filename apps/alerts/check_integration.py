@@ -132,9 +132,11 @@ class CheckAlertBridge:
             trace_id: Correlation ID stamped on alerts + CheckRuns from this run.
             register_node: Register this machine in the Node registry before writing
                 alerts. Decline it when the bridge is not describing the machine it
-                runs on: hub-side diagnosis runs the checkers here but labels the
-                alerts with the subject incident's hostname, so that caller must not
-                claim that hostname for this machine's registry row.
+                runs on: hub-side diagnosis of another machine's incident runs the
+                checkers here but labels the alerts with that incident's hostname, so
+                that caller must not claim that hostname for this machine's registry
+                row. A caller that names no other machine is describing this one and
+                should leave this on.
         """
         self.orchestrator = AlertOrchestrator(
             auto_create_incidents=auto_create_incidents,

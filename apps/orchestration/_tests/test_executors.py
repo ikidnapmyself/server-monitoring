@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass, field
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from apps.alerts.models import Node
 from apps.checkers.checkers import CheckResult as CheckerResult
@@ -479,6 +479,34 @@ class TestCheckExecutorHostnameAndNoIncidents(SimpleTestCase):
             register_node=False,
         )
 
+    def test_check_executor_registers_when_the_payload_names_no_host(self):
+        """No payload hostname means the bridge is describing THIS machine."""
+        mock_bridge = MagicMock()
+        mock_bridge.run_checks_and_alert.return_value = MagicMock(
+            checks_run=1,
+            errors=[],
+            check_results=[],
+            alerts=[],
+        )
+
+        ctx = StageContext(
+            trace_id="t",
+            run_id="r",
+            payload={"checker_names": ["cpu"]},
+        )
+
+        with patch(
+            "apps.alerts.check_integration.CheckAlertBridge",
+            return_value=mock_bridge,
+        ) as mock_cls:
+            CheckExecutor().execute(ctx)
+
+        mock_cls.assert_called_once_with(
+            auto_create_incidents=True,
+            trace_id="t",
+            register_node=True,
+        )
+
 
 class TestCheckExecutorDoesNotRegisterANode(TestCase):
     """Diagnosis runs on the hub but is labelled with the subject's hostname.
@@ -510,6 +538,32 @@ class TestCheckExecutorDoesNotRegisterANode(TestCase):
             CheckExecutor().execute(ctx)
 
         assert Node.objects.count() == 0
+
+    @override_settings(INSTANCE_ID="hub-1")
+    def test_check_stage_registers_the_local_node_without_a_payload_hostname(self):
+        """``run_pipeline --checks-only`` — the scheduled job — names no host.
+
+        The bridge is then describing this machine, so the hub belongs in its own
+        registry: per-node config and the readiness panel both read that row.
+        """
+        checker_class = MagicMock()
+        checker_class.return_value.run.return_value = CheckerResult(
+            status=CheckStatus.CRITICAL,
+            message="hot",
+            metrics={},
+            checker_name="cpu",
+        )
+
+        ctx = StageContext(trace_id="t", run_id="r", payload={"checker_names": ["cpu"]})
+
+        with patch.dict(
+            "apps.alerts.check_integration.CHECKER_REGISTRY",
+            {"cpu": checker_class},
+            clear=True,
+        ):
+            CheckExecutor().execute(ctx)
+
+        assert Node.objects.filter(instance_id="hub-1").exists()
 
 
 @dataclass
