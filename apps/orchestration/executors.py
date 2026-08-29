@@ -157,7 +157,7 @@ class CheckExecutor(BaseExecutor):
 
             bridge = CheckAlertBridge(**bridge_kwargs)
 
-            from apps.checkers.checkers import CHECKER_REGISTRY
+            from apps.checkers.checkers import CHECKER_REGISTRY, CheckStatus
 
             check_names = payload.get("checker_names")
             checker_configs: dict = dict(payload.get("checker_configs") or {})
@@ -186,8 +186,15 @@ class CheckExecutor(BaseExecutor):
             )
 
             result.checks_run = bridge_result.checks_run
-            result.checks_passed = bridge_result.checks_run - len(bridge_result.errors)
-            result.checks_failed = len(bridge_result.errors)
+            # "Passed" means the checker itself ran to a verdict, even when that
+            # verdict is WARNING/CRITICAL. UNKNOWN is reserved for checker errors
+            # and unreachable states, so only UNKNOWN is excluded from passed.
+            result.checks_passed = sum(
+                1 for check in bridge_result.check_results if check.status != CheckStatus.UNKNOWN
+            )
+            result.checks_failed = sum(
+                1 for check in bridge_result.check_results if check.status == CheckStatus.UNKNOWN
+            )
             result.errors = list(bridge_result.errors)
 
             # Subject = the most severe alert THIS batch of checks touched, chosen
