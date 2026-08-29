@@ -424,8 +424,14 @@ runs the checkers, builds the same cluster payload, and records the same PENDING
 network, no `HUB_URL` required. `manage.py process_inbox` then drains it through
 the same ingest, routing, and executors as any node's push.
 
+`--local` is the queued mode, and it only completes where something drains the
+inbox. It is NOT what the installer schedules: `bin/install/cron.sh` uses
+`run_pipeline --checks-only`, which runs the same lanes synchronously and needs
+no drain. Reach for `--local` on a hub already running `process_inbox` that wants
+its own checks queued and retried like a peer's push.
+
 ```bash
-# Scheduled self-monitoring on a hub (needs a running inbox drain)
+# Only where process_inbox runs; otherwise the run sits PENDING forever
 */5 * * * * cd /path/to/project && uv run python manage.py push_to_hub --local >> push.log 2>&1
 
 # Preview without recording anything

@@ -2,8 +2,8 @@
 #
 # Installer module: cron job configuration.
 #
-# Sets up health-check cron, optional auto-update, and a recurring pipeline run
-# (push to the hub when HUB_URL is set, otherwise a local self-check).
+# Sets up health-check cron, optional auto-update, and — for an agent with a
+# HUB_URL — a recurring push to its hub.
 #
 # Source this file from install.sh, or run directly for standalone use.
 #
@@ -116,8 +116,15 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 6. Recurring pipeline run: push to the hub, or record locally
+# 6. Agents only: also push results to the hub
 # ---------------------------------------------------------------------------
+
+# A machine with no HUB_URL needs nothing here. The health-check job above is
+# already its self-monitoring: run_pipeline --checks-only enters the pipeline at
+# CHECK instead of INGEST, then routes and runs the matched lane exactly like
+# webhook traffic, synchronously, draining its own downstream runs. A second
+# local job would produce the same alert on the same schedule, and its PENDING
+# run would need a process_inbox that a cron-only install does not have.
 
 _hub_url=""
 if [ -f "$_ENV_FILE" ]; then
@@ -141,29 +148,8 @@ if [ -n "$_hub_url" ]; then
     else
         export CRON_PUSH_TO_HUB=0
     fi
-    export CRON_LOCAL_CHECK=0
 else
-    # No HUB_URL: this machine records its own checks instead of POSTing them.
-    # The two jobs are mutually exclusive by construction — a machine with a hub
-    # pushes to it, a machine without one keeps the run local (push_to_hub
-    # --local records a PENDING pipeline run on this instance).
     export CRON_PUSH_TO_HUB=0
-    if prompt_yes_no "Schedule local self-checks?" "default_y"; then
-        LOCAL_CMD="cd $PROJECT_DIR && $UV_PATH run python manage.py push_to_hub --local >> ${LOG_DIR:-$PROJECT_DIR/logs}/push.log 2>&1"
-        LOCAL_ID="# server-maintanence local self-check"
-
-        # Remove existing local self-check job if present
-        crontab -l 2>/dev/null | grep -v -F "$LOCAL_ID" | crontab -
-
-        # Add local self-check job on same schedule
-        (crontab -l 2>/dev/null || true; echo "$CRON_SCHEDULE $LOCAL_CMD $LOCAL_ID") | crontab -
-
-        success "Local self-check cron job added"
-        info "Self-check log: ${LOG_DIR:-$PROJECT_DIR/logs}/push.log"
-        export CRON_LOCAL_CHECK=1
-    else
-        export CRON_LOCAL_CHECK=0
-    fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -179,10 +165,6 @@ info "Health checks will run: $CRON_SCHEDULE"
 info "Log file: ${LOG_DIR:-$PROJECT_DIR/logs}/cron.log"
 if [ "${CRON_PUSH_TO_HUB:-0}" = "1" ]; then
     info "Push log: ${LOG_DIR:-$PROJECT_DIR/logs}/push.log"
-fi
-if [ "${CRON_LOCAL_CHECK:-0}" = "1" ]; then
-    info "Local self-checks will run: $CRON_SCHEDULE"
-    info "Self-check log: ${LOG_DIR:-$PROJECT_DIR/logs}/push.log"
 fi
 echo ""
 echo "Useful commands:"

@@ -73,10 +73,12 @@ Two delivery modes, and when each applies:
 | Mode | Command | What happens | Use when |
 |------|---------|--------------|----------|
 | **Inline** | `check_health` | Runs the checkers and records `Alert`/`Incident` rows synchronously. Records by default; `--no-alert` prints only. **Enqueues nothing** | A single machine with no hub, no cron and nobody draining an inbox — you still want alerts and incidents |
-| **Through the inbox** | `push_to_hub --local` | Runs the checkers and records the same `PENDING` `PipelineRun` a remote agent's POST would have recorded, then `process_inbox` drains it through `IngestExecutor` + `ClusterDriver` | You want the hub's own checks to take the full pipeline — routing, analysis, notification — identically to a peer's push |
+| **Scheduled** | `run_pipeline --checks-only` | Enters the pipeline at CHECK instead of INGEST. That stage produces the subject alert, the lane is resolved from it, and the lane's stages run — same routing, same executors as webhook traffic. Synchronous, and it drains its own downstream runs | The default. This is what `bin/install/cron.sh` schedules on every machine |
+| **Through the inbox** | `push_to_hub --local` | Runs the checkers and records the same `PENDING` `PipelineRun` a remote agent's POST would have recorded, for `process_inbox` to drain through `IngestExecutor` + `ClusterDriver` | You want the hub's own checks queued and retried like a peer's push. Needs a running `process_inbox`, so it is not scheduled by the installer |
 
-`bin/install/cron.sh` offers the second job automatically: **push to hub** on a machine
-with a `HUB_URL`, **local self-checks** (`push_to_hub --local`) on one without.
+`bin/install/cron.sh` schedules `run_pipeline --checks-only` on every machine, and adds a
+**push to hub** job only where `HUB_URL` is set. A machine without a hub needs no second
+job: the health check already routes and notifies on its own.
 
 **One identity, both producers.** A checker-origin alert is fingerprinted
 `check:{instance_id}:{checker_name}` under `source: cluster`, with the stable name

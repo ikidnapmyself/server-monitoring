@@ -90,9 +90,9 @@ uv run python manage.py run_pipeline --checks-only --json
 ```
 
 - Logs output to `cron.log` in the project root
-- Offers a second job on the same schedule: **push to hub** (`push_to_hub`) when `HUB_URL`
-  is set, or **local self-checks** (`push_to_hub --local`, which records the run on this
-  machine instead of POSTing it) when it is not. The two are mutually exclusive
+- Offers a second job on the same schedule, **push to hub** (`push_to_hub`), only when
+  `HUB_URL` is set. A machine without one needs no second job: the health-check job is
+  already its self-monitoring, and it runs the full pipeline synchronously
 
 See the cron script in `bin/install.sh cron`.
 

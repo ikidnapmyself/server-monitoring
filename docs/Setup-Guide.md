@@ -236,10 +236,11 @@ no longer re-notifies on every tick.) To keep local checks record-only instead, 
 higher-priority lane in **Orchestration → Pipeline definitions** matching
 `origin is checker_generated` with empty `stages`.
 
-The script then offers a second job on the same schedule. On a machine with a `HUB_URL` it
-is **push to hub**; on a machine without one it is **local self-checks**
-(`push_to_hub --local`), which runs the checkers and records the pipeline run here rather
-than POSTing it anywhere — that is how a hub monitors itself.
+On a machine with a `HUB_URL` the script offers a second job on the same schedule,
+**push to hub**. A machine without one needs nothing more: the health-check job above is
+already its self-monitoring. `run_pipeline --checks-only` enters the pipeline at CHECK
+instead of INGEST, then routes and runs the matched lane exactly like webhook traffic,
+synchronously, draining its own downstream runs.
 
 Verify cron is set up:
 

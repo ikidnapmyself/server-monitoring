@@ -170,18 +170,13 @@ EOF
     assert_success
 }
 
-@test "install/cron.sh offers local self-checks when HUB_URL is unset" {
-    run grep -q "Schedule local self-checks?" "$BIN_DIR/install/cron.sh"
-    assert_success
+@test "install/cron.sh schedules no second self-check job" {
+    # run_pipeline --checks-only above is already this machine's self-monitoring:
+    # it enters the pipeline at CHECK and routes the matched lane synchronously.
+    # A push_to_hub --local job would duplicate that alert on the same schedule
+    # and leave a PENDING run that a cron-only install never drains.
     run grep -q "push_to_hub --local" "$BIN_DIR/install/cron.sh"
-    assert_success
-    run grep -q "CRON_LOCAL_CHECK" "$BIN_DIR/install/cron.sh"
-    assert_success
-}
-
-@test "install/cron.sh local self-check job has its own crontab id" {
-    run grep -q "# server-maintanence local self-check" "$BIN_DIR/install/cron.sh"
-    assert_success
+    assert_failure
 }
 
 # ---------------------------------------------------------------------------
