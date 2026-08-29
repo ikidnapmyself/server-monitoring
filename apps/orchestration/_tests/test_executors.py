@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
+from apps.alerts.check_integration import CheckAlertResult
 from apps.alerts.models import Node
 from apps.checkers.checkers import CheckResult as CheckerResult
 from apps.checkers.checkers import CheckStatus
@@ -379,6 +380,7 @@ class TestCheckExecutorSuccess(SimpleTestCase):
             errors: list = field(default_factory=list)
             alerts: list = field(default_factory=list)
             material_alerts: list = field(default_factory=list)
+            check_results: list = field(default_factory=list)
 
         mock_bridge = MagicMock()
         mock_bridge.run_checks_and_alert.return_value = FakeBridgeResult()
@@ -402,6 +404,7 @@ class TestCheckExecutorSuccess(SimpleTestCase):
             errors: list = field(default_factory=lambda: ["cpu failed"])
             alerts: list = field(default_factory=list)
             material_alerts: list = field(default_factory=list)
+            check_results: list = field(default_factory=list)
 
         mock_bridge = MagicMock()
         mock_bridge.run_checks_and_alert.return_value = FakeBridgeResult()
@@ -416,22 +419,17 @@ class TestCheckExecutorSuccess(SimpleTestCase):
         assert result.checks_passed == 1
 
     def test_check_results_with_structured_checks(self):
-        @dataclass
-        class FakeCheck:
-            name: str = "cpu"
-            status: str = "ok"
-            value: float = 45.2
-
-        @dataclass
-        class FakeBridgeResult:
-            checks_run: int = 1
-            errors: list = field(default_factory=list)
-            alerts: list = field(default_factory=list)
-            material_alerts: list = field(default_factory=list)
-            check_results: list = field(default_factory=lambda: [FakeCheck()])
+        """Executor maps real CheckResult fields into the checks audit list."""
+        cpu_result = CheckerResult(
+            status=CheckStatus.WARNING,
+            message="CPU at 75%",
+            metrics={"cpu_percent": 75.0},
+            checker_name="cpu",
+        )
+        bridge_result = CheckAlertResult(checks_run=1, check_results=[cpu_result])
 
         mock_bridge = MagicMock()
-        mock_bridge.run_checks_and_alert.return_value = FakeBridgeResult()
+        mock_bridge.run_checks_and_alert.return_value = bridge_result
 
         with patch(
             "apps.alerts.check_integration.CheckAlertBridge",
@@ -441,7 +439,9 @@ class TestCheckExecutorSuccess(SimpleTestCase):
 
         assert len(result.checks) == 1
         assert result.checks[0]["name"] == "cpu"
-        assert result.checks[0]["status"] == "ok"
+        assert result.checks[0]["status"] == "warning"
+        assert result.checks[0]["message"] == "CPU at 75%"
+        assert result.checks[0]["metrics"] == {"cpu_percent": 75.0}
 
 
 class TestCheckExecutorHostnameAndNoIncidents(SimpleTestCase):

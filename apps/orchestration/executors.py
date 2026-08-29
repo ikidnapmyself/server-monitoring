@@ -207,17 +207,16 @@ class CheckExecutor(BaseExecutor):
 
             result.material_incident_ids = material_incident_ids(bridge_result.material_alerts)
 
-            # Store checks in structured format
-            result.checks = []
-            if hasattr(bridge_result, "check_results"):
-                for check in bridge_result.check_results:
-                    result.checks.append(
-                        {
-                            "name": getattr(check, "name", "unknown"),
-                            "status": getattr(check, "status", "unknown"),
-                            "value": getattr(check, "value", None),
-                        }
-                    )
+            # Store checks in structured format for the audit trail.
+            result.checks = [
+                {
+                    "name": check.checker_name,
+                    "status": check.status.value,
+                    "message": check.message,
+                    "metrics": check.metrics,
+                }
+                for check in bridge_result.check_results
+            ]
 
             # Generate output reference
             result.checker_output_ref = f"checker:{ctx.trace_id}:{ctx.run_id}:check"

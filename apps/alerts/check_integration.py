@@ -78,6 +78,8 @@ class CheckAlertResult:
     alerts: list[Alert] = field(default_factory=list)
     # The subset of `alerts` whose write was material — see apps.alerts.materiality.
     material_alerts: list[Alert] = field(default_factory=list)
+    # The raw CheckResult objects, in checker order, for the audit trail.
+    check_results: list[CheckResult] = field(default_factory=list)
 
     @property
     def has_errors(self) -> bool:
@@ -93,6 +95,7 @@ class CheckAlertResult:
         self.checks_run += other.checks_run
         self.alerts.extend(other.alerts)
         self.material_alerts.extend(other.material_alerts)
+        self.check_results.extend(other.check_results)
         self.errors.extend(other.errors)
 
 
@@ -353,6 +356,7 @@ class CheckAlertBridge:
             aggregate.incidents_updated += processing_result.incidents_updated
             aggregate.alerts.extend(processing_result.alerts)
             aggregate.material_alerts.extend(processing_result.material_alerts)
+            aggregate.check_results.append(check_result)
 
             if processing_result.has_errors:
                 aggregate.errors.extend(processing_result.errors)
