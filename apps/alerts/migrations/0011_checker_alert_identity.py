@@ -12,12 +12,17 @@ Without this backfill the first push after the upgrade would miss the legacy row
 on both halves of the dedup pair and open a brand-new Alert (and Incident)
 beside it, orphaning the existing history.
 
+A row parked under a ``:legacy:<pk>`` fingerprint is also resolved: that key is
+one no producer emits, so nothing would ever look the row up again to close it,
+and its incident would stay open for good.
+
 Every checker-origin row carries the labels needed to recompute the new
 fingerprint, so the rewrite is derived from data already on the row rather than
 guessed. Rows with no ``checker`` label are left exactly as they are.
 """
 
 from django.db import migrations
+from django.utils import timezone
 
 from apps.alerts.identity import local_instance_id, new_fingerprint_for
 
@@ -47,17 +52,29 @@ def forward(apps, schema_editor):
         )
         if new is None:
             continue
+        fields = ["fingerprint", "source"]
         if new in seen:
             # Two legacy rows can collapse onto one identity (the same machine
             # seen by both a push and a local bridge run). The newest keeps the
             # identity; older ones are parked so two histories never silently
             # merge into a single alert.
             new = f"{new}:legacy:{alert.pk}"
+            # A parked fingerprint is a value no producer will ever emit again, so
+            # ``_process_alert``'s ``(fingerprint, source)`` lookup can never find
+            # this row to resolve it. Left firing it would hold its incident open
+            # forever on every machine that had both a push row and a bridge row.
+            # Closing it here is the only chance; ``_check_incident_resolution``
+            # then closes the incident once all its alerts are resolved.
+            # Values are set directly: a historical model carries fields, not the
+            # AlertStatus choices class or ``resolve()``.
+            alert.status = "resolved"
+            alert.ended_at = timezone.now()
+            fields += ["status", "ended_at"]
         else:
             seen.add(new)
         alert.fingerprint = new
         alert.source = "cluster"
-        alert.save(update_fields=["fingerprint", "source"])
+        alert.save(update_fields=fields)
 
 
 def reverse(apps, schema_editor):

@@ -198,6 +198,40 @@ class ForwardMigrationTests(TestCase):
         self.assertEqual(older.fingerprint, f"check:web-01:cpu:legacy:{older.pk}")
         self.assertEqual(older.source, "cluster")
 
+    def test_a_parked_row_is_resolved_so_it_cannot_hang_open(self):
+        """A parked fingerprint is a value no producer will ever emit again.
+
+        _process_alert looks a row up by ``(fingerprint, source)``, so nothing
+        would ever find a parked row to resolve it, and its incident would stay
+        open forever. Parking therefore closes the row on the way past;
+        _check_incident_resolution closes the incident once all its alerts are.
+        """
+        older = Alert.objects.create(
+            fingerprint="cpu-web-01",
+            source="cluster",
+            status="firing",
+            name="CPU high",
+            started_at=timezone.now(),
+            labels={"checker": "cpu", "hostname": "web-01"},
+        )
+        newer = Alert.objects.create(
+            fingerprint="0123456789abcdef",
+            source="server-checkers",
+            status="firing",
+            name="CPU high",
+            started_at=timezone.now(),
+            labels={"checker": "cpu", "instance_id": "web-01"},
+        )
+        Alert.objects.filter(pk=older.pk).update(received_at=_earlier(older))
+        self._forward()
+        older.refresh_from_db()
+        newer.refresh_from_db()
+        self.assertEqual(older.status, "resolved")
+        self.assertIsNotNone(older.ended_at)
+        # The winner keeps the identity and stays exactly as it was.
+        self.assertEqual(newer.status, "firing")
+        self.assertIsNone(newer.ended_at)
+
 
 def _earlier(alert):
     from datetime import timedelta

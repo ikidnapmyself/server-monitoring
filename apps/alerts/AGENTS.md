@@ -72,7 +72,8 @@ machine's key: `settings.INSTANCE_ID`, falling back to the hostname when unconfi
   **both producers use `source = "cluster"`**: `CheckAlertBridge.SOURCE_NAME` (it used
   to be `server-checkers`) and the payload `push_to_hub` builds. Migration
   `apps/alerts/migrations/0011_checker_alert_identity.py` rewrote existing rows onto
-  this identity, parking collisions under `:legacy:<pk>` so two histories never merge.
+  this identity, parking collisions under `:legacy:<pk>` so two histories never merge — and
+  resolving each parked row, since no producer will ever emit that key again to close it.
 - **The alert name is deliberately stable:** `f"{checker_name.upper()} Check Alert"`,
   written identically by the bridge and by `push_to_hub._result_to_alert`. Incident
   grouping matches on `alert.name` (`_find_open_incident`, `apps/alerts/services.py:517`),
