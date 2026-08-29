@@ -849,11 +849,74 @@ def test_retire_forwards_is_idempotent():
 
 
 @pytest.mark.django_db
+def test_retire_forwards_says_an_inactive_row_was_already_off(apps_logging_propagates, caplog):
+    """Not "it no longer carries the seeded shape" — that would be untrue."""
+    _seeded_hub_lane(is_active=False)
+    with caplog.at_level(logging.INFO, logger=retire_migration.logger.name):
+        retire_migration.forwards(django_apps, None)
+    messages = [r.getMessage() for r in caplog.records if r.name == retire_migration.logger.name]
+    assert messages == ["Left pipeline definition 'hub-self-check' alone: it is already inactive."]
+
+
+@pytest.mark.django_db
+def test_retire_forwards_marks_the_row_it_switched_off():
+    """Shape cannot say WHO turned a lane off, so forwards records that it did."""
+    lane = _seeded_hub_lane()
+    retire_migration.forwards(django_apps, None)
+    lane.refresh_from_db()
+    assert lane.tags[retire_migration.RETIRED_BY_KEY] == retire_migration.RETIRED_BY
+
+
+@pytest.mark.django_db
+def test_retire_forwards_keeps_the_tags_already_on_the_row():
+    lane = _seeded_hub_lane(tags={"seed_shape": "record-only"})
+    retire_migration.forwards(django_apps, None)
+    lane.refresh_from_db()
+    assert lane.tags["seed_shape"] == "record-only"
+
+
+@pytest.mark.django_db
 def test_retire_backwards_reactivates_the_row_it_switched_off():
-    lane = _seeded_hub_lane(is_active=False)
+    lane = _seeded_hub_lane()
+    retire_migration.forwards(django_apps, None)
     retire_migration.backwards(django_apps, None)
     lane.refresh_from_db()
     assert lane.is_active is True
+    assert retire_migration.RETIRED_BY_KEY not in lane.tags
+
+
+@pytest.mark.django_db
+def test_retire_backwards_leaves_an_operator_disabled_row_off(apps_logging_propagates, caplog):
+    """An operator may have disabled the lane themselves before the migration ran.
+
+    It carries no marker, so a rollback must not overrule their decision.
+    """
+    lane = _seeded_hub_lane(is_active=False)
+    with caplog.at_level(logging.INFO, logger=retire_migration.logger.name):
+        retire_migration.backwards(django_apps, None)
+    lane.refresh_from_db()
+    assert lane.is_active is False
+    assert [r.args for r in caplog.records if r.name == retire_migration.logger.name] == [
+        ("hub-self-check",)
+    ]
+
+
+@pytest.mark.django_db
+def test_retire_backwards_ignores_junk_in_tags():
+    """``tags`` is a JSONField: a fixture can persist a list there."""
+    lane = _seeded_hub_lane(is_active=False, tags=["junk"])
+    retire_migration.backwards(django_apps, None)
+    lane.refresh_from_db()
+    assert lane.is_active is False
+
+
+@pytest.mark.django_db
+def test_retire_backwards_is_a_no_op_when_the_row_was_deleted():
+    from apps.orchestration.models import PipelineDefinition
+
+    PipelineDefinition.objects.filter(name="hub-self-check").delete()
+    retire_migration.backwards(django_apps, None)
+    assert not PipelineDefinition.objects.filter(name="hub-self-check").exists()
 
 
 @pytest.mark.django_db

@@ -36,6 +36,15 @@ logger = logging.getLogger(__name__)
 
 NAME = "hub-self-check"
 
+#: Provenance, written into ``PipelineDefinition.tags`` — the same mechanism
+#: ``apps.orchestration.seeding`` uses for ``SEED_SHAPE_KEY``, and for the same
+#: reason: shape cannot say WHO turned a lane off. An operator may have disabled
+#: this lane themselves before the migration ran, and ``backwards`` must not
+#: overrule that decision. Only a row carrying this marker was switched off by
+#: ``forwards``, so only that row is switched back on (and the marker cleared).
+RETIRED_BY_KEY = "retired_by"
+RETIRED_BY = "0018_retire_hub_self_check"
+
 #: The shape ``0014``/``0017`` seeded. Anything else is an operator's row.
 SEEDED_SHAPE = {
     "match": [{"field": "origin", "op": "is", "value": "checker_generated"}],
@@ -44,15 +53,25 @@ SEEDED_SHAPE = {
 }
 
 
-def _seeded_row(pipeline_model, is_active):
-    return pipeline_model.objects.filter(name=NAME, is_active=is_active, **SEEDED_SHAPE).first()
+def _tags(row) -> dict:
+    """``tags`` as a dict. It is a JSONField, so a fixture can persist a list."""
+    return dict(row.tags) if isinstance(row.tags, dict) else {}
 
 
 def forwards(apps, schema_editor):
     pipeline_model = apps.get_model("orchestration", "PipelineDefinition")
     if not pipeline_model.objects.filter(name=NAME).exists():
         return
-    row = _seeded_row(pipeline_model, is_active=True)
+    if not pipeline_model.objects.filter(name=NAME, is_active=True).exists():
+        # Already off — by an operator, or by an earlier run of this migration.
+        # Either way there is nothing to retire, and no marker is written: this
+        # run did not switch it off, so it has no claim to switch it back on.
+        logger.info(
+            "Left pipeline definition %r alone: it is already inactive.",
+            NAME,
+        )
+        return
+    row = pipeline_model.objects.filter(name=NAME, is_active=True, **SEEDED_SHAPE).first()
     if row is None:
         logger.info(
             "Kept pipeline definition %r: it no longer carries the seeded shape, "
@@ -61,17 +80,33 @@ def forwards(apps, schema_editor):
         )
         return
     row.is_active = False
-    row.save(update_fields=["is_active"])
+    row.tags = {**_tags(row), RETIRED_BY_KEY: RETIRED_BY}
+    row.save(update_fields=["is_active", "tags"])
 
 
 def backwards(apps, schema_editor):
-    """Reactivate the row, so long as it is still the one forwards switched off."""
+    """Reactivate the row only if THIS migration is the one that switched it off.
+
+    The marker is the whole test. Matching on shape alone could not tell a row
+    ``forwards`` deactivated from one an operator disabled themselves, and a
+    rollback that silently re-enabled a lane the operator had turned off would
+    overrule them.
+    """
     pipeline_model = apps.get_model("orchestration", "PipelineDefinition")
-    row = _seeded_row(pipeline_model, is_active=False)
+    row = pipeline_model.objects.filter(name=NAME, is_active=False).first()
     if row is None:
         return
+    tags = _tags(row)
+    if tags.pop(RETIRED_BY_KEY, None) != RETIRED_BY:
+        logger.info(
+            "Left pipeline definition %r deactivated: this migration did not "
+            "switch it off, so re-enabling it would overrule an operator.",
+            NAME,
+        )
+        return
     row.is_active = True
-    row.save(update_fields=["is_active"])
+    row.tags = tags
+    row.save(update_fields=["is_active", "tags"])
 
 
 class Migration(migrations.Migration):
