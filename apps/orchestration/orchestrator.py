@@ -252,27 +252,17 @@ class PipelineOrchestrator:
 
         result = self._execute_pipeline(pipeline_run, payload)
 
-        # Synchronous callers (manage.py run_pipeline, CLI diagnostics, tests)
-        # expect one call to carry the whole pipeline through, and after fan-out
-        # everything downstream of the entry stage lives in the children. Drain the
-        # ones this run enqueued, and only those: execute_run() deliberately does
-        # not, because process_inbox is already the drain and would recurse.
-        # Claimed the same way process_inbox claims, so a concurrent drain can
-        # never double-execute a child — but executed through ``self`` rather than
-        # inbox.drain_run's fresh orchestrator, so the caller's retry/backoff
-        # settings and executors apply to the children as well as to the push.
-        from apps.orchestration.inbox import claim
+        # Drain the children this run enqueued, and only those, through ``self``
+        # so the caller's retry/backoff settings and executors apply to them too.
+        # See ``inbox.drain_runs`` for why this is not the queue-sweeping drain.
+        from apps.orchestration.inbox import drain_runs
 
-        for child_pk in (
+        drain_runs(
             PipelineRun.objects.filter(
                 trace_id=pipeline_run.trace_id, status=PipelineStatus.PENDING
-            )
-            .exclude(run_id=pipeline_run.run_id)
-            .values_list("pk", flat=True)
-        ):
-            if claim(child_pk):
-                child = PipelineRun.objects.get(pk=child_pk)
-                self.execute_run(child)
+            ).exclude(run_id=pipeline_run.run_id),
+            orchestrator=self,
+        )
 
         return result
 

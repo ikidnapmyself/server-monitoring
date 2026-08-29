@@ -146,3 +146,56 @@ def test_enqueue_incident_runs_empty_list_enqueues_nothing():
 
     assert inbox.enqueue_incident_runs([], trace_id="t", origin=PipelineOrigin.MANUAL) == []
     assert PipelineRun.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_drain_runs_executes_exactly_the_runs_given():
+    """Only the listed runs are drained; an unlisted PENDING run is left alone."""
+    target = _run("target")
+    bystander = _run("bystander")
+    with patch("apps.orchestration.inbox.PipelineOrchestrator.execute_run") as mock_exec:
+        processed = inbox.drain_runs([target])
+    assert processed == 1
+    assert [call.args[0].run_id for call in mock_exec.call_args_list] == ["target"]
+    bystander.refresh_from_db()
+    assert bystander.status == PipelineStatus.PENDING
+    target.refresh_from_db()
+    assert target.status == PipelineStatus.PROCESSING
+
+
+@pytest.mark.django_db
+def test_drain_runs_skips_a_run_it_cannot_claim():
+    """A run a concurrent drain already claimed is skipped, not executed twice."""
+    run = _run("contended")
+    assert inbox.claim(run.pk) is True  # the concurrent drain wins first
+    with patch("apps.orchestration.inbox.PipelineOrchestrator.execute_run") as mock_exec:
+        processed = inbox.drain_runs([run])
+    assert processed == 0
+    mock_exec.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_drain_runs_uses_the_orchestrator_it_is_given():
+    """A caller's own orchestrator (its retry/backoff settings) executes the runs."""
+    run = _run("injected")
+    executed = []
+
+    class _Recorder:
+        def execute_run(self, pipeline_run):
+            executed.append(pipeline_run.run_id)
+
+    with patch("apps.orchestration.inbox.PipelineOrchestrator.execute_run") as mock_exec:
+        processed = inbox.drain_runs([run], orchestrator=_Recorder())
+    assert processed == 1
+    assert executed == ["injected"]
+    mock_exec.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_drain_runs_returns_the_number_actually_executed():
+    """Claimed runs count; ones lost to a concurrent drain do not."""
+    won = _run("won")
+    lost = _run("lost")
+    inbox.claim(lost.pk)
+    with patch("apps.orchestration.inbox.PipelineOrchestrator.execute_run"):
+        assert inbox.drain_runs([won, lost]) == 1
