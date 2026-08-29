@@ -380,7 +380,28 @@ class TestCheckExecutorSuccess(SimpleTestCase):
             errors: list = field(default_factory=list)
             alerts: list = field(default_factory=list)
             material_alerts: list = field(default_factory=list)
-            check_results: list = field(default_factory=list)
+            check_results: list = field(
+                default_factory=lambda: [
+                    CheckerResult(
+                        status=CheckStatus.OK,
+                        message="ok",
+                        metrics={},
+                        checker_name="cpu",
+                    ),
+                    CheckerResult(
+                        status=CheckStatus.WARNING,
+                        message="warn",
+                        metrics={},
+                        checker_name="memory",
+                    ),
+                    CheckerResult(
+                        status=CheckStatus.CRITICAL,
+                        message="crit",
+                        metrics={},
+                        checker_name="disk",
+                    ),
+                ]
+            )
 
         mock_bridge = MagicMock()
         mock_bridge.run_checks_and_alert.return_value = FakeBridgeResult()
@@ -397,14 +418,23 @@ class TestCheckExecutorSuccess(SimpleTestCase):
         assert result.checks_failed == 0
         assert result.checker_output_ref == "checker:trace-abc:run-xyz:check"
 
-    def test_check_with_errors(self):
+    def test_alert_write_error_does_not_reduce_checks_passed(self):
         @dataclass
         class FakeBridgeResult:
-            checks_run: int = 2
-            errors: list = field(default_factory=lambda: ["cpu failed"])
+            checks_run: int = 1
+            errors: list = field(default_factory=lambda: ["failed to write alert row"])
             alerts: list = field(default_factory=list)
             material_alerts: list = field(default_factory=list)
-            check_results: list = field(default_factory=list)
+            check_results: list = field(
+                default_factory=lambda: [
+                    CheckerResult(
+                        status=CheckStatus.OK,
+                        message="OK",
+                        metrics={},
+                        checker_name="cpu",
+                    )
+                ]
+            )
 
         mock_bridge = MagicMock()
         mock_bridge.run_checks_and_alert.return_value = FakeBridgeResult()
@@ -417,6 +447,81 @@ class TestCheckExecutorSuccess(SimpleTestCase):
 
         assert result.checks_failed == 1
         assert result.checks_passed == 1
+
+    def test_unknown_result_does_not_count_as_passed(self):
+        bridge_result = CheckAlertResult(
+            checks_run=1,
+            check_results=[
+                CheckerResult(
+                    status=CheckStatus.UNKNOWN,
+                    message="checker blew up",
+                    metrics={},
+                    checker_name="disk",
+                )
+            ],
+        )
+
+        mock_bridge = MagicMock()
+        mock_bridge.run_checks_and_alert.return_value = bridge_result
+
+        with patch(
+            "apps.alerts.check_integration.CheckAlertBridge",
+            return_value=mock_bridge,
+        ):
+            result = CheckExecutor().execute(_ctx())
+
+        assert result.checks_run == 1
+        assert result.checks_passed == 0
+
+    def test_warning_and_critical_results_count_as_passed(self):
+        bridge_result = CheckAlertResult(
+            checks_run=2,
+            check_results=[
+                CheckerResult(
+                    status=CheckStatus.WARNING,
+                    message="warm",
+                    metrics={},
+                    checker_name="cpu",
+                ),
+                CheckerResult(
+                    status=CheckStatus.CRITICAL,
+                    message="hot",
+                    metrics={},
+                    checker_name="disk",
+                ),
+            ],
+        )
+
+        mock_bridge = MagicMock()
+        mock_bridge.run_checks_and_alert.return_value = bridge_result
+
+        with patch(
+            "apps.alerts.check_integration.CheckAlertBridge",
+            return_value=mock_bridge,
+        ):
+            result = CheckExecutor().execute(_ctx())
+
+        assert result.checks_run == 2
+        assert result.checks_passed == 2
+
+    def test_constructor_failure_cannot_make_checks_passed_negative(self):
+        bridge_result = CheckAlertResult(
+            checks_run=0,
+            errors=["unknown checker: nope"],
+            check_results=[],
+        )
+
+        mock_bridge = MagicMock()
+        mock_bridge.run_checks_and_alert.return_value = bridge_result
+
+        with patch(
+            "apps.alerts.check_integration.CheckAlertBridge",
+            return_value=mock_bridge,
+        ):
+            result = CheckExecutor().execute(_ctx())
+
+        assert result.checks_run == 0
+        assert result.checks_passed == 0
 
     def test_check_results_with_structured_checks(self):
         """Executor maps real CheckResult fields into the checks audit list."""
