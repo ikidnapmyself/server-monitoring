@@ -133,18 +133,30 @@ class Command(BaseCommand):
         single-machine install work with no hub, no cron, and nobody draining an
         inbox. A missing or unmigrated database must not break a health check, so
         failures are reported on stderr and swallowed — stderr so --json output on
-        stdout stays parseable. The traceback is logged too: the stderr line alone
-        would leave a real bridge bug undiagnosable in the field.
+        stdout stays parseable. They are logged too: the stderr line alone would
+        leave a real bridge bug undiagnosable in the field.
+
+        Failures arrive by two routes and both must be reported. The bridge already
+        catches everything the alert write raises and folds the message into the
+        returned ``CheckAlertResult.errors`` — that is the route the missing-table
+        case actually takes, so ignoring the return value would make this reporting
+        dead code. The ``try`` still guards what happens outside the bridge: the
+        import and the constructor.
         """
         # Imported here: apps.checkers must not hard-depend on apps.alerts at
         # import time.
         from apps.alerts.check_integration import CheckAlertBridge
 
         try:
-            CheckAlertBridge().process_check_results(results)
+            result = CheckAlertBridge().process_check_results(results)
         except Exception as exc:  # noqa: BLE001 - a health check must still print
             logger.exception("Alert recording failed")
             self.stderr.write(f"Alert recording skipped: {exc}")
+            return
+
+        for error in result.errors:
+            logger.error("Alert recording failed: %s", error)
+            self.stderr.write(f"Alert recording skipped: {error}")
 
     def _list_checkers(self):
         self.stdout.write(self.style.SUCCESS("Available checkers:\n"))

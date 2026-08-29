@@ -385,39 +385,46 @@ class CheckHealthAlertTests(TestCase):
         self._run_firing_cpu()
         self.assertTrue(Node.objects.filter(instance_id="solo-mac").exists())
 
+    # The bridge swallows its own failures: _process_parsed_payload catches every
+    # exception and folds the message into the returned CheckAlertResult.errors.
+    # So these patch a seam INSIDE the bridge (the alert write itself) rather than
+    # the bridge call, which production never makes raise.
+    ALERT_WRITE_PATH = "apps.alerts.services.AlertOrchestrator._process_alert"
+
     def test_alert_write_failure_does_not_change_exit_code_or_output(self):
         """An unmigrated or missing database must not break a health check."""
-        with patch(
-            "apps.alerts.check_integration.CheckAlertBridge.process_check_results",
-            side_effect=OperationalError("no such table"),
-        ):
+        with patch(self.ALERT_WRITE_PATH, side_effect=OperationalError("no such table")):
             stdout, _ = self._run_firing_cpu()
         self.assertIn("CPU at 99%", stdout)
         self.assertFalse(Alert.objects.exists())
 
-    def test_alert_write_failure_is_logged_with_a_traceback(self):
+    def test_alert_write_failure_is_logged(self):
         """The stderr line alone would leave a real bridge bug undiagnosable."""
-        with patch(
-            "apps.alerts.check_integration.CheckAlertBridge.process_check_results",
-            side_effect=OperationalError("no such table"),
-        ):
+        with patch(self.ALERT_WRITE_PATH, side_effect=OperationalError("no such table")):
             with self.assertLogs(
                 "apps.checkers.management.commands.check_health", level="ERROR"
             ) as logs:
                 self._run_firing_cpu()
         self.assertIn("Alert recording failed", logs.output[0])
-        self.assertIn("OperationalError", logs.output[0])
+        self.assertIn("no such table", logs.output[0])
 
     def test_alert_write_failure_reports_on_stderr_not_stdout(self):
         """So --json output on stdout stays parseable."""
-        with patch(
-            "apps.alerts.check_integration.CheckAlertBridge.process_check_results",
-            side_effect=OperationalError("no such table"),
-        ):
+        with patch(self.ALERT_WRITE_PATH, side_effect=OperationalError("no such table")):
             stdout, stderr = self._run_firing_cpu()
         self.assertIn("Alert recording skipped", stderr)
         self.assertIn("no such table", stderr)
         self.assertNotIn("Alert recording skipped", stdout)
+
+    def test_a_raised_bridge_failure_is_still_reported(self):
+        """The try/except still guards the import and the constructor."""
+        with patch(
+            "apps.alerts.check_integration.CheckAlertBridge.process_check_results",
+            side_effect=OperationalError("bridge exploded"),
+        ):
+            _, stderr = self._run_firing_cpu()
+        self.assertIn("Alert recording skipped", stderr)
+        self.assertIn("bridge exploded", stderr)
 
 
 class RunCheckCommandTests(TestCase):
