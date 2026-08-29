@@ -149,7 +149,11 @@ class CheckExecutor(BaseExecutor):
             # local registry. With no payload hostname the bridge is describing THIS
             # machine — the scheduled ``run_pipeline --checks-only`` case — and the
             # hub belongs in its own Node registry like any other node.
-            bridge_kwargs["register_node"] = hostname is None
+            # ``not hostname`` and not ``is None``: it is the same predicate line
+            # 139 uses to decide whether to hand the bridge a hostname at all, so a
+            # blank one cannot leave the bridge describing this machine while
+            # refusing to register it.
+            bridge_kwargs["register_node"] = not hostname
 
             bridge = CheckAlertBridge(**bridge_kwargs)
 

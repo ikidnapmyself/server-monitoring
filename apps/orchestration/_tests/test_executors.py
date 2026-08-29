@@ -507,6 +507,30 @@ class TestCheckExecutorHostnameAndNoIncidents(SimpleTestCase):
             register_node=True,
         )
 
+    def test_check_executor_registers_when_the_payload_hostname_is_blank(self):
+        """A blank hostname is no hostname: the bridge falls back to this machine."""
+        mock_bridge = MagicMock()
+        mock_bridge.run_checks_and_alert.return_value = MagicMock(
+            checks_run=1,
+            errors=[],
+            check_results=[],
+            alerts=[],
+        )
+
+        ctx = StageContext(
+            trace_id="t",
+            run_id="r",
+            payload={"hostname": "", "checker_names": ["cpu"]},
+        )
+
+        with patch(
+            "apps.alerts.check_integration.CheckAlertBridge",
+            return_value=mock_bridge,
+        ) as mock_cls:
+            CheckExecutor().execute(ctx)
+
+        self.assertTrue(mock_cls.call_args.kwargs["register_node"])
+
 
 class TestCheckExecutorDoesNotRegisterANode(TestCase):
     """Diagnosis runs on the hub but is labelled with the subject's hostname.
