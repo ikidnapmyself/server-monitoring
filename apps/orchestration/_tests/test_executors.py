@@ -445,7 +445,7 @@ class TestCheckExecutorSuccess(SimpleTestCase):
         ):
             result = CheckExecutor().execute(_ctx())
 
-        assert result.checks_failed == 1
+        assert result.checks_failed == 0
         assert result.checks_passed == 1
 
     def test_unknown_result_does_not_count_as_passed(self):
@@ -472,6 +472,7 @@ class TestCheckExecutorSuccess(SimpleTestCase):
 
         assert result.checks_run == 1
         assert result.checks_passed == 0
+        assert result.checks_failed == 1
 
     def test_warning_and_critical_results_count_as_passed(self):
         bridge_result = CheckAlertResult(

@@ -192,7 +192,9 @@ class CheckExecutor(BaseExecutor):
             result.checks_passed = sum(
                 1 for check in bridge_result.check_results if check.status != CheckStatus.UNKNOWN
             )
-            result.checks_failed = len(bridge_result.errors)
+            result.checks_failed = sum(
+                1 for check in bridge_result.check_results if check.status == CheckStatus.UNKNOWN
+            )
             result.errors = list(bridge_result.errors)
 
             # Subject = the most severe alert THIS batch of checks touched, chosen
