@@ -774,6 +774,17 @@ class PushToHubLocalTests(TestCase):
         call_command("push_to_hub", "--local", "--checkers", "cpu", stdout=StringIO())
         self.assertTrue(Node.objects.filter(instance_id="hub-1").exists())
 
+    def test_local_registration_is_marked_local_not_cluster(self):
+        """``last_source`` tells fleet from self, so --local must not say cluster.
+
+        ``cluster`` means the row arrived by push from another machine. A hub
+        running both --local and check_health would otherwise flip the field
+        between the two every run, and anything reading it would be wrong half
+        the time.
+        """
+        call_command("push_to_hub", "--local", "--checkers", "cpu", stdout=StringIO())
+        self.assertEqual(Node.objects.get(instance_id="hub-1").last_source, "local")
+
     def test_local_needs_no_hub_url(self):
         """A hub checking itself has no hub to point at."""
         call_command("push_to_hub", "--local", "--checkers", "cpu", stdout=StringIO())

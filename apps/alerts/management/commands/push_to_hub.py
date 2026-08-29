@@ -311,7 +311,9 @@ class Command(BaseCommand):
 
         # A push proves this machine is alive, so the Node registry updates now
         # rather than waiting for the drain — exactly as the webhook view does.
-        register_pushing_node(payload)
+        # Recorded as ``local``, not ``cluster``: this payload never left the
+        # machine, and last_source is what tells a hub's own row from its fleet's.
+        register_pushing_node(payload, source="local")
         run = PipelineOrchestrator().start_pipeline(
             payload={"driver": "cluster", "payload": payload},
             source="cluster",
