@@ -1586,3 +1586,210 @@ class NoIncidentsIsADiagnosticRunTests(TestCase):
             PipelineStage.NOTIFY,
         ]
         assert self.bridge_kwargs["auto_create_incidents"] is True
+
+
+class NoNotifyScopesTheRunTests(TestCase):
+    """``--no-notify`` runs the matched lane without its NOTIFY stage.
+
+    The operator SSHes into a node and looks at it in real time: they want the
+    lane's ANALYZE (the local provider's suggestions) and they want to page
+    nobody. ``--no-incidents`` cannot express that — it switches routing off
+    entirely, which costs ANALYZE too.
+
+    Like ``checks_only`` and ``no_incidents`` this is an invocation flag scoping
+    one run: the lane table is untouched, and the same traffic without the flag
+    notifies exactly as before.
+
+    ``CheckAlertBridge`` is stubbed, so the real CHECKER_REGISTRY never runs.
+    """
+
+    def setUp(self):
+        self.incident = Incident.objects.create(title="Disk 95%", severity="critical")
+        self.alert = Alert.objects.create(
+            fingerprint="fp-look",
+            source="cluster",
+            name="DISK Check Alert",
+            severity="critical",
+            started_at=timezone.now(),
+            incident=self.incident,
+        )
+        self.calls: list[PipelineStage] = []
+        clear_lanes()
+        from apps.notify.models import NotificationChannel
+
+        # A lane that lists NOTIFY must name a channel or the run fails
+        # ``no_channel``; the driver's send is stubbed in ``_run``.
+        self.lane = PipelineDefinition.objects.create(
+            name="paging-lane",
+            priority=1,
+            match=[{"field": "origin", "op": "is", "value": "checker_generated"}],
+            stages=["analyze", "notify"],
+            channel=NotificationChannel.objects.create(
+                name="oncall", driver="generic", is_active=True, config={}
+            ),
+        )
+
+    def _run(self, **flags):
+        outer = self
+
+        class _FakeBridge:
+            def __init__(self, **kwargs):
+                outer.bridge_kwargs = kwargs
+
+            def run_checks_and_alert(self, **kwargs):
+                from apps.alerts.check_integration import CheckAlertResult
+
+                return CheckAlertResult(
+                    checks_run=1,
+                    alerts_created=1,
+                    alerts=[outer.alert],
+                    material_alerts=[outer.alert],
+                )
+
+        class _Recording:
+            def __init__(self, stage, inner):
+                self.stage, self.inner = stage, inner
+
+            def execute(self, ctx):
+                outer.calls.append(self.stage)
+                return self.inner.execute(ctx)
+
+        orchestrator = PipelineOrchestrator()
+        orchestrator.executors = {
+            stage: _Recording(stage, executor) for stage, executor in orchestrator.executors.items()
+        }
+        payload = {"checks_only": True, "checker_names": ["cpu"], **flags}
+        # Every outbound call is stubbed UNCONDITIONALLY, including on the runs
+        # that must never reach NOTIFY: a test must not depend on the code under
+        # test to keep it off the network. The assertion that NOTIFY did not run
+        # is ``self.calls`` and the absence of deliveries, not the absence of a stub.
+        with (
+            patch("apps.alerts.check_integration.CheckAlertBridge", _FakeBridge),
+            patch(
+                "apps.orchestration.executors.AnalyzeExecutor.execute",
+                return_value=AnalyzeResult(summary="s"),
+            ),
+            patch(
+                "apps.notify.drivers.generic.GenericNotifyDriver.send",
+                return_value={"success": True},
+            ),
+            patch(
+                "apps.notify.drivers.slack.SlackNotifyDriver.send", return_value={"success": True}
+            ),
+        ):
+            return orchestrator.run_pipeline(
+                payload=payload,
+                source="cluster",
+                origin=PipelineOrigin.CHECKER_GENERATED,
+            )
+
+    def test_no_notify_suppresses_notify_in_the_downstream_child(self):
+        """The load-bearing case: NOTIFY runs in the child, not in the invoked run.
+
+        The lane's stages execute in the PENDING run the push enqueues, so a flag
+        that only filtered the parent's own stage list would pass a naive test and
+        still page the on-call. The child must honour the flag its parent was
+        invoked with.
+        """
+        result = self._run(no_notify=True)
+        assert result.status == "COMPLETED"
+        assert PipelineStage.NOTIFY not in self.calls
+        assert not deliveries_in_trace(result.trace_id)
+        # The child exists and ran — this is suppression, not absence of fan-out.
+        child = PipelineRun.objects.filter(trace_id=result.trace_id).exclude(run_id=result.run_id)
+        assert child.count() == 1
+        assert child.first().inbound_payload["no_notify"] is True
+        assert child.first().status == PipelineStatus.ANALYZED
+
+    def test_no_notify_still_analyzes(self):
+        """The whole point: the operator still gets the analysis."""
+        result = self._run(no_notify=True)
+        assert self.calls == [PipelineStage.CHECK, PipelineStage.ANALYZE]
+        assert StageExecution.objects.filter(
+            pipeline_run__trace_id=result.trace_id,
+            stage=PipelineStage.ANALYZE,
+            status=StageStatus.SUCCEEDED,
+        ).exists()
+
+    def test_without_the_flag_a_checks_only_run_still_notifies(self):
+        """A standalone node reporting its own checks is completely unaffected."""
+        result = self._run()
+        assert self.calls == [
+            PipelineStage.CHECK,
+            PipelineStage.ANALYZE,
+            PipelineStage.NOTIFY,
+        ]
+        assert deliveries_in_trace(result.trace_id)
+
+    def test_the_flag_does_not_change_which_lane_is_matched(self):
+        """Routing is untouched: the same lane matches and is stamped as before."""
+        self._run(no_notify=True)
+        assert Incident.objects.get(pk=self.incident.pk).pipeline_id == self.lane.id
+
+    def test_no_notify_with_no_incidents_still_ends_at_checked(self):
+        """--no-incidents already declines to route; --no-notify subtracts nothing more."""
+        result = self._run(no_notify=True, no_incidents=True)
+        assert result.status == "COMPLETED"
+        assert self.calls == [PipelineStage.CHECK]
+        assert PipelineRun.objects.get(run_id=result.run_id).status == PipelineStatus.CHECKED
+
+
+class NoNotifyLeavesWebhookTrafficAloneTests(TestCase):
+    """Ordinary inbound traffic carries no such flag and notifies exactly as before."""
+
+    def setUp(self):
+        self.incident = Incident.objects.create(title="High CPU", severity="critical")
+        self.alert = Alert.objects.create(
+            fingerprint="fp-webhook-nn",
+            source="grafana",
+            name="cpu",
+            severity="critical",
+            started_at=timezone.now(),
+            incident=self.incident,
+        )
+
+    def test_webhook_traffic_without_the_flag_still_notifies(self):
+        outer = self
+
+        class _FakeIngest:
+            def execute(self, ctx):
+                return IngestResult(
+                    alert_id=outer.alert.id,
+                    incident_id=outer.incident.id,
+                    alerts_created=1,
+                    material_incident_ids=[outer.incident.id],
+                )
+
+        clear_lanes()
+        from apps.notify.models import NotificationChannel
+
+        PipelineDefinition.objects.create(
+            name="webhook-lane",
+            priority=1,
+            match=[],
+            stages=["notify"],
+            channel=NotificationChannel.objects.create(
+                name="webhook-ops", driver="generic", is_active=True, config={}
+            ),
+        )
+
+        orchestrator = PipelineOrchestrator()
+        orchestrator.executors[PipelineStage.INGEST] = _FakeIngest()
+        with (
+            patch(
+                "apps.notify.drivers.generic.GenericNotifyDriver.send",
+                return_value={"success": True},
+            ),
+            patch(
+                "apps.notify.drivers.slack.SlackNotifyDriver.send", return_value={"success": True}
+            ),
+        ):
+            result = orchestrator.run_pipeline(
+                payload={"payload": {}},
+                source="grafana",
+                origin=PipelineOrigin.INCOMING_WEBHOOK,
+            )
+        assert deliveries_in_trace(result.trace_id)
+        child = PipelineRun.objects.filter(trace_id=result.trace_id).exclude(run_id=result.run_id)
+        # Absent the flag the child's payload is byte-identical to what it always was.
+        assert child.first().inbound_payload == {"downstream_incident_id": self.incident.id}

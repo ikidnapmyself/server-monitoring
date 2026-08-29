@@ -17,6 +17,9 @@ Usage:
     # Run checks only (no alert ingestion)
     python manage.py run_pipeline --checks-only
 
+    # Run checks and analysis, but notify nobody
+    python manage.py run_pipeline --checks-only --no-notify
+
     # Dry run (show what would happen)
     python manage.py run_pipeline --sample --dry-run
 """
@@ -112,6 +115,16 @@ class Command(BaseCommand):
                 "makes the run purely diagnostic: it stops at CHECKED, so no lane "
                 "is resolved and nothing is analyzed or notified. Alerts are still "
                 "recorded."
+            ),
+        )
+        parser.add_argument(
+            "--no-notify",
+            action="store_true",
+            help=(
+                "Run the matched lane without its NOTIFY stage. For looking at a "
+                "machine in real time (SSH in, run the checks, read the analysis) "
+                "without telling anyone. The lane itself is unchanged; only this "
+                "run is scoped."
             ),
         )
         parser.add_argument(
@@ -233,6 +246,7 @@ class Command(BaseCommand):
             "labels": labels if labels else None,
             "hostname": options.get("hostname"),
             "no_incidents": options.get("no_incidents", False),
+            "no_notify": bool(options.get("no_notify")),
         }
 
     def _get_sample_payload(self, source: str) -> dict[str, object]:

@@ -535,6 +535,8 @@ Notes:
   and the lane is resolved from the alert CHECK produced, exactly as INGEST does.
   Adding `--no-incidents` makes it a silent diagnostic — the run stops at CHECKED,
   resolves no lane, and analyses and notifies nothing. Alerts are still recorded.
+  Adding `--no-notify` instead keeps the lane and its ANALYZE — SSH in, look at the
+  machine in real time, read the local provider's suggestions — and pages nobody.
 - **The hub has no lane of its own — it is a node.** Checker-origin alerts carry
   `source: cluster`, so the hub's own checks match `cluster-nodes` and are analysed
   and notified exactly like any agent's: a hub can page about its own full disk.

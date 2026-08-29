@@ -447,6 +447,42 @@ class RunPipelineCommandTest(TestCase):
         self.assertTrue(payload["no_incidents"])
 
     @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
+    def test_checks_only_with_no_notify(self, mock_orchestrator):
+        """--no-notify reaches the orchestrator as a payload flag; absent, it is False."""
+        mock_orchestrator.return_value.run_pipeline.return_value = self._mock_result()
+
+        out = io.StringIO()
+        call_command("run_pipeline", "--checks-only", "--no-notify", stdout=out)
+        call_args = mock_orchestrator.return_value.run_pipeline.call_args
+        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
+        self.assertTrue(payload["no_notify"])
+
+        call_command("run_pipeline", "--checks-only", stdout=out)
+        call_args = mock_orchestrator.return_value.run_pipeline.call_args
+        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
+        self.assertFalse(payload["no_notify"])
+
+    @staticmethod
+    def _mock_result():
+        mock_result = mock.Mock()
+        mock_result.status = "COMPLETED"
+        mock_result.trace_id = "t"
+        mock_result.run_id = "r"
+        mock_result.total_duration_ms = 1.0
+        mock_result.ingest = None
+        mock_result.check = {
+            "checks_run": 1,
+            "checks_passed": 1,
+            "checks_failed": 0,
+            "duration_ms": 1,
+        }
+        mock_result.analyze = None
+        mock_result.notify = None
+        mock_result.errors = []
+        mock_result.to_dict.return_value = {"status": "COMPLETED"}
+        return mock_result
+
+    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
     def test_checks_only_with_threshold_overrides(self, mock_orchestrator):
         """--warning-threshold and --critical-threshold are passed as checker_configs."""
         mock_result = mock.Mock()

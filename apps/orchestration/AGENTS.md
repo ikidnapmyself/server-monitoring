@@ -103,7 +103,11 @@ stage for `run_pipeline --checks-only` (the hub's own cron). One rule covers bot
 entry stage produces an alert, the lane is resolved from that alert, the lane's stages
 run. `--checks-only` is an invocation flag selecting the entry stage, *not* a routing
 override. `--checks-only --no-incidents` is the one silent case: it routes nothing and
-ends at CHECKED, while the bridge still records the alerts it found.
+ends at CHECKED, while the bridge still records the alerts it found. `--no-notify` is
+the narrower one: the lane still matches and its stages still run, minus NOTIFY — SSH
+in, look at a node in real time, read the local provider's suggestions, page nobody.
+It travels into the downstream runs the entry stage enqueues, because NOTIFY runs
+there and not on the run the operator invoked.
 
 `stages` is an ordered subset of `["check", "analyze", "notify"]` —
 `PipelineDefinition.ROUTABLE_STAGES`. It deliberately excludes `ingest`: a lane is
