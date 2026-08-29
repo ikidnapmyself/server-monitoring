@@ -158,9 +158,10 @@ Stage behavior is controlled through routing pipelines and Django Admin — not 
 
 ### Durable ingest / drain
 
-The pipeline is broker-free. The webhook (and the async trigger endpoint) record a
-`PENDING` `PipelineRun`; `manage.py process_inbox` claims and executes it (supervised
-`--loop` or cron). No Celery/Redis. See
+The pipeline is broker-free. The webhook writes the payload's alerts inline, then
+records one `PENDING` `PipelineRun` per materially changed incident (the async trigger
+endpoint records one too); `manage.py process_inbox` claims and executes them
+(supervised `--loop` or cron). No Celery/Redis. See
 [Deployment → Durable ingest & the inbox drain](Deployment.md).
 
 ### Django Admin

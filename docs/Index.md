@@ -893,8 +893,9 @@ Required on every signal: `trace_id`, `run_id`, `stage`, `incident_id`, `source`
 
 ### Durable ingest / drain
 
-The pipeline is broker-free. The webhook records a `PENDING` `PipelineRun` and
-`manage.py process_inbox` drains it (supervised `--loop` or cron). See
+The pipeline is broker-free. The webhook writes the payload's alerts inline and
+records one `PENDING` `PipelineRun` per materially changed incident; `manage.py
+process_inbox` drains them (supervised `--loop` or cron). See
 [Deployment → Durable ingest & the inbox drain](Deployment.md).
 
 ---

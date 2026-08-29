@@ -190,11 +190,13 @@ curl --unix-socket /run/server-monitoring/gunicorn.sock http://localhost/alerts/
 
 ## Durable ingest & the inbox drain
 
-The alert webhook does **not** process pipelines inline. It **durably records** each
-inbound alert as a `PENDING` pipeline run and returns `202 {status: accepted, run_id}`
-immediately. A **drain** then processes the queue at a controlled rate. This keeps the
-web workers responsive and means a flood grows a **bounded database queue** instead of
-OOM-ing the node — and it needs **no Redis or Celery**.
+The alert webhook does **not** process pipelines inline. It writes the payload's
+alerts (a bounded, size-capped write), lets incidents form, then **durably records** one
+`PENDING` pipeline run per materially changed incident and returns
+`202 {status: accepted, trace_id, incidents}` immediately. A **drain** then processes
+the queue at a controlled rate. The slow stages — checkers, AI analysis, delivery —
+stay queued, so the web workers remain responsive and a flood grows a **bounded
+database queue** instead of OOM-ing the node — and it needs **no Redis or Celery**.
 
 > ⚠️ **A drain must be running.** With neither the systemd service nor a cron entry
 > below, alerts are recorded but **never processed** — they pile up as `PENDING`
@@ -293,15 +295,18 @@ POST /alerts/webhook/<driver>/     # Driver-specific endpoint
 
 ### Durable ingest response
 
-The webhook records the alert and returns immediately — it never runs the pipeline
-inline:
+The webhook writes the alerts, queues the incident work and returns immediately — it
+never runs the pipeline inline:
 
 | Behavior | Response |
 |----------|----------|
-| Alert recorded as a `PENDING` run for the drain | `202 Accepted` with `{status: accepted, run_id}` |
+| Alerts written; one `PENDING` run queued per changed incident | `202 Accepted` with `{status: accepted, trace_id, incidents}` |
+| Payload carried no alerts (misconfigured sender) | `202 Accepted` with `incidents: []`, logged as a warning |
+| Payload unusable — no driver matched it, nothing written | `400 Bad Request` |
+| Body larger than 1 MiB | `413 Payload Too Large` |
 
-The [inbox drain](#durable-ingest--the-inbox-drain) then processes the run. No broker
-is involved, and no alert is lost if processing lags — it stays queued.
+The [inbox drain](#durable-ingest--the-inbox-drain) then processes the queued runs. No
+broker is involved, and no incident is lost if processing lags — it stays queued.
 
 ### Webhook authentication
 

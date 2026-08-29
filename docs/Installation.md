@@ -377,4 +377,4 @@ For production deployment (Nginx + the broker-free inbox drain), see the
 - **Docker Compose** — Django (gunicorn) + the `process_inbox` drain (recommended for quick deploys)
 - **Bare metal / VPS** — systemd units for gunicorn and the inbox drain
 - **Nginx reverse proxy** — static files, proxy headers, SSL termination
-- **Webhook ingestion** — durable ingest: record a PENDING run, drain processes it
+- **Webhook ingestion** — alerts written inline, a PENDING run per incident, drain processes it
