@@ -73,7 +73,10 @@ def register_pushing_node(
     is_cluster = (driver == "cluster") or (payload.get("source") == "cluster")
     if not is_cluster:
         return None
+    # Same non-blank rule as ``ClusterDriver.validate``/``parse``: a whitespace-only
+    # or non-string id must not become a registry key for a machine that has no name.
     instance_id = payload.get("instance_id")
+    instance_id = instance_id.strip() if isinstance(instance_id, str) else ""
     if not instance_id:
         return None
     return Node.upsert(

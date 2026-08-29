@@ -83,7 +83,9 @@ class ClusterDriverParseTests(TestCase):
         self.assertEqual(alert.name, "CPU usage critical")
         self.assertEqual(alert.status, "firing")
         self.assertEqual(alert.severity, "critical")
-        self.assertEqual(alert.fingerprint, "cpu-check-web01")
+        # A checker alert's fingerprint is derived from the envelope's
+        # instance_id, not the payload's "cpu-check-web01" claim.
+        self.assertEqual(alert.fingerprint, "check:web-01:cpu")
         self.assertEqual(alert.labels["instance_id"], "web-01")
         self.assertEqual(alert.labels["hostname"], "ip-10-0-1-42")
 
