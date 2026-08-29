@@ -127,12 +127,7 @@ profile_load() {
     # A restore must not leave this machine without an identity: the installer
     # may run unattended (--yes), and the cluster step only prompts for
     # INSTANCE_ID when the operator opts into cluster configuration.
-    if ! dotenv_has_value "$env_file" "INSTANCE_ID"; then
-        local generated
-        generated="$(dotenv_default_instance_id)"
-        dotenv_set "$env_file" "INSTANCE_ID" "$generated"
-        info "Generated INSTANCE_ID for this machine: $generated"
-    fi
+    dotenv_ensure_instance_id "$env_file"
 
     success "Profile loaded"
 }

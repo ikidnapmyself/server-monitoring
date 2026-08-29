@@ -56,10 +56,14 @@ chmod +x ./bin/*.sh
 - Runs Django migrations
 - Runs `python manage.py check`
 - Optionally runs health checks now
-- Asks for an `INSTANCE_ID` for every cluster role — this machine's identity. It keys the
-  machine's `Node` row and its alert fingerprints, so the default is the hostname plus a
-  short random suffix (two stock machines share a hostname). Re-running the installer keeps
-  an `INSTANCE_ID` that is already in `.env`.
+- Writes an `INSTANCE_ID` on **every** install — including a standalone machine that never
+  joins a cluster. It is this machine's identity: it keys the machine's `Node` row and its
+  alert fingerprints, so the generated value is the hostname plus a short random suffix (two
+  stock machines share a hostname). It is written during the environment step, before the
+  cluster-mode prompt, and the cluster step then offers it as the default so you can rename
+  it. **An `INSTANCE_ID` already in `.env` is never changed** on any path — re-running the
+  installer, declining or accepting cluster mode, or loading a profile all keep it. Changing
+  it would orphan the machine's `Node` row and stop open incidents' alerts from matching.
 - Optionally sets up cron via `./bin/install.sh cron`
 - Optionally sets up shell aliases via `./bin/install.sh aliases`
 

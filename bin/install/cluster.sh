@@ -44,6 +44,12 @@ echo ""
 # 1. Ask whether to configure cluster mode
 # ---------------------------------------------------------------------------
 
+# INSTANCE_ID before the gate, not after it: identity is not cluster
+# configuration. env.sh writes one on every install, but this step also runs
+# standalone (`install.sh cluster`), and an operator who declines cluster mode
+# below must still end up with an identity. Idempotent — an existing id is kept.
+dotenv_ensure_instance_id "$_ENV_FILE"
+
 _cluster_default="default_n"
 if dotenv_has_value "$_ENV_FILE" "HUB_URL" || dotenv_has_value "$_ENV_FILE" "HUB_API_KEY"; then
     _cluster_default="default_y"
@@ -72,16 +78,15 @@ info "Cluster role: $_role"
 #
 # It keys the Node row for this machine and every alert fingerprint it emits
 # (check:{instance_id}:{checker_name}), so a hub that monitors itself needs one
-# just as much as an agent that pushes. The default is the hostname plus a short
-# random suffix: two stock machines report the same hostname, and a collision
-# there would merge two machines' Node rows and alerts into one identity.
+# just as much as an agent that pushes. One is guaranteed to exist by now (see
+# the pre-gate call above), so this is the operator's chance to rename it, not
+# the place it is created.
 #
-# prompt_with_default prefers an existing .env value over the default, so
-# re-running the installer keeps the id a machine already has.
+# prompt_with_default prefers the existing .env value, so pressing Enter — and
+# an unattended --yes run — keeps the id a machine already has.
 # ---------------------------------------------------------------------------
 
-INSTANCE_ID=$(prompt_with_default "$_ENV_FILE" "INSTANCE_ID" \
-    "INSTANCE_ID" "$(dotenv_default_instance_id)")
+INSTANCE_ID=$(prompt_with_default "$_ENV_FILE" "INSTANCE_ID" "INSTANCE_ID")
 dotenv_set "$_ENV_FILE" "INSTANCE_ID" "$INSTANCE_ID"
 
 # ---------------------------------------------------------------------------

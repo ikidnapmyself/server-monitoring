@@ -105,3 +105,60 @@ _run_cluster() {
     run grep '^INSTANCE_ID=' "$proj/.env"
     assert_output "INSTANCE_ID=web-03-a1b2c3d4"
 }
+
+# ---------------------------------------------------------------------------
+# Identity is not cluster configuration: it is written before the y/N gate, so
+# the standalone install that declines cluster mode still gets one. Without it
+# local_instance_id() falls back to the bare hostname, and a later re-run that
+# says Yes would mint a fresh id — orphaning the machine's Node row and every
+# open incident's alerts.
+# ---------------------------------------------------------------------------
+
+@test "cluster.sh writes an INSTANCE_ID even when cluster mode is declined" {
+    local proj
+    proj="$(mktemp -d)"
+    : > "$proj/.env"
+
+    run _run_cluster "$proj" "n"
+    assert_success
+
+    run grep -E '^INSTANCE_ID=.+' "$proj/.env"
+    assert_success
+}
+
+@test "cluster.sh declining cluster mode writes no HUB_URL or HUB_API_KEY" {
+    local proj
+    proj="$(mktemp -d)"
+    : > "$proj/.env"
+
+    _run_cluster "$proj" "n"
+
+    run grep -E '^(HUB_URL|HUB_API_KEY)=.+' "$proj/.env"
+    assert_failure
+}
+
+@test "cluster.sh re-run that declines keeps an existing INSTANCE_ID unchanged" {
+    local proj
+    proj="$(mktemp -d)"
+    printf 'INSTANCE_ID=web-03-a1b2c3d4\n' > "$proj/.env"
+
+    _run_cluster "$proj" "n"
+
+    run grep -c '^INSTANCE_ID=' "$proj/.env"
+    assert_output "1"
+    run grep '^INSTANCE_ID=' "$proj/.env"
+    assert_output "INSTANCE_ID=web-03-a1b2c3d4"
+}
+
+@test "cluster.sh re-run that accepts agent mode keeps an existing INSTANCE_ID" {
+    local proj
+    proj="$(mktemp -d)"
+    printf 'INSTANCE_ID=web-03-a1b2c3d4\n' > "$proj/.env"
+
+    _run_cluster "$proj" "y" "agent" "" "https://hub.example.com" "token-abc"
+
+    run grep -c '^INSTANCE_ID=' "$proj/.env"
+    assert_output "1"
+    run grep '^INSTANCE_ID=' "$proj/.env"
+    assert_output "INSTANCE_ID=web-03-a1b2c3d4"
+}

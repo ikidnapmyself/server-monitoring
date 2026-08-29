@@ -158,6 +158,20 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 7. INSTANCE_ID — this machine's identity, for every install.
+#
+# Written here rather than in the cluster step because it is not cluster
+# configuration: it keys this machine's Node row and every alert fingerprint it
+# emits (check:{instance_id}:{checker_name}), so a standalone install that never
+# talks to a hub needs one just as much as an agent does. The cluster step is
+# behind a y/N gate a standalone install answers No to, and without an id here
+# identity silently falls back to the bare hostname — which two stock machines
+# share. Generated only when absent; an existing id is never rewritten.
+# ---------------------------------------------------------------------------
+
+dotenv_ensure_instance_id "$_ENV_FILE"
+
+# ---------------------------------------------------------------------------
 # Done
 # ---------------------------------------------------------------------------
 
