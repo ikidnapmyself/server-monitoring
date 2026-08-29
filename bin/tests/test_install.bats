@@ -229,12 +229,12 @@ _run_env() {
 @test "env.sh re-run keeps an existing INSTANCE_ID unchanged" {
     local proj
     proj="$(mktemp -d)"
-    printf 'INSTANCE_ID=web-03-a1b2c3d4\n' > "$proj/.env"
+    printf 'INSTANCE_ID=web-03-existing\n' > "$proj/.env"
 
     _run_env "$proj" "1" "1" "" "" "y"
 
     run grep -c '^INSTANCE_ID=' "$proj/.env"
     assert_output "1"
     run grep '^INSTANCE_ID=' "$proj/.env"
-    assert_output "INSTANCE_ID=web-03-a1b2c3d4"
+    assert_output "INSTANCE_ID=web-03-existing"
 }

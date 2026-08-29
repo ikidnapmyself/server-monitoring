@@ -142,7 +142,7 @@ PROFEOF
 @test "profile_save omits the machine-unique INSTANCE_ID" {
     cat > "$TEST_TMPDIR/.env" <<'ENVEOF'
 DJANGO_ENV=prod
-INSTANCE_ID=web-03-a1b2c3d4
+INSTANCE_ID=web-03-existing
 HUB_URL=https://hub.example.com
 ENVEOF
 
@@ -165,7 +165,7 @@ ENVEOF
 # server-maintanence install profile
 # name: test
 DJANGO_ENV=prod
-INSTANCE_ID=source-machine-a1b2c3d4
+INSTANCE_ID=source-machine-existing
 PROFEOF
 
     touch "$TEST_TMPDIR/.env"
@@ -174,7 +174,7 @@ PROFEOF
 
     run grep -q "DJANGO_ENV=prod" "$TEST_TMPDIR/.env"
     assert_success
-    run grep -q "source-machine-a1b2c3d4" "$TEST_TMPDIR/.env"
+    run grep -q "source-machine-existing" "$TEST_TMPDIR/.env"
     assert_failure
     # A restore never leaves the identity empty.
     run grep -qE "^INSTANCE_ID=.+" "$TEST_TMPDIR/.env"
@@ -187,12 +187,12 @@ PROFEOF
 DJANGO_ENV=prod
 PROFEOF
 
-    printf 'INSTANCE_ID=web-03-a1b2c3d4\n' > "$TEST_TMPDIR/.env"
+    printf 'INSTANCE_ID=web-03-existing\n' > "$TEST_TMPDIR/.env"
     export PROJECT_DIR="$TEST_TMPDIR"
     profile_load "$TEST_TMPDIR/.install-profile"
 
     run grep -c "^INSTANCE_ID=" "$TEST_TMPDIR/.env"
     assert_output "1"
     run grep "^INSTANCE_ID=" "$TEST_TMPDIR/.env"
-    assert_output "INSTANCE_ID=web-03-a1b2c3d4"
+    assert_output "INSTANCE_ID=web-03-existing"
 }

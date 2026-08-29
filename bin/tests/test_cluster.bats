@@ -96,14 +96,14 @@ _run_cluster() {
 @test "cluster.sh re-run keeps an existing INSTANCE_ID unchanged" {
     local proj
     proj="$(mktemp -d)"
-    printf 'INSTANCE_ID=web-03-a1b2c3d4\n' > "$proj/.env"
+    printf 'INSTANCE_ID=web-03-existing\n' > "$proj/.env"
 
     _run_cluster "$proj" "y" "hub" ""
 
     run grep -c '^INSTANCE_ID=' "$proj/.env"
     assert_output "1"
     run grep '^INSTANCE_ID=' "$proj/.env"
-    assert_output "INSTANCE_ID=web-03-a1b2c3d4"
+    assert_output "INSTANCE_ID=web-03-existing"
 }
 
 # ---------------------------------------------------------------------------
@@ -140,25 +140,25 @@ _run_cluster() {
 @test "cluster.sh re-run that declines keeps an existing INSTANCE_ID unchanged" {
     local proj
     proj="$(mktemp -d)"
-    printf 'INSTANCE_ID=web-03-a1b2c3d4\n' > "$proj/.env"
+    printf 'INSTANCE_ID=web-03-existing\n' > "$proj/.env"
 
     _run_cluster "$proj" "n"
 
     run grep -c '^INSTANCE_ID=' "$proj/.env"
     assert_output "1"
     run grep '^INSTANCE_ID=' "$proj/.env"
-    assert_output "INSTANCE_ID=web-03-a1b2c3d4"
+    assert_output "INSTANCE_ID=web-03-existing"
 }
 
 @test "cluster.sh re-run that accepts agent mode keeps an existing INSTANCE_ID" {
     local proj
     proj="$(mktemp -d)"
-    printf 'INSTANCE_ID=web-03-a1b2c3d4\n' > "$proj/.env"
+    printf 'INSTANCE_ID=web-03-existing\n' > "$proj/.env"
 
     _run_cluster "$proj" "y" "agent" "" "https://hub.example.com" "token-abc"
 
     run grep -c '^INSTANCE_ID=' "$proj/.env"
     assert_output "1"
     run grep '^INSTANCE_ID=' "$proj/.env"
-    assert_output "INSTANCE_ID=web-03-a1b2c3d4"
+    assert_output "INSTANCE_ID=web-03-existing"
 }
