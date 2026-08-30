@@ -151,6 +151,17 @@ def enqueue_incident_runs(
     runs: list[PipelineRun] = []
     with transaction.atomic():
         for incident_id in incident_ids:
+            # Every run enqueued here has an incident as its subject. The database
+            # column stays NULLABLE on purpose — rows predating this refactor were
+            # written by the entry stage, before an incident existed, and history
+            # must keep rendering — so the requirement lives here, at the one door
+            # new work comes through. A subject-less enqueue is a programming
+            # error: the run would resolve no lane, notify nobody, and say so only
+            # by on-call never hearing about it.
+            if not incident_id:
+                raise ValueError(
+                    f"enqueue_incident_runs requires an incident id, got {incident_id!r}"
+                )
             runs.append(
                 PipelineRun.objects.create(
                     trace_id=trace_id,

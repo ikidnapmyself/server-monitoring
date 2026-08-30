@@ -199,3 +199,46 @@ def test_drain_runs_returns_the_number_actually_executed():
     inbox.claim(lost.pk)
     with patch("apps.orchestration.inbox.PipelineOrchestrator.execute_run"):
         assert inbox.drain_runs([won, lost]) == 1
+
+
+@pytest.mark.django_db
+def test_enqueue_incident_runs_rejects_a_subject_less_id():
+    """A run enqueued without an incident is a programming error, not a stored row."""
+    from apps.orchestration.models import PipelineOrigin
+
+    with pytest.raises(ValueError, match="incident"):
+        inbox.enqueue_incident_runs([None], trace_id="t", origin=PipelineOrigin.MANUAL)
+    assert PipelineRun.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_enqueue_incident_runs_guard_writes_nothing_at_all():
+    """The guard is inside the atomic block: a bad id rolls back its good siblings."""
+    from apps.alerts.models import Incident
+    from apps.orchestration.models import PipelineOrigin
+
+    good = Incident.objects.create(title="good", severity="critical")
+
+    with pytest.raises(ValueError):
+        inbox.enqueue_incident_runs([good.id, 0], trace_id="t", origin=PipelineOrigin.MANUAL)
+    assert PipelineRun.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_a_legacy_ingest_run_still_drains_without_an_incident():
+    """The guard is on the incident-enqueue path, not on run creation in general.
+
+    A ``{"driver", "payload"}`` row recorded by the OLD webhook has no incident
+    until it ingests, and must still be claimable and executable.
+    """
+    legacy = PipelineRun.objects.create(
+        trace_id="t",
+        run_id="legacy",
+        status=PipelineStatus.PENDING,
+        inbound_payload={"driver": "grafana", "payload": {"alerts": []}},
+    )
+    assert legacy.incident_id is None
+
+    with patch("apps.orchestration.inbox.PipelineOrchestrator.execute_run") as mock_exec:
+        assert inbox.drain_runs([legacy]) == 1
+    assert [call.args[0].run_id for call in mock_exec.call_args_list] == ["legacy"]
