@@ -28,6 +28,16 @@ import time
 from django.core.checks import Error, Info, Tags, register
 from django.core.checks import Warning as CheckWarning
 
+# The health-check commands a correctly configured crontab may schedule.
+# Two are accepted because the local entrypoint was renamed: `check_health` is
+# what `bin/install/cron.sh` writes today, while `run_pipeline --checks-only`
+# is what already-installed nodes run — still functional, but deprecated.
+# Drop the deprecated marker once no node schedules it any more.
+HEALTH_CHECK_CRON_COMMANDS = (
+    "check_health",
+    "run_pipeline --checks-only",
+)
+
 
 def _is_testing():
     """Return True if running under test framework."""
@@ -177,15 +187,16 @@ def check_crontab_configuration(app_configs, **kwargs):
                         id="checkers.W004",
                     )
                 )
-            # If found, check that it references run_pipeline --checks-only
-            elif not ("run_pipeline" in crontab_content and "--checks-only" in crontab_content):
+            # If found, check that it schedules one of the recognised commands
+            elif not any(cmd in crontab_content for cmd in HEALTH_CHECK_CRON_COMMANDS):
+                accepted = ", ".join(f"'{cmd}'" for cmd in HEALTH_CHECK_CRON_COMMANDS)
                 errors.append(
                     CheckWarning(
                         "Cron job found but may not be running health checks with alerts",
                         hint=(
-                            "The crontab contains 'server-maintanence' but not "
-                            "'run_pipeline --checks-only'. "
-                            "Verify the cron job is correctly configured to run the pipeline."
+                            "The crontab contains 'server-maintanence' but none of the "
+                            f"recognised health check commands ({accepted}). "
+                            "Verify the cron job runs 'manage.py check_health'."
                         ),
                         id="checkers.W005",
                     )
