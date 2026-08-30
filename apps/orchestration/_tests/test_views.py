@@ -230,6 +230,32 @@ class TestPipelineView(TestCase):
 
         assert response.status_code == 500
 
+    def test_the_500_body_says_nothing_about_the_exception(self):
+        """The body is a fixed string; the detail lives in the logged traceback.
+
+        The exception surface here is driver detection plus the whole alert
+        write, so ``str(e)`` would hand the caller database errors, settings
+        paths and payload fragments. ``logger.exception`` keeps all of it.
+        """
+        with (
+            patch(
+                "apps.alerts.services.AlertOrchestrator.process_webhook",
+                side_effect=RuntimeError("db down at /srv/secret/settings.py"),
+            ),
+            self.assertLogs("apps.orchestration.views", level="ERROR") as logs,
+        ):
+            response = self._post({"payload": {"name": "x", "status": "firing"}})
+
+        assert response.status_code == 500
+        body = response.content.decode()
+        assert "db down" not in body
+        assert "secret" not in body
+        assert "RuntimeError" not in body
+
+        logged = "\n".join(logs.output)
+        assert "db down at /srv/secret/settings.py" in logged
+        assert "Traceback" in logged
+
 
 @override_settings(API_KEY_AUTH_ENABLED=False)
 class TestPipelineStatusView(TestCase):

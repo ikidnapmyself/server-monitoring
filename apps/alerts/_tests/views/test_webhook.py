@@ -286,6 +286,29 @@ class WebhookViewTests(TestCase):
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json()["status"], "error")
 
+    @patch("apps.alerts.services.AlertOrchestrator.process_webhook")
+    def test_webhook_500_body_says_nothing_about_the_exception(self, mock_process):
+        """The body is a fixed string; the detail lives in the logged traceback.
+
+        Echoing ``str(e)`` hands the sender database errors, settings paths and
+        payload fragments. The operator loses nothing: ``logger.exception``
+        still records the full traceback.
+        """
+        mock_process.side_effect = RuntimeError("db down at /srv/secret/settings.py")
+
+        with self.assertLogs("apps.alerts.views", level="ERROR") as logs:
+            response = self._post({"name": "x", "status": "firing"})
+
+        self.assertEqual(response.status_code, 500)
+        body = response.content.decode()
+        self.assertNotIn("db down", body)
+        self.assertNotIn("secret", body)
+        self.assertNotIn("RuntimeError", body)
+
+        logged = "\n".join(logs.output)
+        self.assertIn("db down at /srv/secret/settings.py", logged)
+        self.assertIn("Traceback", logged)
+
 
 @override_settings(API_KEY_AUTH_ENABLED=False)
 class WebhookClusterLaneRoutingTests(TestCase):

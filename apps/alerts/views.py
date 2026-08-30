@@ -192,10 +192,16 @@ class AlertWebhookView(View):
                 status=202,
             )
 
-        except Exception as e:
+        except Exception:
+            # A fixed string, never ``str(e)``: the exception surface here is
+            # driver detection plus the whole alert write, so its message can
+            # carry database errors, settings paths and payload fragments. The
+            # full traceback is already in the log above, which is where an
+            # operator looks; the body would only serve a sender probing us.
+            # See the security standards in ``apps/alerts/AGENTS.md``.
             logger.exception("Unexpected error processing webhook")
             return JsonResponse(
-                {"status": "error", "message": str(e)},
+                {"status": "error", "message": "Internal server error"},
                 status=500,
             )
 

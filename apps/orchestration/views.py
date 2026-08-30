@@ -150,9 +150,15 @@ class PipelineView(JSONResponseMixin, View):
                     trace_id,
                 )
 
-        except Exception as e:  # noqa: BLE001 - the caller gets an honest 500
-            logger.exception("Unexpected error triggering pipeline")
-            return self.error_response(str(e), status=500)
+        except Exception:  # noqa: BLE001 - the caller gets an honest 500
+            # A fixed string, never ``str(e)``: the exception surface here is
+            # driver detection plus the whole alert write, so its message can
+            # carry database errors, settings paths and payload fragments. The
+            # full traceback is already in the log above, keyed by trace_id,
+            # which is where an operator looks; the body would only serve an
+            # attacker. See the security standards in ``apps/alerts/AGENTS.md``.
+            logger.exception("Unexpected error triggering pipeline (trace_id=%s)", trace_id)
+            return self.error_response("Internal server error", status=500)
 
         incident_ids = [run.incident_id for run in runs]
         logger.info(
