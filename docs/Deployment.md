@@ -537,12 +537,16 @@ Notes:
   `channel` FK simply makes the field match the behaviour. An **inactive** channel
   routes nowhere — the lane delivers nothing through it and notify falls back to
   payload-driven selection — so the changelist marks such a channel `(inactive)`.
-- `run_pipeline --checks-only` is an **entry stage**, not an override: CHECK runs,
-  and the lane is resolved from the alert CHECK produced, exactly as INGEST does.
-  Adding `--no-incidents` makes it a silent diagnostic — the run stops at CHECKED,
-  resolves no lane, and analyses and notifies nothing. Alerts are still recorded.
-  Adding `--no-notify` instead keeps the lane and its ANALYZE — SSH in, look at the
-  machine in real time, read the local provider's suggestions — and pages nobody.
+- **A pipeline run is an incident**, and producing an alert is not a stage of it.
+  `run_pipeline --checks-only` (like `check_health`) writes the alerts, lets
+  incidents form, and enqueues one run per materially changed incident; the lane
+  is resolved in that run, from its incident's subject alert. Adding
+  `--no-incidents` makes it a silent diagnostic without any flag being consulted
+  downstream: no incident forms, so nothing is material, so no run is enqueued and
+  nothing is routed, analysed or notified. Alerts are still recorded. Adding
+  `--no-notify` instead keeps the lane and its ANALYZE — SSH in, look at the
+  machine in real time, read the local provider's suggestions — and pages nobody;
+  the flag travels in the enqueued run's payload, because NOTIFY runs there.
 - **The hub has no lane of its own — it is a node.** Checker-origin alerts carry
   `source: cluster`, so the hub's own checks match `cluster-nodes` and are analysed
   and notified exactly like any agent's: a hub can page about its own full disk.

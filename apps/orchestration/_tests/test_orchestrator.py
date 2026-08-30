@@ -733,49 +733,15 @@ class SafetyNetTests(TestCase):
         assert "Stage execution failed without error" in result.final_error.message
 
 
-class ChecksOnlyTests(TestCase):
-    """Tests for checks_only mode that skips ingest/analyze/notify stages."""
+class LegacyIngestRunTests(TestCase):
+    """A legacy ingest run: INGEST here, the lane in the child it enqueues."""
 
     def setUp(self):
         enable_seeded_delivery()
 
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
-    def test_checks_only_runs_only_check_stage(self, mock_execute):
-        """When checks_only=True, only the CHECK stage is executed."""
-        mock_execute.return_value = CheckResult(checks_run=3)
-
-        orchestrator = PipelineOrchestrator()
-        result = orchestrator.run_pipeline(
-            payload={"checks_only": True},
-            source="test",
-        )
-
-        assert result.status == "COMPLETED"
-        assert mock_execute.call_count == 1
-        called_stage = mock_execute.call_args[1]["stage"]
-        assert called_stage == PipelineStage.CHECK
-        assert len(result.stages_completed) == 1
-        assert PipelineStage.CHECK in result.stages_completed
-        assert PipelineStage.INGEST not in result.stages_completed
-        assert PipelineStage.NOTIFY not in result.stages_completed
-
-    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
-    def test_checks_only_pipeline_marked_checked(self, mock_execute):
-        """checks_only run completes with CHECKED status, not NOTIFIED."""
-        mock_execute.return_value = CheckResult(checks_run=1)
-
-        orchestrator = PipelineOrchestrator()
-        orchestrator.run_pipeline(payload={"checks_only": True}, source="test")
-
-        from apps.orchestration.models import PipelineRun
-
-        run = PipelineRun.objects.order_by("-started_at").first()
-        assert run is not None
-        assert run.status == PipelineStatus.CHECKED
-
-    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_normal_pipeline_still_runs_all_stages(self, mock_execute):
-        """Without checks_only, all 4 stages still run across the trace."""
+        """All 4 stages still run across the trace: INGEST here, the lane in the child."""
         incident, alert = make_subject_incident()
         mock_execute.side_effect = [
             IngestResult(
@@ -863,7 +829,7 @@ class CheckOmittingLaneTests(TestCase):
 @pytest.mark.django_db
 def test_checker_generated_run_has_null_node():
     run = PipelineOrchestrator().start_pipeline(
-        payload={"checks_only": True},
+        payload={},
         source="cli",
         origin=PipelineOrigin.CHECKER_GENERATED,
     )
