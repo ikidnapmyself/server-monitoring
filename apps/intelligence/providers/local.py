@@ -8,7 +8,12 @@ This provider analyzes system state and incidents to provide recommendations suc
 """
 
 import os
+import shutil
 import subprocess
+import sys
+import time
+from collections import deque
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -23,6 +28,127 @@ from apps.intelligence.providers.base import (
     RecommendationType,
 )
 from config.security import resolve_safe_path
+
+# --- Bounded filesystem scanning ------------------------------------------
+# ``manage.py check_health`` completes the pipeline synchronously, so this
+# provider runs on an operator's terminal rather than inside a background
+# drain. An unbounded walk (from "/", or over /var/cache and ~/.cache) is
+# therefore not acceptable: it can take many minutes while the operator just
+# waits. Every Python-side scan below is capped on three axes -- wall clock,
+# directory depth, and entries visited -- and returns partial results rather
+# than running to completion. A useful answer quickly beats a complete one
+# eventually.
+
+# Wall-clock budget for answering: how long the whole scan may take. The
+# bounded Python walk below is the real answer path, not a degraded one --
+# it is fast, correct, and capped -- so this is the number the operator
+# actually waits on.
+SCAN_TIME_BUDGET_SECONDS = 30.0
+
+# Separate, much smaller budget for the ``du`` gamble. This is not "how long
+# may we spend answering" but "how long do we bet on a faster path before
+# giving up on it", and a lost bet costs the operator the whole wait for no
+# result at all. ``du`` walks the entire filesystem regardless of platform --
+# GNU's ``--max-depth`` limits output depth, not traversal, and BSD's ``-d``
+# does the same -- so from "/" it routinely does not finish. Measured on a
+# developer Mac: ``du -x -d 3 -t 100M /`` had not returned after five
+# minutes, while the fallback answered the same question in about half a
+# second. So du only has to earn its place when it is genuinely quicker: on
+# a small or warm subtree it returns well inside this window, and everywhere
+# else we stop betting almost immediately.
+DU_TIMEOUT_SECONDS = 3.0
+
+# Directory depth below the scan root; mirrors ``du --max-depth=3``.
+SCAN_MAX_DEPTH = 3
+
+# Backstop for a shallow-but-enormous tree, where the depth limit alone does
+# not keep the walk short.
+SCAN_MAX_ENTRIES = 20_000
+
+# Platforms whose ``du`` is the BSD one. Detection is by ``sys.platform``
+# rather than a capability probe: a probe costs an extra subprocess on every
+# scan (and would itself need a timeout), while the platform is known for
+# free and never changes at runtime. A wrong guess is not fatal either --
+# ``du`` exits non-zero and the bounded fallback below takes over.
+_BSD_DU_PLATFORMS = ("darwin", "freebsd", "openbsd", "netbsd")
+
+
+def build_du_command(du_path: str, threshold_mb: int, root_path: str) -> list[str]:
+    """Build a depth-bounded ``du`` invocation for the current platform."""
+    if sys.platform.startswith(_BSD_DU_PLATFORMS):
+        # BSD du rejects ``--max-depth`` outright, and its synopsis is
+        # ``[-a | -s | -d depth]`` -- ``-a`` and ``-d`` are mutually
+        # exclusive. Staying bounded matters more than per-file granularity,
+        # so drop ``-a`` and report directories only.
+        return [
+            du_path,
+            "-x",
+            "-d",
+            str(SCAN_MAX_DEPTH),
+            "-t",
+            f"{threshold_mb}M",
+            root_path,
+        ]
+    return [
+        du_path,
+        "-ax",
+        f"--max-depth={SCAN_MAX_DEPTH}",
+        "-t",
+        f"{threshold_mb}M",
+        root_path,
+    ]
+
+
+@dataclass
+class ScanBudget:
+    """Shared wall-clock and entry allowance for a single bounded scan."""
+
+    deadline: float
+    remaining_entries: int = SCAN_MAX_ENTRIES
+
+    @classmethod
+    def start(cls, seconds: float = SCAN_TIME_BUDGET_SECONDS) -> "ScanBudget":
+        """Open a budget that expires ``seconds`` from now."""
+        return cls(deadline=time.monotonic() + seconds)
+
+    @property
+    def exhausted(self) -> bool:
+        """True once the entry cap or the wall-clock deadline is reached."""
+        return self.remaining_entries <= 0 or time.monotonic() >= self.deadline
+
+    def consume(self) -> None:
+        """Charge one visited entry against the budget."""
+        self.remaining_entries -= 1
+
+
+def iter_bounded(root: Path, budget: ScanBudget, max_depth: int = SCAN_MAX_DEPTH) -> Iterator[Path]:
+    """Yield entries under ``root`` breadth-first, within ``budget``.
+
+    Stops early -- yielding only what it has reached -- when the depth limit,
+    the entry cap, or the wall-clock deadline is hit. Unreadable directories
+    and entries are skipped rather than raised.
+    """
+    queue: deque[tuple[Path, int]] = deque([(root, 0)])
+    while queue:
+        directory, depth = queue.popleft()
+        if budget.exhausted:
+            return
+        try:
+            entries = list(directory.iterdir())
+        except (PermissionError, OSError):
+            continue
+        for entry in entries:
+            if budget.exhausted:
+                return
+            budget.consume()
+            yield entry
+            if depth + 1 < max_depth:
+                try:
+                    descend = entry.is_dir() and not entry.is_symlink()
+                except (PermissionError, OSError):
+                    continue
+                if descend:
+                    queue.append((entry, depth + 1))
 
 
 @dataclass
@@ -499,8 +625,6 @@ class LocalRecommendationProvider(BaseProvider):
             pass
 
         # Brief pause for accurate measurement
-        import time
-
         time.sleep(0.1)
 
         for proc in psutil.process_iter(["pid", "name", "cpu_percent", "cmdline"]):
@@ -533,20 +657,17 @@ class LocalRecommendationProvider(BaseProvider):
         threshold_bytes = self.large_file_threshold_mb * 1024 * 1024
         now = datetime.now()
 
-        # Try using du command for efficiency (if available)
+        # Try du first, but only as a short-budget bet on a faster path; the
+        # bounded fallback below is the answer path when the bet does not pay.
+        du_path = shutil.which("du")
         try:
-            result = subprocess.run(
-                [
-                    "du",
-                    "-ax",
-                    "--max-depth=3",
-                    "-t",
-                    f"{int(self.large_file_threshold_mb)}M",
-                    root_path,
-                ],
+            if du_path is None:
+                raise FileNotFoundError("du not found on PATH")
+            result = subprocess.run(  # nosec B603  # nosemgrep
+                build_du_command(du_path, int(self.large_file_threshold_mb), root_path),
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=DU_TIMEOUT_SECONDS,
             )
             if result.returncode == 0:
                 for line in result.stdout.strip().split("\n"):
@@ -591,14 +712,16 @@ class LocalRecommendationProvider(BaseProvider):
         except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
             pass
 
-        # Fallback: Python-based scanning (slower but cross-platform)
+        # Fallback: bounded Python-based scanning (slower but cross-platform).
+        # Bounded because this path also runs when du is missing, fails, or
+        # times out -- exactly the cases where an unbounded walk would hang.
         try:
             scan_path = Path(root_path).expanduser()
             if not scan_path.exists():
                 return large_items
 
             checked_count = 0
-            for item in scan_path.rglob("*"):
+            for item in iter_bounded(scan_path, ScanBudget.start()):
                 try:
                     if item.is_file():
                         checked_count += 1
@@ -648,13 +771,19 @@ class LocalRecommendationProvider(BaseProvider):
         # Use the given path if specific, otherwise fall back to default scan dirs
         scan_dirs = [path] if path != "/" else self.scan_paths
 
+        # One budget shared across every scan directory: the operator waits
+        # for the whole call, not for each directory in turn.
+        budget = ScanBudget.start()
+
         for scan_dir in scan_dirs:
+            if budget.exhausted:
+                break
             try:
                 scan_path = Path(scan_dir).expanduser()
                 if not scan_path.exists():
                     continue
 
-                for item in scan_path.rglob("*"):
+                for item in iter_bounded(scan_path, budget):
                     try:
                         if not item.is_file():
                             continue
