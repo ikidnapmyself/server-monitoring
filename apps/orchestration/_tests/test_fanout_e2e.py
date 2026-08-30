@@ -394,3 +394,42 @@ class FanOutAcceptanceTests(TestCase):
         assert PipelineStage.NOTIFY in self.stages_of(run)
         assert sent, "no notification was delivered"
         assert sent[-1].title.startswith("[RESOLVED]")
+
+    # 10 --------------------------------------------------------------------
+    def test_a_legacy_ingest_run_still_drains(self):
+        """A PENDING run recorded by the OLD webhook still ingests and fans out.
+
+        Before "incidents as the pipeline subject", the webhook recorded the raw
+        push as a PENDING ``PipelineRun`` carrying ``{"driver", "payload"}`` and
+        returned 202; ``process_inbox`` ingested it and enqueued one child per
+        materially changed incident. Rows in exactly that shape are in flight at
+        deploy time, and this is their upgrade path: without it every push
+        accepted-but-not-yet-drained is silently lost.
+
+        The run is built the way that webhook built it — ``start_pipeline`` with
+        the wrapper payload — and drained through ``process_inbox``, not through
+        ``run_pipeline``, because the drain is the path those rows actually take.
+        """
+        run = PipelineOrchestrator().start_pipeline(
+            payload={"driver": "cluster", "payload": node_push([checker_alert("cpu")])},
+            source="cluster",
+        )
+        assert run.status == PipelineStatus.PENDING
+
+        with ExitStack() as stack:
+            self._stub_outbound(stack)
+            # Twice: ``drain`` snapshots its PK list up front, so the child this
+            # run enqueues is picked up by the next pass — exactly as it is in
+            # production, where the command runs on a timer.
+            call_command("process_inbox", stdout=StringIO())
+            call_command("process_inbox", stdout=StringIO())
+
+        run.refresh_from_db()
+        assert run.status == PipelineStatus.INGESTED
+        assert self.stages_of(run) == [PipelineStage.INGEST]
+
+        # The incident it opened got its own run, which took its lane.
+        child = PipelineRun.objects.filter(trace_id=run.trace_id).exclude(run_id=run.run_id).get()
+        assert child.incident_id == Incident.objects.get().id
+        assert self.stages_of(child) == [PipelineStage.ANALYZE, PipelineStage.NOTIFY]
+        assert child.status == PipelineStatus.NOTIFIED

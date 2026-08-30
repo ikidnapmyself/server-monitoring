@@ -62,11 +62,12 @@ def register_pushing_node(
 
     ``source`` is what ``Node.last_source`` records, i.e. how the row was last
     touched, and it defaults to the webhook path's answer: ``cluster``, meaning the
-    payload arrived by push from another machine. ``push_to_hub --local`` builds the
-    same cluster payload but never leaves the machine, so it passes ``local`` —
-    otherwise a hub running both that and ``check_health`` would flip the field
-    every run and anything reading it to tell fleet from self would be wrong half
-    the time.
+    payload arrived by push from another machine. A caller describing this machine
+    passes ``local`` instead, so that a hub reading the field can tell its fleet
+    from itself. In practice this machine registers itself through
+    ``CheckAlertBridge`` (``check_health``, ``push_to_hub --local``), which writes
+    ``local`` on the same row; the parameter keeps that distinction expressible
+    here rather than assuming every payload came off the wire.
     """
     from apps.alerts.models import Node
 
@@ -154,6 +155,12 @@ class ProcessingResult:
     # A subset of `alerts`, and subject to the same two traps documented above.
     material_alerts: list[Alert] = field(default_factory=list)
 
+    # Whether a driver was resolved for the payload — i.e. whether anything here
+    # ever understood what was sent. It exists so a caller can tell "we could not
+    # understand this payload" from "we broke while handling it": both end with
+    # errors and nothing written, but they are different answers to the sender.
+    driver_resolved: bool = False
+
     @property
     def total_processed(self) -> int:
         return self.alerts_created + self.alerts_updated + self.alerts_resolved
@@ -161,6 +168,31 @@ class ProcessingResult:
     @property
     def has_errors(self) -> bool:
         return len(self.errors) > 0
+
+    def discard_writes(self) -> None:
+        """Forget the rows and counts a rolled-back batch appended.
+
+        The invariant every consumer relies on is that this object describes what
+        is IN THE DATABASE, not what was attempted. ``_process_alert`` appends to
+        these lists as it writes, inside a transaction that covers the whole
+        batch, so a mid-batch failure takes every one of those rows back while the
+        in-memory record of them survives — and then callers read it and are
+        wrong: the webhook answers 202 for a batch it dropped and the sender never
+        retries, and ``enqueue_for`` is handed alerts whose incident no longer
+        exists.
+
+        Reset rather than subtract: the transaction covers every write this result
+        describes, so rolling it back empties the result entirely. ``errors`` and
+        ``driver_resolved`` are deliberately kept — they say what happened, which
+        is exactly what the caller now has to act on.
+        """
+        self.alerts_created = 0
+        self.alerts_updated = 0
+        self.alerts_resolved = 0
+        self.incidents_created = 0
+        self.incidents_updated = 0
+        self.alerts.clear()
+        self.material_alerts.clear()
 
 
 class AlertOrchestrator:
@@ -228,6 +260,9 @@ class AlertOrchestrator:
             if not driver_instance:
                 result.errors.append("Could not detect driver for payload")
                 return result
+            # Set the moment a usable driver exists, before anything can fail: from
+            # here on a failure is ours, not the payload's.
+            result.driver_resolved = True
 
             # Parse the payload
             parsed = driver_instance.parse(payload)
@@ -238,9 +273,14 @@ class AlertOrchestrator:
             register_pushing_node(payload, driver)
 
             # Process each alert
-            with transaction.atomic():
-                for parsed_alert in parsed.alerts:
-                    self._process_alert(parsed_alert, parsed.source, result)
+            try:
+                with transaction.atomic():
+                    for parsed_alert in parsed.alerts:
+                        self._process_alert(parsed_alert, parsed.source, result)
+            except Exception:
+                # The batch rolled back, so none of the rows it appended exist.
+                result.discard_writes()
+                raise
 
             # Handle incident auto-resolution
             if self.auto_resolve_incidents:

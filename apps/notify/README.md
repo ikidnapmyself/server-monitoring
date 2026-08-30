@@ -127,7 +127,11 @@ uv run python manage.py test_notify slack --non-interactive \
 
 Notification channels are managed via the `NotificationChannel` model in Django Admin. Each channel has an `is_active` flag — set it to `False` to disable a channel without deleting its configuration.
 
-Pipeline definitions control which drivers are used per-pipeline via the `drivers` config in notify nodes.
+A `PipelineDefinition` names **one** channel, through a single FK — delivery has never
+fanned out. `routed_channel()` is the one rule for whether a lane delivers: it returns the
+channel only when the FK is set *and* the channel is active. A lane that lists `notify`
+and has no such channel fails `no_channel`, non-retryably. (The `drivers` config on notify
+nodes is gone with the node graph.)
 
 ### API endpoints
 
@@ -272,20 +276,25 @@ print(result)
 # }
 ```
 
-Selection priority when invoking notifications from the orchestration pipeline
-or management commands
+Selection priority when the orchestration pipeline sends a notification:
 
-- If the pipeline payload's `notify_driver` matches a `NotificationChannel.name` in the
-  database (and that channel is `is_active=True`), the channel's stored `driver` and
-  `config` will be used (this allows choosing named channels configured via Admin).
-- If no `notify_driver` is provided in the payload, the orchestration layer will select
-  the first active `NotificationChannel` ordered by name and use its driver and config.
-- If neither of the above applies, the orchestration pipeline treats `notify_driver` as
-  a driver key (for example, `slack`, `email`, `generic`) and uses the provided
-  `notify_config` from the payload or default behavior.
+1. **The matched lane's channel** — `PipelineDefinition.routed_channel()`, the channel FK
+   when it is set and the channel is active. This is the normal path, and in practice the
+   only one: an incident run's payload carries only its `downstream_incident_id`, so
+   nothing payload-driven applies.
+2. **The payload's `notify_driver`**, matched against a `NotificationChannel.name` that is
+   `is_active=True`, otherwise treated as a driver key (`slack`, `email`, `generic`).
+   Reachable only for a caller that builds its own payload.
+3. **Neither** — the run fails `no_channel`, non-retryably. There is deliberately no
+   fallback to "the first active channel by name": that is how a critical alert ends up
+   wherever the alphabet points. A lane that names a driver nothing has registered fails
+   `no_driver` the same way.
 
-This ordering lets you prefer centrally-managed channels (via Admin) while still
-allowing ad-hoc driver usage from scripts and management commands.
+A hub with no active channel is seeded as recording-only rather than silently broken, and
+the admin readiness panel and `preflight` both surface the gap.
+
+**Templates may only come from a channel's stored config, never from a run payload.** That
+is an SSTI boundary, not a preference.
 
 ### 4) Sending via email
 

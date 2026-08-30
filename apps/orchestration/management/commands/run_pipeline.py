@@ -1,40 +1,53 @@
 """
-Management command to run the pipeline end-to-end.
+Management command to replay an alert payload through the pipeline, synchronously.
+
+``run_pipeline`` is a producer like every other: it writes alerts, lets incidents
+form, and hands the materially changed ones to ``apps.orchestration.intake``. It
+differs from the webhook only in draining its own runs before returning, because
+a CLI caller expects one command to finish the work.
 
 Usage:
-    # Run with sample alert payload (hardcoded pipeline)
+    # Replay a sample alert payload
     python manage.py run_pipeline --sample
 
-    # Run with custom JSON payload
+    # Replay a custom JSON payload
     python manage.py run_pipeline --payload '{"alerts": [...]}'
 
-    # Run with payload from file
+    # Replay a payload from a file
     python manage.py run_pipeline --file alert.json
 
-    # Run with specific source
+    # Replay it as a specific driver's payload
     python manage.py run_pipeline --sample --source grafana
 
-    # Run checks only (no alert ingestion)
+    # Run this machine's checkers (DEPRECATED — use `manage.py check_health`)
     python manage.py run_pipeline --checks-only
-
-    # Run checks and analysis, but notify nobody
-    python manage.py run_pipeline --checks-only --no-notify
 
     # Dry run (show what would happen)
     python manage.py run_pipeline --sample --dry-run
 """
 
 import json
+import uuid
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 
 from apps.orchestration.models import PipelineOrigin
-from apps.orchestration.orchestrator import PipelineOrchestrator
 from config.security import PathNotAllowedError, resolve_safe_path
+
+# Kept, not deleted: an operator SSHes into a node and runs this by hand, and a
+# removed command is a worse surprise than a warning. ``check_health`` is the
+# synchronous local entrypoint now and does this same work through the same
+# path — CheckAlertBridge, then the shared intake.
+CHECKS_ONLY_DEPRECATION = (
+    "--checks-only is deprecated: use `manage.py check_health` instead. "
+    "It runs the same checkers, writes the same alerts and drains the same runs; "
+    "--warning-threshold, --critical-threshold and --no-notify carry over."
+)
 
 
 class Command(BaseCommand):
-    help = "Run the pipeline: alerts → checkers → intelligence → notify"
+    help = "Replay an alert payload through the pipeline: ingest, then run the matched lane"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -56,7 +69,7 @@ class Command(BaseCommand):
             "--source",
             type=str,
             default="cli",
-            help="Source system (default: cli)",
+            help="Source system, also the driver name (default: cli, meaning auto-detect)",
         )
         parser.add_argument(
             "--environment",
@@ -72,7 +85,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--checks-only",
             action="store_true",
-            help="Run only the checkers stage (skip alert ingestion)",
+            help="DEPRECATED (use `check_health`): run this machine's checkers instead",
         )
         parser.add_argument(
             "--dry-run",
@@ -112,8 +125,8 @@ class Command(BaseCommand):
             action="store_true",
             help=(
                 "Skip automatic incident creation. With --checks-only this also "
-                "makes the run purely diagnostic: it stops at CHECKED, so no lane "
-                "is resolved and nothing is analyzed or notified. Alerts are still "
+                "makes the run purely diagnostic: no incident forms, so nothing is "
+                "enqueued and nothing is analyzed or notified. Alerts are still "
                 "recorded."
             ),
         )
@@ -139,115 +152,211 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        # Build payload
-        payload = self._get_payload(options)
+        checks_only = bool(options.get("checks_only"))
+        if checks_only:
+            # stderr, so --json stdout stays parseable for whatever wraps this.
+            self.stderr.write(self.style.WARNING(CHECKS_ONLY_DEPRECATION))
+
+        # Input is validated before --dry-run is honoured: a dry run that accepted
+        # a payload the real run would reject is worse than useless.
+        inner_payload = {} if checks_only else self._get_inner_payload(options)
+        labels = self._parse_labels(options.get("labels"))
+        checker_names = options.get("checkers")
+        checker_configs = self._build_checker_configs(options, checker_names) if checks_only else {}
 
         if options["dry_run"]:
-            self._show_dry_run(payload, options)
+            self._show_dry_run(inner_payload, options, checks_only)
             return
 
-        # Run pipeline
-        self.stdout.write(self.style.NOTICE("Starting pipeline..."))
-        self.stdout.write(f"  Source: {options['source']}")
-        self.stdout.write(f"  Environment: {options['environment']}")
-        self.stdout.write("")
+        trace_id = options.get("trace_id") or str(uuid.uuid4())
+        self._preamble(options)
 
         try:
-            origin = (
-                PipelineOrigin.CHECKER_GENERATED
-                if options.get("checks_only")
-                else PipelineOrigin.MANUAL
-            )
-            orchestrator = PipelineOrchestrator()
-            result = orchestrator.run_pipeline(
-                payload=payload,
-                source=options["source"],
-                trace_id=options.get("trace_id"),
-                environment=options["environment"],
-                origin=origin,
-            )
-
-            if options["json"]:
-                self.stdout.write(json.dumps(result.to_dict(), indent=2, default=str))
+            if checks_only:
+                summary = self._run_checks(
+                    trace_id, options, checker_names, checker_configs, labels
+                )
             else:
-                self._display_result(result)
-
+                summary = self._replay_payload(trace_id, options, inner_payload)
         except CommandError:
             raise
         except Exception as e:
             raise CommandError(f"Pipeline failed: {e}")
 
-    def _get_payload(self, options) -> dict:
-        """Build the payload from options."""
-        inner_payload = {}
+        self._report(summary, options)
+
+    # ------------------------------------------------------------------ producers
+
+    def _replay_payload(self, trace_id: str, options: dict, inner_payload: dict) -> dict:
+        """Ingest the payload here, then drain the runs its incidents earned.
+
+        Exactly what the webhook does — ``process_webhook`` then ``enqueue_for`` —
+        with ``sync=True``, because the operator who typed the command is the only
+        one who is going to drain anything. Including how it answers a failed
+        ingest: a payload nothing understood, and a payload a driver understood
+        that still wrote nothing, are two different failures and both are loud.
+        """
+        from apps.alerts.services import AlertOrchestrator
+        from apps.orchestration.intake import enqueue_for
+
+        # "cli" is the default and means "no driver named": let the payload be
+        # sniffed, as an unlabelled webhook is.
+        driver = options["source"] if options["source"] != "cli" else None
+
+        # One transaction for the writes and the enqueue they justify: a crash
+        # between them leaves an incident durably written with no run, and nothing
+        # heals that (see ``apps.orchestration.intake.enqueue_for``). The drain is
+        # registered with ``transaction.on_commit``, so it runs after this block
+        # rather than against rows the transaction has not committed.
+        with transaction.atomic():
+            result = AlertOrchestrator(trace_id=trace_id).process_webhook(
+                inner_payload, driver=driver
+            )
+            runs = enqueue_for(
+                result,
+                trace_id=trace_id,
+                origin=PipelineOrigin.MANUAL,
+                source=options["source"],
+                environment=options["environment"],
+                no_notify=bool(options.get("no_notify")),
+                sync=True,
+            )
+
+        if not result.driver_resolved:
+            # Nothing understood the payload, so nothing was written. The operator
+            # is the only one who can fix that, and a silent success would hide it.
+            raise CommandError(
+                "Could not detect a driver for the payload: " + "; ".join(result.errors)
+            )
+
+        if result.errors and not result.alerts:
+            # A driver understood it and nothing was written anyway: the ingest
+            # broke. Both views answer 5xx here rather than pretending they
+            # accepted the payload; for the operator at a terminal the equivalent
+            # is a non-zero exit, not a summary reporting zero alerts as success.
+            raise CommandError("Failed to process payload: " + "; ".join(result.errors))
+
+        return {
+            "trace_id": trace_id,
+            "incidents": [run.incident_id for run in runs],
+            "alerts": len(result.alerts),
+            "errors": list(result.errors),
+        }
+
+    def _run_checks(
+        self,
+        trace_id: str,
+        options: dict,
+        checker_names: list | None,
+        checker_configs: dict,
+        labels: dict,
+    ) -> dict:
+        """Run the named checkers here and drain the runs their incidents earned.
+
+        The deprecated ``--checks-only``, expressed as the same two steps every
+        producer takes. ``--no-incidents`` needs no special case any more: it makes
+        the bridge create no incidents, so no alert has one, so
+        ``material_incident_ids`` is empty and ``enqueue_for`` enqueues nothing.
+        Nothing is routed, analyzed or notified — the old "just check, do not
+        disturb anything" contract, arrived at rather than coded for.
+        """
+        from apps.alerts.check_integration import CheckAlertBridge
+        from apps.orchestration.intake import enqueue_for
+
+        hostname = options.get("hostname")
+        bridge_kwargs: dict = {
+            "trace_id": trace_id,
+            "auto_create_incidents": not options.get("no_incidents", False),
+            # A --hostname means this diagnosis is ABOUT another machine: the
+            # checkers run here but the alerts carry that machine's name, so this
+            # run must not claim that identity for the local Node registry. Same
+            # predicate that decides whether the bridge gets a hostname at all.
+            "register_node": not hostname,
+        }
+        if hostname:
+            bridge_kwargs["hostname"] = hostname
+
+        # One transaction for the writes and the enqueue they justify; see
+        # ``_replay_payload`` above.
+        with transaction.atomic():
+            result = CheckAlertBridge(**bridge_kwargs).run_checks_and_alert(
+                checker_names=checker_names,
+                checker_configs=checker_configs or None,
+                labels=labels or None,
+            )
+            runs = enqueue_for(
+                result,
+                trace_id=trace_id,
+                origin=PipelineOrigin.CHECKER_GENERATED,
+                # The bridge writes every checker alert under this source, whoever
+                # ran it; recording the run under anything else would make the run
+                # and its alerts disagree about where the work came from.
+                source=CheckAlertBridge.SOURCE_NAME,
+                environment=options["environment"],
+                no_notify=bool(options.get("no_notify")),
+                sync=True,
+            )
+        return {
+            "trace_id": trace_id,
+            "incidents": [run.incident_id for run in runs],
+            "checks": result.checks_run,
+            "alerts": len(result.alerts),
+            "errors": list(result.errors),
+        }
+
+    # -------------------------------------------------------------------- options
+
+    def _get_inner_payload(self, options) -> dict:
+        """Read the payload to replay from --payload / --file / --sample."""
         if options["payload"]:
             try:
-                inner_payload = json.loads(options["payload"])
+                return json.loads(options["payload"])
             except json.JSONDecodeError as e:
                 raise CommandError(f"Invalid JSON payload: {e}")
-        elif options["file"]:
+        if options["file"]:
             try:
                 file_path = resolve_safe_path(options["file"])
             except PathNotAllowedError as e:
                 raise CommandError(str(e))
             try:
                 with open(file_path) as f:
-                    inner_payload = json.load(f)
+                    return json.load(f)
             except FileNotFoundError:
                 raise CommandError(f"File not found: {options['file']}")
             except json.JSONDecodeError as e:
                 raise CommandError(f"Invalid JSON in file: {e}")
-        elif options["sample"]:
-            inner_payload = self._get_sample_payload(options["source"])
-        elif options["checks_only"]:
-            inner_payload = {}
-        else:
-            raise CommandError("Must specify --sample, --payload, --file, or --checks-only")
+        if options["sample"]:
+            return self._get_sample_payload(options["source"])
+        raise CommandError("Must specify --sample, --payload, --file, or --checks-only")
 
-        # Parse labels
-        labels = {}
-        if options.get("labels"):
-            for label in options["labels"]:
-                if "=" not in label:
-                    raise CommandError(f"Invalid label format: {label}. Use KEY=VALUE.")
-                key, value = label.split("=", 1)
-                labels[key] = value
+    def _parse_labels(self, raw_labels) -> dict:
+        labels: dict[str, str] = {}
+        for label in raw_labels or []:
+            if "=" not in label:
+                raise CommandError(f"Invalid label format: {label}. Use KEY=VALUE.")
+            key, value = label.split("=", 1)
+            labels[key] = value
+        return labels
 
-        # Build checker configs from threshold overrides
-        checker_names = options.get("checkers")
-        checker_configs = {}
-        if checker_names:
-            for name in checker_names:
-                config = {}
-                if options.get("warning_threshold") is not None:
-                    config["warning_threshold"] = options["warning_threshold"]
-                if options.get("critical_threshold") is not None:
-                    config["critical_threshold"] = options["critical_threshold"]
-                if config:
-                    checker_configs[name] = config
-        else:
-            # Apply thresholds to all checkers if no specific checkers selected
-            if (
-                options.get("warning_threshold") is not None
-                or options.get("critical_threshold") is not None
-            ):
-                checker_configs["__all__"] = {}
-                if options.get("warning_threshold") is not None:
-                    checker_configs["__all__"]["warning_threshold"] = options["warning_threshold"]
-                if options.get("critical_threshold") is not None:
-                    checker_configs["__all__"]["critical_threshold"] = options["critical_threshold"]
+    def _build_checker_configs(self, options, checker_names) -> dict:
+        """Threshold overrides, per checker that will actually run.
 
-        return {
-            "payload": inner_payload,
-            "driver": options["source"] if options["source"] != "cli" else None,
-            "checks_only": bool(options.get("checks_only")),
-            "checker_names": checker_names,
-            "checker_configs": checker_configs if checker_configs else None,
-            "labels": labels if labels else None,
-            "hostname": options.get("hostname"),
-            "no_incidents": options.get("no_incidents", False),
-            "no_notify": bool(options.get("no_notify")),
-        }
+        With --checkers, only those; without, every registered checker — the same
+        expansion the old ``__all__`` payload key stood for, done here where the
+        names are known.
+        """
+        base: dict[str, float] = {}
+        if options.get("warning_threshold") is not None:
+            base["warning_threshold"] = options["warning_threshold"]
+        if options.get("critical_threshold") is not None:
+            base["critical_threshold"] = options["critical_threshold"]
+        if not base:
+            return {}
+
+        from apps.checkers.checkers import CHECKER_REGISTRY
+
+        names = checker_names if checker_names is not None else list(CHECKER_REGISTRY.keys())
+        return {name: dict(base) for name in names}
 
     def _get_sample_payload(self, source: str) -> dict[str, object]:
         """Generate a sample payload for testing."""
@@ -308,7 +417,17 @@ class Command(BaseCommand):
         # Default to generic if source not found
         return samples.get(source, samples["generic"])
 
-    def _show_dry_run(self, payload: dict, options: dict):
+    # --------------------------------------------------------------------- output
+
+    def _preamble(self, options) -> None:
+        """Announce the run — on stderr under --json, so stdout stays parseable."""
+        stream = self.stderr if options["json"] else self.stdout
+        stream.write("Starting pipeline...")
+        stream.write(f"  Source: {options['source']}")
+        stream.write(f"  Environment: {options['environment']}")
+        stream.write("")
+
+    def _show_dry_run(self, inner_payload: dict, options: dict, checks_only: bool):
         """Display what would happen in a dry run."""
         self.stdout.write(self.style.WARNING("=== DRY RUN ==="))
         self.stdout.write("")
@@ -317,106 +436,34 @@ class Command(BaseCommand):
         self.stdout.write(f"  Environment: {options['environment']}")
         self.stdout.write(f"  Notify Driver: {options['notify_driver']}")
         self.stdout.write("")
-        self.stdout.write("Payload:")
-        self.stdout.write(json.dumps(payload, indent=2))
+        if checks_only:
+            names = options.get("checkers")
+            self.stdout.write(f"  Checkers: {', '.join(names) if names else 'all'}")
+        else:
+            self.stdout.write("Payload:")
+            self.stdout.write(json.dumps(inner_payload, indent=2))
         self.stdout.write("")
         self.stdout.write("Pipeline Stages:")
-        self.stdout.write("  1. INGEST  - Parse alert payload, create/update Alert + Incident")
-        self.stdout.write("  2. CHECK   - Run system diagnostics (CPU, memory, disk, etc.)")
-        self.stdout.write("  3. ANALYZE - AI analysis of incident + checker results")
-        self.stdout.write("  4. NOTIFY  - Send notification via configured driver")
+        if checks_only:
+            self.stdout.write("  1. CHECK   - Run this machine's checkers, record alerts")
+        else:
+            self.stdout.write("  1. INGEST  - Parse alert payload, create/update Alert + Incident")
+        self.stdout.write("  2. ENQUEUE - One run per materially changed incident")
+        self.stdout.write("  3. DRAIN   - Run each queued incident through its matched lane")
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS("Use without --dry-run to execute"))
 
-    def _render_ingest(self, d: dict):
-        self.stdout.write(f"  Incident ID: {d.get('incident_id', 'N/A')}")
-        self.stdout.write(f"  Alerts created: {d.get('alerts_created', 0)}")
-        self.stdout.write(f"  Severity: {d.get('severity', 'N/A')}")
+    def _report(self, summary: dict, options: dict) -> None:
+        """Report what was written and what ran. Errors always reach stderr."""
+        for error in summary["errors"]:
+            self.stderr.write(self.style.WARNING(f"Error: {error}"))
 
-    def _render_check(self, d: dict):
-        self.stdout.write(f"  Checks run: {d.get('checks_run', 0)}")
-        self.stdout.write(f"  Passed: {d.get('checks_passed', 0)}")
-        self.stdout.write(f"  Failed: {d.get('checks_failed', 0)}")
+        if options["json"]:
+            self.stdout.write(json.dumps(summary, indent=2, default=str))
+            return
 
-    def _render_analyze(self, d: dict):
-        self.stdout.write(f"  Summary: {d.get('summary', 'N/A')[:100]}")
-        self.stdout.write(f"  Probable cause: {d.get('probable_cause', 'N/A')[:100]}")
-        self.stdout.write(f"  Recommendations: {len(d.get('recommendations', []))}")
-        if d.get("fallback_used"):
-            self.stdout.write(self.style.WARNING("  (Fallback used - AI unavailable)"))
-
-    def _render_notify(self, d: dict):
-        self.stdout.write(f"  Channels attempted: {d.get('channels_attempted', 0)}")
-        self.stdout.write(f"  Succeeded: {d.get('channels_succeeded', 0)}")
-        self.stdout.write(f"  Failed: {d.get('channels_failed', 0)}")
-
-    def _display_result(self, result):
-        """Display pipeline result in human-readable format."""
-        self.stdout.write("")
-        self.stdout.write("=" * 60)
-        self.stdout.write(self.style.HTTP_INFO("PIPELINE RESULT"))
-        self.stdout.write("=" * 60)
-        self.stdout.write("")
-
-        # Overall status (print using style wrappers)
-        if result.status == "COMPLETED":
-            self.stdout.write(self.style.SUCCESS(f"Status: {result.status}"))
-        else:
-            self.stdout.write(self.style.ERROR(f"Status: {result.status}"))
-        self.stdout.write(f"Trace ID: {result.trace_id}")
-        self.stdout.write(f"Run ID: {result.run_id}")
-        self.stdout.write(f"Duration: {result.total_duration_ms:.2f}ms")
-        self.stdout.write("")
-
-        # Stage results
-        stages = [
-            ("INGEST", result.ingest),
-            ("CHECK", result.check),
-            ("ANALYZE", result.analyze),
-            ("NOTIFY", result.notify),
-        ]
-
-        for stage_name, stage_result in stages:
-            self.stdout.write(f"--- {stage_name} ---")
-            if stage_result:
-                stage_dict = (
-                    stage_result if isinstance(stage_result, dict) else stage_result.to_dict()
-                )
-
-                # Show key info based on stage
-                renderer = {
-                    "INGEST": self._render_ingest,
-                    "CHECK": self._render_check,
-                    "ANALYZE": self._render_analyze,
-                    "NOTIFY": self._render_notify,
-                }[stage_name]
-                renderer(stage_dict)
-
-                # Show errors if any
-                errors = stage_dict.get("errors", [])
-                if errors:
-                    self.stdout.write(self.style.ERROR(f"  Errors: {errors}"))
-
-                self.stdout.write(f"  Duration: {stage_dict.get('duration_ms', 0):.2f}ms")
-            else:
-                self.stdout.write(self.style.WARNING("  (not executed)"))
-            self.stdout.write("")
-
-        # Final summary
-        if result.status == "COMPLETED":
-            self.stdout.write(self.style.SUCCESS("✓ Pipeline completed successfully"))
-        else:
-            self.stdout.write(self.style.ERROR(f"✗ Pipeline failed: {result.status}"))
-
-            # Prefer structured final_error if available on PipelineResult
-            final_error = getattr(result, "final_error", None)
-            try:
-                err_type = getattr(final_error, "error_type", type(final_error).__name__)
-                err_msg = getattr(final_error, "message", str(final_error))
-                self.stdout.write(self.style.ERROR(f"  - {err_type}: {err_msg}"))
-                stack = getattr(final_error, "stack_trace", None)
-                if stack:
-                    self.stdout.write(self.style.ERROR(stack))
-            except Exception:
-                # Fallback: print string representation
-                self.stdout.write(self.style.ERROR(str(final_error)))
+        self.stdout.write(
+            f"Recorded {summary['alerts']} alert(s), "
+            f"ran {len(summary['incidents'])} incident run(s) "
+            f"(trace_id={summary['trace_id']})"
+        )

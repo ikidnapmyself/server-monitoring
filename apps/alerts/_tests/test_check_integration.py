@@ -1003,6 +1003,38 @@ class BridgeIdentityTests(TestCase):
         self.assertEqual(parsed.labels["env"], "prod")
 
 
+class BridgeAutoResolutionFailureTests(TestCase):
+    """The auto-resolution pass runs past the commit, so its failure is reported.
+
+    It is not part of the batch's transaction: by the time it runs the alerts are
+    written, so a failure there must be reported alongside them rather than
+    discarding what did land.
+    """
+
+    @staticmethod
+    def _cpu_result():
+        return CheckResult(
+            status=CheckStatus.CRITICAL,
+            message="CPU usage at 95%",
+            metrics={"cpu_percent": 95.0},
+            checker_name="cpu",
+        )
+
+    def test_a_failed_auto_resolution_is_reported_and_keeps_the_writes(self):
+        bridge = CheckAlertBridge()
+
+        with patch(
+            "apps.alerts.services.AlertOrchestrator._check_incident_resolution",
+            side_effect=RuntimeError("resolution exploded"),
+        ):
+            result = bridge.process_check_result(self._cpu_result())
+
+        self.assertIn("resolution exploded", "; ".join(result.errors))
+        # Written, and still reported as written: the commit already happened.
+        self.assertEqual(Alert.objects.count(), 1)
+        self.assertEqual(len(result.alerts), 1)
+
+
 class BridgeSelfRegistrationTests(TestCase):
     """A machine that checks itself registers itself in the Node registry.
 

@@ -393,9 +393,29 @@ class IncidentDiagnosisDisplayTests(TestCase):
         incident = Incident.objects.create(title="D")
         admin = IncidentAdmin(Incident, AdminSite())
         html = str(admin.diagnosis_display(incident))
-        for label in ("alerts", "checkers", "intelligence", "notify"):
+        for label in ("checkers", "intelligence", "notify"):
             self.assertIn(label, html)
+        # "alerts" (ingest) is history: not produced for an incident of this era.
+        self.assertNotIn("alerts", html)
         self.assertIn("never", html.lower())
+
+    def test_diagnosis_display_still_renders_ingest_for_a_legacy_run(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import IncidentAdmin
+        from apps.alerts.models import Incident
+        from apps.orchestration.models import PipelineRun
+
+        incident = Incident.objects.create(title="D-legacy")
+        PipelineRun.objects.create(
+            trace_id="t",
+            run_id="r-legacy",
+            incident=incident,
+            inbound_payload={"driver": "grafana", "payload": {}},
+        )
+        admin = IncidentAdmin(Incident, AdminSite())
+        html = str(admin.diagnosis_display(incident))
+        self.assertIn("alerts", html)
 
     def test_diagnosis_display_escapes_detail(self):
         from django.contrib.admin.sites import AdminSite

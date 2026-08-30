@@ -153,6 +153,30 @@ class CheckAlertBridge:
         self.instance_id = instance_id or local_instance_id()
         self.trace_id = trace_id
         self.register_node = register_node
+        # This bridge's registry row is written once, by _ensure_node_registered.
+        self._node_registered = False
+
+    def _ensure_node_registered(self) -> None:
+        """Put this machine in the Node registry, once per bridge.
+
+        The machine belongs in the registry the moment it produces truth about
+        itself — the same row a cluster push would create if it pushed to a hub,
+        so the hub is a node like any other. It must precede alert creation:
+        ``_create_alert`` resolves the node from the ``instance_id`` label and
+        only links to an already-registered row.
+
+        Guarded by ``_node_registered`` so a batch of results writes the row once
+        rather than once per checker, and so this stays the single writer: a run
+        registers here whether or not any checker produced a result.
+        """
+        if not self.register_node or self._node_registered:
+            return
+        Node.upsert(
+            instance_id=self.instance_id,
+            hostname=self.hostname,
+            source="local",
+        )
+        self._node_registered = True
 
     def check_result_to_parsed_alert(
         self,
@@ -256,25 +280,25 @@ class CheckAlertBridge:
 
         try:
             with transaction.atomic():
-                if self.register_node:
-                    # The machine we just checked belongs in the registry the moment
-                    # it produces truth about itself. Same row a cluster push would
-                    # create if this machine pushed to a hub, so the hub is a node
-                    # like any other. Must precede alert creation: _create_alert
-                    # resolves the node from the instance_id label and only links to
-                    # an already-registered row.
-                    Node.upsert(
-                        instance_id=self.instance_id,
-                        hostname=self.hostname,
-                        source="local",
-                    )
+                self._ensure_node_registered()
                 for parsed_alert in parsed.alerts:
                     self.orchestrator._process_alert(parsed_alert, parsed.source, result)
+        except Exception as e:
+            # The bridge reports its failures rather than raising them: a health
+            # check must still print its results. But the batch rolled back, so
+            # none of the rows it appended exist — see
+            # ``ProcessingResult.discard_writes`` for why reporting them would be
+            # worse than reporting nothing.
+            logger.exception("Error processing check result")
+            result.discard_writes()
+            result.errors.append(str(e))
+            return result
 
-            # Handle incident auto-resolution
+        try:
+            # Handle incident auto-resolution. Past the commit: a failure here
+            # takes nothing back, so the writes above still stand.
             if self.orchestrator.auto_resolve_incidents:
                 self.orchestrator._check_incident_resolution()
-
         except Exception as e:
             logger.exception("Error processing check result")
             result.errors.append(str(e))
@@ -344,6 +368,12 @@ class CheckAlertBridge:
             CheckAlertResult with aggregate counts.
         """
         aggregate = CheckAlertResult()
+
+        # A run proves this machine is alive whatever its checkers turn out to
+        # produce — undetectable, empty, or all of them raising — so the registry
+        # must not depend on them. The per-result path registers too, and the
+        # guard makes that one write, not two.
+        self._ensure_node_registered()
 
         for check_result in results:
             processing_result = self.process_check_result(check_result, labels)

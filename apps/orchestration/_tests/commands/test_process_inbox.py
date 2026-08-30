@@ -110,7 +110,7 @@ class ProcessInboxTests(TestCase):
 
 
 class WebhookToDrainIntegrationTests(TestCase):
-    """End-to-end: the webhook's stored wrapper is processable by the drain."""
+    """End-to-end: the webhook ingests, and the drain finishes the incident run."""
 
     def setUp(self):
         PipelineDefinition.objects.create(
@@ -120,7 +120,7 @@ class WebhookToDrainIntegrationTests(TestCase):
             stages=[],
         )
 
-    def test_webhook_then_process_inbox_creates_alert(self):
+    def test_webhook_ingests_and_process_inbox_drains_its_incident_run(self):
         import json
 
         from django.test import override_settings
@@ -136,13 +136,16 @@ class WebhookToDrainIntegrationTests(TestCase):
                 content_type="application/json",
             )
         self.assertEqual(resp.status_code, 202)
-        run_id = resp.json()["run_id"]
 
-        # Nothing processed yet.
-        self.assertEqual(Alert.objects.count(), 0)
+        # The alert is already written: ingest is no longer queued work.
+        alert = Alert.objects.get()
+        self.assertEqual(resp.json()["incidents"], [alert.incident_id])
+        run = PipelineRun.objects.get()
+        self.assertEqual(run.status, PipelineStatus.PENDING)
+        self.assertEqual(run.inbound_payload, {"downstream_incident_id": alert.incident_id})
 
         call_command("process_inbox", "--limit", "10")
 
-        self.assertEqual(Alert.objects.count(), 1)
-        run = PipelineRun.objects.get(run_id=run_id)
+        run.refresh_from_db()
         self.assertEqual(run.status, PipelineStatus.INGESTED)
+        self.assertEqual(Alert.objects.count(), 1)

@@ -4,11 +4,15 @@ from unittest.mock import MagicMock, patch
 
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
-from apps.alerts.models import Alert, Node
+from apps.alerts import views
+from apps.alerts.models import Alert, Incident, Node
+from apps.alerts.services import AlertOrchestrator, ProcessingResult
 from apps.orchestration import inbox
 from apps.orchestration.models import (
     PipelineDefinition,
+    PipelineOrigin,
     PipelineRun,
     PipelineStage,
     PipelineStatus,
@@ -18,31 +22,226 @@ from apps.orchestration.models import (
 
 @override_settings(API_KEY_AUTH_ENABLED=False)
 class WebhookViewTests(TestCase):
-    """The webhook durably records a PENDING run and returns 202 (no inline work)."""
+    """The webhook ingests inline, then enqueues one PENDING run per incident.
+
+    Producing an alert is no longer a pipeline stage: the bounded alert write
+    happens on the request thread, and only the incident work (check, analyze,
+    notify) is left for the drain.
+    """
 
     def setUp(self):
         self.client = Client()
         self.webhook_url = reverse("alerts:webhook")
 
-    def test_webhook_records_pending_run_and_returns_202(self):
-        payload = {"name": "Test Alert", "status": "firing", "severity": "warning"}
-
-        response = self.client.post(
-            self.webhook_url,
+    def _post(self, payload, url=None):
+        return self.client.post(
+            url or self.webhook_url,
             data=json.dumps(payload),
             content_type="application/json",
         )
 
+    def test_alerts_exist_before_any_drain_runs(self):
+        response = self._post({"name": "Test Alert", "status": "firing", "severity": "warning"})
+
+        self.assertEqual(response.status_code, 202)
+        alert = Alert.objects.get()
+        self.assertEqual(alert.name, "Test Alert")
+        self.assertIsNotNone(alert.incident)
+        # No stage executed: the ingest happened outside the pipeline entirely.
+        self.assertEqual(StageExecution.objects.count(), 0)
+
+    def test_one_pending_run_per_material_incident(self):
+        payload = {
+            "alerts": [
+                {"name": "CPU high", "status": "firing", "severity": "critical"},
+                {"name": "Disk full", "status": "firing", "severity": "critical"},
+            ]
+        }
+
+        response = self._post(payload)
+
+        self.assertEqual(response.status_code, 202)
+        runs = list(PipelineRun.objects.all())
+        self.assertEqual(len(runs), 2)
+        incident_ids = {a.incident_id for a in Alert.objects.all()}
+        self.assertEqual({r.incident_id for r in runs}, incident_ids)
+        for run in runs:
+            self.assertEqual(run.status, PipelineStatus.PENDING)
+            self.assertEqual(run.origin, PipelineOrigin.INCOMING_WEBHOOK)
+            self.assertEqual(run.inbound_payload, {"downstream_incident_id": run.incident_id})
+        # One ingest, one trace.
+        self.assertEqual(len({r.trace_id for r in runs}), 1)
+        self.assertEqual(response.json()["trace_id"], runs[0].trace_id)
+
+    def test_no_run_carries_a_driver_payload_wrapper(self):
+        """The ingest run is gone; nothing is recorded for the drain to parse."""
+        self._post({"name": "Test Alert", "status": "firing", "severity": "warning"})
+
+        self.assertEqual(PipelineRun.objects.count(), 1)
+        for run in PipelineRun.objects.all():
+            self.assertNotIn("driver", run.inbound_payload)
+            self.assertNotIn("payload", run.inbound_payload)
+
+    def test_still_returns_202_with_trace_id_and_incidents(self):
+        response = self._post({"name": "Test Alert", "status": "firing", "severity": "warning"})
+
         self.assertEqual(response.status_code, 202)
         data = response.json()
         self.assertEqual(data["status"], "accepted")
-        run = PipelineRun.objects.get(run_id=data["run_id"])
-        self.assertEqual(run.status, PipelineStatus.PENDING)
-        # Stored in the wrapper shape IngestExecutor expects ({driver, payload}).
-        self.assertEqual(run.inbound_payload, {"driver": None, "payload": payload})
-        # Nothing was processed inline: no Alert, no stage executions.
+        self.assertNotIn("run_id", data)
+        self.assertEqual(data["incidents"], [Alert.objects.get().incident_id])
+        self.assertEqual(data["trace_id"], Alert.objects.get().trace_id)
+
+    def test_an_oversized_body_is_rejected_and_writes_nothing(self):
+        """Refused before the parse, so not even the node upsert happens."""
+        payload = {
+            "source": "cluster",
+            "instance_id": "web-03",
+            "alerts": [],
+            "pad": "x" * (views.MAX_PAYLOAD_BYTES + 1),
+        }
+
+        response = self._post(
+            payload, url=reverse("alerts:webhook_driver", kwargs={"driver": "cluster"})
+        )
+
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.json()["status"], "error")
         self.assertEqual(Alert.objects.count(), 0)
-        self.assertEqual(run.stage_executions.count(), 0)
+        self.assertEqual(PipelineRun.objects.count(), 0)
+        self.assertEqual(Node.objects.count(), 0)
+
+    def test_a_payload_with_no_alerts_writes_no_run_and_logs(self):
+        """A misconfigured sender, not a failure: 202, no rows, a WARNING."""
+        with self.assertLogs("apps.alerts.views", level="WARNING") as logs:
+            response = self._post(
+                {"alerts": []}, url=reverse("alerts:webhook_driver", kwargs={"driver": "generic"})
+            )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json()["incidents"], [])
+        self.assertEqual(Alert.objects.count(), 0)
+        self.assertEqual(PipelineRun.objects.count(), 0)
+        message = "\n".join(logs.output)
+        self.assertIn("generic", message)
+        self.assertIn(response.json()["trace_id"], message)
+
+    def test_an_undetectable_driver_returns_400(self):
+        """No driver claimed the payload: the sender's problem, and a retry would
+        fail identically, so it is told to stop rather than retry."""
+        response = self._post({"not": "an alert payload"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Alert.objects.count(), 0)
+        self.assertEqual(PipelineRun.objects.count(), 0)
+
+    def test_a_failure_after_the_driver_resolved_returns_500(self):
+        """Our fault, not the sender's: 400 here would silently discard the push.
+
+        The break is injected inside the parse — the real branch — rather than by
+        stubbing ``process_webhook``, whose own ``except`` is what turns a raise
+        into the errors-with-nothing-written result the view has to tell apart
+        from an unreadable payload.
+        """
+        with patch(
+            "apps.alerts.drivers.generic.GenericWebhookDriver.parse",
+            side_effect=RuntimeError("transient hub bug"),
+        ):
+            response = self._post({"name": "CPU high", "status": "firing"})
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["status"], "error")
+        self.assertEqual(Alert.objects.count(), 0)
+        self.assertEqual(PipelineRun.objects.count(), 0)
+
+    def test_a_rolled_back_batch_is_a_500_not_a_202(self):
+        """The whole batch rolled back, so the sender must retry it.
+
+        202 tells the sender it landed and it never sends again; the alerts are
+        gone and on-call is never told, permanently.
+        """
+        real = AlertOrchestrator._process_alert
+        calls = {"n": 0}
+
+        def fail_on_second(self, parsed, source, result):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("write exploded")
+            return real(self, parsed, source, result)
+
+        payload = {
+            "alerts": [
+                {"name": "CPU high", "status": "firing", "severity": "critical"},
+                {"name": "Disk full", "status": "firing", "severity": "critical"},
+            ]
+        }
+        with patch.object(AlertOrchestrator, "_process_alert", fail_on_second):
+            response = self._post(payload)
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(Alert.objects.count(), 0)
+        self.assertEqual(Incident.objects.count(), 0)
+        self.assertEqual(PipelineRun.objects.count(), 0)
+
+    def test_a_crash_at_the_enqueue_leaves_no_orphaned_incident(self):
+        """The enqueue and the writes that justify it commit together.
+
+        An incident written with no run never self-heals: the sender's retry finds
+        the same alert at the same severity, so nothing is material, so nothing is
+        enqueued, and there is no sweep for a materially changed alert lacking a
+        run. Better to keep nothing and be retried.
+        """
+        with patch(
+            "apps.orchestration.intake.enqueue_for",
+            side_effect=RuntimeError("killed mid-enqueue"),
+        ):
+            response = self._post({"name": "CPU high", "status": "firing", "severity": "critical"})
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(Alert.objects.count(), 0)
+        self.assertEqual(Incident.objects.count(), 0)
+        self.assertEqual(PipelineRun.objects.count(), 0)
+
+    def test_the_sending_node_is_still_registered(self):
+        url = reverse("alerts:webhook_driver", kwargs={"driver": "cluster"})
+
+        response = self._post(
+            {
+                "source": "cluster",
+                "instance_id": "web-03",
+                "hostname": "web-03.example.com",
+                "alerts": [],
+            },
+            url=url,
+        )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(Node.objects.get(instance_id="web-03").hostname, "web-03.example.com")
+
+    def test_errors_alongside_written_alerts_are_logged_and_accepted(self):
+        """A partial failure must not become a 5xx: the sender would retry it."""
+        alert = Alert.objects.create(
+            fingerprint="fp-1",
+            source="generic",
+            name="CPU high",
+            severity="critical",
+            started_at=timezone.now(),
+        )
+        result = ProcessingResult(
+            alerts=[alert],
+            material_alerts=[],
+            errors=["one alert failed"],
+            driver_resolved=True,
+        )
+
+        with (
+            patch("apps.alerts.services.AlertOrchestrator.process_webhook", return_value=result),
+            self.assertLogs("apps.alerts.views", level="ERROR") as logs,
+        ):
+            response = self._post({"name": "CPU high", "status": "firing"})
+
+        self.assertEqual(response.status_code, 202)
+        self.assertIn("one alert failed", "\n".join(logs.output))
 
     def test_webhook_post_invalid_json(self):
         response = self.client.post(
@@ -63,40 +262,52 @@ class WebhookViewTests(TestCase):
 
     def test_webhook_with_driver_records_source(self):
         url = reverse("alerts:webhook_driver", kwargs={"driver": "generic"})
-        payload = {"name": "Test Alert", "status": "firing"}
 
-        response = self.client.post(
-            url,
-            data=json.dumps(payload),
-            content_type="application/json",
-        )
+        response = self._post({"name": "Test Alert", "status": "firing"}, url=url)
 
         self.assertEqual(response.status_code, 202)
-        run = PipelineRun.objects.get(run_id=response.json()["run_id"])
-        self.assertEqual(run.source, "generic")
+        self.assertEqual(PipelineRun.objects.get().source, "generic")
 
     def test_webhook_unknown_driver_returns_400_without_recording(self):
         url = reverse("alerts:webhook_driver", kwargs={"driver": "nope"})
-        response = self.client.post(
-            url,
-            data=json.dumps({"name": "x"}),
-            content_type="application/json",
-        )
+
+        response = self._post({"name": "x"}, url=url)
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(PipelineRun.objects.count(), 0)
+        self.assertEqual(Alert.objects.count(), 0)
 
-    @patch("apps.orchestration.orchestrator.PipelineOrchestrator.start_pipeline")
-    def test_webhook_unexpected_error_returns_500(self, mock_start):
-        mock_start.side_effect = RuntimeError("db down")
-        response = self.client.post(
-            self.webhook_url,
-            data=json.dumps({"name": "x", "status": "firing"}),
-            content_type="application/json",
-        )
+    @patch("apps.alerts.services.AlertOrchestrator.process_webhook")
+    def test_webhook_unexpected_error_returns_500(self, mock_process):
+        mock_process.side_effect = RuntimeError("db down")
+
+        response = self._post({"name": "x", "status": "firing"})
 
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json()["status"], "error")
+
+    @patch("apps.alerts.services.AlertOrchestrator.process_webhook")
+    def test_webhook_500_body_says_nothing_about_the_exception(self, mock_process):
+        """The body is a fixed string; the detail lives in the logged traceback.
+
+        Echoing ``str(e)`` hands the sender database errors, settings paths and
+        payload fragments. The operator loses nothing: ``logger.exception``
+        still records the full traceback.
+        """
+        mock_process.side_effect = RuntimeError("db down at /srv/secret/settings.py")
+
+        with self.assertLogs("apps.alerts.views", level="ERROR") as logs:
+            response = self._post({"name": "x", "status": "firing"})
+
+        self.assertEqual(response.status_code, 500)
+        body = response.content.decode()
+        self.assertNotIn("db down", body)
+        self.assertNotIn("secret", body)
+        self.assertNotIn("RuntimeError", body)
+
+        logged = "\n".join(logs.output)
+        self.assertIn("db down at /srv/secret/settings.py", logged)
+        self.assertIn("Traceback", logged)
 
 
 @override_settings(API_KEY_AUTH_ENABLED=False)
@@ -130,7 +341,7 @@ class WebhookClusterLaneRoutingTests(TestCase):
         enable_delivery(PipelineDefinition, channel)
 
     def _push(self):
-        """POST one firing cluster alert; return its PENDING run."""
+        """POST one firing cluster alert; return the trace it was ingested under."""
         payload = {
             "source": "cluster",
             "instance_id": "web-03",
@@ -149,50 +360,50 @@ class WebhookClusterLaneRoutingTests(TestCase):
             self.url, data=json.dumps(payload), content_type="application/json"
         )
         self.assertEqual(response.status_code, 202)
-        return PipelineRun.objects.get(run_id=response.json()["run_id"])
+        return response.json()["trace_id"]
 
-    def _drained_stages(self, run):
-        """Stages that actually executed for ``run``, in execution order.
+    def _drained_stages(self, trace_id):
+        """Stages that actually executed under ``trace_id``, in execution order.
 
         The checker bridge is stubbed, and only the bridge. The POST, the drain,
         routing resolution and every ``StageExecution`` row still happen for real
         — CHECK included, which is the stage under test in the negative arm. What
-        the stub removes is the I/O behind that stage: a real ``CheckExecutor``
-        runs the whole ``CHECKER_REGISTRY`` against the machine running the
-        tests (CPU sampling, disk scans, SMART and temperature probes), which
-        cost 36s here and varies with the runner's disks and sensors. The three
-        lanes that never reach CHECK pay nothing for the patch.
+        the stub removes is the I/O behind that stage. CHECK no longer sweeps the
+        registry (it takes its scope from the incident, whose one alert is labelled
+        ``checker: cpu``), but the scoped run is still a real CPU sample on the
+        machine running the tests, and it would write hub alerts of its own and
+        queue more work behind them. The three lanes that never reach CHECK pay
+        nothing for the patch.
         """
         mock_bridge = MagicMock()
         mock_bridge.run_checks_and_alert.return_value = SimpleNamespace(
             checks_run=0, errors=[], alerts=[], material_alerts=[]
         )
         with patch("apps.alerts.check_integration.CheckAlertBridge", return_value=mock_bridge):
-            inbox.drain_run(run.run_id)
-            # The push run only ingests now; its lane runs in the downstream runs
-            # it enqueued, which the same drain picks up on its next pass. Drain
-            # them here so this stays the end-to-end test it was.
+            # The push itself ingested; what is queued is one run per incident it
+            # materially changed, and a lane stage may enqueue further work. Drain
+            # until the queue is empty so this stays the end-to-end test it was.
             while inbox.drain(limit=10):
                 pass
         return list(
-            StageExecution.objects.filter(pipeline_run__trace_id=run.trace_id)
+            StageExecution.objects.filter(pipeline_run__trace_id=trace_id)
             .order_by("id")
             .values_list("stage", flat=True)
         )
 
-    def test_wrapper_payload_carries_only_driver_and_payload(self):
-        """The view no longer smuggles a routing decision into the wrapper."""
-        run = self._push()
-        self.assertEqual(set(run.inbound_payload), {"driver", "payload"})
-        self.assertEqual(run.inbound_payload["driver"], "cluster")
+    def test_the_queued_work_is_the_incident_not_the_payload(self):
+        """The view records no ingest wrapper at all — only the incident to work."""
+        trace_id = self._push()
+        run = PipelineRun.objects.get(trace_id=trace_id)
+        incident = Alert.objects.get(fingerprint="check:web-03:cpu").incident
+        self.assertEqual(run.inbound_payload, {"downstream_incident_id": incident.id})
+        self.assertEqual(run.source, "cluster")
 
     def test_drained_cluster_push_analyzes_and_notifies_but_never_checks(self):
-        run = self._push()
-        stages = self._drained_stages(run)
-        self.assertEqual(
-            stages,
-            [PipelineStage.INGEST, PipelineStage.ANALYZE, PipelineStage.NOTIFY],
-        )
+        trace_id = self._push()
+        stages = self._drained_stages(trace_id)
+        # INGEST is gone from the run record: the webhook did it inline.
+        self.assertEqual(stages, [PipelineStage.ANALYZE, PipelineStage.NOTIFY])
 
     def test_the_cluster_lane_is_the_one_routing_resolved_to(self):
         """Read the stamp routing wrote, not the row's name from the table.
@@ -201,8 +412,8 @@ class WebhookClusterLaneRoutingTests(TestCase):
         ``pipeline`` FK is written by ``_downstream_stages`` on the matched lane,
         so it is evidence that resolution reached this row.
         """
-        run = self._push()
-        self._drained_stages(run)
+        trace_id = self._push()
+        self._drained_stages(trace_id)
         incident = Alert.objects.get(fingerprint="check:web-03:cpu").incident
         self.assertIsNotNone(incident)
         self.assertEqual(incident.pipeline.name, "cluster-nodes")
@@ -216,8 +427,8 @@ class WebhookClusterLaneRoutingTests(TestCase):
         admin, and an operator's choice to make.
         """
         PipelineDefinition.objects.filter(name="cluster-nodes").delete()
-        run = self._push()
-        stages = self._drained_stages(run)
+        trace_id = self._push()
+        stages = self._drained_stages(trace_id)
         self.assertIn(PipelineStage.CHECK, stages)
         incident = Alert.objects.get(fingerprint="check:web-03:cpu").incident
         self.assertEqual(incident.pipeline.name, "catch-all")
@@ -226,8 +437,9 @@ class WebhookClusterLaneRoutingTests(TestCase):
 @override_settings(API_KEY_AUTH_ENABLED=False)
 class WebhookNodeRegistrationTests(TestCase):
     """A cluster push registers/refreshes the sending node synchronously — at push
-    time — so the node is visible the instant the 202 returns, independent of the
-    drain. The payload's alerts are still processed later by the drain."""
+    time — so the node is visible the instant the 202 returns. It runs before the
+    ingest and independently of it: a push proves the sender is alive whatever its
+    alerts do (or fail to do)."""
 
     def setUp(self):
         self.client = Client()
@@ -248,10 +460,10 @@ class WebhookNodeRegistrationTests(TestCase):
         node = Node.objects.get(instance_id="web-03")
         self.assertEqual(node.hostname, "web-03.example.com")
         self.assertEqual(node.last_source, "cluster")
-        # Processing is still deferred: the run is PENDING with no alerts yet.
-        run = PipelineRun.objects.get(run_id=response.json()["run_id"])
-        self.assertEqual(run.status, PipelineStatus.PENDING)
+        # The push carried no alerts, so it queued no work — the node is still
+        # registered, which is the whole point of registering ahead of ingest.
         self.assertEqual(Alert.objects.count(), 0)
+        self.assertEqual(PipelineRun.objects.count(), 0)
 
     def test_cluster_push_refreshes_existing_node(self):
         Node.objects.create(instance_id="web-03", hostname="old")
@@ -282,13 +494,10 @@ class WebhookNodeRegistrationTests(TestCase):
         self.assertEqual(Node.objects.count(), 0)
 
     def test_webhook_run_origin_is_incoming_webhook(self):
-        from apps.orchestration.models import PipelineOrigin
-
         payload = {"name": "Test Alert", "status": "firing", "severity": "warning"}
-        response = self.client.post(
+        self.client.post(
             reverse("alerts:webhook"),
             data=json.dumps(payload),
             content_type="application/json",
         )
-        run = PipelineRun.objects.get(run_id=response.json()["run_id"])
-        self.assertEqual(run.origin, PipelineOrigin.INCOMING_WEBHOOK)
+        self.assertEqual(PipelineRun.objects.get().origin, PipelineOrigin.INCOMING_WEBHOOK)

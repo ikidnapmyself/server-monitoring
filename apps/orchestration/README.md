@@ -11,7 +11,8 @@ This app controls the lifecycle of pipeline runs through a strict state machine.
 Every pipeline run goes through these statuses:
 
 - `PENDING` → Initial state
-- `INGESTED` → Alert ingested successfully
+- `INGESTED` → the status floor a run starts from (**not** evidence an INGEST stage ran;
+  producers write alerts, and INGEST is retired as a stage)
 - `CHECKED` → Diagnostics completed
 - `ANALYZED` → AI analysis completed
 - `NOTIFIED` → Notifications sent (terminal success)
@@ -31,10 +32,12 @@ These IDs are attached to all logs, monitoring events, DB records, and notificat
 
 Each stage returns a structured DTO:
 
-1. **IngestResult** - Alert parsing and incident creation
-2. **CheckResult** - Diagnostic check results
-3. **AnalyzeResult** - AI analysis and recommendations
-4. **NotifyResult** - Notification delivery results
+1. **CheckResult** - Diagnostic check results
+2. **AnalyzeResult** - AI analysis and recommendations
+3. **NotifyResult** - Notification delivery results
+
+`IngestResult` still exists but is built only by the legacy `IngestExecutor`, which drains
+runs whose payload is a legacy `{"driver", "payload"}` pair.
 
 ### Monitoring Signals
 
@@ -68,14 +71,23 @@ Content-Type: application/json
 }
 ```
 
-Response (durable ingest — the run is recorded for the `process_inbox` drain):
+The payload is ingested on the request thread — producing an alert is not a pipeline
+stage — and one `PENDING` run per materially changed incident is left for the
+`process_inbox` drain. There is no single `run_id` to return: a call can produce several
+runs or none, so the response names the trace and the incidents.
+
+Response (202):
 ```json
 {
     "status": "accepted",
-    "run_id": "…",
-    "message": "Pipeline recorded; will be processed by the inbox drain"
+    "trace_id": "…",
+    "incidents": [12, 13]
 }
 ```
+
+A payload no driver claims returns `400` (a retry would fail identically). An ingest
+that breaks after a driver resolved, having written nothing, returns `500` so the sender
+retries. Errors alongside written alerts are logged and still accepted.
 
 ### Trigger Pipeline (Sync)
 
@@ -83,7 +95,18 @@ Response (durable ingest — the run is recorded for the `process_inbox` drain):
 POST /orchestration/pipeline/sync/
 ```
 
-Waits for pipeline completion and returns full result.
+The same producer path, but the runs it enqueued are drained before responding.
+
+Response (200):
+```json
+{
+    "status": "completed",
+    "trace_id": "…",
+    "incidents": [12],
+    "alerts": 1,
+    "errors": []
+}
+```
 
 ### Get Pipeline Status
 
@@ -121,7 +144,10 @@ Set these environment variables (or in `config/settings.py`):
 
 ### `run_pipeline`
 
-Execute the full pipeline (ingest → check → analyze → notify) or parts of it. All flags can be passed after aliases too (e.g., `sm-run-pipeline --sample --dry-run`).
+**Replay an alert payload.** `run_pipeline` is a producer like the webhook: it ingests the
+payload here (`AlertOrchestrator.process_webhook`), then enqueues one run per materially
+changed incident and drains them before returning — `enqueue_for(origin=manual, sync=True)`.
+All flags can be passed after aliases too (e.g., `sm-run-pipeline --sample --dry-run`).
 
 ```bash
 # Run with sample alert payload (quickest test)
@@ -170,15 +196,16 @@ uv run python manage.py run_pipeline --sample --trace-id my-trace-123
 uv run python manage.py run_pipeline --sample --environment production --trace-id deploy-v2.1.0
 ```
 
-#### Partial execution
+#### Running this machine's checkers
 
 ```bash
-# Run only the checkers stage (skip alert ingestion)
-uv run python manage.py run_pipeline --sample --checks-only
-
-# Checks only + dry run
-uv run python manage.py run_pipeline --sample --checks-only --dry-run
+# The local entrypoint — see apps/checkers/README.md
+uv run python manage.py check_health
 ```
+
+`run_pipeline --checks-only` does the same work and is **deprecated**: it prints a notice
+on stderr on every run. Note it ignores `--sample` and any other payload flag — with
+`--checks-only` there is no payload to replay.
 
 #### Notification driver
 
@@ -212,8 +239,8 @@ uv run python manage.py run_pipeline \
 # Quick smoke test: sample, dry run, JSON
 uv run python manage.py run_pipeline --sample --dry-run --json
 
-# Checks-only with custom source and trace
-uv run python manage.py run_pipeline --sample --checks-only --source alertmanager --trace-id diag-run-1
+# Custom source and trace
+uv run python manage.py run_pipeline --sample --source alertmanager --trace-id diag-run-1
 ```
 
 #### Flag reference
@@ -226,10 +253,17 @@ uv run python manage.py run_pipeline --sample --checks-only --source alertmanage
 | `--source` | str | `cli` | Alert source format |
 | `--environment` | str | `development` | Environment name |
 | `--trace-id` | str | auto-generated | Custom trace ID for correlation |
-| `--checks-only` | flag | — | Run only checkers stage |
-| `--dry-run` | flag | — | Preview without executing |
-| `--notify-driver` | str | `generic` | Notification driver to use |
-| `--json` | flag | — | Output as JSON |
+| `--checks-only` | flag | — | **DEPRECATED** — use `check_health`. Run this machine's checkers instead of replaying a payload; prints a notice on stderr |
+| `--checkers` | str... | all | With `--checks-only`: which checkers to run |
+| `--hostname` | str | — | With `--checks-only`: label the alerts for another machine (and skip local Node registration) |
+| `--label` | `KEY=VALUE` | — | With `--checks-only`: extra alert label, repeatable |
+| `--warning-threshold` | float | per-checker | With `--checks-only`: threshold override |
+| `--critical-threshold` | float | per-checker | With `--checks-only`: threshold override |
+| `--no-incidents` | flag | — | Record alerts but create no incidents, so nothing is enqueued, routed, analysed or notified |
+| `--no-notify` | flag | — | Run the matched lane without NOTIFY; travels in the enqueued run's payload |
+| `--dry-run` | flag | — | Preview without executing (plain text; ignores `--json`) |
+| `--notify-driver` | str | `generic` | **Accepted and currently unused** — delivery is chosen by the matched lane's channel |
+| `--json` | flag | — | Output as JSON: `{trace_id, incidents, alerts, errors}` |
 
 ---
 
@@ -293,32 +327,45 @@ uv run python manage.py monitor_pipeline --status notified --limit 20
 
 ### Python API
 
+Be a producer: write the alerts, then hand the materially changed incidents to intake.
+This is what the webhook and every command do.
+
 ```python
-from apps.orchestration.orchestrator import PipelineOrchestrator
+import uuid
 
-# Run pipeline synchronously
-orchestrator = PipelineOrchestrator()
-result = orchestrator.run_pipeline(
-    payload={"payload": alert_data},
+from apps.alerts.services import AlertOrchestrator
+from apps.orchestration.intake import enqueue_for
+from apps.orchestration.models import PipelineOrigin
+
+trace_id = str(uuid.uuid4())
+result = AlertOrchestrator(trace_id=trace_id).process_webhook(alert_data, driver="grafana")
+
+# One PENDING run per materially changed incident. sync=True drains them here;
+# without it, process_inbox takes them.
+runs = enqueue_for(
+    result,
+    trace_id=trace_id,
+    origin=PipelineOrigin.MANUAL,
     source="grafana",
-    trace_id="custom-trace-123",
+    sync=True,
 )
-
-print(f"Pipeline {result.status}: {result.stages_completed}")
+print([run.incident_id for run in runs])
 ```
+
+Do not call the entry-stage path (`start_pipeline` / `run_pipeline()` with a
+`{"driver", "payload"}` payload). It exists only to drain runs recorded before this
+model, and it will go away.
 
 ### Durable ingest / drain (broker-free)
 
+The webhook writes the alerts inline and records one `PENDING` run per materially changed
+incident (`inbound_payload = {"downstream_incident_id": N}`), which a drain picks up later.
+Use `enqueue_for` without `sync` to do the same thing; to execute one run by hand:
+
 ```python
 from apps.orchestration.orchestrator import PipelineOrchestrator
 
-# Record a PENDING run (what the webhook does); a drain processes it later.
-run = PipelineOrchestrator().start_pipeline(
-    payload={"driver": None, "payload": alert_data},
-    source="webhook",
-)
-
-# Drain it (manage.py process_inbox does this in a loop):
+# What manage.py process_inbox does in a loop, per claimed run:
 result = PipelineOrchestrator().execute_run(run)
 ```
 

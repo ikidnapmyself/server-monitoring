@@ -95,6 +95,20 @@ class SystemChecksTests(TestCase):
             self.assertEqual(errors, [])
 
     @patch("apps.checkers.checks._is_testing", return_value=False)
+    def test_crontab_check_with_check_health_configured(self, mock_is_testing):
+        """The command the installer writes today (check_health) is accepted."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = (
+            "*/5 * * * * cd /path && uv run python manage.py check_health --json "
+            "# server-maintanence health check"
+        )
+
+        with patch("subprocess.run", return_value=mock_result):
+            errors = check_crontab_configuration(app_configs=None)
+            self.assertEqual(errors, [])
+
+    @patch("apps.checkers.checks._is_testing", return_value=False)
     def test_crontab_check_no_cron_job(self, mock_is_testing):
         """Test that crontab check warns when cron job is missing."""
         mock_result = MagicMock()
@@ -137,7 +151,7 @@ class SystemChecksTests(TestCase):
             errors = check_crontab_configuration(app_configs=None)
             self.assertEqual(len(errors), 1)
             self.assertEqual(errors[0].id, "checkers.W005")
-            self.assertIn("--checks-only", errors[0].hint)
+            self.assertIn("check_health", errors[0].hint)
 
     @patch("apps.checkers.checks._is_testing", return_value=False)
     def test_crontab_check_server_maintanence_without_run_pipeline_warns(self, mock_is_testing):

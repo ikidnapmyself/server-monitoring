@@ -11,7 +11,17 @@ Responsibilities:
 - Or run checks standalone via management commands (standalone mode)
 
 Output contract (to orchestrator):
-- `{ checks: [...], timings, errors, checker_output_ref }`
+- `{ checks: [...], timings, errors, checker_output_ref }`, plus `alert_id`,
+  `incident_id`, `alert_fingerprint` and `material_incident_ids` — a pipeline-mode CHECK
+  writes real `Alert`/`Incident` rows through `CheckAlertBridge`, it does not only report.
+
+**CHECK's scope is the incident, not the registry.** For an incident run the stage runs
+the checkers named by the distinct `checker` labels on that incident's alerts, filtered to
+`CHECKER_REGISTRY`. An incident that names no checkers runs none — it does not sweep the
+whole machine. That is why `CheckAlertBridge.run_checks_and_alert` distinguishes
+`checker_names=None` ("every checker", what a caller with no opinion passes) from
+`checker_names=[]` ("none", what an incident naming no checkers passes). Never collapse
+the two. See `apps/orchestration/AGENTS.md`.
 
 ## Key modules
 
@@ -61,15 +71,23 @@ manage.py check_health                 # All checkers, human output
 manage.py check_health cpu memory      # Named checkers only
 manage.py check_health --json          # JSON output for CI
 manage.py check_health --no-alert      # skip alert recording (print only)
+manage.py check_health --no-notify     # record + analyse, run no NOTIFY stage
 ```
 
 **Alert recording:** by default each run hands its results to `CheckAlertBridge`,
 which writes an alert (and incident) per firing checker keyed on this machine's
 `instance_id` and registers the machine as a `Node`; healthy checkers write nothing.
-Synchronous and inbox-free — the bridge enqueues no `PipelineRun`, so a single-machine
-install works with no hub and nobody draining the inbox. A write failure is reported on
-stderr and swallowed, so output (including `--json` on stdout) and the exit code are
-unaffected. `--no-alert` restores print-only behaviour.
+
+**Orchestration:** this is the synchronous local entrypoint. After recording, the
+command calls `apps.orchestration.intake.enqueue_for(..., sync=True)` — one
+`PipelineRun` per materially changed incident, drained before the command returns —
+so a single-machine install gets the analysis with no hub, no cron and nobody
+draining the inbox. `--no-notify` travels with those runs, for looking at a machine
+without paging anyone.
+
+A recording *or* orchestration failure is reported on stderr and swallowed, so
+output (including `--json` on stdout) and the exit code are unaffected. `--no-alert`
+restores print-only behaviour: nothing written, nothing enqueued.
 
 ### `preflight`
 
@@ -111,7 +129,7 @@ Authoritative source: [`docs/plans/2026-05-12-iso-27003-security-audit-notes.md`
 - **Timeouts on every outbound call.** No bare `urlopen(req)` without `timeout=`.
 
 ### Trust boundary discipline
-- Pipeline-mode checker inputs (`hostname`, `checker_configs`, `labels`, `checks_only`) arrive from `/orchestration/pipeline/*` — treat them as untrusted even after API-key auth.
+- Pipeline-mode checker inputs (`hostname`, `checker_configs`, `labels`) no longer arrive over HTTP: `POST /orchestration/pipeline/*` is a producer (ingest, then one run per changed incident) and forwards no checker configuration. CHECK still reads `checker_configs`/`labels` off a run's stored payload, so any future producer that writes them there is supplying untrusted input — treat it as such even after API-key auth.
 - Standalone CLI inputs (`run_check --paths`) are admin-trusted but still routed through `resolve_safe_path` for defence in depth.
 - Never echo raw exception messages into HTTP responses; log via `logger.exception(..., extra={"trace_id": ...})`.
 

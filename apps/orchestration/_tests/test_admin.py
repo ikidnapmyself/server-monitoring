@@ -654,6 +654,24 @@ class TestPipelineRunChangePageRendersCrossLinks(TestCase):
         self.assertContains(resp, f"/admin/alerts/node/{node.pk}/change/")
         self.assertContains(resp, f"/admin/alerts/incident/{incident.pk}/change/")
 
+    def test_historical_run_without_an_incident_still_renders(self):
+        """``PipelineRun.incident`` is required in code, nullable in the database.
+
+        Rows predating "a run is an incident" legitimately have no subject and must
+        keep loading in the admin — changelist and change page alike.
+        """
+        from django.urls import reverse
+
+        run = PipelineRun.objects.create(trace_id="t", run_id="historical")
+        self.assertIsNone(run.incident_id)
+
+        changelist = self.client.get(reverse("admin:orchestration_pipelinerun_changelist"))
+        self.assertEqual(changelist.status_code, 200)
+        self.assertContains(changelist, "historical")
+
+        change = self.client.get(reverse("admin:orchestration_pipelinerun_change", args=[run.pk]))
+        self.assertEqual(change.status_code, 200)
+
 
 class TestPipelineDefinitionStagesForm(TestCase):
     """The Add form seeds ``stages``; the data model still means empty when empty."""

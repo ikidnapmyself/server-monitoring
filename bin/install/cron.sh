@@ -72,7 +72,19 @@ info "Using schedule: $CRON_SCHEDULE"
 # 2. Build cron command
 # ---------------------------------------------------------------------------
 
-CRON_CMD="cd $PROJECT_DIR && $UV_PATH run python manage.py run_pipeline --checks-only --json >> ${LOG_DIR:-$PROJECT_DIR/logs}/cron.log 2>&1"
+# ``check_health`` is the local entrypoint: it runs this machine's checkers,
+# records their alerts, enqueues one run per materially changed incident and
+# drains those runs before returning. That is the whole job a cron-only install
+# needs, with no daemon draining an inbox. It replaces the deprecated
+# ``run_pipeline --checks-only``, which does the same work but now prints a
+# deprecation notice into cron.log on every tick.
+#
+# ``--json`` carries over unchanged. The exit code does not: check_health exits
+# 2 on a CRITICAL result and 1 on UNKNOWN, where the old command exited 0
+# unless the pipeline itself failed. Cron ignores the status and all output is
+# redirected here, so nothing changes for the scheduled job — but a wrapper
+# that inspects `$?` would see it.
+CRON_CMD="cd $PROJECT_DIR && $UV_PATH run python manage.py check_health --json >> ${LOG_DIR:-$PROJECT_DIR/logs}/cron.log 2>&1"
 CRON_ID="# server-maintanence health check"
 
 # ---------------------------------------------------------------------------
@@ -120,11 +132,11 @@ fi
 # ---------------------------------------------------------------------------
 
 # A machine with no HUB_URL needs nothing here. The health-check job above is
-# already its self-monitoring: run_pipeline --checks-only enters the pipeline at
-# CHECK instead of INGEST, then routes and runs the matched lane exactly like
-# webhook traffic, synchronously, draining its own downstream runs. A second
-# local job would produce the same alert on the same schedule, and its PENDING
-# run would need a process_inbox that a cron-only install does not have.
+# already its self-monitoring: check_health writes the alerts, lets incidents
+# form, and drains the run each materially changed incident earns — the same
+# lanes and executors webhook traffic gets, just synchronously. A second local
+# job would produce the same alert on the same schedule, and its PENDING run
+# would need a process_inbox that a cron-only install does not have.
 
 _hub_url=""
 if [ -f "$_ENV_FILE" ]; then

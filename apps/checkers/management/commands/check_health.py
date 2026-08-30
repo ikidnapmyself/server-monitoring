@@ -8,14 +8,17 @@ Usage:
     python manage.py check_health --json             # Output as JSON
     python manage.py check_health --fail-on-warning  # Exit 1 on warning or critical
     python manage.py check_health --no-alert         # Print only, record no alerts
+    python manage.py check_health --no-notify        # Run the pipeline, notify nobody
 """
 
 import json
 import logging
 import sys
+import uuid
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 
 from apps.checkers.checkers import CHECKER_REGISTRY, CheckStatus
 from apps.checkers.management.commands._metrics_format import write_metrics
@@ -85,6 +88,16 @@ class Command(BaseCommand):
             action="store_true",
             help="Run checks without recording alerts (print only).",
         )
+        parser.add_argument(
+            "--no-notify",
+            action="store_true",
+            help=(
+                "Run the matched lane without its NOTIFY stage. For looking at a "
+                "machine in real time (SSH in, run the checks, read the analysis) "
+                "without telling anyone. The lane itself is unchanged; only this "
+                "run is scoped."
+            ),
+        )
 
     def handle(self, *args, **options):
         if options["list"]:
@@ -114,7 +127,7 @@ class Command(BaseCommand):
             results.append(result)
 
         if not options["no_alert"]:
-            self._record_alerts(results)
+            self._record_alerts(results, no_notify=options["no_notify"])
 
         if options["json_output"]:
             self._output_json(results)
@@ -125,33 +138,63 @@ class Command(BaseCommand):
         if exit_code != 0:
             sys.exit(exit_code)
 
-    def _record_alerts(self, results) -> None:
-        """Record alerts for these results on this machine. Never affects output.
+    def _record_alerts(self, results, *, no_notify: bool = False) -> None:
+        """Record alerts for these results and run their pipeline. Never affects output.
 
-        Synchronous and inbox-free by construction: CheckAlertBridge writes alerts
-        and incidents in one transaction and enqueues nothing. That is what makes a
-        single-machine install work with no hub, no cron, and nobody draining an
-        inbox. A missing or unmigrated database must not break a health check, so
-        failures are reported on stderr and swallowed — stderr so --json output on
-        stdout stays parseable. They are logged too: the stderr line alone would
-        leave a real bridge bug undiagnosable in the field.
+        This is the synchronous local entrypoint: the operator on a single machine
+        has no hub, no cron and nobody draining an inbox, so one command has to
+        carry the whole thing — CheckAlertBridge writes the alerts and incidents in
+        one transaction, and ``enqueue_for(..., sync=True)`` enqueues one run per
+        materially changed incident and drains those runs before we return. That is
+        what makes the analysis (AnalyzeExecutor's LocalProvider needs no API key)
+        actually happen on a laptop. ``--no-notify`` travels with the runs so the
+        same operator can look at a box without paging anyone.
+
+        A missing or unmigrated database must not break a health check, so failures
+        are reported on stderr and swallowed — stderr so --json output on stdout
+        stays parseable. They are logged too: the stderr line alone would leave a
+        real bridge or pipeline bug undiagnosable in the field. The same treatment
+        covers the drain: a broken pipeline must not stop a health check printing
+        its results or change its exit code.
 
         Failures arrive by two routes and both must be reported. The bridge already
         catches everything the alert write raises and folds the message into the
         returned ``CheckAlertResult.errors`` — that is the route the missing-table
         case actually takes, so ignoring the return value would make this reporting
         dead code. The ``try`` still guards what happens outside the bridge: the
-        import and the constructor.
+        import, the constructor, and the orchestration that follows.
         """
-        # Imported here: apps.checkers must not hard-depend on apps.alerts at
-        # import time.
+        # Imported here: apps.checkers must not hard-depend on apps.alerts or
+        # apps.orchestration at import time.
         from apps.alerts.check_integration import CheckAlertBridge
+        from apps.orchestration.intake import enqueue_for
+        from apps.orchestration.models import PipelineOrigin
 
+        trace_id = str(uuid.uuid4())
+        result = None
         try:
-            result = CheckAlertBridge().process_check_results(results)
+            # One transaction for the writes and the enqueue they justify: a crash
+            # between them leaves an incident durably written with no run, and the
+            # next tick reports the same condition at the same severity, so nothing
+            # is material and nothing is ever enqueued for it. The drain is
+            # registered with ``transaction.on_commit`` inside ``enqueue_for``, so
+            # it runs after this block rather than against uncommitted rows.
+            with transaction.atomic():
+                result = CheckAlertBridge(trace_id=trace_id).process_check_results(results)
+                enqueue_for(
+                    result,
+                    trace_id=trace_id,
+                    origin=PipelineOrigin.CHECKER_GENERATED,
+                    source=CheckAlertBridge.SOURCE_NAME,
+                    no_notify=no_notify,
+                    sync=True,
+                )
         except Exception as exc:  # noqa: BLE001 - a health check must still print
-            logger.exception("Alert recording failed")
-            self.stderr.write(f"Alert recording skipped: {exc}")
+            # Which half broke decides what to say: the bridge had not returned yet
+            # (recording), or it had (the enqueue or the drain that follows it).
+            stage = "Pipeline run" if result is not None else "Alert recording"
+            logger.exception("%s failed", stage)
+            self.stderr.write(f"{stage} skipped: {exc}")
             return
 
         for error in result.errors:

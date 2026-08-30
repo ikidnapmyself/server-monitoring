@@ -93,6 +93,36 @@ def drain_run(run_id: str) -> int:
     return 1
 
 
+def drain_runs(runs, *, orchestrator=None) -> int:
+    """Claim and execute exactly these runs. Return how many actually ran.
+
+    This is not ``drain``: it is scoped to work the caller already knows about —
+    the runs it just enqueued — rather than sweeping whatever the queue happens to
+    hold. Synchronous callers (``manage.py run_pipeline``, CLI diagnostics, tests)
+    expect one call to carry the whole pipeline through, and after fan-out
+    everything downstream of the entry stage lives in the children, so those
+    children have to be executed here. ``execute_run`` deliberately does not do it
+    itself, because ``process_inbox`` is already the drain and would recurse.
+
+    Claimed the same way ``drain`` claims, so a concurrent ``process_inbox`` can
+    never double-execute a run; anything we do not win is skipped.
+
+    ``orchestrator`` is injectable because the caller's retry/backoff settings and
+    executors must apply to these runs too — ``drain_run``'s fresh orchestrator
+    would silently drop them. It defaults to a fresh ``PipelineOrchestrator`` for
+    callers with nothing of their own to pass.
+    """
+    orchestrator = orchestrator if orchestrator is not None else PipelineOrchestrator()
+    processed = 0
+    for run in runs:
+        if not claim(run.pk):
+            continue  # a concurrent drain claimed it first
+        run.refresh_from_db()  # load the claimed row's current state once
+        orchestrator.execute_run(run)
+        processed += 1
+    return processed
+
+
 def enqueue_incident_runs(
     incident_ids,
     *,
@@ -121,6 +151,17 @@ def enqueue_incident_runs(
     runs: list[PipelineRun] = []
     with transaction.atomic():
         for incident_id in incident_ids:
+            # Every run enqueued here has an incident as its subject. The database
+            # column stays NULLABLE on purpose — rows predating this refactor were
+            # written by the entry stage, before an incident existed, and history
+            # must keep rendering — so the requirement lives here, at the one door
+            # new work comes through. A subject-less enqueue is a programming
+            # error: the run would resolve no lane, notify nobody, and say so only
+            # by on-call never hearing about it.
+            if not incident_id:
+                raise ValueError(
+                    f"enqueue_incident_runs requires an incident id, got {incident_id!r}"
+                )
             runs.append(
                 PipelineRun.objects.create(
                     trace_id=trace_id,

@@ -11,17 +11,18 @@ class DiagnoseIncidentExpectedStagesTests(TestCase):
     def _statuses(self, incident):
         return {e["stage"]: e["status"] for e in diagnose_incident(incident)}
 
-    def test_returns_four_stages_in_order(self):
+    def test_returns_the_produced_stages_in_order(self):
+        # INGEST is history and this incident has no legacy run — see
+        # DiagnoseIncidentIngestIsHistoryTests.
         incident = Incident.objects.create(title="Empty")
         stages = [e["stage"] for e in diagnose_incident(incident)]
-        self.assertEqual(stages, ["ingest", "check", "analyze", "notify"])
+        self.assertEqual(stages, ["check", "analyze", "notify"])
 
     def test_no_runs_no_pipeline_all_never_ran(self):
         incident = Incident.objects.create(title="No runs")
         self.assertEqual(
             self._statuses(incident),
             {
-                "ingest": "never_ran",
                 "check": "never_ran",
                 "analyze": "never_ran",
                 "notify": "never_ran",
@@ -183,8 +184,6 @@ class DiagnoseIncidentJunkPipelineTests(TestCase):
         entries = {e["stage"]: e for e in diagnose_incident(incident)}
         self.assertEqual(entries["notify"]["status"], "skipped")
         self.assertEqual(entries["check"]["status"], "skipped")
-        # INGEST is the entry stage and stays expected regardless of the lane.
-        self.assertEqual(entries["ingest"]["status"], "never_ran")
 
     def test_unknown_stage_in_list_is_ignored(self):
         pipe = PipelineDefinition.objects.create(name="part-junk", stages=["sparkle", "notify"])
@@ -192,3 +191,88 @@ class DiagnoseIncidentJunkPipelineTests(TestCase):
         entries = {e["stage"]: e for e in diagnose_incident(incident)}
         self.assertEqual(entries["notify"]["status"], "never_ran")  # expected, not yet run
         self.assertEqual(entries["analyze"]["status"], "skipped")
+
+
+class DiagnoseIncidentIngestIsHistoryTests(TestCase):
+    """INGEST is reported only for an incident that actually has a legacy run.
+
+    Since "a run is an incident", no producer records an INGEST stage. Reporting
+    it for a new incident would show a permanent gap for a stage that will never
+    run.
+    """
+
+    def _stages(self, incident):
+        return [e["stage"] for e in diagnose_incident(incident)]
+
+    def _entries(self, incident):
+        return {e["stage"]: e for e in diagnose_incident(incident)}
+
+    def test_incident_with_no_runs_does_not_report_ingest(self):
+        incident = Incident.objects.create(title="Fresh")
+        self.assertEqual(self._stages(incident), ["check", "analyze", "notify"])
+
+    def test_incident_with_only_incident_runs_does_not_report_ingest(self):
+        incident = Incident.objects.create(title="New model")
+        PipelineRun.objects.create(
+            trace_id="t",
+            run_id="r",
+            incident=incident,
+            inbound_payload={"downstream_incident_id": incident.pk},
+        )
+        self.assertEqual(self._stages(incident), ["check", "analyze", "notify"])
+
+    def test_incident_with_a_legacy_run_still_reports_ingest(self):
+        incident = Incident.objects.create(title="Legacy")
+        legacy = PipelineRun.objects.create(
+            trace_id="t",
+            run_id="legacy",
+            incident=incident,
+            inbound_payload={"driver": "grafana", "payload": {"alerts": []}},
+        )
+        StageExecution.objects.create(
+            pipeline_run=legacy, stage="ingest", status="succeeded", output_ref="ref://p/1"
+        )
+        entries = self._entries(incident)
+        self.assertEqual(list(entries), ["ingest", "check", "analyze", "notify"])
+        self.assertEqual(entries["ingest"]["status"], "ok")
+        self.assertEqual(entries["ingest"]["runs"], "succeeded in 1/1 runs")
+
+    def test_a_legacy_run_alongside_incident_runs_still_reports_ingest(self):
+        incident = Incident.objects.create(title="Mixed")
+        legacy = PipelineRun.objects.create(
+            trace_id="t",
+            run_id="legacy",
+            incident=incident,
+            inbound_payload={"driver": "grafana", "payload": {}},
+        )
+        StageExecution.objects.create(
+            pipeline_run=legacy, stage="ingest", status="failed", error_message="bad shape"
+        )
+        PipelineRun.objects.create(
+            trace_id="t",
+            run_id="child",
+            incident=incident,
+            inbound_payload={"downstream_incident_id": incident.pk},
+        )
+        entries = self._entries(incident)
+        self.assertEqual(entries["ingest"]["status"], "failed")
+        self.assertEqual(entries["ingest"]["runs"], "succeeded in 0/2 runs")
+
+    def test_the_other_stages_are_unaffected_by_the_ingest_rule(self):
+        """Dropping INGEST changes nothing about check/analyze/notify."""
+        pipe = PipelineDefinition.objects.create(name="no-intel-2", stages=["check", "notify"])
+        incident = Incident.objects.create(title="Routed new", pipeline=pipe)
+        run = PipelineRun.objects.create(
+            trace_id="t",
+            run_id="r",
+            incident=incident,
+            inbound_payload={"downstream_incident_id": incident.pk},
+        )
+        StageExecution.objects.create(
+            pipeline_run=run, stage="check", status="succeeded", output_ref="ref://c"
+        )
+        entries = self._entries(incident)
+        self.assertNotIn("ingest", entries)
+        self.assertEqual(entries["check"]["status"], "ok")
+        self.assertEqual(entries["analyze"]["status"], "skipped")
+        self.assertEqual(entries["notify"]["status"], "never_ran")

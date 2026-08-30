@@ -12,7 +12,13 @@ from django.utils import timezone
 
 
 class PipelineStage(models.TextChoices):
-    """Pipeline stages in execution order."""
+    """Pipeline stages in execution order.
+
+    ``INGEST`` is retained for historical ``StageExecution`` rows only. Producing
+    an alert is no longer a pipeline stage — every producer writes alerts, lets
+    incidents form, and enqueues one run per materially changed incident — so no
+    new INGEST execution is written. The value stays so old rows keep rendering.
+    """
 
     INGEST = "ingest", "Ingest"
     CHECK = "check", "Check"

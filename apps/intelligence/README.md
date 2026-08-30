@@ -267,7 +267,10 @@ Providers are configured via Django Admin (`IntelligenceProvider` model):
 3. Set `is_active=True` — only one can be active at a time (enforced by `UniqueConstraint`)
 4. The orchestrator calls `get_active_provider()` by default, which queries the DB
 5. If no active provider exists (or the DB is unavailable), falls back to `local`
-6. Pipeline configs can override with an explicit `provider` key, which calls `get_provider()` directly
+6. `AnalyzeExecutor` still honours an explicit `provider` key on the run payload, which
+   calls `get_provider()` directly — but no producer writes one any more (an incident run's
+   payload carries only `downstream_incident_id`), so in practice ANALYZE always takes
+   `get_active_provider()`
 
 ```python
 from apps.intelligence.providers import get_active_provider

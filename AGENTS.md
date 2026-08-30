@@ -21,7 +21,7 @@ This file is the **canonical, tool-agnostic** source of guidance for AI agents w
 
 ## Project overview
 
-Django-based server monitoring and alerting system with a strict 4-stage orchestration pipeline: `alerts → checkers → intelligence → notify`. The orchestrator controls all stage transitions; stages never call downstream stages directly.
+Django-based server monitoring and alerting system. Producers write alert truth; alerts roll into incidents; the orchestrator runs a pipeline for each incident that materially changed, through an ordered subset of three stages: `diagnose (check) → analyze → notify`. The orchestrator controls all stage transitions; stages never call downstream stages directly.
 
 ---
 
@@ -75,8 +75,35 @@ uv run bandit -r apps/ config/ -c pyproject.toml
 ### Pipeline flow
 
 ```
-apps.alerts.ingest() → apps.checkers.run() → apps.intelligence.analyze() → apps.notify.dispatch()
+produce truth  →  roll into incidents  →  enqueue one run per changed incident  →  drain
 ```
+
+**Producing an alert is not a pipeline stage.** Six producers write alerts and let incidents
+form, then hand the materially changed incidents to orchestration through the one shared
+door, `enqueue_for` (`apps/orchestration/intake.py`):
+
+| Producer | Where |
+|---|---|
+| the alerts webhook | `apps/alerts/views.py` |
+| the `/orchestration/pipeline/` endpoint | `apps/orchestration/views.py` |
+| `manage.py push_to_hub --local` | `apps/alerts/management/commands/push_to_hub.py` |
+| `manage.py check_health` | `apps/checkers/management/commands/check_health.py` |
+| `manage.py run_pipeline` | `apps/orchestration/management/commands/run_pipeline.py` |
+| operator transitions | `IncidentManager` (`apps/alerts/`) |
+
+None of them orchestrates. Each writes alerts, lets incidents form, and enqueues one
+`PENDING` `PipelineRun` per materially changed incident, carrying the payload
+`{"downstream_incident_id": N}`. **The incident is the subject of the run.**
+
+**Draining is a mode, not a second path.** `enqueue_for(..., sync=True)` drains those runs
+before returning — that is how `check_health` and `run_pipeline` finish the work for an
+operator with no daemon. Without it the rows wait for `manage.py process_inbox`. Same rows,
+same lanes, same executors either way; `sync` only decides who executes them and when.
+
+**The stages are diagnose, analyze, notify.** A run executes an ordered subset of
+`["check", "analyze", "notify"]`, chosen by the matched `PipelineDefinition`. `INGEST` is
+retired as a stage: the enum value survives only so historical `StageExecution` rows still
+render, and `apps/alerts/diagnosis.py` reports it only for incidents that have a legacy run.
 
 Each stage emits monitoring signals (`pipeline.stage.started`, `pipeline.stage.succeeded`, `pipeline.stage.failed`) tagged with correlation IDs (`trace_id`, `run_id`).
 
@@ -84,17 +111,25 @@ Each stage emits monitoring signals (`pipeline.stage.started`, `pipeline.stage.s
 
 **Hard boundary rule:** stage code may call internal helpers in its own app, but must not call the next app directly. Only the orchestrator advances the pipeline.
 
-**Checkers as an alert producer.** `apps.checkers` is a *stage*, but its results are also
-a **source of alerts about this machine**, converted by `CheckAlertBridge`
+**CHECK takes the incident as its subject.** For an incident run, the diagnose stage derives
+its checkers from the distinct `checker` labels on that incident's alerts, filtered to the
+local registry. An incident that names no checkers runs none — it no longer sweeps the whole
+registry. That is why `CheckAlertBridge.run_checks_and_alert` distinguishes
+`checker_names=None` ("every checker") from `checker_names=[]` ("none"); see
+`apps/orchestration/AGENTS.md`.
+
+**Checkers as an alert producer.** `apps.checkers` supplies the diagnose stage, but its
+results are also a **source of alerts about this machine**, converted by `CheckAlertBridge`
 (`apps/alerts/check_integration.py`) into ordinary `Alert`/`Incident` rows on two paths:
 
-- **Inline** — `manage.py check_health` records alerts by default (`--no-alert` opts out).
-  Synchronous, enqueues nothing, so a single machine with no hub, no cron and nobody
-  draining an inbox still gets alerts and incidents.
-- **Through the inbox** — `manage.py push_to_hub` POSTs the same results to a hub, and
-  `push_to_hub --local` records the identical `PENDING` `PipelineRun` on this instance
-  instead of POSTing, so a hub's own checks drain through `IngestExecutor` and
-  `ClusterDriver` exactly like a remote agent's.
+- **Inline** — `manage.py check_health` is the local entrypoint. It records alerts by default
+  (`--no-alert` opts out), enqueues the runs their incidents earn and drains them before
+  returning, so a single machine with no hub, no cron and nobody draining an inbox still gets
+  alerts, incidents, analysis and notifications. `--no-notify` looks at a machine without
+  paging anyone.
+- **Queued** — `manage.py push_to_hub` POSTs the same results to a hub's webhook, and
+  `push_to_hub --local` writes the alerts here instead of POSTing, enqueueing the same
+  `PENDING` runs for `process_inbox` to drain.
 
 **This does not change the stage model.** Producing an alert is not a stage transition:
 the orchestrator still owns every transition, and neither path lets `apps.checkers` call a
@@ -118,11 +153,11 @@ Apps under `apps/` should follow this layout. A few legacy `views.py` modules �
 
 | App | Purpose | Key Models |
 |-----|---------|------------|
-| `alerts` | Webhook ingestion (8 drivers) | Alert, Incident, AlertHistory |
+| `alerts` | Webhook ingestion (8 drivers), incident rollup, operator transitions. A **producer**, not a stage | Alert, Incident, AlertHistory |
 | `checkers` | Health checks (CPU, memory, disk, disk_macos, disk_linux, disk_common, disk_inodes, network, process, raid, disk_temp, cpu_temp, io_strain, listening_ports). Also a **producer of alert truth** about the machine it runs on, via `CheckAlertBridge` — see "Checkers as an alert producer" below | CheckRun |
 | `intelligence` | AI analysis via provider pattern | Uses StageExecution |
 | `notify` | Notification delivery (Email, Slack, PagerDuty, Generic) | NotificationChannel |
-| `orchestration` | Pipeline state machine, retry logic | PipelineRun, StageExecution, PipelineDefinition |
+| `orchestration` | Intake (`intake.enqueue_for`), inbox, pipeline state machine, retry logic | PipelineRun, StageExecution, PipelineDefinition |
 
 ### Key patterns
 
@@ -133,7 +168,7 @@ Apps under `apps/` should follow this layout. A few legacy `views.py` modules �
 
 ### Where stage-specific contracts live
 
-- ingest: `apps/alerts/AGENTS.md`
+- producing alert truth (drivers, incident rollup, operator transitions): `apps/alerts/AGENTS.md`
 - diagnose: `apps/checkers/AGENTS.md`
 - analyze: `apps/intelligence/AGENTS.md`
 - communicate: `apps/notify/AGENTS.md`
@@ -228,11 +263,11 @@ For non-trivial changes, start with **Plan**, then hand the plan to **Coder**, t
 - Duration metric (stage timing)
 - Counters for retries and failures
 
-**Minimum tags/fields on every signal:** `trace_id` / `run_id`, `incident_id`, `stage` (`alerts|checkers|intelligence|notify`), `source` (grafana/alertmanager/custom), `alert_fingerprint`, `environment`, `attempt`.
+**Minimum tags/fields on every signal:** `trace_id` / `run_id`, `incident_id`, `stage` (`check|analyze|notify`), `source` (grafana/alertmanager/custom), `alert_fingerprint`, `environment`, `attempt`.
 
 **Artifacts to attach (or store refs to):**
 
-- Normalised inbound payload ref (never raw secrets)
+- Normalised inbound payload ref, written by the producer (never raw secrets)
 - Checker output ref
 - Intelligence output ref (prompt/response refs, redacted)
 - Notification delivery refs (provider message IDs, response codes)
@@ -246,16 +281,32 @@ Rule: never log secrets; payloads and prompts should be stored as **redacted ref
 - Prefer **idempotency keys** for outbound notify to prevent duplicate messages.
 - If `apps.intelligence` fails, the pipeline may still notify with a "no AI analysis available" fallback (configurable), but must record that downgrade in monitoring + audit trail.
 
-### Mental model — orchestrator pseudocode
+### Mental model — producer, then orchestrator
+
+A producer writes truth and enqueues; it never advances anything:
 
 ```
-start pipeline span (trace_id)
-  run alerts.ingest()        → record + emit signals
-  run checkers.run()         → record + emit signals
+producer (webhook / check_health / push_to_hub --local / run_pipeline / operator transition):
+  write alerts, let incidents form   → apps.alerts
+  enqueue_for(result, sync=?)        → one PENDING run per materially changed incident
+                                       payload {"downstream_incident_id": N}
+  sync=True → drain them here; otherwise process_inbox drains them later
+```
+
+The orchestrator then runs each of those runs, and only it moves between stages:
+
+```
+start pipeline span (trace_id) for incident N
+  resolve the lane      → PipelineDefinition.match picks the ordered stages + channel
+  run checkers.run()    → record + emit signals   (checkers named by the incident's alerts)
   run intelligence.analyze() → record + emit signals
-  run notify.dispatch()      → record + emit signals
+  run notify.dispatch() → record + emit signals
 close pipeline span
 ```
+
+A run whose payload is a legacy `{"driver", "payload"}` pair still drains, so pushes in
+flight at deploy time are not lost. That branch is legacy-only and dies once no such rows
+remain.
 
 ---
 

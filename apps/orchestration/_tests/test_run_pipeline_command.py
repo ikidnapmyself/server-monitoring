@@ -1,223 +1,230 @@
+"""Tests for the ``run_pipeline`` management command.
+
+``run_pipeline`` is a producer like every other: it writes alerts, lets incidents
+form, and hands the materially changed ones to ``apps.orchestration.intake``. It
+differs from the webhook only in draining its own runs, because a CLI caller
+expects one call to finish. There is no entry stage and no driver payload
+wrapper any more, so these tests assert the rows that actually appear rather
+than the shape of a dict handed to the orchestrator.
+"""
+
 import io
 import json
 import os
 import tempfile
+from io import StringIO
 from unittest import mock
+from unittest.mock import MagicMock, patch
 
 from django.core.management import CommandError, call_command
-from django.test import TestCase
+from django.test import TestCase, override_settings
+
+from apps.alerts.models import Alert, Incident
+from apps.checkers.checkers.base import CheckResult, CheckStatus
+from apps.orchestration.models import (
+    PipelineOrigin,
+    PipelineRun,
+    PipelineStage,
+    PipelineStatus,
+    StageExecution,
+    StageStatus,
+)
+
+REGISTRY_PATH = "apps.alerts.check_integration.CHECKER_REGISTRY"
 
 
-class RunPipelineCommandTest(TestCase):
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_run_pipeline_with_sample(self, mock_orchestrator):
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.trace_id = "trace-123"
-        mock_result.run_id = "run-123"
-        mock_result.total_duration_ms = 123.45
-        mock_result.ingest = {
-            "incident_id": 1,
-            "alerts_created": 1,
-            "severity": "warning",
-            "duration_ms": 10,
-        }
-        mock_result.check = {
-            "checks_run": 2,
-            "checks_passed": 2,
-            "checks_failed": 0,
-            "duration_ms": 5,
-        }
-        mock_result.analyze = {
-            "summary": "ok",
-            "probable_cause": "none",
-            "recommendations": [],
-            "duration_ms": 3,
-        }
-        mock_result.notify = {
-            "channels_attempted": 1,
-            "channels_succeeded": 1,
-            "channels_failed": 0,
-            "duration_ms": 2,
-        }
-        mock_result.errors = []
-        mock_result.to_dict.return_value = {"status": "COMPLETED"}
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+def make_checker(
+    status=CheckStatus.CRITICAL,
+    message="CPU at 99%",
+    metrics=None,
+    checker_name="cpu",
+):
+    """A checker class whose instances return one fixed result."""
+    mock_checker = MagicMock()
+    mock_checker.__doc__ = "Test checker description"
+    mock_checker.return_value.run.return_value = CheckResult(
+        status=status,
+        message=message,
+        metrics=metrics or {},
+        checker_name=checker_name,
+    )
+    return mock_checker
 
-        out = io.StringIO()
-        call_command("run_pipeline", "--sample", stdout=out)
-        output = out.getvalue()
-        self.assertIn("PIPELINE RESULT", output)
-        self.assertIn("Status:", output)
-        self.assertIn("✓ Pipeline completed successfully", output)
 
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_run_pipeline_with_json_output(self, mock_orchestrator):
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.to_dict.return_value = {"status": "COMPLETED", "run_id": "run-1"}
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+class StubAnalysisMixin:
+    """Keep the analysis these runs trigger off the real filesystem.
 
-        out = io.StringIO()
-        call_command("run_pipeline", "--sample", "--json", stdout=out)
-        output = out.getvalue()
-        self.assertIn('"status": "COMPLETED"', output)
-        self.assertIn('"run_id": "run-1"', output)
+    The command now drains its own runs, so a CRITICAL result reaches
+    LocalProvider, which walks all of ``/`` looking for large files — minutes per
+    test. The pipeline itself still runs for real; only the scan is stubbed.
+    """
 
-    def test_run_pipeline_dry_run(self):
-        out = io.StringIO()
-        call_command("run_pipeline", "--sample", "--dry-run", stdout=out)
-        output = out.getvalue()
-        self.assertIn("=== DRY RUN ===", output)
-        self.assertIn("Pipeline Configuration:", output)
-        self.assertIn("Pipeline Stages:", output)
+    def setUp(self):
+        super().setUp()
+        patcher = patch(
+            "apps.intelligence.providers.local.LocalRecommendationProvider.analyze",
+            return_value=[],
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
-    def test_run_pipeline_invalid_json(self):
-        out = io.StringIO()
-        with self.assertRaises(CommandError):
-            call_command("run_pipeline", "--payload", "{invalid_json}", stdout=out)
 
-    def test_run_pipeline_file_not_found(self):
-        out = io.StringIO()
-        with self.assertRaises(CommandError):
-            call_command("run_pipeline", "--file", "notfound.json", stdout=out)
+class RunPipelineReplayTests(StubAnalysisMixin, TestCase):
+    """--sample / --payload / --file replay a webhook-shaped payload, inline."""
 
-    def test_run_pipeline_no_input(self):
-        out = io.StringIO()
-        with self.assertRaises(CommandError):
-            call_command("run_pipeline", stdout=out)
+    def setUp(self):
+        super().setUp()
+        # The drained lane runs CHECK against this machine for real, which takes
+        # tens of seconds and writes alerts of its own. One healthy stub checker
+        # keeps these tests about the ingest: an OK first sighting records nothing.
+        patcher = patch.dict(
+            REGISTRY_PATH,
+            {"cpu": make_checker(status=CheckStatus.OK, message="All good")},
+            clear=True,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_display_result_failed_pipeline(self, mock_orchestrator):
-        """Failed pipeline shows error status."""
-        mock_result = mock.Mock()
-        mock_result.status = "FAILED"
-        mock_result.trace_id = "trace-err"
-        mock_result.run_id = "run-err"
-        mock_result.total_duration_ms = 50.0
-        mock_result.ingest = None
-        mock_result.check = None
-        mock_result.analyze = None
-        mock_result.notify = None
-        mock_result.errors = ["something broke"]
-        mock_result.final_error = None
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+    def test_sample_payload_creates_alerts_and_drains(self):
+        """The CLI caller expects one call to finish: nothing left PENDING.
 
-        out = io.StringIO()
-        call_command("run_pipeline", "--sample", stdout=out)
-        output = out.getvalue()
-        self.assertIn("FAILED", output)
-        self.assertIn("Pipeline failed", output)
+        The command enqueues inside a transaction and drains on its commit, so the
+        drain never claims runs the transaction has not committed. ``TestCase``
+        never commits, hence the capture.
+        """
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command("run_pipeline", "--sample", stdout=io.StringIO())
 
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_display_result_with_analyze_fallback(self, mock_orchestrator):
-        """Display shows fallback warning when AI is unavailable."""
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.trace_id = "t"
-        mock_result.run_id = "r"
-        mock_result.total_duration_ms = 10
-        mock_result.ingest = None
-        mock_result.check = None
-        mock_result.analyze = {
-            "summary": "Fallback analysis",
-            "probable_cause": "Unknown",
-            "recommendations": [],
-            "fallback_used": True,
-            "duration_ms": 1,
-        }
-        mock_result.notify = None
-        mock_result.errors = []
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+        self.assertTrue(Alert.objects.exists())
+        self.assertTrue(PipelineRun.objects.exists())
+        self.assertFalse(PipelineRun.objects.filter(status=PipelineStatus.PENDING).exists())
 
-        out = io.StringIO()
-        call_command("run_pipeline", "--sample", stdout=out)
-        output = out.getvalue()
-        self.assertIn("Fallback used", output)
+    def test_sample_payload_is_analyzed_in_the_same_call(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command("run_pipeline", "--sample", stdout=io.StringIO())
 
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_run_pipeline_with_payload_string(self, mock_orchestrator):
-        """Runs pipeline with --payload JSON string."""
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.trace_id = "t"
-        mock_result.run_id = "r"
-        mock_result.total_duration_ms = 10
-        mock_result.ingest = None
-        mock_result.check = None
-        mock_result.analyze = None
-        mock_result.notify = None
-        mock_result.errors = []
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+        self.assertTrue(
+            StageExecution.objects.filter(
+                stage=PipelineStage.ANALYZE, status=StageStatus.SUCCEEDED
+            ).exists()
+        )
 
-        out = io.StringIO()
+    def test_replayed_runs_are_manual(self):
+        call_command("run_pipeline", "--sample", stdout=io.StringIO())
+
+        self.assertEqual(PipelineRun.objects.first().origin, PipelineOrigin.MANUAL)
+
+    def test_no_run_carries_a_driver_payload_wrapper(self):
+        """The entry-stage era is over: a run's payload names its incident, only."""
+        call_command("run_pipeline", "--sample", stdout=io.StringIO())
+
+        self.assertTrue(PipelineRun.objects.exists())
+        for run in PipelineRun.objects.all():
+            self.assertIn("downstream_incident_id", run.inbound_payload)
+            self.assertLessEqual(
+                set(run.inbound_payload),
+                {"downstream_incident_id", "no_notify"},
+            )
+
+    def test_payload_string_is_ingested(self):
         call_command(
             "run_pipeline",
             "--payload",
-            '{"title": "Test Alert"}',
-            stdout=out,
+            '{"name": "Disk full", "status": "firing", "severity": "critical"}',
+            stdout=io.StringIO(),
         )
-        output = out.getvalue()
-        self.assertIn("PIPELINE RESULT", output)
 
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_run_pipeline_with_file_payload(self, mock_orchestrator):
-        """Runs pipeline with --file payload."""
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.trace_id = "t"
-        mock_result.run_id = "r"
-        mock_result.total_duration_ms = 10
-        mock_result.ingest = None
-        mock_result.check = None
-        mock_result.analyze = None
-        mock_result.notify = None
-        mock_result.errors = []
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+        self.assertTrue(Alert.objects.filter(name="Disk full").exists())
 
+    def test_file_payload_is_ingested(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump({"title": "File Alert"}, f)
+            json.dump({"name": "From file", "status": "firing", "severity": "critical"}, f)
             payload_path = f.name
-
         try:
-            out = io.StringIO()
-            call_command("run_pipeline", "--file", payload_path, stdout=out)
-            output = out.getvalue()
-            self.assertIn("PIPELINE RESULT", output)
+            call_command("run_pipeline", "--file", payload_path, stdout=io.StringIO())
         finally:
             os.unlink(payload_path)
 
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_run_pipeline_checks_only(self, mock_orchestrator):
-        """Runs pipeline with --checks-only flag."""
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.trace_id = "t"
-        mock_result.run_id = "r"
-        mock_result.total_duration_ms = 10
-        mock_result.ingest = None
-        mock_result.check = {"checks_run": 3, "checks_passed": 3, "checks_failed": 0}
-        mock_result.analyze = None
-        mock_result.notify = None
-        mock_result.errors = []
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+        self.assertTrue(Alert.objects.filter(name="From file").exists())
 
-        out = io.StringIO()
-        call_command("run_pipeline", "--checks-only", stdout=out)
-        output = out.getvalue()
-        self.assertIn("PIPELINE RESULT", output)
+    def test_source_selects_the_driver(self):
+        """A named --source is the driver name, as it always was."""
+        call_command("run_pipeline", "--sample", "--source", "alertmanager", stdout=io.StringIO())
 
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_generic_exception_wrapped_as_command_error(self, mock_orchestrator):
-        """Non-CommandError exceptions are wrapped in CommandError."""
-        mock_orchestrator.return_value.run_pipeline.side_effect = RuntimeError("unexpected")
+        alert = Alert.objects.get(fingerprint="sample-cpu-alert-001")
+        self.assertEqual(alert.source, "alertmanager")
+
+    def test_json_output_reports_the_trace_and_its_incidents(self):
         out = io.StringIO()
+        call_command("run_pipeline", "--sample", "--json", stdout=out)
+
+        data = json.loads(out.getvalue())
+        self.assertEqual(data["incidents"], [Alert.objects.get().incident_id])
+        self.assertEqual(data["trace_id"], PipelineRun.objects.first().trace_id)
+        self.assertEqual(data["alerts"], 1)
+        self.assertEqual(data["errors"], [])
+
+    def test_custom_trace_id_is_used(self):
+        call_command("run_pipeline", "--sample", "--trace-id", "trace-abc", stdout=io.StringIO())
+
+        self.assertEqual(PipelineRun.objects.first().trace_id, "trace-abc")
+
+    def test_environment_reaches_the_run(self):
+        call_command(
+            "run_pipeline", "--sample", "--environment", "production", stdout=io.StringIO()
+        )
+
+        self.assertEqual(PipelineRun.objects.first().environment, "production")
+
+    def test_unreadable_payload_is_a_command_error(self):
         with self.assertRaises(CommandError) as ctx:
-            call_command("run_pipeline", "--sample", stdout=out)
+            call_command(
+                "run_pipeline", "--payload", '{"nothing": "recognisable"}', stdout=io.StringIO()
+            )
+        self.assertIn("driver", str(ctx.exception).lower())
+
+    def test_ingest_failure_is_a_command_error(self):
+        with mock.patch(
+            "apps.alerts.services.AlertOrchestrator.process_webhook",
+            side_effect=RuntimeError("unexpected"),
+        ):
+            with self.assertRaises(CommandError) as ctx:
+                call_command("run_pipeline", "--sample", stdout=io.StringIO())
         self.assertIn("Pipeline failed", str(ctx.exception))
 
-    def test_run_pipeline_file_invalid_json(self):
-        """--file with invalid JSON raises CommandError."""
+    def test_an_ingest_that_wrote_nothing_is_a_command_error(self):
+        """A driver understood it and the batch still rolled back.
+
+        Both views answer 5xx for this rather than pretending they accepted the
+        payload; the operator's equivalent is a non-zero exit, not a summary
+        reporting zero alerts as a success.
+        """
+        from apps.alerts.models import Alert
+
+        with mock.patch(
+            "apps.alerts.drivers.generic.GenericWebhookDriver.parse",
+            side_effect=RuntimeError("transient bug"),
+        ):
+            with self.assertRaises(CommandError) as ctx:
+                call_command(
+                    "run_pipeline",
+                    "--payload",
+                    '{"name": "CPU high", "status": "firing", "severity": "critical"}',
+                    stdout=io.StringIO(),
+                )
+
+        self.assertIn("transient bug", str(ctx.exception))
+        self.assertFalse(Alert.objects.exists())
+
+    def test_invalid_json_payload(self):
+        with self.assertRaises(CommandError):
+            call_command("run_pipeline", "--payload", "{invalid_json}", stdout=io.StringIO())
+
+    def test_file_not_found(self):
+        with self.assertRaises(CommandError):
+            call_command("run_pipeline", "--file", "notfound.json", stdout=io.StringIO())
+
+    def test_file_invalid_json(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             f.write("{not valid json")
             path = f.name
@@ -228,468 +235,222 @@ class RunPipelineCommandTest(TestCase):
         finally:
             os.unlink(path)
 
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_display_result_notify_stage_with_to_dict_and_errors(self, mock_orchestrator):
-        """NOTIFY stage with to_dict() objects and errors displayed."""
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.trace_id = "t"
-        mock_result.run_id = "r"
-        mock_result.total_duration_ms = 10
-        # Use mock with to_dict() for ingest (covers line 341)
-        ingest_stage = mock.Mock()
-        ingest_stage.to_dict.return_value = {
-            "incident_id": 1,
-            "alerts_created": 1,
-            "severity": "warning",
-            "duration_ms": 5,
-        }
-        mock_result.ingest = ingest_stage
-        mock_result.check = None
-        mock_result.analyze = None
-        # NOTIFY stage as dict with errors (covers 424→432, 434)
-        mock_result.notify = {
-            "channels_attempted": 1,
-            "channels_succeeded": 0,
-            "channels_failed": 1,
-            "errors": ["Channel failed"],
-            "duration_ms": 5,
-        }
-        mock_result.errors = []
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
-        out = io.StringIO()
-        call_command("run_pipeline", "--sample", stdout=out)
-        output = out.getvalue()
-        self.assertIn("Channels attempted: 1", output)
-        self.assertIn("Errors:", output)
+    def test_no_input(self):
+        with self.assertRaises(CommandError):
+            call_command("run_pipeline", stdout=io.StringIO())
 
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_display_result_failed_with_stack_trace(self, mock_orchestrator):
-        """Failed pipeline with final_error containing stack_trace."""
-        mock_result = mock.Mock()
-        mock_result.status = "FAILED"
-        mock_result.trace_id = "t"
-        mock_result.run_id = "r"
-        mock_result.total_duration_ms = 10
-        mock_result.ingest = None
-        mock_result.check = None
-        mock_result.analyze = None
-        mock_result.notify = None
-        mock_result.errors = ["error"]
-        final_error = mock.Mock()
-        final_error.error_type = "RuntimeError"
-        final_error.message = "something broke"
-        final_error.stack_trace = "Traceback:\n  File ..."
-        mock_result.final_error = final_error
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
-        out = io.StringIO()
-        call_command("run_pipeline", "--sample", stdout=out)
-        output = out.getvalue()
-        self.assertIn("RuntimeError", output)
-        self.assertIn("something broke", output)
-        self.assertIn("Traceback:", output)
 
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_display_result_failed_final_error_raises_exception(self, mock_orchestrator):
-        """Failed pipeline where accessing final_error attributes raises falls back to str()."""
-        mock_result = mock.Mock()
-        mock_result.status = "FAILED"
-        mock_result.trace_id = "t"
-        mock_result.run_id = "r"
-        mock_result.total_duration_ms = 10
-        mock_result.ingest = None
-        mock_result.check = None
-        mock_result.analyze = None
-        mock_result.notify = None
-        mock_result.errors = ["error"]
+@override_settings(INSTANCE_ID="solo-mac")
+class RunPipelineChecksOnlyTests(StubAnalysisMixin, TestCase):
+    """--checks-only is deprecated in favour of check_health, and still works."""
 
-        # final_error whose attribute access raises, falling back to str()
-        class BadError:
-            @property
-            def error_type(self):
-                raise RuntimeError("cannot access")
+    def _run(self, *args, checker=None):
+        out, err = StringIO(), StringIO()
+        # The drain runs on the commit of the command's transaction; TestCase
+        # never commits, so the callbacks are executed here instead.
+        with patch.dict(REGISTRY_PATH, {"cpu": checker or make_checker()}, clear=True):
+            with self.captureOnCommitCallbacks(execute=True):
+                call_command("run_pipeline", "--checks-only", *args, stdout=out, stderr=err)
+        return out.getvalue(), err.getvalue()
 
-            def __str__(self):
-                return "fallback error text"
+    def test_checks_only_warns_that_it_is_deprecated(self):
+        _, err = self._run()
 
-        mock_result.final_error = BadError()
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
-        out = io.StringIO()
-        call_command("run_pipeline", "--sample", stdout=out)
-        output = out.getvalue()
-        self.assertIn("fallback error text", output)
+        self.assertIn("deprecated", err.lower())
+        self.assertIn("check_health", err)
+        # Still does the work; a removed command is a worse surprise than a warning.
+        self.assertTrue(Alert.objects.filter(fingerprint="check:solo-mac:cpu").exists())
 
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_checks_only_with_checkers_flag(self, mock_orchestrator):
-        """--checks-only with --checkers passes checker_names in payload."""
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.trace_id = "t"
-        mock_result.run_id = "r"
-        mock_result.total_duration_ms = 1.0
-        mock_result.ingest = None
-        mock_result.check = {
-            "checks_run": 1,
-            "checks_passed": 1,
-            "checks_failed": 0,
-            "duration_ms": 1,
-        }
-        mock_result.analyze = None
-        mock_result.notify = None
-        mock_result.errors = []
-        mock_result.to_dict.return_value = {"status": "COMPLETED"}
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+    def test_deprecation_notice_stays_off_stdout(self):
+        """--json exists so a wrapper can parse stdout; the warning must not break it."""
+        out, _ = self._run("--json")
 
-        out = io.StringIO()
-        call_command("run_pipeline", "--checks-only", "--checkers", "cpu", "memory", stdout=out)
+        json.loads(out)
 
-        call_args = mock_orchestrator.return_value.run_pipeline.call_args
-        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
-        self.assertEqual(payload["checker_names"], ["cpu", "memory"])
+    def test_checks_only_still_records_and_analyzes(self):
+        self._run()
 
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_checks_only_with_hostname_flag(self, mock_orchestrator):
-        """--hostname is passed through the payload."""
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.trace_id = "t"
-        mock_result.run_id = "r"
-        mock_result.total_duration_ms = 1.0
-        mock_result.ingest = None
-        mock_result.check = {
-            "checks_run": 1,
-            "checks_passed": 1,
-            "checks_failed": 0,
-            "duration_ms": 1,
-        }
-        mock_result.analyze = None
-        mock_result.notify = None
-        mock_result.errors = []
-        mock_result.to_dict.return_value = {"status": "COMPLETED"}
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
-
-        out = io.StringIO()
-        call_command("run_pipeline", "--checks-only", "--hostname", "web-01", stdout=out)
-
-        call_args = mock_orchestrator.return_value.run_pipeline.call_args
-        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
-        self.assertEqual(payload["hostname"], "web-01")
-
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_checks_only_with_labels(self, mock_orchestrator):
-        """--label KEY=VALUE flags are parsed and passed in payload."""
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.trace_id = "t"
-        mock_result.run_id = "r"
-        mock_result.total_duration_ms = 1.0
-        mock_result.ingest = None
-        mock_result.check = {
-            "checks_run": 1,
-            "checks_passed": 1,
-            "checks_failed": 0,
-            "duration_ms": 1,
-        }
-        mock_result.analyze = None
-        mock_result.notify = None
-        mock_result.errors = []
-        mock_result.to_dict.return_value = {"status": "COMPLETED"}
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
-
-        out = io.StringIO()
-        call_command(
-            "run_pipeline",
-            "--checks-only",
-            "--label",
-            "env=production",
-            "--label",
-            "team=sre",
-            stdout=out,
+        alert = Alert.objects.get(fingerprint="check:solo-mac:cpu")
+        self.assertIsNotNone(alert.incident)
+        self.assertTrue(PipelineRun.objects.exists())
+        self.assertFalse(PipelineRun.objects.filter(status=PipelineStatus.PENDING).exists())
+        self.assertTrue(
+            StageExecution.objects.filter(
+                stage=PipelineStage.ANALYZE, status=StageStatus.SUCCEEDED
+            ).exists()
         )
 
-        call_args = mock_orchestrator.return_value.run_pipeline.call_args
-        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
-        self.assertEqual(payload["labels"], {"env": "production", "team": "sre"})
+    def test_checks_only_runs_are_checker_generated(self):
+        self._run()
+
+        self.assertEqual(PipelineRun.objects.first().origin, PipelineOrigin.CHECKER_GENERATED)
+
+    def test_no_incidents_records_alerts_but_enqueues_nothing(self):
+        """ "Just check, do not disturb anything": no incident, so no run, so no route."""
+        self._run("--no-incidents")
+
+        alert = Alert.objects.get(fingerprint="check:solo-mac:cpu")
+        self.assertIsNone(alert.incident)
+        self.assertFalse(Incident.objects.exists())
+        self.assertFalse(PipelineRun.objects.exists())
+        self.assertFalse(StageExecution.objects.exists())
+
+    def test_no_notify_reaches_the_enqueued_runs(self):
+        """SSH in, read the analysis, page nobody."""
+        self._run("--no-notify")
+
+        run = PipelineRun.objects.get()
+        self.assertTrue(run.inbound_payload.get("no_notify"))
+        self.assertFalse(StageExecution.objects.filter(stage=PipelineStage.NOTIFY).exists())
+
+    def test_notify_runs_without_the_flag(self):
+        self._run()
+
+        run = PipelineRun.objects.get()
+        self.assertFalse(run.inbound_payload.get("no_notify", False))
+
+    def test_named_checkers_are_the_only_ones_run(self):
+        cpu, memory = make_checker(), make_checker(checker_name="memory")
+        out, err = StringIO(), StringIO()
+        with patch.dict(REGISTRY_PATH, {"cpu": cpu, "memory": memory}, clear=True):
+            call_command(
+                "run_pipeline",
+                "--checks-only",
+                "--checkers",
+                "cpu",
+                stdout=out,
+                stderr=err,
+            )
+
+        cpu.assert_called_once()
+        memory.assert_not_called()
+
+    def test_hostname_overrides_the_alert_label(self):
+        self._run("--hostname", "web-01")
+
+        alert = Alert.objects.get(fingerprint="check:solo-mac:cpu")
+        self.assertEqual(alert.labels["hostname"], "web-01")
+
+    def test_labels_are_attached_to_the_alerts(self):
+        self._run("--label", "env=production", "--label", "team=sre")
+
+        alert = Alert.objects.get(fingerprint="check:solo-mac:cpu")
+        self.assertEqual(alert.labels["env"], "production")
+        self.assertEqual(alert.labels["team"], "sre")
 
     def test_invalid_label_format_raises_error(self):
-        """--label without = raises CommandError."""
-        out = io.StringIO()
         with self.assertRaises(CommandError) as ctx:
-            call_command("run_pipeline", "--checks-only", "--label", "badlabel", stdout=out)
+            call_command(
+                "run_pipeline", "--checks-only", "--label", "badlabel", stdout=io.StringIO()
+            )
         self.assertIn("KEY=VALUE", str(ctx.exception))
 
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_checks_only_with_no_incidents(self, mock_orchestrator):
-        """--no-incidents flag is passed in payload."""
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.trace_id = "t"
-        mock_result.run_id = "r"
-        mock_result.total_duration_ms = 1.0
-        mock_result.ingest = None
-        mock_result.check = {
-            "checks_run": 1,
-            "checks_passed": 1,
-            "checks_failed": 0,
-            "duration_ms": 1,
-        }
-        mock_result.analyze = None
-        mock_result.notify = None
-        mock_result.errors = []
-        mock_result.to_dict.return_value = {"status": "COMPLETED"}
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
+    def test_thresholds_reach_every_checker(self):
+        cpu = make_checker()
+        with patch.dict(REGISTRY_PATH, {"cpu": cpu}, clear=True):
+            call_command(
+                "run_pipeline",
+                "--checks-only",
+                "--warning-threshold",
+                "60",
+                "--critical-threshold",
+                "80",
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
 
+        cpu.assert_called_once_with(warning_threshold=60.0, critical_threshold=80.0)
+
+    def test_thresholds_reach_a_named_checker(self):
+        cpu = make_checker()
+        with patch.dict(REGISTRY_PATH, {"cpu": cpu}, clear=True):
+            call_command(
+                "run_pipeline",
+                "--checks-only",
+                "--checkers",
+                "cpu",
+                "--warning-threshold",
+                "70",
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+
+        cpu.assert_called_once_with(warning_threshold=70.0)
+
+    def test_critical_threshold_alone_reaches_a_named_checker(self):
+        cpu = make_checker()
+        with patch.dict(REGISTRY_PATH, {"cpu": cpu}, clear=True):
+            call_command(
+                "run_pipeline",
+                "--checks-only",
+                "--checkers",
+                "cpu",
+                "--critical-threshold",
+                "90",
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+
+        cpu.assert_called_once_with(critical_threshold=90.0)
+
+    def test_no_thresholds_leaves_checker_defaults(self):
+        cpu = make_checker()
+        with patch.dict(REGISTRY_PATH, {"cpu": cpu}, clear=True):
+            call_command(
+                "run_pipeline",
+                "--checks-only",
+                "--checkers",
+                "cpu",
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+
+        cpu.assert_called_once_with()
+
+    def test_json_output_reports_the_trace_and_its_incidents(self):
+        out, _ = self._run("--json")
+
+        data = json.loads(out)
+        self.assertEqual(data["incidents"], [Alert.objects.get().incident_id])
+        self.assertEqual(data["checks"], 1)
+        self.assertEqual(data["alerts"], 1)
+        self.assertEqual(data["trace_id"], PipelineRun.objects.first().trace_id)
+
+    def test_a_broken_checker_is_reported_and_does_not_abort(self):
+        broken = MagicMock()
+        broken.side_effect = RuntimeError("checker exploded")
+        out, err = StringIO(), StringIO()
+        with patch.dict(REGISTRY_PATH, {"cpu": broken}, clear=True):
+            call_command("run_pipeline", "--checks-only", stdout=out, stderr=err)
+
+        self.assertIn("checker exploded", err.getvalue())
+
+
+class RunPipelineDryRunTests(TestCase):
+    def test_dry_run_changes_nothing(self):
         out = io.StringIO()
-        call_command("run_pipeline", "--checks-only", "--no-incidents", stdout=out)
+        call_command("run_pipeline", "--sample", "--dry-run", stdout=out)
 
-        call_args = mock_orchestrator.return_value.run_pipeline.call_args
-        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
-        self.assertTrue(payload["no_incidents"])
+        self.assertIn("=== DRY RUN ===", out.getvalue())
+        self.assertFalse(Alert.objects.exists())
+        self.assertFalse(Incident.objects.exists())
+        self.assertFalse(PipelineRun.objects.exists())
 
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_checks_only_with_no_notify(self, mock_orchestrator):
-        """--no-notify reaches the orchestrator as a payload flag; absent, it is False."""
-        mock_orchestrator.return_value.run_pipeline.return_value = self._mock_result()
+    def test_checks_only_dry_run_changes_nothing(self):
+        out, err = io.StringIO(), io.StringIO()
+        with patch.dict(REGISTRY_PATH, {"cpu": make_checker()}, clear=True):
+            call_command("run_pipeline", "--checks-only", "--dry-run", stdout=out, stderr=err)
 
-        out = io.StringIO()
-        call_command("run_pipeline", "--checks-only", "--no-notify", stdout=out)
-        call_args = mock_orchestrator.return_value.run_pipeline.call_args
-        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
-        self.assertTrue(payload["no_notify"])
+        self.assertIn("=== DRY RUN ===", out.getvalue())
+        self.assertIn("check_health", err.getvalue())
+        self.assertFalse(Alert.objects.exists())
+        self.assertFalse(PipelineRun.objects.exists())
 
-        call_command("run_pipeline", "--checks-only", stdout=out)
-        call_args = mock_orchestrator.return_value.run_pipeline.call_args
-        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
-        self.assertFalse(payload["no_notify"])
-
-    @staticmethod
-    def _mock_result():
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.trace_id = "t"
-        mock_result.run_id = "r"
-        mock_result.total_duration_ms = 1.0
-        mock_result.ingest = None
-        mock_result.check = {
-            "checks_run": 1,
-            "checks_passed": 1,
-            "checks_failed": 0,
-            "duration_ms": 1,
-        }
-        mock_result.analyze = None
-        mock_result.notify = None
-        mock_result.errors = []
-        mock_result.to_dict.return_value = {"status": "COMPLETED"}
-        return mock_result
-
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_checks_only_with_threshold_overrides(self, mock_orchestrator):
-        """--warning-threshold and --critical-threshold are passed as checker_configs."""
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.trace_id = "t"
-        mock_result.run_id = "r"
-        mock_result.total_duration_ms = 1.0
-        mock_result.ingest = None
-        mock_result.check = {
-            "checks_run": 1,
-            "checks_passed": 1,
-            "checks_failed": 0,
-            "duration_ms": 1,
-        }
-        mock_result.analyze = None
-        mock_result.notify = None
-        mock_result.errors = []
-        mock_result.to_dict.return_value = {"status": "COMPLETED"}
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
-
-        out = io.StringIO()
-        call_command(
-            "run_pipeline",
-            "--checks-only",
-            "--warning-threshold",
-            "60",
-            "--critical-threshold",
-            "80",
-            stdout=out,
-        )
-
-        call_args = mock_orchestrator.return_value.run_pipeline.call_args
-        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
-        self.assertTrue(payload["checks_only"])
-        self.assertIn("__all__", payload["checker_configs"])
-        self.assertEqual(payload["checker_configs"]["__all__"]["warning_threshold"], 60.0)
-        self.assertEqual(payload["checker_configs"]["__all__"]["critical_threshold"], 80.0)
-
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_checkers_with_only_warning_threshold(self, mock_orchestrator):
-        """--checkers with only --warning-threshold sets per-checker config."""
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.trace_id = "t"
-        mock_result.run_id = "r"
-        mock_result.total_duration_ms = 1.0
-        mock_result.ingest = None
-        mock_result.check = {
-            "checks_run": 1,
-            "checks_passed": 1,
-            "checks_failed": 0,
-            "duration_ms": 1,
-        }
-        mock_result.analyze = None
-        mock_result.notify = None
-        mock_result.errors = []
-        mock_result.to_dict.return_value = {"status": "COMPLETED"}
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
-
-        out = io.StringIO()
-        call_command(
-            "run_pipeline",
-            "--checks-only",
-            "--checkers",
-            "cpu",
-            "--warning-threshold",
-            "70",
-            stdout=out,
-        )
-
-        call_args = mock_orchestrator.return_value.run_pipeline.call_args
-        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
-        self.assertEqual(payload["checker_configs"]["cpu"], {"warning_threshold": 70.0})
-
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_checkers_with_only_critical_threshold(self, mock_orchestrator):
-        """--checkers with only --critical-threshold sets per-checker config."""
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.trace_id = "t"
-        mock_result.run_id = "r"
-        mock_result.total_duration_ms = 1.0
-        mock_result.ingest = None
-        mock_result.check = {
-            "checks_run": 1,
-            "checks_passed": 1,
-            "checks_failed": 0,
-            "duration_ms": 1,
-        }
-        mock_result.analyze = None
-        mock_result.notify = None
-        mock_result.errors = []
-        mock_result.to_dict.return_value = {"status": "COMPLETED"}
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
-
-        out = io.StringIO()
-        call_command(
-            "run_pipeline",
-            "--checks-only",
-            "--checkers",
-            "cpu",
-            "--critical-threshold",
-            "90",
-            stdout=out,
-        )
-
-        call_args = mock_orchestrator.return_value.run_pipeline.call_args
-        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
-        self.assertEqual(payload["checker_configs"]["cpu"], {"critical_threshold": 90.0})
-
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_checkers_without_thresholds(self, mock_orchestrator):
-        """--checkers without thresholds produces no checker_configs."""
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.trace_id = "t"
-        mock_result.run_id = "r"
-        mock_result.total_duration_ms = 1.0
-        mock_result.ingest = None
-        mock_result.check = {
-            "checks_run": 1,
-            "checks_passed": 1,
-            "checks_failed": 0,
-            "duration_ms": 1,
-        }
-        mock_result.analyze = None
-        mock_result.notify = None
-        mock_result.errors = []
-        mock_result.to_dict.return_value = {"status": "COMPLETED"}
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
-
-        out = io.StringIO()
-        call_command("run_pipeline", "--checks-only", "--checkers", "cpu", "disk", stdout=out)
-
-        call_args = mock_orchestrator.return_value.run_pipeline.call_args
-        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
-        self.assertIsNone(payload["checker_configs"])
-
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_only_warning_threshold_without_checkers(self, mock_orchestrator):
-        """--warning-threshold alone sets __all__ with only warning."""
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.trace_id = "t"
-        mock_result.run_id = "r"
-        mock_result.total_duration_ms = 1.0
-        mock_result.ingest = None
-        mock_result.check = {
-            "checks_run": 1,
-            "checks_passed": 1,
-            "checks_failed": 0,
-            "duration_ms": 1,
-        }
-        mock_result.analyze = None
-        mock_result.notify = None
-        mock_result.errors = []
-        mock_result.to_dict.return_value = {"status": "COMPLETED"}
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
-
-        out = io.StringIO()
-        call_command(
-            "run_pipeline",
-            "--checks-only",
-            "--warning-threshold",
-            "65",
-            stdout=out,
-        )
-
-        call_args = mock_orchestrator.return_value.run_pipeline.call_args
-        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
-        self.assertEqual(payload["checker_configs"]["__all__"], {"warning_threshold": 65.0})
-        self.assertNotIn("critical_threshold", payload["checker_configs"]["__all__"])
-
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_only_critical_threshold_without_checkers(self, mock_orchestrator):
-        """--critical-threshold alone sets __all__ with only critical."""
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.trace_id = "t"
-        mock_result.run_id = "r"
-        mock_result.total_duration_ms = 1.0
-        mock_result.ingest = None
-        mock_result.check = {
-            "checks_run": 1,
-            "checks_passed": 1,
-            "checks_failed": 0,
-            "duration_ms": 1,
-        }
-        mock_result.analyze = None
-        mock_result.notify = None
-        mock_result.errors = []
-        mock_result.to_dict.return_value = {"status": "COMPLETED"}
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
-
-        out = io.StringIO()
-        call_command(
-            "run_pipeline",
-            "--checks-only",
-            "--critical-threshold",
-            "90",
-            stdout=out,
-        )
-
-        call_args = mock_orchestrator.return_value.run_pipeline.call_args
-        payload = call_args[1]["payload"] if "payload" in call_args[1] else call_args[0][0]
-        self.assertEqual(payload["checker_configs"]["__all__"], {"critical_threshold": 90.0})
-        self.assertNotIn("warning_threshold", payload["checker_configs"]["__all__"])
+    def test_dry_run_still_validates_its_input(self):
+        with self.assertRaises(CommandError):
+            call_command(
+                "run_pipeline", "--payload", "{invalid_json}", "--dry-run", stdout=io.StringIO()
+            )
 
 
 class RunPipelinePathTraversalTest(TestCase):
@@ -709,35 +470,3 @@ class RunPipelinePathTraversalTest(TestCase):
                 stdout=io.StringIO(),
             )
         self.assertIn("File not found", str(ctx.exception))
-
-
-class RunPipelineOriginTest(TestCase):
-    """The command tags each run with the correct pipeline origin."""
-
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_checks_only_uses_checker_generated_origin(self, mock_orchestrator):
-        from apps.orchestration.models import PipelineOrigin
-
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.to_dict.return_value = {"status": "COMPLETED"}
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
-
-        call_command("run_pipeline", "--checks-only", "--json", stdout=io.StringIO())
-
-        kwargs = mock_orchestrator.return_value.run_pipeline.call_args[1]
-        self.assertEqual(kwargs["origin"], PipelineOrigin.CHECKER_GENERATED)
-
-    @mock.patch("apps.orchestration.management.commands.run_pipeline.PipelineOrchestrator")
-    def test_non_checks_only_uses_manual_origin(self, mock_orchestrator):
-        from apps.orchestration.models import PipelineOrigin
-
-        mock_result = mock.Mock()
-        mock_result.status = "COMPLETED"
-        mock_result.to_dict.return_value = {"status": "COMPLETED"}
-        mock_orchestrator.return_value.run_pipeline.return_value = mock_result
-
-        call_command("run_pipeline", "--sample", "--json", stdout=io.StringIO())
-
-        kwargs = mock_orchestrator.return_value.run_pipeline.call_args[1]
-        self.assertEqual(kwargs["origin"], PipelineOrigin.MANUAL)

@@ -298,23 +298,31 @@ Notes on flexibility:
 
 ## Webhook responses
 
-Successful processing returns:
+The webhook ingests on the request thread: it writes the payload's alerts, lets incidents
+form, and enqueues one `PENDING` pipeline run per materially changed incident. It does not
+run the pipeline. Accepted traffic returns **202**:
 
 ```json
 {
-  "status": "success",
-  "alerts_created": 1,
-  "alerts_updated": 0,
-  "alerts_resolved": 0,
-  "incidents_created": 1,
-  "incidents_updated": 0
+  "status": "accepted",
+  "trace_id": "0d7f…",
+  "incidents": [42, 43]
 }
 ```
 
-If some alerts fail but others succeed:
+`incidents` lists the incidents that earned a run, so it may legitimately be empty — a
+re-post that says nothing new enqueues nothing, and a payload that yields no alerts at all
+is logged and still accepted.
 
-- `status` becomes `partial`
-- `errors` includes a list of error strings
+| Code | When |
+|---|---|
+| **202** | alerts were written, or the payload legitimately produced none |
+| **400** | no driver claimed the payload — it is unusable, do not retry |
+| **413** | body over `MAX_PAYLOAD_BYTES` (1 MiB) |
+| **500** | a driver resolved but nothing was written — the sender should retry |
+
+Errors that arrive *alongside* written alerts still return 202: a 5xx there would have the
+sender retry work that already landed.
 
 ## Troubleshooting
 
@@ -341,29 +349,33 @@ The alerts app integrates with the checkers app to create alerts from health che
 
 ### Checks via Pipeline
 
-The health-check-to-alert workflow is now handled by the orchestrated pipeline. Use:
+`check_health` is the local entrypoint. It runs the checkers, writes their alerts, lets
+incidents form, and drains the run each materially changed incident earns — all before it
+returns, with no daemon involved.
 
 ```bash
-# Run all checks through the pipeline
-uv run python manage.py run_pipeline --checks-only
+# Run all checks and complete their pipeline
+uv run python manage.py check_health
 
 # Run specific checkers
-uv run python manage.py run_pipeline --checks-only --checkers cpu memory disk
+uv run python manage.py check_health cpu memory disk
 
-# Dry run
-uv run python manage.py run_pipeline --checks-only --dry-run --json
+# Print only: run the checkers and write nothing, so no incident forms
+uv run python manage.py check_health --no-alert
 
-# Custom labels and hostname
-uv run python manage.py run_pipeline --checks-only --label env=production --hostname web-01
-
-# Skip incidents
-uv run python manage.py run_pipeline --checks-only --no-incidents
+# Run the matched lane without NOTIFY — read the analysis, page nobody
+uv run python manage.py check_health --no-notify
 
 # Threshold overrides
-uv run python manage.py run_pipeline --checks-only --warning-threshold 60 --critical-threshold 80
+uv run python manage.py check_health --warning-threshold 60 --critical-threshold 80
 ```
 
-See [`apps/orchestration/README.md`](../orchestration/README.md) for full `run_pipeline` documentation.
+`run_pipeline --checks-only` does the same work and is **deprecated**: it prints a notice
+on stderr on every run. It still accepts `--checkers`, `--label`, `--hostname` and
+`--no-incidents`, which `check_health` does not. See
+[`apps/checkers/README.md`](../checkers/README.md) for the full `check_health` flag
+reference and [`apps/orchestration/README.md`](../orchestration/README.md) for
+`run_pipeline`.
 
 ### Programmatic usage
 
@@ -419,15 +431,17 @@ print(f"Total alerts created: {result.alerts_created}")
 ### Self-monitoring the hub (`push_to_hub --local`)
 
 A hub can monitor itself through the same path it uses for its agents. `--local`
-runs the checkers, builds the same cluster payload, and records the same PENDING
-`PipelineRun` the `/alerts/webhook/cluster/` view would have recorded — no
-network, no `HUB_URL` required. `manage.py process_inbox` then drains it through
-the same ingest, routing, and executors as any node's push.
+runs the checkers, writes their alerts here through `CheckAlertBridge` — the same
+writer `check_health` uses, so one condition is one Alert row either way — and
+then enqueues one PENDING `PipelineRun` per materially changed incident, exactly
+as the `/alerts/webhook/cluster/` view does for a peer's push. No network, no
+`HUB_URL` required. `manage.py process_inbox` then drains those runs through the
+same routing and executors as any node's push.
 
 `--local` is the queued mode, and it only completes where something drains the
 inbox. It is NOT what the installer schedules: `bin/install/cron.sh` uses
-`run_pipeline --checks-only`, which runs the same lanes synchronously and needs
-no drain. Reach for `--local` on a hub already running `process_inbox` that wants
+`check_health --json`, which runs the same lanes synchronously and drains its own
+runs. Reach for `--local` on a hub already running `process_inbox` that wants
 its own checks queued and retried like a peer's push.
 
 ```bash
@@ -437,21 +451,22 @@ its own checks queued and retried like a peer's push.
 # Preview without recording anything
 uv run python manage.py push_to_hub --local --dry-run
 
-# Machine-readable result: {"run_id": ..., "alerts": N}
+# Machine-readable result: {"trace_id": ..., "incidents": [...], "alerts": N}
 uv run python manage.py push_to_hub --local --json
 ```
 
 Use `--local` on a hub whose inbox is drained; use `check_health` on a
-single-machine install, where it writes alerts inline with no inbox involved.
+single-machine install, where it enqueues the same runs and then claims and drains them
+itself — an inbox with no separate drainer, rather than no inbox.
 
 ### Setting up scheduled checks
 
 Use cron to run checks periodically:
 
 ```bash
-# Run all checks every 5 minutes
-*/5 * * * * cd /path/to/project && uv run python manage.py run_pipeline --checks-only --json >> /var/log/health-checks.log 2>&1
+# Run all checks every 5 minutes (what bin/install/cron.sh schedules)
+*/5 * * * * cd /path/to/project && uv run python manage.py check_health --json >> /var/log/health-checks.log 2>&1
 
 # Run only critical checks every minute
-* * * * * cd /path/to/project && uv run python manage.py run_pipeline --checks-only --checkers cpu memory --json
+* * * * * cd /path/to/project && uv run python manage.py check_health cpu memory --json
 ```
