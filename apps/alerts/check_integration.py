@@ -270,11 +270,22 @@ class CheckAlertBridge:
                     )
                 for parsed_alert in parsed.alerts:
                     self.orchestrator._process_alert(parsed_alert, parsed.source, result)
+        except Exception as e:
+            # The bridge reports its failures rather than raising them: a health
+            # check must still print its results. But the batch rolled back, so
+            # none of the rows it appended exist — see
+            # ``ProcessingResult.discard_writes`` for why reporting them would be
+            # worse than reporting nothing.
+            logger.exception("Error processing check result")
+            result.discard_writes()
+            result.errors.append(str(e))
+            return result
 
-            # Handle incident auto-resolution
+        try:
+            # Handle incident auto-resolution. Past the commit: a failure here
+            # takes nothing back, so the writes above still stand.
             if self.orchestrator.auto_resolve_incidents:
                 self.orchestrator._check_incident_resolution()
-
         except Exception as e:
             logger.exception("Error processing check result")
             result.errors.append(str(e))

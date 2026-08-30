@@ -192,7 +192,9 @@ class Command(BaseCommand):
 
         Exactly what the webhook does — ``process_webhook`` then ``enqueue_for`` —
         with ``sync=True``, because the operator who typed the command is the only
-        one who is going to drain anything.
+        one who is going to drain anything. Including how it answers a failed
+        ingest: a payload nothing understood, and a payload a driver understood
+        that still wrote nothing, are two different failures and both are loud.
         """
         from apps.alerts.services import AlertOrchestrator
         from apps.orchestration.intake import enqueue_for
@@ -226,6 +228,14 @@ class Command(BaseCommand):
             raise CommandError(
                 "Could not detect a driver for the payload: " + "; ".join(result.errors)
             )
+
+        if result.errors and not result.alerts:
+            # A driver understood it and nothing was written anyway: the ingest
+            # broke. Both views answer 5xx here rather than pretending they
+            # accepted the payload; for the operator at a terminal the equivalent
+            # is a non-zero exit, not a summary reporting zero alerts as success.
+            raise CommandError("Failed to process payload: " + "; ".join(result.errors))
+
         return {
             "trace_id": trace_id,
             "incidents": [run.incident_id for run in runs],

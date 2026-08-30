@@ -1253,3 +1253,45 @@ class RefireReopensIncidentTests(TestCase):
         self.assertTrue(
             AlertHistory.objects.filter(alert__fingerprint="flap-1", event="updated").exists()
         )
+
+
+class RolledBackBatchTests(TestCase):
+    """A ProcessingResult describes the database, not the attempt.
+
+    ``process_webhook`` writes its whole batch in one transaction, so a mid-batch
+    failure leaves nothing behind. If the in-memory lists still named the rows the
+    rolled-back loop appended, every caller reading ``result.alerts`` to decide
+    "did anything land?" gets the wrong answer — the webhook answers 202 for a
+    batch it dropped, and ``enqueue_for`` is handed alerts whose incidents do not
+    exist.
+    """
+
+    def _two_alert_payload(self) -> dict:
+        return {
+            "alerts": [
+                {"name": "CPU high", "status": "firing", "severity": "critical"},
+                {"name": "Disk full", "status": "firing", "severity": "critical"},
+            ]
+        }
+
+    def test_a_mid_batch_failure_reports_nothing_written(self):
+        real = AlertOrchestrator._process_alert
+        calls = {"n": 0}
+
+        def fail_on_second(self, parsed, source, result):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("write exploded")
+            return real(self, parsed, source, result)
+
+        with mock.patch.object(AlertOrchestrator, "_process_alert", fail_on_second):
+            result = AlertOrchestrator().process_webhook(self._two_alert_payload())
+
+        self.assertTrue(result.errors)
+        self.assertEqual(Alert.objects.count(), 0)
+        self.assertEqual(Incident.objects.count(), 0)
+        self.assertEqual(result.alerts, [])
+        self.assertEqual(result.material_alerts, [])
+        self.assertEqual(result.total_processed, 0)
+        self.assertEqual(result.incidents_created, 0)
+        self.assertEqual(result.incidents_updated, 0)

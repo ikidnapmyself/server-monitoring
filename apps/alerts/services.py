@@ -169,6 +169,31 @@ class ProcessingResult:
     def has_errors(self) -> bool:
         return len(self.errors) > 0
 
+    def discard_writes(self) -> None:
+        """Forget the rows and counts a rolled-back batch appended.
+
+        The invariant every consumer relies on is that this object describes what
+        is IN THE DATABASE, not what was attempted. ``_process_alert`` appends to
+        these lists as it writes, inside a transaction that covers the whole
+        batch, so a mid-batch failure takes every one of those rows back while the
+        in-memory record of them survives — and then callers read it and are
+        wrong: the webhook answers 202 for a batch it dropped and the sender never
+        retries, and ``enqueue_for`` is handed alerts whose incident no longer
+        exists.
+
+        Reset rather than subtract: the transaction covers every write this result
+        describes, so rolling it back empties the result entirely. ``errors`` and
+        ``driver_resolved`` are deliberately kept — they say what happened, which
+        is exactly what the caller now has to act on.
+        """
+        self.alerts_created = 0
+        self.alerts_updated = 0
+        self.alerts_resolved = 0
+        self.incidents_created = 0
+        self.incidents_updated = 0
+        self.alerts.clear()
+        self.material_alerts.clear()
+
 
 class AlertOrchestrator:
     """
@@ -248,9 +273,14 @@ class AlertOrchestrator:
             register_pushing_node(payload, driver)
 
             # Process each alert
-            with transaction.atomic():
-                for parsed_alert in parsed.alerts:
-                    self._process_alert(parsed_alert, parsed.source, result)
+            try:
+                with transaction.atomic():
+                    for parsed_alert in parsed.alerts:
+                        self._process_alert(parsed_alert, parsed.source, result)
+            except Exception:
+                # The batch rolled back, so none of the rows it appended exist.
+                result.discard_writes()
+                raise
 
             # Handle incident auto-resolution
             if self.auto_resolve_incidents:

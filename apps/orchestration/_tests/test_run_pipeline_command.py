@@ -192,6 +192,30 @@ class RunPipelineReplayTests(StubAnalysisMixin, TestCase):
                 call_command("run_pipeline", "--sample", stdout=io.StringIO())
         self.assertIn("Pipeline failed", str(ctx.exception))
 
+    def test_an_ingest_that_wrote_nothing_is_a_command_error(self):
+        """A driver understood it and the batch still rolled back.
+
+        Both views answer 5xx for this rather than pretending they accepted the
+        payload; the operator's equivalent is a non-zero exit, not a summary
+        reporting zero alerts as a success.
+        """
+        from apps.alerts.models import Alert
+
+        with mock.patch(
+            "apps.alerts.drivers.generic.GenericWebhookDriver.parse",
+            side_effect=RuntimeError("transient bug"),
+        ):
+            with self.assertRaises(CommandError) as ctx:
+                call_command(
+                    "run_pipeline",
+                    "--payload",
+                    '{"name": "CPU high", "status": "firing", "severity": "critical"}',
+                    stdout=io.StringIO(),
+                )
+
+        self.assertIn("transient bug", str(ctx.exception))
+        self.assertFalse(Alert.objects.exists())
+
     def test_invalid_json_payload(self):
         with self.assertRaises(CommandError):
             call_command("run_pipeline", "--payload", "{invalid_json}", stdout=io.StringIO())

@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from apps.alerts import views
 from apps.alerts.models import Alert, Incident, Node
-from apps.alerts.services import ProcessingResult
+from apps.alerts.services import AlertOrchestrator, ProcessingResult
 from apps.orchestration import inbox
 from apps.orchestration.models import (
     PipelineDefinition,
@@ -152,6 +152,35 @@ class WebhookViewTests(TestCase):
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json()["status"], "error")
         self.assertEqual(Alert.objects.count(), 0)
+        self.assertEqual(PipelineRun.objects.count(), 0)
+
+    def test_a_rolled_back_batch_is_a_500_not_a_202(self):
+        """The whole batch rolled back, so the sender must retry it.
+
+        202 tells the sender it landed and it never sends again; the alerts are
+        gone and on-call is never told, permanently.
+        """
+        real = AlertOrchestrator._process_alert
+        calls = {"n": 0}
+
+        def fail_on_second(self, parsed, source, result):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("write exploded")
+            return real(self, parsed, source, result)
+
+        payload = {
+            "alerts": [
+                {"name": "CPU high", "status": "firing", "severity": "critical"},
+                {"name": "Disk full", "status": "firing", "severity": "critical"},
+            ]
+        }
+        with patch.object(AlertOrchestrator, "_process_alert", fail_on_second):
+            response = self._post(payload)
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(Alert.objects.count(), 0)
+        self.assertEqual(Incident.objects.count(), 0)
         self.assertEqual(PipelineRun.objects.count(), 0)
 
     def test_a_crash_at_the_enqueue_leaves_no_orphaned_incident(self):
