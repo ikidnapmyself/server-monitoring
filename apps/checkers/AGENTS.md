@@ -119,7 +119,7 @@ Authoritative source: [`docs/plans/2026-05-12-iso-27003-security-audit-notes.md`
 - **Timeouts on every outbound call.** No bare `urlopen(req)` without `timeout=`.
 
 ### Trust boundary discipline
-- Pipeline-mode checker inputs (`hostname`, `checker_configs`, `labels`, `checks_only`) arrive from `/orchestration/pipeline/*` — treat them as untrusted even after API-key auth.
+- Pipeline-mode checker inputs (`hostname`, `checker_configs`, `labels`) no longer arrive over HTTP: `POST /orchestration/pipeline/*` is a producer (ingest, then one run per changed incident) and forwards no checker configuration. CHECK still reads `checker_configs`/`labels` off a run's stored payload, so any future producer that writes them there is supplying untrusted input — treat it as such even after API-key auth.
 - Standalone CLI inputs (`run_check --paths`) are admin-trusted but still routed through `resolve_safe_path` for defence in depth.
 - Never echo raw exception messages into HTTP responses; log via `logger.exception(..., extra={"trace_id": ...})`.
 

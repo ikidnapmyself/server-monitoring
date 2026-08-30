@@ -101,10 +101,19 @@ Two consequences worth knowing before changing this code:
 **Entry stages are legacy.** INGEST and CHECK still exist in `execute_run`, and a
 `PENDING` run recorded before a deploy must still drain through them — but no producer
 creates such a run any more. Producing an alert is not a pipeline stage: the webhook,
-`push_to_hub --local`, `check_health` and `run_pipeline` each write their alerts
-themselves, let incidents form, and enqueue one run per materially changed incident
-through `apps.orchestration.intake.enqueue_for`. Do not add a caller of the entry-stage
-path.
+`push_to_hub --local`, `check_health`, `run_pipeline` and `POST /orchestration/pipeline/`
+each write their alerts themselves, let incidents form, and enqueue one run per
+materially changed incident through `apps.orchestration.intake.enqueue_for`. Do not add
+a caller of the entry-stage path.
+
+**`POST /orchestration/pipeline/` is a producer too**, and its two routes are exactly
+the `sync` flag: `/pipeline/` leaves the runs `PENDING` for `process_inbox` and returns
+202; `/pipeline/sync/` drains them and returns 200. Neither returns a `run_id` — a call
+produces a run per materially changed incident, several or none — so both name the
+`trace_id` and the incident ids instead. Its status codes are the webhook's: 400 when no
+driver claimed the payload, 500 when a resolved driver wrote nothing, and the success
+code when errors arrived alongside written alerts (a 5xx there would have the sender
+retry work that already landed).
 
 **`run_pipeline` is a producer like the rest.** `--sample` / `--payload` / `--file`
 replay a webhook-shaped payload: `AlertOrchestrator.process_webhook`, then

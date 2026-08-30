@@ -150,8 +150,8 @@ Stage behavior is controlled through routing pipelines and Django Admin — not 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/orchestration/pipeline/` | Trigger pipeline (async — records a PENDING run for the drain) |
-| POST | `/orchestration/pipeline/sync/` | Trigger pipeline (sync, waits for completion) |
+| POST | `/orchestration/pipeline/` | Ingest a payload, leave a PENDING run per changed incident for the drain |
+| POST | `/orchestration/pipeline/sync/` | The same, draining those runs before responding |
 | GET | `/orchestration/pipelines/` | List pipeline runs |
 | GET | `/orchestration/pipeline/<run_id>/` | Get pipeline run status |
 | POST | `/orchestration/pipeline/<run_id>/resume/` | Resume a failed pipeline |
@@ -218,8 +218,11 @@ and the headline reads the incident's live status. Migration `0016` seeds
 something that has already recovered. See
 `docs/plans/2026-08-19-incident-fanout-design.md`.
 
-- **Endpoints:** `POST /orchestration/pipeline/` (async — records a `PENDING` run for
-  the `process_inbox` drain) and `/pipeline/sync/` (runs inline).
+- **Endpoints:** `POST /orchestration/pipeline/` ingests the payload inline and leaves
+  one `PENDING` run per materially changed incident for the `process_inbox` drain
+  (202, `{status, trace_id, incidents}`); `/pipeline/sync/` drains those runs before
+  responding (200, plus `alerts` and `errors` counts). It is a producer like the
+  webhook, not a separate path — `sync` only decides who executes the runs.
 - **CLI:** `python manage.py run_pipeline --sample` / `--dry-run` (and the deprecated
   `--checks-only`, whose work `check_health` now does).
 - **Resume:** failed pipelines resume from the last successful stage.

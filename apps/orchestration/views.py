@@ -6,6 +6,7 @@ Provides HTTP endpoints for triggering and monitoring pipeline runs.
 
 import json
 import logging
+import uuid
 from typing import Any
 
 from django.http import JsonResponse
@@ -35,18 +36,31 @@ class PipelineView(JSONResponseMixin, View):
     API endpoint for triggering pipelines.
 
     POST /orchestration/pipeline/
-        Start a new pipeline run.
+        Ingest the payload, then leave one PENDING run per materially changed
+        incident for the ``process_inbox`` drain. Returns 202.
 
     POST /orchestration/pipeline/sync/
-        Start and wait for pipeline completion (synchronous).
+        The same, but drain those runs before responding. Returns 200.
 
     Request body:
     {
         "payload": {...},  // Alert payload to process
+        "driver": "grafana",  // Optional: force a driver instead of sniffing
         "source": "grafana",  // Optional: source system
         "trace_id": "...",  // Optional: correlation ID
         "environment": "production"  // Optional: environment
     }
+
+    Response (async, 202):
+        {"status": "accepted", "trace_id": ..., "incidents": [...]}
+    Response (sync, 200):
+        {"status": "completed", "trace_id": ..., "incidents": [...],
+         "alerts": N, "errors": [...]}
+
+    This is a producer like any other: producing an alert is not a pipeline
+    stage, so the alert write happens here on the request thread and only the
+    incident work (check, analyze, notify) becomes a run. ``mode`` decides who
+    executes those runs, not which path they take.
     """
 
     def post(self, request, mode: str = "async"):
@@ -58,37 +72,112 @@ class PipelineView(JSONResponseMixin, View):
 
         payload = body.get("payload", {})
         source = body.get("source", "webhook")
-        trace_id = body.get("trace_id")
+        # A caller correlating its own push keeps its trace_id end to end; only
+        # an anonymous call gets a fresh one.
+        trace_id = body.get("trace_id") or str(uuid.uuid4())
         environment = body.get("environment", "production")
+        # Preserved from the entry stage, which read ``driver`` off the wrapper it
+        # was handed: naming a driver skips the sniff. Absent, the payload is
+        # sniffed exactly as an unlabelled webhook is.
+        driver = body.get("driver")
 
-        if mode == "sync":
-            # Synchronous execution
-            orchestrator = PipelineOrchestrator()
-            result = orchestrator.run_pipeline(
-                payload={"payload": payload, **body},
-                source=source,
-                trace_id=trace_id,
-                environment=environment,
+        try:
+            from apps.alerts.services import AlertOrchestrator
+            from apps.orchestration.intake import enqueue_for
+
+            proc_result = AlertOrchestrator(trace_id=trace_id).process_webhook(
+                payload, driver=driver
             )
-            return self.json_response(result.to_dict())
-        else:
-            # Durable async: record a PENDING run for the process_inbox drain
-            # (broker-free; no Celery). The webhook path works the same way.
-            run = PipelineOrchestrator().start_pipeline(
-                payload={"payload": payload, **body},
-                source=source,
+
+            # Nothing understood the payload: no driver claimed it, so nothing was
+            # parsed and nothing was written. A retry would fail identically, so
+            # the caller is told to stop. Read off the flag the orchestrator sets
+            # rather than matching its error text.
+            if not proc_result.driver_resolved:
+                logger.warning(
+                    "No driver could handle the pipeline payload (source=%s, trace_id=%s): %s",
+                    source,
+                    trace_id,
+                    "; ".join(proc_result.errors),
+                )
+                return self.error_response("Could not detect a driver for the payload", status=400)
+
+            # A driver understood it and we still wrote nothing: the fault is ours,
+            # not the caller's. 400 would tell it to stop retrying and the push
+            # would be silently discarded, so this is the one ingest failure that
+            # must be a 5xx — there is no partial write for a retry to duplicate.
+            if proc_result.errors and not proc_result.alerts:
+                logger.error(
+                    "Pipeline ingest wrote nothing (source=%s, trace_id=%s): %s",
+                    source,
+                    trace_id,
+                    "; ".join(proc_result.errors),
+                )
+                return self.error_response("Failed to process payload", status=500)
+
+            # A payload that partially failed but wrote alerts is accepted: turning
+            # it into a 5xx would have the caller retry and duplicate the work that
+            # did land. The errors are logged, not swallowed.
+            if proc_result.errors:
+                logger.error(
+                    "Pipeline ingest reported errors (source=%s, trace_id=%s): %s",
+                    source,
+                    trace_id,
+                    "; ".join(proc_result.errors),
+                )
+
+            if not proc_result.alerts:
+                # A misconfigured caller, not a failure: no rows, no run, no error.
+                logger.warning(
+                    "Pipeline payload carried no alerts (source=%s, trace_id=%s)",
+                    source,
+                    trace_id,
+                )
+
+            runs = enqueue_for(
+                proc_result,
                 trace_id=trace_id,
-                environment=environment,
                 origin=PipelineOrigin.INCOMING_WEBHOOK,
+                source=source,
+                environment=environment,
+                sync=(mode == "sync"),
             )
+        except Exception as e:  # noqa: BLE001 - the caller gets an honest 500
+            logger.exception("Unexpected error triggering pipeline")
+            return self.error_response(str(e), status=500)
+
+        incident_ids = [run.incident_id for run in runs]
+        logger.info(
+            "Pipeline endpoint ingested %d alert(s), queued %d incident run(s) "
+            "(mode=%s, source=%s, trace_id=%s)",
+            len(proc_result.alerts),
+            len(runs),
+            mode,
+            source,
+            trace_id,
+        )
+
+        # ``run_id`` is gone from both shapes: one call now produces a run per
+        # materially changed incident — several, or none — so there is no single
+        # id to name. The trace_id plus the incident ids identify all of them, and
+        # ``GET /orchestration/pipelines/?source=`` still lists the runs.
+        if mode == "sync":
+            # The runs were drained above, so this is a completed result. Only the
+            # counts the ingest genuinely produced are reported; the same summary
+            # ``manage.py run_pipeline`` prints for a replay.
             return self.json_response(
                 {
-                    "status": "accepted",
-                    "run_id": run.run_id,
-                    "message": "Pipeline recorded; will be processed by the inbox drain",
-                },
-                status=202,
+                    "status": "completed",
+                    "trace_id": trace_id,
+                    "incidents": incident_ids,
+                    "alerts": len(proc_result.alerts),
+                    "errors": list(proc_result.errors),
+                }
             )
+        return self.json_response(
+            {"status": "accepted", "trace_id": trace_id, "incidents": incident_ids},
+            status=202,
+        )
 
 
 @method_decorator(csrf_exempt, name="dispatch")

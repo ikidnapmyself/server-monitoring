@@ -68,14 +68,23 @@ Content-Type: application/json
 }
 ```
 
-Response (durable ingest — the run is recorded for the `process_inbox` drain):
+The payload is ingested on the request thread — producing an alert is not a pipeline
+stage — and one `PENDING` run per materially changed incident is left for the
+`process_inbox` drain. There is no single `run_id` to return: a call can produce several
+runs or none, so the response names the trace and the incidents.
+
+Response (202):
 ```json
 {
     "status": "accepted",
-    "run_id": "…",
-    "message": "Pipeline recorded; will be processed by the inbox drain"
+    "trace_id": "…",
+    "incidents": [12, 13]
 }
 ```
+
+A payload no driver claims returns `400` (a retry would fail identically). An ingest
+that breaks after a driver resolved, having written nothing, returns `500` so the sender
+retries. Errors alongside written alerts are logged and still accepted.
 
 ### Trigger Pipeline (Sync)
 
@@ -83,7 +92,18 @@ Response (durable ingest — the run is recorded for the `process_inbox` drain):
 POST /orchestration/pipeline/sync/
 ```
 
-Waits for pipeline completion and returns full result.
+The same producer path, but the runs it enqueued are drained before responding.
+
+Response (200):
+```json
+{
+    "status": "completed",
+    "trace_id": "…",
+    "incidents": [12],
+    "alerts": 1,
+    "errors": []
+}
+```
 
 ### Get Pipeline Status
 
