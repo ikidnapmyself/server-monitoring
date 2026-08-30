@@ -166,8 +166,9 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now server-monitoring server-monitoring-inbox
 ```
 
-> **`server-monitoring-inbox` is required, not optional.** The webhook only *records*
-> alerts (durable ingest); this drain is what actually processes them. See
+> **`server-monitoring-inbox` is required, not optional.** The webhook writes the alerts
+> inline and records one `PENDING` run per materially changed incident (durable ingest);
+> this drain is what runs those incidents through their lane. See
 > [Durable ingest & the inbox drain](#durable-ingest--the-inbox-drain) below. The
 > legacy `server-monitoring-celery` unit is no longer needed — the pipeline runs
 > broker-free.
@@ -343,12 +344,17 @@ not exist.
 uv run python manage.py check_health            # CPU, memory, disk, network, process
 uv run python manage.py check_health --list
 uv run python manage.py check_health --no-alert  # print only, record nothing
+uv run python manage.py check_health --no-notify # run the lane, page nobody
 ```
 
-`check_health` **records alerts and incidents for this machine by default** (and
-registers it in the `Node` registry). It is synchronous and enqueues nothing, so a
-single machine with no hub, no cron and nobody draining the inbox still gets alerts.
-Use `--no-alert` when you only want to look.
+`check_health` is **the local entrypoint**. It records alerts and incidents for this
+machine by default (and registers it in the `Node` registry), enqueues one run per
+materially changed incident, and **drains those runs before returning**. It needs no
+daemon: a single machine with no hub, no cron and nobody draining the inbox still gets
+its alerts, its analysis and its notifications. Use `--no-alert` when you only want to
+look and write nothing — no alert, so no incident, so no run. Use `--no-notify` to run
+the matched lane and read the analysis without paging anyone; the flag travels in the
+enqueued run's payload, because NOTIFY runs there.
 
 ### Pipeline history
 
@@ -538,7 +544,8 @@ Notes:
   routes nowhere — the lane delivers nothing through it and notify falls back to
   payload-driven selection — so the changelist marks such a channel `(inactive)`.
 - **A pipeline run is an incident**, and producing an alert is not a stage of it.
-  `run_pipeline --checks-only` (like `check_health`) writes the alerts, lets
+  `check_health` (and the deprecated `run_pipeline --checks-only`, which does the
+  same work behind a stderr notice) writes the alerts, lets
   incidents form, and enqueues one run per materially changed incident; the lane
   is resolved in that run, from its incident's subject alert. Adding
   `--no-incidents` makes it a silent diagnostic without any flag being consulted
@@ -558,9 +565,12 @@ Notes:
   would blank which lane handled every incident it ever routed), and it is no longer
   seeded on a fresh install. To keep hub checks record-only, add a higher-priority
   lane matching `origin is checker_generated` with empty `stages`.
-- Alerts created **within a pipeline run** carry the run's `trace_id` (the journey
-  chain). Alerts ingested directly outside a run — the synchronous webhook fallback
-  and the node ingest handler — currently have a blank `trace_id`. Cluster-ingested
+- Alerts carry the `trace_id` of the producer that wrote them (the journey chain), and
+  the runs that producer enqueues inherit it, so one push still reads as one story in
+  `manage.py trace`. The webhook mints a `trace_id` before calling
+  `AlertOrchestrator.process_webhook` and passes the same one to `enqueue_for`;
+  `/orchestration/pipeline/` honours a caller-supplied `trace_id` and mints one
+  otherwise. Cluster-ingested
   alerts also link to their originating **`Node`** (resolved from the `instance_id`
   label). `trace_id` and `node` are both searchable/visible in the `Alert` admin.
 
@@ -613,7 +623,7 @@ uv run python manage.py create_api_key --name "web-server-01"
 # The raw token is shown once — copy it immediately.
 ```
 
-The hub accepts cluster payloads at `POST /alerts/webhook/cluster/` (authenticated by the API-key middleware) and processes them through the full pipeline. Each alert carries `instance_id` and `hostname` labels for per-server filtering.
+The hub accepts cluster payloads at `POST /alerts/webhook/cluster/` (authenticated by the API-key middleware). It writes their alerts inline and enqueues one run per materially changed incident; the lane runs on the `process_inbox` drain. Each alert carries `instance_id` and `hostname` labels for per-server filtering.
 
 ### Standalone (default)
 
@@ -700,4 +710,4 @@ HMAC and a dead `CLUSTER_ROLE` knob. Both are removed; agents now use
 | `push_to_hub` returns 403 but the **same request via `curl` succeeds** | A WAF/proxy in front of the hub blocks the agent's `User-Agent` | The agent sends `User-Agent: server-monitoring-agent/<ver>`; allowlist it (or the agent IP) at the WAF. Confirm with `curl -H "User-Agent: Python-urllib/3.11" ...` reproducing the 403 |
 | `push_to_hub` returns 403 with body `API key not authorized for this endpoint` | The `APIKey.allowed_endpoints` allowlist excludes `/alerts/webhook/cluster/` | Clear the key's scope (empty = all) or add `/alerts/`; keys minted by `create_api_key` are unscoped by default |
 | Alerts arrive on hub but no notifications fire     | No routing pipeline / channel | Run `uv run python manage.py setup_cluster` on the hub (wires a catch-all pipeline + channel) |
-| `push_to_hub --dry-run` shows 0 alerts             | No checkers returned results  | Run `uv run python manage.py check_health` to verify checkers work           |
+| `push_to_hub --dry-run` shows 0 alerts             | No checkers returned results  | Run `uv run python manage.py check_health --no-alert` to verify checkers work — `--no-alert` keeps a diagnostic from recording alerts and paging anyone |

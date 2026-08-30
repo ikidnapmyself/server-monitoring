@@ -4,17 +4,38 @@ This file contains **app-local** guidance for working in `apps/alerts/`.
 
 ## Role in the pipeline
 
-Stage: **ingest**
+**Not a stage — a producer.** Ingest is not a pipeline stage. `apps.alerts` writes alert
+truth and lets incidents form, then hands the materially changed incidents to
+`apps.orchestration.intake.enqueue_for`, which records one `PENDING` run each. The
+orchestrator takes it from there.
 
 Responsibilities:
 - Accept inbound alert payloads (webhooks)
 - Validate + parse payloads via a driver
 - Normalize into a common schema
 - Create/update `Alert` + `Incident`
-- Attach `trace_id/run_id` when invoked via orchestration
+- Mint a `trace_id`, write it onto the alerts, and pass the same one to `enqueue_for`
+- Enqueue one run per materially changed incident, and nothing more
 
-Output contract (to orchestrator):
-- `{ incident_id, alert_fingerprint, severity, source, normalized_payload_ref }`
+**The webhook ingests on the request thread.** `apps/alerts/views.py` reads the body
+(rejecting anything over `MAX_PAYLOAD_BYTES`), calls
+`AlertOrchestrator.process_webhook`, then `enqueue_for`. Its response contract:
+
+| Code | When | Body |
+|---|---|---|
+| 202 | alerts were written (or the payload legitimately yielded none — logged and accepted) | `{"status": "accepted", "trace_id": …, "incidents": [ids]}` |
+| 400 | no driver claimed the payload, so nothing was written | error |
+| 413 | body over `MAX_PAYLOAD_BYTES` | error |
+| 500 | a driver resolved but nothing was written — the sender should retry | error |
+
+The 400/500 split is the point: 400 means "this payload is unusable, do not retry"; 500
+means "we should have stored this and did not". Errors arriving *alongside* written
+alerts still return the success code, because a 5xx there would have the sender retry
+work that already landed.
+
+Output contract (to orchestrator): the enqueued run's payload,
+`{"downstream_incident_id": N}`. The old `IngestResult` shape is built only by the
+legacy `IngestExecutor`.
 
 ## Key modules
 
@@ -98,8 +119,13 @@ already-registered row. `register_node=False` opts out, and `CheckExecutor` sets
 the one condition that matters: whether the payload carries a `hostname`. A payload
 hostname means the diagnosis is *about another machine* — the checkers run here but the
 alerts are labelled with the subject incident's hostname — so that run must not claim that
-identity for this machine's registry row. With no payload hostname (the scheduled
-`run_pipeline --checks-only`) the bridge is describing *this* machine, and it registers.
+identity for this machine's registry row.
+
+The command producers set it the same way, from their own `--hostname`: with none given
+(`check_health`, the scheduled job) the bridge is describing *this* machine, and it
+registers. Note that `CheckExecutor`'s branch is currently unreachable for live runs — an
+incident run's payload carries only `downstream_incident_id` — which is recorded under
+"Known gaps" in `apps/orchestration/AGENTS.md`.
 
 ## The alert write path (one, not two)
 

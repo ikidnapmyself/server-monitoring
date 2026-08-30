@@ -11,7 +11,17 @@ Responsibilities:
 - Or run checks standalone via management commands (standalone mode)
 
 Output contract (to orchestrator):
-- `{ checks: [...], timings, errors, checker_output_ref }`
+- `{ checks: [...], timings, errors, checker_output_ref }`, plus `alert_id`,
+  `incident_id`, `alert_fingerprint` and `material_incident_ids` — a pipeline-mode CHECK
+  writes real `Alert`/`Incident` rows through `CheckAlertBridge`, it does not only report.
+
+**CHECK's scope is the incident, not the registry.** For an incident run the stage runs
+the checkers named by the distinct `checker` labels on that incident's alerts, filtered to
+`CHECKER_REGISTRY`. An incident that names no checkers runs none — it does not sweep the
+whole machine. That is why `CheckAlertBridge.run_checks_and_alert` distinguishes
+`checker_names=None` ("every checker", what a caller with no opinion passes) from
+`checker_names=[]` ("none", what an incident naming no checkers passes). Never collapse
+the two. See `apps/orchestration/AGENTS.md`.
 
 ## Key modules
 

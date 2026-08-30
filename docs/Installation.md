@@ -86,7 +86,7 @@ If you didn't enable cron during install, you can run it later:
 - Writes a `crontab` entry that runs:
 
 ```bash
-uv run python manage.py run_pipeline --checks-only --json
+uv run python manage.py check_health --json
 ```
 
 - Logs output to `cron.log` in the project root
@@ -121,9 +121,8 @@ It will prompt for a prefix (default: `sm`), generate aliases, and add a `source
 
 | Alias | What it does |
 |-------|-------------|
-| `sm-check-health` | Run health checks (CPU, memory, disk, network, process) |
-| `sm-run-pipeline` | Execute pipelines (--sample / --checks-only / --file) |
-| `sm-check-and-alert` | Run checks through the pipeline (`run_pipeline --checks-only`) |
+| `sm-check-health` | **The local entrypoint.** Run health checks, record their alerts, and drain the run each materially changed incident earns — analysis and notification included, no daemon. `--no-alert` prints only; `--no-notify` pages nobody |
+| `sm-run-pipeline` | Replay an alert payload (`--sample` / `--payload` / `--file`) |
 | `sm-get-recommendations` | Get AI-powered system recommendations |
 | `sm-cli` | Interactive CLI menu |
 
@@ -299,7 +298,7 @@ With aliases (after running `./bin/install.sh aliases`):
 ```bash
 sm-check-health                  # Run health checks
 sm-check-health --list           # List available checkers
-sm-check-and-alert --json        # Run checks through pipeline (cron-friendly)
+sm-check-health --json           # Run checks through the pipeline (cron-friendly)
 sm-get-recommendations --all     # Get system recommendations
 sm-run-pipeline --sample         # Run pipeline with sample alert
 ```
@@ -309,7 +308,7 @@ Without aliases:
 ```bash
 uv run python manage.py check_health
 uv run python manage.py check_health --list
-uv run python manage.py run_pipeline --checks-only --json
+uv run python manage.py check_health --json
 uv run python manage.py get_recommendations --all
 uv run python manage.py run_pipeline --sample
 ```
@@ -326,7 +325,9 @@ sm-cluster        # guided: notification channel + a catch-all routing pipeline
 uv run python manage.py setup_intelligence   # optional: pick an AI provider
 ```
 
-The CHECK stage runs all registered checkers by default; a routing `PipelineDefinition`'s
+The CHECK stage takes the incident as its subject: it runs the checkers named by the
+distinct `checker` labels on that incident's alerts, filtered to this host's registry.
+An incident that names no checkers runs none. A routing `PipelineDefinition`'s
 ordered `stages` list — a subset of `["check", "analyze", "notify"]` — selects which
 downstream stages run for a matched alert, and its single `channel` is the notify
 target. Traffic no active lane matches fails as `no_route`, so keep a catch-all lane
@@ -341,9 +342,9 @@ sm-run-pipeline --sample --dry-run
 ### Step 3: Run the pipeline
 
 ```bash
-sm-run-pipeline --sample          # full demo run (real checks + notify)
-sm-run-pipeline --checks-only     # local monitoring: CHECK is the entry stage, then
-                                  # the lane matched from the alert it produced runs
+sm-run-pipeline --sample          # replay a sample payload (real checks + notify)
+sm-check-health                   # local monitoring: records the alerts, then drains
+                                  # the run each materially changed incident earns
                                   # (checker alerts are `source: cluster`, so the
                                   #  seeded `cluster-nodes` lane analyses + notifies)
 ```

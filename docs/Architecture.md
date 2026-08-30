@@ -8,33 +8,54 @@ nav_order: 2
 
 ## Overview
 
-Server-maintanence is a Django-based server monitoring and alerting system. It ingests alerts from external sources, runs health checks, generates AI-powered recommendations, and dispatches notifications — all coordinated through a strict 4-stage pipeline.
+Server-maintanence is a Django-based server monitoring and alerting system. It ingests alerts from external sources, runs health checks, generates AI-powered recommendations, and dispatches notifications. Producers write alert truth; alerts roll into incidents; the orchestrator runs one pipeline per incident that materially changed.
 
 **Tech stack:** Django 5.2, psutil (system metrics), Jinja2 (notification templates). The pipeline is broker-free — durable ingest + a `process_inbox` drain (no Celery/Redis).
 
-## Pipeline Stages
+## Producers, then stages
 
-The core pipeline processes events through four sequential stages, each owned by a dedicated Django app:
+Producing an alert is **not** a pipeline stage. A producer writes alerts, lets incidents form,
+and hands the materially changed ones to `apps.orchestration.intake.enqueue_for`, which records
+one `PENDING` `PipelineRun` per incident with the payload `{"downstream_incident_id": N}`:
 
 ```
-┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐
-│ INGEST  │───▶│  CHECK  │───▶│ ANALYZE │───▶│ NOTIFY  │
-│ alerts  │    │checkers │    │  intel  │    │ notify  │
-└─────────┘    └─────────┘    └─────────┘    └─────────┘
+produce truth  →  roll into incidents  →  enqueue one run per changed incident  →  drain
+```
+
+`enqueue_for(..., sync=True)` drains those runs before returning — how `check_health` and
+`run_pipeline` finish the job for an operator with no daemon. Without it, `process_inbox`
+takes them. Same rows, same lanes, same executors; `sync` only decides who runs them and when.
+
+Six producers walk through that one door: the alerts webhook (`apps/alerts/views.py`), the
+`/orchestration/pipeline/` endpoint, `push_to_hub --local`, `check_health`, `run_pipeline`, and
+operator transitions on `IncidentManager`.
+
+**The incident is the subject of the run.** The orchestrator then executes an ordered subset of
+three stages, chosen by the matched `PipelineDefinition`:
+
+```
+        ┌─────────┐    ┌─────────┐    ┌─────────┐
+run  ──▶│  CHECK  │───▶│ ANALYZE │───▶│ NOTIFY  │
+(an     │checkers │    │  intel  │    │ notify  │
+ incident)└───────┘    └─────────┘    └─────────┘
 ```
 
 | Stage | App | What it does | Input | Output |
 |-------|-----|-------------|-------|--------|
-| **INGEST** | `apps.alerts` | Parse webhook payloads, create Alert + Incident records | Raw JSON payload | `IngestResult` (incident, alerts) |
-| **CHECK** | `apps.checkers` | Run system health checks (CPU, memory, disk, network, process) | Incident context | `CheckResult` (status, metrics) |
+| **CHECK** | `apps.checkers` | Diagnose the incident: run the checkers named by the distinct `checker` labels on the incident's alerts, filtered to the local registry. **No labels means it runs nothing** — it does not sweep the whole registry | The incident and its alerts | `CheckResult` (status, metrics) |
 | **ANALYZE** | `apps.intelligence` | Generate AI recommendations via provider pattern (local/OpenAI) | Incident + check results | `AnalyzeResult` (recommendations) |
 | **NOTIFY** | `apps.notify` | Dispatch notifications via driver pattern (email, Slack, PagerDuty) | Analysis results | `NotifyResult` (delivery status) |
+
+`INGEST` is retired as a stage. The enum value survives so historical `StageExecution` rows still
+render, and `apps/alerts/diagnosis.py` reports it only for incidents that have a legacy run. A run
+whose payload is a legacy `{"driver", "payload"}` pair still drains, so pushes in flight at deploy
+time are not lost; that branch is legacy-only and dies once no such rows remain.
 
 The **orchestration app** (`apps.orchestration`) controls all stage transitions. Stages never call downstream stages directly.
 
 ### Use Cases
 
-Not every deployment uses all four stages. The pipeline is composable — pick the stages you need:
+Not every deployment uses all three stages. The lane is composable — pick the stages you need:
 
 **Local server monitoring** — You want to monitor CPU, memory, and disk on this machine and get notified when something is wrong. No external monitoring tools required. Health checks run on a cron schedule, generate alerts locally, and dispatch notifications.
 
@@ -45,11 +66,14 @@ Checkers -> Intelligence -> Notify      (local-smart, adds AI analysis)
 
 **External alert processing** — You already use Grafana, AlertManager, PagerDuty, or other monitoring tools. This system receives their webhooks, optionally enriches them with local health checks and AI analysis, and forwards notifications to your preferred channels.
 
+The incoming alert is written by the producer before any lane is chosen; the lane names only
+the stages that follow.
+
 ```
-Alert -> Notify                                         (direct)
-Alert -> Checkers -> Notify                             (health-checked)
-Alert -> Intelligence -> Notify                         (ai-analyzed)
-Alert -> Checkers -> Intelligence -> Notify             (full pipeline)
+(alert written) -> Notify                               (direct)
+(alert written) -> Checkers -> Notify                   (health-checked)
+(alert written) -> Intelligence -> Notify               (ai-analyzed)
+(alert written) -> Checkers -> Intelligence -> Notify   (full lane)
 ```
 
 **Central alert hub** — This server acts as an aggregation point for multiple monitored servers. It receives webhooks from various sources, runs AI analysis, and dispatches notifications. No local health checks needed.
@@ -73,10 +97,10 @@ Two delivery modes, and when each applies:
 | Mode | Command | What happens | Use when |
 |------|---------|--------------|----------|
 | **Inline** | `check_health` | Runs the checkers, records `Alert`/`Incident` rows, enqueues one run per materially changed incident and **drains them before returning**. Records by default; `--no-alert` prints only, `--no-notify` runs the lane minus NOTIFY | The synchronous local entrypoint. A single machine with no hub, no cron and nobody draining an inbox still gets its analysis |
-| **Scheduled** | `run_pipeline --checks-only` *(deprecated — use `check_health`)* | Identical work by an identical path: the bridge records the alerts, one run is enqueued per materially changed incident, and the command drains them before returning. Warns on stderr, naming `check_health`; kept because an operator still types it by hand | What `bin/install/cron.sh` currently schedules on every machine |
+| **Scheduled** | `run_pipeline --checks-only` *(deprecated — use `check_health`)* | Identical work by an identical path: the bridge records the alerts, one run is enqueued per materially changed incident, and the command drains them before returning. Warns on stderr, naming `check_health`; kept because an operator still types it by hand | Nothing schedules it any more — `bin/install/cron.sh` schedules `check_health --json` |
 | **Through the inbox** | `push_to_hub --local` | Runs the checkers, writes their alerts here through `CheckAlertBridge`, and enqueues one `PENDING` `PipelineRun` per materially changed incident for `process_inbox` to drain | You want the hub's own checks queued and retried like a peer's push. Needs a running `process_inbox`, so it is not scheduled by the installer |
 
-`bin/install/cron.sh` schedules `run_pipeline --checks-only` on every machine, and adds a
+`bin/install/cron.sh` schedules `check_health --json` on every machine, and adds a
 **push to hub** job only where `HUB_URL` is set. A machine without a hub needs no second
 job: the health check already routes and notifies on its own.
 
@@ -108,7 +132,7 @@ Stage behavior is controlled through routing pipelines and Django Admin — not 
 
 | Command | App | Purpose |
 |---------|-----|---------|
-| `check_health [checkers...]` | checkers | Run health checks, display summary, **record alerts** for this machine. Flags: `--no-alert` (print only), `--list`, `--json`, `--fail-on-warning`, `--fail-on-critical` |
+| `check_health [checkers...]` | checkers | **The local entrypoint.** Runs health checks, displays a summary, records their alerts, enqueues one run per materially changed incident and drains them before returning — analysis and notification included, with no daemon. Flags: `--no-alert` (print only, write nothing, so no incident forms and nothing is enqueued), `--no-notify` (run the matched lane without NOTIFY — look at a machine, page nobody), `--list`, `--json`, `--fail-on-warning`, `--fail-on-critical` |
 | `run_check <checker>` | checkers | Run a single checker with checker-specific options (`--samples`, `--per-cpu`, `--paths`, `--hosts`, `--names`) |
 | `run_pipeline --checks-only` | orchestration | **Deprecated — use `check_health`.** Runs this machine's checkers, records their alerts and drains the incident runs they earn. Additional flags: `--checkers`, `--no-incidents` (record alerts, create no incidents, so nothing is enqueued or routed), `--no-notify` (run the matched lane without NOTIFY — look at a node in real time, get the analysis, page nobody), `--hostname`, `--label`, `--warning-threshold`, `--critical-threshold` |
 | `get_recommendations` | intelligence | Get system recommendations. Flags: `--incident-id`, `--memory`, `--disk`, `--provider`, `--json`, `--list-providers` |
@@ -191,11 +215,15 @@ channel is inactive), or channel driver not registered.
 
 **Location:** `apps/orchestration/orchestrator.py`
 
-Fixed 4-stage sequence: INGEST → CHECK → ANALYZE → NOTIFY, each with a dedicated
-executor class. Producing an alert is no longer a stage a producer enters on: every
-producer writes its own alerts and enqueues one run per materially changed incident
-(`apps.orchestration.intake.enqueue_for`), so INGEST and CHECK survive only to drain
-runs recorded before that change. The pipeline's *shape* is data, not code: a run
+Three stages — CHECK → ANALYZE → NOTIFY — each with a dedicated executor class.
+Producing an alert is no longer a stage a producer enters on: every producer writes its
+own alerts and enqueues one run per materially changed incident
+(`apps.orchestration.intake.enqueue_for`), so INGEST survives only to drain runs
+recorded before that change — a legacy `{"driver", "payload"}` payload, which keeps
+pushes that were in flight at deploy time from being lost. CHECK is not legacy: it is a
+live stage that diagnoses the incident, running the checkers named by the distinct
+`checker` labels on that incident's alerts, filtered to the local registry (no labels,
+no checkers). The pipeline's *shape* is data, not code: a run
 resolves the matching `PipelineDefinition` from its incident's subject alert
 (`routing.py`, first-match-wins by `priority`, ties on `id`) and runs the
 downstream stages listed in its `stages` column, in that order; NOTIFY sends to the
@@ -203,15 +231,15 @@ matched pipeline's single `channel`. A no-match is a non-retryable `no_route`
 failure — migration `0012` seeds a `catch-all` lane so unmatched traffic is a row
 an operator can read and edit rather than a constant in the orchestrator.
 
-**One run per incident event, not per push.** A push run executes its entry stage and
-stops. Every incident that push *materially changed* — created, severity moved, status
+**One run per incident event, not per push.** A producer does not orchestrate: it writes
+alerts and returns. Every incident it *materially changed* — created, severity moved, status
 transitioned, or its per-checker context key changed — becomes its own `PENDING`
 downstream run that resolves its own lane and runs it. A steady-state re-push that says
 nothing new starts no run at all, which is also what keeps a five-minute cron from
 re-notifying ~288 times a day. Downstream runs inherit the push's `trace_id` with their
 own `run_id`, so one push still reads as one story in `manage.py trace`; they are
 drained by `process_inbox` like any other inbox work. Operator transitions
-(`IncidentManager.acknowledge`/`resolve`/`close`) are a second producer of the same runs
+(`IncidentManager.acknowledge`/`resolve`/`close`) are one of the six producers of these runs
 (`origin=manual`), so an acknowledgement or resolution is announced on the next drain,
 and the headline reads the incident's live status. Migration `0016` seeds
 `resolved-all-clear`, which notifies an all-clear without paying for an AI analysis of

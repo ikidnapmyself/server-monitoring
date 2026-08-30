@@ -23,31 +23,46 @@ permalink: /
 
 ### Architecture
 
-This is a Django-based server monitoring and alerting system built around a strict 4-stage orchestration pipeline. The orchestrator is the single point of control — stages never call downstream stages directly.
+This is a Django-based server monitoring and alerting system. **Producers write alert
+truth; the orchestrator runs incidents.** Producing an alert is not a pipeline stage: a
+producer writes alerts, lets incidents form, and enqueues one run per materially changed
+incident. The orchestrator is the single point of control from there — stages never call
+downstream stages directly.
 
 ```
-                Webhooks (8 drivers)
+   Webhooks (8 drivers)   check_health   push_to_hub --local   run_pipeline
+   /orchestration/pipeline/              operator transitions
+                          |
+                          v
+              +--------------------------------+
+              |  write alerts, form incidents  |  a producer — not a stage
+              +--------------------------------+
+                          |
+                          v
+              +--------------------------------+
+              |  intake.enqueue_for(...)       |  one PENDING run per materially
+              |  {"downstream_incident_id": N} |  changed incident. sync=True drains
+              +--------------------------------+  here; else process_inbox does
+                          |
+                          v   a run is an incident; its lane picks the stages
+              +----------------------+
+              |   checkers.run()     |  CHECK: the checkers named by the incident's
+              +----------------------+         alerts. No labels, no checkers
                           |
                           v
               +----------------------+
-              |   alerts.ingest()    |  Stage 1: Parse webhook, create Alert + Incident
+              | intelligence.analyze |  ANALYZE: AI analysis via provider pattern
               +----------------------+
                           |
                           v
               +----------------------+
-              |   checkers.run()     |  Stage 2: Run health checks (CPU, memory, disk, etc.)
-              +----------------------+
-                          |
-                          v
-              +----------------------+
-              | intelligence.analyze |  Stage 3: AI analysis via provider pattern
-              +----------------------+
-                          |
-                          v
-              +----------------------+
-              |   notify.dispatch()  |  Stage 4: Send notifications (Email, Slack, PagerDuty, etc.)
+              |   notify.dispatch()  |  NOTIFY: send to the lane's channel
               +----------------------+
 ```
+
+`INGEST` is retired as a stage; the enum value survives so historical `StageExecution`
+rows still render, and a legacy `{"driver", "payload"}` run still drains so pushes in
+flight at deploy time are not lost.
 
 ### Who Is This For
 
@@ -57,14 +72,17 @@ This is a Django-based server monitoring and alerting system built around a stri
 
 Pick a pipeline preset that matches your situation:
 
-| I want to... | Preset | Alert source | Pipeline |
+The alert is written by the producer before a lane is chosen; the **Stages** column names
+only what runs afterwards.
+
+| I want to... | Preset | Alert source | Stages |
 |---|---|---|---|
 | Monitor this server (basic) | `local-monitor` | Local crontab | Checkers -> Notify |
 | Monitor this server (with AI) | `local-smart` | Local crontab | Checkers -> Intelligence -> Notify |
-| Forward alerts to notifications | `direct` | External webhooks | Alert -> Notify |
-| Forward alerts with health context | `health-checked` | External webhooks | Alert -> Checkers -> Notify |
-| Forward alerts with AI analysis | `ai-analyzed` | External webhooks | Alert -> Intelligence -> Notify |
-| Full alert processing pipeline | `full` | External webhooks | Alert -> Checkers -> Intelligence -> Notify |
+| Forward alerts to notifications | `direct` | External webhooks | Notify |
+| Forward alerts with health context | `health-checked` | External webhooks | Checkers -> Notify |
+| Forward alerts with AI analysis | `ai-analyzed` | External webhooks | Intelligence -> Notify |
+| Full alert processing pipeline | `full` | External webhooks | Checkers -> Intelligence -> Notify |
 
 See the [Setup Guide](Setup-Guide) for step-by-step walkthroughs of each use case.
 
@@ -75,7 +93,7 @@ See the [Setup Guide](Setup-Guide) for step-by-step walkthroughs of each use cas
 - **Driver/Provider Pattern**: All integrations inherit from abstract base classes (`BaseDriver`, `BaseChecker`, `BaseProvider`, `BaseNotifyDriver`).
 - **Retry with Backoff**: Per-stage retries with exponential backoff (2^attempt seconds). Failed pipelines can be resumed from the last successful stage.
 - **Intelligence Fallback**: If AI analysis fails, the pipeline continues with a local fallback provider rather than failing entirely.
-- **Stage Configuration**: A matched `PipelineDefinition`'s run_* flags select which stages run; `NotificationChannel.is_active` and `IntelligenceProvider.is_active` for DB-level enable/disable.
+- **Stage Configuration**: A matched `PipelineDefinition`'s ordered `stages` list — a subset of `["check", "analyze", "notify"]` — selects which stages run, and its single `channel` FK is the notify target; `NotificationChannel.is_active` and `IntelligenceProvider.is_active` for DB-level enable/disable.
 
 ### Key Configuration
 
@@ -219,9 +237,13 @@ All drivers inherit from `BaseAlertDriver` and implement `validate(payload)` and
 
 **Driver detection**: `detect_driver(payload)` tries specific drivers first, falls back to generic.
 
-### Ingest Flow
+### Producer flow (writing alert truth)
 
-Entry point: `AlertOrchestrator.process_webhook(payload, driver=None)`
+Entry point: `AlertOrchestrator.process_webhook(payload, driver=None)`. This is not a
+pipeline stage — it writes alerts and returns a `ProcessingResult`, whose
+`material_alerts` is what `apps.orchestration.intake.enqueue_for` reads to decide which
+incidents earn a run. `driver_resolved` is what separates "nothing understood this
+payload" (400) from "a driver understood it and we still wrote nothing" (500).
 
 1. **Driver Resolution** — Auto-detect or use specified driver
 2. **Parse Payload** — Driver parses into `ParsedPayload`
@@ -390,7 +412,9 @@ CHECKER_REGISTRY = {
 }
 ```
 
-- The CHECK stage runs the enabled checkers (all active by default)
+- The CHECK stage takes the incident as its subject: it runs the checkers named by the
+  distinct `checker` labels on that incident's alerts, filtered to `CHECKER_REGISTRY`.
+  An incident naming no checkers runs none — it does not sweep the registry
 - `CHECKER_REGISTRY` — static registry of all available checkers
 
 ---
@@ -739,7 +763,7 @@ Per-stage execution details within a pipeline run.
 | Field | Type | Description |
 |-------|------|-------------|
 | `pipeline_run` | ForeignKey | Parent PipelineRun |
-| `stage` | CharField (indexed) | INGEST, CHECK, ANALYZE, NOTIFY |
+| `stage` | CharField (indexed) | CHECK, ANALYZE, NOTIFY (plus INGEST, retained for historical rows and the legacy drain — no new INGEST execution is written) |
 | `status` | CharField | PENDING, RUNNING, SUCCEEDED, FAILED, RETRYING, SKIPPED |
 | `attempt` | PositiveIntegerField | Attempt number (1-based) |
 | `idempotency_key` | CharField (indexed) | Key for idempotent execution |
@@ -768,7 +792,7 @@ A routing rule: match conditions → ordered stages → one notify channel (firs
 | `description` | TextField | Pipeline description |
 | `match` | JSONField | Conditions `[{field, op, value}]`; `field` is `source`/`severity`/`instance`/`origin`/`label:<k>`; empty = catch-all |
 | `priority` | IntegerField (indexed) | Lower evaluated first (first match wins). `<100` system, `100` operator, `1000` catch-all |
-| `stages` | JSONField | Ordered downstream stages, a subset of `["check", "analyze", "notify"]`; excludes the entry stage |
+| `stages` | JSONField | Ordered stages to run, a subset of `["check", "analyze", "notify"]`. There is no entry stage to exclude: the alert a lane is resolved from was written by a producer before the run existed |
 | `channel` | FK → NotificationChannel (nullable) | The single notify target; inactive channel routes nowhere |
 | `is_active` | BooleanField (indexed) | Whether active |
 | `tags` | JSONField | Arbitrary tags |
@@ -816,7 +840,7 @@ Final pipeline output.
 | `run_id` | str | Pipeline run ID |
 | `status` | str | COMPLETED or FAILED |
 | `incident_id` | int or None | Associated incident |
-| `ingest` | IngestResult or None | Stage 1 result |
+| `ingest` | IngestResult or None | Legacy-drain result; `None` on every run a producer enqueued |
 | `check` | CheckResult or None | Stage 2 result |
 | `analyze` | AnalyzeResult or None | Stage 3 result |
 | `notify` | NotifyResult or None | Stage 4 result |
@@ -826,12 +850,13 @@ Final pipeline output.
 | `stages_completed` | list[str] | Completed stage names |
 | `final_error` | StageError or None | Error if failed |
 
-### Hardcoded Pipeline (PipelineOrchestrator)
+### Stage execution (PipelineOrchestrator)
 
-Fixed 4-stage sequence:
+A run is an incident. `INGESTED` is the status floor it starts from, not evidence that an
+INGEST stage ran; which of the three real stages follow is the matched lane's `stages`:
 
 ```
-PENDING -> INGESTED -> CHECKED -> ANALYZED -> NOTIFIED (success)
+PENDING -> (INGESTED) -> CHECKED? -> ANALYZED? -> NOTIFIED? (success)
                                       |
                                     FAILED (terminal)
                                       |
@@ -843,7 +868,7 @@ PENDING -> INGESTED -> CHECKED -> ANALYZED -> NOTIFIED (success)
 1. Create `PipelineRun` with correlation IDs
 2. Execute stages sequentially via executors
 3. Each stage receives outputs from all previous stages via `previous_results`
-4. Incident ID discovered in INGEST, threaded through all subsequent stages
+4. The incident is the run's **subject**, carried in its payload as `{"downstream_incident_id": N}` and threaded through every stage
 5. Per-stage retries with exponential backoff: `backoff_factor ^ attempt` seconds
 6. Failed pipelines can be resumed via `resume_pipeline(run_id, payload)`
 
@@ -851,16 +876,15 @@ PENDING -> INGESTED -> CHECKED -> ANALYZED -> NOTIFIED (success)
 
 | Stage | Executor | Wraps |
 |-------|----------|-------|
-| INGEST | IngestExecutor | `alerts.services.AlertOrchestrator` |
+| INGEST *(legacy only)* | IngestExecutor | `alerts.services.AlertOrchestrator` — reachable only for a run whose payload is a legacy `{"driver", "payload"}` pair |
 | CHECK | CheckExecutor | `alerts.check_integration.CheckAlertBridge` |
 | ANALYZE | AnalyzeExecutor | `intelligence.providers` (with fallback) |
 | NOTIFY | NotifyExecutor | `notify.drivers` (with message building) |
 
 ### Routing
 
-After the entry stage (INGEST for webhook traffic, CHECK for `run_pipeline
---checks-only`), the orchestrator resolves the matching `PipelineDefinition` from the
-alert that stage produced (`apps.orchestration.routing`, first-match-wins by
+Before any stage runs, the orchestrator resolves the matching `PipelineDefinition` from
+the run's incident's subject alert (`apps.orchestration.routing`, first-match-wins by
 `priority`, ties on `id`) and runs the downstream stages listed in its `stages`
 column; NOTIFY sends to the matched pipeline's single `channel`. A no-match is a
 non-retryable `no_route` failure — the seeded `catch-all` lane is what routes
@@ -915,7 +939,7 @@ process_inbox` drains them (supervised `--loop` or cron). See
 | notify | **NotificationChannel** | Named channel config (driver + credentials) |
 | orchestration | **PipelineRun** | Pipeline execution record with correlation IDs |
 | orchestration | **StageExecution** | Per-stage execution details within pipeline |
-| orchestration | **PipelineDefinition** | Dynamic pipeline configuration |
+| orchestration | **PipelineDefinition** | Routing rule: match conditions, ordered `stages`, one channel |
 
 ### DTOs (Dataclasses)
 
@@ -931,10 +955,10 @@ process_inbox` drains them (supervised `--loop` or cron). See
 | intelligence | **RecommendationPriority** | Enum: LOW, MEDIUM, HIGH, CRITICAL |
 | notify | **NotificationMessage** | Message to be delivered via any driver |
 | orchestration | **StageContext** | Input context for stage executors |
-| orchestration | **IngestResult** | Stage 1 output |
-| orchestration | **CheckResult** | Stage 2 output |
-| orchestration | **AnalyzeResult** | Stage 3 output |
-| orchestration | **NotifyResult** | Stage 4 output |
+| orchestration | **IngestResult** | Legacy-drain output |
+| orchestration | **CheckResult** | CHECK output |
+| orchestration | **AnalyzeResult** | ANALYZE output |
+| orchestration | **NotifyResult** | NOTIFY output |
 | orchestration | **PipelineResult** | Final pipeline output |
 | orchestration | **SignalTags** | Required metadata for monitoring signals |
 
@@ -947,8 +971,10 @@ Webhook JSON
 ParsedPayload (alerts: [ParsedAlert, ...])
     |  -> creates Alert, Incident, AlertHistory
     v
-ProcessingResult {alerts_created, incidents_created, ...}
-    |  -> stored as IngestResult in StageContext.previous_results
+ProcessingResult {alerts, material_alerts, driver_resolved, errors, ...}
+    |  -> intake.enqueue_for: one PENDING PipelineRun per materially changed
+    |     incident, payload {"downstream_incident_id": N}
+    |  -> the producer returns here; a drain (or sync=True) runs what follows
     v
 CheckResult {status, message, metrics}  (per checker)
     |  -> stored as orchestration CheckResult in previous_results

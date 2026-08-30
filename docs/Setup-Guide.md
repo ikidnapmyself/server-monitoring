@@ -36,14 +36,17 @@ If any command fails, see [Installation.md](Installation.md) for troubleshooting
 
 ## Choose Your Use Case
 
+The alert itself is written by the producer before any lane is chosen; the **Stages**
+column names only what runs afterwards, a subset of `["check", "analyze", "notify"]`.
+
 | I want to... | Preset | Alert source | Stages |
 |---|---|---|---|
 | Monitor this server (basic) | `local-monitor` | Local crontab | Checkers → Notify |
 | Monitor this server (with AI) | `local-smart` | Local crontab | Checkers → Intelligence → Notify |
-| Forward alerts to notifications | `direct` | External webhooks | Alert → Notify |
-| Forward alerts with health context | `health-checked` | External webhooks | Alert → Checkers → Notify |
-| Forward alerts with AI analysis | `ai-analyzed` | External webhooks | Alert → Intelligence → Notify |
-| Full alert processing pipeline | `full` | External webhooks | Alert → Checkers → Intelligence → Notify |
+| Forward alerts to notifications | `direct` | External webhooks | Notify |
+| Forward alerts with health context | `health-checked` | External webhooks | Checkers → Notify |
+| Forward alerts with AI analysis | `ai-analyzed` | External webhooks | Intelligence → Notify |
+| Full alert processing pipeline | `full` | External webhooks | Checkers → Intelligence → Notify |
 
 Not sure which to pick? Start with **Use Case 1** (local monitoring) — it requires no external
 services and you can see results immediately.
@@ -66,7 +69,7 @@ uv run python manage.py setup_cluster
 ```
 ? How will alerts be generated?
   1) External webhooks  (Grafana, PagerDuty, etc.)
-  2) Local crontab  (run_pipeline --checks-only via cron)
+  2) Local crontab  (check_health via cron)
 
 > 2
 ```
@@ -205,8 +208,8 @@ and config look correct.
 uv run python manage.py run_pipeline --sample
 ```
 
-You should see output showing each node executing in sequence: health checks run, results
-are collected, and a notification is sent through your configured channel.
+You should see the run's stages execute in order: health checks run, results are
+collected, and a notification is sent through your configured channel.
 
 ### Step 10: Set up recurring monitoring with cron
 
@@ -220,15 +223,15 @@ The script lets you pick a schedule (every 5 minutes, 15 minutes, hourly, or cus
 writes a crontab entry that runs:
 
 ```bash
-uv run python manage.py run_pipeline --checks-only --json
+uv run python manage.py check_health --json
 ```
 
-This command runs all enabled checkers, creates alerts for any issues found, and optionally
-creates incidents for critical problems. Output is logged to `cron.log` in the project root.
+This command runs all enabled checkers and records alerts for any issues found; firing
+alerts roll into incidents. Output is logged to `cron.log` in the project root.
 
-CHECK is the **entry stage** here: the run resolves a routing lane from the alert the
-checks produced, exactly as webhook traffic resolves one from the alert INGEST produced.
-Checker-origin alerts carry `source: cluster`, so this traffic matches the seeded
+`check_health` is a **producer**, not a stage: it writes that truth, then enqueues one run
+per materially changed incident and drains those runs before returning. Each run resolves
+its lane from its incident's subject alert. Checker-origin alerts carry `source: cluster`, so this traffic matches the seeded
 `cluster-nodes` lane and is **analysed and notified like any node's** — this machine can
 page about its own full disk. (The old record-only `hub-self-check` lane is retired: the
 incident change gate now absorbs a repeat that says nothing new, so a still-firing alert
@@ -238,9 +241,9 @@ higher-priority lane in **Orchestration → Pipeline definitions** matching
 
 On a machine with a `HUB_URL` the script offers a second job on the same schedule,
 **push to hub**. A machine without one needs nothing more: the health-check job above is
-already its self-monitoring. `run_pipeline --checks-only` enters the pipeline at CHECK
-instead of INGEST, then routes and runs the matched lane exactly like webhook traffic,
-synchronously, draining its own downstream runs.
+already its self-monitoring. `check_health` writes the alerts, enqueues the run each
+materially changed incident earns, and drains it before returning — the same lanes and
+executors webhook traffic gets, just synchronously, with no daemon involved.
 
 Verify cron is set up:
 
@@ -268,7 +271,7 @@ uv run python manage.py setup_cluster
 ```
 ? How will alerts be generated?
   1) External webhooks  (Grafana, PagerDuty, etc.)
-  2) Local crontab  (run_pipeline --checks-only via cron)
+  2) Local crontab  (check_health via cron)
 
 > 1
 ```
@@ -551,7 +554,7 @@ Providers are configured via `manage.py setup_intelligence` or Django Admin (`In
 
 ### "No notification channels found"
 
-The notify node couldn't find active `NotificationChannel` records matching the configured
+The NOTIFY stage couldn't find active `NotificationChannel` records matching the configured
 drivers. Fix:
 
 ```bash
@@ -564,11 +567,17 @@ uv run python manage.py setup_cluster
 
 ### Checker doesn't run
 
-All registered checkers run by default; a routing pipeline can drop the CHECK stage by omitting `"check"` from its `stages` list (as the seeded `cluster-nodes` lane does — the node already ran its own checkers).
+CHECK takes the incident as its subject: it runs the checkers named by the distinct
+`checker` labels on that incident's alerts, filtered to this host's registry. So the two
+likely causes are that the incident's alerts carry no `checker` label at all — in which
+case CHECK runs nothing, by design — or that the label names a checker this host does not
+have registered. A routing pipeline can also drop the stage entirely by omitting `"check"`
+from its `stages` list (as the seeded `cluster-nodes` lane does — the node already ran its
+own checkers).
 
 ### Intelligence provider times out
 
-The intelligence node has a 1-second timeout for provider responses. If your provider is
+The ANALYZE stage has a 1-second timeout for provider responses. If your provider is
 slow:
 
 1. Check your API key is valid and has quota
@@ -582,7 +591,7 @@ details so you can make an informed decision:
 
 ```
 --- Existing pipeline: "local-smart" ---
-  Flow: check_health → analyze_incident → notify_channels
+  Stages: check → analyze → notify
   Checkers: cpu, memory, disk
   Intelligence: local
   Notify drivers: slack

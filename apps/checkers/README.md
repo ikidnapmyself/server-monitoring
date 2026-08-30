@@ -13,7 +13,10 @@ This Django app provides a small health-check framework and two management comma
   - Link to created Alert (if check found an issue)
   - Execution timing and correlation ID for tracing
 
-> **Note:** When checks run as part of the pipeline, tracking is handled by `apps.orchestration` via `StageExecution` with `stage="check"`.
+> **Note:** When checks run as part of the pipeline, tracking is handled by
+> `apps.orchestration` via `StageExecution` with `stage="check"`. A pipeline-mode CHECK
+> also writes real `Alert`/`Incident` rows through `CheckAlertBridge` and reports which
+> incidents it materially changed — it does not merely record timings.
 
 ### Available checkers
 
@@ -42,18 +45,19 @@ uv run python manage.py check_health --list
 
 ### Selecting Checkers
 
-Which checkers run is controlled by pipeline definitions. The `context` node's `checker_names` config specifies which checkers to include:
+**In the pipeline, the incident chooses.** The CHECK stage runs the checkers named by the
+distinct `checker` labels on its incident's alerts, filtered to `CHECKER_REGISTRY`. An
+incident whose alerts name no checkers runs none — CHECK does not sweep the whole registry,
+which is what a lane merely listing `check` used to cost. A named checker this host has
+not registered is skipped.
 
-```json
-{"id": "check_health", "type": "context", "config": {"checker_names": ["cpu", "memory", "disk"]}}
-```
+That is why `CheckAlertBridge.run_checks_and_alert` treats `checker_names=None` ("every
+checker") and `checker_names=[]` ("none") as different things. Never collapse them.
 
-If `checker_names` is omitted, all registered checkers run.
-
-You can also specify checkers explicitly via the CLI:
+**On the CLI, you choose**, positionally:
 
 ```bash
-uv run python manage.py run_pipeline --checks-only --checkers cpu memory disk
+uv run python manage.py check_health cpu memory disk
 ```
 
 ### Django Admin
@@ -266,7 +270,8 @@ uv run python manage.py check_health cpu memory --fail-on-critical
 | `--disk-paths` | str... | `/` | Paths to check (disk checker) |
 | `--ping-hosts` | str... | `8.8.8.8 1.1.1.1` | Hosts to ping (network checker) |
 | `--processes` | str... | — | Process names to check (process checker) |
-| `--no-alert` | flag | — | Run checks without recording alerts (print only) |
+| `--no-alert` | flag | — | Run checks without recording alerts (print only) — nothing is written, so no incident forms and no run is enqueued |
+| `--no-notify` | flag | — | Run the matched lane without its NOTIFY stage: read the analysis, page nobody. Travels in the enqueued run's payload, because NOTIFY runs there |
 
 ---
 

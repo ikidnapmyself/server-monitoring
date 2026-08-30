@@ -13,7 +13,9 @@ Core rule: **one orchestrator, one trace**
 ## Responsibilities
 
 The orchestrator owns:
-- State machine: `INGESTED → CHECKED → ANALYZED → NOTIFIED` (+ failure/retry states)
+- State machine: `PENDING → (INGESTED floor) → CHECKED? → ANALYZED? → NOTIFIED?` (+ failure/retry
+  states). `INGESTED` is the status floor a run starts from, not evidence an INGEST stage ran;
+  which of the three real stages follow is the matched lane's ordered `stages` list
 - Stage contract enforcement (structured DTOs)
 - Persistence/audit trail (`PipelineRun`, `StageExecution`, output snapshots/refs)
 - Observability (mandatory stage boundary signals)
@@ -34,18 +36,20 @@ Required tags/fields:
 
 - `apps/orchestration/orchestrator.py` — pipeline implementation (`start_pipeline`, `execute_run`)
 - `apps/orchestration/management/commands/process_inbox.py` — broker-free drain of PENDING runs (thin CLI wrapper over `inbox.py`)
-- `apps/orchestration/inbox.py` — **single source of truth** for the drain/reclaim logic: `claim` (atomic PENDING→PROCESSING CAS), `drain`, `drain_run`, `reclaim_stuck(pks=…)`, and `DEFAULT_STALE_MINUTES`. Both the `process_inbox` command and the admin Inbox actions call these — never duplicate the claim.
-- `apps/orchestration/models.py` — `PipelineRun`, `StageExecution`. `PipelineRun.node` (FK → `alerts.Node`, the server the run concerns) and `PipelineRun.origin` (`incoming_webhook`/`checker_generated`/`manual`) are resolved once at the `start_pipeline` chokepoint and power admin filtering by node+origin+status. `InboxItem` is a proxy over `PipelineRun` filtered to PENDING/PROCESSING (the admin Inbox monitor, with age/`is_stuck` + drain/reclaim actions). See `docs/plans/2026-08-09-admin-hardening-design.md`.
+- `apps/orchestration/intake.py` — **the front door for producers**: `enqueue_for(result, *, trace_id, origin, …, sync=False)` reads `result.material_alerts`, resolves the materially changed incidents, and enqueues one run each. `sync=True` drains them before returning.
+- `apps/orchestration/inbox.py` — **single source of truth** for the enqueue/drain/reclaim logic: `enqueue_incident_runs(incident_ids, …)`, `drain_runs(runs, orchestrator=…)` (the scoped synchronous drain `sync=True` uses), `claim` (atomic PENDING→PROCESSING CAS), `drain`, `drain_run`, `reclaim_stuck(pks=…)`, and `DEFAULT_STALE_MINUTES`. Both the `process_inbox` command and the admin Inbox actions call these — never duplicate the claim.
+- `apps/orchestration/models.py` — `PipelineRun`, `StageExecution`. `PipelineRun.node` (FK → `alerts.Node`, the server the run concerns) and `PipelineRun.origin` (`incoming_webhook`/`checker_generated`/`manual`) power admin filtering by node+origin+status. `origin` is now passed by each producer into `enqueue_for`; `node` is passed only by `IncidentManager._announce`, so it is NULL on runs from the other producers — see "Known gaps" below. `InboxItem` is a proxy over `PipelineRun` filtered to PENDING/PROCESSING (the admin Inbox monitor, with age/`is_stuck` + drain/reclaim actions). See `docs/plans/2026-08-09-admin-hardening-design.md`.
 - `apps/orchestration/executors.py` / `dtos.py` — stage execution helpers and DTOs
 - `apps/orchestration/urls.py` — URL routing
 
 ## Pipeline shape (routing spine)
 
-There is one fixed stage order — `INGEST → CHECK → ANALYZE → NOTIFY` — run by
-`PipelineOrchestrator` via the four executors in `executors.py`. The *shape* is data:
-after the **entry stage**, the orchestrator resolves the matching `PipelineDefinition`
-from the alert that stage produced (`routing.py`, first-match-wins by `priority`, ties
-on `id`) and runs the downstream stages listed in its `stages` column, in that order;
+There are three stages — `CHECK → ANALYZE → NOTIFY` — run by `PipelineOrchestrator`
+via the executors in `executors.py`. (`IngestExecutor` survives for the legacy branch
+only; see "Entry stages are legacy" below.) The *shape* is data: **a run is an
+incident**, and before any stage runs the orchestrator resolves the matching
+`PipelineDefinition` from that incident's subject alert (`routing.py`, first-match-wins
+by `priority`, ties on `id`) and runs the downstream stages listed in its `stages` column, in that order;
 `notify` sends to the matched pipeline's `channel` — a single FK, because delivery has
 never fanned out. **`PipelineDefinition.routed_channel()` is the one rule for whether a
 lane delivers**: it returns the channel only when the FK is set *and* the channel is
@@ -54,53 +58,57 @@ that way rather than re-deriving "active", so they cannot drift. A lane that lis
 `notify` and whose `routed_channel()` is `None` no longer falls back to payload-driven
 selection; it fails `no_channel` (see below).
 
-**The unit of work is an incident event, not a push.** A push run executes its entry
-stage and stops. Every incident that push *materially changed* becomes its own PENDING
-`PipelineRun` — a **downstream run** — carrying `{"downstream_incident_id": <id>}` as
-its `inbound_payload`. Each child resolves its **own** lane from its own incident's
-subject alert and runs exactly that lane's stages; it has no entry stage, because its
-incident was already ingested by the parent. Children inherit the parent's `trace_id`
-(and node, origin, source, environment) with their own `run_id`, so one push is still
-one story in `manage.py trace` and no parent FK exists. Before this, a push collapsed
+**The unit of work is an incident event, not a push.** A producer does not orchestrate:
+it writes alerts and returns. Every incident it *materially changed* becomes its own
+PENDING `PipelineRun` carrying `{"downstream_incident_id": <id>}` as its
+`inbound_payload`. Each run resolves its **own** lane from its own incident's subject
+alert and runs exactly that lane's stages. Runs inherit the producer's `trace_id` (and
+origin, source, environment) with their own `run_id`, so one push is still one story in
+`manage.py trace` and no parent FK exists. Before this, a push collapsed
 to a single subject and the other incidents were opened, counted, and then silently
 dropped — no lane, no analysis, no message. See
 `docs/plans/2026-08-19-incident-fanout-design.md`.
 
-Children are drained by `process_inbox` like any other inbox work — *not* inline. This
-is not a cap on how much analysis a tick may do (`drain()` snapshots pending PKs up
-front, so children wait for the *next* pass, but that pass will claim all of them if
-`--limit` allows). What it buys is that N analyses become N independently claimed,
-independently retryable runs bounded by `--limit`, instead of an unbounded loop held
-open inside one run whose crash would lose the lot. The one
-exception is `run_pipeline()`, the synchronous entry point (CLI, tests), which drains
-the children it enqueued: it claims through `inbox.claim` but executes through `self`,
-so the caller's retry/backoff settings and executors apply to children too.
-`execute_run()` deliberately does not drain — `process_inbox` already is the drain.
+**Draining is a mode, not a second path.** By default the runs wait for
+`process_inbox`, which is what makes N analyses N independently claimed, independently
+retryable runs bounded by `--limit`, instead of an unbounded loop held open inside one
+run whose crash would lose the lot. `enqueue_for(..., sync=True)` drains them inline
+instead, through `inbox.drain_runs`: it claims through `inbox.claim` (so a concurrent
+`process_inbox` can never double-execute them) but executes through the caller's
+orchestrator, so its retry/backoff settings and executors apply. Three callers ask for
+it — `check_health`, the `run_pipeline` command, and `POST /orchestration/pipeline/sync/`
+— because each has an operator waiting on the result. `execute_run()` deliberately does
+not drain: `process_inbox` already is the drain.
 
-**`inbox.enqueue_incident_runs(incident_ids, *, trace_id, origin, …)` is the single
-producer entry** for downstream runs. It has two callers and no third: the alert write
-path (the orchestrator, after the entry stage, for every incident the push materially
-changed — `origin` inherited from the push) and `apps.alerts.services.IncidentManager`
-(`acknowledge` / `resolve` / `close`, `origin=manual`, fresh `trace_id`), so an operator
-transition is announced through the same drain as everything else, with the same lag.
-Do not enqueue a `PipelineRun` by hand elsewhere. See
-`docs/plans/2026-08-24-incident-lifecycle-orchestration-design.md`.
+**`apps.orchestration.intake.enqueue_for` is the single producer entry.** It reads
+`result.material_alerts`, resolves the materially changed incidents, and calls
+`inbox.enqueue_incident_runs`. Five producers walk through it — the alerts webhook,
+`POST /orchestration/pipeline/`, `push_to_hub --local`, `check_health` and
+`run_pipeline`. The sixth, `apps.alerts.services.IncidentManager._announce`
+(`acknowledge` / `resolve` / `close`, `origin=manual`, fresh `trace_id`, and the only
+caller that sets `node`), calls `enqueue_incident_runs` directly, because it holds an
+incident id rather than a result with `material_alerts`. That is a gap in `enqueue_for`'s
+contract, not a licence to add a seventh path: do not enqueue a `PipelineRun` by hand
+elsewhere. See `docs/plans/2026-08-24-incident-lifecycle-orchestration-design.md`.
 
 Two consequences worth knowing before changing this code:
 
-- **A `no_route` now fails the child**, not the push. The push run keeps its succeeded
-  entry-stage row; the run an operator sees FAILED is the one carrying the unroutable
-  incident.
+- **A `no_route` fails the incident run**, and nothing else. The producer already
+  returned successfully; the run an operator sees FAILED is the one carrying the
+  unroutable incident.
 - **A downstream run resumes on its stored payload.** `resume_pipeline` prefers
   `inbound_payload` when it carries the downstream marker, because the resume endpoint
   builds its payload from the request body, which cannot describe a child.
-- **A lane that lists the same stage the push run entered on will run it twice** (once
-  as the entry stage, once in the child, which has no stage history of its own).
-  Nothing loops — the re-run is immaterial and enqueues nothing.
+- **A double-run of the entry stage is no longer possible**, because there is no entry
+  stage: a run executes exactly the stages its lane lists, once each.
 
-**Entry stages are legacy.** INGEST and CHECK still exist in `execute_run`, and a
-`PENDING` run recorded before a deploy must still drain through them — but no producer
-creates such a run any more. Producing an alert is not a pipeline stage: the webhook,
+**INGEST is legacy.** `IngestExecutor` still exists in `execute_run`, and a `PENDING`
+run recorded before a deploy — one whose payload is a legacy `{"driver", "payload"}`
+pair — must still drain through it, so pushes in flight at deploy time are not lost.
+No producer creates such a run any more, and the branch dies once no such rows remain.
+The `INGEST` enum value is kept for the same reason: historical `StageExecution` rows
+must still render, and `apps/alerts/diagnosis.py` reports the stage only for incidents
+that have a legacy run. CHECK is **not** legacy — it is a live lane stage. Producing an alert is not a pipeline stage: the webhook,
 `push_to_hub --local`, `check_health`, `run_pipeline` and `POST /orchestration/pipeline/`
 each write their alerts themselves, let incidents form, and enqueue one run per
 materially changed incident through `apps.orchestration.intake.enqueue_for`. Do not add
@@ -137,10 +145,46 @@ local provider's suggestions, page nobody. It travels into the enqueued runs, be
 NOTIFY runs there and not on the run the operator invoked.
 
 `stages` is an ordered subset of `["check", "analyze", "notify"]` —
-`PipelineDefinition.ROUTABLE_STAGES`. It deliberately excludes `ingest`: a lane is
-resolved *from* the alert the entry stage produced, so no lane can control the entry
-stage. Read it via `PipelineDefinition.routable_stages()`, never the raw column —
+`PipelineDefinition.ROUTABLE_STAGES`. It deliberately excludes `ingest`: the alert a
+lane is resolved *from* was written by a producer before the run existed, so there is
+nothing for a lane to control there. Read it via `PipelineDefinition.routable_stages()`, never the raw column —
 `clean()` only runs on admin forms, so fixtures and shell edits can persist junk.
+
+**CHECK takes the incident as its subject.** For an incident run the diagnose stage
+derives its checkers from the distinct `checker` labels on that incident's alerts,
+filtered to the local `CHECKER_REGISTRY` (`executors._incident_checker_names`). An
+incident that names no checkers runs none. It used to sweep the whole registry, which
+made a lane merely listing `check` re-diagnose the entire machine on every incident.
+
+**`checker_names=None` means "every checker"; `checker_names=[]` means "none".** This is
+the contract of `CheckAlertBridge.run_checks_and_alert`, and it now carries real weight:
+an incident that names no checkers passes `[]`, and must run nothing. `None` is what a
+caller with no opinion passes — `check_health` with no positional arguments, say — and
+the bridge expands it to the full registry. Never normalise one into the other, and never
+write `checker_names or list(CHECKER_REGISTRY)`: that is exactly the collapse that turns
+"diagnose nothing" back into "diagnose everything".
+
+### Known gaps
+
+These are real divergences between this document's promises and the code. They are
+recorded rather than quietly dropped:
+
+- **`PipelineRun.node` is NULL on most runs.** `enqueue_for` accepts `node` and no
+  producer except `IncidentManager._announce` passes it, so admin filtering by node and
+  `manage.py report`'s per-node view are thinner than the field's help text promises.
+  The incident's subject alert already carries `node`.
+- **`PipelineRun.alert_fingerprint` is blank on live runs.** It is written only in the
+  legacy INGEST branch, so the `alert_fingerprint` tag this file lists as required is
+  empty on every incident run's signals, and admin search by fingerprint over
+  `PipelineRun` finds nothing.
+- **`PipelineRun.environment` is `""` for producers that omit it** (the webhook,
+  `push_to_hub --local`, `check_health`, `_announce`), rather than the model default.
+- **`CheckExecutor`'s "about another machine" branch is unreachable.** It keys off a
+  `hostname` in the run payload, and an incident run's payload carries only
+  `downstream_incident_id` (plus `no_notify`), so a hub diagnosing a remote node's
+  incident attributes the alerts CHECK writes to the hub itself.
+- **`run_pipeline --notify-driver` is accepted and never read**; delivery is chosen by
+  the matched lane's channel.
 
 **Routing facts come from ONE alert** (`facts_from_alert(alert, origin)`), never merged
 across an incident: `source`, `severity` (that alert's own), `status`
@@ -171,7 +215,8 @@ the code into a fix. `StageExecutionError` lives in `errors.py`, not `orchestrat
 because `orchestrator` imports `executors` — an executor could not otherwise import it at
 module level. `orchestrator.py` re-exports it for existing importers.
 
-`no_route` is attributed to `routing` rather than to the entry stage that just succeeded.
+`no_route` is attributed to `routing` rather than to a stage — it is raised before any
+stage runs, from the run's incident's subject alert.
 Do not reintroduce a default stage order in Python: migration `0012`
 seeds `cluster-nodes` (priority 50, `source is cluster`, `["analyze", "notify"]`) and
 `catch-all` (priority 1000, empty match, full order), and `0016` seeds
@@ -260,7 +305,7 @@ Authoritative source: [`docs/plans/2026-05-12-iso-27003-security-audit-notes.md`
 - **Routing `match` conditions fail closed** (`PipelineDefinition.matches`): unknown ops / bad shapes never match. Keep it a fixed operator set (`is/is-not/in/not-in`); do not add `eval`/expression languages over the admin-editable `match`.
 
 ### Durable ingest / drain (broker-free)
-- The pipeline runs **without Celery/Redis**. The webhook records a `PENDING` `PipelineRun` (payload stored on `inbound_payload`) and `manage.py process_inbox` claims it (atomic `PENDING → PROCESSING`) and runs it via `execute_run`.
+- The pipeline runs **without Celery/Redis**. The webhook ingests inline — it writes the payload's alerts, lets incidents form — and records one `PENDING` `PipelineRun` per materially changed incident, with `inbound_payload = {"downstream_incident_id": N}`; `manage.py process_inbox` claims each (atomic `PENDING → PROCESSING`) and runs it via `execute_run`. The stored payload of a live run is therefore ours, not the sender's; only a legacy `{"driver", "payload"}` run still carries an untrusted inbound body, and it is still treated as untrusted.
 - `inbound_payload` MUST stay JSON-serializable (it is a `JSONField`). No class instances or non-JSON types — the stored payload is untrusted input, validated/parsed by each stage, never `eval`'d.
 - Do **not** reintroduce a broker/queue or pickle-based serialization; single-hop fan-in has no need for one.
 
