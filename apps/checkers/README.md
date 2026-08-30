@@ -160,16 +160,22 @@ uv run python manage.py check_health cpu memory disk network process
 uv run python manage.py check_health --list
 ```
 
-#### Alert recording
+#### Alert recording and the pipeline
 
 Each run records an alert per firing checker for this machine (and registers it in
-the `Node` registry), so a single-machine install builds incident history with no hub
-and no `process_inbox`. Healthy checkers write nothing. Writes are synchronous and
-inbox-free; a write failure is reported on stderr and never changes output or exit code.
+the `Node` registry), then runs the pipeline for every incident that materially
+changed — check/analyze/notify per the matched lane — before returning. So a
+single-machine install gets its incidents *and* its analysis from one command,
+with no hub and nobody draining the inbox. Healthy checkers write nothing.
+Recording and orchestration failures are reported on stderr and never change
+output or exit code.
 
 ```bash
-# Print only, record nothing
+# Print only, record nothing and run nothing
 uv run python manage.py check_health --no-alert
+
+# Record and analyse, but page nobody (the SSH-in-and-look workflow)
+uv run python manage.py check_health --no-notify
 ```
 
 #### JSON output

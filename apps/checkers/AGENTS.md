@@ -61,15 +61,23 @@ manage.py check_health                 # All checkers, human output
 manage.py check_health cpu memory      # Named checkers only
 manage.py check_health --json          # JSON output for CI
 manage.py check_health --no-alert      # skip alert recording (print only)
+manage.py check_health --no-notify     # record + analyse, run no NOTIFY stage
 ```
 
 **Alert recording:** by default each run hands its results to `CheckAlertBridge`,
 which writes an alert (and incident) per firing checker keyed on this machine's
 `instance_id` and registers the machine as a `Node`; healthy checkers write nothing.
-Synchronous and inbox-free — the bridge enqueues no `PipelineRun`, so a single-machine
-install works with no hub and nobody draining the inbox. A write failure is reported on
-stderr and swallowed, so output (including `--json` on stdout) and the exit code are
-unaffected. `--no-alert` restores print-only behaviour.
+
+**Orchestration:** this is the synchronous local entrypoint. After recording, the
+command calls `apps.orchestration.intake.enqueue_for(..., sync=True)` — one
+`PipelineRun` per materially changed incident, drained before the command returns —
+so a single-machine install gets the analysis with no hub, no cron and nobody
+draining the inbox. `--no-notify` travels with those runs, for looking at a machine
+without paging anyone.
+
+A recording *or* orchestration failure is reported on stderr and swallowed, so
+output (including `--json` on stdout) and the exit code are unaffected. `--no-alert`
+restores print-only behaviour: nothing written, nothing enqueued.
 
 ### `preflight`
 

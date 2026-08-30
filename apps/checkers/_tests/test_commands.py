@@ -8,15 +8,39 @@ from django.core.management.base import CommandError
 from django.db import OperationalError
 from django.test import TestCase, override_settings
 
-from apps.alerts.models import Alert, Node
+from apps.alerts.models import Alert, Incident, Node
 from apps.checkers.checkers.base import CheckResult, CheckStatus
-from apps.orchestration.models import PipelineRun
+from apps.notify.models import NotificationChannel
+from apps.orchestration.models import (
+    PipelineRun,
+    PipelineStage,
+    PipelineStatus,
+    StageExecution,
+    StageStatus,
+)
 
 
 class CheckHealthCommandTests(TestCase):
     """Tests for the check_health management command."""
 
     REGISTRY_PATH = "apps.checkers.management.commands.check_health.CHECKER_REGISTRY"
+
+    def setUp(self):
+        """Keep the analysis these runs now trigger off the real filesystem.
+
+        The command orchestrates what it records, so a CRITICAL "disk" checker
+        here reaches LocalProvider, which walks all of ``/`` looking for large
+        files — minutes per test, and different on every machine. These tests are
+        about output and exit codes; the pipeline itself still runs for real, only
+        the scan is stubbed. What the analysis produces is asserted in
+        ``CheckHealthAlertTests``.
+        """
+        patcher = patch(
+            "apps.intelligence.providers.local.LocalRecommendationProvider.analyze",
+            return_value=[],
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def _make_checker(
         self,
@@ -376,10 +400,81 @@ class CheckHealthAlertTests(TestCase):
         self._run_firing_cpu("--no-alert")
         self.assertFalse(Alert.objects.exists())
 
-    def test_enqueues_no_pipeline_run(self):
-        """The single-machine install has nobody draining an inbox."""
+    def test_incidents_are_analyzed_in_the_same_call(self):
+        """The single-machine install has nobody draining an inbox.
+
+        So the command drains its own runs before returning: nothing may be left
+        PENDING, and the analysis the operator ran the command for has happened by
+        the time they get their prompt back.
+        """
         self._run_firing_cpu()
-        self.assertEqual(PipelineRun.objects.count(), 0)
+        self.assertTrue(PipelineRun.objects.exists())
+        self.assertFalse(PipelineRun.objects.filter(status=PipelineStatus.PENDING).exists())
+        self.assertTrue(
+            StageExecution.objects.filter(
+                stage=PipelineStage.ANALYZE, status=StageStatus.SUCCEEDED
+            ).exists()
+        )
+
+    def test_alerts_and_incidents_are_still_written(self):
+        """Orchestrating is added to the recording, not swapped for it."""
+        self._run_firing_cpu()
+        alert = Alert.objects.get(fingerprint="check:solo-mac:cpu")
+        self.assertIsNotNone(alert.incident)
+        self.assertEqual(Incident.objects.count(), 1)
+
+    def test_no_alert_still_enqueues_nothing(self):
+        """--no-alert is print-only: nothing written, so nothing to orchestrate."""
+        self._run_firing_cpu("--no-alert")
+        self.assertFalse(Alert.objects.exists())
+        self.assertFalse(PipelineRun.objects.exists())
+
+    def test_no_notify_reaches_the_enqueued_runs(self):
+        """SSH in, read the analysis, page nobody."""
+        self._run_firing_cpu("--no-notify")
+        run = PipelineRun.objects.get()
+        self.assertTrue(run.inbound_payload.get("no_notify"))
+        self.assertFalse(StageExecution.objects.filter(stage=PipelineStage.NOTIFY).exists())
+
+    def test_an_orchestration_failure_does_not_change_exit_code_or_stdout(self):
+        """A health check must still print its results if the pipeline breaks."""
+        with patch(
+            "apps.orchestration.orchestrator.PipelineOrchestrator.execute_run",
+            side_effect=OperationalError("orchestrator exploded"),
+        ):
+            stdout, stderr = self._run_firing_cpu()
+        self.assertIn("CPU at 99%", stdout)
+        self.assertIn("orchestrator exploded", stderr)
+        self.assertNotIn("orchestrator exploded", stdout)
+        # The alerts were still recorded; only the drain failed.
+        self.assertTrue(Alert.objects.exists())
+
+    def test_an_orchestration_failure_is_logged(self):
+        """The stderr line alone would leave a real pipeline bug undiagnosable."""
+        with patch(
+            "apps.orchestration.orchestrator.PipelineOrchestrator.execute_run",
+            side_effect=OperationalError("orchestrator exploded"),
+        ):
+            with self.assertLogs(
+                "apps.checkers.management.commands.check_health", level="ERROR"
+            ) as logs:
+                self._run_firing_cpu()
+        self.assertIn("orchestrator exploded", "\n".join(logs.output))
+
+    def test_nothing_is_delivered_without_an_active_channel(self):
+        """The laptop case: the analysis happens, nobody is paged."""
+        self.assertFalse(NotificationChannel.objects.filter(is_active=True).exists())
+        self._run_firing_cpu()
+        self.assertTrue(
+            StageExecution.objects.filter(
+                stage=PipelineStage.ANALYZE, status=StageStatus.SUCCEEDED
+            ).exists()
+        )
+        self.assertFalse(
+            StageExecution.objects.filter(
+                stage=PipelineStage.NOTIFY, status=StageStatus.SUCCEEDED
+            ).exists()
+        )
 
     def test_registers_this_machine_as_a_node(self):
         self._run_firing_cpu()
