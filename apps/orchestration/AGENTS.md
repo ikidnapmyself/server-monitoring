@@ -98,16 +98,34 @@ Two consequences worth knowing before changing this code:
   as the entry stage, once in the child, which has no stage history of its own).
   Nothing loops — the re-run is immaterial and enqueues nothing.
 
-**Entry stages.** INGEST is the entry stage for webhook traffic; CHECK is the entry
-stage for `run_pipeline --checks-only` (the hub's own cron). One rule covers both — the
-entry stage produces an alert, the lane is resolved from that alert, the lane's stages
-run. `--checks-only` is an invocation flag selecting the entry stage, *not* a routing
-override. `--checks-only --no-incidents` is the one silent case: it routes nothing and
-ends at CHECKED, while the bridge still records the alerts it found. `--no-notify` is
-the narrower one: the lane still matches and its stages still run, minus NOTIFY — SSH
-in, look at a node in real time, read the local provider's suggestions, page nobody.
-It travels into the downstream runs the entry stage enqueues, because NOTIFY runs
-there and not on the run the operator invoked.
+**Entry stages are legacy.** INGEST and CHECK still exist in `execute_run`, and a
+`PENDING` run recorded before a deploy must still drain through them — but no producer
+creates such a run any more. Producing an alert is not a pipeline stage: the webhook,
+`push_to_hub --local`, `check_health` and `run_pipeline` each write their alerts
+themselves, let incidents form, and enqueue one run per materially changed incident
+through `apps.orchestration.intake.enqueue_for`. Do not add a caller of the entry-stage
+path.
+
+**`run_pipeline` is a producer like the rest.** `--sample` / `--payload` / `--file`
+replay a webhook-shaped payload: `AlertOrchestrator.process_webhook`, then
+`enqueue_for(origin=manual, sync=True)`. The only difference from the webhook is
+`sync` — a CLI caller expects one command to finish, so it drains the runs it just
+enqueued (claimed through `inbox.claim`, so a concurrent `process_inbox` can never
+double-execute them). An unroutable payload is a `CommandError`: nothing was written
+and only the operator can fix it.
+
+**`--checks-only` is deprecated in favour of `check_health`**, and kept anyway — an
+operator SSHes into a node and runs it by hand, and a removed command is a worse
+surprise than a warning on stderr. It does the same work through the same path:
+`CheckAlertBridge` built from `--checkers` / `--hostname` / `--label` /
+`--warning-threshold` / `--critical-threshold`, then
+`enqueue_for(origin=checker_generated, sync=True)`. `--no-incidents` needs no special
+case: the bridge creates no incidents, so no alert has one, so nothing is enqueued and
+nothing routes — the old "just check, do not disturb anything" contract, arrived at
+rather than coded for. `--no-notify` is the narrower one: the lane still matches and
+its stages still run, minus NOTIFY — SSH in, look at a node in real time, read the
+local provider's suggestions, page nobody. It travels into the enqueued runs, because
+NOTIFY runs there and not on the run the operator invoked.
 
 `stages` is an ordered subset of `["check", "analyze", "notify"]` —
 `PipelineDefinition.ROUTABLE_STAGES`. It deliberately excludes `ingest`: a lane is
@@ -181,8 +199,9 @@ checker alerts adopted `source: cluster` the lane became a silent rival to `clus
 at the same priority, settled by nothing better than row `id`. `0018` retires it — by
 setting `is_active=False`, never deleting: `Incident.pipeline` is `SET_NULL`, so a delete
 would blank which lane handled every incident it ever routed. A hub-local check run now
-takes `cluster-nodes` and can page about the hub's own full disk. `run_pipeline
---checks-only` carries the same origin and analyses and notifies too, which is intended.
+takes `cluster-nodes` and can page about the hub's own full disk. `check_health` (and
+the deprecated `run_pipeline --checks-only`) carries the same origin and analyses and
+notifies too, which is intended.
 
 The legacy node/edge graph (`DefinitionBasedOrchestrator`, the `nodes/` package,
 `PipelineDefinition.config`) was **retired in Phase D** — do not reintroduce it.

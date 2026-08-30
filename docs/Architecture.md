@@ -72,8 +72,8 @@ Two delivery modes, and when each applies:
 
 | Mode | Command | What happens | Use when |
 |------|---------|--------------|----------|
-| **Inline** | `check_health` | Runs the checkers and records `Alert`/`Incident` rows synchronously. Records by default; `--no-alert` prints only. **Enqueues nothing** | A single machine with no hub, no cron and nobody draining an inbox — you still want alerts and incidents |
-| **Scheduled** | `run_pipeline --checks-only` | Enters the pipeline at CHECK instead of INGEST. That stage produces the subject alert, the lane is resolved from it, and the lane's stages run — same routing, same executors as webhook traffic. Synchronous, and it drains its own downstream runs | The default. This is what `bin/install/cron.sh` schedules on every machine |
+| **Inline** | `check_health` | Runs the checkers, records `Alert`/`Incident` rows, enqueues one run per materially changed incident and **drains them before returning**. Records by default; `--no-alert` prints only, `--no-notify` runs the lane minus NOTIFY | The synchronous local entrypoint. A single machine with no hub, no cron and nobody draining an inbox still gets its analysis |
+| **Scheduled** | `run_pipeline --checks-only` *(deprecated — use `check_health`)* | Identical work by an identical path: the bridge records the alerts, one run is enqueued per materially changed incident, and the command drains them before returning. Warns on stderr, naming `check_health`; kept because an operator still types it by hand | What `bin/install/cron.sh` currently schedules on every machine |
 | **Through the inbox** | `push_to_hub --local` | Runs the checkers, writes their alerts here through `CheckAlertBridge`, and enqueues one `PENDING` `PipelineRun` per materially changed incident for `process_inbox` to drain | You want the hub's own checks queued and retried like a peer's push. Needs a running `process_inbox`, so it is not scheduled by the installer |
 
 `bin/install/cron.sh` schedules `run_pipeline --checks-only` on every machine, and adds a
@@ -110,10 +110,10 @@ Stage behavior is controlled through routing pipelines and Django Admin — not 
 |---------|-----|---------|
 | `check_health [checkers...]` | checkers | Run health checks, display summary, **record alerts** for this machine. Flags: `--no-alert` (print only), `--list`, `--json`, `--fail-on-warning`, `--fail-on-critical` |
 | `run_check <checker>` | checkers | Run a single checker with checker-specific options (`--samples`, `--per-cpu`, `--paths`, `--hosts`, `--names`) |
-| `run_pipeline --checks-only` | orchestration | Run checks through pipeline. Additional flags: `--checkers`, `--no-incidents`, `--no-notify` (run the matched lane without NOTIFY — look at a node in real time, get the analysis, page nobody), `--hostname`, `--label`, `--warning-threshold`, `--critical-threshold` |
+| `run_pipeline --checks-only` | orchestration | **Deprecated — use `check_health`.** Runs this machine's checkers, records their alerts and drains the incident runs they earn. Additional flags: `--checkers`, `--no-incidents` (record alerts, create no incidents, so nothing is enqueued or routed), `--no-notify` (run the matched lane without NOTIFY — look at a node in real time, get the analysis, page nobody), `--hostname`, `--label`, `--warning-threshold`, `--critical-threshold` |
 | `get_recommendations` | intelligence | Get system recommendations. Flags: `--incident-id`, `--memory`, `--disk`, `--provider`, `--json`, `--list-providers` |
 | `test_notify [driver]` | notify | Test notification delivery. Flags: per-driver config (`--webhook-url`, `--smtp-host`, etc.) |
-| `run_pipeline` | orchestration | Run pipeline end-to-end. Flags: `--sample`, `--payload`, `--file`, `--dry-run`, `--checks-only`, `--no-notify` |
+| `run_pipeline` | orchestration | Replay an alert payload: ingest it here, then drain the runs its incidents earn. Flags: `--sample`, `--payload`, `--file`, `--source` (driver name; `cli` auto-detects), `--environment`, `--trace-id`, `--dry-run`, `--json` (`{trace_id, incidents, alerts, errors}`), `--no-notify`, `--checks-only` (deprecated) |
 | `monitor_pipeline` | orchestration | View pipeline run history. Flags: `--limit`, `--status`, `--run-id` |
 | `push_to_hub` | alerts | Run the checkers and push the results to a hub. Flags: `--local` (record a `PENDING` run here instead of POSTing), `--dry-run`, `--json`, `--checkers` |
 
@@ -192,10 +192,12 @@ channel is inactive), or channel driver not registered.
 **Location:** `apps/orchestration/orchestrator.py`
 
 Fixed 4-stage sequence: INGEST → CHECK → ANALYZE → NOTIFY, each with a dedicated
-executor class. The pipeline's *shape* is data, not code: after the **entry stage**
-(INGEST for webhook traffic, CHECK for `run_pipeline --checks-only`), the
-orchestrator resolves the matching `PipelineDefinition` from the alert that stage
-produced (`routing.py`, first-match-wins by `priority`, ties on `id`) and runs the
+executor class. Producing an alert is no longer a stage a producer enters on: every
+producer writes its own alerts and enqueues one run per materially changed incident
+(`apps.orchestration.intake.enqueue_for`), so INGEST and CHECK survive only to drain
+runs recorded before that change. The pipeline's *shape* is data, not code: a run
+resolves the matching `PipelineDefinition` from its incident's subject alert
+(`routing.py`, first-match-wins by `priority`, ties on `id`) and runs the
 downstream stages listed in its `stages` column, in that order; NOTIFY sends to the
 matched pipeline's single `channel`. A no-match is a non-retryable `no_route`
 failure — migration `0012` seeds a `catch-all` lane so unmatched traffic is a row
@@ -218,7 +220,8 @@ something that has already recovered. See
 
 - **Endpoints:** `POST /orchestration/pipeline/` (async — records a `PENDING` run for
   the `process_inbox` drain) and `/pipeline/sync/` (runs inline).
-- **CLI:** `python manage.py run_pipeline --sample` / `--checks-only` / `--dry-run`.
+- **CLI:** `python manage.py run_pipeline --sample` / `--dry-run` (and the deprecated
+  `--checks-only`, whose work `check_health` now does).
 - **Resume:** failed pipelines resume from the last successful stage.
 
 Routing pipelines are managed in **Django Admin** (`/admin/orchestration/pipelinedefinition/`)
