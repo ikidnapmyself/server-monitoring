@@ -2,12 +2,30 @@
 
 Every producer does the same two things: write alerts and let incidents form,
 then enqueue one run per incident that materially changed. This module is the
-second half, shared by all four producers — the webhook (``apps.alerts.views``),
-a node push (``push_to_hub --local``), this machine's checkers
-(``check_health``), and an operator transition
-(``IncidentManager._announce``) — so there is exactly one way work enters the
-pipeline. Without it each producer grows its own slightly different translation
-from "alerts were written" to "runs exist", and they drift.
+second half, so there is exactly one way work enters the pipeline. Without it
+each producer grows its own slightly different translation from "alerts were
+written" to "runs exist", and they drift.
+
+Six producers, five of them through ``enqueue_for``:
+
+* the alerts webhook — ``apps.alerts.views.AlertWebhookView``
+* ``POST /orchestration/pipeline/`` — ``apps.orchestration.views.PipelineView``
+* a node push — ``push_to_hub --local``
+* this machine's checkers — ``check_health``
+* a replay or a sample run — ``run_pipeline`` (both its producers)
+
+The sixth, an operator transition (``IncidentManager._announce``), calls
+``enqueue_incident_runs`` below ``enqueue_for`` instead: it has no producer
+result to read ``material_alerts`` off, because the human *is* the material
+change and the incident is already named. Same door, one step further in.
+
+Being honest about the exception rather than overstating the invariant: this
+is where work is *supposed* to enter, not yet a chokepoint the code enforces.
+``apps.alerts.reeval_existing`` writes alerts and calls ``incident.resolve()``
+(see ``apply_node_alert_reeval`` and ``_resolve_incidents_for``) without passing through here at
+all, so a config-change re-evaluation can resolve an incident that nobody is
+ever told about. That is a known follow-up, not a licence to add a seventh
+path — a new producer belongs here.
 
 Whether the caller drains those runs before returning is a mode, not a
 different path. A synchronous caller (``check_health``, an operator looking at
