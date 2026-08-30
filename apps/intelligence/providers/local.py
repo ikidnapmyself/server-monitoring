@@ -142,6 +142,26 @@ class ScanBudget:
         self.remaining_entries -= 1
 
 
+def _safe_iterdir(directory: Path) -> Iterator[Path]:
+    """Yield a directory's entries lazily, stopping quietly on an OSError.
+
+    Lazily, because ``list(directory.iterdir())`` spends the time and the
+    memory of a whole directory before the caller gets its first entry --- so a
+    single huge directory defeats the entry and time caps for exactly the case
+    they exist for, and blocks the operator's terminal while it is built.
+
+    Quietly, because an unreadable directory is skipped rather than raised, and
+    the read is performed as entries are produced: the ``OSError`` can surface
+    at any point during iteration, not only at the ``iterdir()`` call, so the
+    guard has to wrap the iteration itself. (``PermissionError`` is an
+    ``OSError``, so naming both caught nothing extra.)
+    """
+    try:
+        yield from directory.iterdir()
+    except OSError:
+        return
+
+
 def iter_bounded(root: Path, budget: ScanBudget, max_depth: int = SCAN_MAX_DEPTH) -> Iterator[Path]:
     """Yield entries under ``root`` breadth-first, within ``budget``.
 
@@ -153,8 +173,11 @@ def iter_bounded(root: Path, budget: ScanBudget, max_depth: int = SCAN_MAX_DEPTH
     entirely, never yielded and never descended into.
 
     Stops early -- yielding only what it has reached -- when the depth limit,
-    the entry cap, or the wall-clock deadline is hit. Unreadable directories
-    and entries are skipped rather than raised.
+    the entry cap, or the wall-clock deadline is hit. Each directory is
+    consumed lazily (``_safe_iterdir``), so the budget is charged as entries
+    arrive rather than after a whole directory has been materialized: a single
+    directory of a million entries stops at the cap instead of defeating it.
+    Unreadable directories and entries are skipped rather than raised.
     """
     try:
         root_device = root.stat().st_dev
@@ -166,11 +189,7 @@ def iter_bounded(root: Path, budget: ScanBudget, max_depth: int = SCAN_MAX_DEPTH
         directory, depth = queue.popleft()
         if budget.exhausted:
             return
-        try:
-            entries = list(directory.iterdir())
-        except (PermissionError, OSError):
-            continue
-        for entry in entries:
+        for entry in _safe_iterdir(directory):
             if budget.exhausted:
                 return
             budget.consume()

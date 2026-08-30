@@ -1852,6 +1852,46 @@ class TestIterBounded(SimpleTestCase):
 
         assert len(result) == 2
 
+    def test_the_cap_stops_before_the_directory_is_fully_produced(self):
+        """A huge directory is consumed lazily: the cap stops the iterator early.
+
+        Materializing the directory first spends the time and memory the caps
+        exist to bound before either cap is ever consulted — and this provider
+        now runs synchronously on an operator's terminal, so a directory with a
+        million entries would block the command while the list was built.
+        """
+        produced = 0
+
+        def endless():
+            nonlocal produced
+            for index in range(10_000):
+                produced += 1
+                yield _mock_file(f"/mock/{index}")
+
+        directory = _mock_dir()
+        directory.iterdir.side_effect = lambda: endless()
+
+        budget = ScanBudget(deadline=time.monotonic() + 30, remaining_entries=3)
+        result = list(iter_bounded(directory, budget))
+
+        assert len(result) == 3
+        # One more than the cap: the entry whose arrival the budget refuses.
+        assert produced <= 4
+
+    def test_a_directory_that_fails_mid_iteration_is_skipped_not_raised(self):
+        """iterdir() can raise while producing, not only when it is called."""
+
+        def fails_after_one():
+            yield _mock_file("/mock/first")
+            raise PermissionError("denied partway through")
+
+        directory = _mock_dir()
+        directory.iterdir.side_effect = lambda: fails_after_one()
+
+        result = list(iter_bounded(directory, ScanBudget.start()))
+
+        assert [str(entry) for entry in result] == ["/mock/first"]
+
     def test_exhausted_budget_stops_before_reading_directory(self):
         """An already-exhausted budget yields nothing and reads no directory."""
         directory = _mock_dir()
