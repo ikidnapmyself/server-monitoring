@@ -28,6 +28,54 @@ from apps.intelligence.providers.local import (
     iter_bounded,
 )
 
+# Every mocked entry shares one st_dev with its mocked root: the scan stays on
+# one filesystem (du -x), so entries on a different device are skipped, and a
+# mock that does not model st_dev would be skipped for the wrong reason.
+MOCK_DEV = 4242
+
+
+def _mock_dir(entries=None, *, exists=True, iterdir_error=None, st_dev=MOCK_DEV):
+    """A mocked directory handle that iter_bounded can walk."""
+    handle = MagicMock(spec=Path)
+    handle.exists.return_value = exists
+    handle.is_file.return_value = False
+    handle.is_dir.return_value = True
+    handle.is_symlink.return_value = False
+    handle.stat.return_value = MagicMock(st_dev=st_dev)
+    if iterdir_error is not None:
+        handle.iterdir.side_effect = iterdir_error
+    else:
+        handle.iterdir.return_value = list(entries or [])
+    return handle
+
+
+def _mock_file(
+    path="/mock/file",
+    *,
+    size=0,
+    mtime=None,
+    st_dev=MOCK_DEV,
+    is_file=True,
+    is_file_error=None,
+):
+    """A mocked file entry with real booleans for is_dir()/is_symlink()."""
+    entry = MagicMock(spec=Path)
+    if is_file_error is not None:
+        entry.is_file.side_effect = is_file_error
+    else:
+        entry.is_file.return_value = is_file
+    entry.is_dir.return_value = not is_file
+    entry.is_symlink.return_value = False
+    entry.stat.return_value = MagicMock(
+        st_size=size,
+        st_mtime=datetime.now().timestamp() if mtime is None else mtime,
+        st_dev=st_dev,
+    )
+    entry.name = Path(path).name
+    entry.suffix = Path(path).suffix
+    entry.__str__ = lambda self, value=path: value
+    return entry
+
 
 class TestProviderRegistry(SimpleTestCase):
     """Tests for the provider registry."""
@@ -623,6 +671,9 @@ class TestScanLargeFiles(SimpleTestCase):
 
         assert len(result) == 2
         assert result[0].size_mb >= result[1].size_mb  # sorted desc
+        # du is asked for kilobytes (-k), so the parser's /1024 is megabytes.
+        assert result[0].size_mb == 200.0
+        assert result[1].size_mb == 100.0
 
     @patch("apps.intelligence.providers.local.os.path.isdir")
     @patch("apps.intelligence.providers.local.os.stat")
@@ -661,39 +712,45 @@ class TestScanLargeFiles(SimpleTestCase):
         assert result[0].path == "/var/log/good.log"
 
     @patch("apps.intelligence.providers.local.subprocess.run")
-    def test_du_value_error_on_bad_size(self, mock_run):
-        """ValueError from non-integer size in du output is caught."""
+    def test_du_output_that_parses_to_nothing_falls_back(self, mock_run):
+        """du exiting 0 with output we cannot parse is not an all-clear."""
         mock_run.return_value = MagicMock(
             returncode=0,
             stdout="notanumber\t/var/log/badline\n",
         )
 
-        provider = LocalRecommendationProvider()
-        result = provider._scan_large_files("/var")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "big.bin").write_bytes(b"x" * 4096)
+
+            provider = LocalRecommendationProvider(large_file_threshold_mb=0.001)
+            result = provider._scan_large_files(root.as_posix())
+
+        assert [Path(item.path).name for item in result] == ["big.bin"]
+
+    @patch("apps.intelligence.providers.local.subprocess.run")
+    def test_du_reporting_nothing_is_a_real_all_clear(self, mock_run):
+        """Empty du output means nothing over threshold -- do not re-walk."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="")
+
+        with patch(
+            "apps.intelligence.providers.local.iter_bounded",
+        ) as mock_iter:
+            provider = LocalRecommendationProvider()
+            result = provider._scan_large_files("/var")
 
         assert result == []
+        mock_iter.assert_not_called()
 
     @patch("apps.intelligence.providers.local.subprocess.run")
     def test_du_fails_fallback_to_python(self, mock_run):
         """When du fails, Python fallback is used."""
         mock_run.side_effect = FileNotFoundError("du not found")
 
-        # Create mock file item
-        mock_file = MagicMock(spec=Path)
-        mock_file.is_file.return_value = True
-        mock_file.stat.return_value = MagicMock(
-            st_size=200 * 1024 * 1024,  # 200MB
-            st_mtime=datetime.now().timestamp(),
-        )
-        mock_file.__str__ = lambda self: "/fallback/bigfile"
-
-        # Create mock directory item (should be skipped)
-        mock_dir = MagicMock(spec=Path)
-        mock_dir.is_file.return_value = False
-
-        mock_scan_path = MagicMock()
-        mock_scan_path.exists.return_value = True
-        mock_scan_path.iterdir.return_value = [mock_dir, mock_file]
+        mock_file = _mock_file("/fallback/bigfile", size=200 * 1024 * 1024)
+        # A directory entry, which the large-file scan skips.
+        mock_dir = _mock_file("/fallback/subdir", is_file=False)
+        mock_scan_path = _mock_dir([mock_dir, mock_file])
 
         with patch(
             "apps.intelligence.providers.local.Path.expanduser",
@@ -710,12 +767,8 @@ class TestScanLargeFiles(SimpleTestCase):
         """PermissionError on individual file in fallback is caught."""
         mock_run.side_effect = FileNotFoundError("du not found")
 
-        mock_item = MagicMock(spec=Path)
-        mock_item.is_file.side_effect = PermissionError("denied")
-
-        mock_scan_path = MagicMock()
-        mock_scan_path.exists.return_value = True
-        mock_scan_path.iterdir.return_value = [mock_item]
+        mock_item = _mock_file("/var/test/denied", is_file_error=PermissionError("denied"))
+        mock_scan_path = _mock_dir([mock_item])
 
         with patch(
             "apps.intelligence.providers.local.Path.expanduser",
@@ -731,8 +784,7 @@ class TestScanLargeFiles(SimpleTestCase):
         """When fallback path doesn't exist, empty list returned."""
         mock_run.side_effect = FileNotFoundError("du not found")
 
-        mock_scan_path = MagicMock()
-        mock_scan_path.exists.return_value = False
+        mock_scan_path = _mock_dir(exists=False)
 
         with patch(
             "apps.intelligence.providers.local.Path.expanduser",
@@ -791,8 +843,7 @@ class TestScanLargeFiles(SimpleTestCase):
             stdout="",
         )
 
-        mock_scan_path = MagicMock()
-        mock_scan_path.exists.return_value = False
+        mock_scan_path = _mock_dir(exists=False)
 
         with patch(
             "apps.intelligence.providers.local.Path.expanduser",
@@ -810,17 +861,8 @@ class TestScanLargeFiles(SimpleTestCase):
         progress_messages = []
 
         old_time = (datetime.now() - timedelta(days=60)).timestamp()
-        mock_item = MagicMock(spec=Path)
-        mock_item.is_file.return_value = True
-        mock_item.stat.return_value = MagicMock(
-            st_size=200 * 1024 * 1024,
-            st_mtime=old_time,
-        )
-        mock_item.__str__ = lambda self: "/fallback/old.log"
-
-        mock_scan_path = MagicMock()
-        mock_scan_path.exists.return_value = True
-        mock_scan_path.iterdir.return_value = [mock_item]
+        mock_item = _mock_file("/fallback/old.log", size=200 * 1024 * 1024, mtime=old_time)
+        mock_scan_path = _mock_dir([mock_item])
 
         with patch(
             "apps.intelligence.providers.local.Path.expanduser",
@@ -848,8 +890,7 @@ class TestScanLargeFiles(SimpleTestCase):
         """subprocess.TimeoutExpired falls through to Python fallback."""
         mock_run.side_effect = TimeoutExpired(cmd=["du"], timeout=DU_TIMEOUT_SECONDS)  # nosemgrep
 
-        mock_scan_path = MagicMock()
-        mock_scan_path.exists.return_value = False
+        mock_scan_path = _mock_dir(exists=False)
 
         with patch(
             "apps.intelligence.providers.local.Path.expanduser",
@@ -866,21 +907,9 @@ class TestScanLargeFiles(SimpleTestCase):
         mock_run.side_effect = FileNotFoundError("du not found")
         progress_messages = []
 
-        # Create 101 mock files (all under threshold so none are "large")
-        mock_items = []
-        for i in range(101):
-            item = MagicMock(spec=Path)
-            item.is_file.return_value = True
-            item.stat.return_value = MagicMock(
-                st_size=100,  # tiny, under threshold
-                st_mtime=datetime.now().timestamp(),
-            )
-            item.__str__ = lambda self, idx=i: f"/file{idx}"
-            mock_items.append(item)
-
-        mock_scan_path = MagicMock()
-        mock_scan_path.exists.return_value = True
-        mock_scan_path.iterdir.return_value = mock_items
+        # 101 mock files, all under threshold so none are "large".
+        mock_items = [_mock_file(f"/file{index}", size=100) for index in range(101)]
+        mock_scan_path = _mock_dir(mock_items)
 
         with patch(
             "apps.intelligence.providers.local.Path.expanduser",
@@ -915,19 +944,8 @@ class TestFindOldLogs(SimpleTestCase):
     def test_normal_operation_finds_old_files(self):
         """Finds old files larger than 1MB."""
         old_time = (datetime.now() - timedelta(days=60)).timestamp()
-        mock_item = MagicMock(spec=Path)
-        mock_item.is_file.return_value = True
-        mock_item.stat.return_value = MagicMock(
-            st_mtime=old_time,
-            st_size=5 * 1024 * 1024,  # 5 MB
-        )
-        mock_item.name = "old.log"
-        mock_item.suffix = ".log"
-        mock_item.__str__ = lambda self: "/var/log/old.log"
-
-        mock_path = MagicMock()
-        mock_path.exists.return_value = True
-        mock_path.iterdir.return_value = [mock_item]
+        mock_item = _mock_file("/var/log/old.log", size=5 * 1024 * 1024, mtime=old_time)
+        mock_path = _mock_dir([mock_item])
 
         with patch(
             "apps.intelligence.providers.local.Path.expanduser",
@@ -943,12 +961,8 @@ class TestFindOldLogs(SimpleTestCase):
 
     def test_non_files_are_skipped(self):
         """Directories and other non-files are skipped."""
-        mock_item = MagicMock(spec=Path)
-        mock_item.is_file.return_value = False  # directory
-
-        mock_path = MagicMock()
-        mock_path.exists.return_value = True
-        mock_path.iterdir.return_value = [mock_item]
+        mock_item = _mock_file("/var/log/subdir", is_file=False)
+        mock_path = _mock_dir([mock_item])
 
         with patch(
             "apps.intelligence.providers.local.Path.expanduser",
@@ -964,16 +978,8 @@ class TestFindOldLogs(SimpleTestCase):
     def test_small_files_under_1mb_skipped(self):
         """Files under 1MB are skipped to reduce noise."""
         old_time = (datetime.now() - timedelta(days=60)).timestamp()
-        mock_item = MagicMock(spec=Path)
-        mock_item.is_file.return_value = True
-        mock_item.stat.return_value = MagicMock(
-            st_mtime=old_time,
-            st_size=500 * 1024,  # 500 KB - under 1MB
-        )
-
-        mock_path = MagicMock()
-        mock_path.exists.return_value = True
-        mock_path.iterdir.return_value = [mock_item]
+        mock_item = _mock_file("/var/log/small.log", size=500 * 1024, mtime=old_time)
+        mock_path = _mock_dir([mock_item])
 
         with patch(
             "apps.intelligence.providers.local.Path.expanduser",
@@ -988,12 +994,8 @@ class TestFindOldLogs(SimpleTestCase):
 
     def test_permission_error_on_item_skipped(self):
         """PermissionError on individual item is caught and skipped."""
-        mock_item = MagicMock(spec=Path)
-        mock_item.is_file.side_effect = PermissionError("denied")
-
-        mock_path = MagicMock()
-        mock_path.exists.return_value = True
-        mock_path.iterdir.return_value = [mock_item]
+        mock_item = _mock_file("/var/log/denied", is_file_error=PermissionError("denied"))
+        mock_path = _mock_dir([mock_item])
 
         with patch(
             "apps.intelligence.providers.local.Path.expanduser",
@@ -1008,9 +1010,7 @@ class TestFindOldLogs(SimpleTestCase):
 
     def test_permission_error_on_directory_skipped(self):
         """PermissionError on scan directory is caught and skipped."""
-        mock_path = MagicMock()
-        mock_path.exists.return_value = True
-        mock_path.iterdir.side_effect = PermissionError("denied on dir")
+        mock_path = _mock_dir(iterdir_error=PermissionError("denied on dir"))
 
         with patch(
             "apps.intelligence.providers.local.Path.expanduser",
@@ -1025,8 +1025,7 @@ class TestFindOldLogs(SimpleTestCase):
 
     def test_path_does_not_exist_skipped(self):
         """Non-existent scan path is skipped."""
-        mock_path = MagicMock()
-        mock_path.exists.return_value = False
+        mock_path = _mock_dir(exists=False)
 
         with patch(
             "apps.intelligence.providers.local.Path.expanduser",
@@ -1042,16 +1041,8 @@ class TestFindOldLogs(SimpleTestCase):
     def test_recent_files_are_skipped(self):
         """Files modified recently (within old_file_days) are skipped."""
         recent_time = (datetime.now() - timedelta(days=5)).timestamp()
-        mock_item = MagicMock(spec=Path)
-        mock_item.is_file.return_value = True
-        mock_item.stat.return_value = MagicMock(
-            st_mtime=recent_time,
-            st_size=5 * 1024 * 1024,
-        )
-
-        mock_path = MagicMock()
-        mock_path.exists.return_value = True
-        mock_path.iterdir.return_value = [mock_item]
+        mock_item = _mock_file("/var/log/recent.log", size=5 * 1024 * 1024, mtime=recent_time)
+        mock_path = _mock_dir([mock_item])
 
         with patch(
             "apps.intelligence.providers.local.Path.expanduser",
@@ -1607,7 +1598,7 @@ class TestGetDiskRecommendations(SimpleTestCase):
         with patch.object(provider, "_scan_large_files", return_value=[]) as mock_scan:
             with patch.object(provider, "_find_old_logs", return_value=[]):
                 provider._get_disk_recommendations("")
-                mock_scan.assert_called_once_with("/")
+                assert mock_scan.call_args[0][0] == "/"
 
     @patch("apps.intelligence.providers.local.psutil.disk_usage")
     def test_whitespace_path_defaults_to_root(self, mock_usage):
@@ -1618,7 +1609,7 @@ class TestGetDiskRecommendations(SimpleTestCase):
         with patch.object(provider, "_scan_large_files", return_value=[]) as mock_scan:
             with patch.object(provider, "_find_old_logs", return_value=[]):
                 provider._get_disk_recommendations("   ")
-                mock_scan.assert_called_once_with("/")
+                assert mock_scan.call_args[0][0] == "/"
 
 
 class TestGetTopMemoryProcessesExceptions(SimpleTestCase):
@@ -1793,6 +1784,7 @@ class TestBuildDuCommand(SimpleTestCase):
 
         assert cmd[0] == "/usr/bin/du"
         assert "-ax" in cmd
+        assert "-k" in cmd
         assert f"--max-depth={SCAN_MAX_DEPTH}" in cmd
         assert cmd[-3:] == ["-t", "100M", "/var"]
 
@@ -1801,7 +1793,7 @@ class TestBuildDuCommand(SimpleTestCase):
         with patch("apps.intelligence.providers.local.sys.platform", "darwin"):
             cmd = build_du_command("/usr/bin/du", 100, "/var")
 
-        assert cmd == ["/usr/bin/du", "-x", "-d", str(SCAN_MAX_DEPTH), "-t", "100M", "/var"]
+        assert cmd == ["/usr/bin/du", "-k", "-x", "-d", str(SCAN_MAX_DEPTH), "-t", "100M", "/var"]
 
     def test_bsd_drops_mutually_exclusive_dash_a(self):
         """BSD's synopsis is [-a | -s | -d depth], so -a must not appear with -d."""
@@ -1812,16 +1804,21 @@ class TestBuildDuCommand(SimpleTestCase):
         assert "-ax" not in cmd
         assert not any(arg.startswith("--max-depth") for arg in cmd)
 
-    def test_du_timeout_is_its_own_short_budget(self):
-        """du gets a small gamble budget, not the whole answering budget."""
+
+class TestScanBudgetDefaults(SimpleTestCase):
+    """A started budget must take its bounds from the module constants."""
+
+    def test_defaults_come_from_module_constants(self):
+        with patch("apps.intelligence.providers.local.SCAN_MAX_ENTRIES", 7):
+            with patch("apps.intelligence.providers.local.SCAN_TIME_BUDGET_SECONDS", 1.5):
+                before = time.monotonic()
+                budget = ScanBudget.start()
+
+        assert budget.remaining_entries == 7
+        assert 1.0 <= budget.deadline - before <= 2.0
+
+    def test_du_timeout_stays_a_small_gamble(self):
         assert DU_TIMEOUT_SECONDS < SCAN_TIME_BUDGET_SECONDS
-        assert DU_TIMEOUT_SECONDS <= 5.0
-
-    def test_absolute_path_is_argv0(self):
-        """The resolved executable path is passed as argv[0], never a bare name."""
-        cmd = build_du_command("/opt/homebrew/bin/du", 10, "/tmp")
-
-        assert cmd[0] == "/opt/homebrew/bin/du"
 
 
 class TestIterBounded(SimpleTestCase):
@@ -1829,8 +1826,7 @@ class TestIterBounded(SimpleTestCase):
 
     def test_unreadable_directory_is_skipped(self):
         """A directory that raises on iterdir is skipped, not propagated."""
-        directory = MagicMock(spec=Path)
-        directory.iterdir.side_effect = PermissionError("denied")
+        directory = _mock_dir(iterdir_error=PermissionError("denied"))
 
         result = list(iter_bounded(directory, ScanBudget.start()))
 
@@ -1838,11 +1834,9 @@ class TestIterBounded(SimpleTestCase):
 
     def test_entry_stat_error_stops_descent_only(self):
         """An entry whose is_dir() raises is yielded but not descended into."""
-        entry = MagicMock(spec=Path)
+        entry = _mock_file("/mock/entry")
         entry.is_dir.side_effect = OSError("stale handle")
-
-        directory = MagicMock(spec=Path)
-        directory.iterdir.return_value = [entry]
+        directory = _mock_dir([entry])
 
         result = list(iter_bounded(directory, ScanBudget.start()))
 
@@ -1850,9 +1844,8 @@ class TestIterBounded(SimpleTestCase):
 
     def test_entry_cap_stops_iteration(self):
         """The entry cap returns what was found rather than continuing."""
-        entries = [MagicMock(spec=Path) for _ in range(5)]
-        directory = MagicMock(spec=Path)
-        directory.iterdir.return_value = entries
+        entries = [_mock_file(f"/mock/{index}") for index in range(5)]
+        directory = _mock_dir(entries)
 
         budget = ScanBudget(deadline=time.monotonic() + 30, remaining_entries=2)
         result = list(iter_bounded(directory, budget))
@@ -1861,13 +1854,55 @@ class TestIterBounded(SimpleTestCase):
 
     def test_exhausted_budget_stops_before_reading_directory(self):
         """An already-exhausted budget yields nothing and reads no directory."""
-        directory = MagicMock(spec=Path)
+        directory = _mock_dir()
 
         budget = ScanBudget(deadline=time.monotonic() + 30, remaining_entries=0)
         result = list(iter_bounded(directory, budget))
 
         assert result == []
         directory.iterdir.assert_not_called()
+
+    def test_entry_on_another_filesystem_is_skipped(self):
+        """iter_bounded carries du -x: entries off the root device are skipped."""
+        same = _mock_file("/root/same")
+        other = _mock_file("/root/other", st_dev=MOCK_DEV + 1)
+        directory = _mock_dir([same, other])
+
+        result = list(iter_bounded(directory, ScanBudget.start()))
+
+        assert result == [same]
+
+    def test_directory_on_another_filesystem_is_not_descended(self):
+        """A /proc-like mount is neither yielded nor walked into."""
+        child = _mock_file("/proc/kcore", size=140_737_477_881_856)
+        procfs = _mock_dir([child], st_dev=MOCK_DEV + 1)
+        procfs.is_file.return_value = False
+        directory = _mock_dir([procfs])
+
+        result = list(iter_bounded(directory, ScanBudget.start()))
+
+        assert result == []
+        procfs.iterdir.assert_not_called()
+
+    def test_unstattable_root_yields_nothing(self):
+        """If the root device cannot be determined, nothing is walked."""
+        directory = _mock_dir()
+        directory.stat.side_effect = PermissionError("denied")
+
+        result = list(iter_bounded(directory, ScanBudget.start()))
+
+        assert result == []
+        directory.iterdir.assert_not_called()
+
+    def test_entry_that_cannot_be_stat_ed_is_skipped(self):
+        """A vanished or unreadable entry is skipped, not yielded."""
+        broken = _mock_file("/root/broken")
+        broken.stat.side_effect = OSError("vanished")
+        directory = _mock_dir([broken])
+
+        result = list(iter_bounded(directory, ScanBudget.start()))
+
+        assert result == []
 
     def test_symlinked_directory_is_not_followed(self):
         """Symlinked directories are yielded but never descended into."""
@@ -1950,11 +1985,9 @@ class TestBoundedFallbackScan(SimpleTestCase):
             for index in range(10):
                 (root / f"big{index}.bin").write_bytes(b"x" * 4096)
 
-            capped = ScanBudget(deadline=time.monotonic() + 30, remaining_entries=3)
-            with patch(
-                "apps.intelligence.providers.local.ScanBudget.start",
-                return_value=capped,
-            ):
+            # Patch the module constant, not ScanBudget.start: the cap the
+            # operator actually gets must come from SCAN_MAX_ENTRIES.
+            with patch("apps.intelligence.providers.local.SCAN_MAX_ENTRIES", 3):
                 result = self._provider()._scan_large_files(root.as_posix())
 
         assert len(result) == 3
@@ -1976,6 +2009,101 @@ class TestBoundedFallbackScan(SimpleTestCase):
                 result = self._provider()._scan_large_files(root.as_posix())
 
         assert len(result) == 1
+
+
+class TestSingleFilesystemScan(SimpleTestCase):
+    """The fallback must not wander off the scanned filesystem."""
+
+    @patch("apps.intelligence.providers.local.shutil.which", return_value=None)
+    def test_pseudo_filesystem_file_is_not_recommended(self, _mock_which):
+        """/proc/kcore-shaped entries never become the top recommendation."""
+        kcore = _mock_file(
+            "/proc/kcore",
+            size=140_737_477_881_856,
+            st_dev=MOCK_DEV + 1,
+        )
+        real = _mock_file("/bigfile.bin", size=200 * 1024 * 1024)
+        scan_path = _mock_dir([kcore, real])
+
+        with patch(
+            "apps.intelligence.providers.local.Path.expanduser",
+            return_value=scan_path,
+        ):
+            result = LocalRecommendationProvider()._scan_large_files("/")
+
+        assert [item.path for item in result] == ["/bigfile.bin"]
+
+
+class TestOnePerAnalysisBudget(SimpleTestCase):
+    """One budget covers a whole disk analysis, du included."""
+
+    @patch("apps.intelligence.providers.local.shutil.which", return_value=None)
+    def test_disk_recommendations_open_exactly_one_budget(self, _mock_which):
+        """Large-file scan and old-log scan share the operator's single wait."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "f.bin").write_bytes(b"x" * 4096)
+
+            with patch(
+                "apps.intelligence.providers.local.ScanBudget.start",
+                side_effect=ScanBudget.start,
+            ) as mock_start:
+                provider = LocalRecommendationProvider(scan_paths=[root.as_posix()])
+                provider._get_disk_recommendations(root.as_posix())
+
+        assert mock_start.call_count == 1
+
+    @patch("apps.intelligence.providers.local.shutil.which", return_value="/usr/bin/du")
+    @patch("apps.intelligence.providers.local.subprocess.run")
+    def test_du_timeout_is_clamped_to_the_remaining_budget(self, mock_run, _mock_which):
+        """du may not outlive the analysis budget it is spending."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="")
+        budget = ScanBudget(deadline=time.monotonic() + 1.0, remaining_entries=100)
+
+        LocalRecommendationProvider()._scan_large_files("/var", budget=budget)
+
+        assert 0 < mock_run.call_args.kwargs["timeout"] <= 1.0
+
+    @patch("apps.intelligence.providers.local.shutil.which", return_value="/usr/bin/du")
+    @patch("apps.intelligence.providers.local.subprocess.run")
+    def test_du_is_skipped_once_the_budget_is_gone(self, mock_run, _mock_which):
+        """An exhausted budget spends nothing more on the du gamble."""
+        budget = ScanBudget(deadline=time.monotonic() - 1.0, remaining_entries=100)
+
+        result = LocalRecommendationProvider()._scan_large_files("/var", budget=budget)
+
+        assert result == []
+        mock_run.assert_not_called()
+
+    @patch("apps.intelligence.providers.local.os.path.isdir", return_value=False)
+    @patch("apps.intelligence.providers.local.os.stat")
+    @patch("apps.intelligence.providers.local.shutil.which", return_value="/usr/bin/du")
+    @patch("apps.intelligence.providers.local.subprocess.run")
+    def test_du_parse_loop_is_bounded_by_entries(
+        self, mock_run, _mock_which, mock_stat, _mock_isdir
+    ):
+        """The du success path is capped too, not just the fallback."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="".join(f"{204800 + index}\t/var/f{index}\n" for index in range(5)),
+        )
+        mock_stat.return_value = MagicMock(st_mtime=datetime.now().timestamp())
+        budget = ScanBudget(deadline=time.monotonic() + 30, remaining_entries=2)
+
+        result = LocalRecommendationProvider()._scan_large_files("/var", budget=budget)
+
+        assert len(result) == 2
+
+    @patch("apps.intelligence.providers.local.shutil.which")
+    @patch("apps.intelligence.providers.local.subprocess.run")
+    def test_resolved_du_path_reaches_subprocess(self, mock_run, mock_which):
+        """argv[0] is the shutil.which result, never a bare name."""
+        mock_which.return_value = "/opt/homebrew/bin/du"
+        mock_run.return_value = MagicMock(returncode=0, stdout="")
+
+        LocalRecommendationProvider()._scan_large_files("/var")
+
+        assert mock_run.call_args[0][0][0] == "/opt/homebrew/bin/du"
 
 
 class TestBoundedOldLogScan(SimpleTestCase):
@@ -2007,11 +2135,7 @@ class TestBoundedOldLogScan(SimpleTestCase):
             self._make_old(Path(first) / "one.log")
             self._make_old(Path(second) / "two.log")
 
-            spent = ScanBudget(deadline=time.monotonic() + 30, remaining_entries=1)
-            with patch(
-                "apps.intelligence.providers.local.ScanBudget.start",
-                return_value=spent,
-            ):
+            with patch("apps.intelligence.providers.local.SCAN_MAX_ENTRIES", 1):
                 provider = LocalRecommendationProvider(scan_paths=[first, second])
                 result = provider._find_old_logs()
 
