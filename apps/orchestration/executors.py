@@ -125,6 +125,36 @@ class CheckExecutor(BaseExecutor):
     Wraps apps.checkers to run diagnostics associated with the incident.
     """
 
+    @staticmethod
+    def _incident_checker_names(incident_id: int) -> list[str]:
+        """The distinct ``checker`` labels on an incident's alerts, oldest first.
+
+        Kept here rather than beside ``subject_alert`` in routing: those helpers
+        live there because two entry stages must share one definition of "which
+        alert represents this batch". This has one consumer — the stage whose scope
+        it is — and it answers a diagnosis question, not a routing one.
+
+        Filtered to the local registry on purpose. A node may report a checker this
+        hub does not have; that is the same situation as no label at all, since
+        there is nothing here that can run it. Passing the name through would make
+        the bridge record an error and the orchestrator retry a stage that can
+        never succeed.
+        """
+        from apps.alerts.models import Alert
+        from apps.checkers.checkers import CHECKER_REGISTRY
+
+        names: list[str] = []
+        label_sets = (
+            Alert.objects.filter(incident_id=incident_id)
+            .order_by("id")
+            .values_list("labels", flat=True)
+        )
+        for labels in label_sets:
+            name = (labels or {}).get("checker")
+            if name and name in CHECKER_REGISTRY and name not in names:
+                names.append(name)
+        return names
+
     def execute(self, ctx: StageContext) -> CheckResult:
         """Execute checker diagnostics."""
         start_time = time.perf_counter()
@@ -160,6 +190,29 @@ class CheckExecutor(BaseExecutor):
             from apps.checkers.checkers import CHECKER_REGISTRY, CheckStatus
 
             check_names = payload.get("checker_names")
+            if check_names is None and ctx.incident_id:
+                # An incident run's CHECK is the diagnosis OF that incident, so the
+                # incident is what says which checkers are in scope. A payload that
+                # names none (``{"downstream_incident_id": N}`` names nothing) used
+                # to mean "all", which made a lane listing ``check`` sweep the whole
+                # registry: an incident from an unmatched source opened alerts about
+                # THIS machine's disk and memory on every material change, unrelated
+                # to what caused it, and those alerts then fanned out in turn.
+                #
+                # No scope means nothing to diagnose, not everything: an alert with
+                # no ``checker`` label (a Grafana room sensor) has no counterpart
+                # here, so the stage runs with no subject and records that. Which
+                # checkers a lane should run for such traffic is the operator's
+                # configuration, not this stage's guess.
+                check_names = self._incident_checker_names(ctx.incident_id)
+                if not check_names:
+                    # Said once, here, so "CHECK ran and did nothing" is legible in
+                    # the log next to the run rather than inferred from checks_run=0.
+                    logger.info(
+                        "CHECK has no subject: incident %s names no checker this hub runs",
+                        ctx.incident_id,
+                        extra={"trace_id": ctx.trace_id, "run_id": ctx.run_id},
+                    )
             checker_configs: dict = dict(payload.get("checker_configs") or {})
             labels = payload.get("labels")
 

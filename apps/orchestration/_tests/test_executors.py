@@ -8,11 +8,13 @@ from dataclasses import dataclass, field
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 
 from apps.alerts.check_integration import CheckAlertResult
-from apps.alerts.models import Node
+from apps.alerts.models import Alert, AlertSeverity, Incident, Node
 from apps.checkers.checkers import CheckResult as CheckerResult
 from apps.checkers.checkers import CheckStatus
+from apps.orchestration import inbox
 from apps.orchestration.dtos import (
     AnalyzeResult,
     CheckResult,
@@ -25,6 +27,12 @@ from apps.orchestration.executors import (
     CheckExecutor,
     IngestExecutor,
     NotifyExecutor,
+)
+from apps.orchestration.models import (
+    PipelineOrigin,
+    PipelineStage,
+    StageExecution,
+    StageStatus,
 )
 
 
@@ -908,6 +916,161 @@ class TestCheckExecutorAllConfigExpansion(SimpleTestCase):
         assert configs["cpu"]["critical_threshold"] == 80.0
         # memory gets the full __all__ defaults
         assert configs["memory"] == {"warning_threshold": 60.0, "critical_threshold": 80.0}
+
+
+class _RegistrySwept(BaseException):
+    """Not an ``Exception``: no handler on the way can swallow it.
+
+    The bridge's per-checker ``except Exception``, ``CheckExecutor``'s own, and the
+    orchestrator's retry wrapper would each turn a plain exception into a recorded
+    error string, which is exactly the quiet failure this guard exists to prevent.
+    """
+
+
+class _ExplodingChecker:
+    """A registry entry that must never be reached.
+
+    If CHECK sweeps, the test stops here rather than slowly running this
+    machine's real disk, memory and temperature probes.
+    """
+
+    def __init__(self, *args, **kwargs):
+        raise _RegistrySwept("CHECK swept the registry instead of using its subject")
+
+
+class TestCheckExecutorTakesTheIncidentAsItsSubject(TestCase):
+    """An incident run's CHECK diagnoses THAT incident, and nothing else.
+
+    A downstream run's payload is ``{"downstream_incident_id": N}`` — it names no
+    checkers — so the scope comes from the incident: the ``checker`` labels its
+    alerts carry.
+    """
+
+    def setUp(self):
+        self.incident = Incident.objects.create(title="cpu on web-03")
+
+    def _alert(self, *, fingerprint, labels):
+        return Alert.objects.create(
+            fingerprint=fingerprint,
+            source="grafana",
+            name=fingerprint,
+            severity=AlertSeverity.CRITICAL,
+            labels=labels,
+            started_at=timezone.now(),
+            incident=self.incident,
+        )
+
+    def _run_names(self, ctx):
+        """Execute CHECK with the bridge stubbed; return the checker_names it got."""
+        mock_bridge = MagicMock()
+        mock_bridge.run_checks_and_alert.return_value = CheckAlertResult(checks_run=0)
+        with patch(
+            "apps.alerts.check_integration.CheckAlertBridge",
+            return_value=mock_bridge,
+        ):
+            result = CheckExecutor().execute(ctx)
+        assert result.errors == []
+        return mock_bridge.run_checks_and_alert.call_args.kwargs["checker_names"]
+
+    def test_check_derives_its_checkers_from_the_incident(self):
+        self._alert(fingerprint="check:web-03:cpu", labels={"checker": "cpu"})
+        self._alert(fingerprint="check:web-03:memory", labels={"checker": "memory"})
+
+        names = self._run_names(_ctx(incident_id=self.incident.id))
+
+        assert names == ["cpu", "memory"]
+
+    def test_check_runs_nothing_when_the_incident_names_no_checkers(self):
+        """A Grafana alert about a room sensor: nothing here corresponds to it."""
+        self._alert(fingerprint="room-temp", labels={"room": "server-room"})
+
+        names = self._run_names(_ctx(incident_id=self.incident.id))
+
+        assert names == []
+
+    def test_an_explicit_checker_list_still_wins(self):
+        """``check_health`` and ``run_pipeline`` name their own scope; unchanged."""
+        self._alert(fingerprint="check:web-03:cpu", labels={"checker": "cpu"})
+
+        names = self._run_names(
+            _ctx(payload={"checker_names": ["disk"]}, incident_id=self.incident.id)
+        )
+
+        assert names == ["disk"]
+
+    def test_duplicate_checker_labels_run_once(self):
+        self._alert(fingerprint="check:web-03:cpu", labels={"checker": "cpu"})
+        self._alert(fingerprint="check:web-04:cpu", labels={"checker": "cpu"})
+
+        names = self._run_names(_ctx(incident_id=self.incident.id))
+
+        assert names == ["cpu"]
+
+    def test_a_checker_this_hub_does_not_have_is_no_scope(self):
+        """Same rule as no label: this machine cannot diagnose what it cannot run."""
+        self._alert(fingerprint="check:web-03:zfs", labels={"checker": "zfs"})
+
+        names = self._run_names(_ctx(incident_id=self.incident.id))
+
+        assert names == []
+
+    def test_another_incidents_alerts_are_not_in_scope(self):
+        other = Incident.objects.create(title="disk elsewhere")
+        self._alert(fingerprint="check:web-03:cpu", labels={"checker": "cpu"})
+        Alert.objects.create(
+            fingerprint="check:web-09:disk",
+            source="grafana",
+            name="disk",
+            severity=AlertSeverity.CRITICAL,
+            labels={"checker": "disk"},
+            started_at=timezone.now(),
+            incident=other,
+        )
+
+        names = self._run_names(_ctx(incident_id=self.incident.id))
+
+        assert names == ["cpu"]
+
+    def test_a_run_without_an_incident_still_sweeps(self):
+        """``--checks-only`` has no incident and no named checkers: unchanged.
+
+        The lane-level scope for such a run is the operator's configuration, and
+        deliberately out of scope here.
+        """
+        names = self._run_names(_ctx())
+
+        assert names is None
+
+    def test_the_registry_is_never_swept_for_an_incident_run(self):
+        """The regression guard, end to end: enqueue an incident run and drain it.
+
+        The seeded catch-all lane lists ``check``. Before this fix that meant every
+        material change to an unmatched incident ran every checker on the hub —
+        alerts about this machine, caused by an incident that has nothing to do
+        with it. The bridge is NOT stubbed here: only the registry is, with an
+        entry that detonates on instantiation.
+        """
+        self._alert(fingerprint="room-temp", labels={"room": "server-room"})
+        runs = inbox.enqueue_incident_runs(
+            [self.incident.id],
+            trace_id="t-sweep",
+            origin=PipelineOrigin.INCOMING_WEBHOOK,
+            source="grafana",
+        )
+
+        with patch.dict(
+            "apps.alerts.check_integration.CHECKER_REGISTRY",
+            {"cpu": _ExplodingChecker, "disk": _ExplodingChecker},
+            clear=True,
+        ):
+            drained = inbox.drain_runs(runs)
+
+        assert drained == 1
+        check = StageExecution.objects.get(
+            pipeline_run__run_id=runs[0].run_id, stage=PipelineStage.CHECK
+        )
+        assert check.status == StageStatus.SUCCEEDED
+        assert (check.output_snapshot or {}).get("checks_run") == 0
 
 
 class TestAnalyzeExecutorExplicitProvider(SimpleTestCase):

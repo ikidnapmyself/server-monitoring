@@ -297,11 +297,12 @@ class WebhookClusterLaneRoutingTests(TestCase):
         The checker bridge is stubbed, and only the bridge. The POST, the drain,
         routing resolution and every ``StageExecution`` row still happen for real
         — CHECK included, which is the stage under test in the negative arm. What
-        the stub removes is the I/O behind that stage: a real ``CheckExecutor``
-        runs the whole ``CHECKER_REGISTRY`` against the machine running the
-        tests (CPU sampling, disk scans, SMART and temperature probes), which
-        cost 36s here and varies with the runner's disks and sensors. The three
-        lanes that never reach CHECK pay nothing for the patch.
+        the stub removes is the I/O behind that stage. CHECK no longer sweeps the
+        registry (it takes its scope from the incident, whose one alert is labelled
+        ``checker: cpu``), but the scoped run is still a real CPU sample on the
+        machine running the tests, and it would write hub alerts of its own and
+        queue more work behind them. The three lanes that never reach CHECK pay
+        nothing for the patch.
         """
         mock_bridge = MagicMock()
         mock_bridge.run_checks_and_alert.return_value = SimpleNamespace(
