@@ -26,6 +26,7 @@ class StageDiag(str, Enum):
 
 
 # Canonical stage order (display maps ingest->alerts, check->checkers, etc.).
+# INGEST leads it only for incidents that have a legacy run — see ``_stage_order``.
 _STAGE_ORDER = [
     PipelineStage.INGEST,
     PipelineStage.CHECK,
@@ -44,10 +45,34 @@ _STAGE_OUTPUT_REF = {
 _IN_PROGRESS = {StageStatus.PENDING, StageStatus.RUNNING, StageStatus.RETRYING}
 
 
+def _is_legacy_run(run) -> bool:
+    """Was this run recorded under the old model, where INGEST was a stage?
+
+    Read off the payload shape, the same way ``PipelineOrchestrator`` itself
+    branches: a run carrying ``downstream_incident_id`` IS its incident and never
+    ingests; anything else is a row from before the incident became the subject of
+    a run, and its INGEST genuinely happened. Derived from the data rather than a
+    date or a flag, so no backfill and no cutover moment is involved.
+    """
+    return not run.inbound_payload.get("downstream_incident_id")
+
+
+def _stage_order(runs) -> list:
+    """The stages worth reporting for this incident.
+
+    INGEST is history: no producer records it any more, so listing it for a new
+    incident would show a permanent gap for a stage that will never run. It is
+    reported only when the incident actually has a run from the old model.
+    """
+    if any(_is_legacy_run(run) for run in runs):
+        return _STAGE_ORDER
+    return _STAGE_ORDER[1:]
+
+
 def _is_expected(incident, stage) -> bool:
     """Is this stage expected to run for the incident's routed pipeline?"""
     if stage == PipelineStage.INGEST:
-        return True  # entry stage, always expected
+        return True  # only in the order at all when a legacy run recorded one
     if incident.pipeline_id is None:
         return True  # un-routed: assume the full pipeline
     return stage.value in incident.pipeline.routable_stages()
@@ -58,12 +83,15 @@ def diagnose_incident(incident) -> list[dict]:
 
     Each entry: ``stage`` (str), ``status`` (ok|empty|failed|stalled|skipped|
     never_ran), ``detail`` (str|None), ``runs`` (str|None rollup).
+
+    INGEST appears only for an incident with a run from before "a run is an
+    incident" — see ``_stage_order``.
     """
     runs = list(incident.pipeline_runs.order_by("-created_at").prefetch_related("stage_executions"))
     total = len(runs)
 
     entries: list[dict] = []
-    for stage in _STAGE_ORDER:
+    for stage in _stage_order(runs):
         entries.append(_diagnose_stage(incident, stage, runs, total))
     return entries
 
