@@ -10,9 +10,8 @@ All management commands and their shell aliases (set up via `install.sh aliases`
 
 | Alias (default `sm-` prefix) | Management Command | App | Description |
 |------|------|-----|-------------|
-| `sm-check-health` | `check_health` | checkers | Run health checks (CPU, memory, disk, network, process) |
+| `sm-check-health` | `check_health` | checkers | Run health checks, record their alerts and drain the runs their incidents earn |
 | `sm-run-check` | `run_check` | checkers | Run a single checker with checker-specific options |
-| `sm-check-and-alert` | `run_pipeline --checks-only` | orchestration | Run checks through orchestrated pipeline |
 | `sm-get-recommendations` | `get_recommendations` | intelligence | Get AI-powered system recommendations |
 | `sm-run-pipeline` | `run_pipeline` | orchestration | Execute the full pipeline |
 | `sm-monitor-pipeline` | `monitor_pipeline` | orchestration | Monitor pipeline run history |
@@ -168,7 +167,7 @@ Sets up scheduled health checks via cron.
 **What it does:**
 - Detects project directory
 - Lets you choose a schedule (5 min / 15 min / hourly / custom)
-- Writes crontab entry for `run_pipeline --checks-only --json`
+- Writes crontab entry for `check_health --json`
 - Logs to `cron.log` in project root
 - Optionally sets up automatic updates (`bin/update.sh --rollback --auto-env`)
 

@@ -77,12 +77,18 @@ setup() {
     [ "$output" -eq 2 ]
 }
 
-@test "aliases template renamed check-and-alert to run-checks-only" {
-    run grep -F 'alias ${prefix}-run-checks-only=' "$BIN_DIR/install/aliases.sh"
+@test "aliases template offers check-health for this machine's checks" {
+    run grep -F 'alias ${prefix}-check-health=' "$BIN_DIR/install/aliases.sh"
     assert_success
 }
 
-@test "aliases template no longer contains check-and-alert" {
+@test "aliases template has no alias for the deprecated --checks-only" {
+    # check-and-alert became run-checks-only, and run-checks-only is gone: both
+    # named `run_pipeline --checks-only`, whose work check_health now does.
     run grep -F 'alias ${prefix}-check-and-alert=' "$BIN_DIR/install/aliases.sh"
+    assert_failure
+    run grep -F 'alias ${prefix}-run-checks-only=' "$BIN_DIR/install/aliases.sh"
+    assert_failure
+    run grep -F -- '--checks-only' "$BIN_DIR/install/aliases.sh"
     assert_failure
 }

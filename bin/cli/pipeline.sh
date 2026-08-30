@@ -7,8 +7,7 @@ pipeline_menu() {
         if tuin_menu "Pipeline" \
             "Run pipeline (sample payload)" \
             "Run pipeline from file" \
-            "Run checks only (orchestrated)" \
-            "Run checks only (dry run)" \
+            "Run this machine's checks through the pipeline" \
             "List recent pipeline runs" \
             "Show one pipeline run" \
             "Trace an alert's journey" \
@@ -24,10 +23,14 @@ pipeline_menu() {
                     else
                         echo -e "${RED}File path required${NC}"
                     fi ;;
-                "Run checks only (orchestrated)")
-                    confirm_and_run "$UV_BIN run python manage.py run_pipeline --checks-only" ;;
-                "Run checks only (dry run)")
-                    confirm_and_run "$UV_BIN run python manage.py run_pipeline --checks-only --dry-run" ;;
+                "Run this machine's checks through the pipeline")
+                    # check_health is the local entrypoint: it runs this machine's
+                    # checkers, records their alerts, and drains the run each
+                    # materially changed incident earns — synchronously, no daemon.
+                    # Replaces the deprecated run_pipeline --checks-only. There is
+                    # no dry-run counterpart: use --no-alert to run the checkers and
+                    # write nothing, so no incident forms and nothing is enqueued.
+                    confirm_and_run "$UV_BIN run python manage.py check_health" ;;
                 "List recent pipeline runs")
                     confirm_and_run "$UV_BIN run python manage.py monitor_pipeline" ;;
                 "Show one pipeline run")

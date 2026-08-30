@@ -170,11 +170,22 @@ EOF
     assert_success
 }
 
+@test "install/cron.sh schedules check_health, not the deprecated command" {
+    # --checks-only prints a deprecation notice on every run, which a scheduled
+    # job would write into cron.log on every tick. check_health does the same
+    # work: records the alerts, drains the runs their incidents earn.
+    run grep -q "manage.py check_health --json" "$BIN_DIR/install/cron.sh"
+    assert_success
+    run grep -E '^CRON_CMD=.*--checks-only' "$BIN_DIR/install/cron.sh"
+    assert_failure
+}
+
 @test "install/cron.sh schedules no second self-check job" {
-    # run_pipeline --checks-only above is already this machine's self-monitoring:
-    # it enters the pipeline at CHECK and routes the matched lane synchronously.
-    # A push_to_hub --local job would duplicate that alert on the same schedule
-    # and leave a PENDING run that a cron-only install never drains.
+    # The check_health job above is already this machine's self-monitoring: it
+    # writes the alerts and drains the run each materially changed incident
+    # earns, synchronously. A push_to_hub --local job would duplicate that alert
+    # on the same schedule and leave a PENDING run that a cron-only install
+    # never drains.
     run grep -q "push_to_hub --local" "$BIN_DIR/install/cron.sh"
     assert_failure
 }
