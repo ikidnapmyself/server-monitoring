@@ -867,6 +867,31 @@ class PushToHubLocalTests(TestCase):
         self.assertIn("no such table: alerts_alert", err.getvalue())
         self.assertEqual(PipelineRun.objects.count(), 0)
 
+    def test_local_registers_this_machine_when_every_checker_fails(self):
+        """A push proves the sender is alive whatever its alerts turn out to be.
+
+        The registry must not depend on them — that is the invariant the hub path
+        states explicitly — so a run whose every checker raised still puts this
+        machine in the registry. Otherwise the one machine that most needs to be
+        visible is the one that disappears.
+        """
+        broken = MagicMock()
+        broken.return_value.run.side_effect = RuntimeError("checker exploded")
+        with patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY") as mock_registry:
+            mock_registry.items.return_value = [("cpu", broken)]
+            mock_registry.__contains__.return_value = True
+            call_command(
+                "push_to_hub",
+                "--local",
+                "--checkers",
+                "cpu",
+                stdout=StringIO(),
+                stderr=StringIO(),
+            )
+
+        self.assertEqual(Alert.objects.count(), 0)
+        self.assertEqual(Node.objects.get(instance_id="hub-1").last_source, "local")
+
     def test_dry_run_with_local_records_nothing(self):
         out = self._push_local("--dry-run")
         self.assertIn("dry run", out.lower())
