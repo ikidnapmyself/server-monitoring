@@ -23,6 +23,8 @@ so keeping the edge inside the call avoids the import cycle. Same convention as
 
 import logging
 
+from django.db import transaction
+
 from apps.orchestration.models import PipelineRun
 
 logger = logging.getLogger(__name__)
@@ -53,10 +55,17 @@ def enqueue_for(
     cheaper than silently enqueueing nothing, whose only symptom is that
     on-call was never told, hours later, with no trace.
 
-    With ``sync=True`` the runs are drained before returning, using
-    ``orchestrator`` when the caller has one of its own; its retry/backoff
-    settings and executors must apply to these runs rather than being silently
-    replaced by a fresh default.
+    With ``sync=True`` the runs are drained once the enclosing transaction has
+    committed, using ``orchestrator`` when the caller has one of its own; its
+    retry/backoff settings and executors must apply to these runs rather than
+    being silently replaced by a fresh default.
+
+    The enqueue itself is expected to run inside the producer's transaction, so
+    that the runs commit with the alert and incident writes that justify them:
+    a crash between the two leaves an incident nobody is ever told about, and
+    nothing self-heals it — the sender's retry finds the same alert at the same
+    severity, so nothing is material, and ``reclaim_stuck`` only rescues rows
+    that are already runs.
     """
     from apps.orchestration.inbox import drain_runs, enqueue_incident_runs
     from apps.orchestration.routing import material_incident_ids
@@ -76,5 +85,12 @@ def enqueue_for(
         no_notify=no_notify,
     )
     if sync:
-        drain_runs(runs, orchestrator=orchestrator)
+        # The drain must never run inside the caller's transaction: it claims
+        # runs and executes stages, and rows an uncommitted transaction holds are
+        # invisible to every other process, so the claim protects nothing and the
+        # work is done against a state that may yet vanish. ``on_commit`` runs the
+        # callback immediately when there is no atomic block and defers it to
+        # commit when there is, so this is right either way — which matters
+        # because whether a producer wrapped us is the producer's business.
+        transaction.on_commit(lambda: drain_runs(runs, orchestrator=orchestrator))
     return runs

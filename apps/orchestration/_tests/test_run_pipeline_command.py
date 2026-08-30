@@ -86,15 +86,22 @@ class RunPipelineReplayTests(StubAnalysisMixin, TestCase):
         self.addCleanup(patcher.stop)
 
     def test_sample_payload_creates_alerts_and_drains(self):
-        """The CLI caller expects one call to finish: nothing left PENDING."""
-        call_command("run_pipeline", "--sample", stdout=io.StringIO())
+        """The CLI caller expects one call to finish: nothing left PENDING.
+
+        The command enqueues inside a transaction and drains on its commit, so the
+        drain never claims runs the transaction has not committed. ``TestCase``
+        never commits, hence the capture.
+        """
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command("run_pipeline", "--sample", stdout=io.StringIO())
 
         self.assertTrue(Alert.objects.exists())
         self.assertTrue(PipelineRun.objects.exists())
         self.assertFalse(PipelineRun.objects.filter(status=PipelineStatus.PENDING).exists())
 
     def test_sample_payload_is_analyzed_in_the_same_call(self):
-        call_command("run_pipeline", "--sample", stdout=io.StringIO())
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command("run_pipeline", "--sample", stdout=io.StringIO())
 
         self.assertTrue(
             StageExecution.objects.filter(
@@ -215,8 +222,11 @@ class RunPipelineChecksOnlyTests(StubAnalysisMixin, TestCase):
 
     def _run(self, *args, checker=None):
         out, err = StringIO(), StringIO()
+        # The drain runs on the commit of the command's transaction; TestCase
+        # never commits, so the callbacks are executed here instead.
         with patch.dict(REGISTRY_PATH, {"cpu": checker or make_checker()}, clear=True):
-            call_command("run_pipeline", "--checks-only", *args, stdout=out, stderr=err)
+            with self.captureOnCommitCallbacks(execute=True):
+                call_command("run_pipeline", "--checks-only", *args, stdout=out, stderr=err)
         return out.getvalue(), err.getvalue()
 
     def test_checks_only_warns_that_it_is_deprecated(self):

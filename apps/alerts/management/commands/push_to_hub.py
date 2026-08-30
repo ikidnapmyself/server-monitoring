@@ -20,6 +20,7 @@ from urllib.request import Request  # noqa: TID251 — Request is a data object,
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 
 from apps.alerts.identity import checker_fingerprint
 from apps.checkers.checkers import CHECKER_REGISTRY
@@ -324,16 +325,21 @@ class Command(BaseCommand):
         from apps.orchestration.models import PipelineOrigin
 
         trace_id = str(uuid.uuid4())
-        bridge_result = CheckAlertBridge(trace_id=trace_id).process_check_results(results)
+        # One transaction for the writes and the enqueue they justify: a crash
+        # between them leaves an incident durably written with no run, and the next
+        # push reports the same condition at the same severity, so nothing is
+        # material and nothing is ever enqueued for it.
+        with transaction.atomic():
+            bridge_result = CheckAlertBridge(trace_id=trace_id).process_check_results(results)
+            runs = enqueue_for(
+                bridge_result,
+                trace_id=trace_id,
+                origin=PipelineOrigin.CHECKER_GENERATED,
+                source=CheckAlertBridge.SOURCE_NAME,
+            )
         for error in bridge_result.errors:
             self.stderr.write(self.style.WARNING(f"Alert recording failed: {error}"))
 
-        runs = enqueue_for(
-            bridge_result,
-            trace_id=trace_id,
-            origin=PipelineOrigin.CHECKER_GENERATED,
-            source=CheckAlertBridge.SOURCE_NAME,
-        )
         incident_ids = [run.incident_id for run in runs]
         if json_output:
             # --json exists so a wrapper can parse this command's stdout; a mode

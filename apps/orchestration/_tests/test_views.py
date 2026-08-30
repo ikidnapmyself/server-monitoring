@@ -91,10 +91,14 @@ class TestPipelineView(TestCase):
         """Sync mode drains the runs it enqueued before responding."""
         from apps.orchestration.models import PipelineRun, PipelineStatus
 
-        response = self._post(
-            {"payload": {"name": "CPU high", "status": "firing", "severity": "critical"}},
-            url="/orchestration/pipeline/sync/",
-        )
+        # The endpoint enqueues inside a transaction and drains on its commit, so
+        # the drain never claims runs the transaction has not committed. TestCase
+        # never commits, hence the capture.
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._post(
+                {"payload": {"name": "CPU high", "status": "firing", "severity": "critical"}},
+                url="/orchestration/pipeline/sync/",
+            )
 
         assert response.status_code == 200
         data = response.json()

@@ -7,6 +7,7 @@ import logging
 import uuid
 from typing import Any
 
+from django.db import transaction
 from django.http import JsonResponse
 from django.utils.decorators import method_decorator
 from django.views import View
@@ -103,9 +104,28 @@ class AlertWebhookView(View):
 
             trace_id = str(uuid.uuid4())
             source = driver or "unknown"
-            proc_result = AlertOrchestrator(trace_id=trace_id).process_webhook(
-                payload, driver=driver
-            )
+            # One transaction for the writes and the enqueue they justify. A crash
+            # between them — SIGKILL, OOM, a gunicorn timeout, a deploy restart —
+            # would otherwise leave the incident durably written with no run, and
+            # nothing ever heals that: the sender's retry finds the same alert at
+            # the same severity, so nothing is material, so nothing is enqueued,
+            # and ``reclaim_stuck`` only rescues rows that are already runs. Losing
+            # the write and being retried is the recoverable failure; keeping it
+            # and telling nobody is not.
+            #
+            # ``enqueue_for`` registers its drain (when a caller asks for one) with
+            # ``transaction.on_commit``, so no stage ever executes against rows
+            # this transaction has not committed.
+            with transaction.atomic():
+                proc_result = AlertOrchestrator(trace_id=trace_id).process_webhook(
+                    payload, driver=driver
+                )
+                runs = enqueue_for(
+                    proc_result,
+                    trace_id=trace_id,
+                    origin=PipelineOrigin.INCOMING_WEBHOOK,
+                    source=source,
+                )
 
             # Nothing understood the payload: no driver claimed it, so nothing was
             # parsed and nothing was written. That used to fail invisibly in the
@@ -159,12 +179,6 @@ class AlertWebhookView(View):
                     trace_id,
                 )
 
-            runs = enqueue_for(
-                proc_result,
-                trace_id=trace_id,
-                origin=PipelineOrigin.INCOMING_WEBHOOK,
-                source=source,
-            )
             incident_ids = [run.incident_id for run in runs]
             logger.info(
                 "Webhook ingested %d alert(s), queued %d incident run(s) (source=%s, trace_id=%s)",

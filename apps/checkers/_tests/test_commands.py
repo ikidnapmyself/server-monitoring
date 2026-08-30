@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import OperationalError
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 
 from apps.alerts.models import Alert, Incident, Node
 from apps.checkers.checkers.base import CheckResult, CheckStatus
@@ -386,9 +386,14 @@ class CheckHealthAlertTests(TestCase):
             message="CPU at 99%",
             checker_name="cpu",
         )
+        # The command enqueues inside a transaction and lets ``on_commit`` fire the
+        # drain, so the drain never claims runs the transaction has not committed.
+        # ``TestCase`` wraps each test in a transaction that never commits, so
+        # without this the drain the command really performs would not happen here.
         with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
-            with self.assertRaises(SystemExit) as ctx:
-                call_command("check_health", "cpu", *args, stdout=out, stderr=err)
+            with self.captureOnCommitCallbacks(execute=True):
+                with self.assertRaises(SystemExit) as ctx:
+                    call_command("check_health", "cpu", *args, stdout=out, stderr=err)
         self.assertEqual(ctx.exception.code, 2)
         return out.getvalue(), err.getvalue()
 
@@ -435,31 +440,6 @@ class CheckHealthAlertTests(TestCase):
         run = PipelineRun.objects.get()
         self.assertTrue(run.inbound_payload.get("no_notify"))
         self.assertFalse(StageExecution.objects.filter(stage=PipelineStage.NOTIFY).exists())
-
-    def test_an_orchestration_failure_does_not_change_exit_code_or_stdout(self):
-        """A health check must still print its results if the pipeline breaks."""
-        with patch(
-            "apps.orchestration.orchestrator.PipelineOrchestrator.execute_run",
-            side_effect=OperationalError("orchestrator exploded"),
-        ):
-            stdout, stderr = self._run_firing_cpu()
-        self.assertIn("CPU at 99%", stdout)
-        self.assertIn("orchestrator exploded", stderr)
-        self.assertNotIn("orchestrator exploded", stdout)
-        # The alerts were still recorded; only the drain failed.
-        self.assertTrue(Alert.objects.exists())
-
-    def test_an_orchestration_failure_is_logged(self):
-        """The stderr line alone would leave a real pipeline bug undiagnosable."""
-        with patch(
-            "apps.orchestration.orchestrator.PipelineOrchestrator.execute_run",
-            side_effect=OperationalError("orchestrator exploded"),
-        ):
-            with self.assertLogs(
-                "apps.checkers.management.commands.check_health", level="ERROR"
-            ) as logs:
-                self._run_firing_cpu()
-        self.assertIn("orchestrator exploded", "\n".join(logs.output))
 
     def test_nothing_is_delivered_without_an_active_channel(self):
         """The laptop case: the analysis happens, nobody is paged."""
@@ -511,6 +491,24 @@ class CheckHealthAlertTests(TestCase):
         self.assertIn("no such table", stderr)
         self.assertNotIn("Alert recording skipped", stdout)
 
+    def test_a_crash_at_the_enqueue_leaves_no_orphaned_incident(self):
+        """The enqueue commits with the writes that justify it, or not at all.
+
+        An incident written with no run never self-heals: the next tick reports the
+        same condition at the same severity, so nothing is material and nothing is
+        enqueued, and ``reclaim_stuck`` only rescues rows that are already runs.
+        """
+        with patch(
+            "apps.orchestration.intake.enqueue_for",
+            side_effect=OperationalError("killed mid-enqueue"),
+        ):
+            _, stderr = self._run_firing_cpu()
+
+        self.assertIn("killed mid-enqueue", stderr)
+        self.assertFalse(Alert.objects.exists())
+        self.assertFalse(Incident.objects.exists())
+        self.assertFalse(PipelineRun.objects.exists())
+
     def test_a_raised_bridge_failure_is_still_reported(self):
         """The try/except still guards the import and the constructor."""
         with patch(
@@ -520,6 +518,63 @@ class CheckHealthAlertTests(TestCase):
             _, stderr = self._run_firing_cpu()
         self.assertIn("Alert recording skipped", stderr)
         self.assertIn("bridge exploded", stderr)
+
+
+@override_settings(INSTANCE_ID="solo-mac")
+class CheckHealthDrainFailureTests(TransactionTestCase):
+    """A broken drain must not break the health check.
+
+    The drain runs on the commit of the command's own transaction, so it is inside
+    the command's ``try`` and the command reports it. Proving that needs a real
+    commit, which is why this is a ``TransactionTestCase``: under ``TestCase`` the
+    enclosing transaction never commits, and the on-commit drain would run in the
+    test rather than in the command.
+
+    Nothing here needs a routing lane — ``execute_run`` is stubbed to fail — so the
+    flush this class ends with costs the tests that follow nothing.
+    """
+
+    REGISTRY_PATH = CheckHealthCommandTests.REGISTRY_PATH
+    _make_checker = CheckHealthCommandTests._make_checker
+
+    def _run_firing_cpu(self):
+        out, err = StringIO(), StringIO()
+        mock_checker = self._make_checker(
+            status=CheckStatus.CRITICAL,
+            message="CPU at 99%",
+            checker_name="cpu",
+        )
+        with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
+            with self.assertRaises(SystemExit) as ctx:
+                call_command("check_health", "cpu", stdout=out, stderr=err)
+        self.assertEqual(ctx.exception.code, 2)
+        return out.getvalue(), err.getvalue()
+
+    def test_an_orchestration_failure_does_not_change_exit_code_or_stdout(self):
+        """A health check must still print its results if the pipeline breaks."""
+        with patch(
+            "apps.orchestration.orchestrator.PipelineOrchestrator.execute_run",
+            side_effect=OperationalError("orchestrator exploded"),
+        ):
+            stdout, stderr = self._run_firing_cpu()
+        self.assertIn("CPU at 99%", stdout)
+        self.assertIn("orchestrator exploded", stderr)
+        self.assertNotIn("orchestrator exploded", stdout)
+        # The alerts were still recorded; only the drain failed. The drain runs
+        # after the commit, so its failure cannot take the writes back.
+        self.assertTrue(Alert.objects.exists())
+
+    def test_an_orchestration_failure_is_logged(self):
+        """The stderr line alone would leave a real pipeline bug undiagnosable."""
+        with patch(
+            "apps.orchestration.orchestrator.PipelineOrchestrator.execute_run",
+            side_effect=OperationalError("orchestrator exploded"),
+        ):
+            with self.assertLogs(
+                "apps.checkers.management.commands.check_health", level="ERROR"
+            ) as logs:
+                self._run_firing_cpu()
+        self.assertIn("orchestrator exploded", "\n".join(logs.output))
 
 
 class RunCheckCommandTests(TestCase):

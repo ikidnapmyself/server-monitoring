@@ -9,6 +9,7 @@ import logging
 import uuid
 from typing import Any
 
+from django.db import transaction
 from django.http import JsonResponse
 from django.utils.decorators import method_decorator
 from django.views import View
@@ -85,9 +86,24 @@ class PipelineView(JSONResponseMixin, View):
             from apps.alerts.services import AlertOrchestrator
             from apps.orchestration.intake import enqueue_for
 
-            proc_result = AlertOrchestrator(trace_id=trace_id).process_webhook(
-                payload, driver=driver
-            )
+            # One transaction for the writes and the enqueue they justify: a crash
+            # between them leaves an incident durably written with no run, and
+            # nothing heals that (see the same note in ``apps.alerts.views``). With
+            # ``sync`` the drain is registered with ``transaction.on_commit`` inside
+            # ``enqueue_for``, so it runs after this block, never against rows the
+            # transaction has not committed.
+            with transaction.atomic():
+                proc_result = AlertOrchestrator(trace_id=trace_id).process_webhook(
+                    payload, driver=driver
+                )
+                runs = enqueue_for(
+                    proc_result,
+                    trace_id=trace_id,
+                    origin=PipelineOrigin.INCOMING_WEBHOOK,
+                    source=source,
+                    environment=environment,
+                    sync=(mode == "sync"),
+                )
 
             # Nothing understood the payload: no driver claimed it, so nothing was
             # parsed and nothing was written. A retry would fail identically, so
@@ -134,14 +150,6 @@ class PipelineView(JSONResponseMixin, View):
                     trace_id,
                 )
 
-            runs = enqueue_for(
-                proc_result,
-                trace_id=trace_id,
-                origin=PipelineOrigin.INCOMING_WEBHOOK,
-                source=source,
-                environment=environment,
-                sync=(mode == "sync"),
-            )
         except Exception as e:  # noqa: BLE001 - the caller gets an honest 500
             logger.exception("Unexpected error triggering pipeline")
             return self.error_response(str(e), status=500)

@@ -3,6 +3,7 @@
 from unittest.mock import patch
 
 import pytest
+from django.db import transaction
 from django.utils import timezone
 
 from apps.alerts.models import Alert, AlertStatus, Incident
@@ -71,15 +72,21 @@ def test_no_material_alerts_enqueues_nothing():
 
 
 @pytest.mark.django_db
-def test_sync_leaves_nothing_pending():
-    """A synchronous caller expects one call to finish the job."""
+def test_sync_leaves_nothing_pending(django_capture_on_commit_callbacks):
+    """A synchronous caller expects one call to finish the job.
+
+    The drain is registered with ``transaction.on_commit`` so it can never claim
+    and execute runs the enclosing transaction has not committed; the test
+    transaction never commits, so the callbacks are executed here.
+    """
     incident = Incident.objects.create(title="cpu", severity="critical")
     alert = _alert("check:n1:cpu", incident=incident)
 
     with patch("apps.orchestration.inbox.PipelineOrchestrator.execute_run") as mock_exec:
-        runs = enqueue_for(
-            _Result([alert]), trace_id="t1", origin=PipelineOrigin.CHECKER_GENERATED, sync=True
-        )
+        with django_capture_on_commit_callbacks(execute=True):
+            runs = enqueue_for(
+                _Result([alert]), trace_id="t1", origin=PipelineOrigin.CHECKER_GENERATED, sync=True
+            )
 
     assert len(runs) == 1
     mock_exec.assert_called_once()
@@ -101,7 +108,7 @@ def test_without_sync_the_runs_are_left_pending():
 
 
 @pytest.mark.django_db
-def test_sync_uses_the_orchestrator_it_is_given():
+def test_sync_uses_the_orchestrator_it_is_given(django_capture_on_commit_callbacks):
     """A synchronous caller's retry/backoff settings must reach the runs."""
     incident = Incident.objects.create(title="cpu", severity="critical")
     alert = _alert("check:n1:cpu", incident=incident)
@@ -112,13 +119,14 @@ def test_sync_uses_the_orchestrator_it_is_given():
             executed.append(pipeline_run.incident_id)
 
     with patch("apps.orchestration.inbox.PipelineOrchestrator.execute_run") as mock_exec:
-        enqueue_for(
-            _Result([alert]),
-            trace_id="t1",
-            origin=PipelineOrigin.MANUAL,
-            sync=True,
-            orchestrator=_Recorder(),
-        )
+        with django_capture_on_commit_callbacks(execute=True):
+            enqueue_for(
+                _Result([alert]),
+                trace_id="t1",
+                origin=PipelineOrigin.MANUAL,
+                sync=True,
+                orchestrator=_Recorder(),
+            )
 
     assert executed == [incident.id]
     mock_exec.assert_not_called()
@@ -160,3 +168,36 @@ def test_a_result_without_material_alerts_raises():
     with pytest.raises(AttributeError, match="material_alerts"):
         enqueue_for(_NotAResult(), trace_id="t1", origin=PipelineOrigin.MANUAL)
     assert PipelineRun.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_the_sync_drain_waits_for_the_producer_to_commit(django_capture_on_commit_callbacks):
+    """No stage may execute against rows the producer has not committed yet.
+
+    A drain claims runs and executes stages; inside an uncommitted transaction
+    those rows are invisible to every other process, so the claim protects
+    nothing and the work is done against a state that may still vanish.
+    """
+    incident = Incident.objects.create(title="cpu", severity="critical")
+    alert = _alert("check:n1:cpu", incident=incident)
+    executed = []
+
+    class _Recorder:
+        def execute_run(self, pipeline_run):
+            executed.append(pipeline_run.incident_id)
+
+    with django_capture_on_commit_callbacks(execute=True) as callbacks:
+        with transaction.atomic():
+            enqueue_for(
+                _Result([alert]),
+                trace_id="t1",
+                origin=PipelineOrigin.MANUAL,
+                sync=True,
+                orchestrator=_Recorder(),
+            )
+            # Still inside the producer's transaction: nothing has run.
+            assert executed == []
+        assert executed == []
+
+    assert len(callbacks) == 1
+    assert executed == [incident.id]

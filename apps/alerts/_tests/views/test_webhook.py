@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.alerts import views
-from apps.alerts.models import Alert, Node
+from apps.alerts.models import Alert, Incident, Node
 from apps.alerts.services import ProcessingResult
 from apps.orchestration import inbox
 from apps.orchestration.models import (
@@ -152,6 +152,25 @@ class WebhookViewTests(TestCase):
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json()["status"], "error")
         self.assertEqual(Alert.objects.count(), 0)
+        self.assertEqual(PipelineRun.objects.count(), 0)
+
+    def test_a_crash_at_the_enqueue_leaves_no_orphaned_incident(self):
+        """The enqueue and the writes that justify it commit together.
+
+        An incident written with no run never self-heals: the sender's retry finds
+        the same alert at the same severity, so nothing is material, so nothing is
+        enqueued, and there is no sweep for a materially changed alert lacking a
+        run. Better to keep nothing and be retried.
+        """
+        with patch(
+            "apps.orchestration.intake.enqueue_for",
+            side_effect=RuntimeError("killed mid-enqueue"),
+        ):
+            response = self._post({"name": "CPU high", "status": "firing", "severity": "critical"})
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(Alert.objects.count(), 0)
+        self.assertEqual(Incident.objects.count(), 0)
         self.assertEqual(PipelineRun.objects.count(), 0)
 
     def test_the_sending_node_is_still_registered(self):

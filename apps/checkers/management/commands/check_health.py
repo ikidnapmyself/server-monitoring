@@ -18,6 +18,7 @@ import uuid
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 
 from apps.checkers.checkers import CHECKER_REGISTRY, CheckStatus
 from apps.checkers.management.commands._metrics_format import write_metrics
@@ -170,29 +171,35 @@ class Command(BaseCommand):
         from apps.orchestration.models import PipelineOrigin
 
         trace_id = str(uuid.uuid4())
+        result = None
         try:
-            result = CheckAlertBridge(trace_id=trace_id).process_check_results(results)
+            # One transaction for the writes and the enqueue they justify: a crash
+            # between them leaves an incident durably written with no run, and the
+            # next tick reports the same condition at the same severity, so nothing
+            # is material and nothing is ever enqueued for it. The drain is
+            # registered with ``transaction.on_commit`` inside ``enqueue_for``, so
+            # it runs after this block rather than against uncommitted rows.
+            with transaction.atomic():
+                result = CheckAlertBridge(trace_id=trace_id).process_check_results(results)
+                enqueue_for(
+                    result,
+                    trace_id=trace_id,
+                    origin=PipelineOrigin.CHECKER_GENERATED,
+                    source=CheckAlertBridge.SOURCE_NAME,
+                    no_notify=no_notify,
+                    sync=True,
+                )
         except Exception as exc:  # noqa: BLE001 - a health check must still print
-            logger.exception("Alert recording failed")
-            self.stderr.write(f"Alert recording skipped: {exc}")
+            # Which half broke decides what to say: the bridge had not returned yet
+            # (recording), or it had (the enqueue or the drain that follows it).
+            stage = "Pipeline run" if result is not None else "Alert recording"
+            logger.exception("%s failed", stage)
+            self.stderr.write(f"{stage} skipped: {exc}")
             return
 
         for error in result.errors:
             logger.error("Alert recording failed: %s", error)
             self.stderr.write(f"Alert recording skipped: {error}")
-
-        try:
-            enqueue_for(
-                result,
-                trace_id=trace_id,
-                origin=PipelineOrigin.CHECKER_GENERATED,
-                source=CheckAlertBridge.SOURCE_NAME,
-                no_notify=no_notify,
-                sync=True,
-            )
-        except Exception as exc:  # noqa: BLE001 - a health check must still print
-            logger.exception("Pipeline run failed")
-            self.stderr.write(f"Pipeline run skipped: {exc}")
 
     def _list_checkers(self):
         self.stdout.write(self.style.SUCCESS("Available checkers:\n"))

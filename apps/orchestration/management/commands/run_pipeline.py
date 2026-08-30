@@ -30,6 +30,7 @@ import json
 import uuid
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 
 from apps.orchestration.models import PipelineOrigin
 from config.security import PathNotAllowedError, resolve_safe_path
@@ -200,7 +201,24 @@ class Command(BaseCommand):
         # sniffed, as an unlabelled webhook is.
         driver = options["source"] if options["source"] != "cli" else None
 
-        result = AlertOrchestrator(trace_id=trace_id).process_webhook(inner_payload, driver=driver)
+        # One transaction for the writes and the enqueue they justify: a crash
+        # between them leaves an incident durably written with no run, and nothing
+        # heals that (see ``apps.orchestration.intake.enqueue_for``). The drain is
+        # registered with ``transaction.on_commit``, so it runs after this block
+        # rather than against rows the transaction has not committed.
+        with transaction.atomic():
+            result = AlertOrchestrator(trace_id=trace_id).process_webhook(
+                inner_payload, driver=driver
+            )
+            runs = enqueue_for(
+                result,
+                trace_id=trace_id,
+                origin=PipelineOrigin.MANUAL,
+                source=options["source"],
+                environment=options["environment"],
+                no_notify=bool(options.get("no_notify")),
+                sync=True,
+            )
 
         if not result.driver_resolved:
             # Nothing understood the payload, so nothing was written. The operator
@@ -208,16 +226,6 @@ class Command(BaseCommand):
             raise CommandError(
                 "Could not detect a driver for the payload: " + "; ".join(result.errors)
             )
-
-        runs = enqueue_for(
-            result,
-            trace_id=trace_id,
-            origin=PipelineOrigin.MANUAL,
-            source=options["source"],
-            environment=options["environment"],
-            no_notify=bool(options.get("no_notify")),
-            sync=True,
-        )
         return {
             "trace_id": trace_id,
             "incidents": [run.incident_id for run in runs],
@@ -258,24 +266,26 @@ class Command(BaseCommand):
         if hostname:
             bridge_kwargs["hostname"] = hostname
 
-        result = CheckAlertBridge(**bridge_kwargs).run_checks_and_alert(
-            checker_names=checker_names,
-            checker_configs=checker_configs or None,
-            labels=labels or None,
-        )
-
-        runs = enqueue_for(
-            result,
-            trace_id=trace_id,
-            origin=PipelineOrigin.CHECKER_GENERATED,
-            # The bridge writes every checker alert under this source, whoever ran
-            # it; recording the run under anything else would make the run and its
-            # alerts disagree about where the work came from.
-            source=CheckAlertBridge.SOURCE_NAME,
-            environment=options["environment"],
-            no_notify=bool(options.get("no_notify")),
-            sync=True,
-        )
+        # One transaction for the writes and the enqueue they justify; see
+        # ``_replay_payload`` above.
+        with transaction.atomic():
+            result = CheckAlertBridge(**bridge_kwargs).run_checks_and_alert(
+                checker_names=checker_names,
+                checker_configs=checker_configs or None,
+                labels=labels or None,
+            )
+            runs = enqueue_for(
+                result,
+                trace_id=trace_id,
+                origin=PipelineOrigin.CHECKER_GENERATED,
+                # The bridge writes every checker alert under this source, whoever
+                # ran it; recording the run under anything else would make the run
+                # and its alerts disagree about where the work came from.
+                source=CheckAlertBridge.SOURCE_NAME,
+                environment=options["environment"],
+                no_notify=bool(options.get("no_notify")),
+                sync=True,
+            )
         return {
             "trace_id": trace_id,
             "incidents": [run.incident_id for run in runs],
