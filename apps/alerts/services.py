@@ -62,11 +62,12 @@ def register_pushing_node(
 
     ``source`` is what ``Node.last_source`` records, i.e. how the row was last
     touched, and it defaults to the webhook path's answer: ``cluster``, meaning the
-    payload arrived by push from another machine. ``push_to_hub --local`` builds the
-    same cluster payload but never leaves the machine, so it passes ``local`` —
-    otherwise a hub running both that and ``check_health`` would flip the field
-    every run and anything reading it to tell fleet from self would be wrong half
-    the time.
+    payload arrived by push from another machine. A caller describing this machine
+    passes ``local`` instead, so that a hub reading the field can tell its fleet
+    from itself. In practice this machine registers itself through
+    ``CheckAlertBridge`` (``check_health``, ``push_to_hub --local``), which writes
+    ``local`` on the same row; the parameter keeps that distinction expressible
+    here rather than assuming every payload came off the wire.
     """
     from apps.alerts.models import Node
 

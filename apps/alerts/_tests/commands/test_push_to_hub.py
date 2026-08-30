@@ -11,7 +11,14 @@ from apps.alerts.check_integration import CheckAlertBridge
 from apps.alerts.management.commands.push_to_hub import Command
 from apps.alerts.models import Alert, Node
 from apps.checkers.checkers.base import CheckResult, CheckStatus
-from apps.orchestration.models import PipelineOrigin, PipelineRun, PipelineStatus
+from apps.orchestration.models import (
+    PipelineDefinition,
+    PipelineOrigin,
+    PipelineRun,
+    PipelineStage,
+    PipelineStatus,
+    StageExecution,
+)
 from config.security.url_validation import URLNotAllowedError
 
 
@@ -741,10 +748,12 @@ class ResultToAlertIdentityTests(TestCase):
 
 @override_settings(INSTANCE_ID="hub-1", HUB_URL="")
 class PushToHubLocalTests(TestCase):
-    """``--local`` records the run a remote agent's POST would have recorded.
+    """``--local`` produces truth and enqueues, like every other producer.
 
-    The hub monitors itself through the same path it uses for its agents: the
-    same cluster payload, minus the network, landing in the same inbox.
+    Writing an alert is not a pipeline stage, so ``--local`` records the alerts
+    itself through ``CheckAlertBridge`` — the same writer ``check_health`` uses —
+    and then enqueues one run per materially changed incident. It is the queued
+    mode: ``process_inbox`` completes it.
     """
 
     def setUp(self):
@@ -761,17 +770,45 @@ class PushToHubLocalTests(TestCase):
         mock_registry.items.return_value = [("cpu", mock_checker_cls)]
         mock_registry.__contains__.return_value = True
 
-    def test_local_records_a_pending_run(self):
-        call_command("push_to_hub", "--local", "--checkers", "cpu", stdout=StringIO())
+    def _push_local(self, *extra):
+        out = StringIO()
+        call_command("push_to_hub", "--local", "--checkers", "cpu", *extra, stdout=out)
+        return out.getvalue()
+
+    def test_local_writes_alerts_directly(self):
+        """The alert exists the moment the command returns — no drain needed."""
+        self._push_local()
+        alert = Alert.objects.get()
+        self.assertEqual(alert.fingerprint, "check:hub-1:cpu")
+        self.assertEqual(alert.severity, "critical")
+        self.assertEqual(alert.source, CheckAlertBridge.SOURCE_NAME)
+
+    def test_local_records_no_driver_payload_run(self):
+        """The ``{driver, payload}`` wrapper is gone; the run carries an incident."""
+        self._push_local()
+        incident = Alert.objects.get().incident
         run = PipelineRun.objects.get()
-        self.assertEqual(run.status, PipelineStatus.PENDING)
+        self.assertNotIn("driver", run.inbound_payload)
+        self.assertNotIn("payload", run.inbound_payload)
+        self.assertEqual(run.inbound_payload, {"downstream_incident_id": incident.id})
+
+    def test_local_enqueues_one_pending_run_per_material_incident(self):
+        self._push_local()
+        incident = Alert.objects.get().incident
+        self.assertIsNotNone(incident)
+        run = PipelineRun.objects.get()
+        self.assertEqual(run.incident_id, incident.id)
         self.assertEqual(run.origin, PipelineOrigin.CHECKER_GENERATED)
-        self.assertEqual(run.inbound_payload["driver"], "cluster")
-        self.assertEqual(run.inbound_payload["payload"]["source"], "cluster")
+        self.assertEqual(run.source, CheckAlertBridge.SOURCE_NAME)
+
+    def test_local_leaves_the_runs_pending(self):
+        """--local is the queued mode; ``process_inbox`` completes it, not this."""
+        self._push_local()
+        self.assertEqual(PipelineRun.objects.get().status, PipelineStatus.PENDING)
 
     def test_local_registers_this_machine(self):
         """A local push proves this machine is alive, exactly like a peer's."""
-        call_command("push_to_hub", "--local", "--checkers", "cpu", stdout=StringIO())
+        self._push_local()
         self.assertTrue(Node.objects.filter(instance_id="hub-1").exists())
 
     def test_local_registration_is_marked_local_not_cluster(self):
@@ -782,48 +819,115 @@ class PushToHubLocalTests(TestCase):
         between the two every run, and anything reading it would be wrong half
         the time.
         """
-        call_command("push_to_hub", "--local", "--checkers", "cpu", stdout=StringIO())
+        self._push_local()
         self.assertEqual(Node.objects.get(instance_id="hub-1").last_source, "local")
 
-    def test_local_needs_no_hub_url(self):
+    def test_local_still_needs_no_hub_url(self):
         """A hub checking itself has no hub to point at."""
-        call_command("push_to_hub", "--local", "--checkers", "cpu", stdout=StringIO())
+        self._push_local()
         self.assertEqual(PipelineRun.objects.count(), 1)
 
     @patch("apps.alerts.management.commands.push_to_hub.send_to_hub")
     def test_local_sends_no_http(self, mock_send):
-        call_command("push_to_hub", "--local", "--checkers", "cpu", stdout=StringIO())
+        self._push_local()
         mock_send.assert_not_called()
 
-    def test_local_run_drains_into_alerts(self):
-        """The real proof: the recorded shape is what the drain actually parses.
+    def test_local_json_shape(self):
+        """--json means a wrapper parses stdout; --local must honour it too.
 
-        A run recorded in a shape ``IngestExecutor``/``ClusterDriver`` cannot read
-        would still be PENDING, still be a cluster payload, and still pass every
-        other test here. Only draining it shows the alert arrives.
+        ``run_id`` is not singular any more: a push can materially change several
+        incidents or none, so the shape reports the trace and the incidents.
         """
+        parsed = json.loads(self._push_local("--json"))
+        incident = Alert.objects.get().incident
+        run = PipelineRun.objects.get()
+        self.assertEqual(parsed["trace_id"], run.trace_id)
+        self.assertEqual(parsed["incidents"], [incident.id])
+        self.assertEqual(parsed["alerts"], 1)
+
+    def test_local_reports_a_failed_alert_write_on_stderr(self):
+        """A bridge that could not write must say so, not exit quietly at 0.
+
+        The bridge catches what the alert write raises and folds the message into
+        its result, so ignoring the return value would swallow the one signal an
+        operator gets — and --json parses stdout, so the report belongs on stderr.
+        """
+        from apps.alerts.check_integration import CheckAlertResult
+
+        broken = MagicMock()
+        broken.return_value.process_check_results.return_value = CheckAlertResult(
+            errors=["no such table: alerts_alert"]
+        )
+        err = StringIO()
+        with patch("apps.alerts.check_integration.CheckAlertBridge", broken):
+            call_command(
+                "push_to_hub", "--local", "--checkers", "cpu", stdout=StringIO(), stderr=err
+            )
+
+        self.assertIn("no such table: alerts_alert", err.getvalue())
+        self.assertEqual(PipelineRun.objects.count(), 0)
+
+    def test_dry_run_with_local_records_nothing(self):
+        out = self._push_local("--dry-run")
+        self.assertIn("dry run", out.lower())
+        self.assertEqual(PipelineRun.objects.count(), 0)
+        self.assertEqual(Alert.objects.count(), 0)
+        self.assertEqual(Node.objects.count(), 0)
+
+
+@override_settings(INSTANCE_ID="hub-1", HUB_URL="")
+class PushToHubLocalDrainTests(TestCase):
+    """End to end: the queued work is usable, not merely well-shaped.
+
+    A shape assertion cannot tell an enqueued incident run from one nothing can
+    execute. Draining it shows the incident reaches its lane's stages.
+    """
+
+    def setUp(self):
+        from apps.notify.models import NotificationChannel
+        from apps.orchestration.seeding import enable_delivery
+
+        patcher = patch("apps.alerts.management.commands.push_to_hub.CHECKER_REGISTRY")
+        mock_registry = patcher.start()
+        self.addCleanup(patcher.stop)
+        mock_checker_cls = MagicMock()
+        mock_checker_cls.return_value.run.return_value = CheckResult(
+            status=CheckStatus.CRITICAL,
+            message="CPU usage 99%",
+            metrics={"cpu_percent": 99.0},
+            checker_name="cpu",
+        )
+        mock_registry.items.return_value = [("cpu", mock_checker_cls)]
+        mock_registry.__contains__.return_value = True
+
+        # The seeded lanes record rather than deliver on a database with no
+        # channel; this test asserts the drain end to end, so it is the
+        # configured hub it describes. The generic driver treats an empty config
+        # as a no-op, so NOTIFY runs for real without touching the network.
+        channel = NotificationChannel.objects.create(
+            name="ops", driver="generic", is_active=True, config={}
+        )
+        enable_delivery(PipelineDefinition, channel)
+
+    def test_local_run_drains_to_completion(self):
         from apps.orchestration import inbox
 
         call_command("push_to_hub", "--local", "--checkers", "cpu", stdout=StringIO())
         run = PipelineRun.objects.get()
+        trace_id = run.trace_id
 
-        self.assertEqual(inbox.drain_run(run.run_id), 1)
+        while inbox.drain(limit=10):
+            pass
 
-        alert = Alert.objects.get()
-        self.assertEqual(alert.fingerprint, "check:hub-1:cpu")
-        self.assertEqual(alert.severity, "critical")
-
-    def test_local_json_output_is_parseable(self):
-        """--json means a wrapper parses stdout; --local must honour it too."""
-        out = StringIO()
-        call_command("push_to_hub", "--local", "--json", "--checkers", "cpu", stdout=out)
-        parsed = json.loads(out.getvalue())
-        run = PipelineRun.objects.get()
-        self.assertEqual(parsed["run_id"], run.run_id)
-        self.assertEqual(parsed["alerts"], 1)
-
-    def test_dry_run_with_local_records_nothing(self):
-        out = StringIO()
-        call_command("push_to_hub", "--local", "--dry-run", "--checkers", "cpu", stdout=out)
-        self.assertIn("dry run", out.getvalue().lower())
-        self.assertEqual(PipelineRun.objects.count(), 0)
+        run.refresh_from_db()
+        self.assertEqual(run.status, PipelineStatus.NOTIFIED)
+        stages = list(
+            StageExecution.objects.filter(pipeline_run__trace_id=trace_id)
+            .order_by("id")
+            .values_list("stage", flat=True)
+        )
+        # The alerts are already written, so no INGEST stage exists to re-run
+        # them; the cluster lane skips CHECK, leaving its analyse/notify pair.
+        self.assertEqual(stages, [PipelineStage.ANALYZE, PipelineStage.NOTIFY])
+        incident = Alert.objects.get().incident
+        self.assertEqual(incident.pipeline.name, "cluster-nodes")

@@ -30,8 +30,9 @@ class RegisterPushingNodeSourceTests(TestCase):
     """``last_source`` records HOW the row was last touched, so it must be true.
 
     ``cluster`` means the row arrived by push from another machine; ``local``
-    means a check run on this machine registered it. ``push_to_hub --local``
-    never leaves the machine, so it is the second.
+    means a check run on this machine registered it (what ``CheckAlertBridge``
+    writes for ``check_health`` and ``push_to_hub --local``). Both must stay
+    expressible, or a hub cannot tell its fleet from itself.
     """
 
     PAYLOAD = {"source": "cluster", "instance_id": "hub-1", "hostname": "hub-1.local"}

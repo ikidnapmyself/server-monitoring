@@ -74,7 +74,7 @@ Two delivery modes, and when each applies:
 |------|---------|--------------|----------|
 | **Inline** | `check_health` | Runs the checkers and records `Alert`/`Incident` rows synchronously. Records by default; `--no-alert` prints only. **Enqueues nothing** | A single machine with no hub, no cron and nobody draining an inbox — you still want alerts and incidents |
 | **Scheduled** | `run_pipeline --checks-only` | Enters the pipeline at CHECK instead of INGEST. That stage produces the subject alert, the lane is resolved from it, and the lane's stages run — same routing, same executors as webhook traffic. Synchronous, and it drains its own downstream runs | The default. This is what `bin/install/cron.sh` schedules on every machine |
-| **Through the inbox** | `push_to_hub --local` | Runs the checkers and records the same `PENDING` `PipelineRun` a remote agent's POST would have recorded, for `process_inbox` to drain through `IngestExecutor` + `ClusterDriver` | You want the hub's own checks queued and retried like a peer's push. Needs a running `process_inbox`, so it is not scheduled by the installer |
+| **Through the inbox** | `push_to_hub --local` | Runs the checkers, writes their alerts here through `CheckAlertBridge`, and enqueues one `PENDING` `PipelineRun` per materially changed incident for `process_inbox` to drain | You want the hub's own checks queued and retried like a peer's push. Needs a running `process_inbox`, so it is not scheduled by the installer |
 
 `bin/install/cron.sh` schedules `run_pipeline --checks-only` on every machine, and adds a
 **push to hub** job only where `HUB_URL` is set. A machine without a hub needs no second

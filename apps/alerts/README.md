@@ -419,10 +419,12 @@ print(f"Total alerts created: {result.alerts_created}")
 ### Self-monitoring the hub (`push_to_hub --local`)
 
 A hub can monitor itself through the same path it uses for its agents. `--local`
-runs the checkers, builds the same cluster payload, and records the same PENDING
-`PipelineRun` the `/alerts/webhook/cluster/` view would have recorded — no
-network, no `HUB_URL` required. `manage.py process_inbox` then drains it through
-the same ingest, routing, and executors as any node's push.
+runs the checkers, writes their alerts here through `CheckAlertBridge` — the same
+writer `check_health` uses, so one condition is one Alert row either way — and
+then enqueues one PENDING `PipelineRun` per materially changed incident, exactly
+as the `/alerts/webhook/cluster/` view does for a peer's push. No network, no
+`HUB_URL` required. `manage.py process_inbox` then drains those runs through the
+same routing and executors as any node's push.
 
 `--local` is the queued mode, and it only completes where something drains the
 inbox. It is NOT what the installer schedules: `bin/install/cron.sh` uses
@@ -437,7 +439,7 @@ its own checks queued and retried like a peer's push.
 # Preview without recording anything
 uv run python manage.py push_to_hub --local --dry-run
 
-# Machine-readable result: {"run_id": ..., "alerts": N}
+# Machine-readable result: {"trace_id": ..., "incidents": [...], "alerts": N}
 uv run python manage.py push_to_hub --local --json
 ```
 

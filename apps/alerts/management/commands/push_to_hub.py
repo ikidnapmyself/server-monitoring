@@ -12,6 +12,7 @@ Usage:
 import json
 import socket
 import time
+import uuid
 from datetime import datetime, timezone
 from urllib.error import HTTPError
 from urllib.parse import urlsplit, urlunsplit
@@ -181,7 +182,10 @@ class Command(BaseCommand):
                     f"Available: {', '.join(sorted(CHECKER_REGISTRY))}"
                 )
 
-        # Run checkers
+        # Run checkers. Both forms of each result survive the loop: the remote
+        # path POSTs the converted alert dicts, and --local records the
+        # CheckResult objects themselves through CheckAlertBridge.
+        results = []
         alerts = []
         for name, checker_cls in CHECKER_REGISTRY.items():
             if checker_names and name not in checker_names:
@@ -189,8 +193,8 @@ class Command(BaseCommand):
             try:
                 checker = checker_cls()
                 result = checker.run()
-                alert = self._result_to_alert(result, instance_id, hostname)
-                alerts.append(alert)
+                results.append(result)
+                alerts.append(self._result_to_alert(result, instance_id, hostname))
             except Exception as e:
                 self.stderr.write(self.style.WARNING(f"Checker {name} failed: {e}"))
 
@@ -209,7 +213,7 @@ class Command(BaseCommand):
             return
 
         if options["local"]:
-            self._record_local(payload, len(alerts), options["json_output"])
+            self._record_local(results, options["json_output"])
             return
 
         if not api_key:
@@ -293,40 +297,66 @@ class Command(BaseCommand):
         if not hub_url.rstrip("/").startswith(("https://", "http://")):
             raise CommandError(f"HUB_URL must use http:// or https:// scheme, got: {hub_url}")
 
-    def _record_local(self, payload: dict, alert_count: int, json_output: bool) -> None:
-        """Record the same PENDING run a remote agent's POST would have recorded.
+    def _record_local(self, results, json_output: bool) -> None:
+        """Write these results as alerts here, then enqueue the incidents they moved.
 
-        The same payload, minus the network. Recording a run rather than writing
-        alerts directly is what makes a local push identical to a peer's: one
-        drain path, one set of executors, one routing decision. ``check_health``
-        is the inbox-free mode for a single machine; this is the pipeline one.
+        Producing an alert is not a pipeline stage, so there is nothing to hand a
+        drain to parse: the command already holds the ``CheckResult`` objects and
+        writes them through ``CheckAlertBridge`` — the same writer ``check_health``
+        uses, so both produce one Alert row per condition. What is queued is the
+        work that follows an incident changing, one PENDING run per materially
+        changed incident, and ``manage.py process_inbox`` drains those. That is
+        what makes --local the queued mode and ``check_health`` the inline one;
+        they differ in who runs the stages, not in how the truth is written.
+
+        The bridge registers this machine in the Node registry itself (it defaults
+        to ``register_node=True``, writing ``last_source="local"``), so the
+        separate ``register_pushing_node(payload, source="local")`` this path used
+        to make is gone: it wrote the same row, from the same machine, with the
+        same source.
 
         Imported inside the method on purpose: ``apps.alerts`` must not import
         ``apps.orchestration`` at module level, because orchestration imports
         alerts (see the same note by ``_announce`` in ``apps/alerts/services.py``).
         """
-        from apps.alerts.services import register_pushing_node
+        from apps.alerts.check_integration import CheckAlertBridge
+        from apps.orchestration.intake import enqueue_for
         from apps.orchestration.models import PipelineOrigin
-        from apps.orchestration.orchestrator import PipelineOrchestrator
 
-        # A push proves this machine is alive, so the Node registry updates now
-        # rather than waiting for the drain — exactly as the webhook view does.
-        # Recorded as ``local``, not ``cluster``: this payload never left the
-        # machine, and last_source is what tells a hub's own row from its fleet's.
-        register_pushing_node(payload, source="local")
-        run = PipelineOrchestrator().start_pipeline(
-            payload={"driver": "cluster", "payload": payload},
-            source="cluster",
+        trace_id = str(uuid.uuid4())
+        bridge_result = CheckAlertBridge(trace_id=trace_id).process_check_results(results)
+        for error in bridge_result.errors:
+            self.stderr.write(self.style.WARNING(f"Alert recording failed: {error}"))
+
+        runs = enqueue_for(
+            bridge_result,
+            trace_id=trace_id,
             origin=PipelineOrigin.CHECKER_GENERATED,
+            source=CheckAlertBridge.SOURCE_NAME,
         )
+        incident_ids = [run.incident_id for run in runs]
         if json_output:
             # --json exists so a wrapper can parse this command's stdout; a mode
             # that ignored it would trap whoever automates the cron that runs it.
+            # ``run_id`` is not singular any more — a push can move several
+            # incidents or none — so the trace and the incidents are what it
+            # reports.
             self.stdout.write(
-                json.dumps({"run_id": run.run_id, "alerts": alert_count}, indent=2, default=str)
+                json.dumps(
+                    {
+                        "trace_id": trace_id,
+                        "incidents": incident_ids,
+                        "alerts": len(results),
+                    },
+                    indent=2,
+                    default=str,
+                )
             )
         else:
-            self.stdout.write(f"Recorded local run {run.run_id} ({alert_count} alerts)")
+            self.stdout.write(
+                f"Recorded {len(results)} check(s), queued {len(incident_ids)} "
+                f"incident run(s) (trace_id={trace_id})"
+            )
 
     def _result_to_alert(self, result, instance_id: str, hostname: str) -> dict:
         """Convert a CheckResult to a cluster alert dict."""
