@@ -134,21 +134,30 @@ class SeverityChipTests(TestCase):
 
 
 class CheckerStateTests(TestCase):
+    def _run(self, checker, status, metrics, executed_at=None):
+        run = CheckRun.objects.create(
+            checker_name=checker,
+            hostname="hub",
+            status=status,
+            metrics=metrics,
+        )
+        if executed_at is not None:
+            # executed_at is auto_now_add, so a value passed to create() is discarded;
+            # stamping it afterwards is what actually spaces the rows out in time.
+            CheckRun.objects.filter(pk=run.pk).update(executed_at=executed_at)
+        return run
+
     def test_local_node_reads_its_own_check_runs_newest_first_per_checker(self):
         node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
-        CheckRun.objects.create(
-            checker_name="disk",
-            hostname="hub",
-            status="ok",
-            metrics={"worst_percent": 40.0},
-            executed_at=timezone.now() - timezone.timedelta(minutes=10),
-        )
-        CheckRun.objects.create(
-            checker_name="disk",
-            hostname="hub",
-            status="critical",
-            metrics={"worst_percent": 91.0},
-            executed_at=timezone.now(),
+        now = timezone.now()
+        # Written newest first, so this passes only if the order comes from
+        # executed_at and not from the order the rows were inserted in.
+        self._run("disk", "critical", {"worst_percent": 91.0}, executed_at=now)
+        self._run(
+            "disk",
+            "ok",
+            {"worst_percent": 40.0},
+            executed_at=now - timezone.timedelta(minutes=10),
         )
         rows = build_checker_rows(node)
         self.assertEqual([r.checker for r in rows], ["disk"])
@@ -252,13 +261,7 @@ class CheckerStateTests(TestCase):
 
     def test_a_local_checker_with_no_primary_metric_reads_as_a_dash(self):
         node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
-        CheckRun.objects.create(
-            checker_name="raid",
-            hostname="hub",
-            status="ok",
-            metrics={},
-            executed_at=timezone.now(),
-        )
+        self._run("raid", "ok", {})
         rows = build_checker_rows(node)
         self.assertEqual(rows[0].checker, "raid")
         self.assertEqual(rows[0].value, "—")
@@ -337,14 +340,20 @@ class RecentIncidentTests(TestCase):
 
 class ChartTests(TestCase):
     def _run(self, checker, metric, value, minutes_ago=0, alert=None):
-        return CheckRun.objects.create(
+        run = CheckRun.objects.create(
             checker_name=checker,
             hostname="hub",
             status="ok",
             metrics={metric: value},
             alert=alert,
-            executed_at=timezone.now() - timezone.timedelta(minutes=minutes_ago),
         )
+        # executed_at is auto_now_add, so a value passed to create() is discarded;
+        # stamping it afterwards is what actually spaces the rows out in time.
+        CheckRun.objects.filter(pk=run.pk).update(
+            executed_at=timezone.now() - timezone.timedelta(minutes=minutes_ago)
+        )
+        run.refresh_from_db()
+        return run
 
     def test_the_local_node_gets_disk_cpu_and_memory(self):
         node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
