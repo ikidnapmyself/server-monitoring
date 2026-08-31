@@ -6,8 +6,10 @@ from apps.alerts.admin import NodeAdmin
 from apps.alerts.identity import local_instance_id
 from apps.alerts.models import Alert, AlertSeverity, Incident, IncidentStatus, Node
 from apps.alerts.node_overview import (
+    SEVERITY_COLORS,
     build_checker_rows,
     build_identity,
+    build_incident_rows,
     render_severity_chips,
     unresolved_counts,
 )
@@ -251,3 +253,74 @@ class CheckerStateTests(TestCase):
         rows = build_checker_rows(node)
         self.assertEqual(rows[0].checker, "raid")
         self.assertEqual(rows[0].value, "—")
+
+
+class RecentIncidentTests(TestCase):
+    def _incident(self, node, title, severity=AlertSeverity.WARNING, created_at=None):
+        incident = Incident.objects.create(title=title, severity=severity)
+        if created_at is not None:
+            # created_at is auto_now_add, and two rows written in the same test can
+            # land on the same timestamp, so ordering is stamped explicitly here.
+            Incident.objects.filter(pk=incident.pk).update(created_at=created_at)
+        Alert.objects.create(
+            fingerprint=f"f-{title}",
+            source="cluster",
+            name=title,
+            severity=severity,
+            started_at=timezone.now(),
+            node=node,
+            incident=incident,
+        )
+        return incident
+
+    def test_lists_the_nodes_incidents_newest_first(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        now = timezone.now()
+        self._incident(node, "older", created_at=now - timezone.timedelta(minutes=5))
+        self._incident(node, "newer", created_at=now)
+        rows = build_incident_rows(node)
+        self.assertEqual([r.title for r in rows], ["newer", "older"])
+
+    def test_counts_an_incident_once_however_many_alerts_reached_it(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        incident = self._incident(node, "disk full")
+        Alert.objects.create(
+            fingerprint="f-second",
+            source="cluster",
+            name="disk",
+            severity=AlertSeverity.WARNING,
+            started_at=timezone.now(),
+            node=node,
+            incident=incident,
+        )
+        self.assertEqual(len(build_incident_rows(node)), 1)
+
+    def test_caps_at_ten(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        for i in range(12):
+            self._incident(node, f"i{i}")
+        self.assertEqual(len(build_incident_rows(node)), 10)
+
+    def test_another_nodes_incidents_are_not_listed(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        other = Node.objects.create(instance_id="web-04", hostname="web-04")
+        self._incident(other, "theirs")
+        self.assertEqual(build_incident_rows(node), [])
+
+    def test_a_node_with_no_incidents_yields_no_rows(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self.assertEqual(build_incident_rows(node), [])
+
+    def test_each_row_links_to_the_incident_and_carries_its_severity_color(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        incident = self._incident(node, "hot disk", severity=AlertSeverity.CRITICAL)
+        row = build_incident_rows(node)[0]
+        self.assertEqual(row.severity, AlertSeverity.CRITICAL)
+        self.assertEqual(row.status, IncidentStatus.OPEN)
+        self.assertEqual(row.color, SEVERITY_COLORS[AlertSeverity.CRITICAL])
+        self.assertIn(str(incident.pk), row.url)
+
+    def test_an_unknown_severity_falls_back_to_the_neutral_color(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self._incident(node, "odd", severity="mauve")
+        self.assertEqual(build_incident_rows(node)[0].color, "#6c757d")

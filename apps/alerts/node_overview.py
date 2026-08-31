@@ -21,7 +21,7 @@ from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
 from apps.checkers.models import CheckRun
 from config.dashboard import NODE_RECENT_MINUTES
 
-SEVERITY_COLORS = {
+SEVERITY_COLORS: dict[str, str] = {
     AlertSeverity.CRITICAL: "#dc3545",
     AlertSeverity.WARNING: "#ffc107",
     AlertSeverity.INFO: "#17a2b8",
@@ -215,3 +215,35 @@ def build_checker_rows(node) -> list[CheckerRow]:
     if build_identity(node).is_local:
         return _local_checker_rows(node)
     return _peer_checker_rows(node)
+
+
+@dataclass(frozen=True)
+class IncidentRow:
+    title: str
+    severity: str
+    status: str
+    color: str
+    created_at: object
+    url: str
+
+
+def build_incident_rows(node, limit: int = 10) -> list[IncidentRow]:
+    """The node's newest incidents. The chips give counts; this gives names.
+
+    ``distinct()`` because an incident this node raised six alerts on must appear
+    once, not six times.
+    """
+    incidents = (
+        Incident.objects.filter(alerts__node=node).distinct().order_by("-created_at")[:limit]
+    )
+    return [
+        IncidentRow(
+            title=incident.title,
+            severity=incident.severity,
+            status=incident.status,
+            color=SEVERITY_COLORS.get(incident.severity, "#6c757d"),
+            created_at=incident.created_at,
+            url=reverse("admin:alerts_incident_change", args=[incident.pk]),
+        )
+        for incident in incidents
+    ]
