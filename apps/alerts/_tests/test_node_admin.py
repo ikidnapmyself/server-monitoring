@@ -195,6 +195,18 @@ class NodeChangeFormTests(TestCase):
         self.assertContains(response, "<svg")
         self.assertContains(response, f"/admin/orchestration/pipelinerun/{run.pk}/change/")
 
+    def test_no_object_means_no_overview(self):
+        # NodeAdmin forbids adding, but render_change_form is still called with
+        # obj=None on that path; the panels must be absent, not crash.
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        node_admin = admin.site._registry[Node]
+        context = dict(self.client.get(self._url(node)).context_data)
+        context.pop("node_overview")
+        request = RequestFactory().get("/admin/alerts/node/add/")
+        request.user = self.user
+        response = node_admin.render_change_form(request, context, add=True, obj=None)
+        self.assertNotIn("node_overview", response.context_data)
+
     def test_a_hostile_hostname_is_escaped_but_the_chips_are_not(self):
         # A hostname arrives over a webhook, so it must be autoescaped. The chips
         # are SafeString from format_html and must still render as markup.
