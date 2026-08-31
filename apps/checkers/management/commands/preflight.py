@@ -12,6 +12,7 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
+from apps.alerts.identity import local_instance_id
 from apps.checkers.models import PreflightCheck, PreflightRun
 from apps.checkers.preflight.checks import run_all
 from apps.checkers.preflight.dashboard import get_definitions, get_pipeline_state, get_profile
@@ -70,7 +71,7 @@ class Command(BaseCommand):
         # (keep-last-N or older-than) is a follow-up; not built now (YAGNI).
         overall_status = "error" if errors else "warn" if warnings else "ok"
         run = PreflightRun.objects.create(
-            instance_id=settings.INSTANCE_ID,
+            instance_id=local_instance_id(),
             passed=passed,
             warnings=warnings,
             errors=errors,

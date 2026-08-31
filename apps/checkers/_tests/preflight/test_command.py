@@ -8,6 +8,8 @@ from unittest.mock import patch
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 
+from apps.alerts.identity import local_instance_id
+from apps.checkers.models import PreflightRun
 from apps.notify.models import NotificationChannel
 from apps.orchestration.models import PipelineDefinition
 
@@ -249,3 +251,16 @@ class PreflightCommandTests(TestCase):
         output, _ = self._call()
         self.assertIn("Instance ID:", output)
         self.assertIn("node-1", output)
+
+    @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
+    @override_settings(INSTANCE_ID="")
+    def test_persisted_run_uses_the_registry_instance_id(self, mock_log, mock_read):
+        # A hub never sets INSTANCE_ID, but its Node row is keyed by
+        # local_instance_id(), which falls back to the hostname. Writing the raw
+        # setting here left the run orphaned from its own node page.
+        mock_read.return_value = None
+        self._call()
+        run = PreflightRun.objects.latest("created_at")
+        self.assertEqual(run.instance_id, local_instance_id())
+        self.assertNotEqual(run.instance_id, "")
