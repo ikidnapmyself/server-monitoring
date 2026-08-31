@@ -210,6 +210,24 @@ For `apps.alerts`, admin should make it easy to:
 - Inspect alert lifecycle/audit trail (`AlertHistory`)
 - Jump from an `Incident` to related pipeline runs/stage executions (via relationships/links when available)
 
+### Node detail page
+
+The `Node` change form is an operator overview, not a registry form. Its panels are built by
+`apps/alerts/node_overview.py` as plain dataclasses, so they are testable without the admin,
+and rendered by `templates/admin/alerts/node/change_form.html`, attached through
+`NodeAdmin.render_change_form`.
+
+- **Charts and preflight are local-node-only.** `CheckRun` and `PreflightRun` are written by
+  the machine that ran them and are never pushed to a hub, so a peer has no rows here. A peer
+  gets an explicit sentence saying so, never an empty chart: a blank chart reads as "flat",
+  which is a lie about a machine nobody has data for.
+- **The per-checker state table is the one panel that works for every node.** It reads
+  `CheckRun` for the local node and the node's `Alert` rows for a peer, which is exactly the
+  truth each one has.
+- **The local node's freshness is informational, never amber**, mirroring the nodes card in
+  `config/dashboard.py`. This instance's own `Node` row is upserted by its own local check
+  runs, so scoring it like a peer would paint a healthy fleet permanently amber.
+
 ## App layout rules (required)
 
 - Endpoints must live under `apps/alerts/views/` (endpoint/module-based).
