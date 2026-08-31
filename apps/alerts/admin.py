@@ -17,11 +17,16 @@ from apps.alerts.diagnosis import diagnose_incident
 from apps.alerts.models import (
     Alert,
     AlertHistory,
-    AlertSeverity,
     AlertStatus,
     Incident,
     IncidentStatus,
     Node,
+)
+from apps.alerts.node_overview import (
+    SEVERITIES_WORST_FIRST,
+    SEVERITY_COLORS,
+    UNRESOLVED_INCIDENT_STATUSES,
+    render_severity_chips,
 )
 from apps.alerts.reeval_existing import apply_node_alert_reeval, preview_node_alert_reeval
 from apps.alerts.services import IncidentManager, instance_key_from_labels
@@ -30,19 +35,6 @@ from apps.checkers.admin_charts import render_sparkline
 from apps.checkers.models import CheckRun, PreflightRun
 from apps.orchestration.models import PipelineRun
 from config.dashboard import prettify_json
-
-SEVERITY_COLORS = {
-    AlertSeverity.CRITICAL: "#dc3545",
-    AlertSeverity.WARNING: "#ffc107",
-    AlertSeverity.INFO: "#17a2b8",
-}
-
-# Worst first: this is the order the node changelist reads counts in.
-SEVERITIES_WORST_FIRST = [AlertSeverity.CRITICAL, AlertSeverity.WARNING, AlertSeverity.INFO]
-
-# An acknowledged incident is a live problem someone has picked up. Counting it
-# as handled would make a node look healthy the moment an operator touched it.
-UNRESOLVED_INCIDENT_STATUSES = [IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED]
 
 
 def node_label(node) -> str:
@@ -732,37 +724,8 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
 
     @admin.display(description="Incidents", ordering="unresolved_total")
     def incidents(self, obj):
-        """Unresolved incident counts for this node, worst severity first.
-
-        Each count links to the incident changelist already narrowed to this node
-        and severity, reusing the ``alerts__node`` filter rather than a parallel
-        view. A node with nothing unresolved reads as a dash, not a zero: quiet
-        machines should look quiet.
-        """
-        parts = []
-        for severity in SEVERITIES_WORST_FIRST:
-            count = getattr(obj, f"unresolved_{severity}", 0)
-            if not count:
-                continue
-            url = "{}?alerts__node__id__exact={}&status__in={}&severity__exact={}".format(
-                reverse("admin:alerts_incident_changelist"),
-                obj.pk,
-                ",".join(UNRESOLVED_INCIDENT_STATUSES),
-                severity,
-            )
-            parts.append(
-                format_html(
-                    '<a href="{}" style="background-color: {}; color: white; padding: 3px 8px; '
-                    'border-radius: 3px; font-size: 11px; text-decoration: none;">{} {}</a>',
-                    url,
-                    SEVERITY_COLORS.get(severity, "#6c757d"),
-                    count,
-                    severity.upper(),
-                )
-            )
-        if not parts:
-            return "—"
-        return format_html_join(" ", "{}", ((part,) for part in parts))
+        """Unresolved incident counts for this node, worst severity first."""
+        return render_severity_chips(obj)
 
     def has_add_permission(self, request):
         """Nodes are written by code, never added in admin.
