@@ -1,7 +1,13 @@
-{% extends "admin/change_form.html" %}
+{% extends "django_object_actions/change_form.html" %}
 {% comment %}
 Node detail overview. Rendered above the registry form by
 NodeAdmin.render_change_form, which puts a NodeOverview in the context.
+
+Extends the django_object_actions template, not admin/change_form.html directly:
+NodeAdmin inherits DjangoObjectActions, whose template fills object-tools-items
+with the change_actions buttons. Skipping it silently drops "Re-evaluate open
+alerts" from the page. That template extends admin/change_form.html itself, so
+the content block below still reaches the real form through block.super.
 
 node_overview.chips and chart.svg are SafeString from format_html and render as
 markup on purpose. Everything else is autoescaped: a hostname, an incident title

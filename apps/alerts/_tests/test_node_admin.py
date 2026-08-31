@@ -180,6 +180,14 @@ class NodeChangeFormTests(TestCase):
         self.assertContains(response, "This hub")
         self.assertNotContains(response, "No preflight recorded")
 
+    def test_the_reevaluate_action_button_is_on_the_page(self):
+        # django_object_actions fills object-tools-items with the change_actions
+        # buttons. A change_form_template that skips its template silently drops
+        # them: the URL stays registered, the button vanishes.
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        response = self.client.get(self._url(node))
+        self.assertContains(response, "Re-evaluate open alerts")
+
     def test_a_peer_is_told_why_it_has_no_charts(self):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
         response = self.client.get(self._url(node))
