@@ -5,7 +5,13 @@ from django.utils import timezone
 from apps.alerts.admin import NodeAdmin
 from apps.alerts.identity import local_instance_id
 from apps.alerts.models import Alert, AlertSeverity, Incident, IncidentStatus, Node
-from apps.alerts.node_overview import build_identity, render_severity_chips, unresolved_counts
+from apps.alerts.node_overview import (
+    build_checker_rows,
+    build_identity,
+    render_severity_chips,
+    unresolved_counts,
+)
+from apps.checkers.models import CheckRun
 from config.dashboard import NODE_RECENT_MINUTES
 
 
@@ -95,3 +101,134 @@ class SeverityChipTests(TestCase):
         with self.assertNumQueries(0):
             counts = unresolved_counts(annotated)
         self.assertEqual(counts[AlertSeverity.CRITICAL], 1)
+
+
+class CheckerStateTests(TestCase):
+    def test_local_node_reads_its_own_check_runs_newest_first_per_checker(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        CheckRun.objects.create(
+            checker_name="disk",
+            hostname="hub",
+            status="ok",
+            metrics={"worst_percent": 40.0},
+            executed_at=timezone.now() - timezone.timedelta(minutes=10),
+        )
+        CheckRun.objects.create(
+            checker_name="disk",
+            hostname="hub",
+            status="critical",
+            metrics={"worst_percent": 91.0},
+            executed_at=timezone.now(),
+        )
+        rows = build_checker_rows(node)
+        self.assertEqual([r.checker for r in rows], ["disk"])
+        self.assertEqual(rows[0].status, "critical")
+        self.assertIn("91", rows[0].value)
+
+    def test_a_peer_reads_its_alert_rows(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        Alert.objects.create(
+            fingerprint="check:web-03:cpu",
+            source="cluster",
+            name="cpu",
+            severity=AlertSeverity.WARNING,
+            started_at=timezone.now(),
+            node=node,
+            labels={"checker": "cpu"},
+            annotations={"cpu_percent": "93.5"},
+        )
+        rows = build_checker_rows(node)
+        self.assertEqual(rows[0].checker, "cpu")
+        self.assertIn("93.5", rows[0].value)
+        self.assertEqual(rows[0].status, AlertSeverity.WARNING)
+
+    def test_a_peer_alert_with_no_checker_label_is_skipped(self):
+        # Webhook alerts are not checker results and have no place in this table.
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        Alert.objects.create(
+            fingerprint="grafana-1",
+            source="grafana",
+            name="latency",
+            severity=AlertSeverity.WARNING,
+            started_at=timezone.now(),
+            node=node,
+        )
+        self.assertEqual(build_checker_rows(node), [])
+
+    def test_a_checker_with_no_known_primary_metric_still_renders(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        Alert.objects.create(
+            fingerprint="check:web-03:raid",
+            source="cluster",
+            name="raid",
+            severity=AlertSeverity.INFO,
+            started_at=timezone.now(),
+            node=node,
+            labels={"checker": "raid"},
+            annotations={},
+        )
+        rows = build_checker_rows(node)
+        self.assertEqual(rows[0].checker, "raid")
+        self.assertEqual(rows[0].value, "\u2014")
+
+    def test_a_node_that_reported_nothing_yields_no_rows(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self.assertEqual(build_checker_rows(node), [])
+
+    def test_rows_are_sorted_by_checker_name(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        for name in ("memory", "cpu", "disk"):
+            Alert.objects.create(
+                fingerprint=f"check:web-03:{name}",
+                source="cluster",
+                name=name,
+                severity=AlertSeverity.INFO,
+                started_at=timezone.now(),
+                node=node,
+                labels={"checker": name},
+                annotations={},
+            )
+        self.assertEqual([r.checker for r in build_checker_rows(node)], ["cpu", "disk", "memory"])
+
+    def test_a_metric_that_is_not_a_number_is_shown_as_it_arrived(self):
+        # Not every metric is numeric, and a checker is free to report a word.
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        Alert.objects.create(
+            fingerprint="check:web-03:cpu",
+            source="cluster",
+            name="cpu",
+            severity=AlertSeverity.INFO,
+            started_at=timezone.now(),
+            node=node,
+            labels={"checker": "cpu"},
+            annotations={"cpu_percent": "unavailable"},
+        )
+        self.assertEqual(build_checker_rows(node)[0].value, "unavailable")
+
+    def test_only_the_newest_alert_per_checker_is_kept(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        for suffix in ("a", "b"):
+            Alert.objects.create(
+                fingerprint=f"check:web-03:cpu-{suffix}",
+                source="cluster",
+                name="cpu",
+                severity=AlertSeverity.INFO,
+                started_at=timezone.now(),
+                node=node,
+                labels={"checker": "cpu"},
+                annotations={"cpu_percent": "10"},
+            )
+        self.assertEqual(len(build_checker_rows(node)), 1)
+
+    def test_a_local_checker_with_no_primary_metric_reads_as_a_dash(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        CheckRun.objects.create(
+            checker_name="raid",
+            hostname="hub",
+            status="ok",
+            metrics={},
+            executed_at=timezone.now(),
+        )
+        rows = build_checker_rows(node)
+        self.assertEqual(rows[0].checker, "raid")
+        self.assertEqual(rows[0].value, "—")
