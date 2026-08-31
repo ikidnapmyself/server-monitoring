@@ -18,6 +18,7 @@ from django.utils.timesince import timesince
 
 from apps.alerts.identity import local_instance_id
 from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
+from apps.checkers.admin_charts import render_sparkline
 from apps.checkers.models import CheckRun
 from config.dashboard import NODE_RECENT_MINUTES
 
@@ -247,3 +248,76 @@ def build_incident_rows(node, limit: int = 10) -> list[IncidentRow]:
         )
         for incident in incidents
     ]
+
+
+# Charts read the same primary metric the state table reads.
+CHART_SPECS = [
+    ("Disk usage", "disk"),
+    ("CPU", "cpu"),
+    ("Memory", "memory"),
+]
+
+CHART_HISTORY_LIMIT = 50
+
+PEER_HISTORY_NOTE = (
+    "Metric history is written by the machine that runs the checker and is "
+    "not pushed to a hub, so there is nothing to plot here yet."
+)
+
+
+@dataclass(frozen=True)
+class Chart:
+    title: str
+    svg: object
+    latest: str
+
+
+def build_charts(node) -> list[Chart]:
+    """Time series for the local node only.
+
+    A peer has no CheckRun rows on this hub, so it gets an empty list and the
+    template shows ``charts_note`` instead. A blank chart would read as "flat",
+    which is a lie.
+    """
+    if not build_identity(node).is_local:
+        return []
+    charts: list[Chart] = []
+    for title, checker in CHART_SPECS:
+        metric = CHECKER_PRIMARY_METRIC[checker]
+        runs = list(
+            CheckRun.objects.filter(hostname=node.hostname, checker_name=checker).order_by(
+                "-executed_at"
+            )[:CHART_HISTORY_LIMIT]
+        )
+        runs.reverse()  # newest N, restored to oldest -> newest for plotting
+        points: list[tuple[float, float]] = []
+        markers: list[float] = []
+        for index, run in enumerate(runs):
+            value = (run.metrics or {}).get(metric)
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                continue
+            points.append((index, float(value)))
+            if run.alert_id is not None:
+                markers.append(index)
+        if not points:
+            continue
+        charts.append(
+            Chart(
+                title=title,
+                svg=render_sparkline(
+                    points,
+                    markers=markers,
+                    width=260,
+                    height=64,
+                    title=title,
+                    show_axis=True,
+                ),
+                latest=_format_metric(points[-1][1]),
+            )
+        )
+    return charts
+
+
+def charts_note(node) -> str:
+    """Why a peer has no charts. Empty for the local node."""
+    return "" if build_identity(node).is_local else PEER_HISTORY_NOTE

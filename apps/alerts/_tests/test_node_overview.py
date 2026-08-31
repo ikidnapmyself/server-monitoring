@@ -7,9 +7,11 @@ from apps.alerts.identity import local_instance_id
 from apps.alerts.models import Alert, AlertSeverity, Incident, IncidentStatus, Node
 from apps.alerts.node_overview import (
     SEVERITY_COLORS,
+    build_charts,
     build_checker_rows,
     build_identity,
     build_incident_rows,
+    charts_note,
     render_severity_chips,
     unresolved_counts,
 )
@@ -324,3 +326,74 @@ class RecentIncidentTests(TestCase):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
         self._incident(node, "odd", severity="mauve")
         self.assertEqual(build_incident_rows(node)[0].color, "#6c757d")
+
+
+class ChartTests(TestCase):
+    def _run(self, checker, metric, value, minutes_ago=0, alert=None):
+        return CheckRun.objects.create(
+            checker_name=checker,
+            hostname="hub",
+            status="ok",
+            metrics={metric: value},
+            alert=alert,
+            executed_at=timezone.now() - timezone.timedelta(minutes=minutes_ago),
+        )
+
+    def test_the_local_node_gets_disk_cpu_and_memory(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self._run("disk", "worst_percent", 40.0)
+        self._run("cpu", "cpu_percent", 12.0)
+        self._run("memory", "memory_percent", 55.0)
+        charts = build_charts(node)
+        self.assertEqual([c.title for c in charts], ["Disk usage", "CPU", "Memory"])
+        self.assertIn("<svg", charts[0].svg)
+
+    def test_a_checker_with_no_history_is_omitted_rather_than_drawn_empty(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self._run("disk", "worst_percent", 40.0)
+        self.assertEqual([c.title for c in build_charts(node)], ["Disk usage"])
+
+    def test_runs_with_a_non_numeric_metric_are_skipped(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self._run("disk", "worst_percent", "n/a", minutes_ago=2)
+        self._run("disk", "worst_percent", 40.0, minutes_ago=1)
+        charts = build_charts(node)
+        self.assertEqual(len(charts), 1)
+
+    def test_a_boolean_metric_is_not_plotted_as_one(self):
+        # bool subclasses int, so True would sneak through a bare isinstance check
+        # and draw a 1.0 that no checker ever measured.
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self._run("disk", "worst_percent", True)
+        self.assertEqual(build_charts(node), [])
+
+    def test_the_latest_value_is_formatted_like_the_state_table(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self._run("cpu", "cpu_percent", 12)
+        self.assertEqual(build_charts(node)[0].latest, "12.0")
+
+    def test_a_run_that_raised_an_alert_is_marked_on_the_line(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        alert = Alert.objects.create(
+            fingerprint="check:hub:disk",
+            name="disk",
+            severity=AlertSeverity.CRITICAL,
+            source="cluster",
+            started_at=timezone.now(),
+        )
+        self._run("disk", "worst_percent", 40.0, minutes_ago=1)
+        self._run("disk", "worst_percent", 95.0, alert=alert)
+        svg = build_charts(node)[0].svg
+        self.assertIn('fill="#d33"', svg)
+
+    def test_a_peer_gets_no_charts(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self.assertEqual(build_charts(node), [])
+
+    def test_a_peer_is_told_why_rather_than_shown_a_blank_chart(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self.assertIn("not pushed to a hub", charts_note(node))
+
+    def test_the_local_node_needs_no_note(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self.assertEqual(charts_note(node), "")
