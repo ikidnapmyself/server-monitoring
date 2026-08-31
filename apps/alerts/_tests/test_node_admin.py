@@ -11,7 +11,7 @@ from django.utils import timezone
 from django.utils.safestring import SafeString
 from django_json_widget.widgets import JSONEditorWidget
 
-from apps.alerts.models import Alert, Node
+from apps.alerts.models import Alert, Incident, Node
 
 
 class NodeAdminTests(TestCase):
@@ -312,3 +312,133 @@ class NodeChangePageRenderTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "<svg")
         self.assertContains(resp, f"/admin/orchestration/pipelinerun/{run.pk}/change/")
+
+
+class NodeIncidentsColumnTests(TestCase):
+    """The node changelist must say whether each machine is in trouble."""
+
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+        cls.user = User.objects.create_superuser("nodeadmin", "node@test.com", "password")
+
+    def setUp(self):
+        self.client.login(username="nodeadmin", password="password")
+
+    def _admin(self):
+        return admin.site._registry[Node]
+
+    def _node(self, instance_id="node-a", hostname="web-01"):
+        return Node.objects.create(instance_id=instance_id, hostname=hostname)
+
+    def _incident(self, node, *, severity="critical", status="open", alerts=1, title="cpu"):
+        incident = Incident.objects.create(title=title, severity=severity, status=status)
+        for i in range(alerts):
+            Alert.objects.create(
+                incident=incident,
+                node=node,
+                name="cpu",
+                fingerprint=f"{node.instance_id}-{incident.id}-{i}",
+                source="cluster",
+                severity=severity,
+                started_at=timezone.now(),
+            )
+        return incident
+
+    def _annotated(self, node):
+        """Refetch the node through the changelist queryset, so annotations exist."""
+        request = RequestFactory().get("/admin/alerts/node/")
+        request.user = self.user
+        return self._admin().get_queryset(request).get(pk=node.pk)
+
+    def test_column_is_in_list_display(self):
+        self.assertIn("incidents", self._admin().list_display)
+
+    def test_quiet_node_renders_a_dash(self):
+        node = self._node()
+        self.assertEqual(self._admin().incidents(self._annotated(node)), "—")
+
+    def test_counts_split_by_severity_worst_first(self):
+        node = self._node()
+        self._incident(node, severity="warning", title="mem")
+        self._incident(node, severity="critical", title="cpu")
+        self._incident(node, severity="critical", title="disk")
+        html = str(self._admin().incidents(self._annotated(node)))
+        self.assertLess(html.index("2 CRITICAL"), html.index("1 WARNING"))
+
+    def test_many_alerts_on_one_incident_count_once(self):
+        node = self._node()
+        self._incident(node, severity="critical", alerts=6)
+        self.assertIn("1 CRITICAL", str(self._admin().incidents(self._annotated(node))))
+
+    def test_acknowledged_counts_and_resolved_and_closed_do_not(self):
+        node = self._node()
+        self._incident(node, severity="critical", status="acknowledged", title="ack")
+        self._incident(node, severity="critical", status="resolved", title="res")
+        self._incident(node, severity="critical", status="closed", title="clo")
+        html = str(self._admin().incidents(self._annotated(node)))
+        self.assertIn("1 CRITICAL", html)
+
+    def test_info_severity_is_counted(self):
+        node = self._node()
+        self._incident(node, severity="info")
+        self.assertIn("1 INFO", str(self._admin().incidents(self._annotated(node))))
+
+    def test_another_nodes_incidents_do_not_leak(self):
+        node = self._node()
+        other = self._node(instance_id="node-b", hostname="web-02")
+        self._incident(other, severity="critical")
+        self.assertEqual(self._admin().incidents(self._annotated(node)), "—")
+        self.assertIn("1 CRITICAL", str(self._admin().incidents(self._annotated(other))))
+
+    def test_link_filters_the_incident_changelist_to_this_node(self):
+        node = self._node()
+        self._incident(node, severity="critical")
+        html = str(self._admin().incidents(self._annotated(node)))
+        self.assertIn(f"alerts__node__id__exact={node.pk}", html)
+        self.assertIn("severity__exact=critical", html)
+        self.assertIn("status__in=open,acknowledged", html)
+
+    def test_the_link_target_actually_filters(self):
+        node = self._node()
+        other = self._node(instance_id="node-b", hostname="web-02")
+        self._incident(node, severity="critical", title="mine")
+        self._incident(other, severity="critical", title="theirs")
+        response = self.client.get(
+            "/admin/alerts/incident/",
+            {
+                "alerts__node__id__exact": node.pk,
+                "status__in": "open,acknowledged",
+                "severity__exact": "critical",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertIn("mine", body)
+        self.assertNotIn("theirs", body)
+
+    def test_column_is_sortable_by_total(self):
+        quiet = self._node()
+        busy = self._node(instance_id="node-b", hostname="web-02")
+        self._incident(busy, severity="warning")
+        request = RequestFactory().get("/admin/alerts/node/")
+        request.user = self.user
+        ordering = self._admin().incidents.admin_order_field
+        ordered = list(self._admin().get_queryset(request).order_by(f"-{ordering}"))
+        self.assertEqual([n.pk for n in ordered], [busy.pk, quiet.pk])
+
+    def test_changelist_renders_the_column(self):
+        node = self._node()
+        self._incident(node, severity="critical")
+        body = self.client.get("/admin/alerts/node/").content.decode()
+        self.assertIn("1 CRITICAL", body)
+
+    def test_counts_cost_no_extra_queries_per_node(self):
+        for i in range(3):
+            node = self._node(instance_id=f"node-{i}", hostname=f"web-{i}")
+            self._incident(node, severity="critical")
+        request = RequestFactory().get("/admin/alerts/node/")
+        request.user = self.user
+        with self.assertNumQueries(1):
+            rendered = [self._admin().incidents(n) for n in self._admin().get_queryset(request)]
+        self.assertEqual(len(rendered), 3)

@@ -5,6 +5,7 @@ import json
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 from django.db import models as db_models
+from django.db.models import Count, Q
 from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.utils.html import format_html, format_html_join
@@ -13,7 +14,15 @@ from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
 
 from apps.alerts.diagnosis import diagnose_incident
-from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus, Node
+from apps.alerts.models import (
+    Alert,
+    AlertHistory,
+    AlertSeverity,
+    AlertStatus,
+    Incident,
+    IncidentStatus,
+    Node,
+)
 from apps.alerts.reeval_existing import apply_node_alert_reeval, preview_node_alert_reeval
 from apps.alerts.services import IncidentManager, instance_key_from_labels
 from apps.alerts.timeline import build_incident_timeline
@@ -21,6 +30,19 @@ from apps.checkers.admin_charts import render_sparkline
 from apps.checkers.models import CheckRun, PreflightRun
 from apps.orchestration.models import PipelineRun
 from config.dashboard import prettify_json
+
+SEVERITY_COLORS = {
+    AlertSeverity.CRITICAL: "#dc3545",
+    AlertSeverity.WARNING: "#ffc107",
+    AlertSeverity.INFO: "#17a2b8",
+}
+
+# Worst first: this is the order the node changelist reads counts in.
+SEVERITIES_WORST_FIRST = [AlertSeverity.CRITICAL, AlertSeverity.WARNING, AlertSeverity.INFO]
+
+# An acknowledged incident is a live problem someone has picked up. Counting it
+# as handled would make a node look healthy the moment an operator touched it.
+UNRESOLVED_INCIDENT_STATUSES = [IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED]
 
 
 def node_label(node) -> str:
@@ -176,12 +198,7 @@ class AlertAdmin(admin.ModelAdmin):
 
     @admin.display(description="Severity")
     def severity_badge(self, obj):
-        colors = {
-            "critical": "#dc3545",
-            "warning": "#ffc107",
-            "info": "#17a2b8",
-        }
-        color = colors.get(obj.severity, "#6c757d")
+        color = SEVERITY_COLORS.get(obj.severity, "#6c757d")
         return format_html(
             '<span style="background-color: {}; color: white; padding: 3px 8px; '
             'border-radius: 3px; font-size: 11px;">{}</span>',
@@ -423,12 +440,7 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
 
     @admin.display(description="Severity")
     def severity_badge(self, obj):
-        colors = {
-            "critical": "#dc3545",
-            "warning": "#ffc107",
-            "info": "#17a2b8",
-        }
-        color = colors.get(obj.severity, "#6c757d")
+        color = SEVERITY_COLORS.get(obj.severity, "#6c757d")
         return format_html(
             '<span style="background-color: {}; color: white; padding: 3px 8px; '
             'border-radius: 3px; font-size: 11px;">{}</span>',
@@ -652,7 +664,14 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
     """
 
     change_actions = ["reevaluate_open_alerts"]
-    list_display = ["instance_id", "hostname", "last_source", "first_seen", "last_seen"]
+    list_display = [
+        "instance_id",
+        "hostname",
+        "incidents",
+        "last_source",
+        "first_seen",
+        "last_seen",
+    ]
     search_fields = ["instance_id", "hostname"]
     readonly_fields = [
         "instance_id",
@@ -685,6 +704,65 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
     # disk_inodes→worst_percent, disk_temp→hottest_c, cpu_temp→hottest_c,
     # io_strain→busiest_util_percent. Example config value:
     #   {"cpu": {"warning_threshold": 99, "critical_threshold": 99}}
+
+    def get_queryset(self, request):
+        """Annotate unresolved incident counts, one per severity, in one query.
+
+        ``distinct=True`` carries the weight here: an incident this node raised
+        six alerts on is one incident, not six. Every aggregate rides the same
+        ``alerts__incident`` join, so listing the whole fleet stays one query.
+        """
+        annotations = {
+            f"unresolved_{severity}": Count(
+                "alerts__incident",
+                distinct=True,
+                filter=Q(
+                    alerts__incident__status__in=UNRESOLVED_INCIDENT_STATUSES,
+                    alerts__incident__severity=severity,
+                ),
+            )
+            for severity in SEVERITIES_WORST_FIRST
+        }
+        annotations["unresolved_total"] = Count(
+            "alerts__incident",
+            distinct=True,
+            filter=Q(alerts__incident__status__in=UNRESOLVED_INCIDENT_STATUSES),
+        )
+        return super().get_queryset(request).annotate(**annotations)
+
+    @admin.display(description="Incidents", ordering="unresolved_total")
+    def incidents(self, obj):
+        """Unresolved incident counts for this node, worst severity first.
+
+        Each count links to the incident changelist already narrowed to this node
+        and severity, reusing the ``alerts__node`` filter rather than a parallel
+        view. A node with nothing unresolved reads as a dash, not a zero: quiet
+        machines should look quiet.
+        """
+        parts = []
+        for severity in SEVERITIES_WORST_FIRST:
+            count = getattr(obj, f"unresolved_{severity}", 0)
+            if not count:
+                continue
+            url = "{}?alerts__node__id__exact={}&status__in={}&severity__exact={}".format(
+                reverse("admin:alerts_incident_changelist"),
+                obj.pk,
+                ",".join(UNRESOLVED_INCIDENT_STATUSES),
+                severity,
+            )
+            parts.append(
+                format_html(
+                    '<a href="{}" style="background-color: {}; color: white; padding: 3px 8px; '
+                    'border-radius: 3px; font-size: 11px; text-decoration: none;">{} {}</a>',
+                    url,
+                    SEVERITY_COLORS.get(severity, "#6c757d"),
+                    count,
+                    severity.upper(),
+                )
+            )
+        if not parts:
+            return "—"
+        return format_html_join(" ", "{}", ((part,) for part in parts))
 
     def has_add_permission(self, request):
         """Nodes are written by code, never added in admin.
