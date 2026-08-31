@@ -123,9 +123,8 @@ class Command(BaseCommand):
             ("Auth:", f"API key auth {auth_str}, rate limiting {rate_str}"),
             ("Metrics:", profile["metrics_backend"]),
             ("Logging:", profile["logs_dir"]),
+            ("Instance ID:", profile["instance_id"]),
         ]
-        if profile["instance_id"]:
-            lines.append(("Instance ID:", profile["instance_id"]))
 
         for label, value in lines:
             self.stdout.write(f"  {label:<14} {value}")

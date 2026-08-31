@@ -5,10 +5,11 @@ migration body is the unit under test, and calling it directly keeps the test
 fast and readable.
 """
 
+import socket
+
 from django.apps import apps as django_apps
 from django.test import TestCase
 
-from apps.alerts.identity import local_instance_id
 from apps.checkers.migrations import (
     _0003_backfill_preflight_instance_id as backfill_module,
 )
@@ -20,7 +21,10 @@ class PreflightBackfillTests(TestCase):
         blank = PreflightRun.objects.create(instance_id="", overall_status="ok")
         backfill_module.backfill(django_apps, None)
         blank.refresh_from_db()
-        self.assertEqual(blank.instance_id, local_instance_id())
+        # Asserted against the hostname directly, not ``local_instance_id()``:
+        # the migration carries a frozen copy of that helper, so pinning it to
+        # the live module would let the two drift apart unnoticed.
+        self.assertEqual(blank.instance_id, socket.gethostname())
 
     def test_rows_that_already_name_a_machine_are_left_alone(self):
         named = PreflightRun.objects.create(instance_id="web-03", overall_status="ok")
