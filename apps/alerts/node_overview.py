@@ -19,7 +19,7 @@ from django.utils.timesince import timesince
 from apps.alerts.identity import local_instance_id
 from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
 from apps.checkers.admin_charts import render_sparkline
-from apps.checkers.models import CheckRun
+from apps.checkers.models import CheckRun, PreflightRun
 from config.dashboard import NODE_RECENT_MINUTES
 
 SEVERITY_COLORS: dict[str, str] = {
@@ -321,3 +321,53 @@ def build_charts(node) -> list[Chart]:
 def charts_note(node) -> str:
     """Why a peer has no charts. Empty for the local node."""
     return "" if build_identity(node).is_local else PEER_HISTORY_NOTE
+
+
+PEER_PREFLIGHT_NOTE = (
+    "Preflight is node-local and is not pushed to a hub, so this hub never "
+    "holds a peer's preflight run."
+)
+
+
+@dataclass(frozen=True)
+class PreflightPanel:
+    run: object
+    note: str
+
+
+def build_preflight(node) -> PreflightPanel:
+    """Latest preflight for the local node; an explanation for a peer.
+
+    Matched on ``instance_id`` because PreflightRun has no node FK. Both writers
+    now spell this machine the same way — see the 0003 backfill migration for
+    the rows written before they did.
+    """
+    if not build_identity(node).is_local:
+        return PreflightPanel(run=None, note=PEER_PREFLIGHT_NOTE)
+    run = PreflightRun.objects.filter(instance_id=node.instance_id).order_by("-created_at").first()
+    if run is None:
+        return PreflightPanel(run=None, note="No preflight recorded on this machine yet.")
+    return PreflightPanel(run=run, note="")
+
+
+@dataclass(frozen=True)
+class PipelineRow:
+    run_id: str
+    origin: str
+    status: str
+    created_at: object
+    url: str
+
+
+def build_pipeline_rows(node, limit: int = 10) -> list[PipelineRow]:
+    """The node's newest pipeline runs, each admin-linked."""
+    return [
+        PipelineRow(
+            run_id=run.run_id,
+            origin=run.origin,
+            status=run.status,
+            created_at=run.created_at,
+            url=reverse("admin:orchestration_pipelinerun_change", args=[run.pk]),
+        )
+        for run in node.pipeline_runs.order_by("-created_at")[:limit]
+    ]

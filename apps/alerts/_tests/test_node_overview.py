@@ -1,5 +1,9 @@
+from io import StringIO
+from unittest.mock import patch
+
 from django.contrib import admin
-from django.test import TestCase
+from django.core.management import call_command
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.alerts.admin import NodeAdmin
@@ -11,11 +15,14 @@ from apps.alerts.node_overview import (
     build_checker_rows,
     build_identity,
     build_incident_rows,
+    build_pipeline_rows,
+    build_preflight,
     charts_note,
     render_severity_chips,
     unresolved_counts,
 )
-from apps.checkers.models import CheckRun
+from apps.checkers.models import CheckRun, PreflightRun
+from apps.orchestration.models import PipelineRun
 from config.dashboard import NODE_RECENT_MINUTES
 
 
@@ -397,3 +404,91 @@ class ChartTests(TestCase):
     def test_the_local_node_needs_no_note(self):
         node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
         self.assertEqual(charts_note(node), "")
+
+
+class PreflightPanelTests(TestCase):
+    def test_the_local_node_shows_its_latest_run(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        PreflightRun.objects.create(
+            instance_id=local_instance_id(),
+            overall_status="warn",
+            passed=9,
+            warnings=2,
+            errors=0,
+        )
+        panel = build_preflight(node)
+        self.assertEqual(panel.run.overall_status, "warn")
+        self.assertEqual(panel.note, "")
+
+    def test_the_newest_run_wins(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        old = PreflightRun.objects.create(instance_id=local_instance_id(), overall_status="ok")
+        PreflightRun.objects.filter(pk=old.pk).update(
+            created_at=timezone.now() - timezone.timedelta(minutes=5)
+        )
+        PreflightRun.objects.create(instance_id=local_instance_id(), overall_status="error")
+        self.assertEqual(build_preflight(node).run.overall_status, "error")
+
+    @override_settings(INSTANCE_ID="")
+    @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
+    def test_the_regression_a_hub_with_no_instance_id_env_var(self, mock_log, mock_read):
+        # This is the bug that started the whole change: the hub's node row is
+        # keyed by the hostname fallback, and the run must match it.
+        mock_read.return_value = None
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self.assertNotEqual(node.instance_id, "")  # the fallback really is in play
+        call_command("preflight", "--json", stdout=StringIO())
+        self.assertIsNotNone(build_preflight(node).run)
+
+    def test_the_local_node_with_no_run_yet_says_so(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        panel = build_preflight(node)
+        self.assertIsNone(panel.run)
+        self.assertIn("No preflight recorded", panel.note)
+
+    def test_a_peer_is_told_preflight_is_node_local(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        panel = build_preflight(node)
+        self.assertIsNone(panel.run)
+        self.assertIn("node-local", panel.note)
+
+    def test_a_peers_own_preflight_row_is_still_not_shown(self):
+        # Even if a row somehow carries a peer's instance_id, the panel is local-only.
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        PreflightRun.objects.create(instance_id="web-03", overall_status="ok")
+        self.assertIsNone(build_preflight(node).run)
+
+
+class PipelinePanelTests(TestCase):
+    def test_lists_the_ten_newest_runs_with_links(self):
+        node = Node.objects.create(instance_id="web-06", hostname="web-06")
+        old = PipelineRun.objects.create(trace_id="t1", run_id="run-old", node=node)
+        new = PipelineRun.objects.create(trace_id="t2", run_id="run-new", node=node)
+        # created_at is auto_now_add, so ordering is stamped explicitly here.
+        PipelineRun.objects.filter(pk=old.pk).update(
+            created_at=timezone.now() - timezone.timedelta(minutes=5)
+        )
+        PipelineRun.objects.filter(pk=new.pk).update(created_at=timezone.now())
+        rows = build_pipeline_rows(node)
+        self.assertEqual([r.run_id for r in rows], ["run-new", "run-old"])
+        self.assertIn(f"/admin/orchestration/pipelinerun/{new.pk}/change/", rows[0].url)
+        self.assertEqual(rows[0].origin, new.origin)
+        self.assertEqual(rows[0].status, new.status)
+        self.assertIsNotNone(rows[0].created_at)
+
+    def test_caps_at_ten(self):
+        node = Node.objects.create(instance_id="web-06", hostname="web-06")
+        for i in range(12):
+            PipelineRun.objects.create(trace_id="t", run_id=f"run-{i}", node=node)
+        self.assertEqual(len(build_pipeline_rows(node)), 10)
+
+    def test_another_nodes_runs_are_not_listed(self):
+        node = Node.objects.create(instance_id="web-06", hostname="web-06")
+        other = Node.objects.create(instance_id="web-07", hostname="web-07")
+        PipelineRun.objects.create(trace_id="t", run_id="theirs", node=other)
+        self.assertEqual(build_pipeline_rows(node), [])
+
+    def test_a_node_with_no_runs_yields_no_rows(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self.assertEqual(build_pipeline_rows(node), [])
