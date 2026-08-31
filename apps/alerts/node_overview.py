@@ -168,18 +168,40 @@ def _json_dict(value) -> dict:
 
 
 def _local_checker_rows(node) -> list[CheckerRow]:
-    """Newest CheckRun per checker for the machine this hub runs on."""
-    newest: dict[str, CheckRun] = {}
-    runs = CheckRun.objects.filter(hostname=node.hostname).order_by("-executed_at")
-    for run in runs.iterator():
-        newest.setdefault(run.checker_name, run)
+    """Newest CheckRun per checker for the machine this hub runs on.
+
+    Two steps on purpose. Walking the table to keep the first row per checker
+    has no LIMIT and no early exit: CheckRun has no retention anywhere in this
+    repo, and a host checking every five minutes writes thousands of rows a day,
+    so that walk grows without bound behind an operator's page. Instead: one
+    cheap ``distinct`` to learn which checkers this host has ever reported, then
+    one indexed newest-row query each. The names still come from the data rather
+    than a static map, so a checker nobody listed still shows up.
+    """
     rows: list[CheckerRow] = []
-    for name, run in newest.items():
-        metric = PRIMARY_METRIC.get(name)
+    # order_by() clears the model's default ordering: left on, executed_at joins
+    # the SELECT and every row comes back distinct, which is no distinct at all.
+    names = (
+        CheckRun.objects.filter(hostname=node.hostname)
+        .order_by()
+        .values_list("checker_name", flat=True)
+        .distinct()
+    )
+    # ``[:1]`` rather than ``.first()``: the name came out of the table, so there
+    # is always a row, and iterating says that without an unreachable None branch.
+    newest = [
+        run
+        for name in names
+        for run in CheckRun.objects.filter(hostname=node.hostname, checker_name=name).order_by(
+            "-executed_at"
+        )[:1]
+    ]
+    for run in newest:
+        metric = PRIMARY_METRIC.get(run.checker_name)
         raw = _json_dict(run.metrics).get(metric) if metric else None
         rows.append(
             CheckerRow(
-                checker=name,
+                checker=run.checker_name,
                 status=run.status,
                 value=_format_metric(raw),
                 observed_at=run.executed_at,
@@ -194,9 +216,13 @@ def _peer_checker_rows(node) -> list[CheckerRow]:
 
     One Alert per checker per node by fingerprint, updated in place on every
     push, so the newest write is the whole history this hub holds.
+
+    Filtered in the database rather than in Python: checker alerts are bounded
+    by fingerprint dedup, but a node's webhook alerts are not, and walking all
+    of them only to discard them is work the page does not need.
     """
     rows: list[CheckerRow] = []
-    for alert in node.alerts.order_by("-updated_at"):
+    for alert in node.alerts.filter(labels__has_key="checker").order_by("-updated_at"):
         checker = _json_dict(alert.labels).get("checker")
         if not checker:
             continue  # a webhook alert is not a checker result

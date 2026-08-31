@@ -259,6 +259,53 @@ class CheckerStateTests(TestCase):
             )
         self.assertEqual(len(build_checker_rows(node)), 1)
 
+    def test_the_local_scan_is_one_query_per_checker_not_a_table_walk(self):
+        # There is no CheckRun retention, so a table walk grows without bound:
+        # a host checking every 5 minutes writes ~4k rows a day. The cost must
+        # track the number of distinct checkers, not the number of rows.
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        for _ in range(10):
+            for name in ("cpu", "disk", "memory"):
+                self._run(name, "ok", {}, executed_at=timezone.now())
+        # one query to discover the names, then one newest-row query per name
+        with self.assertNumQueries(4):
+            rows = build_checker_rows(node)
+        self.assertEqual([r.checker for r in rows], ["cpu", "disk", "memory"])
+
+    def test_a_checker_absent_from_the_metric_map_is_still_listed(self):
+        # The names come from the data, not from a static list: a checker that
+        # ran and is in no map is exactly the row an operator needs to see.
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self._run("listening_ports", "ok", {})
+        self.assertEqual([r.checker for r in build_checker_rows(node)], ["listening_ports"])
+
+    def test_the_peer_scan_reads_only_checker_alerts(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        for index in range(10):
+            Alert.objects.create(
+                fingerprint=f"grafana-{index}",
+                source="grafana",
+                name="latency",
+                severity=AlertSeverity.WARNING,
+                started_at=timezone.now(),
+                node=node,
+            )
+        with self.assertNumQueries(1):
+            self.assertEqual(build_checker_rows(node), [])
+
+    def test_a_peer_alert_with_a_blank_checker_label_is_skipped(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        Alert.objects.create(
+            fingerprint="blank-checker",
+            source="cluster",
+            name="cpu",
+            severity=AlertSeverity.INFO,
+            started_at=timezone.now(),
+            node=node,
+            labels={"checker": ""},
+        )
+        self.assertEqual(build_checker_rows(node), [])
+
     def test_a_peer_alert_with_non_dict_labels_does_not_crash_the_page(self):
         # labels arrives over a webhook and is attacker-controlled: it can be a
         # string. Same defence as services.instance_key_from_labels.
