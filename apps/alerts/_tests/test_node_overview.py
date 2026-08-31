@@ -259,6 +259,50 @@ class CheckerStateTests(TestCase):
             )
         self.assertEqual(len(build_checker_rows(node)), 1)
 
+    def test_a_peer_alert_with_non_dict_labels_does_not_crash_the_page(self):
+        # labels arrives over a webhook and is attacker-controlled: it can be a
+        # string. Same defence as services.instance_key_from_labels.
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        Alert.objects.create(
+            fingerprint="hostile-labels",
+            source="grafana",
+            name="cpu",
+            severity=AlertSeverity.INFO,
+            started_at=timezone.now(),
+            node=node,
+            labels="not-a-dict",
+        )
+        self.assertEqual(build_checker_rows(node), [])
+
+    def test_a_peer_alert_with_non_dict_annotations_still_renders(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        Alert.objects.create(
+            fingerprint="check:web-03:cpu",
+            source="cluster",
+            name="cpu",
+            severity=AlertSeverity.INFO,
+            started_at=timezone.now(),
+            node=node,
+            labels={"checker": "cpu"},
+            annotations="nope",
+        )
+        rows = build_checker_rows(node)
+        self.assertEqual(rows[0].checker, "cpu")
+        self.assertEqual(rows[0].value, "\u2014")
+
+    def test_a_check_run_with_non_dict_metrics_still_renders(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self._run("cpu", "ok", "nope")
+        rows = build_checker_rows(node)
+        self.assertEqual(rows[0].checker, "cpu")
+        self.assertEqual(rows[0].value, "\u2014")
+
+    def test_a_boolean_metric_reads_as_a_dash_not_as_one_point_zero(self):
+        # build_charts refuses to plot a bool; the state table must agree.
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self._run("cpu", "ok", {"cpu_percent": True})
+        self.assertEqual(build_checker_rows(node)[0].value, "\u2014")
+
     def test_a_local_checker_with_no_primary_metric_reads_as_a_dash(self):
         node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
         self._run("raid", "ok", {})

@@ -154,12 +154,24 @@ def _format_metric(raw) -> str:
     ``CheckRun.metrics`` as numbers. Anything missing or unparseable reads as a
     dash, never as a stack trace on an operator's page.
     """
-    if raw is None or raw == "":
+    if raw is None or raw == "" or isinstance(raw, bool):
         return "—"
     try:
         return f"{float(raw):.1f}"
     except (TypeError, ValueError):
         return str(raw)
+
+
+def _json_dict(value) -> dict:
+    """A JSON field read as a dict, whatever it actually holds.
+
+    ``Alert.labels``, ``Alert.annotations`` and ``CheckRun.metrics`` are JSON
+    fields fed by attacker-controlled webhook payloads, so any of them can be a
+    string. Same defence as ``instance_key_from_labels`` in services.py: treat
+    anything non-dict as empty rather than letting ``.get`` raise and 500 the
+    page an operator opened to investigate that very node.
+    """
+    return value if isinstance(value, dict) else {}
 
 
 def _local_checker_rows(node) -> list[CheckerRow]:
@@ -171,7 +183,7 @@ def _local_checker_rows(node) -> list[CheckerRow]:
     rows: list[CheckerRow] = []
     for name, run in newest.items():
         metric = CHECKER_PRIMARY_METRIC.get(name)
-        raw = (run.metrics or {}).get(metric) if metric else None
+        raw = _json_dict(run.metrics).get(metric) if metric else None
         rows.append(
             CheckerRow(
                 checker=name,
@@ -192,13 +204,13 @@ def _peer_checker_rows(node) -> list[CheckerRow]:
     """
     rows: list[CheckerRow] = []
     for alert in node.alerts.order_by("-updated_at"):
-        checker = (alert.labels or {}).get("checker")
+        checker = _json_dict(alert.labels).get("checker")
         if not checker:
             continue  # a webhook alert is not a checker result
         if any(r.checker == checker for r in rows):
             continue
         metric = CHECKER_PRIMARY_METRIC.get(checker)
-        raw = (alert.annotations or {}).get(metric) if metric else None
+        raw = _json_dict(alert.annotations).get(metric) if metric else None
         rows.append(
             CheckerRow(
                 checker=checker,
@@ -211,9 +223,14 @@ def _peer_checker_rows(node) -> list[CheckerRow]:
     return sorted(rows, key=lambda r: r.checker)
 
 
-def build_checker_rows(node) -> list[CheckerRow]:
-    """Current per-checker state, from whichever source this node has."""
-    if build_identity(node).is_local:
+def build_checker_rows(node, identity: Identity | None = None) -> list[CheckerRow]:
+    """Current per-checker state, from whichever source this node has.
+
+    ``identity`` is optional so a caller with one already computed can hand it
+    over: ``build_identity`` calls ``socket.gethostname()``, and the page needs
+    the same answer five times.
+    """
+    if (identity or build_identity(node)).is_local:
         return _local_checker_rows(node)
     return _peer_checker_rows(node)
 
@@ -272,14 +289,14 @@ class Chart:
     latest: str
 
 
-def build_charts(node) -> list[Chart]:
+def build_charts(node, identity: Identity | None = None) -> list[Chart]:
     """Time series for the local node only.
 
     A peer has no CheckRun rows on this hub, so it gets an empty list and the
     template shows ``charts_note`` instead. A blank chart would read as "flat",
     which is a lie.
     """
-    if not build_identity(node).is_local:
+    if not (identity or build_identity(node)).is_local:
         return []
     charts: list[Chart] = []
     for title, checker in CHART_SPECS:
@@ -293,7 +310,7 @@ def build_charts(node) -> list[Chart]:
         points: list[tuple[float, float]] = []
         markers: list[float] = []
         for index, run in enumerate(runs):
-            value = (run.metrics or {}).get(metric)
+            value = _json_dict(run.metrics).get(metric)
             if not isinstance(value, (int, float)) or isinstance(value, bool):
                 continue
             points.append((index, float(value)))
@@ -318,9 +335,9 @@ def build_charts(node) -> list[Chart]:
     return charts
 
 
-def charts_note(node) -> str:
+def charts_note(node, identity: Identity | None = None) -> str:
     """Why a peer has no charts. Empty for the local node."""
-    return "" if build_identity(node).is_local else PEER_HISTORY_NOTE
+    return "" if (identity or build_identity(node)).is_local else PEER_HISTORY_NOTE
 
 
 PEER_PREFLIGHT_NOTE = (
@@ -335,14 +352,14 @@ class PreflightPanel:
     note: str
 
 
-def build_preflight(node) -> PreflightPanel:
+def build_preflight(node, identity: Identity | None = None) -> PreflightPanel:
     """Latest preflight for the local node; an explanation for a peer.
 
     Matched on ``instance_id`` because PreflightRun has no node FK. Both writers
     now spell this machine the same way — see the 0003 backfill migration for
     the rows written before they did.
     """
-    if not build_identity(node).is_local:
+    if not (identity or build_identity(node)).is_local:
         return PreflightPanel(run=None, note=PEER_PREFLIGHT_NOTE)
     run = PreflightRun.objects.filter(instance_id=node.instance_id).order_by("-created_at").first()
     if run is None:
@@ -387,13 +404,14 @@ class NodeOverview:
 
 def build_node_overview(node) -> NodeOverview:
     """Every panel on the node detail page, in one object for the template."""
+    identity = build_identity(node)
     return NodeOverview(
-        identity=build_identity(node),
+        identity=identity,
         chips=render_severity_chips(node),
-        checker_rows=build_checker_rows(node),
+        checker_rows=build_checker_rows(node, identity),
         incident_rows=build_incident_rows(node),
-        charts=build_charts(node),
-        charts_note=charts_note(node),
-        preflight=build_preflight(node),
+        charts=build_charts(node, identity),
+        charts_note=charts_note(node, identity),
+        preflight=build_preflight(node, identity),
         pipeline_rows=build_pipeline_rows(node),
     )
