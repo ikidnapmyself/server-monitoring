@@ -18,6 +18,7 @@ from django.utils.timesince import timesince
 
 from apps.alerts.identity import local_instance_id
 from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
+from apps.alerts.reevaluation import PRIMARY_METRIC
 from apps.checkers.admin_charts import render_sparkline
 from apps.checkers.models import CheckRun, PreflightRun
 from config.dashboard import NODE_RECENT_MINUTES
@@ -125,17 +126,9 @@ def render_severity_chips(node) -> str:
     return format_html_join(" ", "{}", ((part,) for part in parts))
 
 
-# The metric each numeric checker is judged on. Promoted from a comment in
-# admin.py so the state table and the charts read the same field.
-CHECKER_PRIMARY_METRIC = {
-    "cpu": "cpu_percent",
-    "memory": "memory_percent",
-    "disk": "worst_percent",
-    "disk_inodes": "worst_percent",
-    "disk_temp": "hottest_c",
-    "cpu_temp": "hottest_c",
-    "io_strain": "busiest_util_percent",
-}
+# The metric each numeric checker is judged on comes from the severity
+# re-evaluator: one map, so the state table, the charts and the hub-side
+# scoring all read the same field of the same checker.
 
 
 @dataclass(frozen=True)
@@ -182,7 +175,7 @@ def _local_checker_rows(node) -> list[CheckerRow]:
         newest.setdefault(run.checker_name, run)
     rows: list[CheckerRow] = []
     for name, run in newest.items():
-        metric = CHECKER_PRIMARY_METRIC.get(name)
+        metric = PRIMARY_METRIC.get(name)
         raw = _json_dict(run.metrics).get(metric) if metric else None
         rows.append(
             CheckerRow(
@@ -209,7 +202,7 @@ def _peer_checker_rows(node) -> list[CheckerRow]:
             continue  # a webhook alert is not a checker result
         if any(r.checker == checker for r in rows):
             continue
-        metric = CHECKER_PRIMARY_METRIC.get(checker)
+        metric = PRIMARY_METRIC.get(checker)
         raw = _json_dict(alert.annotations).get(metric) if metric else None
         rows.append(
             CheckerRow(
@@ -300,7 +293,7 @@ def build_charts(node, identity: Identity | None = None) -> list[Chart]:
         return []
     charts: list[Chart] = []
     for title, checker in CHART_SPECS:
-        metric = CHECKER_PRIMARY_METRIC[checker]
+        metric = PRIMARY_METRIC[checker]
         runs = list(
             CheckRun.objects.filter(hostname=node.hostname, checker_name=checker).order_by(
                 "-executed_at"

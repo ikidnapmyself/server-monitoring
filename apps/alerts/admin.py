@@ -684,10 +684,8 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
     ]
     change_form_template = "admin/alerts/node/change_form.html"
     formfield_overrides = {db_models.JSONField: {"widget": JSONEditorWidget}}
-    # Numeric checkers the hub can re-evaluate, and the metric each reads:
-    # cpu→cpu_percent, memory→memory_percent, disk→worst_percent,
-    # disk_inodes→worst_percent, disk_temp→hottest_c, cpu_temp→hottest_c,
-    # io_strain→busiest_util_percent. Example config value:
+    # Which checkers the hub can re-evaluate, and the metric each reads, lives in
+    # apps.alerts.reevaluation.PRIMARY_METRIC. Example config value:
     #   {"cpu": {"warning_threshold": 99, "critical_threshold": 99}}
 
     def get_queryset(self, request):
