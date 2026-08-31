@@ -45,6 +45,25 @@ class IdentityHeaderTests(TestCase):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
         self.assertIn("ago", build_identity(node).freshness_label)
 
+    def test_the_local_node_stale_past_the_window_still_reads_informational(self):
+        # config/dashboard.py keeps this instance out of the freshness verdict: its
+        # last_seen only says somebody ran a check here, so amber would be permanent.
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        Node.objects.filter(pk=node.pk).update(
+            last_seen=timezone.now() - timezone.timedelta(minutes=NODE_RECENT_MINUTES + 1)
+        )
+        node.refresh_from_db()
+        self.assertEqual(build_identity(node).freshness_status, "info")
+
+    def test_the_local_node_inside_the_window_also_reads_informational(self):
+        # The window does not apply to us at all, in either direction.
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self.assertEqual(build_identity(node).freshness_status, "info")
+
+    def test_the_local_node_label_names_it_as_a_self_check(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self.assertIn("self-check", build_identity(node).freshness_label)
+
 
 class SeverityChipTests(TestCase):
     def _incident(self, node, severity, status=IncidentStatus.OPEN):

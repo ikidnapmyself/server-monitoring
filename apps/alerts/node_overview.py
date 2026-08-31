@@ -39,25 +39,36 @@ UNRESOLVED_INCIDENT_STATUSES = [IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED
 class Identity:
     is_local: bool
     role_label: str
-    freshness_status: str  # "ok" | "warn"
+    freshness_status: str  # "ok" | "warn" | "info"
     freshness_label: str
 
 
 def build_identity(node) -> Identity:
     """Role and freshness for the header.
 
-    Freshness reuses the dashboard's own window rather than restating a number,
-    so a node that reads amber on the dashboard reads amber here.
+    A peer reuses the dashboard's own window rather than restating a number, so a
+    peer that reads amber on the dashboard reads amber here. This instance's own
+    row is left out of that verdict for the reason spelled out above the nodes
+    card in ``config/dashboard.py``: its last_seen tracks local check runs, not a
+    machine still reaching us, so a window applied to it paints a healthy install
+    amber forever. Its age is reported as information instead.
     """
     is_local = node.instance_id == local_instance_id()
     now = timezone.now()
+    age = timesince(node.last_seen, now)
+    if is_local:
+        return Identity(
+            is_local=True,
+            role_label="This hub",
+            freshness_status="info",
+            freshness_label=f"self-check {age} ago",
+        )
     cutoff = now - timedelta(minutes=NODE_RECENT_MINUTES)
-    status = "ok" if node.last_seen >= cutoff else "warn"
     return Identity(
-        is_local=is_local,
-        role_label="This hub" if is_local else "Peer",
-        freshness_status=status,
-        freshness_label=f"{timesince(node.last_seen, now)} ago",
+        is_local=False,
+        role_label="Peer",
+        freshness_status="ok" if node.last_seen >= cutoff else "warn",
+        freshness_label=f"{age} ago",
     )
 
 
@@ -66,8 +77,8 @@ def unresolved_counts(node) -> dict[str, int]:
 
     Prefers the annotations ``NodeAdmin.get_queryset`` adds, so rendering the
     whole changelist stays one query. Falls back to a per-node aggregate for a
-    node that arrived unannotated. ``distinct=True`` throughout: an incident this
-    node raised six alerts on is one incident, not six.
+    node that arrived unannotated. Both paths count incidents, not alerts: an
+    incident this node raised six alerts on is one incident, not six.
     """
     if hasattr(node, "unresolved_total"):
         return {s: getattr(node, f"unresolved_{s}", 0) for s in SEVERITIES_WORST_FIRST}
@@ -80,7 +91,7 @@ def unresolved_counts(node) -> dict[str, int]:
     return {s: counted.get(s, 0) for s in SEVERITIES_WORST_FIRST}
 
 
-def render_severity_chips(node):
+def render_severity_chips(node) -> str:
     """Linked severity chips, worst first. A quiet node reads as a dash.
 
     Each chip links to the incident changelist already narrowed to this node and
