@@ -1,0 +1,124 @@
+{% extends "admin/change_form.html" %}
+{% comment %}
+Node detail overview. Rendered above the registry form by
+NodeAdmin.render_change_form, which puts a NodeOverview in the context.
+
+node_overview.chips and chart.svg are SafeString from format_html and render as
+markup on purpose. Everything else is autoescaped: a hostname, an incident title
+and a checker name can all arrive over a webhook.
+{% endcomment %}
+
+{% block content %}
+{% if node_overview %}
+<div class="module" style="margin-bottom:20px; padding:12px 16px;">
+
+  <h2 style="margin-top:0; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+    <span>{{ node_overview.identity.role_label }}</span>
+    {# Three states, not two: a peer is ok/warn, the local node is always info. #}
+    {# Painting the hub amber for its own self-check age is the bug Task 3b fixed. #}
+    {% if node_overview.identity.freshness_status == "ok" %}
+      <span style="background-color:#28a745; color:#fff; padding:2px 8px;
+                   border-radius:10px; font-size:12px; font-weight:normal;"
+      >{{ node_overview.identity.freshness_label }}</span>
+    {% elif node_overview.identity.freshness_status == "warn" %}
+      <span style="background-color:#ffc107; color:#332701; padding:2px 8px;
+                   border-radius:10px; font-size:12px; font-weight:normal;"
+      >{{ node_overview.identity.freshness_label }}</span>
+    {% else %}
+      <span style="background-color:#6c757d; color:#fff; padding:2px 8px;
+                   border-radius:10px; font-size:12px; font-weight:normal;"
+      >{{ node_overview.identity.freshness_label }}</span>
+    {% endif %}
+    <span style="font-size:12px; font-weight:normal;">{{ node_overview.chips }}</span>
+  </h2>
+
+  <h3 style="margin-bottom:6px;">Checker state</h3>
+  {% if node_overview.checker_rows %}
+  <div style="overflow-x:auto;">
+    <table style="width:100%; border-collapse:collapse;">
+      <thead>
+        <tr>
+          <th style="text-align:left;">Checker</th>
+          <th style="text-align:left;">Status</th>
+          <th style="text-align:right;">Value</th>
+          <th style="text-align:left;">Observed</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in node_overview.checker_rows %}
+        <tr>
+          <td><a href="{{ row.url }}">{{ row.checker }}</a></td>
+          <td>{{ row.status }}</td>
+          <td style="text-align:right;">{{ row.value }}</td>
+          <td>{{ row.observed_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>This node has not reported any checker results yet.</p>
+  {% endif %}
+
+  <h3 style="margin-bottom:6px;">Recent incidents</h3>
+  {% if node_overview.incident_rows %}
+  <ul style="margin:0 0 0 16px; padding:0;">
+    {% for row in node_overview.incident_rows %}
+    <li style="margin-bottom:3px;">
+      <span style="background-color:{{ row.color }}; color:white; padding:2px 6px;
+                   border-radius:3px; font-size:11px;">{{ row.severity|upper }}</span>
+      <a href="{{ row.url }}">{{ row.title }}</a>
+      &mdash; {{ row.status }} &mdash; {{ row.created_at }}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No incidents for this node.</p>
+  {% endif %}
+
+  <h3 style="margin-bottom:6px;">History</h3>
+  {% if node_overview.charts %}
+  <div style="display:flex; gap:24px; flex-wrap:wrap;">
+    {% for chart in node_overview.charts %}
+    <div>
+      <div style="font-size:12px; font-weight:bold;">{{ chart.title }}</div>
+      {{ chart.svg }}
+      <div style="font-size:11px;">latest {{ chart.latest }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p>{{ node_overview.charts_note|default:"No history recorded yet." }}</p>
+  {% endif %}
+
+  <h3 style="margin-bottom:6px;">Latest preflight</h3>
+  {% if node_overview.preflight.run %}
+  <p>
+    {{ node_overview.preflight.run.created_at }} &mdash;
+    <b>{{ node_overview.preflight.run.overall_status }}</b>
+    (passed {{ node_overview.preflight.run.passed }},
+     warnings {{ node_overview.preflight.run.warnings }},
+     errors {{ node_overview.preflight.run.errors }})
+  </p>
+  {% else %}
+  <p>{{ node_overview.preflight.note }}</p>
+  {% endif %}
+
+  <h3 style="margin-bottom:6px;">Recent pipeline runs</h3>
+  {% if node_overview.pipeline_rows %}
+  <ul style="margin:0 0 0 16px; padding:0;">
+    {% for row in node_overview.pipeline_rows %}
+    <li style="margin-bottom:3px;">
+      <a href="{{ row.url }}">{{ row.run_id }}</a> &mdash; {{ row.origin }}
+      &mdash; {{ row.status }} &mdash; {{ row.created_at }}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No pipeline runs for this node.</p>
+  {% endif %}
+
+</div>
+{% endif %}
+{{ block.super }}
+{% endblock %}

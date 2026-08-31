@@ -371,3 +371,29 @@ def build_pipeline_rows(node, limit: int = 10) -> list[PipelineRow]:
         )
         for run in node.pipeline_runs.order_by("-created_at")[:limit]
     ]
+
+
+@dataclass(frozen=True)
+class NodeOverview:
+    identity: Identity
+    chips: object
+    checker_rows: list[CheckerRow]
+    incident_rows: list[IncidentRow]
+    charts: list[Chart]
+    charts_note: str
+    preflight: PreflightPanel
+    pipeline_rows: list[PipelineRow]
+
+
+def build_node_overview(node) -> NodeOverview:
+    """Every panel on the node detail page, in one object for the template."""
+    return NodeOverview(
+        identity=build_identity(node),
+        chips=render_severity_chips(node),
+        checker_rows=build_checker_rows(node),
+        incident_rows=build_incident_rows(node),
+        charts=build_charts(node),
+        charts_note=charts_note(node),
+        preflight=build_preflight(node),
+        pipeline_rows=build_pipeline_rows(node),
+    )

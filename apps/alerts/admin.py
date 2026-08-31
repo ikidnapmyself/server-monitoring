@@ -7,7 +7,6 @@ from django.core.exceptions import PermissionDenied
 from django.db import models as db_models
 from django.db.models import Count, Q
 from django.template.response import TemplateResponse
-from django.urls import reverse
 from django.utils.html import format_html, format_html_join
 from django_json_widget.widgets import JSONEditorWidget
 from django_object_actions import DjangoObjectActions
@@ -26,13 +25,12 @@ from apps.alerts.node_overview import (
     SEVERITIES_WORST_FIRST,
     SEVERITY_COLORS,
     UNRESOLVED_INCIDENT_STATUSES,
+    build_node_overview,
     render_severity_chips,
 )
 from apps.alerts.reeval_existing import apply_node_alert_reeval, preview_node_alert_reeval
 from apps.alerts.services import IncidentManager, instance_key_from_labels
 from apps.alerts.timeline import build_incident_timeline
-from apps.checkers.admin_charts import render_sparkline
-from apps.checkers.models import CheckRun, PreflightRun
 from apps.orchestration.models import PipelineRun
 from config.dashboard import prettify_json
 
@@ -673,9 +671,6 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
         "labels",
         "first_seen",
         "last_seen",
-        "disk_sparkline",
-        "recent_pipelines",
-        "latest_preflight",
     ]
     fields = [
         "instance_id",
@@ -686,10 +681,8 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
         "config",
         "first_seen",
         "last_seen",
-        "disk_sparkline",
-        "recent_pipelines",
-        "latest_preflight",
     ]
+    change_form_template = "admin/alerts/node/change_form.html"
     formfield_overrides = {db_models.JSONField: {"widget": JSONEditorWidget}}
     # Numeric checkers the hub can re-evaluate, and the metric each reads:
     # cpu→cpu_percent, memory→memory_percent, disk→worst_percent,
@@ -775,70 +768,13 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
             },
         )
 
-    @admin.display(description="Disk usage history")
-    def disk_sparkline(self, obj):
-        """Inline SVG sparkline of recent ``disk`` checker ``worst_percent``.
+    def render_change_form(self, request, context, *args, obj=None, **kwargs):
+        """Attach the overview panels; the form below is unchanged.
 
-        Points are indexed by position (oldest → newest); runs that raised an
-        alert are dotted as markers. Runs with a missing or non-numeric
-        ``worst_percent`` are skipped. Reuses ``render_sparkline`` (Phase 5).
+        ``obj`` is None on the add view, which NodeAdmin forbids anyway; the
+        guard costs nothing and the template's ``{% if node_overview %}``
+        depends on it.
         """
-        runs = list(
-            CheckRun.objects.filter(hostname=obj.hostname, checker_name="disk").order_by(
-                "-executed_at"
-            )[:50]
-        )
-        runs.reverse()  # most-recent 50, restored to oldest -> newest for plotting
-        points = []
-        marker_xs = []
-        for index, run in enumerate(runs):
-            worst = (run.metrics or {}).get("worst_percent")
-            if not isinstance(worst, (int, float)):
-                continue
-            points.append((index, float(worst)))
-            if run.alert_id is not None:
-                marker_xs.append(index)
-        if not points:
-            return "No disk history."
-        return render_sparkline(points, markers=marker_xs)
-
-    @admin.display(description="Recent pipeline runs")
-    def recent_pipelines(self, obj):
-        """Escaped list of the node's 10 newest pipeline runs, each admin-linked."""
-        runs = list(obj.pipeline_runs.order_by("-created_at")[:10])
-        if not runs:
-            return "No pipeline runs for this node."
-        rows = format_html_join(
-            "",
-            '<li><a href="{}">{}</a> — {} — {} — {}</li>',
-            (
-                (
-                    reverse("admin:orchestration_pipelinerun_change", args=[run.pk]),
-                    run.run_id,
-                    run.origin,
-                    run.status,
-                    run.created_at.isoformat(),
-                )
-                for run in runs
-            ),
-        )
-        return format_html('<ul style="margin:0 0 0 16px;">{}</ul>', rows)
-
-    @admin.display(description="Latest preflight")
-    def latest_preflight(self, obj):
-        """Latest preflight matched by ``instance_id`` (PreflightRun has no node FK)."""
-        if not obj.instance_id:
-            return "No preflight recorded."
-        run = (
-            PreflightRun.objects.filter(instance_id=obj.instance_id).order_by("-created_at").first()
-        )
-        if run is None:
-            return "No preflight recorded."
-        return format_html(
-            "<div>{} — <b>{}</b> " "(passed {}, warnings {}, errors {})</div>",
-            run.created_at.isoformat(),
-            run.overall_status,
-            run.passed,
-            run.warnings,
-            run.errors,
-        )
+        if obj is not None:
+            context["node_overview"] = build_node_overview(obj)
+        return super().render_change_form(request, context, *args, obj=obj, **kwargs)

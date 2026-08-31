@@ -7,11 +7,14 @@ from django.core.exceptions import PermissionDenied
 from django.db import models as db_models
 from django.template.response import TemplateResponse
 from django.test import RequestFactory, TestCase
+from django.urls import reverse
 from django.utils import timezone
-from django.utils.safestring import SafeString
 from django_json_widget.widgets import JSONEditorWidget
 
+from apps.alerts.identity import local_instance_id
 from apps.alerts.models import Alert, Incident, Node
+from apps.checkers.models import CheckRun, PreflightRun
+from apps.orchestration.models import PipelineRun
 
 
 class NodeAdminTests(TestCase):
@@ -150,168 +153,84 @@ class NodeReevaluateActionTests(TestCase):
         self.assertEqual(alert.status, "firing")
 
 
-class NodePageInlineDisplaysTests(TestCase):
-    """Node change page: disk sparkline, recent pipelines, latest preflight."""
+class NodeChangeFormTests(TestCase):
+    """The change page renders the operator overview above the registry form."""
 
     def setUp(self):
-        self.model_admin = admin.site._registry[Node]
-
-    def _disk_run(self, node, worst_percent, *, with_alert=False, offset=0):
-        from apps.checkers.models import CheckRun
-
-        alert = None
-        if with_alert:
-            alert = Alert.objects.create(
-                fingerprint=f"disk-{node.hostname}-{offset}",
-                source="cluster",
-                name="disk high",
-                severity="critical",
-                status="firing",
-                started_at=timezone.now(),
-                node=node,
-            )
-        metrics = {} if worst_percent is None else {"worst_percent": worst_percent}
-        return CheckRun.objects.create(
-            checker_name="disk",
-            hostname=node.hostname,
-            status="ok",
-            metrics=metrics,
-            alert=alert,
-            executed_at=timezone.now() + timezone.timedelta(minutes=offset),
-        )
-
-    def test_display_methods_in_readonly_fields(self):
-        for field in ("disk_sparkline", "recent_pipelines", "latest_preflight"):
-            self.assertIn(field, self.model_admin.readonly_fields)
-
-    def test_disk_sparkline_renders_svg_with_alert_marker(self):
-        node = Node.objects.create(instance_id="web-03", hostname="web-03")
-        self._disk_run(node, 40.0, offset=0)
-        self._disk_run(node, 85.0, with_alert=True, offset=1)
-        result = self.model_admin.disk_sparkline(node)
-        self.assertIsInstance(result, SafeString)
-        self.assertIn("<svg", result)
-        self.assertIn("circle", result)
-
-    def test_disk_sparkline_skips_missing_worst_percent(self):
-        node = Node.objects.create(instance_id="web-04", hostname="web-04")
-        self._disk_run(node, None, offset=0)  # no worst_percent
-        self._disk_run(node, "bad", offset=1)  # non-numeric
-        self._disk_run(node, 50.0, offset=2)
-        result = self.model_admin.disk_sparkline(node)
-        self.assertIn("<svg", result)
-
-    def test_disk_sparkline_empty_history(self):
-        node = Node.objects.create(instance_id="web-05", hostname="web-05")
-        result = self.model_admin.disk_sparkline(node)
-        self.assertEqual(result, "No disk history.")
-
-    def test_disk_sparkline_uses_recent_window_not_oldest(self):
-        # >50 runs: only the most-recent run carries an alert marker. The recent
-        # window (last 50) must include it; the old ascending [:50] would have
-        # dropped it (it selected runs 0-49, never the newest).
-        recent_node = Node.objects.create(instance_id="web-12", hostname="web-12")
-        for i in range(60):
-            self._disk_run(recent_node, float(i), with_alert=(i == 59), offset=i)
-        recent_result = self.model_admin.disk_sparkline(recent_node)
-        # "#d33" is the alert marker fill from render_sparkline — present only if
-        # the newest (alert-bearing) run is within the plotted window.
-        self.assertIn("#d33", recent_result)
-
-        # Conversely, an alert only on the OLDEST run must be dropped by the window.
-        old_node = Node.objects.create(instance_id="web-13", hostname="web-13")
-        for i in range(60):
-            self._disk_run(old_node, float(i), with_alert=(i == 0), offset=i)
-        old_result = self.model_admin.disk_sparkline(old_node)
-        self.assertNotIn("#d33", old_result)
-
-    def test_recent_pipelines_lists_runs_newest_first_with_links(self):
-        from apps.orchestration.models import PipelineRun
-
-        node = Node.objects.create(instance_id="web-06", hostname="web-06")
-        old = PipelineRun.objects.create(trace_id="t1", run_id="run-old", node=node)
-        new = PipelineRun.objects.create(trace_id="t2", run_id="run-new", node=node)
-        # Set created_at explicitly so ordering can't tie at microsecond resolution.
-        PipelineRun.objects.filter(pk=old.pk).update(
-            created_at=timezone.now() - timezone.timedelta(minutes=5)
-        )
-        PipelineRun.objects.filter(pk=new.pk).update(created_at=timezone.now())
-        result = self.model_admin.recent_pipelines(node)
-        self.assertIsInstance(result, SafeString)
-        self.assertIn("run-old", result)
-        self.assertIn("run-new", result)
-        self.assertIn(f"/admin/orchestration/pipelinerun/{new.pk}/change/", result)
-        # newest first
-        self.assertLess(result.index("run-new"), result.index("run-old"))
-
-    def test_recent_pipelines_escapes_content(self):
-        from apps.orchestration.models import PipelineRun
-
-        node = Node.objects.create(instance_id="web-07", hostname="web-07")
-        PipelineRun.objects.create(
-            trace_id="t", run_id="<script>", node=node, origin="incoming_webhook"
-        )
-        result = self.model_admin.recent_pipelines(node)
-        self.assertNotIn("<script>", result)
-        self.assertIn("&lt;script&gt;", result)
-
-    def test_recent_pipelines_empty(self):
-        node = Node.objects.create(instance_id="web-08", hostname="web-08")
-        result = self.model_admin.recent_pipelines(node)
-        self.assertIsInstance(result, str)
-        self.assertNotIn("/admin/orchestration/", result)
-
-    def test_latest_preflight_shows_matching_run(self):
-        from apps.checkers.models import PreflightRun
-
-        node = Node.objects.create(instance_id="web-09", hostname="web-09")
-        PreflightRun.objects.create(
-            instance_id="web-09", passed=5, warnings=1, errors=0, overall_status="warn"
-        )
-        result = self.model_admin.latest_preflight(node)
-        self.assertIsInstance(result, SafeString)
-        self.assertIn("warn", result)
-
-    def test_latest_preflight_no_instance_id(self):
-        node = Node.objects.create(instance_id="", hostname="web-10")
-        result = self.model_admin.latest_preflight(node)
-        self.assertEqual(result, "No preflight recorded.")
-
-    def test_latest_preflight_no_matching_run(self):
-        node = Node.objects.create(instance_id="web-11", hostname="web-11")
-        result = self.model_admin.latest_preflight(node)
-        self.assertEqual(result, "No preflight recorded.")
-
-
-class NodeChangePageRenderTests(TestCase):
-    """The Node change page actually renders the sparkline + pipeline links."""
-
-    def setUp(self):
-        self.user = get_user_model().objects.create_superuser(
-            username="ops", email="ops@example.com", password="pw"
-        )
+        self.user = get_user_model().objects.create_superuser("ops", "ops@example.com", "pw")
         self.client.force_login(self.user)
 
-    def test_node_change_page_renders_sparkline_and_pipeline_link(self):
-        from django.urls import reverse
+    def _url(self, node):
+        return reverse("admin:alerts_node_change", args=[node.pk])
 
-        from apps.checkers.models import CheckRun
-        from apps.orchestration.models import PipelineRun
+    def test_the_overview_renders_above_the_form(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        response = self.client.get(self._url(node))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Peer")
+        self.assertContains(response, "Checker state")
+        # and the normal admin form is still there
+        self.assertContains(response, 'name="config"')
 
-        node = Node.objects.create(instance_id="web-20", hostname="web-20")
+    def test_the_hubs_own_page_shows_its_preflight(self):
+        # The regression: this said "No preflight recorded" for the hub itself.
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        PreflightRun.objects.create(instance_id=local_instance_id(), overall_status="ok", passed=11)
+        response = self.client.get(self._url(node))
+        self.assertContains(response, "This hub")
+        self.assertNotContains(response, "No preflight recorded")
+
+    def test_a_peer_is_told_why_it_has_no_charts(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        response = self.client.get(self._url(node))
+        self.assertContains(response, "not pushed to a hub")
+
+    def test_the_local_node_renders_its_charts_and_pipeline_runs(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
         CheckRun.objects.create(
-            checker_name="disk",
-            hostname="web-20",
-            status="ok",
-            metrics={"worst_percent": 42.0},
-            executed_at=timezone.now(),
+            checker_name="disk", hostname="hub", status="ok", metrics={"worst_percent": 42.0}
         )
         run = PipelineRun.objects.create(trace_id="t", run_id="run-render", node=node)
-        url = reverse("admin:alerts_node_change", args=[node.pk])
-        resp = self.client.get(url)
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "<svg")
-        self.assertContains(resp, f"/admin/orchestration/pipelinerun/{run.pk}/change/")
+        response = self.client.get(self._url(node))
+        self.assertContains(response, "<svg")
+        self.assertContains(response, f"/admin/orchestration/pipelinerun/{run.pk}/change/")
+
+    def test_a_hostile_hostname_is_escaped_but_the_chips_are_not(self):
+        # A hostname arrives over a webhook, so it must be autoescaped. The chips
+        # are SafeString from format_html and must still render as markup.
+        node = Node.objects.create(instance_id="web-03", hostname="<script>alert(1)</script>")
+        incident = Incident.objects.create(title="cpu high", severity="critical", status="open")
+        Alert.objects.create(
+            incident=incident,
+            node=node,
+            name="cpu",
+            fingerprint="cpu-hostile",
+            source="cluster",
+            severity="critical",
+            started_at=timezone.now(),
+        )
+        body = self.client.get(self._url(node)).content.decode()
+        self.assertNotIn("<script>alert(1)</script>", body)
+        self.assertIn("&lt;script&gt;", body)
+        self.assertIn("1 CRITICAL", body)  # chip markup survived unescaped
+
+    def test_an_incident_title_from_a_webhook_is_escaped(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        incident = Incident.objects.create(
+            title="<img src=x onerror=1>", severity="critical", status="open"
+        )
+        Alert.objects.create(
+            incident=incident,
+            node=node,
+            name="cpu",
+            fingerprint="cpu-hostile-title",
+            source="cluster",
+            severity="critical",
+            started_at=timezone.now(),
+        )
+        body = self.client.get(self._url(node)).content.decode()
+        self.assertNotIn("<img src=x", body)
+        self.assertIn("&lt;img src=x", body)
 
 
 class NodeIncidentsColumnTests(TestCase):
