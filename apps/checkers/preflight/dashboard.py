@@ -9,6 +9,8 @@ import os
 
 from django.conf import settings
 
+from apps.alerts.identity import local_instance_id
+
 
 def _is_receiving() -> bool:
     """A node accepts pushes (is a hub) when auth is on and it has an active key."""
@@ -49,7 +51,10 @@ def get_profile() -> dict:
         "database": db_name,
         "inbox_depth_warn": getattr(settings, "INBOX_DEPTH_WARN", 500),
         "metrics_backend": getattr(settings, "ORCHESTRATION_METRICS_BACKEND", "logging"),
-        "instance_id": getattr(settings, "INSTANCE_ID", ""),
+        # The identity actually in use, not the raw setting: a hub leaves
+        # INSTANCE_ID unset and files its runs and its Node row under the
+        # hostname. Reporting "" would hide the key the operator has to search.
+        "instance_id": local_instance_id(),
         "logs_dir": str(getattr(settings, "LOGS_DIR", "")),
         "api_key_auth": getattr(settings, "API_KEY_AUTH_ENABLED", True),
         "rate_limiting": getattr(settings, "RATE_LIMIT_ENABLED", False),

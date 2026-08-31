@@ -387,6 +387,9 @@ def check_cluster_coherence() -> list[CheckResult]:
 
     hub_url = getattr(settings, "HUB_URL", "")
     api_key = getattr(settings, "HUB_API_KEY", "")
+    # Deliberately the raw setting, not local_instance_id(): this check asserts a
+    # configuration fact (did the operator name this agent?), and the hostname
+    # fallback would answer "yes" for every unconfigured machine.
     instance_id = getattr(settings, "INSTANCE_ID", "")
     receiving = _is_receiving()
 
