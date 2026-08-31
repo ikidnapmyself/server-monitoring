@@ -23,6 +23,17 @@ from apps.orchestration.models import PipelineRun
 from config.dashboard import prettify_json
 
 
+def node_label(node) -> str:
+    """One name for a machine, for changelist columns.
+
+    ``Node.__str__`` renders ``instance_id (hostname)``, but the two are the same
+    string on most installs, so the pair reads as noise in a list. Prefer the
+    hostname and fall back to the instance_id. The change page and the Node admin
+    still show both.
+    """
+    return node.hostname or node.instance_id
+
+
 class AlertInline(admin.TabularInline):
     """Inline display of alerts within an incident."""
 
@@ -212,7 +223,7 @@ class AlertAdmin(admin.ModelAdmin):
         attacker-supplied label value for us.
         """
         if obj.node_id:
-            return str(obj.node)
+            return node_label(obj.node)
         return instance_key_from_labels(obj.labels) or "—"
 
     @admin.display(description="Journey")
@@ -252,6 +263,7 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
 
     list_display = [
         "title",
+        "host",
         "severity_badge",
         "status_badge",
         "alert_count_display",
@@ -259,8 +271,14 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         "created_at",
         "resolved_at",
     ]
-    list_filter = ["status", "severity"]
-    search_fields = ["title", "description", "summary"]
+    list_filter = ["status", "severity", "alerts__node"]
+    search_fields = [
+        "title",
+        "description",
+        "summary",
+        "alerts__node__instance_id",
+        "alerts__node__hostname",
+    ]
     readonly_fields = [
         "created_at",
         "updated_at",
@@ -281,7 +299,12 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
     change_actions = ["acknowledge_incident", "resolve_incident", "close_incident"]
 
     def get_queryset(self, request):
-        return super().get_queryset(request).prefetch_related("alerts", "pipeline_runs")
+        return (
+            super()
+            .get_queryset(request)
+            .distinct()
+            .prefetch_related("alerts__node", "pipeline_runs")
+        )
 
     fieldsets = [
         (
@@ -377,6 +400,26 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
             self.message_user(request, f"Incident '{obj.title}' closed.")
         else:
             self.message_user(request, "Already closed.", level="warning")
+
+    @admin.display(description="Host")
+    def host(self, obj):
+        """Machines this incident is about, read off its alerts.
+
+        An incident groups by alert name *and* instance (see
+        ``incident_instance_key``), so this is normally one machine. Multiple values
+        only show up for legacy rows grouped before that rule existed. Prefers the
+        registered ``Node`` and falls back to the same label lookup that defines the
+        grouping. Returns a plain string deliberately: it carries no markup, and the
+        admin escapes any attacker-supplied label value for us.
+        """
+        seen = []
+        for alert in obj.alerts.all():
+            name = (
+                node_label(alert.node) if alert.node_id else instance_key_from_labels(alert.labels)
+            )
+            if name and name not in seen:
+                seen.append(name)
+        return ", ".join(seen) or "—"
 
     @admin.display(description="Severity")
     def severity_badge(self, obj):

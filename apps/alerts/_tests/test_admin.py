@@ -465,7 +465,7 @@ class AlertAdminHostColumnTests(TestCase):
             node=node,
             started_at=timezone.now(),
         )
-        self.assertEqual(self._admin().host(alert), "node-a (web-01)")
+        self.assertEqual(self._admin().host(alert), "web-01")
 
     def test_host_falls_back_to_labels_for_webhook_sources(self):
         alert = Alert.objects.create(
@@ -511,3 +511,87 @@ class AlertAdminHostColumnTests(TestCase):
         self.assertIn("host", AlertAdmin.list_display)
         self.assertNotIn("node", AlertAdmin.list_display)
         self.assertIn("node", AlertAdmin.list_filter)
+
+
+class IncidentAdminHostColumnTests(TestCase):
+    """The incident changelist must name the machine the incident is about."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_superuser("hostadmin", "host@test.com", "password")
+
+    def setUp(self):
+        self.client.login(username="hostadmin", password="password")
+
+    def _admin(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import IncidentAdmin
+
+        return IncidentAdmin(Incident, AdminSite())
+
+    def _incident(self, **alert_kwargs):
+        incident = Incident.objects.create(title="cpu: CPU usage", severity="warning")
+        Alert.objects.create(
+            incident=incident,
+            name="cpu",
+            fingerprint=alert_kwargs.pop("fingerprint", "fp"),
+            source=alert_kwargs.pop("source", "cluster"),
+            started_at=timezone.now(),
+            **alert_kwargs,
+        )
+        return incident
+
+    def test_host_in_list_display_and_filter(self):
+        from apps.alerts.admin import IncidentAdmin
+
+        self.assertIn("host", IncidentAdmin.list_display)
+        self.assertIn("alerts__node", IncidentAdmin.list_filter)
+
+    def test_host_prefers_registered_node(self):
+        node = Node.objects.create(instance_id="node-a", hostname="web-01")
+        incident = self._incident(labels={"instance_id": "node-a"}, node=node)
+        self.assertEqual(self._admin().host(incident), "web-01")
+
+    def test_host_falls_back_to_labels(self):
+        incident = self._incident(source="grafana", labels={"instance": "10.0.0.7"})
+        self.assertEqual(self._admin().host(incident), "10.0.0.7")
+
+    def test_host_is_dash_without_alerts(self):
+        incident = Incident.objects.create(title="orphan", severity="info")
+        self.assertEqual(self._admin().host(incident), "—")
+
+    def test_host_is_dash_when_nothing_identifies_the_machine(self):
+        incident = self._incident(source="grafana", labels={})
+        self.assertEqual(self._admin().host(incident), "—")
+
+    def test_host_lists_every_machine_when_alerts_disagree(self):
+        incident = Incident.objects.create(title="multi", severity="warning")
+        for i, instance in enumerate(["10.0.0.7", "10.0.0.8", "10.0.0.7"]):
+            Alert.objects.create(
+                incident=incident,
+                name="cpu",
+                fingerprint=f"multi-{i}",
+                source="grafana",
+                labels={"instance": instance},
+                started_at=timezone.now(),
+            )
+        self.assertEqual(self._admin().host(incident), "10.0.0.7, 10.0.0.8")
+
+    def test_host_escapes_attacker_controlled_labels(self):
+        self._incident(source="grafana", labels={"instance": "<script>bad</script>"})
+        html = self.client.get("/admin/alerts/incident/").content.decode()
+        self.assertNotIn("<script>bad", html)
+        self.assertIn("&lt;script&gt;bad", html)
+
+
+class NodeLabelTests(TestCase):
+    def test_prefers_hostname(self):
+        from apps.alerts.admin import node_label
+
+        self.assertEqual(node_label(Node(instance_id="node-a", hostname="web-01")), "web-01")
+
+    def test_falls_back_to_instance_id(self):
+        from apps.alerts.admin import node_label
+
+        self.assertEqual(node_label(Node(instance_id="node-a", hostname="")), "node-a")
