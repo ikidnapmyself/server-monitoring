@@ -102,6 +102,8 @@ manage.py preflight --no-save          # skip persistence (print only)
 
 **Persistence:** by default each run writes a `PreflightRun` (+ child `PreflightCheck`s) so history is visible in the admin; `--no-save` restores print-only behaviour (e.g. CI). Node-local only — no hub-push. Retention is unbounded for now (prune is a documented follow-up).
 
+**Identity:** `PreflightRun.instance_id` is written with `local_instance_id()` (`apps/alerts/identity.py`), not raw `settings.INSTANCE_ID`, so it matches the key every `Node` row is registered under. A hub that never set the env var has an empty `INSTANCE_ID` and a hostname-fallback `Node`, so the raw value filed runs the node page could never find. Rows written before that was true are corrected by migration `0003_backfill_preflight_instance_id`, which carries a frozen copy of the identity rule. `get_profile()` (`apps/checkers/preflight/dashboard.py`) reports the same id, so what a run prints and what it is filed under agree.
+
 Input: None (reads Django system check registry)
 Output (human): Grouped checks with OK/WARN/ERR/INFO levels + summary line
 Output (JSON): `{ "groups": { "<tag>": { "checks": [...], "errors": N, "warnings": N } }, "summary": { "passed": N, "warnings": N, "errors": N } }`

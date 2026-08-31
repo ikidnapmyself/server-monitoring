@@ -41,3 +41,36 @@ def test_sparkline_flat_series_does_not_divide_by_zero():
     out = render_sparkline([(1, 5.0), (2, 5.0), (3, 5.0)])
     assert out.startswith("<svg")
     assert "polyline" in out
+
+
+def test_defaults_are_unchanged_by_the_new_arguments():
+    points = [(0, 10.0), (1, 20.0)]
+    assert render_sparkline(points) == render_sparkline(points, title="")
+
+
+def test_a_title_is_rendered_and_escaped():
+    svg = render_sparkline([(0, 10.0)], title="Disk <b>usage</b>")
+    assert "&lt;b&gt;" in svg
+    assert "<b>" not in svg
+
+
+def test_axis_labels_show_the_series_range():
+    svg = render_sparkline([(0, 10.0), (1, 90.0)], show_axis=True)
+    assert "90" in svg
+    assert "10" in svg
+
+
+def test_axis_labels_are_off_by_default():
+    svg = render_sparkline([(0, 10.0), (1, 90.0)])
+    # Assert on the label element, not the bare digits: coordinate math could
+    # emit "90" inside a path attribute by coincidence at some width/height.
+    assert "spark-axis" not in svg
+    assert "<text" not in svg
+
+
+def test_title_and_axis_reserve_space_instead_of_overlapping_the_plot():
+    svg = render_sparkline([(0, 10.0), (1, 90.0)], title="CPU", show_axis=True)
+    # viewBox grows by the title band and the axis gutter; the plot is shifted
+    # into the remaining area rather than drawn under the labels.
+    assert 'viewBox="0 0 146 36"' in svg
+    assert "translate(26, 12)" in svg

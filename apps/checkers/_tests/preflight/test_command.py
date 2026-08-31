@@ -2,12 +2,14 @@
 
 import json
 import os
+import socket
 from io import StringIO
 from unittest.mock import patch
 
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 
+from apps.checkers.models import PreflightRun
 from apps.notify.models import NotificationChannel
 from apps.orchestration.models import PipelineDefinition
 
@@ -249,3 +251,43 @@ class PreflightCommandTests(TestCase):
         output, _ = self._call()
         self.assertIn("Instance ID:", output)
         self.assertIn("node-1", output)
+
+    @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
+    @override_settings(INSTANCE_ID="")
+    def test_persisted_run_uses_the_registry_instance_id(self, mock_log, mock_read):
+        # A hub never sets INSTANCE_ID, but its Node row is keyed by
+        # local_instance_id(), which falls back to the hostname. Writing the raw
+        # setting here left the run orphaned from its own node page.
+        mock_read.return_value = None
+        self._call()
+        run = PreflightRun.objects.latest("created_at")
+        # Pin the behaviour, not the helper: with INSTANCE_ID unset the key IS
+        # the hostname. Comparing against local_instance_id() would pass even if
+        # both sides drifted together.
+        self.assertEqual(run.instance_id, socket.gethostname())
+        self.assertNotEqual(run.instance_id, "")
+
+    @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
+    @override_settings(INSTANCE_ID="")
+    @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
+    def test_unconfigured_instance_id_still_names_this_machine(self, mock_log, mock_read):
+        # A hub leaves INSTANCE_ID unset, yet its run is filed under the hostname.
+        # Printing nothing hid the key the operator needs to find the run again.
+        mock_read.return_value = None
+        output, _ = self._call()
+        self.assertIn("Instance ID:", output)
+        self.assertIn(socket.gethostname(), output)
+
+    @patch("apps.checkers.preflight.checks._read_file")
+    @patch("apps.checkers.preflight.logger.log_results")
+    @override_settings(INSTANCE_ID="")
+    @patch.dict(os.environ, {"DJANGO_ENV": "dev", "DEPLOY_METHOD": "bare"})
+    def test_json_instance_id_matches_the_persisted_key(self, mock_log, mock_read):
+        mock_read.return_value = None
+        output, _ = self._call("--json")
+        data = json.loads(output)
+        self.assertEqual(data["profile"]["instance_id"], socket.gethostname())
+        run = PreflightRun.objects.latest("created_at")
+        self.assertEqual(data["profile"]["instance_id"], run.instance_id)
