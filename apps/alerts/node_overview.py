@@ -16,10 +16,12 @@ from django.utils import timezone
 from django.utils.html import format_html, format_html_join
 from django.utils.timesince import timesince
 
-from apps.alerts.identity import local_instance_id
+from apps.alerts.check_integration import STATUS_TO_SEVERITY
+from apps.alerts.identity import local_hostname, local_instance_id
 from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
 from apps.alerts.reevaluation import PRIMARY_METRIC
 from apps.checkers.admin_charts import render_sparkline
+from apps.checkers.checkers import CheckStatus
 from apps.checkers.models import CheckRun, PreflightRun
 from config.dashboard import NODE_RECENT_MINUTES
 
@@ -131,6 +133,37 @@ def render_severity_chips(node) -> str:
 # scoring all read the same field of the same checker.
 
 
+# The state table is two-sourced: CheckRun.status for the local node, Alert.severity
+# for a peer. Those are different vocabularies, so a healthy checker read "ok" on
+# the hub's page and "info" on a peer's, under one column header. Peers are mapped
+# back to the checker's words here, derived from the forward map rather than
+# hand-written so the two cannot drift apart.
+#
+# The inverse is deliberately lossy. CheckStatus.WARNING and CheckStatus.UNKNOWN
+# both map forward to AlertSeverity.WARNING, so the pair cannot be told apart in a
+# peer's alert row. UNKNOWN is dropped from the inverse on purpose: an incoming
+# WARNING is far more often a real warning, and "unknown" is simply not recoverable
+# from what a hub holds about a peer. Excluding it by name rather than relying on
+# which key the dict comprehension writes last keeps that choice independent of the
+# order the forward map happens to be written in.
+SEVERITY_TO_CHECK_STATUS: dict[str, str] = {
+    severity: status.value
+    for status, severity in STATUS_TO_SEVERITY.items()
+    if status is not CheckStatus.UNKNOWN
+}
+
+
+def _peer_status(severity: str) -> str:
+    """A peer alert's severity in the checker vocabulary the column is headed in.
+
+    Alert.severity is fed by webhook payloads, so a checker-labelled alert can
+    still carry a word no checker emits. That reads as "unknown", which is the
+    vocabulary's own word for a state this hub cannot name, rather than raising on
+    the page an operator opened to investigate the node.
+    """
+    return SEVERITY_TO_CHECK_STATUS.get(severity, CheckStatus.UNKNOWN.value)
+
+
 @dataclass(frozen=True)
 class CheckerRow:
     checker: str
@@ -167,6 +200,20 @@ def _json_dict(value) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def _check_hostname(node) -> str:
+    """The hostname to match this machine's CheckRun rows on.
+
+    ``Node.hostname`` is optional and ``Node.upsert`` only writes it when truthy,
+    so the local row can carry the blank default. Matching CheckRun on a blank
+    hostname matches nothing, and the page then reports that the machine has
+    never run a checker while the severity chips beside it show its live
+    incidents. The caller already knows this node is the local one, so the
+    machine's own name is available and is the honest answer. A recorded
+    hostname still wins: only the blank case falls through.
+    """
+    return node.hostname or local_hostname()
+
+
 def _local_checker_rows(node) -> list[CheckerRow]:
     """Newest CheckRun per checker for the machine this hub runs on.
 
@@ -181,8 +228,9 @@ def _local_checker_rows(node) -> list[CheckerRow]:
     rows: list[CheckerRow] = []
     # order_by() clears the model's default ordering: left on, executed_at joins
     # the SELECT and every row comes back distinct, which is no distinct at all.
+    hostname = _check_hostname(node)
     names = (
-        CheckRun.objects.filter(hostname=node.hostname)
+        CheckRun.objects.filter(hostname=hostname)
         .order_by()
         .values_list("checker_name", flat=True)
         .distinct()
@@ -192,7 +240,7 @@ def _local_checker_rows(node) -> list[CheckerRow]:
     newest = [
         run
         for name in names
-        for run in CheckRun.objects.filter(hostname=node.hostname, checker_name=name).order_by(
+        for run in CheckRun.objects.filter(hostname=hostname, checker_name=name).order_by(
             "-executed_at"
         )[:1]
     ]
@@ -220,6 +268,17 @@ def _peer_checker_rows(node) -> list[CheckerRow]:
     Filtered in the database rather than in Python: checker alerts are bounded
     by fingerprint dedup, but a node's webhook alerts are not, and walking all
     of them only to discard them is work the page does not need.
+
+    The timestamp is ``received_at``, and the column is headed "First seen" to
+    match. Nothing on Alert records when a peer last repeated an observation:
+    ``updated_at`` is auto_now, so it bumps on hub-side writes the peer had no
+    part in (the re-evaluate action, an admin save, an incident relink) and it
+    does NOT bump on a quiet re-push, which _process_alert returns early on
+    without saving. ``started_at`` is the peer's own clock, stamped once at
+    creation and never refreshed on a later push. ``received_at`` is the only
+    one that means arrival, and it can only understate freshness, never
+    overstate it. Whether the machine itself is still reporting is a node-level
+    question, answered by Node.last_seen in the header chip above.
     """
     rows: list[CheckerRow] = []
     for alert in node.alerts.filter(labels__has_key="checker").order_by("-updated_at"):
@@ -233,9 +292,9 @@ def _peer_checker_rows(node) -> list[CheckerRow]:
         rows.append(
             CheckerRow(
                 checker=checker,
-                status=alert.severity,
+                status=_peer_status(alert.severity),
                 value=_format_metric(raw),
-                observed_at=alert.updated_at,
+                observed_at=alert.received_at,
                 url=reverse("admin:alerts_alert_change", args=[alert.pk]),
             )
         )
@@ -252,6 +311,23 @@ def build_checker_rows(node, identity: Identity | None = None) -> list[CheckerRo
     if (identity or build_identity(node)).is_local:
         return _local_checker_rows(node)
     return _peer_checker_rows(node)
+
+
+LOCAL_TIME_LABEL = "Observed"
+PEER_TIME_LABEL = "First seen"
+
+
+def checker_time_label(node, identity: Identity | None = None) -> str:
+    """Header for the checker table's timestamp column.
+
+    The two sides do not hold the same fact, so they must not claim the same
+    one. A local row is a CheckRun and ``executed_at`` really is the last
+    reading. A peer row is an Alert, and the best it can offer is when the
+    observation first arrived — see ``_peer_checker_rows``.
+    """
+    if (identity or build_identity(node)).is_local:
+        return LOCAL_TIME_LABEL
+    return PEER_TIME_LABEL
 
 
 @dataclass(frozen=True)
@@ -317,11 +393,12 @@ def build_charts(node, identity: Identity | None = None) -> list[Chart]:
     """
     if not (identity or build_identity(node)).is_local:
         return []
+    hostname = _check_hostname(node)
     charts: list[Chart] = []
     for title, checker in CHART_SPECS:
         metric = PRIMARY_METRIC[checker]
         runs = list(
-            CheckRun.objects.filter(hostname=node.hostname, checker_name=checker).order_by(
+            CheckRun.objects.filter(hostname=hostname, checker_name=checker).order_by(
                 "-executed_at"
             )[:CHART_HISTORY_LIMIT]
         )
@@ -414,6 +491,7 @@ class NodeOverview:
     identity: Identity
     chips: object
     checker_rows: list[CheckerRow]
+    checker_time_label: str
     incident_rows: list[IncidentRow]
     charts: list[Chart]
     charts_note: str
@@ -428,6 +506,7 @@ def build_node_overview(node) -> NodeOverview:
         identity=identity,
         chips=render_severity_chips(node),
         checker_rows=build_checker_rows(node, identity),
+        checker_time_label=checker_time_label(node, identity),
         incident_rows=build_incident_rows(node),
         charts=build_charts(node, identity),
         charts_note=charts_note(node, identity),

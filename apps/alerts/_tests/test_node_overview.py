@@ -1,3 +1,4 @@
+import socket
 from io import StringIO
 from unittest.mock import patch
 
@@ -15,6 +16,7 @@ from apps.alerts.node_overview import (
     build_checker_rows,
     build_identity,
     build_incident_rows,
+    build_node_overview,
     build_pipeline_rows,
     build_preflight,
     charts_note,
@@ -134,6 +136,18 @@ class SeverityChipTests(TestCase):
 
 
 class CheckerStateTests(TestCase):
+    def _peer_alert(self, node, checker, severity):
+        return Alert.objects.create(
+            fingerprint=f"check:{node.instance_id}:{checker}",
+            source="cluster",
+            name=checker,
+            severity=severity,
+            started_at=timezone.now(),
+            node=node,
+            labels={"checker": checker},
+            annotations={},
+        )
+
     def _run(self, checker, status, metrics, executed_at=None):
         run = CheckRun.objects.create(
             checker_name=checker,
@@ -179,7 +193,34 @@ class CheckerStateTests(TestCase):
         rows = build_checker_rows(node)
         self.assertEqual(rows[0].checker, "cpu")
         self.assertIn("93.5", rows[0].value)
-        self.assertEqual(rows[0].status, AlertSeverity.WARNING)
+        self.assertEqual(rows[0].status, "warning")
+
+    def test_a_peer_at_info_reads_as_ok(self):
+        # A passing health check is "ok" in the checker's own words. Reading
+        # "info" under a column headed Status makes a peer look unlike the hub
+        # for a state the two machines actually share.
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self._peer_alert(node, "cpu", AlertSeverity.INFO)
+        self.assertEqual(build_checker_rows(node)[0].status, "ok")
+
+    def test_a_peer_at_critical_reads_as_critical(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self._peer_alert(node, "cpu", AlertSeverity.CRITICAL)
+        self.assertEqual(build_checker_rows(node)[0].status, "critical")
+
+    def test_a_peer_severity_in_neither_vocabulary_reads_as_unknown(self):
+        # Alert.severity is fed by webhook payloads, so a checker-labelled alert
+        # can still carry a word no checker ever emits. It must not raise.
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self._peer_alert(node, "cpu", "page-me-now")
+        self.assertEqual(build_checker_rows(node)[0].status, "unknown")
+
+    def test_the_local_node_status_passes_through_verbatim(self):
+        # No normalisation on this side: CheckRun already speaks the vocabulary,
+        # including "unknown", which no peer row can ever say.
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self._run("raid", "unknown", {})
+        self.assertEqual(build_checker_rows(node)[0].status, "unknown")
 
     def test_a_peer_alert_with_no_checker_label_is_skipped(self):
         # Webhook alerts are not checker results and have no place in this table.
@@ -592,3 +633,117 @@ class PipelinePanelTests(TestCase):
     def test_a_node_with_no_runs_yields_no_rows(self):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
         self.assertEqual(build_pipeline_rows(node), [])
+
+
+class BlankHostnameTests(TestCase):
+    """``Node.hostname`` is optional, so the local row can carry an empty one.
+
+    ``Node.upsert`` only writes hostname when truthy, so a row created by a path
+    that never supplied one keeps the blank default. Matching CheckRun on that
+    matches nothing, and the page then claims the machine never reported while
+    the severity chips beside it show its live incidents.
+    """
+
+    def _run(self, checker, metric, value):
+        return CheckRun.objects.create(
+            checker_name=checker,
+            hostname=socket.gethostname(),
+            status="ok",
+            metrics={metric: value},
+        )
+
+    def test_the_local_node_with_a_blank_hostname_still_lists_its_checkers(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="")
+        self._run("cpu", "cpu_percent", 12.0)
+        rows = build_checker_rows(node)
+        self.assertEqual([r.checker for r in rows], ["cpu"])
+        self.assertIn("12", rows[0].value)
+
+    def test_the_local_node_with_a_blank_hostname_still_charts_its_history(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="")
+        self._run("disk", "worst_percent", 40.0)
+        charts = build_charts(node)
+        self.assertEqual([c.title for c in charts], ["Disk usage"])
+
+    def test_a_recorded_hostname_still_wins_over_the_machine_name(self):
+        # The fallback is a fallback: a row that names its host is believed.
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="renamed-hub")
+        CheckRun.objects.create(
+            checker_name="cpu",
+            hostname="renamed-hub",
+            status="ok",
+            metrics={"cpu_percent": 7.0},
+        )
+        self._run("memory", "memory_percent", 55.0)
+        self.assertEqual([r.checker for r in build_checker_rows(node)], ["cpu"])
+
+    def test_a_peer_is_unaffected_because_it_is_read_through_its_alerts(self):
+        # _peer_checker_rows walks the node FK, never a hostname match, so a
+        # blank hostname costs a peer nothing.
+        node = Node.objects.create(instance_id="web-03", hostname="")
+        Alert.objects.create(
+            fingerprint="check:web-03:cpu",
+            source="cluster",
+            name="cpu",
+            severity=AlertSeverity.WARNING,
+            started_at=timezone.now(),
+            node=node,
+            labels={"checker": "cpu"},
+            annotations={"cpu_percent": "93.5"},
+        )
+        self.assertEqual([r.checker for r in build_checker_rows(node)], ["cpu"])
+
+
+class PeerObservedSemanticsTests(TestCase):
+    """What the peer table's timestamp column is allowed to claim.
+
+    A peer has no CheckRun here, so the row is an Alert. ``Alert.updated_at`` is
+    auto_now, so it bumps on every hub-side write: the re-evaluate action, an
+    admin save, an incident relink. Reading it as "when this machine last told
+    us this" makes a node that went quiet hours ago look freshly observed the
+    moment an operator touched it.
+    """
+
+    def _peer_alert(self, node, received_ago_hours=3):
+        alert = Alert.objects.create(
+            fingerprint="check:web-03:cpu",
+            source="cluster",
+            name="cpu",
+            severity=AlertSeverity.WARNING,
+            started_at=timezone.now() - timezone.timedelta(hours=received_ago_hours),
+            node=node,
+            labels={"checker": "cpu"},
+            annotations={"cpu_percent": "93.5"},
+        )
+        # received_at is auto_now_add, so a value passed to create() is discarded.
+        Alert.objects.filter(pk=alert.pk).update(
+            received_at=timezone.now() - timezone.timedelta(hours=received_ago_hours)
+        )
+        alert.refresh_from_db()
+        return alert
+
+    def test_a_hub_side_write_does_not_make_the_row_look_freshly_observed(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        alert = self._peer_alert(node)
+        alert.save()  # any hub-side write: re-evaluate, admin save, incident relink
+        alert.refresh_from_db()
+        row = build_checker_rows(node)[0]
+        self.assertLess(row.observed_at, alert.updated_at)
+        self.assertEqual(row.observed_at, alert.received_at)
+
+    def test_the_column_reports_when_the_observation_arrived(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        alert = self._peer_alert(node)
+        self.assertEqual(build_checker_rows(node)[0].observed_at, alert.received_at)
+
+    def test_the_peer_column_is_headed_as_a_first_arrival_not_a_last_reading(self):
+        # received_at is auto_now_add: it is when this observation first reached
+        # the hub, not when the peer last repeated it. Nothing on Alert records
+        # the latter, so the header must not promise it.
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self.assertEqual(build_node_overview(node).checker_time_label, "First seen")
+
+    def test_the_local_column_is_still_headed_as_an_observation(self):
+        # A local row is a CheckRun, and executed_at really is the last reading.
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self.assertEqual(build_node_overview(node).checker_time_label, "Observed")
