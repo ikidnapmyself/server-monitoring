@@ -85,14 +85,12 @@ class TestDashboardContext(TestCase):
             hostname="srv1",
             status=CheckStatus.CRITICAL,
             message="CPU usage at 95%",
-            executed_at=now,
         )
         CheckRun.objects.create(
             checker_name="disk",
             hostname="srv1",
             status=CheckStatus.WARNING,
             message="Disk usage at 85%",
-            executed_at=now,
         )
 
         # Analysis runs
@@ -197,13 +195,11 @@ class TestPipelineTracing(TestCase):
         assert response.status_code == 200
 
     def test_check_run_pipeline_link(self):
-        now = timezone.now()
         cr = CheckRun.objects.create(
             checker_name="cpu",
             hostname="srv1",
             status=CheckStatus.OK,
             trace_id="trace-xyz",
-            executed_at=now,
         )
         response = self.client.get(f"/admin/checkers/checkrun/{cr.pk}/change/")
         assert response.status_code == 200
