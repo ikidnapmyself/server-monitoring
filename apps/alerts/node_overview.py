@@ -16,10 +16,12 @@ from django.utils import timezone
 from django.utils.html import format_html, format_html_join
 from django.utils.timesince import timesince
 
+from apps.alerts.check_integration import STATUS_TO_SEVERITY
 from apps.alerts.identity import local_hostname, local_instance_id
 from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
 from apps.alerts.reevaluation import PRIMARY_METRIC
 from apps.checkers.admin_charts import render_sparkline
+from apps.checkers.checkers import CheckStatus
 from apps.checkers.models import CheckRun, PreflightRun
 from config.dashboard import NODE_RECENT_MINUTES
 
@@ -129,6 +131,37 @@ def render_severity_chips(node) -> str:
 # The metric each numeric checker is judged on comes from the severity
 # re-evaluator: one map, so the state table, the charts and the hub-side
 # scoring all read the same field of the same checker.
+
+
+# The state table is two-sourced: CheckRun.status for the local node, Alert.severity
+# for a peer. Those are different vocabularies, so a healthy checker read "ok" on
+# the hub's page and "info" on a peer's, under one column header. Peers are mapped
+# back to the checker's words here, derived from the forward map rather than
+# hand-written so the two cannot drift apart.
+#
+# The inverse is deliberately lossy. CheckStatus.WARNING and CheckStatus.UNKNOWN
+# both map forward to AlertSeverity.WARNING, so the pair cannot be told apart in a
+# peer's alert row. UNKNOWN is dropped from the inverse on purpose: an incoming
+# WARNING is far more often a real warning, and "unknown" is simply not recoverable
+# from what a hub holds about a peer. Excluding it by name rather than relying on
+# which key the dict comprehension writes last keeps that choice independent of the
+# order the forward map happens to be written in.
+SEVERITY_TO_CHECK_STATUS: dict[str, str] = {
+    severity: status.value
+    for status, severity in STATUS_TO_SEVERITY.items()
+    if status is not CheckStatus.UNKNOWN
+}
+
+
+def _peer_status(severity: str) -> str:
+    """A peer alert's severity in the checker vocabulary the column is headed in.
+
+    Alert.severity is fed by webhook payloads, so a checker-labelled alert can
+    still carry a word no checker emits. That reads as "unknown", which is the
+    vocabulary's own word for a state this hub cannot name, rather than raising on
+    the page an operator opened to investigate the node.
+    """
+    return SEVERITY_TO_CHECK_STATUS.get(severity, CheckStatus.UNKNOWN.value)
 
 
 @dataclass(frozen=True)
@@ -259,7 +292,7 @@ def _peer_checker_rows(node) -> list[CheckerRow]:
         rows.append(
             CheckerRow(
                 checker=checker,
-                status=alert.severity,
+                status=_peer_status(alert.severity),
                 value=_format_metric(raw),
                 observed_at=alert.received_at,
                 url=reverse("admin:alerts_alert_change", args=[alert.pk]),

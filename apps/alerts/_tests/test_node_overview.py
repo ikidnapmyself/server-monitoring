@@ -136,6 +136,18 @@ class SeverityChipTests(TestCase):
 
 
 class CheckerStateTests(TestCase):
+    def _peer_alert(self, node, checker, severity):
+        return Alert.objects.create(
+            fingerprint=f"check:{node.instance_id}:{checker}",
+            source="cluster",
+            name=checker,
+            severity=severity,
+            started_at=timezone.now(),
+            node=node,
+            labels={"checker": checker},
+            annotations={},
+        )
+
     def _run(self, checker, status, metrics, executed_at=None):
         run = CheckRun.objects.create(
             checker_name=checker,
@@ -181,7 +193,34 @@ class CheckerStateTests(TestCase):
         rows = build_checker_rows(node)
         self.assertEqual(rows[0].checker, "cpu")
         self.assertIn("93.5", rows[0].value)
-        self.assertEqual(rows[0].status, AlertSeverity.WARNING)
+        self.assertEqual(rows[0].status, "warning")
+
+    def test_a_peer_at_info_reads_as_ok(self):
+        # A passing health check is "ok" in the checker's own words. Reading
+        # "info" under a column headed Status makes a peer look unlike the hub
+        # for a state the two machines actually share.
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self._peer_alert(node, "cpu", AlertSeverity.INFO)
+        self.assertEqual(build_checker_rows(node)[0].status, "ok")
+
+    def test_a_peer_at_critical_reads_as_critical(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self._peer_alert(node, "cpu", AlertSeverity.CRITICAL)
+        self.assertEqual(build_checker_rows(node)[0].status, "critical")
+
+    def test_a_peer_severity_in_neither_vocabulary_reads_as_unknown(self):
+        # Alert.severity is fed by webhook payloads, so a checker-labelled alert
+        # can still carry a word no checker ever emits. It must not raise.
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self._peer_alert(node, "cpu", "page-me-now")
+        self.assertEqual(build_checker_rows(node)[0].status, "unknown")
+
+    def test_the_local_node_status_passes_through_verbatim(self):
+        # No normalisation on this side: CheckRun already speaks the vocabulary,
+        # including "unknown", which no peer row can ever say.
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self._run("raid", "unknown", {})
+        self.assertEqual(build_checker_rows(node)[0].status, "unknown")
 
     def test_a_peer_alert_with_no_checker_label_is_skipped(self):
         # Webhook alerts are not checker results and have no place in this table.
