@@ -16,6 +16,7 @@ from apps.alerts.node_overview import (
     build_checker_rows,
     build_identity,
     build_incident_rows,
+    build_node_overview,
     build_pipeline_rows,
     build_preflight,
     charts_note,
@@ -652,3 +653,58 @@ class BlankHostnameTests(TestCase):
             annotations={"cpu_percent": "93.5"},
         )
         self.assertEqual([r.checker for r in build_checker_rows(node)], ["cpu"])
+
+
+class PeerObservedSemanticsTests(TestCase):
+    """What the peer table's timestamp column is allowed to claim.
+
+    A peer has no CheckRun here, so the row is an Alert. ``Alert.updated_at`` is
+    auto_now, so it bumps on every hub-side write: the re-evaluate action, an
+    admin save, an incident relink. Reading it as "when this machine last told
+    us this" makes a node that went quiet hours ago look freshly observed the
+    moment an operator touched it.
+    """
+
+    def _peer_alert(self, node, received_ago_hours=3):
+        alert = Alert.objects.create(
+            fingerprint="check:web-03:cpu",
+            source="cluster",
+            name="cpu",
+            severity=AlertSeverity.WARNING,
+            started_at=timezone.now() - timezone.timedelta(hours=received_ago_hours),
+            node=node,
+            labels={"checker": "cpu"},
+            annotations={"cpu_percent": "93.5"},
+        )
+        # received_at is auto_now_add, so a value passed to create() is discarded.
+        Alert.objects.filter(pk=alert.pk).update(
+            received_at=timezone.now() - timezone.timedelta(hours=received_ago_hours)
+        )
+        alert.refresh_from_db()
+        return alert
+
+    def test_a_hub_side_write_does_not_make_the_row_look_freshly_observed(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        alert = self._peer_alert(node)
+        alert.save()  # any hub-side write: re-evaluate, admin save, incident relink
+        alert.refresh_from_db()
+        row = build_checker_rows(node)[0]
+        self.assertLess(row.observed_at, alert.updated_at)
+        self.assertEqual(row.observed_at, alert.received_at)
+
+    def test_the_column_reports_when_the_observation_arrived(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        alert = self._peer_alert(node)
+        self.assertEqual(build_checker_rows(node)[0].observed_at, alert.received_at)
+
+    def test_the_peer_column_is_headed_as_a_first_arrival_not_a_last_reading(self):
+        # received_at is auto_now_add: it is when this observation first reached
+        # the hub, not when the peer last repeated it. Nothing on Alert records
+        # the latter, so the header must not promise it.
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self.assertEqual(build_node_overview(node).checker_time_label, "First seen")
+
+    def test_the_local_column_is_still_headed_as_an_observation(self):
+        # A local row is a CheckRun, and executed_at really is the last reading.
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self.assertEqual(build_node_overview(node).checker_time_label, "Observed")

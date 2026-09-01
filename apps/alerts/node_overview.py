@@ -235,6 +235,17 @@ def _peer_checker_rows(node) -> list[CheckerRow]:
     Filtered in the database rather than in Python: checker alerts are bounded
     by fingerprint dedup, but a node's webhook alerts are not, and walking all
     of them only to discard them is work the page does not need.
+
+    The timestamp is ``received_at``, and the column is headed "First seen" to
+    match. Nothing on Alert records when a peer last repeated an observation:
+    ``updated_at`` is auto_now, so it bumps on hub-side writes the peer had no
+    part in (the re-evaluate action, an admin save, an incident relink) and it
+    does NOT bump on a quiet re-push, which _process_alert returns early on
+    without saving. ``started_at`` is the peer's own clock, stamped once at
+    creation and never refreshed on a later push. ``received_at`` is the only
+    one that means arrival, and it can only understate freshness, never
+    overstate it. Whether the machine itself is still reporting is a node-level
+    question, answered by Node.last_seen in the header chip above.
     """
     rows: list[CheckerRow] = []
     for alert in node.alerts.filter(labels__has_key="checker").order_by("-updated_at"):
@@ -250,7 +261,7 @@ def _peer_checker_rows(node) -> list[CheckerRow]:
                 checker=checker,
                 status=alert.severity,
                 value=_format_metric(raw),
-                observed_at=alert.updated_at,
+                observed_at=alert.received_at,
                 url=reverse("admin:alerts_alert_change", args=[alert.pk]),
             )
         )
@@ -267,6 +278,23 @@ def build_checker_rows(node, identity: Identity | None = None) -> list[CheckerRo
     if (identity or build_identity(node)).is_local:
         return _local_checker_rows(node)
     return _peer_checker_rows(node)
+
+
+LOCAL_TIME_LABEL = "Observed"
+PEER_TIME_LABEL = "First seen"
+
+
+def checker_time_label(node, identity: Identity | None = None) -> str:
+    """Header for the checker table's timestamp column.
+
+    The two sides do not hold the same fact, so they must not claim the same
+    one. A local row is a CheckRun and ``executed_at`` really is the last
+    reading. A peer row is an Alert, and the best it can offer is when the
+    observation first arrived — see ``_peer_checker_rows``.
+    """
+    if (identity or build_identity(node)).is_local:
+        return LOCAL_TIME_LABEL
+    return PEER_TIME_LABEL
 
 
 @dataclass(frozen=True)
@@ -430,6 +458,7 @@ class NodeOverview:
     identity: Identity
     chips: object
     checker_rows: list[CheckerRow]
+    checker_time_label: str
     incident_rows: list[IncidentRow]
     charts: list[Chart]
     charts_note: str
@@ -444,6 +473,7 @@ def build_node_overview(node) -> NodeOverview:
         identity=identity,
         chips=render_severity_chips(node),
         checker_rows=build_checker_rows(node, identity),
+        checker_time_label=checker_time_label(node, identity),
         incident_rows=build_incident_rows(node),
         charts=build_charts(node, identity),
         charts_note=charts_note(node, identity),
