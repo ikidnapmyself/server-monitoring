@@ -16,7 +16,7 @@ from django.utils import timezone
 from django.utils.html import format_html, format_html_join
 from django.utils.timesince import timesince
 
-from apps.alerts.identity import local_instance_id
+from apps.alerts.identity import local_hostname, local_instance_id
 from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
 from apps.alerts.reevaluation import PRIMARY_METRIC
 from apps.checkers.admin_charts import render_sparkline
@@ -167,6 +167,20 @@ def _json_dict(value) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def _check_hostname(node) -> str:
+    """The hostname to match this machine's CheckRun rows on.
+
+    ``Node.hostname`` is optional and ``Node.upsert`` only writes it when truthy,
+    so the local row can carry the blank default. Matching CheckRun on a blank
+    hostname matches nothing, and the page then reports that the machine has
+    never run a checker while the severity chips beside it show its live
+    incidents. The caller already knows this node is the local one, so the
+    machine's own name is available and is the honest answer. A recorded
+    hostname still wins: only the blank case falls through.
+    """
+    return node.hostname or local_hostname()
+
+
 def _local_checker_rows(node) -> list[CheckerRow]:
     """Newest CheckRun per checker for the machine this hub runs on.
 
@@ -181,8 +195,9 @@ def _local_checker_rows(node) -> list[CheckerRow]:
     rows: list[CheckerRow] = []
     # order_by() clears the model's default ordering: left on, executed_at joins
     # the SELECT and every row comes back distinct, which is no distinct at all.
+    hostname = _check_hostname(node)
     names = (
-        CheckRun.objects.filter(hostname=node.hostname)
+        CheckRun.objects.filter(hostname=hostname)
         .order_by()
         .values_list("checker_name", flat=True)
         .distinct()
@@ -192,7 +207,7 @@ def _local_checker_rows(node) -> list[CheckerRow]:
     newest = [
         run
         for name in names
-        for run in CheckRun.objects.filter(hostname=node.hostname, checker_name=name).order_by(
+        for run in CheckRun.objects.filter(hostname=hostname, checker_name=name).order_by(
             "-executed_at"
         )[:1]
     ]
@@ -317,11 +332,12 @@ def build_charts(node, identity: Identity | None = None) -> list[Chart]:
     """
     if not (identity or build_identity(node)).is_local:
         return []
+    hostname = _check_hostname(node)
     charts: list[Chart] = []
     for title, checker in CHART_SPECS:
         metric = PRIMARY_METRIC[checker]
         runs = list(
-            CheckRun.objects.filter(hostname=node.hostname, checker_name=checker).order_by(
+            CheckRun.objects.filter(hostname=hostname, checker_name=checker).order_by(
                 "-executed_at"
             )[:CHART_HISTORY_LIMIT]
         )

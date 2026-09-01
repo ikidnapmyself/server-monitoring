@@ -15,6 +15,15 @@ def local_instance_id() -> str:
     return getattr(settings, "INSTANCE_ID", "") or socket.gethostname()
 
 
+def local_hostname() -> str:
+    """This machine's own name, as the checkers stamp it on their CheckRun rows.
+
+    ``CheckAlertBridge`` defaults to the same call, so a hub reading back its own
+    check history asks the same question the writer answered.
+    """
+    return socket.gethostname()
+
+
 def checker_fingerprint(instance_id: str, checker_name: str) -> str:
     """Stable dedup key for a checker result on one machine.
 

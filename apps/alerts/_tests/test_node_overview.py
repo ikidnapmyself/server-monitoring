@@ -1,3 +1,4 @@
+import socket
 from io import StringIO
 from unittest.mock import patch
 
@@ -592,3 +593,62 @@ class PipelinePanelTests(TestCase):
     def test_a_node_with_no_runs_yields_no_rows(self):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
         self.assertEqual(build_pipeline_rows(node), [])
+
+
+class BlankHostnameTests(TestCase):
+    """``Node.hostname`` is optional, so the local row can carry an empty one.
+
+    ``Node.upsert`` only writes hostname when truthy, so a row created by a path
+    that never supplied one keeps the blank default. Matching CheckRun on that
+    matches nothing, and the page then claims the machine never reported while
+    the severity chips beside it show its live incidents.
+    """
+
+    def _run(self, checker, metric, value):
+        return CheckRun.objects.create(
+            checker_name=checker,
+            hostname=socket.gethostname(),
+            status="ok",
+            metrics={metric: value},
+        )
+
+    def test_the_local_node_with_a_blank_hostname_still_lists_its_checkers(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="")
+        self._run("cpu", "cpu_percent", 12.0)
+        rows = build_checker_rows(node)
+        self.assertEqual([r.checker for r in rows], ["cpu"])
+        self.assertIn("12", rows[0].value)
+
+    def test_the_local_node_with_a_blank_hostname_still_charts_its_history(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="")
+        self._run("disk", "worst_percent", 40.0)
+        charts = build_charts(node)
+        self.assertEqual([c.title for c in charts], ["Disk usage"])
+
+    def test_a_recorded_hostname_still_wins_over_the_machine_name(self):
+        # The fallback is a fallback: a row that names its host is believed.
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="renamed-hub")
+        CheckRun.objects.create(
+            checker_name="cpu",
+            hostname="renamed-hub",
+            status="ok",
+            metrics={"cpu_percent": 7.0},
+        )
+        self._run("memory", "memory_percent", 55.0)
+        self.assertEqual([r.checker for r in build_checker_rows(node)], ["cpu"])
+
+    def test_a_peer_is_unaffected_because_it_is_read_through_its_alerts(self):
+        # _peer_checker_rows walks the node FK, never a hostname match, so a
+        # blank hostname costs a peer nothing.
+        node = Node.objects.create(instance_id="web-03", hostname="")
+        Alert.objects.create(
+            fingerprint="check:web-03:cpu",
+            source="cluster",
+            name="cpu",
+            severity=AlertSeverity.WARNING,
+            started_at=timezone.now(),
+            node=node,
+            labels={"checker": "cpu"},
+            annotations={"cpu_percent": "93.5"},
+        )
+        self.assertEqual([r.checker for r in build_checker_rows(node)], ["cpu"])
