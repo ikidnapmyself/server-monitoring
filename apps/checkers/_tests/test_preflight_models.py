@@ -1,6 +1,9 @@
 """Tests for PreflightRun + PreflightCheck models."""
 
+from datetime import timedelta
+
 import pytest
+from django.utils import timezone
 
 from apps.checkers.models import PreflightCheck, PreflightRun
 
@@ -33,8 +36,15 @@ def test_preflight_run_with_counts_and_children():
 
 @pytest.mark.django_db
 def test_preflight_run_default_ordering_newest_first():
-    older = PreflightRun.objects.create(overall_status="ok")
+    now = timezone.now()
+    # Written newest first, so this passes only if the order comes from
+    # created_at and not from the order the rows were inserted in.
     newer = PreflightRun.objects.create(overall_status="error")
+    older = PreflightRun.objects.create(overall_status="ok")
+    # created_at is auto_now_add, so a value passed to create() is discarded;
+    # stamping it afterwards is what actually spaces the rows out in time.
+    PreflightRun.objects.filter(pk=newer.pk).update(created_at=now)
+    PreflightRun.objects.filter(pk=older.pk).update(created_at=now - timedelta(minutes=10))
 
     runs = list(PreflightRun.objects.all())
     assert runs[0] == newer
