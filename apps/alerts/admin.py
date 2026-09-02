@@ -729,7 +729,13 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
         a control an operator has to work out is useless.
         """
         registry = [(None, {"fields": self.fields})]
-        if obj is None:
+        if obj is None or not self.has_change_permission(request, obj):
+            # A reader who cannot change gets every fieldset field rendered
+            # read-only, and ``AdminReadonlyField`` has no value to read for a
+            # field the form adds in ``__init__``, so the boxes came out as
+            # "None" directly below a panel saying "Warning at 80". The panel
+            # from ``build_effective_policy`` is that reader's whole answer and
+            # it is already complete, so the boxes are simply not offered.
             return registry
         sections = sections_for(obj)
         fieldsets = registry + [

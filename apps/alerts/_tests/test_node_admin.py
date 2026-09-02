@@ -515,6 +515,13 @@ class NodePolicyViewOnlyTests(TestCase):
         )
         self.client.force_login(self.user)
 
+    def _node_with_a_cpu_policy(self):
+        return Node.objects.create(
+            instance_id="web-03",
+            hostname="web-03",
+            config={"cpu": {"warning_threshold": 80, "critical_threshold": 95}},
+        )
+
     def test_the_change_page_renders_without_change_permission(self):
         # get_form folds the field list into ``exclude`` on this path, so a
         # None field list would raise there rather than render.
@@ -522,6 +529,42 @@ class NodePolicyViewOnlyTests(TestCase):
         response = self.client.get(reverse("admin:alerts_node_change", args=[node.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "web-03")
+
+    def test_a_set_policy_is_readable(self):
+        # From the panel, which is the whole read-only answer for this reader.
+        node = self._node_with_a_cpu_policy()
+        response = self.client.get(reverse("admin:alerts_node_change", args=[node.pk]))
+        self.assertContains(response, "Warning at")
+        self.assertContains(response, "80")
+
+    def test_a_set_policy_is_never_shown_as_none(self):
+        # The admin renders every fieldset field read-only for this reader, and
+        # AdminReadonlyField cannot read a value for a field the form added in
+        # __init__, so the boxes came out as "None" directly under a panel
+        # saying "Warning at 80". A page reporting a live policy as None is the
+        # misreading this whole form exists to kill.
+        node = self._node_with_a_cpu_policy()
+        response = self.client.get(reverse("admin:alerts_node_change", args=[node.pk]))
+        self.assertNotContains(response, "field-policy__cpu__warning_threshold")
+        self.assertNotContains(response, "field-policy__cpu__critical_threshold")
+        self.assertNotContains(response, "cpu policy")
+
+    def test_the_add_section_select_is_not_offered(self):
+        # It could only ever render as "Add a policy for: None".
+        node = self._node_with_a_cpu_policy()
+        response = self.client.get(reverse("admin:alerts_node_change", args=[node.pk]))
+        self.assertNotContains(response, ADD_SECTION_FIELD)
+        self.assertNotContains(response, "Add a policy section")
+
+    def test_a_reader_who_may_change_still_gets_the_boxes(self):
+        # The other side of the branch: the fieldsets are dropped for lack of
+        # change permission, not for every reader.
+        self.user.user_permissions.add(
+            Permission.objects.get(codename="change_node", content_type__app_label="alerts")
+        )
+        node = self._node_with_a_cpu_policy()
+        response = self.client.get(reverse("admin:alerts_node_change", args=[node.pk]))
+        self.assertContains(response, 'name="policy__cpu__warning_threshold"')
 
 
 class NodeAddPolicySectionTests(TestCase):
