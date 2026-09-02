@@ -1,5 +1,8 @@
 from django.test import TestCase
+from django.utils import timezone
 
+from apps.alerts.identity import local_hostname, local_instance_id
+from apps.alerts.models import Alert, AlertSeverity, Node
 from apps.alerts.node_policy import (
     FIELD_SPECS,
     PolicyError,
@@ -8,11 +11,14 @@ from apps.alerts.node_policy import (
     clean_number,
     clean_thresholds,
     field_name,
+    sections_for,
     spec_for,
     to_config,
     to_form_values,
 )
 from apps.alerts.reevaluation import PRIMARY_METRIC, SCORERS
+from apps.checkers.checkers import CheckStatus
+from apps.checkers.models import CheckRun
 
 
 class FieldSpecTests(TestCase):
@@ -212,3 +218,112 @@ class RoundTripTests(TestCase):
 
     def test_field_names_are_stable(self):
         self.assertEqual(field_name("cpu", "warning_threshold"), "policy__cpu__warning_threshold")
+
+
+class SectionSelectionTests(TestCase):
+    def _peer_alert(self, node, checker):
+        return Alert.objects.create(
+            fingerprint=f"check:{node.instance_id}:{checker}",
+            source="cluster",
+            name=checker,
+            severity=AlertSeverity.WARNING,
+            started_at=timezone.now(),
+            node=node,
+            labels={"checker": checker},
+            annotations={},
+        )
+
+    def _check_run(self, hostname, checker):
+        return CheckRun.objects.create(
+            checker_name=checker,
+            hostname=hostname,
+            status=CheckStatus.OK.value,
+            metrics={},
+        )
+
+    def test_a_node_shows_sections_for_the_checkers_it_reports(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self._peer_alert(node, "cpu")
+        self.assertEqual(sections_for(node), ["cpu"])
+
+    def test_the_local_node_reports_through_its_check_runs(self):
+        # A hub holds no Alert rows for its own checkers unless one fired, but it
+        # does hold a CheckRun for every checker it has ever run.
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self._check_run("hub", "memory")
+        self.assertEqual(sections_for(node), ["memory"])
+
+    def test_the_local_node_with_no_recorded_hostname_falls_back_to_this_machine(self):
+        # Node.upsert only writes hostname when truthy, so the local row can carry
+        # the blank default; CheckRun rows are still keyed by the real hostname.
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="")
+        self._check_run(local_hostname(), "disk")
+        self.assertEqual(sections_for(node), ["disk"])
+
+    def test_a_local_node_reads_only_its_own_check_runs(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self._check_run("somewhere-else", "cpu")
+        self.assertEqual(sections_for(node), [])
+
+    def test_a_configured_checker_shows_even_if_no_longer_reported(self):
+        # Policy must never become invisible just because a checker went quiet.
+        node = Node.objects.create(
+            instance_id="web-03", hostname="web-03", config={"disk": {"warning_threshold": 90}}
+        )
+        self.assertEqual(sections_for(node), ["disk"])
+
+    def test_reported_and_configured_are_unioned_without_duplicates(self):
+        node = Node.objects.create(
+            instance_id="web-03", hostname="web-03", config={"cpu": {"warning_threshold": 90}}
+        )
+        self._peer_alert(node, "cpu")
+        self._peer_alert(node, "memory")
+        self.assertEqual(sections_for(node), ["cpu", "memory"])
+
+    def test_a_reported_checker_that_accepts_no_policy_is_omitted(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self._peer_alert(node, "raid")  # not in SCORERS
+        self.assertEqual(sections_for(node), [])
+
+    def test_a_configured_checker_that_accepts_no_policy_is_omitted(self):
+        # A stale key for a removed checker must not become an editable section.
+        # Task 8 surfaces it read-only instead.
+        node = Node.objects.create(
+            instance_id="web-03", hostname="web-03", config={"made_up": {"anything": 1}}
+        )
+        self.assertEqual(sections_for(node), [])
+
+    def test_a_node_with_nothing_reported_or_configured_shows_no_sections(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self.assertEqual(sections_for(node), [])
+
+    def test_sections_are_sorted(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        for name in ("memory", "cpu", "disk"):
+            self._peer_alert(node, name)
+        self.assertEqual(sections_for(node), ["cpu", "disk", "memory"])
+
+    def test_a_webhook_alert_without_a_checker_label_is_not_a_section(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        Alert.objects.create(
+            fingerprint="webhook:1",
+            source="grafana",
+            name="something",
+            severity=AlertSeverity.WARNING,
+            started_at=timezone.now(),
+            node=node,
+            labels={"checker": ""},
+            annotations={},
+        )
+        self.assertEqual(sections_for(node), [])
+
+    def test_a_non_dict_label_payload_does_not_crash(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        alert = self._peer_alert(node, "cpu")
+        Alert.objects.filter(pk=alert.pk).update(labels="not-a-dict")
+        self.assertEqual(sections_for(node), [])
+
+    def test_a_non_dict_config_does_not_crash(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        node.config = "not-a-dict"
+        self.assertEqual(sections_for(node), [])

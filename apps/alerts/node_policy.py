@@ -14,7 +14,9 @@ caught by ``apps/alerts/_tests/test_node_policy.py``, matching how
 
 from dataclasses import dataclass
 
+from apps.alerts.identity import local_hostname, local_instance_id
 from apps.alerts.reevaluation import PRIMARY_METRIC, _number
+from apps.checkers.models import CheckRun
 
 
 @dataclass(frozen=True)
@@ -214,3 +216,57 @@ def to_config(values: dict, existing) -> dict:
                 entry[field.name] = stored if stored == value else value
             config[checker] = entry
     return config
+
+
+def _reported_checkers(node) -> list:
+    """The checkers this node currently reports, from whichever source it has.
+
+    Two sources because ``CheckRun`` is never pushed to a hub: the machine this
+    hub runs on has its own rows, a peer has only the alerts it pushed.
+
+    ``node_overview.build_checker_rows`` answers the same question and is
+    deliberately not reused. Importing it here would point ``node_policy`` at a
+    module that pulls in the admin URLs, the sparkline renderer and
+    ``config.dashboard``, and Task 6 puts this form on the page
+    ``node_overview`` builds, which closes the loop into a real import cycle.
+    The same reasoning already kept ``_json_dict`` duplicated above. What is
+    needed here is also far less than that function returns: names only, so one
+    ``distinct`` on each side rather than a newest-row query per checker.
+    """
+    if node.instance_id == local_instance_id():
+        # Node.upsert only writes hostname when truthy, so the local row can
+        # carry the blank default while its CheckRun rows are keyed by the real
+        # machine name. order_by() clears the model ordering: left on, the sort
+        # column joins the SELECT and nothing comes back distinct.
+        return list(
+            CheckRun.objects.filter(hostname=node.hostname or local_hostname())
+            .order_by()
+            .values_list("checker_name", flat=True)
+            .distinct()
+        )
+    # Filtered in the database: checker alerts are bounded by fingerprint dedup,
+    # a node's webhook alerts are not. A label that is missing, blank or not even
+    # a string simply fails to match a spec name below, so it needs no guard.
+    return [
+        _json_dict(labels).get("checker")
+        for labels in node.alerts.filter(labels__has_key="checker").values_list("labels", flat=True)
+    ]
+
+
+def sections_for(node) -> list[str]:
+    """The checkers this node's policy form should show, sorted.
+
+    The union of what the node reports and what its config already names, kept
+    to what actually accepts policy. Offering a disk threshold on a machine that
+    never reports disk is noise, but a checker that has gone quiet with a policy
+    already saved must still show, or that policy becomes invisible and nobody
+    can edit it back out.
+
+    Driven from ``FIELD_SPECS`` rather than from the node's data, so a stale key
+    for a checker that no longer exists cannot become an editable section.
+    """
+    reported = _reported_checkers(node)
+    configured = list(_json_dict(node.config))
+    return [
+        checker for checker in sorted(FIELD_SPECS) if checker in reported or checker in configured
+    ]
