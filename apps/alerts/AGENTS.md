@@ -228,6 +228,28 @@ and rendered by `templates/admin/alerts/node/change_form.html`, attached through
   `config/dashboard.py`. This instance's own `Node` row is upserted by its own local check
   runs, so scoring it like a peer would paint a healthy fleet permanently amber.
 
+### Node policy form
+
+`Node.config` is edited as typed boxes, never as a raw JSON widget. The shape lives in
+`apps/alerts/node_policy.py` (plain functions and dataclasses, testable without the admin)
+and the form is `NodePolicyForm` in `apps/alerts/forms.py`.
+
+- **The field spec is derived, not restated.** `FIELD_SPECS` is built from
+  `reevaluation.SCORERS` and `PRIMARY_METRIC`, so adding a scorer adds a form section with
+  no edit to the form. A completeness test in `_tests/test_node_policy.py` guards it, the
+  same way one guards `config/admin.py`'s `SECTION_MAP`.
+- **Strict at the keyboard, fail-open at ingest.** `reevaluation.py` must never raise on a
+  node's push, so it silently passes through any policy it cannot use. The editor rejects
+  those same shapes outright, as field errors. A policy the runtime ignores is
+  indistinguishable from no policy at all, which is the bug this closed.
+- **Sections follow the node.** The form shows a section per checker the node reports or
+  already configures. Config keys it has no spec for are preserved rather than deleted, and
+  the read-only panel on the same page lists them as "Not honoured", alongside policy that
+  is stored with the right keys but still scores nothing ("Saved but not scoring").
+- **Saving a scoring-relevant change redirects to the re-evaluate preview**
+  (`scoring_changed` decides), because a saved policy nobody re-evaluates does nothing to
+  alerts already open.
+
 ## App layout rules (required)
 
 - Endpoints must live under `apps/alerts/views/` (endpoint/module-based).
