@@ -215,6 +215,28 @@ class RoundTripTests(TestCase):
         )
         self.assertIsInstance(result["cpu"]["warning_threshold"], int)
 
+    def test_a_stored_bool_is_replaced_by_the_number_typed_over_it(self):
+        # ``True == 1.0`` in Python, so a preservation rule written as ``==``
+        # keeps the bool and the operator's repair does nothing. The scorers
+        # reject a bool, so this is the very bug the editor exists to fix,
+        # reintroduced at the point someone is fixing it.
+        existing = {"cpu": {"warning_threshold": True, "critical_threshold": True}}
+        result = to_config(
+            {"policy__cpu__warning_threshold": 1.0, "policy__cpu__critical_threshold": 2.0},
+            existing=existing,
+        )
+        self.assertEqual(result["cpu"], {"warning_threshold": 1.0, "critical_threshold": 2.0})
+        self.assertNotIsInstance(result["cpu"]["warning_threshold"], bool)
+
+    def test_a_stored_false_is_replaced_by_a_typed_zero(self):
+        existing = {"cpu": {"warning_threshold": False, "critical_threshold": False}}
+        result = to_config(
+            {"policy__cpu__warning_threshold": 0.0, "policy__cpu__critical_threshold": 0.0},
+            existing=existing,
+        )
+        self.assertNotIsInstance(result["cpu"]["warning_threshold"], bool)
+        self.assertNotIsInstance(result["cpu"]["critical_threshold"], bool)
+
     def test_clearing_a_field_removes_it(self):
         existing = {"cpu": {"warning_threshold": 80, "critical_threshold": 95}}
         result = to_config(

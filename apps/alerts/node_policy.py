@@ -245,7 +245,17 @@ def to_config(values: dict, existing) -> dict:
                 # policy change. Numerically equal means unchanged: keep what was
                 # stored. This belongs here because this is the only place that
                 # sees both the submitted value and the one it replaces.
-                entry[field.name] = stored if stored == value else value
+                #
+                # Only a genuine number is worth keeping. ``True == 1.0``, so a
+                # bare ``==`` would preserve a stored bool that the scorers
+                # refuse to read, at the exact moment an operator is typing a
+                # real number over it to repair exactly that.
+                keep = (
+                    isinstance(stored, (int, float))
+                    and not isinstance(stored, bool)
+                    and stored == value
+                )
+                entry[field.name] = stored if keep else value
             config[checker] = entry
     return config
 
