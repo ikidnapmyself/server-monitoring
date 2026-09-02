@@ -219,6 +219,19 @@ class RoundTripTests(TestCase):
         self.assertEqual(result["cpu"]["future_option"], "x")
         self.assertEqual(result["cpu"]["warning_threshold"], 99.0)
 
+    def test_an_allowlist_is_stored_sorted_and_deduped(self):
+        # ``scoring_changed`` compares the stored lists, so retyping the same
+        # ports in another order would otherwise redirect to a preview of
+        # nothing. ``clean_stored_allowlist`` already sorts, and ``_int_set``
+        # collapses a repeat at score time, so neither is a real difference.
+        result = to_config({"policy__listening_ports__allowlist": "80, 22, 22"}, existing={})
+        self.assertEqual(result["listening_ports"]["allowlist"], [22, 80])
+
+    def test_reordering_an_allowlist_is_not_a_scoring_change(self):
+        before = {"listening_ports": {"allowlist": [22, 80]}}
+        after = to_config({"policy__listening_ports__allowlist": "80, 22"}, existing=before)
+        self.assertFalse(scoring_changed(before, after))
+
     def test_a_config_with_no_edits_round_trips_unchanged(self):
         config = {
             "cpu": {"warning_threshold": 80, "critical_threshold": 95},

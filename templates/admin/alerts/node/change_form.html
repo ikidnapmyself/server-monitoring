@@ -201,8 +201,8 @@ dashes, and it is what tells anyone that a preserved config key is dead.
   {% if node_policy.unread %}
   <h3 style="margin-bottom:6px;">Not honoured</h3>
   <p style="color:var(--body-quiet-color);">
-    Nothing reads these. They are kept because saving the form never deletes what
-    it cannot show, but no scorer looks at them, so they change no severity.
+    Nothing reads these, so they change no severity.
+    They are kept unless you edit that checker's boxes below, which rewrite its entry.
   </p>
   <ul style="margin:0 0 0 16px; padding:0;">
     {% for entry in node_policy.unread %}

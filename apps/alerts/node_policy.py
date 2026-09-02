@@ -260,7 +260,12 @@ def to_config(values: dict, existing) -> dict:
                 entry.pop(field.name, None)
             else:
                 if field.kind == "int_list":
-                    value = clean_int_list(value)
+                    # Sorted and deduped, because neither order nor a repeat
+                    # changes what ``_flag_ports`` does with the set, while
+                    # ``scoring_changed`` compares the stored lists: without
+                    # this, retyping 22, 80 as 80, 22 reads as a policy change
+                    # and redirects to a preview showing nothing.
+                    value = sorted(set(clean_int_list(value)))
                 stored = entry.get(field.name)
                 # A form field yields a float where the config held an int, so an
                 # untouched save would otherwise rewrite 80 as 80.0 and read as a
@@ -490,10 +495,10 @@ def build_effective_policy(node) -> EffectivePolicy:
 
     Three lists because ``to_config`` preserves every key it has no spec for, so
     nothing an operator wrote is silently deleted. The price is that a key left
-    behind by a checker that no longer exists looks identical to a live one, and
-    an operator with view-but-not-change permission sees no policy at all: the
-    admin renders every fieldset field read-only and cannot resolve the form's
-    dynamically-added names. This panel is the read-only answer to both.
+    behind by a checker that no longer exists looks identical to a live one.
+    This panel is the answer to that, and it is also the whole policy view for
+    an operator with view-but-not-change permission, whose page carries no
+    boxes at all (``NodeAdmin.get_fieldsets``).
 
     An empty entry is left out of every list. ``{"cpu": {}}`` is the marker that
     opens a section (see ``NodePolicyForm.clean``), it scores nothing, and there

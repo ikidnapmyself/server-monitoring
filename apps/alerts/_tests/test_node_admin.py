@@ -822,6 +822,10 @@ class EffectivePolicyPanelTests(TestCase):
         self.assertContains(response, "sample_window")
         self.assertContains(response, "made_up")
         self.assertContains(response, "Nothing reads")
+        # Not "saving never deletes what it cannot show": that is true of an
+        # unknown checker, and false of a known one holding a non-dict, whose
+        # own section is right there and whose next save replaces the string.
+        self.assertContains(response, "kept unless you edit that checker's boxes below")
 
     def test_the_overview_panels_and_the_action_button_still_render(self):
         self._login("view_node", "change_node")

@@ -704,10 +704,10 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
         ``_changeform_view`` flattens the fieldsets into
         ``modelform_factory(fields=...)``, and the policy boxes are not model
         fields, so that raises ``FieldError``. It passes ``fields`` explicitly,
-        so this overrides rather than defaults. Empty rather than ``None``:
-        ``None`` is what ``get_form`` extends into ``exclude`` for a staff user
+        so this overrides rather than defaults. Empty rather than ``None``,
+        because ``get_form`` extends ``exclude`` by this list for a staff user
         with view-but-not-change permission, and extending by ``None`` raises.
-        No model field is lost either way — every one here is read-only or is
+        No model field is lost either way: every one here is read-only or is
         ``config``, which ``NodePolicyForm`` owns.
         """
         kwargs["fields"] = []
