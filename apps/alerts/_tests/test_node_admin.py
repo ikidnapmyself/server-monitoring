@@ -674,6 +674,24 @@ class EffectivePolicyPanelTests(TestCase):
         self.assertContains(response, "Recent pipeline runs")
         self.assertContains(response, "Re-evaluate open alerts")
 
+    def test_a_half_filled_pair_is_shown_as_not_scoring(self):
+        # It cannot come from the form (clean_thresholds refuses it), but a
+        # hand-written config can, and it is exactly the silently-dead policy an
+        # operator needs to find.
+        self.node.config = {"memory": {"warning_threshold": 70}}
+        self.node.save()
+        self._login("view_node")
+        response = self.client.get(self._url())
+        self.assertContains(response, "Saved but not scoring")
+        self.assertContains(response, "Set a critical threshold too, or clear both.")
+        self.assertContains(response, "70")
+
+    def test_a_complete_pair_is_not_called_out_as_not_scoring(self):
+        self._login("view_node")
+        response = self.client.get(self._url())
+        self.assertContains(response, "Policy in effect")
+        self.assertNotContains(response, "Saved but not scoring")
+
     def test_a_node_with_no_policy_says_so(self):
         self.node.config = {}
         self.node.save()

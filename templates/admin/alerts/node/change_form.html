@@ -164,6 +164,39 @@ dashes, and it is what tells anyone that a preserved config key is dead.
   <p>No checker on this node has a value the scorers can use yet.</p>
   {% endif %}
 
+  {% if node_policy.inactive %}
+  <h3 style="margin-bottom:6px; color:#b26a00;">&#9888; Saved but not scoring</h3>
+  <p style="color:var(--body-quiet-color);">
+    These are the keys the scorers read, but the policy is incomplete, so each of
+    these checkers is skipped whole and its alerts keep the severity the node sent.
+    Finish it in the boxes below, or clear it so nobody reads it as active.
+  </p>
+  <div style="overflow-x:auto; border-left:4px solid #b26a00; padding-left:10px;">
+    <table style="width:100%; border-collapse:collapse;">
+      <thead>
+        <tr>
+          <th style="text-align:left;">Checker</th>
+          <th style="text-align:left;">Setting</th>
+          <th style="text-align:right;">Value</th>
+          <th style="text-align:left;">Why it does nothing</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for section in node_policy.inactive %}
+        {% for value in section.values %}
+        <tr>
+          <td>{% if forloop.first %}{{ section.title }}{% endif %}</td>
+          <td>{{ value.label }}</td>
+          <td style="text-align:right;">{{ value.value }}</td>
+          <td>{% if forloop.first %}{{ section.inactive_reason }}{% endif %}</td>
+        </tr>
+        {% endfor %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
   {% if node_policy.unread %}
   <h3 style="margin-bottom:6px;">Not honoured</h3>
   <p style="color:var(--body-quiet-color);">

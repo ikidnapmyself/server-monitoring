@@ -363,22 +363,74 @@ class EffectivePolicyTests(TestCase):
 
     def test_an_unknown_key_inside_a_known_checker_names_both(self):
         policy = build_effective_policy(
-            self._node({"cpu": {"warning_threshold": 80, "sample_window": 5}})
+            self._node(
+                {"cpu": {"warning_threshold": 80, "critical_threshold": 95, "sample_window": 5}}
+            )
         )
         self.assertEqual([s.checker for s in policy.sections], ["cpu"])
-        self.assertEqual([v.value for v in policy.sections[0].values], ["80"])
+        self.assertEqual([v.value for v in policy.sections[0].values], ["80", "95"])
         self.assertEqual([(u.checker, u.key) for u in policy.unread], [("cpu", "sample_window")])
+
+    def test_a_complete_pair_carries_no_inactive_reason(self):
+        policy = build_effective_policy(
+            self._node({"cpu": {"warning_threshold": 80, "critical_threshold": 95}})
+        )
+        self.assertEqual(policy.inactive, [])
+        self.assertEqual(policy.sections[0].inactive_reason, "")
+
+    def test_a_warning_without_a_critical_is_shown_but_not_in_effect(self):
+        # _score_numeric needs both thresholds, so this scores nothing at all.
+        policy = build_effective_policy(self._node({"cpu": {"warning_threshold": 80}}))
+        self.assertEqual(policy.sections, [])
+        self.assertEqual([s.checker for s in policy.inactive], ["cpu"])
+        self.assertEqual([v.value for v in policy.inactive[0].values], ["80"])
+        self.assertEqual(
+            policy.inactive[0].inactive_reason, "Set a critical threshold too, or clear both."
+        )
+        self.assertEqual(policy.unread, [])
+        self.assertTrue(policy.has_content)
+
+    def test_a_critical_without_a_warning_is_shown_but_not_in_effect(self):
+        policy = build_effective_policy(self._node({"cpu": {"critical_threshold": 95}}))
+        self.assertEqual(policy.sections, [])
+        self.assertEqual(
+            [(s.checker, s.inactive_reason) for s in policy.inactive],
+            [("cpu", "Set a warning threshold too, or clear both.")],
+        )
+
+    def test_an_inverted_pair_is_shown_but_not_in_effect(self):
+        # Same lie in a third shape: _score_numeric refuses critical < warning.
+        policy = build_effective_policy(
+            self._node({"cpu": {"warning_threshold": 95, "critical_threshold": 80}})
+        )
+        self.assertEqual(policy.sections, [])
+        self.assertIn("must not be below", policy.inactive[0].inactive_reason)
+
+    def test_a_threshold_the_scorers_cannot_read_is_shown_but_not_in_effect(self):
+        # _number rejects a string, so a quoted threshold scores nothing.
+        policy = build_effective_policy(
+            self._node({"cpu": {"warning_threshold": "80", "critical_threshold": "95"}})
+        )
+        self.assertEqual(policy.sections, [])
+        self.assertEqual(policy.inactive[0].inactive_reason, "Enter a number.")
+
+    def test_an_allowlist_is_never_judged_by_the_threshold_rule(self):
+        policy = build_effective_policy(self._node({"listening_ports": {"allowlist": [22]}}))
+        self.assertEqual([s.checker for s in policy.sections], ["listening_ports"])
+        self.assertEqual(policy.inactive, [])
 
     def test_an_empty_policy_is_not_claimed_to_be_in_effect(self):
         # {"cpu": {}} is the add-a-section marker. It scores nothing, so saying
         # it is in effect would be a lie.
         policy = build_effective_policy(self._node({"cpu": {}}))
         self.assertEqual(policy.sections, [])
+        self.assertEqual(policy.inactive, [])
         self.assertEqual(policy.unread, [])
 
     def test_a_node_with_no_config_has_nothing_either_way(self):
         policy = build_effective_policy(self._node({}))
         self.assertEqual(policy.sections, [])
+        self.assertEqual(policy.inactive, [])
         self.assertEqual(policy.unread, [])
         self.assertFalse(policy.has_content)
 
@@ -398,7 +450,12 @@ class EffectivePolicyTests(TestCase):
             self._node(
                 {
                     "memory": {"warning_threshold": 70, "critical_threshold": 90},
-                    "cpu": {"warning_threshold": 80, "zzz": 1, "aaa": 2},
+                    "cpu": {
+                        "warning_threshold": 80,
+                        "critical_threshold": 95,
+                        "zzz": 1,
+                        "aaa": 2,
+                    },
                     "zebra": {},
                 }
             )

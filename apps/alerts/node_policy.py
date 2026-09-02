@@ -292,11 +292,18 @@ class PolicyValue:
 
 @dataclass(frozen=True)
 class PolicySection:
-    """One checker's policy, as it stands in ``Node.config`` right now."""
+    """One checker's policy, as it stands in ``Node.config`` right now.
+
+    ``inactive_reason`` is blank for a policy the scorers can actually use, and
+    otherwise says what is wrong with it in the same words the form would put on
+    the box. A section with a reason is real config with the right keys that
+    still scores nothing, which is neither "in effect" nor "not honoured".
+    """
 
     checker: str
     title: str
     values: list[PolicyValue]
+    inactive_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -315,13 +322,20 @@ class UnreadKey:
 
 @dataclass(frozen=True)
 class EffectivePolicy:
+    """Three lists, because there are three ways a config key can end up.
+
+    ``sections`` scores. ``inactive`` holds sections the scorers skip whole:
+    right keys, unusable values. ``unread`` holds keys no scorer looks at.
+    """
+
     sections: list[PolicySection]
+    inactive: list[PolicySection]
     unread: list[UnreadKey]
 
     @property
     def has_content(self) -> bool:
         """Whether there is any policy at all, honoured or not."""
-        return bool(self.sections or self.unread)
+        return bool(self.sections or self.inactive or self.unread)
 
 
 def _format_policy_value(field: PolicyField, value) -> str:
@@ -337,21 +351,45 @@ def _format_policy_value(field: PolicyField, value) -> str:
     return str(value)
 
 
+def _inactive_reason(checker: str, entry: dict) -> str:
+    """Why the scorers skip this entry whole, or ``""`` when they read it.
+
+    Asked of ``clean_thresholds`` rather than restated, so the panel judges a
+    stored policy by exactly the rule the editor enforces and ``_score_numeric``
+    applies: both thresholds, both numbers, critical not below warning. A pair
+    failing any of those returns ``None`` from the scorer, which is passthrough,
+    so calling it "in effect" is the same lie the empty-entry rule already
+    refuses to tell. The message is the one the form puts on the box, so an
+    operator reads the same sentence wherever they meet the problem.
+
+    Only numeric checkers have a whole-entry precondition worth stating here; an
+    allowlist is judged key by key by ``_score_allowlist``.
+    """
+    if checker not in PRIMARY_METRIC:
+        return ""
+    try:
+        clean_thresholds(entry.get("warning_threshold"), entry.get("critical_threshold"))
+    except PolicyError as exc:
+        return str(exc)
+    return ""
+
+
 def build_effective_policy(node) -> EffectivePolicy:
     """What this node's config actually does, and what it merely holds.
 
-    Two lists because ``to_config`` preserves every key it has no spec for, so
+    Three lists because ``to_config`` preserves every key it has no spec for, so
     nothing an operator wrote is silently deleted. The price is that a key left
     behind by a checker that no longer exists looks identical to a live one, and
     an operator with view-but-not-change permission sees no policy at all: the
     admin renders every fieldset field read-only and cannot resolve the form's
     dynamically-added names. This panel is the read-only answer to both.
 
-    An empty entry is left out of both lists. ``{"cpu": {}}`` is the marker that
+    An empty entry is left out of every list. ``{"cpu": {}}`` is the marker that
     opens a section (see ``NodePolicyForm.clean``), it scores nothing, and there
     is no key in it for anything to ignore.
     """
     sections: list[PolicySection] = []
+    inactive: list[PolicySection] = []
     unread: list[UnreadKey] = []
     for checker, raw_entry in sorted(_json_dict(node.config).items()):
         title = checker.replace("_", " ")
@@ -369,10 +407,14 @@ def build_effective_policy(node) -> EffectivePolicy:
             if field.name in raw_entry
         ]
         if values:
-            sections.append(PolicySection(checker=checker, title=title, values=values))
+            reason = _inactive_reason(checker, raw_entry)
+            section = PolicySection(
+                checker=checker, title=title, values=values, inactive_reason=reason
+            )
+            (inactive if reason else sections).append(section)
         unread.extend(
             UnreadKey(checker=checker, key=key, label=f"{checker} \u2192 {key}")
             for key in sorted(raw_entry)
             if key not in known
         )
-    return EffectivePolicy(sections=sections, unread=unread)
+    return EffectivePolicy(sections=sections, inactive=inactive, unread=unread)
