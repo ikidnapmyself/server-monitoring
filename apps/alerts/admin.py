@@ -4,15 +4,14 @@ import json
 
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
-from django.db import models as db_models
 from django.db.models import Count, Q
 from django.template.response import TemplateResponse
 from django.utils.html import format_html, format_html_join
-from django_json_widget.widgets import JSONEditorWidget
 from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
 
 from apps.alerts.diagnosis import diagnose_incident
+from apps.alerts.forms import NodePolicyForm
 from apps.alerts.models import (
     Alert,
     AlertHistory,
@@ -28,6 +27,7 @@ from apps.alerts.node_overview import (
     build_node_overview,
     render_severity_chips,
 )
+from apps.alerts.node_policy import field_name, sections_for, spec_for
 from apps.alerts.reeval_existing import apply_node_alert_reeval, preview_node_alert_reeval
 from apps.alerts.services import IncidentManager, instance_key_from_labels
 from apps.alerts.timeline import build_incident_timeline
@@ -648,9 +648,10 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
     """Registry of agents that have pushed cluster data to this hub.
 
     The registry fields (instance_id, hostname, …) are written only by the
-    ingest path and stay read-only. ``config`` is the one operator-editable
-    field: per-checker hub-side policy used to re-evaluate alert severity
-    per node (see apps/alerts/reevaluation.py).
+    ingest path and stay read-only. The one thing an operator edits is
+    ``config``, the per-checker hub-side policy used to re-evaluate alert
+    severity per node (see apps/alerts/reevaluation.py), and it is edited
+    through ``NodePolicyForm``'s labelled boxes rather than as raw JSON.
     """
 
     change_actions = ["reevaluate_open_alerts"]
@@ -672,21 +673,56 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
         "first_seen",
         "last_seen",
     ]
+    # Registry only. ``config`` is deliberately absent: it is edited through
+    # ``NodePolicyForm``'s per-checker boxes, and a raw JSON widget alongside
+    # them would be a second writer for one column, where whichever renders last
+    # silently wins.
     fields = [
         "instance_id",
         "hostname",
         "address",
         "last_source",
         "labels",
-        "config",
         "first_seen",
         "last_seen",
     ]
+    form = NodePolicyForm
     change_form_template = "admin/alerts/node/change_form.html"
-    formfield_overrides = {db_models.JSONField: {"widget": JSONEditorWidget}}
-    # Which checkers the hub can re-evaluate, and the metric each reads, lives in
-    # apps.alerts.reevaluation.PRIMARY_METRIC. Example config value:
-    #   {"cpu": {"warning_threshold": 99, "critical_threshold": 99}}
+
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        """Let the form own its field list.
+
+        ``_changeform_view`` flattens the fieldsets into
+        ``modelform_factory(fields=...)``, and the policy boxes are not model
+        fields, so that raises ``FieldError``. It passes ``fields`` explicitly,
+        so this overrides rather than defaults. Empty rather than ``None``:
+        ``None`` is what ``get_form`` extends into ``exclude`` for a staff user
+        with view-but-not-change permission, and extending by ``None`` raises.
+        No model field is lost either way — every one here is read-only or is
+        ``config``, which ``NodePolicyForm`` owns.
+        """
+        kwargs["fields"] = []
+        return super().get_form(request, obj, change=change, **kwargs)
+
+    def get_fieldsets(self, request, obj=None):
+        """The registry above, then one labelled box per checker with a policy.
+
+        The sections come from ``sections_for`` rather than from a hand-written
+        list, so a node shows the checkers it actually reports and adding a
+        scorer adds a section with no edit here. Fields built in the form's
+        ``__init__`` never reach ``base_fields``, so the admin cannot discover
+        them on its own.
+        """
+        registry = [(None, {"fields": self.fields})]
+        if obj is None:
+            return registry
+        return registry + [
+            (
+                f"{checker.replace('_', ' ')} policy",
+                {"fields": [field_name(checker, field.name) for field in spec_for(checker)]},
+            )
+            for checker in sections_for(obj)
+        ]
 
     def get_queryset(self, request):
         """Annotate unresolved incident counts, one per severity, in one query.

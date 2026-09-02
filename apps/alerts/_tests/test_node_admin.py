@@ -2,6 +2,7 @@ import json
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import PermissionDenied
 from django.db import models as db_models
@@ -9,8 +10,8 @@ from django.template.response import TemplateResponse
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
-from django_json_widget.widgets import JSONEditorWidget
 
+from apps.alerts.forms import NodePolicyForm
 from apps.alerts.identity import local_instance_id
 from apps.alerts.models import Alert, Incident, Node
 from apps.checkers.models import CheckRun, PreflightRun
@@ -35,18 +36,21 @@ class NodeAdminTests(TestCase):
         # Deleting a Node would silently drop the operator-authored config policy.
         self.assertFalse(self._admin().has_delete_permission(None))
 
-    def test_config_is_editable_registry_is_readonly(self):
+    def test_the_registry_is_readonly_and_config_is_not_a_raw_field(self):
         model_admin = self._admin()
-        # config is the one operator-editable field...
-        self.assertIn("config", model_admin.fields)
-        self.assertNotIn("config", model_admin.readonly_fields)
-        # ...while ingest-owned registry fields stay read-only.
+        # Ingest-owned registry fields stay read-only...
         for registry_field in ["instance_id", "hostname", "last_source", "labels"]:
             self.assertIn(registry_field, model_admin.readonly_fields)
+        # ...and config is off the field list entirely: NodePolicyForm owns it,
+        # and a raw JSON widget beside the policy boxes would be a second writer
+        # for the same column.
+        self.assertNotIn("config", model_admin.fields)
+        self.assertIs(model_admin.form, NodePolicyForm)
 
-    def test_config_uses_json_editor_widget(self):
-        overrides = self._admin().formfield_overrides
-        self.assertIs(overrides[db_models.JSONField]["widget"], JSONEditorWidget)
+    def test_no_json_editor_widget_is_left_behind(self):
+        # labels is a JSONField too, but it is read-only, so the override had
+        # nothing left to apply to once config left the form.
+        self.assertNotIn(db_models.JSONField, self._admin().formfield_overrides)
 
 
 class NodeReevaluateActionTests(TestCase):
@@ -170,7 +174,7 @@ class NodeChangeFormTests(TestCase):
         self.assertContains(response, "Peer")
         self.assertContains(response, "Checker state")
         # and the normal admin form is still there
-        self.assertContains(response, 'name="config"')
+        self.assertContains(response, 'id="node_form"')
 
     def test_the_hubs_own_page_shows_its_preflight(self):
         # The regression: this said "No preflight recorded" for the hub itself.
@@ -381,3 +385,137 @@ class NodeIncidentsColumnTests(TestCase):
         with self.assertNumQueries(1):
             rendered = [self._admin().incidents(n) for n in self._admin().get_queryset(request)]
         self.assertEqual(len(rendered), 3)
+
+
+class NodePolicyFormWiringTests(TestCase):
+    """The change page edits policy as labelled boxes, never as raw JSON.
+
+    ``apps.alerts.reevaluation`` is fail-open, so a policy the admin lets
+    through unvalidated does nothing and says nothing. These tests are about
+    the page being the strict half of that bargain.
+    """
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser("ops", "ops@example.com", "pw")
+        self.client.force_login(self.user)
+
+    def _url(self, node):
+        return reverse("admin:alerts_node_change", args=[node.pk])
+
+    def _node_reporting_cpu(self, **kwargs):
+        """A peer whose sections come from the checkers its alerts name."""
+        kwargs.setdefault("instance_id", "web-03")
+        kwargs.setdefault("hostname", "web-03")
+        node = Node.objects.create(**kwargs)
+        Alert.objects.create(
+            fingerprint="check:web-03:cpu",
+            source="cluster",
+            name="cpu high",
+            severity="warning",
+            status="firing",
+            started_at=timezone.now(),
+            node=node,
+            labels={"checker": "cpu", "instance_id": "web-03"},
+        )
+        return node
+
+    def test_the_page_renders_the_policy_boxes_for_the_nodes_sections(self):
+        node = self._node_reporting_cpu()
+        response = self.client.get(self._url(node))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="policy__cpu__warning_threshold"')
+        self.assertContains(response, 'name="policy__cpu__critical_threshold"')
+        # and the operator text from the spec, so the box says what it does
+        self.assertContains(response, "Critical at")
+
+    def test_a_stored_policy_arrives_in_the_boxes(self):
+        node = self._node_reporting_cpu(
+            config={"cpu": {"warning_threshold": 80, "critical_threshold": 95}}
+        )
+        response = self.client.get(self._url(node))
+        self.assertContains(response, 'value="80"')
+        self.assertContains(response, 'value="95"')
+
+    def test_the_raw_json_editor_is_gone(self):
+        # Two writers for one column is a silent data-loss bug: whichever the
+        # admin renders last wins. The JSON editor must not come back.
+        node = self._node_reporting_cpu()
+        response = self.client.get(self._url(node))
+        self.assertNotContains(response, 'name="config"')
+        self.assertNotContains(response, "jsoneditor")
+
+    def test_an_inverted_pair_is_refused_and_writes_nothing(self):
+        node = self._node_reporting_cpu(
+            config={"cpu": {"warning_threshold": 80, "critical_threshold": 95}}
+        )
+        response = self.client.post(
+            self._url(node),
+            {
+                "policy__cpu__warning_threshold": "90",
+                "policy__cpu__critical_threshold": "10",
+                "_continue": "1",
+            },
+        )
+        self.assertEqual(response.status_code, 200)  # re-rendered, not redirected
+        self.assertContains(response, "must not be below the warning")
+        node.refresh_from_db()
+        self.assertEqual(node.config, {"cpu": {"warning_threshold": 80, "critical_threshold": 95}})
+
+    def test_a_valid_pair_is_written(self):
+        node = self._node_reporting_cpu()
+        response = self.client.post(
+            self._url(node),
+            {
+                "policy__cpu__warning_threshold": "70",
+                "policy__cpu__critical_threshold": "90",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        node.refresh_from_db()
+        self.assertEqual(
+            node.config, {"cpu": {"warning_threshold": 70.0, "critical_threshold": 90.0}}
+        )
+
+    def test_the_overview_and_the_action_button_survive_the_form_swap(self):
+        # PR #230's panels and the object action both hang off this page.
+        node = self._node_reporting_cpu()
+        response = self.client.get(self._url(node))
+        self.assertContains(response, "Checker state")
+        self.assertContains(response, "Re-evaluate open alerts")
+
+    def test_without_an_object_there_are_no_policy_sections(self):
+        # NodeAdmin forbids adding, but get_fieldsets is still called with
+        # obj=None (ModelAdmin.get_fields does it), and sections_for would need
+        # a saved row to read.
+        request = RequestFactory().get("/admin/alerts/node/add/")
+        request.user = self.user
+        fieldsets = admin.site._registry[Node].get_fieldsets(request, None)
+        self.assertEqual(len(fieldsets), 1)
+        self.assertNotIn("config", fieldsets[0][1]["fields"])
+
+    def test_the_registry_fields_still_show_read_only(self):
+        node = self._node_reporting_cpu()
+        response = self.client.get(self._url(node))
+        self.assertContains(response, "web-03")
+        self.assertNotContains(response, 'name="instance_id"')
+
+
+class NodePolicyViewOnlyTests(TestCase):
+    """A staff user who may look but not change must still get a page."""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            "looker", "look@example.com", "pw", is_staff=True
+        )
+        self.user.user_permissions.add(
+            Permission.objects.get(codename="view_node", content_type__app_label="alerts")
+        )
+        self.client.force_login(self.user)
+
+    def test_the_change_page_renders_without_change_permission(self):
+        # get_form folds the field list into ``exclude`` on this path, so a
+        # None field list would raise there rather than render.
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        response = self.client.get(reverse("admin:alerts_node_change", args=[node.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "web-03")
