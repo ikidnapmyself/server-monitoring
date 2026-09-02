@@ -15,7 +15,7 @@ caught by ``apps/alerts/_tests/test_node_policy.py``, matching how
 from dataclasses import dataclass
 
 from apps.alerts.identity import local_hostname, local_instance_id
-from apps.alerts.reevaluation import PRIMARY_METRIC, _number
+from apps.alerts.reevaluation import PRIMARY_METRIC, _int_set, _number
 from apps.checkers.models import CheckRun
 
 
@@ -133,6 +133,38 @@ def clean_int_list(value: str) -> list[int]:
             raise PolicyError(f"Port {port} is outside {_MIN_PORT}-{_MAX_PORT}.")
         ports.append(port)
     return ports
+
+
+def clean_stored_allowlist(value) -> list[int]:
+    """A stored allowlist as ``_score_allowlist`` will read it, or raise.
+
+    The stored-value counterpart to ``clean_int_list``. The two cannot share a
+    parser: ``clean_int_list`` reads what an operator typed, a comma-separated
+    string, while a saved config already holds a real list. What they must share
+    is the verdict, so this asks the scorer's own two questions rather than
+    restating them. ``_score_allowlist`` reads the key only when it is a list and
+    ``_int_set`` can coerce every element, and it fails open on anything else.
+
+    Deliberately *not* the editor's rule. ``clean_int_list`` also rejects a port
+    outside 1-65535, because at the keyboard that can only be a typo, but the
+    runtime scores 70000 happily. A panel that called that inactive would be
+    telling the same lie in the other direction. A float is accepted for the
+    same reason: ``_int_set`` coerces it.
+
+    ``[]`` is a policy, not the absence of one. ``_flag_ports`` with an empty
+    allowset still flags every externally-exposed port, so an empty list scores
+    and must stay in effect.
+    """
+    if not isinstance(value, list):
+        raise PolicyError(
+            "Re-enter the allowed ports in the box below, comma-separated, e.g. 22, 80."
+        )
+    ports = _int_set(value)
+    if ports is None:
+        raise PolicyError(
+            "Every allowed port must be a number. Re-enter them in the box below, e.g. 22, 80."
+        )
+    return sorted(ports)
 
 
 # The prefix keeps policy fields out of the way of the model form's own fields.
@@ -374,10 +406,14 @@ def _format_policy_value(field: PolicyField, value) -> str:
     ``Node.config`` is unvalidated JSON, so a port list can be anything. A value
     that is not the shape the field expects is printed as it was stored: this
     panel reports what is there, and inventing a dash for it would hide exactly
-    the sort of hand-written mistake it exists to show.
+    the sort of hand-written mistake it exists to show. The one value that gets
+    words instead of its own spelling is the empty list, which is a policy with
+    nothing to print.
     """
     if field.kind == "int_list" and isinstance(value, list):
-        return ", ".join(str(port) for port in value)
+        # An empty allowlist is a real policy, so it is in the in-effect table
+        # and an empty cell there reads as a rendering bug. Say what it does.
+        return ", ".join(str(port) for port in value) or "(none: only exposed ports are flagged)"
     return str(value)
 
 
@@ -392,13 +428,23 @@ def _inactive_reason(checker: str, entry: dict) -> str:
     refuses to tell. The message is the one the form puts on the box, so an
     operator reads the same sentence wherever they meet the problem.
 
-    Only numeric checkers have a whole-entry precondition worth stating here; an
-    allowlist is judged key by key by ``_score_allowlist``.
+    ``listening_ports`` has the same shape of problem and gets the same
+    treatment through ``clean_stored_allowlist``: a stored allowlist that is not
+    a list, or holds something ``_int_set`` cannot coerce, returns ``None`` from
+    ``_score_allowlist`` and scores nothing. An empty list is not one of those:
+    it means "flag only externally-exposed ports", the scorer runs it, and it
+    stays in effect.
+
+    Dispatched on the spec's field kinds rather than on the checker name, the
+    same way ``NodePolicyForm.clean`` picks its checks, so a new scorer whose
+    spec reuses a kind is judged without an edit here.
     """
-    if checker not in PRIMARY_METRIC:
-        return ""
+    kinds = {field.kind for field in spec_for(checker)}
     try:
-        clean_thresholds(entry.get("warning_threshold"), entry.get("critical_threshold"))
+        if "number" in kinds:
+            clean_thresholds(entry.get("warning_threshold"), entry.get("critical_threshold"))
+        if "int_list" in kinds and "allowlist" in entry:
+            clean_stored_allowlist(entry["allowlist"])
     except PolicyError as exc:
         return str(exc)
     return ""

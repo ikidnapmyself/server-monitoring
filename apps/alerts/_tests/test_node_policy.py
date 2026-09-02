@@ -10,6 +10,7 @@ from apps.alerts.node_policy import (
     build_effective_policy,
     clean_int_list,
     clean_number,
+    clean_stored_allowlist,
     clean_thresholds,
     field_name,
     scoring_changed,
@@ -125,6 +126,44 @@ class ValidationTests(TestCase):
             clean_thresholds(warning=90.0, critical=80.0)
         self.assertIn("critical", str(ctx.exception).lower())
         self.assertIn("warning", str(ctx.exception).lower())
+
+
+class StoredAllowlistTests(TestCase):
+    """The stored-value counterpart to ``clean_int_list``.
+
+    ``clean_int_list`` reads operator text; a saved config already holds a list.
+    Both must agree with ``_score_allowlist``, which is what these pin down.
+    """
+
+    def test_a_list_of_ports_is_accepted(self):
+        self.assertEqual(clean_stored_allowlist([22, 443]), [22, 443])
+
+    def test_an_empty_list_is_a_real_policy(self):
+        # _flag_ports with an empty allowset still flags every exposed port, so
+        # this scores. Calling it inactive would be the opposite lie.
+        self.assertEqual(clean_stored_allowlist([]), [])
+
+    def test_a_non_list_is_rejected(self):
+        for value in ("22,80", 22, None, {"22": True}):
+            with self.assertRaises(PolicyError):
+                clean_stored_allowlist(value)
+
+    def test_a_quoted_port_is_rejected(self):
+        with self.assertRaises(PolicyError):
+            clean_stored_allowlist(["22"])
+
+    def test_a_boolean_port_is_rejected(self):
+        # _number rejects bool, so _int_set fails open on it.
+        with self.assertRaises(PolicyError):
+            clean_stored_allowlist([22, True])
+
+    def test_a_float_port_is_accepted_because_the_scorer_reads_it(self):
+        # The editor is stricter than the runtime; the panel must not be. A
+        # float scores, so the panel may not call it inactive.
+        self.assertEqual(clean_stored_allowlist([22.0]), [22])
+
+    def test_a_port_out_of_range_is_accepted_because_the_scorer_reads_it(self):
+        self.assertEqual(clean_stored_allowlist([70000]), [70000])
 
 
 class RoundTripTests(TestCase):
@@ -418,6 +457,49 @@ class EffectivePolicyTests(TestCase):
     def test_an_allowlist_is_never_judged_by_the_threshold_rule(self):
         policy = build_effective_policy(self._node({"listening_ports": {"allowlist": [22]}}))
         self.assertEqual([s.checker for s in policy.sections], ["listening_ports"])
+        self.assertEqual(policy.inactive, [])
+
+    def test_a_string_allowlist_is_shown_but_not_in_effect(self):
+        # _score_allowlist reads a non-list allowlist as passthrough, so this
+        # renders like policy and changes no severity at all.
+        policy = build_effective_policy(self._node({"listening_ports": {"allowlist": "22,80"}}))
+        self.assertEqual(policy.sections, [])
+        self.assertEqual([s.checker for s in policy.inactive], ["listening_ports"])
+        self.assertEqual([v.value for v in policy.inactive[0].values], ["22,80"])
+        self.assertIn("comma-separated", policy.inactive[0].inactive_reason)
+        self.assertEqual(policy.unread, [])
+        self.assertTrue(policy.has_content)
+
+    def test_a_quoted_port_in_an_allowlist_is_shown_but_not_in_effect(self):
+        policy = build_effective_policy(self._node({"listening_ports": {"allowlist": ["22"]}}))
+        self.assertEqual(policy.sections, [])
+        self.assertEqual([s.checker for s in policy.inactive], ["listening_ports"])
+        self.assertIn("number", policy.inactive[0].inactive_reason)
+
+    def test_a_boolean_port_in_an_allowlist_is_shown_but_not_in_effect(self):
+        policy = build_effective_policy(self._node({"listening_ports": {"allowlist": [22, True]}}))
+        self.assertEqual([s.checker for s in policy.inactive], ["listening_ports"])
+
+    def test_an_empty_allowlist_stays_in_effect(self):
+        # "Flag only externally-exposed ports" is a policy, and the scorer runs
+        # it. It must not be swept into the inactive list.
+        policy = build_effective_policy(self._node({"listening_ports": {"allowlist": []}}))
+        self.assertEqual([s.checker for s in policy.sections], ["listening_ports"])
+        self.assertEqual(policy.inactive, [])
+        self.assertEqual(policy.sections[0].inactive_reason, "")
+
+    def test_an_empty_allowlist_says_what_it_does_instead_of_nothing(self):
+        policy = build_effective_policy(self._node({"listening_ports": {"allowlist": []}}))
+        self.assertEqual(
+            [v.value for v in policy.sections[0].values],
+            ["(none: only exposed ports are flagged)"],
+        )
+
+    def test_a_threshold_checker_is_never_judged_by_the_allowlist_rule(self):
+        policy = build_effective_policy(
+            self._node({"cpu": {"warning_threshold": 80, "critical_threshold": 95}})
+        )
+        self.assertEqual([s.checker for s in policy.sections], ["cpu"])
         self.assertEqual(policy.inactive, [])
 
     def test_an_empty_policy_is_not_claimed_to_be_in_effect(self):
