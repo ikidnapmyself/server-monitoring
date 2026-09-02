@@ -7,6 +7,7 @@ from apps.alerts.node_policy import (
     FIELD_SPECS,
     PolicyError,
     PolicyField,
+    build_effective_policy,
     clean_int_list,
     clean_number,
     clean_thresholds,
@@ -327,3 +328,90 @@ class SectionSelectionTests(TestCase):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
         node.config = "not-a-dict"
         self.assertEqual(sections_for(node), [])
+
+
+class EffectivePolicyTests(TestCase):
+    """What is actually scored, and what nothing reads.
+
+    ``to_config`` preserves every key it has no spec for, which is what makes a
+    hand-written policy safe to edit. The cost is that a stale key is invisible,
+    so this panel says it out loud instead.
+    """
+
+    def _node(self, config):
+        return Node.objects.create(instance_id="web-03", hostname="web-03", config=config)
+
+    def test_a_configured_checker_with_a_scorer_is_in_effect(self):
+        policy = build_effective_policy(
+            self._node({"cpu": {"warning_threshold": 80, "critical_threshold": 95}})
+        )
+        self.assertEqual([s.checker for s in policy.sections], ["cpu"])
+        self.assertEqual(
+            [(v.label, v.value) for v in policy.sections[0].values],
+            [("Warning at", "80"), ("Critical at", "95")],
+        )
+        self.assertEqual(policy.unread, [])
+
+    def test_an_allowlist_reads_as_a_port_list(self):
+        policy = build_effective_policy(self._node({"listening_ports": {"allowlist": [22, 80]}}))
+        self.assertEqual([v.value for v in policy.sections[0].values], ["22, 80"])
+
+    def test_an_unknown_checker_is_not_honoured_and_is_not_in_effect(self):
+        policy = build_effective_policy(self._node({"made_up": {"warning_threshold": 1}}))
+        self.assertEqual(policy.sections, [])
+        self.assertEqual([(u.checker, u.key) for u in policy.unread], [("made_up", "")])
+
+    def test_an_unknown_key_inside_a_known_checker_names_both(self):
+        policy = build_effective_policy(
+            self._node({"cpu": {"warning_threshold": 80, "sample_window": 5}})
+        )
+        self.assertEqual([s.checker for s in policy.sections], ["cpu"])
+        self.assertEqual([v.value for v in policy.sections[0].values], ["80"])
+        self.assertEqual([(u.checker, u.key) for u in policy.unread], [("cpu", "sample_window")])
+
+    def test_an_empty_policy_is_not_claimed_to_be_in_effect(self):
+        # {"cpu": {}} is the add-a-section marker. It scores nothing, so saying
+        # it is in effect would be a lie.
+        policy = build_effective_policy(self._node({"cpu": {}}))
+        self.assertEqual(policy.sections, [])
+        self.assertEqual(policy.unread, [])
+
+    def test_a_node_with_no_config_has_nothing_either_way(self):
+        policy = build_effective_policy(self._node({}))
+        self.assertEqual(policy.sections, [])
+        self.assertEqual(policy.unread, [])
+        self.assertFalse(policy.has_content)
+
+    def test_a_non_dict_config_does_not_crash(self):
+        node = self._node({})
+        node.config = "not-a-dict"
+        policy = build_effective_policy(node)
+        self.assertEqual((policy.sections, policy.unread), ([], []))
+
+    def test_a_non_dict_entry_for_a_known_checker_does_not_crash(self):
+        policy = build_effective_policy(self._node({"cpu": "90"}))
+        self.assertEqual(policy.sections, [])
+        self.assertEqual([(u.checker, u.key) for u in policy.unread], [("cpu", "")])
+
+    def test_sections_and_unread_entries_are_sorted(self):
+        policy = build_effective_policy(
+            self._node(
+                {
+                    "memory": {"warning_threshold": 70, "critical_threshold": 90},
+                    "cpu": {"warning_threshold": 80, "zzz": 1, "aaa": 2},
+                    "zebra": {},
+                }
+            )
+        )
+        self.assertEqual([s.checker for s in policy.sections], ["cpu", "memory"])
+        self.assertEqual(
+            [(u.checker, u.key) for u in policy.unread],
+            [("cpu", "aaa"), ("cpu", "zzz"), ("zebra", "")],
+        )
+        self.assertTrue(policy.has_content)
+
+    def test_a_section_is_titled_for_a_human(self):
+        policy = build_effective_policy(
+            self._node({"listening_ports": {"allowlist": [22]}}),
+        )
+        self.assertEqual(policy.sections[0].title, "listening ports")

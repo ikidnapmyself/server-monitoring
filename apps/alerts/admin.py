@@ -27,7 +27,13 @@ from apps.alerts.node_overview import (
     build_node_overview,
     render_severity_chips,
 )
-from apps.alerts.node_policy import addable_checkers, field_name, sections_for, spec_for
+from apps.alerts.node_policy import (
+    addable_checkers,
+    build_effective_policy,
+    field_name,
+    sections_for,
+    spec_for,
+)
 from apps.alerts.reeval_existing import apply_node_alert_reeval, preview_node_alert_reeval
 from apps.alerts.services import IncidentManager, instance_key_from_labels
 from apps.alerts.timeline import build_incident_timeline
@@ -830,4 +836,9 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
         """
         if obj is not None:
             context["node_overview"] = build_node_overview(obj)
+            # Rendered for every reader, not only the view-only one. An operator
+            # editing thresholds needs "what is scoring today" stated apart from
+            # the boxes that will change it, and a panel that appears for some
+            # users is a condition that has to stay right.
+            context["node_policy"] = build_effective_policy(obj)
         return super().render_change_form(request, context, *args, obj=obj, **kwargs)

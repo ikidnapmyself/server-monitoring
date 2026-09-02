@@ -280,3 +280,99 @@ def addable_checkers(sections: list[str]) -> list[str]:
     the two cannot disagree about which select to render.
     """
     return [checker for checker in sorted(FIELD_SPECS) if checker not in sections]
+
+
+@dataclass(frozen=True)
+class PolicyValue:
+    """One key a scorer reads, ready to print."""
+
+    label: str
+    value: str
+
+
+@dataclass(frozen=True)
+class PolicySection:
+    """One checker's policy, as it stands in ``Node.config`` right now."""
+
+    checker: str
+    title: str
+    values: list[PolicyValue]
+
+
+@dataclass(frozen=True)
+class UnreadKey:
+    """A config entry no scorer reads. ``key`` is blank for a whole checker.
+
+    ``label`` keeps the raw spelling of what is stored, underscores and all,
+    where a section title is prettified. An operator has to find this key in the
+    JSON to remove it, so the panel must print the key, not a nicer word for it.
+    """
+
+    checker: str
+    key: str
+    label: str
+
+
+@dataclass(frozen=True)
+class EffectivePolicy:
+    sections: list[PolicySection]
+    unread: list[UnreadKey]
+
+    @property
+    def has_content(self) -> bool:
+        """Whether there is any policy at all, honoured or not."""
+        return bool(self.sections or self.unread)
+
+
+def _format_policy_value(field: PolicyField, value) -> str:
+    """One stored value as a human reads it.
+
+    ``Node.config`` is unvalidated JSON, so a port list can be anything. A value
+    that is not the shape the field expects is printed as it was stored: this
+    panel reports what is there, and inventing a dash for it would hide exactly
+    the sort of hand-written mistake it exists to show.
+    """
+    if field.kind == "int_list" and isinstance(value, list):
+        return ", ".join(str(port) for port in value)
+    return str(value)
+
+
+def build_effective_policy(node) -> EffectivePolicy:
+    """What this node's config actually does, and what it merely holds.
+
+    Two lists because ``to_config`` preserves every key it has no spec for, so
+    nothing an operator wrote is silently deleted. The price is that a key left
+    behind by a checker that no longer exists looks identical to a live one, and
+    an operator with view-but-not-change permission sees no policy at all: the
+    admin renders every fieldset field read-only and cannot resolve the form's
+    dynamically-added names. This panel is the read-only answer to both.
+
+    An empty entry is left out of both lists. ``{"cpu": {}}`` is the marker that
+    opens a section (see ``NodePolicyForm.clean``), it scores nothing, and there
+    is no key in it for anything to ignore.
+    """
+    sections: list[PolicySection] = []
+    unread: list[UnreadKey] = []
+    for checker, raw_entry in sorted(_json_dict(node.config).items()):
+        title = checker.replace("_", " ")
+        spec = spec_for(checker)
+        if not spec or not isinstance(raw_entry, dict):
+            # A checker with no scorer, or an entry that is not even a mapping.
+            # Either way nothing inside it can be read, so the whole entry is
+            # named rather than its keys.
+            unread.append(UnreadKey(checker=checker, key="", label=checker))
+            continue
+        known = {field.name for field in spec}
+        values = [
+            PolicyValue(label=field.label, value=_format_policy_value(field, raw_entry[field.name]))
+            for field in spec
+            if field.name in raw_entry
+        ]
+        if values:
+            sections.append(PolicySection(checker=checker, title=title, values=values))
+        unread.extend(
+            UnreadKey(checker=checker, key=key, label=f"{checker} \u2192 {key}")
+            for key in sorted(raw_entry)
+            if key not in known
+        )
+    return EffectivePolicy(sections=sections, unread=unread)

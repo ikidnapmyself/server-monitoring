@@ -605,3 +605,78 @@ class NodeAddPolicySectionTests(TestCase):
         self.assertEqual(after.severity, "critical")
         self.assertNotIn("severity_reevaluated", after.annotations)
         self.assertIsNone(after.ended_at)
+
+
+class EffectivePolicyPanelTests(TestCase):
+    """The read-only panel: what scores, and what nothing reads.
+
+    It is rendered for everyone. An operator editing thresholds gets a plain
+    statement of what is active today beside the boxes that will change it, and
+    a staff user with view-but-not-change permission gets the only readable copy
+    of the policy on the page: Django renders every fieldset field read-only for
+    them, and AdminReadonlyField cannot resolve the form's dynamically-added
+    non-model names, so each box falls back to an empty-value dash.
+    """
+
+    CONFIG = {
+        "cpu": {"warning_threshold": 81, "critical_threshold": 96, "sample_window": 5},
+        "made_up": {"anything": 1},
+    }
+
+    def setUp(self):
+        self.node = Node.objects.create(
+            instance_id="web-03", hostname="web-03", config=dict(self.CONFIG)
+        )
+
+    def _url(self):
+        return reverse("admin:alerts_node_change", args=[self.node.pk])
+
+    def _login(self, *codenames):
+        user = get_user_model().objects.create_user(
+            "viewer", "viewer@example.com", "pw", is_staff=True
+        )
+        for codename in codenames:
+            user.user_permissions.add(
+                Permission.objects.get(codename=codename, content_type__app_label="alerts")
+            )
+        self.client.force_login(user)
+        return user
+
+    def test_a_change_permitted_user_sees_the_policy_in_effect(self):
+        self._login("view_node", "change_node")
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Policy in effect")
+        self.assertContains(response, "81")
+        self.assertContains(response, "96")
+
+    def test_a_view_only_user_sees_the_policy_values(self):
+        # The gap this panel closes: without it the page is a column of dashes.
+        self._login("view_node")
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Policy in effect")
+        self.assertContains(response, "81")
+        self.assertContains(response, "96")
+
+    def test_the_keys_nothing_reads_are_named_with_their_note(self):
+        self._login("view_node")
+        response = self.client.get(self._url())
+        self.assertContains(response, "Not honoured")
+        self.assertContains(response, "sample_window")
+        self.assertContains(response, "made_up")
+        self.assertContains(response, "Nothing reads")
+
+    def test_the_overview_panels_and_the_action_button_still_render(self):
+        self._login("view_node", "change_node")
+        response = self.client.get(self._url())
+        self.assertContains(response, "Checker state")
+        self.assertContains(response, "Recent pipeline runs")
+        self.assertContains(response, "Re-evaluate open alerts")
+
+    def test_a_node_with_no_policy_says_so(self):
+        self.node.config = {}
+        self.node.save()
+        self._login("view_node")
+        response = self.client.get(self._url())
+        self.assertContains(response, "No hub-side policy")
