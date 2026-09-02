@@ -270,3 +270,13 @@ def sections_for(node) -> list[str]:
     return [
         checker for checker in sorted(FIELD_SPECS) if checker in reported or checker in configured
     ]
+
+
+def addable_checkers(sections: list[str]) -> list[str]:
+    """The checkers a node could be given a policy section for, sorted.
+
+    Takes the sections rather than the node so the form and the admin can each
+    ask this without a second trip through ``sections_for``'s queries, and so
+    the two cannot disagree about which select to render.
+    """
+    return [checker for checker in sorted(FIELD_SPECS) if checker not in sections]

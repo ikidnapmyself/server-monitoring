@@ -11,9 +11,12 @@ from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.alerts.forms import NodePolicyForm
+from apps.alerts.drivers.base import ParsedAlert
+from apps.alerts.forms import ADD_SECTION_FIELD, NodePolicyForm
 from apps.alerts.identity import local_instance_id
 from apps.alerts.models import Alert, Incident, Node
+from apps.alerts.node_policy import FIELD_SPECS
+from apps.alerts.reevaluation import reevaluate_severity
 from apps.checkers.models import CheckRun, PreflightRun
 from apps.orchestration.models import PipelineRun
 
@@ -519,3 +522,86 @@ class NodePolicyViewOnlyTests(TestCase):
         response = self.client.get(reverse("admin:alerts_node_change", args=[node.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "web-03")
+
+
+class NodeAddPolicySectionTests(TestCase):
+    """Readying a policy for a checker the node has not reported yet.
+
+    The mechanism is an empty policy dict: ``to_config`` keeps an emptied
+    checker's key and ``sections_for`` counts a configured checker, so writing
+    ``{"disk": {}}`` is what makes the disk boxes appear. It has to be inert at
+    runtime, and that is the last test here.
+    """
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser("ops", "ops@example.com", "pw")
+        self.client.force_login(self.user)
+        self.node = Node.objects.create(instance_id="web-03", hostname="web-03")
+
+    def _url(self):
+        return reverse("admin:alerts_node_change", args=[self.node.pk])
+
+    def _cpu_alert(self, severity="critical"):
+        return ParsedAlert(
+            fingerprint="check:web-03:cpu",
+            name="cpu high",
+            status="firing",
+            started_at=timezone.now(),
+            severity=severity,
+            labels={"checker": "cpu", "instance_id": "web-03"},
+            annotations={"metrics": '{"cpu_percent": 95.2}'},
+        )
+
+    def test_the_select_renders_on_the_change_page(self):
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'name="{ADD_SECTION_FIELD}"')
+        self.assertContains(response, 'value="disk"')
+
+    def test_choosing_a_checker_makes_its_fieldset_appear(self):
+        response = self.client.post(self._url(), {ADD_SECTION_FIELD: "disk"})
+        self.assertEqual(response.status_code, 302)
+        self.node.refresh_from_db()
+        self.assertEqual(self.node.config, {"disk": {}})
+        page = self.client.get(self._url())
+        self.assertContains(page, 'name="policy__disk__warning_threshold"')
+        self.assertContains(page, "disk policy")
+        # and it is no longer on offer in the select
+        self.assertNotContains(page, 'value="disk"')
+
+    def test_the_select_is_gone_once_every_checker_has_a_section(self):
+        self.node.config = {checker: {} for checker in FIELD_SPECS}
+        self.node.save()
+        response = self.client.get(self._url())
+        self.assertNotContains(response, f'name="{ADD_SECTION_FIELD}"')
+
+    def test_the_select_sits_after_the_policy_sections(self):
+        self.node.config = {"cpu": {}}
+        self.node.save()
+        request = RequestFactory().get(self._url())
+        request.user = self.user
+        fieldsets = admin.site._registry[Node].get_fieldsets(request, self.node)
+        self.assertEqual(fieldsets[-1][1]["fields"], [ADD_SECTION_FIELD])
+        self.assertIn("cpu policy", [name for name, _opts in fieldsets])
+        self.assertNotIn(ADD_SECTION_FIELD, fieldsets[0][1]["fields"])
+
+    def test_a_checker_outside_the_specs_writes_nothing(self):
+        response = self.client.post(self._url(), {ADD_SECTION_FIELD: "made_up"})
+        self.assertEqual(response.status_code, 200)  # re-rendered, not redirected
+        self.node.refresh_from_db()
+        self.assertEqual(self.node.config, {})
+
+    def test_an_empty_policy_does_not_change_how_alerts_score(self):
+        # The claim the whole mechanism rests on, against the real scorer:
+        # _reevaluate returns early on a falsy config entry, so {"cpu": {}}
+        # readies the section and scores exactly like no policy at all.
+        before = reevaluate_severity(self._cpu_alert())
+        self.client.post(self._url(), {ADD_SECTION_FIELD: "cpu"})
+        self.node.refresh_from_db()
+        self.assertEqual(self.node.config, {"cpu": {}})
+        after = reevaluate_severity(self._cpu_alert())
+        self.assertEqual(after.severity, before.severity)
+        self.assertEqual(after.status, before.status)
+        self.assertEqual(after.severity, "critical")
+        self.assertNotIn("severity_reevaluated", after.annotations)
+        self.assertIsNone(after.ended_at)

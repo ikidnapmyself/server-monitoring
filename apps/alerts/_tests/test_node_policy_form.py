@@ -7,8 +7,9 @@ would never tell them.
 
 from django.test import TestCase
 
-from apps.alerts.forms import NodePolicyForm
+from apps.alerts.forms import ADD_SECTION_FIELD, NodePolicyForm
 from apps.alerts.models import Node
+from apps.alerts.node_policy import FIELD_SPECS
 
 
 class NodePolicyFormTests(TestCase):
@@ -37,9 +38,10 @@ class NodePolicyFormTests(TestCase):
         self.assertNotIn("config", NodePolicyForm(instance=node).fields)
 
     def test_a_node_with_no_sections_has_no_policy_fields_and_still_validates(self):
+        # Only the "add a section" select, which is what such a node is for.
         node = self._node()
         form = NodePolicyForm(instance=node, data={})
-        self.assertEqual(form.fields, {})
+        self.assertEqual(list(form.fields), [ADD_SECTION_FIELD])
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.save().config, {})
 
@@ -128,7 +130,8 @@ class NodePolicyFormTests(TestCase):
         }
         node = self._node(config=config)
         unbound = NodePolicyForm(instance=node)
-        data = {name: unbound.initial[name] for name in unbound.fields}
+        # ``.get`` because the select has no initial: a browser posts it blank.
+        data = {name: unbound.initial.get(name, "") for name in unbound.fields}
         form = NodePolicyForm(instance=node, data=data)
         self.assertTrue(form.is_valid(), form.errors)
         form.save()
@@ -255,7 +258,8 @@ class StoredGarbageTests(TestCase):
         node = self._node({"cpu": {"warning_threshold": "90", "critical_threshold": 95}})
         unbound = NodePolicyForm(instance=node)
         form = NodePolicyForm(
-            instance=node, data={name: unbound.initial[name] for name in unbound.fields}
+            instance=node,
+            data={name: unbound.initial.get(name, "") for name in unbound.fields},
         )
         self.assertTrue(form.is_valid(), form.errors)
         form.save()
@@ -266,5 +270,113 @@ class StoredGarbageTests(TestCase):
     def test_a_non_dict_config_does_not_crash_the_form(self):
         node = self._node("not-a-dict")
         form = NodePolicyForm(instance=node, data={})
-        self.assertEqual(form.fields, {})
+        self.assertEqual(list(form.fields), [ADD_SECTION_FIELD])
         self.assertTrue(form.is_valid(), form.errors)
+
+
+class AddSectionTests(TestCase):
+    """Policy for a checker the node has not reported yet.
+
+    Without this there is no route at all: ``sections_for`` shows only what the
+    node reports or already configures, so a threshold cannot be readied before
+    the first alert except by hand-editing the JSON this form just removed.
+    """
+
+    def _node(self, **kwargs):
+        kwargs.setdefault("instance_id", "web-03")
+        kwargs.setdefault("hostname", "web-03")
+        return Node.objects.create(**kwargs)
+
+    def test_the_select_offers_exactly_the_checkers_without_a_section(self):
+        node = self._node(config={"cpu": {"warning_threshold": 80}})
+        form = NodePolicyForm(instance=node)
+        offered = [value for value, _label in form.fields[ADD_SECTION_FIELD].choices if value]
+        self.assertEqual(offered, [c for c in sorted(FIELD_SPECS) if c != "cpu"])
+        self.assertNotIn("cpu", offered)
+        self.assertFalse(form.fields[ADD_SECTION_FIELD].required)
+
+    def test_a_node_with_every_checker_configured_has_no_select(self):
+        # A select whose only option is the blank one is a control that cannot
+        # do anything; it is left off the form rather than rendered inert.
+        node = self._node(config={checker: {} for checker in FIELD_SPECS})
+        self.assertNotIn(ADD_SECTION_FIELD, NodePolicyForm(instance=node).fields)
+
+    def test_choosing_a_checker_writes_an_empty_policy_and_keeps_the_rest(self):
+        config = {"cpu": {"warning_threshold": 80, "critical_threshold": 95}, "made_up": {"a": 1}}
+        node = self._node(config=config)
+        unbound = NodePolicyForm(instance=node)
+        data = {name: unbound.initial[name] for name in unbound.fields if name in unbound.initial}
+        data[ADD_SECTION_FIELD] = "disk"
+        form = NodePolicyForm(instance=node, data=data)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        node.refresh_from_db()
+        self.assertEqual(node.config["disk"], {})
+        self.assertEqual(node.config["cpu"], {"warning_threshold": 80, "critical_threshold": 95})
+        self.assertEqual(node.config["made_up"], {"a": 1})
+
+    def test_the_new_section_is_rendered_on_the_next_form(self):
+        node = self._node(config={"cpu": {}})
+        form = NodePolicyForm(instance=node, data={ADD_SECTION_FIELD: "memory"})
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        node.refresh_from_db()
+        self.assertIn("policy__memory__warning_threshold", NodePolicyForm(instance=node).fields)
+
+    def test_choosing_nothing_leaves_the_config_untouched(self):
+        # Every save posts this field. It must only fire when a checker is picked.
+        config = {"cpu": {"warning_threshold": 80, "critical_threshold": 95}}
+        node = self._node(config=config)
+        form = NodePolicyForm(
+            instance=node,
+            data={
+                "policy__cpu__warning_threshold": "80",
+                "policy__cpu__critical_threshold": "95",
+                ADD_SECTION_FIELD: "",
+            },
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        node.refresh_from_db()
+        self.assertEqual(node.config, config)
+
+    def test_a_checker_outside_the_specs_is_refused_and_writes_nothing(self):
+        # Attacker-reachable by any staff user: this select must never be able
+        # to put an arbitrary key into config.
+        node = self._node(config={"cpu": {}})
+        form = NodePolicyForm(instance=node, data={ADD_SECTION_FIELD: "../../etc/passwd"})
+        self.assertFalse(form.is_valid())
+        self.assertIn(ADD_SECTION_FIELD, form.errors)
+        self.assertEqual(form.policy_config, {"cpu": {}})
+        node.refresh_from_db()
+        self.assertEqual(node.config, {"cpu": {}})
+
+    def test_an_already_sectioned_checker_is_refused(self):
+        node = self._node(config={"cpu": {"warning_threshold": 80, "critical_threshold": 95}})
+        form = NodePolicyForm(instance=node, data={ADD_SECTION_FIELD: "cpu"})
+        self.assertFalse(form.is_valid())
+        self.assertIn(ADD_SECTION_FIELD, form.errors)
+
+    def test_a_failure_elsewhere_blocks_the_add(self):
+        # clean() assembles nothing when the form has errors, and adding must
+        # not sneak past that: the operator resubmits the whole page.
+        node = self._node(config={"cpu": {"warning_threshold": 80, "critical_threshold": 95}})
+        form = NodePolicyForm(
+            instance=node,
+            data={
+                "policy__cpu__warning_threshold": "90",
+                "policy__cpu__critical_threshold": "10",
+                ADD_SECTION_FIELD: "disk",
+            },
+        )
+        self.assertFalse(form.is_valid())
+        self.assertNotIn("disk", form.policy_config)
+
+    def test_a_node_with_no_sections_at_all_still_offers_every_checker(self):
+        node = self._node()
+        form = NodePolicyForm(instance=node)
+        offered = [value for value, _label in form.fields[ADD_SECTION_FIELD].choices if value]
+        self.assertEqual(offered, sorted(FIELD_SPECS))
+
+    def test_an_unsaved_instance_offers_nothing(self):
+        self.assertNotIn(ADD_SECTION_FIELD, NodePolicyForm().fields)

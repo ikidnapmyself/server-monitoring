@@ -11,7 +11,7 @@ from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
 
 from apps.alerts.diagnosis import diagnose_incident
-from apps.alerts.forms import NodePolicyForm
+from apps.alerts.forms import ADD_SECTION_FIELD, NodePolicyForm
 from apps.alerts.models import (
     Alert,
     AlertHistory,
@@ -27,7 +27,7 @@ from apps.alerts.node_overview import (
     build_node_overview,
     render_severity_chips,
 )
-from apps.alerts.node_policy import field_name, sections_for, spec_for
+from apps.alerts.node_policy import addable_checkers, field_name, sections_for, spec_for
 from apps.alerts.reeval_existing import apply_node_alert_reeval, preview_node_alert_reeval
 from apps.alerts.services import IncidentManager, instance_key_from_labels
 from apps.alerts.timeline import build_incident_timeline
@@ -712,17 +712,36 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
         scorer adds a section with no edit here. Fields built in the form's
         ``__init__`` never reach ``base_fields``, so the admin cannot discover
         them on its own.
+
+        The select that adds a section goes last, below the sections it grows,
+        rather than up in the registry where it would read as another read-only
+        registry fact. It is omitted, exactly as the form omits it, when every
+        checker already has a section: a select that can only be left blank is
+        a control an operator has to work out is useless.
         """
         registry = [(None, {"fields": self.fields})]
         if obj is None:
             return registry
-        return registry + [
+        sections = sections_for(obj)
+        fieldsets = registry + [
             (
                 f"{checker.replace('_', ' ')} policy",
                 {"fields": [field_name(checker, field.name) for field in spec_for(checker)]},
             )
-            for checker in sections_for(obj)
+            for checker in sections
         ]
+        if addable_checkers(sections):
+            fieldsets.append(
+                (
+                    "Add a policy section",
+                    {
+                        "fields": [ADD_SECTION_FIELD],
+                        "description": "Set a threshold for a checker this node has not "
+                        "reported yet. Saving opens its boxes and changes no scoring.",
+                    },
+                )
+            )
+        return fieldsets
 
     def get_queryset(self, request):
         """Annotate unresolved incident counts, one per severity, in one query.
