@@ -246,6 +246,11 @@ and the form is `NodePolicyForm` in `apps/alerts/forms.py`.
   already configures. Config keys it has no spec for are preserved rather than deleted, and
   the read-only panel on the same page lists them as "Not honoured", alongside policy that
   is stored with the right keys but still scores nothing ("Saved but not scoring").
+- **A malformed stored value is rendered, not blanked.** A blank box means "delete this
+  key", so `to_form_values` prints a stored allowlist that is not a list as it stands rather
+  than as `""`. A stored `"22,80"` is then repaired by the next save; a value with no
+  sensible spelling fails validation and blocks that save. Blocking an unrelated edit is the
+  accepted price, because the alternative was deleting a policy the operator never touched.
 - **Saving a scoring-relevant change redirects to the re-evaluate preview**
   (`scoring_changed` decides), because a saved policy nobody re-evaluates does nothing to
   alerts already open.

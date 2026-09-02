@@ -298,9 +298,19 @@ class RoundTripTests(TestCase):
     def test_a_non_dict_checker_entry_does_not_crash(self):
         self.assertEqual(to_form_values({"cpu": "oops"}), {})
 
-    def test_a_non_list_allowlist_reads_as_blank(self):
+    def test_a_non_list_allowlist_renders_as_it_was_stored(self):
+        # Blank means "delete this key", so rendering a malformed allowlist blank
+        # deletes it on the next save of any other box on the page.
         config = {"listening_ports": {"allowlist": "oops"}}
-        self.assertEqual(to_form_values(config)["policy__listening_ports__allowlist"], "")
+        self.assertEqual(to_form_values(config)["policy__listening_ports__allowlist"], "oops")
+
+    def test_a_stored_port_string_renders_so_an_operator_can_repair_it(self):
+        config = {"listening_ports": {"allowlist": "22,80"}}
+        values = to_form_values(config)
+        self.assertEqual(values["policy__listening_ports__allowlist"], "22,80")
+        self.assertEqual(
+            to_config(values, existing=config)["listening_ports"]["allowlist"], [22, 80]
+        )
 
     def test_a_non_dict_existing_does_not_crash(self):
         result = to_config({"policy__cpu__warning_threshold": 90.0}, existing="not-a-dict")

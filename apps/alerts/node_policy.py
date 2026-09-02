@@ -222,11 +222,18 @@ def to_form_values(config) -> dict:
             if field.kind == "int_list":
                 # A stored ``[]`` renders as the sentinel, never blank: blank is
                 # a deletion, so an empty allowlist opened and saved untouched
-                # would otherwise delete itself.
+                # would otherwise delete itself. Anything that is not a list is
+                # printed as it stands for the same reason: blanking it would
+                # delete a policy the operator never touched, on a page whose own
+                # panel has just promised them it was being kept. A stored
+                # ``"22,80"`` renders as ``22,80`` and saves as ``[22, 80]``, so
+                # the malformed value is repaired by the save that carries it;
+                # one with no sensible spelling fails validation instead, which
+                # blocks the unrelated edit rather than eating the data.
                 value = (
                     ", ".join(str(port) for port in value) or EMPTY_ALLOWLIST
                     if isinstance(value, list)
-                    else ""
+                    else str(value)
                 )
             values[field_name(checker, field.name)] = value
     return values

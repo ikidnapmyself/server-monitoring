@@ -401,3 +401,65 @@ class AddSectionTests(TestCase):
 
     def test_an_unsaved_instance_offers_nothing(self):
         self.assertNotIn(ADD_SECTION_FIELD, NodePolicyForm().fields)
+
+
+class MalformedStoredValueTests(TestCase):
+    """A save must never delete a value the operator did not touch.
+
+    ``Node.config`` is unvalidated JSON and the panel above the boxes promises
+    that what the form cannot use is kept, not dropped. These are the cases
+    where the box for a malformed value is on the page while the operator is
+    editing something else entirely.
+    """
+
+    def _node(self, config):
+        return Node.objects.create(instance_id="web-03", hostname="web-03", config=config)
+
+    @staticmethod
+    def _resubmit(node, **edits):
+        """The page as rendered, with one box retyped: an ordinary save."""
+        data = {name: str(value) for name, value in NodePolicyForm(instance=node).initial.items()}
+        data.update(edits)
+        return NodePolicyForm(instance=node, data=data)
+
+    def test_an_unrelated_edit_repairs_a_stored_allowlist_string(self):
+        node = self._node(
+            {
+                "listening_ports": {"allowlist": "22,80"},
+                "cpu": {"warning_threshold": 80, "critical_threshold": 95},
+            }
+        )
+        form = self._resubmit(node, policy__cpu__warning_threshold="85")
+        self.assertTrue(form.is_valid(), form.errors)
+        config = form.save().config
+        self.assertEqual(config["listening_ports"]["allowlist"], [22, 80])
+        self.assertEqual(config["cpu"]["warning_threshold"], 85.0)
+
+    def test_an_unrelated_edit_is_blocked_rather_than_eating_the_allowlist(self):
+        # A value with no sensible spelling cannot be repaired for the operator,
+        # so the save stops on that box. Blocking is the point: the alternative
+        # is deleting a policy nobody touched.
+        node = self._node(
+            {
+                "listening_ports": {"allowlist": {"ssh": 22}},
+                "cpu": {"warning_threshold": 80, "critical_threshold": 95},
+            }
+        )
+        form = self._resubmit(node, policy__cpu__warning_threshold="85")
+        self.assertFalse(form.is_valid())
+        self.assertIn(
+            "is not a port number", str(form.errors["policy__listening_ports__allowlist"])
+        )
+        node.refresh_from_db()
+        self.assertEqual(node.config["listening_ports"], {"allowlist": {"ssh": 22}})
+
+    def test_a_stored_bool_threshold_is_a_field_error_not_a_silent_clear(self):
+        # The numeric fields hand their stored value back verbatim too, so the
+        # same question has to be asked of them: a value FloatField refuses must
+        # stop the save, not vanish from the config.
+        node = self._node({"cpu": {"warning_threshold": True, "critical_threshold": 95}})
+        form = self._resubmit(node, policy__cpu__critical_threshold="90")
+        self.assertFalse(form.is_valid())
+        self.assertIn("policy__cpu__warning_threshold", form.errors)
+        node.refresh_from_db()
+        self.assertEqual(node.config["cpu"]["warning_threshold"], True)
