@@ -7,7 +7,10 @@ from apps.alerts.node_policy import (
     clean_int_list,
     clean_number,
     clean_thresholds,
+    field_name,
     spec_for,
+    to_config,
+    to_form_values,
 )
 from apps.alerts.reevaluation import PRIMARY_METRIC, SCORERS
 
@@ -114,3 +117,98 @@ class ValidationTests(TestCase):
             clean_thresholds(warning=90.0, critical=80.0)
         self.assertIn("critical", str(ctx.exception).lower())
         self.assertIn("warning", str(ctx.exception).lower())
+
+
+class RoundTripTests(TestCase):
+    def test_a_config_becomes_flat_form_values(self):
+        config = {"cpu": {"warning_threshold": 80, "critical_threshold": 95}}
+        self.assertEqual(
+            to_form_values(config),
+            {"policy__cpu__warning_threshold": 80, "policy__cpu__critical_threshold": 95},
+        )
+
+    def test_an_allowlist_renders_comma_separated(self):
+        config = {"listening_ports": {"allowlist": [22, 443]}}
+        self.assertEqual(to_form_values(config)["policy__listening_ports__allowlist"], "22, 443")
+
+    def test_form_values_become_a_config(self):
+        values = {"policy__cpu__warning_threshold": 80.0, "policy__cpu__critical_threshold": 95.0}
+        self.assertEqual(
+            to_config(values, existing={}),
+            {"cpu": {"warning_threshold": 80.0, "critical_threshold": 95.0}},
+        )
+
+    def test_unknown_keys_survive_a_save(self):
+        # Nothing an operator authored is ever silently deleted.
+        existing = {"cpu": {"warning_threshold": 80}, "made_up": {"anything": 1}}
+        result = to_config({"policy__cpu__warning_threshold": 99.0}, existing=existing)
+        self.assertEqual(result["made_up"], {"anything": 1})
+
+    def test_an_unknown_key_inside_a_known_checker_survives(self):
+        existing = {"cpu": {"warning_threshold": 80, "future_option": "x"}}
+        result = to_config({"policy__cpu__warning_threshold": 99.0}, existing=existing)
+        self.assertEqual(result["cpu"]["future_option"], "x")
+        self.assertEqual(result["cpu"]["warning_threshold"], 99.0)
+
+    def test_a_config_with_no_edits_round_trips_unchanged(self):
+        config = {
+            "cpu": {"warning_threshold": 80, "critical_threshold": 95},
+            "listening_ports": {"allowlist": [22]},
+            "made_up": {"anything": 1},
+        }
+        self.assertEqual(to_config(to_form_values(config), existing=config), config)
+
+    def test_an_untouched_int_threshold_stays_an_int(self):
+        # Task 9 asks "did anything scoring-relevant change?". An int that comes
+        # back a float on an untouched save is a spurious yes.
+        config = {"cpu": {"warning_threshold": 80, "critical_threshold": 95}}
+        result = to_config(
+            {"policy__cpu__warning_threshold": 80.0, "policy__cpu__critical_threshold": 95.0},
+            existing=config,
+        )
+        self.assertIsInstance(result["cpu"]["warning_threshold"], int)
+
+    def test_clearing_a_field_removes_it(self):
+        existing = {"cpu": {"warning_threshold": 80, "critical_threshold": 95}}
+        result = to_config(
+            {"policy__cpu__warning_threshold": None, "policy__cpu__critical_threshold": None},
+            existing=existing,
+        )
+        self.assertNotIn("warning_threshold", result.get("cpu", {}))
+
+    def test_an_emptied_checker_keeps_its_key(self):
+        # `{"cpu": {}}` is how a checker says "I am configured here, showing
+        # nothing"; dropping the key would drop its section out of the form.
+        existing = {"cpu": {"warning_threshold": 80}}
+        result = to_config({"policy__cpu__warning_threshold": None}, existing=existing)
+        self.assertEqual(result["cpu"], {})
+
+    def test_an_untouched_checker_is_not_given_an_empty_entry(self):
+        # No key in `values` means the form never rendered that checker.
+        self.assertEqual(to_config({}, existing={}), {})
+
+    def test_a_non_dict_config_does_not_crash(self):
+        # Node.config is a JSONField; nothing stops a string being written to it.
+        self.assertEqual(to_form_values("not-a-dict"), {})
+
+    def test_a_non_dict_checker_entry_does_not_crash(self):
+        self.assertEqual(to_form_values({"cpu": "oops"}), {})
+
+    def test_a_non_list_allowlist_reads_as_blank(self):
+        config = {"listening_ports": {"allowlist": "oops"}}
+        self.assertEqual(to_form_values(config)["policy__listening_ports__allowlist"], "")
+
+    def test_a_non_dict_existing_does_not_crash(self):
+        result = to_config({"policy__cpu__warning_threshold": 90.0}, existing="not-a-dict")
+        self.assertEqual(result, {"cpu": {"warning_threshold": 90.0}})
+
+    def test_a_non_dict_existing_entry_is_replaced_on_edit(self):
+        result = to_config({"policy__cpu__warning_threshold": 90.0}, existing={"cpu": "oops"})
+        self.assertEqual(result["cpu"], {"warning_threshold": 90.0})
+
+    def test_an_allowlist_is_parsed_back_into_ports(self):
+        result = to_config({"policy__listening_ports__allowlist": "22, 443"}, existing={})
+        self.assertEqual(result["listening_ports"], {"allowlist": [22, 443]})
+
+    def test_field_names_are_stable(self):
+        self.assertEqual(field_name("cpu", "warning_threshold"), "policy__cpu__warning_threshold")

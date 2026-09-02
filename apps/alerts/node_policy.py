@@ -131,3 +131,86 @@ def clean_int_list(value: str) -> list[int]:
             raise PolicyError(f"Port {port} is outside {_MIN_PORT}-{_MAX_PORT}.")
         ports.append(port)
     return ports
+
+
+# The prefix keeps policy fields out of the way of the model form's own fields.
+_PREFIX = "policy"
+
+
+def field_name(checker: str, field: str) -> str:
+    """The flat form field name for one policy key."""
+    return f"{_PREFIX}__{checker}__{field}"
+
+
+def _json_dict(value) -> dict:
+    """A JSON field read as a dict, whatever it actually holds.
+
+    ``Node.config`` is a ``JSONField`` and the ingest path never validates it, so
+    it can hold a string, and so can any entry inside it. ``node_overview`` keeps
+    its own copy of this two-liner: importing it here would pull the admin panels
+    (and through them ``apps.alerts.models``) into a module the form and the
+    scorers both sit next to, and Task 7 puts the policy form on the very page
+    ``node_overview`` builds, which would close the loop into a real cycle.
+    """
+    return value if isinstance(value, dict) else {}
+
+
+def to_form_values(config) -> dict:
+    """The editable parts of a ``Node.config``, flattened for a form.
+
+    Only keys that are actually present are emitted, so a checker with no policy
+    leaves its fields blank rather than filled with an invented default. Values
+    are handed back as they were stored: the round trip must not rewrite an
+    untouched config.
+    """
+    values: dict = {}
+    for checker, raw_entry in _json_dict(config).items():
+        entry = _json_dict(raw_entry)
+        for field in spec_for(checker):
+            if field.name not in entry:
+                continue
+            value = entry[field.name]
+            if field.kind == "int_list":
+                value = ", ".join(str(port) for port in value) if isinstance(value, list) else ""
+            values[field_name(checker, field.name)] = value
+    return values
+
+
+def to_config(values: dict, existing) -> dict:
+    """Fold cleaned form values back into a config, keeping everything else.
+
+    ``existing`` is the config as stored. Anything this module has no spec for —
+    an unknown checker, an unknown key inside a known one — is carried across
+    untouched, because a form that silently deletes what it cannot render is a
+    form nobody can trust with a hand-written policy.
+
+    A field the form did not submit is not an edit; ``None`` is, and clears the
+    key. An emptied checker keeps its (now empty) entry: that is what tells the
+    form the operator wants to see that section.
+    """
+    config = {
+        checker: dict(entry) if isinstance(entry, dict) else entry
+        for checker, entry in _json_dict(existing).items()
+    }
+    for checker, fields in FIELD_SPECS.items():
+        for field in fields:
+            key = field_name(checker, field.name)
+            if key not in values:
+                continue
+            entry = config.get(checker)
+            entry = dict(entry) if isinstance(entry, dict) else {}
+            value = values[key]
+            if value is None:
+                entry.pop(field.name, None)
+            else:
+                if field.kind == "int_list":
+                    value = clean_int_list(value)
+                stored = entry.get(field.name)
+                # A form field yields a float where the config held an int, so an
+                # untouched save would otherwise rewrite 80 as 80.0 and read as a
+                # policy change. Numerically equal means unchanged: keep what was
+                # stored. This belongs here because this is the only place that
+                # sees both the submitted value and the one it replaces.
+                entry[field.name] = stored if stored == value else value
+            config[checker] = entry
+    return config
