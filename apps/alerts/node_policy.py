@@ -218,6 +218,36 @@ def to_config(values: dict, existing) -> dict:
     return config
 
 
+def _scoring_view(config) -> dict:
+    """Just the keys a scorer would read, for comparing one config to another.
+
+    ``to_config`` carries across every key it has no spec for, so a raw ``!=``
+    on two configs answers "did anything change", not "did anything that scores
+    change". A checker with nothing readable left in it is dropped entirely, so
+    opening an empty section (``{"cpu": {}}``) compares equal to not having one:
+    the marker is inert at runtime, and a change that alters no severity is not
+    a change worth previewing.
+    """
+    view: dict = {}
+    for checker, raw_entry in _json_dict(config).items():
+        entry = _json_dict(raw_entry)
+        keys = {field.name: entry[field.name] for field in spec_for(checker) if field.name in entry}
+        if keys:
+            view[checker] = keys
+    return view
+
+
+def scoring_changed(before, after) -> bool:
+    """Whether the change from one config to another can re-score an alert.
+
+    The question the admin asks to decide whether a save is worth previewing.
+    Numeric equality is what makes an untouched save compare equal: ``to_config``
+    keeps the stored ``80`` rather than the form's ``80.0``, and ``80 == 80.0``
+    here as well, so a save that retypes the same number is not a change.
+    """
+    return _scoring_view(before) != _scoring_view(after)
+
+
 def _reported_checkers(node) -> list:
     """The checkers this node currently reports, from whichever source it has.
 

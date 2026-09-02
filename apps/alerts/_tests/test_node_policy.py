@@ -12,6 +12,7 @@ from apps.alerts.node_policy import (
     clean_number,
     clean_thresholds,
     field_name,
+    scoring_changed,
     sections_for,
     spec_for,
     to_config,
@@ -472,3 +473,71 @@ class EffectivePolicyTests(TestCase):
             self._node({"listening_ports": {"allowlist": [22]}}),
         )
         self.assertEqual(policy.sections[0].title, "listening ports")
+
+
+class ScoringChangedTests(TestCase):
+    """Whether a saved config changed anything a scorer would read.
+
+    The question ``NodeAdmin`` asks to decide if a save is worth previewing.
+    ``to_config`` carries across every key it has no spec for, so a plain
+    ``!=`` on the whole config would call a save changed for a key that scores
+    nothing.
+    """
+
+    def test_a_changed_threshold_scores_differently(self):
+        self.assertTrue(
+            scoring_changed(
+                {"cpu": {"warning_threshold": 80, "critical_threshold": 95}},
+                {"cpu": {"warning_threshold": 70, "critical_threshold": 95}},
+            )
+        )
+
+    def test_an_identical_config_does_not(self):
+        config = {"cpu": {"warning_threshold": 80, "critical_threshold": 95}}
+        self.assertFalse(scoring_changed(config, dict(config)))
+
+    def test_an_int_and_its_float_are_the_same_policy(self):
+        # to_config keeps the stored int, and this is what makes that matter.
+        self.assertFalse(
+            scoring_changed(
+                {"cpu": {"warning_threshold": 80}}, {"cpu": {"warning_threshold": 80.0}}
+            )
+        )
+
+    def test_a_key_no_scorer_reads_does_not(self):
+        self.assertFalse(
+            scoring_changed({"cpu": {"sample_window": 5}}, {"cpu": {"sample_window": 6}})
+        )
+
+    def test_a_checker_no_scorer_knows_does_not(self):
+        self.assertFalse(scoring_changed({}, {"made_up": {"warning_threshold": 1}}))
+
+    def test_opening_an_empty_section_does_not(self):
+        # {"cpu": {}} is the add-a-section marker: _reevaluate returns early on a
+        # falsy entry, so there is nothing for a preview to show.
+        self.assertFalse(scoring_changed({}, {"cpu": {}}))
+
+    def test_filling_in_a_section_that_was_opened_does(self):
+        self.assertTrue(
+            scoring_changed(
+                {"cpu": {}}, {"cpu": {"warning_threshold": 80, "critical_threshold": 95}}
+            )
+        )
+
+    def test_clearing_a_policy_does(self):
+        self.assertTrue(scoring_changed({"cpu": {"warning_threshold": 80}}, {"cpu": {}}))
+
+    def test_an_allowlist_change_does(self):
+        self.assertTrue(
+            scoring_changed(
+                {"listening_ports": {"allowlist": [22]}},
+                {"listening_ports": {"allowlist": [22, 80]}},
+            )
+        )
+
+    def test_a_config_that_is_not_even_a_mapping_does_not_crash(self):
+        self.assertFalse(scoring_changed("nonsense", None))
+        self.assertTrue(scoring_changed("nonsense", {"cpu": {"warning_threshold": 80}}))
+
+    def test_a_non_dict_entry_is_not_a_policy(self):
+        self.assertFalse(scoring_changed({"cpu": "90"}, {"cpu": "95"}))

@@ -607,6 +607,119 @@ class NodeAddPolicySectionTests(TestCase):
         self.assertIsNone(after.ended_at)
 
 
+class NodePolicySaveRedirectTests(TestCase):
+    """A save that changes scoring lands on the re-evaluate preview.
+
+    Saving a threshold does nothing to the alerts already open, and today the
+    operator has to remember a second button for that. The redirect is still
+    two deliberate acts: the preview shows what would change and waits for a
+    confirm, because an admin save that silently resolves incidents is worse
+    than the button nobody presses.
+    """
+
+    ACTION_URL_NAME = "admin:alerts_node_actions"
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser("ops", "ops@example.com", "pw")
+        self.client.force_login(self.user)
+        self.node = Node.objects.create(
+            instance_id="web-03",
+            hostname="web-03",
+            config={"cpu": {"warning_threshold": 80, "critical_threshold": 95}},
+        )
+        Alert.objects.create(
+            fingerprint="check:web-03:cpu",
+            source="cluster",
+            name="cpu high",
+            severity="critical",
+            status="firing",
+            started_at=timezone.now(),
+            node=self.node,
+            labels={"checker": "cpu", "instance_id": "web-03"},
+            annotations={"metrics": json.dumps({"cpu_percent": 42.0})},
+        )
+
+    def _url(self):
+        return reverse("admin:alerts_node_change", args=[self.node.pk])
+
+    def _preview_url(self):
+        return reverse(
+            self.ACTION_URL_NAME,
+            kwargs={"pk": self.node.pk, "tool": "reevaluate_open_alerts"},
+        )
+
+    def _changelist_url(self):
+        return reverse("admin:alerts_node_changelist")
+
+    def test_a_changed_threshold_redirects_to_the_preview(self):
+        # 50/60 against the alert's 42%: the open critical would become resolved,
+        # so the preview has something to show.
+        response = self.client.post(
+            self._url(),
+            {
+                "policy__cpu__warning_threshold": "50",
+                "policy__cpu__critical_threshold": "60",
+            },
+        )
+        self.assertRedirects(response, self._preview_url(), target_status_code=200)
+
+    def test_the_redirect_target_is_the_real_preview_page(self):
+        response = self.client.post(
+            self._url(),
+            {
+                "policy__cpu__warning_threshold": "50",
+                "policy__cpu__critical_threshold": "60",
+            },
+            follow=True,
+        )
+        self.assertContains(response, "Confirm re-evaluation")
+        self.assertContains(response, "cpu")
+        # The preview is a preview: nothing is applied by the save.
+        self.assertEqual(Alert.objects.get().status, "firing")
+
+    def test_an_untouched_save_goes_back_to_the_changelist(self):
+        response = self.client.post(
+            self._url(),
+            {
+                "policy__cpu__warning_threshold": "80",
+                "policy__cpu__critical_threshold": "95",
+            },
+        )
+        self.assertRedirects(response, self._changelist_url())
+        self.node.refresh_from_db()
+        # and the stored ints are still ints, which is what made it compare equal
+        self.assertEqual(self.node.config["cpu"]["warning_threshold"], 80)
+
+    def test_opening_a_section_goes_back_to_the_changelist(self):
+        response = self.client.post(
+            self._url(),
+            {
+                "policy__cpu__warning_threshold": "80",
+                "policy__cpu__critical_threshold": "95",
+                ADD_SECTION_FIELD: "memory",
+            },
+        )
+        self.assertRedirects(response, self._changelist_url())
+        self.node.refresh_from_db()
+        self.assertEqual(self.node.config["memory"], {})
+
+    def test_save_and_continue_editing_still_stays_on_the_form(self):
+        response = self.client.post(
+            self._url(),
+            {
+                "policy__cpu__warning_threshold": "10",
+                "policy__cpu__critical_threshold": "20",
+                "_continue": "1",
+            },
+        )
+        self.assertRedirects(response, self._url())
+
+    def test_the_reevaluate_button_still_works_on_its_own(self):
+        # No save involved: the action is still reachable and still previews.
+        response = self.client.get(self._preview_url())
+        self.assertContains(response, "Confirm re-evaluation")
+
+
 class EffectivePolicyPanelTests(TestCase):
     """The read-only panel: what scores, and what nothing reads.
 

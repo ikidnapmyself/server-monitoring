@@ -5,7 +5,9 @@ import json
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q
+from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
+from django.urls import reverse
 from django.utils.html import format_html, format_html_join
 from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
@@ -31,6 +33,7 @@ from apps.alerts.node_policy import (
     addable_checkers,
     build_effective_policy,
     field_name,
+    scoring_changed,
     sections_for,
     spec_for,
 )
@@ -825,6 +828,61 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
                 "title": "Confirm re-evaluation",
                 "opts": self.model._meta,
             },
+        )
+
+    # Django's own response_change branches on these before falling through to
+    # the changelist. Any one of them means the operator asked to go somewhere
+    # specific, so the redirect below leaves them alone.
+    _EXPLICIT_DESTINATIONS = ["_continue", "_saveasnew", "_addanother", "_popup"]
+
+    def save_model(self, request, obj, form, change):
+        """Save, and remember whether the save can re-score anything.
+
+        The verdict has to be taken here. ``ModelAdmin._changeform_view`` calls
+        ``form.save(commit=False)`` before this, so ``obj.config`` already holds
+        the new policy, and the stored one only exists in the database. It is
+        carried on the request rather than on ``self``: a ModelAdmin is one
+        shared instance serving every request.
+        """
+        stored = self.model.objects.filter(pk=obj.pk).values_list("config", flat=True).first()
+        request.node_policy_scoring_changed = scoring_changed(stored, obj.config)
+        super().save_model(request, obj, form, change)
+
+    def response_change(self, request, obj):
+        """A save that changed scoring lands on the re-evaluate preview.
+
+        Saving a threshold does nothing to the alerts already open; that takes a
+        second, easily forgotten click, and a policy nobody re-evaluates is the
+        same silent no-op the boxes above exist to kill. So the save hands the
+        operator the preview rather than the changelist.
+
+        Still two deliberate acts: this is the action's GET, which shows what
+        would change and waits for the confirm. It must never apply the
+        re-evaluation, because a fat-fingered threshold that resolves real
+        incidents with no preview is worse than the button nobody presses.
+
+        Only the plain Save is redirected. ``_continue`` and friends mean the
+        operator said where they were going, and ``super`` still owns every
+        other case, including an invalid form.
+        """
+        response = super().response_change(request, obj)
+        if not getattr(request, "node_policy_scoring_changed", False):
+            return response
+        if any(key in request.POST for key in self._EXPLICIT_DESTINATIONS):
+            return response
+        self.message_user(
+            request,
+            "This policy does not touch the alerts already open. Here is what "
+            "re-evaluating them would do.",
+        )
+        # tools_view_name is django_object_actions' own name for the URL it
+        # registers for the change actions, so the button on the page and this
+        # redirect cannot drift apart.
+        return HttpResponseRedirect(
+            reverse(
+                self.tools_view_name,
+                kwargs={"pk": obj.pk, "tool": "reevaluate_open_alerts"},
+            )
         )
 
     def render_change_form(self, request, context, *args, obj=None, **kwargs):
