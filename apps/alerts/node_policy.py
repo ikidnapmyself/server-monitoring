@@ -324,7 +324,7 @@ def scoring_changed(before, after) -> bool:
     return _scoring_view(before) != _scoring_view(after)
 
 
-def _reported_checkers(node) -> list:
+def _reported_checkers(node) -> set[str]:
     """The checkers this node currently reports, from whichever source it has.
 
     Two sources because ``CheckRun`` is never pushed to a hub: the machine this
@@ -338,25 +338,34 @@ def _reported_checkers(node) -> list:
     The same reasoning already kept ``_json_dict`` duplicated above. What is
     needed here is also far less than that function returns: names only, so one
     ``distinct`` on each side rather than a newest-row query per checker.
+
+    A set on both sides, because the only question asked of the answer is
+    membership, once per spec. The peer branch cannot ``distinct`` in the
+    database (the label lives inside a JSON blob), and a node's alert history is
+    unbounded, so a list there is one entry per alert row for the same handful of
+    names.
     """
     if node.instance_id == local_instance_id():
         # Node.upsert only writes hostname when truthy, so the local row can
         # carry the blank default while its CheckRun rows are keyed by the real
         # machine name. order_by() clears the model ordering: left on, the sort
         # column joins the SELECT and nothing comes back distinct.
-        return list(
+        return set(
             CheckRun.objects.filter(hostname=node.hostname or local_hostname())
             .order_by()
             .values_list("checker_name", flat=True)
             .distinct()
         )
     # Filtered in the database: checker alerts are bounded by fingerprint dedup,
-    # a node's webhook alerts are not. A label that is missing, blank or not even
-    # a string simply fails to match a spec name below, so it needs no guard.
-    return [
+    # a node's webhook alerts are not. ``labels`` is unvalidated JSON, so
+    # ``checker`` can hold a list or a dict, which a set cannot even contain.
+    # Only a string can match a spec name, so non-strings are dropped here rather
+    # than left to fail the match later.
+    names = (
         _json_dict(labels).get("checker")
         for labels in node.alerts.filter(labels__has_key="checker").values_list("labels", flat=True)
-    ]
+    )
+    return {name for name in names if isinstance(name, str)}
 
 
 def sections_for(node) -> list[str]:
@@ -372,7 +381,10 @@ def sections_for(node) -> list[str]:
     for a checker that no longer exists cannot become an editable section.
     """
     reported = _reported_checkers(node)
-    configured = list(_json_dict(node.config))
+    # No string filter on this side: a dict's keys are hashable by construction,
+    # so a config key can be an odd type but never an unhashable one, and an odd
+    # one simply fails to match a spec name.
+    configured = set(_json_dict(node.config))
     return [
         checker for checker in sorted(FIELD_SPECS) if checker in reported or checker in configured
     ]

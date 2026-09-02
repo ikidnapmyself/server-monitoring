@@ -7,6 +7,7 @@ from apps.alerts.node_policy import (
     FIELD_SPECS,
     PolicyError,
     PolicyField,
+    _reported_checkers,
     build_effective_policy,
     clean_int_list,
     clean_number,
@@ -329,9 +330,9 @@ class RoundTripTests(TestCase):
 
 
 class SectionSelectionTests(TestCase):
-    def _peer_alert(self, node, checker):
+    def _peer_alert(self, node, checker, fingerprint=None):
         return Alert.objects.create(
-            fingerprint=f"check:{node.instance_id}:{checker}",
+            fingerprint=fingerprint or f"check:{node.instance_id}:{checker}",
             source="cluster",
             name=checker,
             severity=AlertSeverity.WARNING,
@@ -434,6 +435,25 @@ class SectionSelectionTests(TestCase):
     def test_a_non_dict_config_does_not_crash(self):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
         node.config = "not-a-dict"
+        self.assertEqual(sections_for(node), [])
+
+    def test_many_alerts_for_one_checker_yield_one_section(self):
+        # The peer branch reads one row per alert, and a node's alert history is
+        # unbounded. Membership is asked once per spec, so the names it is asked
+        # about must be a set, not the raw column.
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        for index in range(5):
+            self._peer_alert(node, "cpu", fingerprint=f"peer:cpu:{index}")
+        self.assertEqual(_reported_checkers(node), {"cpu"})
+        self.assertEqual(sections_for(node), ["cpu"])
+
+    def test_an_unhashable_label_value_does_not_raise(self):
+        # ``labels`` is a JSON blob, so ``checker`` can be a list or a dict, and
+        # neither can go into a set. A non-string simply is not a checker name.
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        alert = self._peer_alert(node, "cpu")
+        Alert.objects.filter(pk=alert.pk).update(labels={"checker": ["cpu"]})
+        self.assertEqual(_reported_checkers(node), set())
         self.assertEqual(sections_for(node), [])
 
 
