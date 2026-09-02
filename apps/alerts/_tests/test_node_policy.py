@@ -111,6 +111,18 @@ class ValidationTests(TestCase):
         self.assertEqual(clean_int_list(""), [])
         self.assertEqual(clean_int_list("  ,  "), [])
 
+    def test_the_word_none_authors_an_empty_allowlist(self):
+        # The form reads a blank box as "delete this key", so the empty policy
+        # needed a spelling of its own. It is the same word the panel prints.
+        self.assertEqual(clean_int_list("none"), [])
+        self.assertEqual(clean_int_list("  NONE "), [])
+
+    def test_none_is_only_the_whole_value(self):
+        # "22, none" is a typo, not a policy: the sentinel says "no ports at
+        # all", so it cannot be one item in a list of ports.
+        with self.assertRaises(PolicyError):
+            clean_int_list("22, none")
+
     def test_a_non_integer_port_is_rejected(self):
         with self.assertRaises(PolicyError):
             clean_int_list("22, http")
@@ -173,6 +185,16 @@ class RoundTripTests(TestCase):
             to_form_values(config),
             {"policy__cpu__warning_threshold": 80, "policy__cpu__critical_threshold": 95},
         )
+
+    def test_an_empty_allowlist_renders_as_the_word_none(self):
+        # Blank would mean "delete this key" on the next save, so an empty
+        # allowlist opened and saved untouched would delete itself.
+        config = {"listening_ports": {"allowlist": []}}
+        self.assertEqual(to_form_values(config)["policy__listening_ports__allowlist"], "none")
+
+    def test_an_empty_allowlist_round_trips_unchanged(self):
+        config = {"listening_ports": {"allowlist": []}}
+        self.assertEqual(to_config(to_form_values(config), existing=config), config)
 
     def test_an_allowlist_renders_comma_separated(self):
         config = {"listening_ports": {"allowlist": [22, 443]}}
@@ -514,7 +536,7 @@ class EffectivePolicyTests(TestCase):
         policy = build_effective_policy(self._node({"listening_ports": {"allowlist": []}}))
         self.assertEqual(
             [v.value for v in policy.sections[0].values],
-            ["(none: only exposed ports are flagged)"],
+            ["none (only externally-exposed ports are flagged)"],
         )
 
     def test_a_threshold_checker_is_never_judged_by_the_allowlist_rule(self):

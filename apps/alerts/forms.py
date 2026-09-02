@@ -86,9 +86,9 @@ class NodePolicyForm(forms.ModelForm):
         if field.kind == "number":
             return forms.FloatField(required=False, label=field.label, help_text=field.help_text)
         # ``empty_value=None`` so a cleared box reaches ``to_config`` as "remove
-        # this key". An empty allowlist is a real policy to the scorer, but it
-        # scores the same as the checker's own default, whereas without this an
-        # operator would have no way at all to take an allowlist back off.
+        # this key", which is the only way an operator can take an allowlist
+        # back off. The empty allowlist is a different policy and a real one, so
+        # it gets a word instead of the blank: ``node_policy.EMPTY_ALLOWLIST``.
         return forms.CharField(
             required=False, empty_value=None, label=field.label, help_text=field.help_text
         )

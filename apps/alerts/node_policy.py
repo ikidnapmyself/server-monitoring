@@ -44,12 +44,22 @@ _NUMERIC_FIELDS = [
     ),
 ]
 
+# The one spelling of "an allowlist with no ports in it". A blank box means
+# "delete this key", which is how an operator takes an allowlist back off, so
+# the empty policy needs a word of its own. It is the word the panel prints for
+# a stored ``[]``, so what an operator reads is what they type.
+EMPTY_ALLOWLIST = "none"
+
 _ALLOWLIST_FIELDS = [
     PolicyField(
         name="allowlist",
         kind="int_list",
         label="Allowed ports",
-        help_text="Comma-separated port numbers. Any listening port not listed is flagged.",
+        help_text=(
+            "Comma-separated port numbers. Any listening port not listed is flagged. "
+            f"Enter '{EMPTY_ALLOWLIST}' to flag only externally-exposed ports; "
+            "leave blank to remove the allowlist policy altogether."
+        ),
     ),
 ]
 
@@ -115,11 +125,16 @@ _MAX_PORT = 65535
 
 
 def clean_int_list(value: str) -> list[int]:
-    """Parse a comma-separated port list; ``[]`` for blank input.
+    """Parse a comma-separated port list; ``[]`` for blank input or ``none``.
 
     An empty list is a real policy, not the absence of one: ``_score_allowlist``
-    with an empty allowlist flags only externally-exposed ports.
+    with an empty allowlist flags only externally-exposed ports. The form reads
+    a blank box as "delete this key", so ``EMPTY_ALLOWLIST`` is how that policy
+    is authored. Only as the whole value: inside a list of ports it is a typo,
+    not a policy, and falls through to the "not a port number" error below.
     """
+    if value.strip().lower() == EMPTY_ALLOWLIST:
+        return []
     ports: list[int] = []
     for token in value.split(","):
         token = token.strip()
@@ -205,7 +220,14 @@ def to_form_values(config) -> dict:
                 continue
             value = entry[field.name]
             if field.kind == "int_list":
-                value = ", ".join(str(port) for port in value) if isinstance(value, list) else ""
+                # A stored ``[]`` renders as the sentinel, never blank: blank is
+                # a deletion, so an empty allowlist opened and saved untouched
+                # would otherwise delete itself.
+                value = (
+                    ", ".join(str(port) for port in value) or EMPTY_ALLOWLIST
+                    if isinstance(value, list)
+                    else ""
+                )
             values[field_name(checker, field.name)] = value
     return values
 
@@ -422,8 +444,11 @@ def _format_policy_value(field: PolicyField, value) -> str:
     """
     if field.kind == "int_list" and isinstance(value, list):
         # An empty allowlist is a real policy, so it is in the in-effect table
-        # and an empty cell there reads as a rendering bug. Say what it does.
-        return ", ".join(str(port) for port in value) or "(none: only exposed ports are flagged)"
+        # and an empty cell there reads as a rendering bug. Say what it does,
+        # in the word the box takes, so the panel doubles as the instructions.
+        return ", ".join(str(port) for port in value) or (
+            f"{EMPTY_ALLOWLIST} (only externally-exposed ports are flagged)"
+        )
     return str(value)
 
 

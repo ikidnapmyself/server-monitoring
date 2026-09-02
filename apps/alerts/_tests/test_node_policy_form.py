@@ -159,6 +159,27 @@ class NodePolicyFormTests(TestCase):
         self.assertIn("policy__listening_ports__allowlist", form.errors)
         self.assertIn("http", str(form.errors))
 
+    def test_the_word_none_saves_an_empty_allowlist(self):
+        # "Flag only externally-exposed ports" is a real policy the scorer runs,
+        # and a blank box cannot say it: blank is how an allowlist is taken off.
+        node = self._node(config={"listening_ports": {"allowlist": [22]}})
+        form = NodePolicyForm(instance=node, data={"policy__listening_ports__allowlist": "none"})
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        node.refresh_from_db()
+        self.assertEqual(node.config, {"listening_ports": {"allowlist": []}})
+
+    def test_an_empty_allowlist_survives_an_untouched_save(self):
+        node = self._node(config={"listening_ports": {"allowlist": []}})
+        unbound = NodePolicyForm(instance=node)
+        self.assertEqual(unbound.initial["policy__listening_ports__allowlist"], "none")
+        data = {name: unbound.initial.get(name, "") for name in unbound.fields}
+        form = NodePolicyForm(instance=node, data=data)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        node.refresh_from_db()
+        self.assertEqual(node.config, {"listening_ports": {"allowlist": []}})
+
     def test_clearing_an_allowlist_removes_the_policy(self):
         # Blank means "no allowlist policy", the only way an operator can undo
         # one. An empty allowlist scores the same as the checker's own default.
