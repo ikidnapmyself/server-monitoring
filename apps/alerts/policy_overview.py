@@ -46,6 +46,11 @@ class PolicyRow:
     edit_url: str
 
 
+def _node_url(node) -> str:
+    """The admin change page for one node."""
+    return reverse("admin:alerts_node_change", args=[node.pk])
+
+
 def _edit_url(checker: str, node_url: str) -> str:
     """The node page, landing on this checker's own boxes where it has any.
 
@@ -99,7 +104,7 @@ def _why(section: PolicySection | None, unread: list[UnreadKey]) -> str:
 def rows_for_node(node) -> list[PolicyRow]:
     """One row per checker this node has any config entry for, sorted by checker."""
     policy = build_effective_policy(node)
-    node_url = reverse("admin:alerts_node_change", args=[node.pk])
+    node_url = _node_url(node)
     unread: dict[str, list[UnreadKey]] = {}
     for entry in policy.unread:
         unread.setdefault(entry.checker, []).append(entry)
@@ -128,8 +133,6 @@ def rows_for_node(node) -> list[PolicyRow]:
 
 @dataclass(frozen=True)
 class NodeGroup:
-    """One node's rows, under one heading."""
-
     instance_id: str
     hostname: str
     node_url: str
@@ -144,21 +147,15 @@ class PolicyOverview:
     groups: list[NodeGroup]
     quiet_count: int
 
-    @property
-    def has_content(self) -> bool:
-        """Whether any node on this hub overrides anything at all."""
-        return bool(self.groups)
-
 
 def build_policy_overview() -> PolicyOverview:
     """Every hub-side override on this hub, the broken ones first.
 
-    A node with no config is counted rather than listed. A table of dashes, one
-    line per quiet machine, would bury the handful of rows the page exists to
-    show, and the count still tells a reader the page is complete.
+    A node with no config is counted rather than listed, because a page of
+    dashes would bury the rows worth reading.
     """
     groups, quiet_count = [], 0
-    for node in Node.objects.order_by("instance_id"):
+    for node in Node.objects.order_by():
         rows = rows_for_node(node)
         if not rows:
             quiet_count += 1
@@ -167,7 +164,7 @@ def build_policy_overview() -> PolicyOverview:
             NodeGroup(
                 instance_id=node.instance_id,
                 hostname=node.hostname,
-                node_url=rows[0].node_url,
+                node_url=_node_url(node),
                 rows=rows,
                 has_problem=any(row.status != IN_EFFECT for row in rows),
             )
