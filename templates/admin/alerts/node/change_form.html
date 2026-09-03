@@ -12,6 +12,10 @@ the content block below still reaches the real form through block.super.
 node_overview.chips and chart.svg are SafeString from format_html and render as
 markup on purpose. Everything else is autoescaped: a hostname, an incident title
 and a checker name can all arrive over a webhook.
+
+The policy panel below is read-only and independent of the form. It is what a
+staff user with view-but-not-change permission gets instead of a column of
+dashes, and it is what tells anyone that a preserved config key is dead.
 {% endcomment %}
 
 {% block content %}
@@ -122,6 +126,93 @@ and a checker name can all arrive over a webhook.
   </ul>
   {% else %}
   <p>No pipeline runs for this node.</p>
+  {% endif %}
+
+</div>
+{% endif %}
+{% if node_policy %}
+<div class="module" style="margin-bottom:20px; padding:12px 16px;">
+
+  <h2 style="margin-top:0;">Hub-side policy</h2>
+  {% if node_policy.has_content %}
+
+  <h3 style="margin-bottom:6px;">Policy in effect</h3>
+  {% if node_policy.sections %}
+  <div style="overflow-x:auto;">
+    <table style="width:100%; border-collapse:collapse;">
+      <thead>
+        <tr>
+          <th style="text-align:left;">Checker</th>
+          <th style="text-align:left;">Setting</th>
+          <th style="text-align:right;">Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for section in node_policy.sections %}
+        {% for value in section.values %}
+        <tr>
+          <td>{% if forloop.first %}{{ section.title }}{% endif %}</td>
+          <td>{{ value.label }}</td>
+          <td style="text-align:right;">{{ value.value }}</td>
+        </tr>
+        {% endfor %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No checker on this node has a value the scorers can use yet.</p>
+  {% endif %}
+
+  {% if node_policy.inactive %}
+  <h3 style="margin-bottom:6px; color:#b26a00;">&#9888; Saved but not scoring</h3>
+  <p style="color:var(--body-quiet-color);">
+    These are the keys the scorers read, but the value is one they cannot use, so
+    each of these checkers is skipped whole and its alerts keep the severity the
+    node sent.
+    Finish it in the boxes below, or clear it so nobody reads it as active.
+  </p>
+  <div style="overflow-x:auto; border-left:4px solid #b26a00; padding-left:10px;">
+    <table style="width:100%; border-collapse:collapse;">
+      <thead>
+        <tr>
+          <th style="text-align:left;">Checker</th>
+          <th style="text-align:left;">Setting</th>
+          <th style="text-align:right;">Value</th>
+          <th style="text-align:left;">Why it does nothing</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for section in node_policy.inactive %}
+        {% for value in section.values %}
+        <tr>
+          <td>{% if forloop.first %}{{ section.title }}{% endif %}</td>
+          <td>{{ value.label }}</td>
+          <td style="text-align:right;">{{ value.value }}</td>
+          <td>{% if forloop.first %}{{ section.inactive_reason }}{% endif %}</td>
+        </tr>
+        {% endfor %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if node_policy.unread %}
+  <h3 style="margin-bottom:6px;">Not honoured</h3>
+  <p style="color:var(--body-quiet-color);">
+    Nothing reads these, so they change no severity.
+    They are kept unless you edit that checker's boxes below, which rewrite its entry.
+  </p>
+  <ul style="margin:0 0 0 16px; padding:0;">
+    {% for entry in node_policy.unread %}
+    <li style="margin-bottom:3px;"><code>{{ entry.label }}</code></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% else %}
+  <p>No hub-side policy is configured for this node, so its alerts score as they arrive.</p>
   {% endif %}
 
 </div>

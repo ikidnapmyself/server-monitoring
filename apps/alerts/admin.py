@@ -4,15 +4,16 @@ import json
 
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
-from django.db import models as db_models
 from django.db.models import Count, Q
+from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
+from django.urls import reverse
 from django.utils.html import format_html, format_html_join
-from django_json_widget.widgets import JSONEditorWidget
 from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
 
 from apps.alerts.diagnosis import diagnose_incident
+from apps.alerts.forms import ADD_SECTION_FIELD, NodePolicyForm
 from apps.alerts.models import (
     Alert,
     AlertHistory,
@@ -27,6 +28,14 @@ from apps.alerts.node_overview import (
     UNRESOLVED_INCIDENT_STATUSES,
     build_node_overview,
     render_severity_chips,
+)
+from apps.alerts.node_policy import (
+    addable_checkers,
+    build_effective_policy,
+    field_name,
+    scoring_changed,
+    sections_for,
+    spec_for,
 )
 from apps.alerts.reeval_existing import apply_node_alert_reeval, preview_node_alert_reeval
 from apps.alerts.services import IncidentManager, instance_key_from_labels
@@ -648,9 +657,10 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
     """Registry of agents that have pushed cluster data to this hub.
 
     The registry fields (instance_id, hostname, …) are written only by the
-    ingest path and stay read-only. ``config`` is the one operator-editable
-    field: per-checker hub-side policy used to re-evaluate alert severity
-    per node (see apps/alerts/reevaluation.py).
+    ingest path and stay read-only. The one thing an operator edits is
+    ``config``, the per-checker hub-side policy used to re-evaluate alert
+    severity per node (see apps/alerts/reevaluation.py), and it is edited
+    through ``NodePolicyForm``'s labelled boxes rather than as raw JSON.
     """
 
     change_actions = ["reevaluate_open_alerts"]
@@ -672,21 +682,81 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
         "first_seen",
         "last_seen",
     ]
+    # Registry only. ``config`` is deliberately absent: it is edited through
+    # ``NodePolicyForm``'s per-checker boxes, and a raw JSON widget alongside
+    # them would be a second writer for one column, where whichever renders last
+    # silently wins.
     fields = [
         "instance_id",
         "hostname",
         "address",
         "last_source",
         "labels",
-        "config",
         "first_seen",
         "last_seen",
     ]
+    form = NodePolicyForm
     change_form_template = "admin/alerts/node/change_form.html"
-    formfield_overrides = {db_models.JSONField: {"widget": JSONEditorWidget}}
-    # Which checkers the hub can re-evaluate, and the metric each reads, lives in
-    # apps.alerts.reevaluation.PRIMARY_METRIC. Example config value:
-    #   {"cpu": {"warning_threshold": 99, "critical_threshold": 99}}
+
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        """Let the form own its field list.
+
+        ``_changeform_view`` flattens the fieldsets into
+        ``modelform_factory(fields=...)``, and the policy boxes are not model
+        fields, so that raises ``FieldError``. It passes ``fields`` explicitly,
+        so this overrides rather than defaults. Empty rather than ``None``,
+        because ``get_form`` extends ``exclude`` by this list for a staff user
+        with view-but-not-change permission, and extending by ``None`` raises.
+        No model field is lost either way: every one here is read-only or is
+        ``config``, which ``NodePolicyForm`` owns.
+        """
+        kwargs["fields"] = []
+        return super().get_form(request, obj, change=change, **kwargs)
+
+    def get_fieldsets(self, request, obj=None):
+        """The registry above, then one labelled box per checker with a policy.
+
+        The sections come from ``sections_for`` rather than from a hand-written
+        list, so a node shows the checkers it actually reports and adding a
+        scorer adds a section with no edit here. Fields built in the form's
+        ``__init__`` never reach ``base_fields``, so the admin cannot discover
+        them on its own.
+
+        The select that adds a section goes last, below the sections it grows,
+        rather than up in the registry where it would read as another read-only
+        registry fact. It is omitted, exactly as the form omits it, when every
+        checker already has a section: a select that can only be left blank is
+        a control an operator has to work out is useless.
+        """
+        registry = [(None, {"fields": self.fields})]
+        if obj is None or not self.has_change_permission(request, obj):
+            # A reader who cannot change gets every fieldset field rendered
+            # read-only, and ``AdminReadonlyField`` has no value to read for a
+            # field the form adds in ``__init__``, so the boxes came out as
+            # "None" directly below a panel saying "Warning at 80". The panel
+            # from ``build_effective_policy`` is that reader's whole answer and
+            # it is already complete, so the boxes are simply not offered.
+            return registry
+        sections = sections_for(obj)
+        fieldsets = registry + [
+            (
+                f"{checker.replace('_', ' ')} policy",
+                {"fields": [field_name(checker, field.name) for field in spec_for(checker)]},
+            )
+            for checker in sections
+        ]
+        if addable_checkers(sections):
+            fieldsets.append(
+                (
+                    "Add a policy section",
+                    {
+                        "fields": [ADD_SECTION_FIELD],
+                        "description": "Set a threshold for a checker this node has not "
+                        "reported yet. Saving opens its boxes and changes no scoring.",
+                    },
+                )
+            )
+        return fieldsets
 
     def get_queryset(self, request):
         """Annotate unresolved incident counts, one per severity, in one query.
@@ -766,6 +836,61 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
             },
         )
 
+    # Django's own response_change branches on these before falling through to
+    # the changelist. Any one of them means the operator asked to go somewhere
+    # specific, so the redirect below leaves them alone.
+    _EXPLICIT_DESTINATIONS = ["_continue", "_saveasnew", "_addanother", "_popup"]
+
+    def save_model(self, request, obj, form, change):
+        """Save, and remember whether the save can re-score anything.
+
+        The verdict has to be taken here. ``ModelAdmin._changeform_view`` calls
+        ``form.save(commit=False)`` before this, so ``obj.config`` already holds
+        the new policy, and the stored one only exists in the database. It is
+        carried on the request rather than on ``self``: a ModelAdmin is one
+        shared instance serving every request.
+        """
+        stored = self.model.objects.filter(pk=obj.pk).values_list("config", flat=True).first()
+        request.node_policy_scoring_changed = scoring_changed(stored, obj.config)
+        super().save_model(request, obj, form, change)
+
+    def response_change(self, request, obj):
+        """A save that changed scoring lands on the re-evaluate preview.
+
+        Saving a threshold does nothing to the alerts already open; that takes a
+        second, easily forgotten click, and a policy nobody re-evaluates is the
+        same silent no-op the boxes above exist to kill. So the save hands the
+        operator the preview rather than the changelist.
+
+        Still two deliberate acts: this is the action's GET, which shows what
+        would change and waits for the confirm. It must never apply the
+        re-evaluation, because a fat-fingered threshold that resolves real
+        incidents with no preview is worse than the button nobody presses.
+
+        Only the plain Save is redirected. ``_continue`` and friends mean the
+        operator said where they were going, and ``super`` still owns every
+        other case, including an invalid form.
+        """
+        response = super().response_change(request, obj)
+        if not getattr(request, "node_policy_scoring_changed", False):
+            return response
+        if any(key in request.POST for key in self._EXPLICIT_DESTINATIONS):
+            return response
+        self.message_user(
+            request,
+            "This policy does not touch the alerts already open. Here is what "
+            "re-evaluating them would do.",
+        )
+        # tools_view_name is django_object_actions' own name for the URL it
+        # registers for the change actions, so the button on the page and this
+        # redirect cannot drift apart.
+        return HttpResponseRedirect(
+            reverse(
+                self.tools_view_name,
+                kwargs={"pk": obj.pk, "tool": "reevaluate_open_alerts"},
+            )
+        )
+
     def render_change_form(self, request, context, *args, obj=None, **kwargs):
         """Attach the overview panels; the form below is unchanged.
 
@@ -775,4 +900,9 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
         """
         if obj is not None:
             context["node_overview"] = build_node_overview(obj)
+            # Rendered for every reader, not only the view-only one. An operator
+            # editing thresholds needs "what is scoring today" stated apart from
+            # the boxes that will change it, and a panel that appears for some
+            # users is a condition that has to stay right.
+            context["node_policy"] = build_effective_policy(obj)
         return super().render_change_form(request, context, *args, obj=obj, **kwargs)
