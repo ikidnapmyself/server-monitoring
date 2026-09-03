@@ -3,6 +3,7 @@ title: "Node detail page overview"
 parent: Plans
 ---
 
+{% raw %}
 # Node detail page overview
 
 ## Problem
@@ -146,3 +147,4 @@ obliges every future reader to know the trick.
 - A metric-sample store for pushed results. Named here so the next person knows
   the empty-state text is a deliberate placeholder, not an oversight.
 - Preflight retention pruning, already flagged as a follow-up in `preflight.py`.
+{% endraw %}

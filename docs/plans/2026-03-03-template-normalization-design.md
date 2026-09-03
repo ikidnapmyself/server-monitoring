@@ -2,6 +2,8 @@
 title: "2026-03-03 Notification Template Normalization — Design"
 parent: Plans
 ---
+
+{% raw %}
 # Notification Template Normalization — Design
 
 ## Goal
@@ -123,3 +125,4 @@ All templates will use these variables consistently:
 - Add/update tests for `|e` escaping in email HTML.
 - Verify PagerDuty produces valid JSON when metrics are None.
 - Verify no trailing comma issues in generic/PD templates with empty tags/context.
+{% endraw %}

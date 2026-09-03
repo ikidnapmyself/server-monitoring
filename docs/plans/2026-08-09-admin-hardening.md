@@ -1,3 +1,8 @@
+---
+title: "2026-08-09 Base Admin Hardening Implementation Plan"
+parent: Plans
+---
+
 # Base Admin Hardening Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

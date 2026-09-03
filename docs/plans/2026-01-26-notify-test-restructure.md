@@ -2,6 +2,8 @@
 title: "2026-01-26 Notify App Test Restructure Plan"
 parent: Plans
 ---
+
+{% raw %}
 # Notify App Test Restructure Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
@@ -927,3 +929,4 @@ After completing all tasks, the test structure will be:
 | `models.py` | `tests/test_models.py` |
 
 Coverage should improve significantly from the current 11% for the notify app.
+{% endraw %}

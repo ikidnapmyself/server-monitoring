@@ -2,6 +2,8 @@
 title: "2026-03-06 GitHub Pages Implementation Plan"
 parent: Plans
 ---
+
+{% raw %}
 # GitHub Pages Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
@@ -294,3 +296,4 @@ This step cannot be automated via code. After pushing:
 3. The workflow will deploy on the next push to `main` that touches `docs/`
 
 ---
+{% endraw %}

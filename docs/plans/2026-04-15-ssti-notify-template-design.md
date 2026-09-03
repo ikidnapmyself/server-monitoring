@@ -3,6 +3,7 @@ title: "2026-04-15 SSTI Notify Template Fix Design"
 parent: Plans
 ---
 
+{% raw %}
 # Fix SSTI → RCE via `notify_config.template`
 
 ## Problem
@@ -76,3 +77,4 @@ Pipeline payload callers cannot supply templates at all.
 
 - **DB `NotificationChannel.config.template`** with bare-string inline Jinja2 would break under Layer 2. Mitigated by backcompat: bare strings that match a filename pattern are still accepted (as `file:` refs). Admins who set inline templates must migrate to dict form. No production data exists at this stage, so no migration script needed.
 - **Pipeline payload `notify_config.template`** is removed entirely. Any external caller relying on this is blocked — by design, that is the vulnerability.
+{% endraw %}

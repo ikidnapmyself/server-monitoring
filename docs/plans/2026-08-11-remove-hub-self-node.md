@@ -1,3 +1,8 @@
+---
+title: "2026-08-11 Remove Hub Self-Node — Implementation Plan"
+parent: Plans
+---
+
 # Remove Hub Self-Node — Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

@@ -1,3 +1,9 @@
+---
+title: "2026-08-11 Admin Ops-Console Implementation Plan"
+parent: Plans
+---
+
+{% raw %}
 # Admin Ops-Console Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
@@ -528,3 +534,4 @@ git commit -m "docs(admin): document readiness panel + section grouping"
 - Dashboard shows five readiness cards with correct ok/warn/error/neutral status and working deep links.
 - Sidebar nav + dashboard grid group models into Operations / Configuration / History & Audit (Nodes under Operations); permission-safe; empty sections hidden; unlisted models never dropped.
 - No new dependency/endpoint/model; theme-aware; CI green; 100% branch coverage on changed lines.
+{% endraw %}

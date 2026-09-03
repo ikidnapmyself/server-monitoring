@@ -1,5 +1,5 @@
 ---
-title: "2026-02-18 CLI Aliases title: "CLI Aliases & CLI-First Documentation Implementation Plan" CLI-First Documentation Implementation Plan"
+title: "2026-02-18 CLI Aliases & CLI-First Documentation Implementation Plan"
 parent: Plans
 ---
 # CLI Aliases & CLI-First Documentation Implementation Plan
