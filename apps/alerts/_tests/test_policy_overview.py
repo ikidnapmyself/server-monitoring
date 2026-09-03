@@ -12,6 +12,7 @@ from apps.alerts.policy_overview import (
     NO_POLICY,
     NOT_HONOURED,
     NOT_SCORING,
+    build_policy_overview,
     rows_for_node,
 )
 
@@ -127,3 +128,46 @@ class RowLinkTests(PolicyOverviewTestCase):
         node = self._node({"network": {"warning_threshold": 60}})
         (row,) = rows_for_node(node)
         self.assertEqual(row.edit_url, row.node_url)
+
+
+class BuildPolicyOverviewTests(TestCase):
+    def _node(self, instance_id, config):
+        return Node.objects.create(instance_id=instance_id, config=config)
+
+    def test_a_node_with_a_problem_sorts_above_a_healthy_one(self):
+        self._node("a-healthy", {"cpu": {"warning_threshold": 1, "critical_threshold": 2}})
+        self._node("z-broken", {"cpu": {"warning_threshold": 1}})
+        overview = build_policy_overview()
+        self.assertEqual([g.instance_id for g in overview.groups], ["z-broken", "a-healthy"])
+
+    def test_healthy_nodes_sort_among_themselves_by_instance_id(self):
+        for name in ["b", "a"]:
+            self._node(name, {"cpu": {"warning_threshold": 1, "critical_threshold": 2}})
+        self.assertEqual([g.instance_id for g in build_policy_overview().groups], ["a", "b"])
+
+    def test_a_node_with_no_policy_is_counted_not_listed(self):
+        self._node("configured", {"cpu": {"warning_threshold": 1, "critical_threshold": 2}})
+        self._node("quiet", {})
+        self._node("marker-only", {"cpu": {}})
+        overview = build_policy_overview()
+        self.assertEqual([g.instance_id for g in overview.groups], ["configured"])
+        self.assertEqual(overview.quiet_count, 2)
+
+    def test_an_empty_hub_reads_as_nothing_configured(self):
+        overview = build_policy_overview()
+        self.assertEqual(overview.groups, [])
+        self.assertEqual(overview.quiet_count, 0)
+        self.assertFalse(overview.has_content)
+
+    def test_has_content_is_true_once_one_node_is_configured(self):
+        self._node("a", {"cpu": {"warning_threshold": 1, "critical_threshold": 2}})
+        self.assertTrue(build_policy_overview().has_content)
+
+    def test_a_group_carries_the_hostname_and_its_own_link(self):
+        node = Node.objects.create(
+            instance_id="a", hostname="a.local", config={"cpu": {"warning_threshold": 1}}
+        )
+        (group,) = build_policy_overview().groups
+        self.assertEqual(group.hostname, "a.local")
+        self.assertEqual(group.node_url, f"/admin/alerts/node/{node.pk}/change/")
+        self.assertTrue(group.has_problem)

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from django.urls import reverse
 
+from apps.alerts.models import Node
 from apps.alerts.node_policy import (
     PolicySection,
     UnreadKey,
@@ -123,3 +124,53 @@ def rows_for_node(node) -> list[PolicyRow]:
             )
         )
     return rows
+
+
+@dataclass(frozen=True)
+class NodeGroup:
+    """One node's rows, under one heading."""
+
+    instance_id: str
+    hostname: str
+    node_url: str
+    rows: list[PolicyRow]
+    has_problem: bool
+
+
+@dataclass(frozen=True)
+class PolicyOverview:
+    """Every node holding policy, plus a count of the ones that hold none."""
+
+    groups: list[NodeGroup]
+    quiet_count: int
+
+    @property
+    def has_content(self) -> bool:
+        """Whether any node on this hub overrides anything at all."""
+        return bool(self.groups)
+
+
+def build_policy_overview() -> PolicyOverview:
+    """Every hub-side override on this hub, the broken ones first.
+
+    A node with no config is counted rather than listed. A table of dashes, one
+    line per quiet machine, would bury the handful of rows the page exists to
+    show, and the count still tells a reader the page is complete.
+    """
+    groups, quiet_count = [], 0
+    for node in Node.objects.order_by("instance_id"):
+        rows = rows_for_node(node)
+        if not rows:
+            quiet_count += 1
+            continue
+        groups.append(
+            NodeGroup(
+                instance_id=node.instance_id,
+                hostname=node.hostname,
+                node_url=rows[0].node_url,
+                rows=rows,
+                has_problem=any(row.status != IN_EFFECT for row in rows),
+            )
+        )
+    groups.sort(key=lambda group: (not group.has_problem, group.instance_id))
+    return PolicyOverview(groups=groups, quiet_count=quiet_count)
