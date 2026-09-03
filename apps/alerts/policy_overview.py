@@ -45,6 +45,11 @@ class PolicyRow:
     node_url: str
     edit_url: str
 
+    @property
+    def is_problem(self) -> bool:
+        """Whether this override is changing no severity."""
+        return self.status != IN_EFFECT
+
 
 def _node_url(node) -> str:
     """The admin change page for one node."""

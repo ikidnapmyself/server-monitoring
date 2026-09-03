@@ -96,6 +96,23 @@ class RowsForNodeTests(PolicyOverviewTestCase):
         self.assertEqual([row.checker for row in rows_for_node(node)], ["cpu", "memory"])
 
 
+class RowIsProblemTests(PolicyOverviewTestCase):
+    def test_a_scoring_row_is_not_a_problem(self):
+        node = self._node({"cpu": {"warning_threshold": 90, "critical_threshold": 99}})
+        (row,) = rows_for_node(node)
+        self.assertFalse(row.is_problem)
+
+    def test_a_not_scoring_row_is_a_problem(self):
+        node = self._node({"memory": {"warning_threshold": 90}})
+        (row,) = rows_for_node(node)
+        self.assertTrue(row.is_problem)
+
+    def test_a_not_honoured_row_is_a_problem(self):
+        node = self._node({"network": {"warning_threshold": 60}})
+        (row,) = rows_for_node(node)
+        self.assertTrue(row.is_problem)
+
+
 class NonMappingEntryTests(PolicyOverviewTestCase):
     def test_a_spec_d_checker_set_to_a_string_says_the_entry_is_wrong(self):
         node = self._node({"cpu": "90"})
