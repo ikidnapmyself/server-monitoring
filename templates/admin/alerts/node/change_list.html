@@ -1,0 +1,11 @@
+{% extends "django_object_actions/change_list.html" %}
+{% comment %}
+Extends the django_object_actions template, not admin/change_list.html: that one
+fills object-tools-items with the changelist_actions buttons, and extending the
+plain admin template instead would silently drop them.
+{% endcomment %}
+
+{% block object-tools-items %}
+  <li><a href="{% url 'admin:policy-overview' %}">Policy overview</a></li>
+  {{ block.super }}
+{% endblock %}
