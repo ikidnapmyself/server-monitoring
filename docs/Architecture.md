@@ -211,6 +211,16 @@ Below that, a delivery line mirrors `delivery_gap()` 1:1: bound to a channel,
 recording only (no `notify` stage), no channel (none configured, or the bound
 channel is inactive), or channel driver not registered.
 
+#### Hub-side policy
+
+`/admin/policy/` lists every hub-side re-evaluation override on this hub, one row per
+node and checker, with the broken ones first. Each row prints the checker, its stored
+policy, one of three states (**In effect**, **Saved but not scoring**, **Not honoured**),
+why it is not simply working, and a link into that checker's own boxes on the node page.
+It is a read-time projection: it reads `Node.config` through
+`apps.alerts.node_policy.build_effective_policy` and writes nothing. Access follows
+`NodeAdmin.has_view_permission`, so anyone who can view a node can read the page.
+
 ## Pipeline Execution
 
 **Location:** `apps/orchestration/orchestrator.py`

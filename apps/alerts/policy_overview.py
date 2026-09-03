@@ -20,7 +20,8 @@ from apps.alerts.node_policy import (
     spec_for,
 )
 
-# The change form's own panel headings, so one state does not get two names.
+# The badge wording follows the change form's policy panel vocabulary, so one
+# state does not get two names across the two surfaces.
 IN_EFFECT = "In effect"
 NOT_SCORING = "Saved but not scoring"
 NOT_HONOURED = "Not honoured"
@@ -42,7 +43,7 @@ class PolicyRow:
     policy: str
     status: str
     why: str
-    node_url: str
+    caution: bool
     edit_url: str
 
     @property
@@ -103,7 +104,10 @@ def _why(section: PolicySection | None, unread: list[UnreadKey]) -> str:
     if section is not None and section.inactive_reason:
         parts.append(section.inactive_reason)
     if section is not None and section.editor_note:
-        parts.append(f"Scoring as stored, but {section.editor_note}")
+        parts.append(
+            f"Scoring as stored, but {section.editor_note}"
+            " Retyping it on the node page means changing it."
+        )
     parts.extend(_unread_sentences(unread))
     return " ".join(parts)
 
@@ -131,7 +135,7 @@ def rows_for_node(node) -> list[PolicyRow]:
                 ),
                 status=min(statuses, key=_WORST_FIRST.index),
                 why=_why(section, unread.get(checker, [])),
-                node_url=node_url,
+                caution=section is not None and bool(section.editor_note),
                 edit_url=_edit_url(checker, node_url),
             )
         )
@@ -140,6 +144,8 @@ def rows_for_node(node) -> list[PolicyRow]:
 
 @dataclass(frozen=True)
 class NodeGroup:
+    """One node's rows, under the identity that names it."""
+
     instance_id: str
     hostname: str
     node_url: str
@@ -162,6 +168,8 @@ def build_policy_overview() -> PolicyOverview:
     dashes would bury the rows worth reading.
     """
     groups, quiet_count = [], 0
+    # order_by() clears the model's own -last_seen ordering, because the groups
+    # are sorted below on whether they hold a problem.
     for node in Node.objects.order_by():
         rows = rows_for_node(node)
         if not rows:

@@ -246,6 +246,10 @@ and the form is `NodePolicyForm` in `apps/alerts/forms.py`.
   already configures. Config keys it has no spec for are preserved rather than deleted, and
   the read-only panel on the same page lists them as "Not honoured", alongside policy that
   is stored with the right keys but still scores nothing ("Saved but not scoring").
+- **The three-state vocabulary is hub-wide.** `apps/alerts/policy_overview.py` prints the
+  same three states for every node on `/admin/policy/`. The wording is shared on purpose,
+  so an operator reading one surface can read the other without relearning it. A section
+  carrying an `editor_note` keeps its "In effect" badge on both, and both mark it in amber.
 - **A malformed stored value is rendered, not blanked.** A blank box means "delete this
   key", so `to_form_values` prints a stored allowlist that is not a list as it stands rather
   than as `""`. A stored `"22,80"` is then repaired by the next save; a value with no

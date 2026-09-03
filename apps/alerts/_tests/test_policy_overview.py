@@ -5,6 +5,7 @@ path never validates it.
 """
 
 from django.test import TestCase
+from django.urls import reverse
 
 from apps.alerts.models import Node
 from apps.alerts.policy_overview import (
@@ -21,6 +22,9 @@ class PolicyOverviewTestCase(TestCase):
     def _node(self, config):
         return Node.objects.create(instance_id="node-a", hostname="a", config=config)
 
+    def _change_url(self, node):
+        return reverse("admin:alerts_node_change", args=[node.pk])
+
 
 class RowsForNodeTests(PolicyOverviewTestCase):
     def test_a_scoring_policy_is_one_row_in_effect(self):
@@ -30,6 +34,8 @@ class RowsForNodeTests(PolicyOverviewTestCase):
         self.assertEqual(row.status, IN_EFFECT)
         self.assertEqual(row.policy, "Warning at 90, Critical at 99")
         self.assertEqual(row.why, "")
+        self.assertFalse(row.is_problem)
+        self.assertFalse(row.caution)
 
     def test_a_half_filled_threshold_pair_is_not_scoring_with_the_forms_own_reason(self):
         node = self._node({"memory": {"warning_threshold": 90}})
@@ -37,6 +43,7 @@ class RowsForNodeTests(PolicyOverviewTestCase):
         self.assertEqual(row.status, NOT_SCORING)
         self.assertEqual(row.policy, "Warning at 90")
         self.assertEqual(row.why, "Set a critical threshold too, or clear both.")
+        self.assertTrue(row.is_problem)
 
     def test_a_checker_no_scorer_reads_is_one_not_honoured_row(self):
         node = self._node({"network": {"warning_threshold": 60}})
@@ -45,6 +52,7 @@ class RowsForNodeTests(PolicyOverviewTestCase):
         self.assertEqual(row.status, NOT_HONOURED)
         self.assertEqual(row.policy, NO_POLICY)
         self.assertEqual(row.why, "Nothing reads network.")
+        self.assertTrue(row.is_problem)
 
     def test_a_scoring_checker_with_a_leftover_key_stays_one_row(self):
         node = self._node({"cpu": {"warning_threshold": 90, "critical_threshold": 99, "spare": 1}})
@@ -76,8 +84,11 @@ class RowsForNodeTests(PolicyOverviewTestCase):
         node = self._node({"listening_ports": {"allowlist": [70000]}})
         (row,) = rows_for_node(node)
         self.assertEqual(row.status, IN_EFFECT)
+        self.assertFalse(row.is_problem)
+        self.assertTrue(row.caution)
         self.assertTrue(row.why.startswith("Scoring as stored, but "))
         self.assertIn("stricter than the scorers", row.why)
+        self.assertTrue(row.why.endswith("Retyping it on the node page means changing it."))
 
     def test_the_empty_section_marker_makes_no_row(self):
         # {"cpu": {}} is the marker that opens a section in the form.
@@ -94,23 +105,6 @@ class RowsForNodeTests(PolicyOverviewTestCase):
             }
         )
         self.assertEqual([row.checker for row in rows_for_node(node)], ["cpu", "memory"])
-
-
-class RowIsProblemTests(PolicyOverviewTestCase):
-    def test_a_scoring_row_is_not_a_problem(self):
-        node = self._node({"cpu": {"warning_threshold": 90, "critical_threshold": 99}})
-        (row,) = rows_for_node(node)
-        self.assertFalse(row.is_problem)
-
-    def test_a_not_scoring_row_is_a_problem(self):
-        node = self._node({"memory": {"warning_threshold": 90}})
-        (row,) = rows_for_node(node)
-        self.assertTrue(row.is_problem)
-
-    def test_a_not_honoured_row_is_a_problem(self):
-        node = self._node({"network": {"warning_threshold": 60}})
-        (row,) = rows_for_node(node)
-        self.assertTrue(row.is_problem)
 
 
 class NonMappingEntryTests(PolicyOverviewTestCase):
@@ -131,20 +125,21 @@ class NonMappingEntryTests(PolicyOverviewTestCase):
         (row,) = rows_for_node(node)
         self.assertEqual(row.status, NOT_HONOURED)
         self.assertEqual(row.why, "Nothing reads network.")
-        self.assertEqual(row.edit_url, row.node_url)
+        self.assertEqual(row.edit_url, self._change_url(node))
 
 
 class RowLinkTests(PolicyOverviewTestCase):
     def test_an_editable_row_links_to_that_checkers_own_box(self):
         node = self._node({"cpu": {"warning_threshold": 90, "critical_threshold": 99}})
         (row,) = rows_for_node(node)
-        self.assertTrue(row.edit_url.startswith(row.node_url))
-        self.assertTrue(row.edit_url.endswith("#id_policy__cpu__warning_threshold"))
+        self.assertEqual(
+            row.edit_url, f"{self._change_url(node)}#id_policy__cpu__warning_threshold"
+        )
 
     def test_a_row_with_no_boxes_links_to_the_page_with_no_fragment(self):
         node = self._node({"network": {"warning_threshold": 60}})
         (row,) = rows_for_node(node)
-        self.assertEqual(row.edit_url, row.node_url)
+        self.assertEqual(row.edit_url, self._change_url(node))
 
 
 class BuildPolicyOverviewTests(TestCase):
@@ -196,6 +191,12 @@ class BuildPolicyOverviewTests(TestCase):
         (group,) = build_policy_overview().groups
         self.assertEqual([row.status for row in group.rows], [NOT_HONOURED])
         self.assertTrue(group.has_problem)
+
+    def test_a_cautioned_row_leaves_its_node_healthy(self):
+        self._node_named("a", {"listening_ports": {"allowlist": [70000]}})
+        (group,) = build_policy_overview().groups
+        self.assertEqual([row.caution for row in group.rows], [True])
+        self.assertFalse(group.has_problem)
 
     def test_problem_nodes_sort_among_themselves_by_instance_id(self):
         for name in ["b", "a"]:

@@ -103,3 +103,11 @@ def test_a_hostname_is_escaped(admin_client):
     assert "&lt;script&gt;" in body
     assert "<b>y</b>" not in body
     assert "&lt;b&gt;y&lt;/b&gt;" in body
+
+
+def test_a_cautioned_row_keeps_its_green_badge_and_reads_its_reason_in_amber(admin_client):
+    Node.objects.create(instance_id="a", config={"listening_ports": {"allowlist": [70000]}})
+    body = admin_client.get(reverse("admin:policy-overview")).content.decode()
+    assert "#28a745" in body
+    assert '<span style="color:#b26a00;">&#9888;' in body
+    assert "Retyping it on the node page means changing it." in body

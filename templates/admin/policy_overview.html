@@ -45,7 +45,11 @@ autoescaping here must stay on.
                            border-radius:10px; font-size:12px;">{{ row.status }}</span>
               {% endif %}
             </td>
-            <td>{{ row.why }}</td>
+            <td>
+              {% if row.caution %}
+              <span style="color:#b26a00;">&#9888; {{ row.why }}</span>
+              {% else %}{{ row.why }}{% endif %}
+            </td>
             <td style="text-align:right;"><a href="{{ row.edit_url }}">Edit</a></td>
           </tr>
           {% endfor %}
