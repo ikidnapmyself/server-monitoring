@@ -1,13 +1,8 @@
-"""One table of every hub-side policy override on this hub.
+"""Every hub-side policy override on this hub, as one row per node and checker.
 
-``build_effective_policy`` already answers "what does this node's config
-actually do?" for one node, in three lists. This module is that answer for the
-fleet, flattened to one row per node and checker so a policy that scores nothing
-is visible without opening eight change pages in turn.
-
-It adds no rule of its own. Every status, value and sentence here comes from
-``node_policy``, because a second opinion about what a stored threshold does is
-a second thing to drift.
+``build_effective_policy`` answers "what does this node's config actually do?"
+for one node, in three lists. This module flattens that answer for printing. It
+adds no policy rule of its own.
 
 Design: docs/plans/2026-09-03-policy-overview-design.md
 """
@@ -16,18 +11,25 @@ from dataclasses import dataclass
 
 from django.urls import reverse
 
-from apps.alerts.node_policy import build_effective_policy, field_name, spec_for
+from apps.alerts.node_policy import (
+    PolicySection,
+    UnreadKey,
+    build_effective_policy,
+    field_name,
+    spec_for,
+)
 
-# The three ways a config entry ends up, in the words the page prints. They are
-# the three lists ``EffectivePolicy`` returns, named once here so the template
-# and the tests agree with the builder.
+# The change form's own panel headings, so one state does not get two names.
 IN_EFFECT = "In effect"
-NOT_SCORING = "Not scoring"
+NOT_SCORING = "Saved but not scoring"
 NOT_HONOURED = "Not honoured"
 
-# What the Policy cell says for a checker with no value any scorer reads. A
-# blank cell there reads as a rendering fault; this row is the whole point of
-# the page, so it says so.
+# Worst first, because a checker can land in two of the three lists at once and
+# the row shows one badge. "Saved but not scoring" outranks "Not honoured": a
+# half-filled threshold pair is a decision an operator has to finish, while a
+# leftover key changes no severity.
+_WORST_FIRST = [NOT_SCORING, NOT_HONOURED, IN_EFFECT]
+
 NO_POLICY = "—"
 
 
@@ -46,13 +48,9 @@ class PolicyRow:
 def _edit_url(checker: str, node_url: str) -> str:
     """The node page, landing on this checker's own boxes where it has any.
 
-    ``NodePolicyForm`` builds its fields through ``field_name`` and Django
-    prefixes the rendered input with ``id_``, so the input is a stable anchor.
-    The admin's fieldset template carries no id of its own, which is why the
-    anchor is the first box rather than the section heading.
-
-    A checker with no spec has no boxes on that page at all, so it gets the page
-    and no fragment rather than a link to nothing.
+    The anchor is the first box rather than the section heading because the
+    admin's fieldset template carries no id of its own, while ``field_name``
+    plus Django's ``id_`` prefix gives every policy input a stable one.
     """
     spec = spec_for(checker)
     if not spec:
@@ -60,44 +58,56 @@ def _edit_url(checker: str, node_url: str) -> str:
     return f"{node_url}#id_{field_name(checker, spec[0].name)}"
 
 
-def _why(section, ignored: list[str]) -> str:
+def _unread_sentences(entries: list[UnreadKey]) -> list[str]:
+    """What the unread entries for one checker mean, in plain sentences.
+
+    A blank ``key`` covers two different problems: no scorer knows the checker,
+    or a known checker holds something that is not a mapping. "Nothing reads
+    cpu" is false in the second case, so ``spec_for`` separates them.
+    """
+    labels = []
+    sentences = []
+    for entry in entries:
+        if not entry.key and spec_for(entry.checker):
+            sentences.append(
+                f"{entry.checker} is set to something that is not a policy, so nothing reads it."
+            )
+        else:
+            labels.append(entry.label)
+    if labels:
+        sentences.append(f"Nothing reads {', '.join(labels)}.")
+    return sentences
+
+
+def _why(section: PolicySection | None, unread: list[UnreadKey]) -> str:
     """Why this row is not simply working, in the panel's own sentences.
 
-    At most one explanation comes from the section itself: a section that scores
-    nothing already carries the reason, and ``build_effective_policy`` only sets
-    ``editor_note`` on a section that scores. Ignored keys are additional, since
-    a checker can score and still hold a key nobody reads.
+    A section never carries both an inactive reason and an editor note today.
+    Both are asked for anyway, so a change in ``node_policy`` shows up as an odd
+    sentence rather than a silently dropped one.
     """
     parts = []
     if section is not None and section.inactive_reason:
         parts.append(section.inactive_reason)
-    elif section is not None and section.editor_note:
+    if section is not None and section.editor_note:
         parts.append(f"Scoring as stored, but {section.editor_note}")
-    if ignored:
-        parts.append(f"Nothing reads {', '.join(ignored)}.")
+    parts.extend(_unread_sentences(unread))
     return " ".join(parts)
 
 
 def rows_for_node(node) -> list[PolicyRow]:
-    """One row per checker this node has any config entry for.
-
-    A checker can appear in two of ``EffectivePolicy``'s lists at once: a
-    threshold pair that scores plus a leftover key nothing reads. That is one
-    decision an operator made, so it stays one row, and the worse of the two
-    statuses wins. Splitting it would put "In effect" and "Not honoured" beside
-    each other for the same checker and leave the reader to work out which half
-    of the entry each referred to.
-    """
+    """One row per checker this node has any config entry for, sorted by checker."""
     policy = build_effective_policy(node)
     node_url = reverse("admin:alerts_node_change", args=[node.pk])
-    ignored: dict[str, list[str]] = {}
+    unread: dict[str, list[UnreadKey]] = {}
     for entry in policy.unread:
-        ignored.setdefault(entry.checker, []).append(entry.label)
+        unread.setdefault(entry.checker, []).append(entry)
     sections = {section.checker: (section, IN_EFFECT) for section in policy.sections}
     sections.update({section.checker: (section, NOT_SCORING) for section in policy.inactive})
     rows = []
-    for checker in sorted(set(sections) | set(ignored)):
+    for checker in sorted(set(sections) | set(unread)):
         section, status = sections.get(checker, (None, NOT_HONOURED))
+        statuses = [status] + ([NOT_HONOURED] if checker in unread else [])
         rows.append(
             PolicyRow(
                 checker=checker,
@@ -106,9 +116,8 @@ def rows_for_node(node) -> list[PolicyRow]:
                     if section is not None
                     else NO_POLICY
                 ),
-                # An ignored key is not honoured whatever else the entry does.
-                status=NOT_HONOURED if checker in ignored else status,
-                why=_why(section, ignored.get(checker, [])),
+                status=min(statuses, key=_WORST_FIRST.index),
+                why=_why(section, unread.get(checker, [])),
                 node_url=node_url,
                 edit_url=_edit_url(checker, node_url),
             )
