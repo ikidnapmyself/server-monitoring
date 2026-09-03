@@ -160,7 +160,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Durable ingest / drain
 # ---------------------------------------------------------------------------
 # The pipeline runs broker-free: the webhook records a PENDING PipelineRun and
-# `manage.py process_inbox` drains it (no Celery/Redis). doctor warns once the
+# `manage.py process_inbox` drains it (no message broker). doctor warns once the
 # PENDING backlog exceeds this depth.
 INBOX_DEPTH_WARN = int(os.environ.get("INBOX_DEPTH_WARN", "500"))
 

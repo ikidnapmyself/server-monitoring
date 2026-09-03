@@ -1,5 +1,5 @@
 # Durable-ingest drain: processes PENDING pipeline runs recorded by the webhook.
-# Broker-free — no Redis/Celery required. This supervised loop gives near-real-time
+# Broker-free — no message broker required. This supervised loop gives near-real-time
 # processing; on hosts without systemd, use a cron one-shot instead:
 #   */1 * * * * cd /opt/server-monitoring && .venv/bin/python manage.py process_inbox --limit 100
 #
