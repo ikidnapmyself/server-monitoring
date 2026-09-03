@@ -491,7 +491,7 @@ The pipeline stores **references** to data rather than raw payloads to avoid lea
 
 ## Pipeline Execution
 
-- **Broker-free** — the pipeline no longer uses Celery/Redis. The webhook records a
+- **Broker-free** — the pipeline uses no message broker. The webhook records a
   `PENDING` `PipelineRun` and `manage.py process_inbox` drains it, so there is no
   message broker, no pickle deserialization surface, and no broker credentials to
   protect. Inbound payloads stored on the run for replay are treated as untrusted

@@ -7,14 +7,14 @@ setup() {
 }
 
 @test "parse_service_state extracts state from JSON array" {
-    local json='[{"Service":"web","State":"running"},{"Service":"celery","State":"exited"}]'
+    local json='[{"Service":"web","State":"running"},{"Service":"inbox","State":"exited"}]'
     run parse_service_state "web" <<< "$json"
     assert_success
     assert_output "running"
 }
 
 @test "parse_service_state extracts state from NDJSON" {
-    local json=$'{"Service":"web","State":"running"}\n{"Service":"celery","State":"exited"}'
+    local json=$'{"Service":"web","State":"running"}\n{"Service":"inbox","State":"exited"}'
     run parse_service_state "web" <<< "$json"
     assert_success
     assert_output "running"
@@ -22,7 +22,7 @@ setup() {
 
 @test "parse_service_state returns empty for missing service" {
     local json='[{"Service":"web","State":"running"}]'
-    run parse_service_state "celery" <<< "$json"
+    run parse_service_state "inbox" <<< "$json"
     assert_output ""
 }
 

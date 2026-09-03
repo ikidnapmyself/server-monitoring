@@ -10,7 +10,7 @@ nav_order: 2
 
 Server-maintanence is a Django-based server monitoring and alerting system. It ingests alerts from external sources, runs health checks, generates AI-powered recommendations, and dispatches notifications. Producers write alert truth; alerts roll into incidents; the orchestrator runs one pipeline per incident that materially changed.
 
-**Tech stack:** Django 5.2, psutil (system metrics), Jinja2 (notification templates). The pipeline is broker-free — durable ingest + a `process_inbox` drain (no Celery/Redis).
+**Tech stack:** Django 5.2, psutil (system metrics), Jinja2 (notification templates). The pipeline is broker-free — durable ingest + a `process_inbox` drain, no message broker.
 
 ## Producers, then stages
 
@@ -185,7 +185,7 @@ Stage behavior is controlled through routing pipelines and Django Admin — not 
 The pipeline is broker-free. The webhook writes the payload's alerts inline, then
 records one `PENDING` `PipelineRun` per materially changed incident (the async trigger
 endpoint records one too); `manage.py process_inbox` claims and executes them
-(supervised `--loop` or cron). No Celery/Redis. See
+(supervised `--loop` or cron). No message broker. See
 [Deployment → Durable ingest & the inbox drain](Deployment.md).
 
 ### Django Admin

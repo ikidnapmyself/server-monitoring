@@ -23,7 +23,7 @@ DEPLOY_METHOD=bare
 DJANGO_SECRET_KEY=supersecret
 DJANGO_DEBUG=0
 HUB_API_KEY=topsecret
-CELERY_BROKER_URL=redis://localhost:6379/0
+INBOX_DEPTH_WARN=500
 ENVEOF
 
     export PROJECT_DIR="$TEST_TMPDIR"
@@ -31,7 +31,7 @@ ENVEOF
 
     grep -q "DJANGO_ENV=prod" "$TEST_TMPDIR/.install-profile"
     grep -q "DEPLOY_METHOD=bare" "$TEST_TMPDIR/.install-profile"
-    grep -q "CELERY_BROKER_URL=redis://localhost:6379/0" "$TEST_TMPDIR/.install-profile"
+    grep -q "INBOX_DEPTH_WARN=500" "$TEST_TMPDIR/.install-profile"
     ! grep -q "DJANGO_SECRET_KEY" "$TEST_TMPDIR/.install-profile"
     ! grep -q "HUB_API_KEY" "$TEST_TMPDIR/.install-profile"
 }
@@ -91,8 +91,8 @@ PROFEOF
 
 DJANGO_ENV=prod
 
-# Celery
-CELERY_TASK_ALWAYS_EAGER=0
+# Inbox
+INBOX_DEPTH_WARN=500
 PROFEOF
 
     touch "$TEST_TMPDIR/.env"
@@ -100,7 +100,7 @@ PROFEOF
     profile_load "$TEST_TMPDIR/.install-profile"
 
     grep -q "DJANGO_ENV=prod" "$TEST_TMPDIR/.env"
-    grep -q "CELERY_TASK_ALWAYS_EAGER=0" "$TEST_TMPDIR/.env"
+    grep -q "INBOX_DEPTH_WARN=500" "$TEST_TMPDIR/.env"
     ! grep -q "^# name:" "$TEST_TMPDIR/.env"
 }
 

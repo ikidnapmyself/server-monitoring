@@ -18,7 +18,7 @@ Production deployment guide for Server Monitoring. Choose Docker Compose for qui
 - [`uv`](https://github.com/astral-sh/uv)
 - **Nginx** (reverse proxy, optional but recommended)
 
-The pipeline runs **broker-free** — no Redis or Celery. Durable ingest records each
+The pipeline runs **broker-free** — no message broker to install or run. Durable ingest records each
 alert and `manage.py process_inbox` drains it (see below).
 
 ---
@@ -169,9 +169,7 @@ sudo systemctl enable --now server-monitoring server-monitoring-inbox
 > **`server-monitoring-inbox` is required, not optional.** The webhook writes the alerts
 > inline and records one `PENDING` run per materially changed incident (durable ingest);
 > this drain is what runs those incidents through their lane. See
-> [Durable ingest & the inbox drain](#durable-ingest--the-inbox-drain) below. The
-> legacy `server-monitoring-celery` unit is no longer needed — the pipeline runs
-> broker-free.
+> [Durable ingest & the inbox drain](#durable-ingest--the-inbox-drain) below.
 
 > **Automated:** Run `sudo ./bin/install.sh deploy` to automate steps 2.3-2.5 (migrations, static files, unit installation, and service startup with health verification). Or use `sudo ./bin/install.sh` in **prod** mode when selecting the systemd deployment option.
 >
@@ -197,7 +195,7 @@ alerts (a bounded, size-capped write), lets incidents form, then **durably recor
 `202 {status: accepted, trace_id, incidents}` immediately. A **drain** then processes
 the queue at a controlled rate. The slow stages — checkers, AI analysis, delivery —
 stay queued, so the web workers remain responsive and a flood grows a **bounded
-database queue** instead of OOM-ing the node — and it needs **no Redis or Celery**.
+database queue** instead of OOM-ing the node — and it needs **no message broker**.
 
 > ⚠️ **A drain must be running.** With neither the systemd service nor a cron entry
 > below, alerts are recorded but **never processed** — they pile up as `PENDING`
