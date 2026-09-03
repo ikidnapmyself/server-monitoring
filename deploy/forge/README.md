@@ -10,7 +10,7 @@ and the web server.** Do not script the parts the panel already manages.
 
 | Concern | Where |
 |---|---|
-| Environment variables | Panel's environment/`.env` editor — `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_ENV=prod`, `DJANGO_DEBUG=0`, `DATABASE_PATH`, and `CELERY_*` if used |
+| Environment variables | Panel's environment/`.env` editor — `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_ENV=prod`, `DJANGO_DEBUG=0`, `DATABASE_PATH` |
 | gunicorn process | Panel's **Daemons** feature (see command below) — the panel keeps it running and restarts it after each deploy |
 | nginx site config | Panel's nginx editor — apply the 3 edits from `nginx-site.conf` inside the generated `server {}` block (replace the default `location /`, add `location /static/`, add `client_max_body_size`) |
 | SSL / Let's Encrypt | Panel's SSL tab |
@@ -63,13 +63,3 @@ with `--all-extras --dev` instead of `--extra prod`.
 
 If these nodes only run the cron monitoring pipeline and do not serve a web UI, you can
 skip nginx and the daemon entirely — neither is required for `manage.py run_pipeline`.
-
-## Celery
-
-Optional, and off by default. All scheduled monitoring runs through cron
-(`manage.py run_pipeline --checks-only`); there is no Celery Beat. Celery only matters if
-you receive inbound webhooks and want them handled asynchronously. If so, add a second
-panel Daemon running `uv run celery -A config worker -l info` and point
-`CELERY_BROKER_URL` at Redis. Otherwise set `CELERY_TASK_ALWAYS_EAGER=1` so webhook
-handling doesn't pay a broker-connection timeout before falling back to synchronous
-processing.

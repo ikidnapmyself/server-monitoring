@@ -45,23 +45,6 @@ Every platform below needs a persistent volume mounted at `/app/data`:
 Also note SQLite does not tolerate multiple instances writing the same file across
 containers. **Run a single web instance**, or migrate to Postgres before scaling out.
 
-## Celery
-
-The image runs the web process only. Celery is optional — all scheduled monitoring runs
-through cron calling `manage.py run_pipeline --checks-only`, and there is no Celery Beat
-in the project. Celery matters only if you receive inbound webhooks and want them
-processed asynchronously.
-
-If you do want it, run a second service from the same image with the command overridden
-to `celery -A config worker -l info`, and point `CELERY_BROKER_URL` at a Redis instance
-(most platforms offer one as an add-on; `deploy/compose/redis.yml` is the local
-equivalent).
-
-Without a broker, webhook handling still works — `apps/alerts/views.py` falls back to
-synchronous processing — but it pays a connection timeout per request first. If you are
-not running a worker, set `CELERY_TASK_ALWAYS_EAGER=1` to skip the enqueue attempt
-entirely.
-
 ## Health check
 
 Point the platform's health check at **`/intelligence/health/`** (`apps/intelligence/urls.py`
