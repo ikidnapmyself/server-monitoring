@@ -294,6 +294,26 @@ def to_config(values: dict, existing) -> dict:
     return config
 
 
+def _comparable(value):
+    """A stored value keyed so a bool never compares equal to the number beside it.
+
+    ``True == 1.0`` in Python, so a plain dict compare in ``scoring_changed``
+    called a repaired boolean threshold "unchanged" at the exact moment the
+    policy started scoring for the first time: ``_number`` refuses a bool and
+    accepts the float, so the two are opposite verdicts that compare equal.
+
+    Only bools are re-keyed. ``80`` and ``80.0`` must stay equal, because
+    ``to_config`` keeps the stored int and an untouched save resubmits the
+    float. Lists are walked for the same reason at one level down: a stored
+    ``[True]`` scores nothing and ``[1]`` scores.
+    """
+    if isinstance(value, bool):
+        return ("bool", value)
+    if isinstance(value, list):
+        return [_comparable(item) for item in value]
+    return value
+
+
 def _scoring_view(config) -> dict:
     """Just the keys a scorer would read, for comparing one config to another.
 
@@ -307,7 +327,11 @@ def _scoring_view(config) -> dict:
     view: dict = {}
     for checker, raw_entry in _json_dict(config).items():
         entry = _json_dict(raw_entry)
-        keys = {field.name: entry[field.name] for field in spec_for(checker) if field.name in entry}
+        keys = {
+            field.name: _comparable(entry[field.name])
+            for field in spec_for(checker)
+            if field.name in entry
+        }
         if keys:
             view[checker] = keys
     return view
@@ -322,6 +346,12 @@ def scoring_changed(before, after) -> bool:
     here as well, so a save that retypes the same number is not a change.
     """
     return _scoring_view(before) != _scoring_view(after)
+
+
+# The memo lives on the Node instance, never in a module-level cache keyed by pk:
+# a ModelAdmin is one shared object serving every request. Nothing the admin can
+# edit changes what a node reports, so nothing in a request can stale it.
+_REPORTED_MEMO = "_node_policy_reported_checkers"
 
 
 def _reported_checkers(node) -> set[str]:
@@ -344,7 +374,22 @@ def _reported_checkers(node) -> set[str]:
     database (the label lives inside a JSON blob), and a node's alert history is
     unbounded, so a list there is one entry per alert row for the same handful of
     names.
+
+    Memoised on the instance, because rendering the change page asks twice:
+    ``NodeAdmin.get_fieldsets`` and ``NodePolicyForm.__init__`` are handed the
+    same object by ``_changeform_view``, and a node with a long alert history
+    paid for the whole scan each time.
     """
+    memo = getattr(node, _REPORTED_MEMO, None)
+    if memo is not None:
+        return memo
+    reported = _scan_reported_checkers(node)
+    setattr(node, _REPORTED_MEMO, reported)
+    return reported
+
+
+def _scan_reported_checkers(node) -> set[str]:
+    """The scan itself, called once per instance by ``_reported_checkers``."""
     if node.instance_id == local_instance_id():
         # Node.upsert only writes hostname when truthy, so the local row can
         # carry the blank default while its CheckRun rows are keyed by the real
@@ -379,6 +424,12 @@ def sections_for(node) -> list[str]:
 
     Driven from ``FIELD_SPECS`` rather than from the node's data, so a stale key
     for a checker that no longer exists cannot become an editable section.
+
+    Cheap to ask twice, which rendering the change page does: the scan behind
+    ``_reported_checkers`` is memoised and the config half is a set of dict keys.
+    This function is deliberately not memoised itself. ``form.save`` rewrites
+    ``node.config`` on the very instance it was already asked about, so a cached
+    answer here would hide a section the operator just added.
     """
     reported = _reported_checkers(node)
     # No string filter on this side: a dict's keys are hashable by construction,
@@ -416,12 +467,18 @@ class PolicySection:
     otherwise says what is wrong with it in the same words the form would put on
     the box. A section with a reason is real config with the right keys that
     still scores nothing, which is neither "in effect" nor "not honoured".
+
+    ``editor_note`` is the opposite case and only ever set on a section that is
+    in effect: the value scores, but the boxes below are stricter than the
+    runtime and would refuse it back. Blank whenever the two agree, which is
+    almost always.
     """
 
     checker: str
     title: str
     values: list[PolicyValue]
     inactive_reason: str = ""
+    editor_note: str = ""
 
 
 @dataclass(frozen=True)
@@ -509,6 +566,39 @@ def _inactive_reason(checker: str, entry: dict) -> str:
     return ""
 
 
+def _editor_note(checker: str, entry: dict) -> str:
+    """Why the boxes below would refuse a value that is scoring right now.
+
+    The editor is deliberately stricter than the runtime, and only in that
+    direction: ``clean_int_list`` rejects a port outside 1-65535 or one that is
+    not a whole number, while ``_int_set`` coerces both. So a hand-written
+    ``[70000]`` really is in effect, and retyping it is impossible. Nothing on
+    the page said so, which meant the asymmetry was discoverable only by hitting
+    a validation error on a box the operator never meant to touch.
+
+    Answered by round-tripping the stored value through the editor's own parser
+    rather than by restating its rules, for the same reason ``_inactive_reason``
+    asks ``clean_thresholds``: two copies of "what counts as a port" is two
+    things to drift.
+
+    Numeric thresholds never produce a note. ``FloatField`` accepts every number
+    ``_number`` accepts, so there is no asymmetry there to explain.
+    """
+    for field in spec_for(checker):
+        if field.kind != "int_list" or not isinstance(entry.get(field.name), list):
+            continue
+        typed = ", ".join(str(port) for port in entry[field.name]) or EMPTY_ALLOWLIST
+        try:
+            clean_int_list(typed)
+        except PolicyError as exc:
+            # The message is the form's own sentence, joined onto this one, so
+            # its leading capital has to go.
+            message = str(exc)
+            reason = f"{message[:1].lower()}{message[1:]}"
+            return f"the boxes below are stricter than the scorers, and {reason}"
+    return ""
+
+
 def build_effective_policy(node) -> EffectivePolicy:
     """What this node's config actually does, and what it merely holds.
 
@@ -544,7 +634,13 @@ def build_effective_policy(node) -> EffectivePolicy:
         if values:
             reason = _inactive_reason(checker, raw_entry)
             section = PolicySection(
-                checker=checker, title=title, values=values, inactive_reason=reason
+                checker=checker,
+                title=title,
+                values=values,
+                inactive_reason=reason,
+                # Only for a section that scores. One that does not already has
+                # a reason, and two explanations for one row is one too many.
+                editor_note="" if reason else _editor_note(checker, raw_entry),
             )
             (inactive if reason else sections).append(section)
         unread.extend(

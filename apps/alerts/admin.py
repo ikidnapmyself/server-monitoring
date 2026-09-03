@@ -852,6 +852,9 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
         """
         stored = self.model.objects.filter(pk=obj.pk).values_list("config", flat=True).first()
         request.node_policy_scoring_changed = scoring_changed(stored, obj.config)
+        # Carried the same way and for the same reason: ``response_change`` needs
+        # to know the operator asked for boxes, and only the form saw the select.
+        request.node_policy_section_added = form.cleaned_data.get(ADD_SECTION_FIELD) or ""
         super().save_model(request, obj, form, change)
 
     def response_change(self, request, obj):
@@ -867,29 +870,49 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
         re-evaluation, because a fat-fingered threshold that resolves real
         incidents with no preview is worse than the button nobody presses.
 
+        A save that only opened a section lands back on the boxes it opened,
+        because "show me those boxes" is the whole content of that request and
+        the changelist means finding the node again to use what you just asked
+        for. An empty entry scores nothing, so one save can ask for both and the
+        preview above takes it: that is the half with consequences for alerts
+        already open, and the boxes are one click away either way.
+
         Only the plain Save is redirected. ``_continue`` and friends mean the
         operator said where they were going, and ``super`` still owns every
         other case, including an invalid form.
         """
         response = super().response_change(request, obj)
-        if not getattr(request, "node_policy_scoring_changed", False):
-            return response
         if any(key in request.POST for key in self._EXPLICIT_DESTINATIONS):
             return response
-        self.message_user(
-            request,
-            "This policy does not touch the alerts already open. Here is what "
-            "re-evaluating them would do.",
-        )
-        # tools_view_name is django_object_actions' own name for the URL it
-        # registers for the change actions, so the button on the page and this
-        # redirect cannot drift apart.
-        return HttpResponseRedirect(
-            reverse(
-                self.tools_view_name,
-                kwargs={"pk": obj.pk, "tool": "reevaluate_open_alerts"},
+        if getattr(request, "node_policy_scoring_changed", False):
+            self.message_user(
+                request,
+                "This policy does not touch the alerts already open. Here is what "
+                "re-evaluating them would do.",
             )
-        )
+            # tools_view_name is django_object_actions' own name for the URL it
+            # registers for the change actions, so the button on the page and this
+            # redirect cannot drift apart.
+            return HttpResponseRedirect(
+                reverse(
+                    self.tools_view_name,
+                    kwargs={"pk": obj.pk, "tool": "reevaluate_open_alerts"},
+                )
+            )
+        added = getattr(request, "node_policy_section_added", "")
+        if added:
+            # One save can do both. The preview above wins: it is the half with
+            # consequences for alerts already open, and the boxes are one click
+            # away and score nothing until they are filled in.
+            self.message_user(request, f"Opened the {added.replace('_', ' ')} policy boxes.")
+            return HttpResponseRedirect(
+                reverse(
+                    f"admin:{obj._meta.app_label}_{obj._meta.model_name}_change",
+                    args=[obj.pk],
+                    current_app=self.admin_site.name,
+                )
+            )
+        return response
 
     def render_change_form(self, request, context, *args, obj=None, **kwargs):
         """Attach the overview panels; the form below is unchanged.

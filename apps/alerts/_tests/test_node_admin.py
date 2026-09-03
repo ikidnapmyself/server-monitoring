@@ -1,4 +1,5 @@
 import json
+from unittest import mock
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
@@ -733,7 +734,10 @@ class NodePolicySaveRedirectTests(TestCase):
         # and the stored ints are still ints, which is what made it compare equal
         self.assertEqual(self.node.config["cpu"]["warning_threshold"], 80)
 
-    def test_opening_a_section_goes_back_to_the_changelist(self):
+    def test_opening_a_section_goes_back_to_the_boxes_it_opened(self):
+        # The whole point of the select is "show me those boxes", so landing on
+        # the changelist means finding the node again to use what you just asked
+        # for. It scores nothing, so there is no preview to show instead.
         response = self.client.post(
             self._url(),
             {
@@ -742,9 +746,53 @@ class NodePolicySaveRedirectTests(TestCase):
                 ADD_SECTION_FIELD: "memory",
             },
         )
-        self.assertRedirects(response, self._changelist_url())
+        self.assertRedirects(response, self._url())
         self.node.refresh_from_db()
         self.assertEqual(self.node.config["memory"], {})
+        self.assertContains(self.client.get(self._url()), "memory policy")
+
+    def test_opening_a_section_while_changing_scoring_still_previews(self):
+        # Two asks in one save. The preview is the consequential half: the boxes
+        # are one click away and change nothing until they are filled in.
+        response = self.client.post(
+            self._url(),
+            {
+                "policy__cpu__warning_threshold": "50",
+                "policy__cpu__critical_threshold": "60",
+                ADD_SECTION_FIELD: "memory",
+            },
+        )
+        self.assertRedirects(response, self._preview_url(), target_status_code=200)
+        self.node.refresh_from_db()
+        self.assertEqual(self.node.config["memory"], {})
+
+    def test_save_and_continue_editing_wins_over_the_opened_section(self):
+        response = self.client.post(
+            self._url(),
+            {
+                "policy__cpu__warning_threshold": "80",
+                "policy__cpu__critical_threshold": "95",
+                ADD_SECTION_FIELD: "memory",
+                "_continue": "1",
+            },
+        )
+        self.assertRedirects(response, self._url())
+
+    def test_repairing_a_boolean_threshold_offers_the_preview(self):
+        # True == 1.0, so the save that finally makes this policy score used to
+        # read as "nothing changed" and skip the preview it most needed.
+        self.node.config = {"cpu": {"warning_threshold": True, "critical_threshold": 95}}
+        self.node.save()
+        response = self.client.post(
+            self._url(),
+            {
+                "policy__cpu__warning_threshold": "1",
+                "policy__cpu__critical_threshold": "95",
+            },
+        )
+        self.assertRedirects(response, self._preview_url(), target_status_code=200)
+        self.node.refresh_from_db()
+        self.assertEqual(self.node.config["cpu"]["warning_threshold"], 1.0)
 
     def test_save_and_continue_editing_still_stays_on_the_form(self):
         response = self.client.post(
@@ -858,3 +906,49 @@ class EffectivePolicyPanelTests(TestCase):
         self._login("view_node")
         response = self.client.get(self._url())
         self.assertContains(response, "No hub-side policy")
+
+    def test_a_scoring_value_the_boxes_would_refuse_is_explained(self):
+        # The editor rejects a port outside 1-65535; _int_set coerces it, so it
+        # really is scoring. Without a word on the page the asymmetry only shows
+        # up as a validation error on a box the operator never meant to touch.
+        self.node.config = {"listening_ports": {"allowlist": [70000]}}
+        self.node.save()
+        self._login("view_node")
+        response = self.client.get(self._url())
+        self.assertContains(response, "Policy in effect")
+        self.assertContains(response, "the boxes below are stricter")
+        self.assertContains(response, "70000")
+
+    def test_a_policy_the_boxes_accept_is_not_explained(self):
+        self.node.config = {"listening_ports": {"allowlist": [22, 80]}}
+        self.node.save()
+        self._login("view_node")
+        response = self.client.get(self._url())
+        self.assertNotContains(response, "the boxes below are stricter")
+
+
+class NodePolicyRenderCostTests(TestCase):
+    """The change page asks each node what it reports exactly once.
+
+    ``get_fieldsets`` and ``NodePolicyForm.__init__`` both need the sections,
+    and the peer branch cannot ``distinct`` in the database because the checker
+    label lives inside a JSON blob, so a node with a long alert history pays
+    for the scan twice.
+    """
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser("ops", "ops@example.com", "pw")
+        self.client.force_login(self.user)
+        self.node = Node.objects.create(instance_id="web-03", hostname="web-03")
+
+    def _url(self):
+        return reverse("admin:alerts_node_change", args=[self.node.pk])
+
+    def test_the_change_page_scans_the_reported_checkers_once(self):
+        with mock.patch(
+            "apps.alerts.node_policy._scan_reported_checkers", return_value={"cpu"}
+        ) as scan:
+            response = self.client.get(self._url())
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "cpu policy")
+        self.assertEqual(scan.call_count, 1)
