@@ -213,8 +213,7 @@
     font-size: 13px;
   }
 
-  /* Links beside the readiness heading */
-  #readiness h2 .netmap-link {
+  #readiness h2 .heading-link {
     font-size: 13px;
     font-weight: normal;
     margin-left: 10px;
@@ -283,8 +282,8 @@
 
 <div id="readiness">
   <h2>Readiness
-    <a class="netmap-link" href="{% url 'admin:netmap' %}">Network map</a>
-    <a class="netmap-link" href="{% url 'admin:policy-overview' %}">Hub-side policy</a>
+    <a class="heading-link" href="{% url 'admin:netmap' %}">Network map</a>
+    <a class="heading-link" href="{% url 'admin:policy-overview' %}">Hub-side policy</a>
   </h2>
   <div class="dashboard-row">
     {% for r in readiness %}

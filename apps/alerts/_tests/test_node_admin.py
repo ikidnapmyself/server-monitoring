@@ -12,6 +12,7 @@ from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.alerts.admin import NodeAdmin
 from apps.alerts.drivers.base import ParsedAlert
 from apps.alerts.forms import ADD_SECTION_FIELD, NodePolicyForm
 from apps.alerts.identity import local_instance_id
@@ -969,10 +970,12 @@ class NodeChangelistPolicyLinkTests(TestCase):
         self.assertIn(reverse("admin:policy-overview"), self._body())
 
     def test_the_object_action_buttons_survive_the_override(self):
-        # NodeAdmin declares no changelist_actions today, so borrow one: without
-        # block.super the override replaces the django_object_actions buttons
-        # instead of joining them, and nothing else would catch that.
-        with mock.patch.object(self.model_admin, "changelist_actions", ["reevaluate_open_alerts"]):
+        actions = [*self.model_admin.changelist_actions, "policy_link_probe"]
+        with (
+            mock.patch.object(
+                NodeAdmin, "policy_link_probe", lambda self, request, queryset: None, create=True
+            ),
+            mock.patch.object(self.model_admin, "changelist_actions", actions),
+        ):
             body = self._body()
-        self.assertIn('data-tool-name="reevaluate_open_alerts"', body)
-        self.assertIn(reverse("admin:policy-overview"), body)
+        self.assertIn('data-tool-name="policy_link_probe"', body)
