@@ -160,6 +160,12 @@ dashes, and it is what tells anyone that a preserved config key is dead.
       </tbody>
     </table>
   </div>
+  {% for section in node_policy.sections %}{% if section.editor_note %}
+  <p style="color:#b26a00;">
+    &#9888; {{ section.title }} is scoring as stored, but {{ section.editor_note }}
+    Retyping it in the boxes below means changing it.
+  </p>
+  {% endif %}{% endfor %}
   {% else %}
   <p>No checker on this node has a value the scorers can use yet.</p>
   {% endif %}

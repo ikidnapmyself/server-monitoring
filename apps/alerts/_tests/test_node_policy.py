@@ -456,6 +456,25 @@ class SectionSelectionTests(TestCase):
         self.assertEqual(_reported_checkers(node), set())
         self.assertEqual(sections_for(node), [])
 
+    def test_a_second_call_for_the_same_node_reuses_the_first_answer(self):
+        # get_fieldsets and the form's __init__ both ask, once per change-page
+        # render, and the peer branch cannot distinct in the database.
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self._peer_alert(node, "cpu")
+        with self.assertNumQueries(1):
+            first = sections_for(node)
+            second = sections_for(node)
+        self.assertEqual(first, ["cpu"])
+        self.assertEqual(second, ["cpu"])
+
+    def test_a_different_instance_of_the_same_row_asks_again(self):
+        # The memo rides the instance, not the row, so a fresh read is fresh.
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self._peer_alert(node, "cpu")
+        self.assertEqual(sections_for(node), ["cpu"])
+        self._peer_alert(node, "disk", fingerprint="check:web-03:disk")
+        self.assertEqual(sections_for(Node.objects.get(pk=node.pk)), ["cpu", "disk"])
+
 
 class EffectivePolicyTests(TestCase):
     """What is actually scored, and what nothing reads.
@@ -643,6 +662,35 @@ class EffectivePolicyTests(TestCase):
         )
         self.assertEqual(policy.sections[0].title, "listening ports")
 
+    def test_a_port_the_runtime_scores_but_the_editor_would_refuse_says_so(self):
+        # The editor rejects a port outside 1-65535; _int_set coerces it happily,
+        # so this really is in effect. The panel says both, or the asymmetry is
+        # only discoverable by trying to save.
+        policy = build_effective_policy(self._node({"listening_ports": {"allowlist": [70000]}}))
+        self.assertEqual([s.checker for s in policy.sections], ["listening_ports"])
+        self.assertIn("70000", policy.sections[0].editor_note)
+
+    def test_a_float_port_the_runtime_scores_carries_the_same_note(self):
+        policy = build_effective_policy(self._node({"listening_ports": {"allowlist": [22.5]}}))
+        self.assertEqual([s.checker for s in policy.sections], ["listening_ports"])
+        self.assertIn("22.5", policy.sections[0].editor_note)
+
+    def test_a_policy_the_editor_accepts_carries_no_note(self):
+        policy = build_effective_policy(self._node({"listening_ports": {"allowlist": [22, 80]}}))
+        self.assertEqual(policy.sections[0].editor_note, "")
+
+    def test_thresholds_never_carry_a_note(self):
+        # FloatField takes any number the scorers take, so there is no asymmetry
+        # to explain on a numeric section.
+        policy = build_effective_policy(
+            self._node({"cpu": {"warning_threshold": 80, "critical_threshold": 95}})
+        )
+        self.assertEqual(policy.sections[0].editor_note, "")
+
+    def test_an_empty_allowlist_carries_no_note(self):
+        policy = build_effective_policy(self._node({"listening_ports": {"allowlist": []}}))
+        self.assertEqual(policy.sections[0].editor_note, "")
+
 
 class ScoringChangedTests(TestCase):
     """Whether a saved config changed anything a scorer would read.
@@ -710,3 +758,26 @@ class ScoringChangedTests(TestCase):
 
     def test_a_non_dict_entry_is_not_a_policy(self):
         self.assertFalse(scoring_changed({"cpu": "90"}, {"cpu": "95"}))
+
+    def test_repairing_a_boolean_threshold_is_a_change(self):
+        # True == 1.0 in Python, so a plain dict compare called this "nothing
+        # changed" at the exact moment the policy started scoring for the first
+        # time. The scorers reject a bool and accept the float.
+        self.assertTrue(
+            scoring_changed(
+                {"cpu": {"warning_threshold": True, "critical_threshold": 95}},
+                {"cpu": {"warning_threshold": 1.0, "critical_threshold": 95}},
+            )
+        )
+
+    def test_a_boolean_threshold_left_alone_is_not_a_change(self):
+        config = {"cpu": {"warning_threshold": True, "critical_threshold": 95}}
+        self.assertFalse(scoring_changed(config, dict(config)))
+
+    def test_a_boolean_inside_an_allowlist_is_not_the_port_beside_it(self):
+        self.assertTrue(
+            scoring_changed(
+                {"listening_ports": {"allowlist": [True, 80]}},
+                {"listening_ports": {"allowlist": [1, 80]}},
+            )
+        )

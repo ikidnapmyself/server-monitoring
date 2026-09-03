@@ -253,7 +253,24 @@ and the form is `NodePolicyForm` in `apps/alerts/forms.py`.
   accepted price, because the alternative was deleting a policy the operator never touched.
 - **Saving a scoring-relevant change redirects to the re-evaluate preview**
   (`scoring_changed` decides), because a saved policy nobody re-evaluates does nothing to
-  alerts already open.
+  alerts already open. `scoring_changed` compares through `_comparable`, which keys a bool
+  apart from the number it equals in Python: `True == 1.0`, and the two are opposite
+  verdicts to `_number`, so repairing a boolean threshold has to read as a change.
+- **A save that only opened a section lands back on that node's boxes**, not the changelist.
+  It scores nothing, so it can never take the preview branch, and "show me those boxes" is
+  the whole content of the request. A save that does both goes to the preview.
+- **The editor is stricter than the runtime, and says so.** `clean_int_list` rejects a port
+  outside 1-65535 or one that is not whole; `_int_set` coerces both. A stored value that
+  scores but the boxes would refuse carries `PolicySection.editor_note`, rendered under
+  "Policy in effect". Strictness only ever runs in that direction: the editor never accepts
+  what the runtime would ignore.
+- **The reported-checker scan is memoised on the `Node` instance.** Rendering the change
+  page asks twice, from `NodeAdmin.get_fieldsets` and from `NodePolicyForm.__init__`, and
+  the peer branch cannot `distinct` in the database because the checker label lives inside a
+  JSON blob. The memo sits on `_reported_checkers`, not on `sections_for`: what a node
+  reports is not something the admin can edit, while `form.save` rewrites `node.config` on
+  the very instance `sections_for` was already asked about. It rides the instance, never a
+  module-level cache: a `ModelAdmin` is one shared object serving every request.
 
 ## App layout rules (required)
 
