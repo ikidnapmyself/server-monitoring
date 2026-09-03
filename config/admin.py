@@ -7,6 +7,7 @@ from django.shortcuts import render
 from django.urls import path
 from django.utils.text import slugify
 
+from apps.alerts.models import Node
 from apps.alerts.policy_overview import build_policy_overview
 from config.dashboard import get_dashboard_context
 from config.netmap import get_map_context
@@ -56,9 +57,9 @@ class MonitoringAdminSite(AdminSite):
 
     def policy_view(self, request):
         """Every node's hub-side policy in one table."""
-        # admin_view only asks for staff. This page prints the same facts the Node change
-        # page shows a viewer, so it asks for the same permission.
-        if not request.user.has_perm("alerts.view_node"):
+        # admin_view only asks for staff. This page prints the same facts a node page
+        # shows, so NodeAdmin decides, which keeps view-or-change parity with it.
+        if not self._registry[Node].has_view_permission(request):
             raise PermissionDenied
         context = {
             **self.each_context(request),

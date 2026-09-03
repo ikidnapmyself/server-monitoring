@@ -61,7 +61,9 @@ def _edit_url(checker: str, node_url: str) -> str:
 
     The anchor is the first box rather than the section heading because the
     admin's fieldset template carries no id of its own, while ``field_name``
-    plus Django's ``id_`` prefix gives every policy input a stable one.
+    plus Django's ``id_`` prefix gives every policy input a stable one. A checker
+    name reaches the fragment only after matching a ``FIELD_SPECS`` key, so a
+    name off a webhook never lands in the URL.
     """
     spec = spec_for(checker)
     if not spec:
@@ -171,7 +173,7 @@ def build_policy_overview() -> PolicyOverview:
                 hostname=node.hostname,
                 node_url=_node_url(node),
                 rows=rows,
-                has_problem=any(row.status != IN_EFFECT for row in rows),
+                has_problem=any(row.is_problem for row in rows),
             )
         )
     groups.sort(key=lambda group: (not group.has_problem, group.instance_id))

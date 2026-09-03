@@ -54,12 +54,15 @@ autoescaping here must stay on.
     </div>
   </div>
   {% endfor %}
+  {% if overview.quiet_count %}
+  {% with n=overview.quiet_count %}
+  <p style="color:var(--body-quiet-color, #666);">
+    {{ n }} other node{{ n|pluralize }} {{ n|pluralize:"has,have" }} no hub-side policy.
+  </p>
+  {% endwith %}
+  {% endif %}
   {% else %}
   <p>No node on this hub overrides anything, so every alert scores as it arrives.</p>
-  {% endif %}
-
-  {% if overview.quiet_count %}
-  <p style="color:var(--body-quiet-color, #666);">{{ overview.quiet_count }} other node{{ overview.quiet_count|pluralize }} {{ overview.quiet_count|pluralize:"has,have" }} no hub-side policy.</p>
   {% endif %}
 </div>
 {% endblock %}

@@ -25,6 +25,13 @@ def test_staff_without_view_node_is_refused(client):
     assert client.get(reverse("admin:policy-overview")).status_code == 403
 
 
+def test_staff_with_only_change_node_gets_the_page(client):
+    user = get_user_model().objects.create_user(username="editor", password="pw", is_staff=True)
+    user.user_permissions.add(Permission.objects.get(codename="change_node"))
+    client.force_login(user)
+    assert client.get(reverse("admin:policy-overview")).status_code == 200
+
+
 def test_staff_with_view_node_gets_the_page(client):
     user = get_user_model().objects.create_user(username="viewer", password="pw", is_staff=True)
     user.user_permissions.add(Permission.objects.get(codename="view_node"))
@@ -43,6 +50,8 @@ def test_a_configured_node_renders_its_row_and_an_edit_link(admin_client):
     assert "fiyat-ekrani" in body
     assert "Warning at 90, Critical at 99" in body
     assert f"/admin/alerts/node/{node.pk}/change/#id_policy__cpu__warning_threshold" in body
+    assert "#28a745" in body
+    assert "#b26a00" not in body
 
 
 def test_a_broken_policy_shows_its_reason(admin_client):
@@ -50,18 +59,36 @@ def test_a_broken_policy_shows_its_reason(admin_client):
     body = admin_client.get(reverse("admin:policy-overview")).content.decode()
     assert "Saved but not scoring" in body
     assert "Set a critical threshold too, or clear both." in body
+    assert "#b26a00" in body
+    assert "#28a745" not in body
 
 
-def test_nodes_with_no_policy_are_counted(admin_client):
+def test_one_node_with_no_policy_is_counted(admin_client):
     Node.objects.create(instance_id="a", config={"cpu": {"warning_threshold": 1}})
     Node.objects.create(instance_id="b", config={})
     body = admin_client.get(reverse("admin:policy-overview")).content.decode()
     assert "1 other node has no hub-side policy" in body
 
 
+def test_several_nodes_with_no_policy_are_counted(admin_client):
+    Node.objects.create(instance_id="a", config={"cpu": {"warning_threshold": 1}})
+    Node.objects.create(instance_id="b", config={})
+    Node.objects.create(instance_id="c", config={})
+    body = admin_client.get(reverse("admin:policy-overview")).content.decode()
+    assert "2 other nodes have no hub-side policy" in body
+
+
 def test_an_unconfigured_hub_says_so(admin_client):
     body = admin_client.get(reverse("admin:policy-overview")).content.decode()
     assert "No node on this hub overrides anything" in body
+
+
+def test_a_hub_of_quiet_nodes_counts_them_without_calling_them_other(admin_client):
+    Node.objects.create(instance_id="a", config={})
+    Node.objects.create(instance_id="b", config={})
+    body = admin_client.get(reverse("admin:policy-overview")).content.decode()
+    assert "No node on this hub overrides anything" in body
+    assert "other node" not in body
 
 
 def test_a_hostname_is_escaped(admin_client):
@@ -74,3 +101,5 @@ def test_a_hostname_is_escaped(admin_client):
     body = admin_client.get(reverse("admin:policy-overview")).content.decode()
     assert "<script>x</script>" not in body
     assert "&lt;script&gt;" in body
+    assert "<b>y</b>" not in body
+    assert "&lt;b&gt;y&lt;/b&gt;" in body
