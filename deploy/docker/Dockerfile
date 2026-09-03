@@ -1,5 +1,6 @@
 # --- Builder stage ---
-FROM python:3.12-slim AS builder
+# Keep this base in sync with .python-version and `requires-python` in pyproject.toml.
+FROM python:3.10-slim AS builder
 
 WORKDIR /app
 
@@ -15,7 +16,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --extra prod --no-install-project
 
 # --- Runtime stage ---
-FROM python:3.12-slim
+FROM python:3.10-slim
 
 WORKDIR /app
 
@@ -36,10 +37,13 @@ ENV PYTHONUNBUFFERED=1
 ENV DJANGO_SETTINGS_MODULE=config.settings
 ENV DATABASE_PATH=/app/data/db.sqlite3
 
+# Container PaaS platforms (Render, Fly, Coolify, Dokku, CapRover) inject the port to
+# bind as $PORT. Default to 8000 so plain `docker run` and Compose keep working.
+ENV PORT=8000
 EXPOSE 8000
 
 # Run as non-root user
 USER appuser
 
 # collectstatic + migrate run at startup (requires DJANGO_SECRET_KEY from env)
-CMD ["sh", "-c", "python manage.py collectstatic --noinput && python manage.py migrate --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers ${WEB_CONCURRENCY:-3}"]
+CMD ["sh", "-c", "python manage.py collectstatic --noinput && python manage.py migrate --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers ${WEB_CONCURRENCY:-3}"]
