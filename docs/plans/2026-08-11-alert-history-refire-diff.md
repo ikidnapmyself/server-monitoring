@@ -1,3 +1,8 @@
+---
+title: "2026-08-11 Alert History Re-fire Diff Implementation Plan"
+parent: Plans
+---
+
 # Alert History Re-fire Diff Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

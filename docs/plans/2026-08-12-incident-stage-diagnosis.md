@@ -1,3 +1,8 @@
+---
+title: "2026-08-12 Incident Stage Diagnosis Implementation Plan"
+parent: Plans
+---
+
 # Incident Stage Diagnosis Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
