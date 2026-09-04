@@ -3,6 +3,7 @@ title: "Hub-side policy overview page implementation plan"
 parent: Plans
 ---
 
+{% raw %}
 # Hub-side policy overview page Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
@@ -850,3 +851,5 @@ Never push to main. The PR body should link both plan documents.
 - **`_tests` mirrors source.** `apps/alerts/policy_overview.py` →
   `apps/alerts/_tests/test_policy_overview.py`; the view lives on the admin site, so
   its test lives under `config/_tests/`.
+
+{% endraw %}
