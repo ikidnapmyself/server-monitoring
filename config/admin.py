@@ -2,10 +2,13 @@
 
 from django.contrib import admin, messages
 from django.contrib.admin import AdminSite
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import render
 from django.urls import path
 from django.utils.text import slugify
 
+from apps.alerts.models import Node
+from apps.alerts.policy_overview import build_policy_overview
 from config.dashboard import get_dashboard_context
 from config.netmap import get_map_context
 
@@ -44,12 +47,26 @@ class MonitoringAdminSite(AdminSite):
     def get_urls(self):
         custom = [
             path("map/", self.admin_view(self.map_view), name="netmap"),
+            path("policy/", self.admin_view(self.policy_view), name="policy-overview"),
         ]
         return custom + super().get_urls()
 
     def map_view(self, request):
         context = {**self.each_context(request), **get_map_context(), "title": "Network map"}
         return render(request, "admin/map.html", context)
+
+    def policy_view(self, request):
+        """Every node's hub-side policy in one table."""
+        # admin_view only asks for staff. This page prints the same facts a node page
+        # shows, so NodeAdmin decides, which keeps view-or-change parity with it.
+        if not self._registry[Node].has_view_permission(request):
+            raise PermissionDenied
+        context = {
+            **self.each_context(request),
+            "overview": build_policy_overview(),
+            "title": "Hub-side policy",
+        }
+        return render(request, "admin/policy_overview.html", context)
 
     def index(self, request, extra_context=None):
         extra_context = extra_context or {}

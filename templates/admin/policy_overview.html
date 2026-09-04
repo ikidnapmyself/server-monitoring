@@ -1,0 +1,72 @@
+{% extends "admin/base_site.html" %}
+{% comment %}
+instance_id, hostname and checker names all arrive over a webhook, so the
+autoescaping here must stay on.
+{% endcomment %}
+
+{% block content %}
+<div id="policy-overview">
+  <p style="color:var(--body-quiet-color, #666); font-size:13px; margin:4px 0 16px;">
+    Re-evaluation is fail-open, so an override the scorers cannot use looks exactly
+    like no override. Anything not marked "In effect" is changing no severity.
+  </p>
+
+  {% if overview.groups %}
+  {% for group in overview.groups %}
+  <div class="module" style="margin-bottom:16px; padding:12px 16px;">
+    <h2 style="margin-top:0;">
+      <a href="{{ group.node_url }}">{{ group.instance_id }}</a>
+      {% if group.hostname %}
+      <span style="font-weight:normal; font-size:13px;">{{ group.hostname }}</span>
+      {% endif %}
+    </h2>
+    <div style="overflow-x:auto;">
+      <table style="width:100%; border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="text-align:left;">Checker</th>
+            <th style="text-align:left;">Policy</th>
+            <th style="text-align:left;">Status</th>
+            <th style="text-align:left;">Why</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in group.rows %}
+          <tr>
+            <td>{{ row.checker }}</td>
+            <td>{{ row.policy }}</td>
+            <td>
+              {% if row.is_problem %}
+              <span style="background-color:#b26a00; color:#fff; padding:2px 8px;
+                           border-radius:10px; font-size:12px;">{{ row.status }}</span>
+              {% else %}
+              <span style="background-color:#28a745; color:#fff; padding:2px 8px;
+                           border-radius:10px; font-size:12px;">{{ row.status }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if row.caution %}
+              <span style="color:#b26a00;">&#9888; {{ row.why }}</span>
+              {% else %}{{ row.why }}{% endif %}
+            </td>
+            <td style="text-align:right;"><a href="{{ row.edit_url }}">Edit</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+  {% if overview.quiet_count %}
+  {% with n=overview.quiet_count %}
+  <p style="color:var(--body-quiet-color, #666);">
+    {{ n }} other node{{ n|pluralize }} {{ n|pluralize:"has,have" }} no hub-side policy.
+  </p>
+  {% endwith %}
+  {% endif %}
+  {% else %}
+  <p>No node on this hub overrides anything, so every alert scores as it arrives.</p>
+  {% endif %}
+</div>
+{% endblock %}

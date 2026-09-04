@@ -697,6 +697,7 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
     ]
     form = NodePolicyForm
     change_form_template = "admin/alerts/node/change_form.html"
+    change_list_template = "admin/alerts/node/change_list.html"
 
     def get_form(self, request, obj=None, change=False, **kwargs):
         """Let the form own its field list.

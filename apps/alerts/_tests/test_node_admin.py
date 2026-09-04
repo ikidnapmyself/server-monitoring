@@ -12,6 +12,7 @@ from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.alerts.admin import NodeAdmin
 from apps.alerts.drivers.base import ParsedAlert
 from apps.alerts.forms import ADD_SECTION_FIELD, NodePolicyForm
 from apps.alerts.identity import local_instance_id
@@ -952,3 +953,29 @@ class NodePolicyRenderCostTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "cpu policy")
         self.assertEqual(scan.call_count, 1)
+
+
+class NodeChangelistPolicyLinkTests(TestCase):
+    def setUp(self):
+        user = get_user_model().objects.create_superuser(
+            username="su", email="su@example.com", password="pw"
+        )
+        self.client.force_login(user)
+        self.model_admin = admin.site._registry[Node]
+
+    def _body(self):
+        return self.client.get(reverse("admin:alerts_node_changelist")).content.decode()
+
+    def test_the_changelist_offers_the_policy_overview(self):
+        self.assertIn(reverse("admin:policy-overview"), self._body())
+
+    def test_the_object_action_buttons_survive_the_override(self):
+        actions = [*self.model_admin.changelist_actions, "policy_link_probe"]
+        with (
+            mock.patch.object(
+                NodeAdmin, "policy_link_probe", lambda self, request, queryset: None, create=True
+            ),
+            mock.patch.object(self.model_admin, "changelist_actions", actions),
+        ):
+            body = self._body()
+        self.assertIn('data-tool-name="policy_link_probe"', body)
