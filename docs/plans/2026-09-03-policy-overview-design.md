@@ -58,11 +58,11 @@ One row per node and checker that has any config entry.
 | Node | Checker | Policy | Status | Why |
 |---|---|---|---|---|
 | fiyat-ekrani | cpu | Warning at 99, Critical at 99 | In effect | |
-| fiyat-ekrani | memory | Warning at 90 | Not scoring | Set a critical threshold too, or clear both. |
+| fiyat-ekrani | memory | Warning at 90 | Saved but not scoring | Set a critical threshold too, or clear both. |
 | hub | network | (none) | Not honoured | Nothing reads `network`. |
 
 The three statuses are the three lists `build_effective_policy` already returns:
-`sections` is *In effect*, `inactive` is *Not scoring*, `unread` is
+`sections` is *In effect*, `inactive` is *Saved but not scoring*, `unread` is
 *Not honoured*.
 
 A checker can produce both a scoring section and leftover keys nothing reads.
@@ -94,7 +94,7 @@ page with no fragment.
 
 ## Ordering
 
-Nodes holding any *Not scoring* or *Not honoured* row sort first, then
+Nodes holding any *Saved but not scoring* or *Not honoured* row sort first, then
 alphabetically by `instance_id`. Rows inside a node sort by checker name.
 
 Nodes with no config at all get no rows. They are counted in one line at the
