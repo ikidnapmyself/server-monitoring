@@ -59,7 +59,7 @@ One row per node and checker that has any config entry.
 |---|---|---|---|---|
 | fiyat-ekrani | cpu | Warning at 99, Critical at 99 | In effect | |
 | fiyat-ekrani | memory | Warning at 90 | Not scoring | Set a critical threshold too, or clear both. |
-| hub | disk_temp | (none) | Not honoured | No scorer reads `disk_temp`. |
+| hub | network | (none) | Not honoured | Nothing reads `network`. |
 
 The three statuses are the three lists `build_effective_policy` already returns:
 `sections` is *In effect*, `inactive` is *Not scoring*, `unread` is
