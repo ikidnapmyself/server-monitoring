@@ -47,9 +47,10 @@ Two ways in:
    same requirement the existing `change_form.html` documents: skipping it drops
    the action buttons from the page.
 
-The view is gated on the `alerts.view_node` permission rather than plain staff
-access. It is read-only, and it shows the same facts the Node page already shows
-to a viewer.
+Access is decided by `NodeAdmin.has_view_permission` rather than plain staff
+access or a raw `view_node` codename. Django reads that as view OR change, so
+anyone who can open a node's own page can open this one. It is read-only, and it
+shows the same facts that page already shows.
 
 ## What one row is
 
@@ -66,14 +67,30 @@ The three statuses are the three lists `build_effective_policy` already returns:
 *Not honoured*.
 
 A checker can produce both a scoring section and leftover keys nothing reads.
-That stays one row: the status is the worse of the two, and the ignored keys are
-named in the Why cell. The alternative, a second row for the same checker,
-reads as two decisions where an operator made one.
+That stays one row, badged with the worse status. *Saved but not scoring* wins
+over *Not honoured*, because a half-filled threshold pair is a decision an
+operator has to finish while a leftover key changes no severity. The alternative,
+a second row for the same checker, reads as two decisions where an operator made
+one.
 
-The Why cell carries, in order of precedence: `inactive_reason`, then
-`editor_note`, then the list of ignored keys. These are the panel's own
+The Why cell joins every sentence that applies: the section's `inactive_reason`,
+its `editor_note`, and what the unread keys mean. These are the node page's own
 sentences, reused rather than restated, so an operator meets the same wording
 wherever the problem appears.
+
+`build_effective_policy` files two different problems under one blank unread key:
+no scorer knows the checker at all, or a known checker holds something that is
+not a mapping. "Nothing reads cpu" is false in the second case, so the two get
+different sentences.
+
+### The cautioned row
+
+A section can score and still hold a value the admin boxes would refuse back.
+`{"listening_ports": {"allowlist": [70000]}}` is the case: the scorer coerces
+the port, the form's own validation rejects it. The node change page flags that
+in amber, so this page does too. The row keeps its green *In effect* badge,
+because it really is in effect, and its reason reads in amber instead. It does
+not count as a problem for sorting.
 
 An empty entry such as `{"cpu": {}}` is the marker that opens a section in the
 form. It scores nothing and holds nothing to ignore, so it produces no row, the
@@ -89,17 +106,21 @@ names, and Django prefixes them with `id_`. The fragment lands the operator on
 that checker's own boxes rather than at the top of a long page. Django's admin
 fieldset template carries no per-fieldset id, so the input is the anchor.
 
-A *Not honoured* row has no spec and therefore no boxes. It links to the change
-page with no fragment.
+A checker with no spec has no boxes on that page, so its row links there with
+no fragment. Having no spec is not the same as being *Not honoured*: a checker
+that does have boxes but holds a malformed entry is *Not honoured* and still
+keeps its fragment, because those boxes are exactly where it gets fixed.
 
 ## Ordering
 
 Nodes holding any *Saved but not scoring* or *Not honoured* row sort first, then
 alphabetically by `instance_id`. Rows inside a node sort by checker name.
 
-Nodes with no config at all get no rows. They are counted in one line at the
-bottom: "9 other nodes have no hub-side policy." A table of dashes would bury
-the rows that matter.
+Nodes with no config at all get no rows. They are counted in one line below the
+groups: "9 other nodes have no hub-side policy." A table of dashes would bury the
+rows that matter. That line sits inside the branch that prints the groups, so a
+hub where nothing is configured reads "No node on this hub overrides anything"
+and nothing else. "Other" needs something to be other than.
 
 ## Testing
 
@@ -108,7 +129,9 @@ effect, an inactive section, an unread-only checker, a checker that is both, the
 empty-entry marker, the problems-first ordering, the no-policy count, and no
 nodes at all.
 
-`apps/alerts/_tests/test_node_admin.py` gains coverage for the view rendering,
-the `alerts.view_node` gate, and the changelist button.
+`config/_tests/test_policy_overview_view.py` covers the page: the permission
+rules, the rendered rows and badges, the escaping, and the quiet-node count.
+`apps/alerts/_tests/test_node_admin.py` gains the changelist button, and
+`config/_tests/test_dashboard_render.py` the dashboard link.
 
 100% branch coverage on changed code, per `AGENTS.md`.
