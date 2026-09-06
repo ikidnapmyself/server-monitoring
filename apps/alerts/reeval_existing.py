@@ -10,7 +10,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 
 from apps.alerts.models import Alert, AlertHistory, Incident, IncidentStatus, Node
@@ -41,6 +41,37 @@ class ReevalReport:
     @property
     def severity_changed_count(self) -> int:
         return sum(1 for c in self.changes if c.new_status != "resolved")
+
+
+@dataclass(frozen=True)
+class ReevalScope:
+    """Which alerts one re-evaluation covers, and whose policy scores them.
+
+    Alerts are matched by their ``instance_id`` label rather than the ``node`` FK:
+    the FK is stamped only at alert creation (``resolve_node``), so an alert created
+    before its node registered is unlinked yet still belongs to the node.
+    """
+
+    node: Node | None
+    alerts: models.QuerySet
+
+    @classmethod
+    def for_node(cls, node: Node) -> "ReevalScope":
+        return cls(node=node, alerts=cls._open(node))
+
+    @classmethod
+    def for_checker(cls, node: Node, checker: str) -> "ReevalScope":
+        return cls(node=node, alerts=cls._open(node).filter(labels__checker=checker))
+
+    @classmethod
+    def for_alert(cls, alert: Alert) -> "ReevalScope":
+        instance_id = (alert.labels or {}).get("instance_id", "")
+        node = Node.objects.filter(instance_id=instance_id).first()
+        return cls(node=node, alerts=Alert.objects.filter(pk=alert.pk))
+
+    @staticmethod
+    def _open(node: Node) -> models.QuerySet:
+        return Alert.objects.filter(labels__instance_id=node.instance_id, status="firing")
 
 
 def _score_alert(alert: Alert, config: dict) -> tuple[str, str, float] | None:

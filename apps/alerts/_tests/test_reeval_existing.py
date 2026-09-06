@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from apps.alerts.models import Alert, AlertHistory, Incident, Node
 from apps.alerts.reeval_existing import (
+    ReevalScope,
     apply_node_alert_reeval,
     preview_node_alert_reeval,
 )
@@ -251,3 +252,77 @@ class ReevalExistingTests(TestCase):
         history = AlertHistory.objects.get(alert=a, event="reevaluated")
         self.assertEqual(history.details["severity_from"], "critical")
         self.assertEqual(history.details["severity_to"], "warning")
+
+
+class ReevalScopeTests(TestCase):
+    def setUp(self):
+        self.node = Node.objects.create(instance_id="web-03", config={})
+
+    def _alert(self, checker, status="firing"):
+        return Alert.objects.create(
+            fingerprint=f"{checker}-web-03",
+            source="cluster",
+            name=f"{checker} high",
+            severity="critical",
+            status=status,
+            started_at=timezone.now(),
+            node=self.node,
+            labels={"checker": checker, "instance_id": "web-03"},
+            annotations={"metrics": json.dumps({"cpu_percent": 95.0})},
+        )
+
+    def test_node_scope_covers_every_firing_alert(self):
+        self._alert("cpu")
+        self._alert("memory")
+        self._alert("disk", status="resolved")
+        scope = ReevalScope.for_node(self.node)
+        self.assertEqual(scope.alerts.count(), 2)
+
+    def test_checker_scope_narrows_to_one_checker(self):
+        self._alert("cpu")
+        self._alert("memory")
+        scope = ReevalScope.for_checker(self.node, "cpu")
+        self.assertEqual([a.labels["checker"] for a in scope.alerts], ["cpu"])
+
+    def test_alert_scope_is_exactly_one_alert(self):
+        alert = self._alert("cpu")
+        self._alert("memory")
+        scope = ReevalScope.for_alert(alert)
+        self.assertEqual([a.pk for a in scope.alerts], [alert.pk])
+        self.assertEqual(scope.node, self.node)
+
+    def test_alert_scope_finds_the_node_by_label_not_fk(self):
+        alert = self._alert("cpu")
+        alert.node = None
+        alert.save(update_fields=["node"])
+        scope = ReevalScope.for_alert(alert)
+        self.assertEqual(scope.node, self.node)
+
+    def test_the_checker_scopes_sum_to_the_node_scope(self):
+        self._alert("cpu")
+        self._alert("memory")
+        node_pks = {a.pk for a in ReevalScope.for_node(self.node).alerts}
+        summed = set()
+        for checker in ("cpu", "memory"):
+            summed |= {a.pk for a in ReevalScope.for_checker(self.node, checker).alerts}
+        self.assertEqual(node_pks, summed)
+
+    def test_node_scope_is_empty_when_nothing_is_firing(self):
+        self._alert("cpu", status="resolved")
+        self.assertEqual(list(ReevalScope.for_node(self.node).alerts), [])
+
+    def test_checker_scope_is_empty_for_a_checker_with_no_alerts(self):
+        self._alert("cpu")
+        self.assertEqual(list(ReevalScope.for_checker(self.node, "memory").alerts), [])
+
+    def test_alert_scope_has_no_node_when_the_label_names_an_unknown_node(self):
+        alert = self._alert("cpu")
+        alert.labels = {"checker": "cpu", "instance_id": "web-99"}
+        alert.save(update_fields=["labels"])
+        scope = ReevalScope.for_alert(alert)
+        self.assertIsNone(scope.node)
+        self.assertEqual([a.pk for a in scope.alerts], [alert.pk])
+
+    def test_alert_scope_keeps_a_resolved_alert(self):
+        alert = self._alert("cpu", status="resolved")
+        self.assertEqual([a.pk for a in ReevalScope.for_alert(alert).alerts], [alert.pk])
