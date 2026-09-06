@@ -29,19 +29,18 @@ from apps.alerts.models import (
     AlertStatus,
     Incident,
     IncidentStatus,
+    Node,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def resolve_node(labels: dict | None):
+def resolve_node(labels: dict | None) -> "Node | None":
     """Return the Node matching an ``instance_id`` label, or None.
 
     Only links to an already-registered node (``Node.upsert`` on the cluster push
     owns creation); a missing label or unknown node leaves the alert unlinked.
     """
-    from apps.alerts.models import Node
-
     instance_id = (labels or {}).get("instance_id")
     if not instance_id:
         return None

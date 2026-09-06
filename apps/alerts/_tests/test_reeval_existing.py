@@ -7,9 +7,11 @@ from apps.alerts.models import Alert, AlertHistory, Incident, Node
 from apps.alerts.reeval_existing import (
     ReevalScope,
     apply_node_alert_reeval,
+    apply_reeval,
     preview_node_alert_reeval,
+    preview_reeval,
 )
-from apps.alerts.reevaluation import parse_metrics
+from apps.alerts.reevaluation import SkipReason, parse_metrics
 
 
 class ReevalExistingTests(TestCase):
@@ -351,3 +353,172 @@ class ReevalScopeTests(TestCase):
         self.assertIsNone(ReevalScope.for_node(self.node).checker)
         self.assertIsNone(ReevalScope.for_alert(alert).checker)
         self.assertEqual(ReevalScope.for_checker(self.node, "cpu").checker, "cpu")
+
+
+class ReportSkipTests(TestCase):
+    def _node(self, cfg):
+        return Node.objects.create(instance_id="web-03", config=cfg)
+
+    def _alert(
+        self,
+        node,
+        checker="cpu",
+        value=95.0,
+        severity="critical",
+        status="firing",
+        metric="cpu_percent",
+        annotations=None,
+    ):
+        if annotations is None:
+            annotations = {"metrics": json.dumps({metric: value})}
+        return Alert.objects.create(
+            fingerprint=f"{checker}-web-03",
+            source="cluster",
+            name=f"{checker} high",
+            severity=severity,
+            status=status,
+            started_at=timezone.now(),
+            node=node,
+            labels={"checker": checker, "instance_id": "web-03"},
+            annotations=annotations,
+        )
+
+    def test_a_no_op_preview_explains_each_alert(self):
+        node = self._node({})
+        self._alert(node)
+        report = preview_reeval(ReevalScope.for_node(node))
+        self.assertEqual(report.changes, [])
+        self.assertEqual(len(report.skips), 1)
+        self.assertIn("No policy set for cpu on web-03.", report.skips[0].sentence)
+        self.assertEqual(report.skips[0].reason, SkipReason.NO_POLICY)
+
+    def test_an_unchanged_score_is_a_skip_not_a_silence(self):
+        node = self._node({"cpu": {"warning_threshold": 80, "critical_threshold": 90}})
+        self._alert(node, value=95.0)  # already critical + firing
+        report = preview_reeval(ReevalScope.for_node(node))
+        self.assertEqual(report.changes, [])
+        self.assertEqual(report.skips[0].reason, SkipReason.UNCHANGED)
+        self.assertEqual(
+            report.skips[0].sentence,
+            "Policy already matches: cpu is at 95.0, warning starts at 80.",
+        )
+
+    def test_a_checker_with_no_scorer_is_a_skip(self):
+        node = self._node({})
+        self._alert(node, checker="raid", annotations={})
+        report = preview_reeval(ReevalScope.for_node(node))
+        self.assertEqual(report.skips[0].reason, SkipReason.NO_SCORER)
+        self.assertIn("not re-evaluatable", report.skips[0].sentence)
+
+    def test_an_alert_with_no_readable_metrics_is_a_skip(self):
+        node = self._node({"cpu": {"warning_threshold": 80, "critical_threshold": 90}})
+        self._alert(node, annotations={})
+        report = preview_reeval(ReevalScope.for_node(node))
+        self.assertEqual(report.skips[0].reason, SkipReason.NO_METRICS)
+        self.assertIn("no readable metrics", report.skips[0].sentence)
+
+    def test_an_unchanged_allowlist_score_does_not_quote_a_threshold(self):
+        node = self._node({"listening_ports": {"allowlist": [22]}})
+        self._alert(
+            node,
+            checker="listening_ports",
+            severity="warning",
+            annotations={"metrics": json.dumps({"listening": [{"port": 9999, "exposed": True}]})},
+        )
+        report = preview_reeval(ReevalScope.for_node(node))
+        self.assertEqual(report.changes, [])
+        self.assertEqual(report.skips[0].reason, SkipReason.UNCHANGED_NO_THRESHOLD)
+        self.assertEqual(
+            report.skips[0].sentence,
+            "Policy already matches: the listening_ports policy on web-03 "
+            "scores this alert exactly as it stands.",
+        )
+        self.assertNotIn("None", report.skips[0].sentence)
+
+    def test_a_mixed_scope_populates_both_lists(self):
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        changing = self._alert(node, value=95.2)
+        skipping = self._alert(node, checker="memory", value=50.0, metric="memory_percent")
+        report = preview_reeval(ReevalScope.for_node(node))
+        self.assertEqual([c.alert.pk for c in report.changes], [changing.pk])
+        self.assertEqual([s.alert.pk for s in report.skips], [skipping.pk])
+        self.assertEqual(report.skips[0].reason, SkipReason.NO_POLICY)
+
+    def test_a_checker_scope_reports_only_that_checker(self):
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        cpu = self._alert(node, value=95.2)
+        self._alert(node, checker="memory", value=50.0, metric="memory_percent")
+        report = preview_reeval(ReevalScope.for_checker(node, "cpu"))
+        self.assertEqual([c.alert.pk for c in report.changes], [cpu.pk])
+        self.assertEqual(report.skips, [])
+
+    def test_an_alert_scope_re_fires_a_resolved_alert_the_policy_still_flags(self):
+        node = self._node({"cpu": {"warning_threshold": 80, "critical_threshold": 90}})
+        alert = self._alert(node, value=95.0, severity="info", status="resolved")
+        report = apply_reeval(ReevalScope.for_alert(alert))
+        self.assertEqual(report.severity_changed_count, 1)
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, "firing")
+        self.assertEqual(alert.severity, "critical")
+        self.assertIsNone(alert.ended_at)
+
+    def test_the_node_wide_function_delegates_to_the_node_scope(self):
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        self._alert(node, value=95.2)
+        self._alert(node, checker="memory", value=50.0, metric="memory_percent")
+        scoped = preview_reeval(ReevalScope.for_node(node))
+        wide = preview_node_alert_reeval(node)
+        self.assertEqual(
+            [(c.alert.pk, c.new_severity, c.new_status) for c in scoped.changes],
+            [(c.alert.pk, c.new_severity, c.new_status) for c in wide.changes],
+        )
+        self.assertEqual([s.alert.pk for s in scoped.skips], [s.alert.pk for s in wide.skips])
+        self.assertEqual(scoped.node, wide.node)
+
+    def test_the_audit_records_the_checker_the_operator_asked_for(self):
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        alert = self._alert(node, value=95.2)
+        apply_reeval(ReevalScope.for_checker(node, "cpu"))
+        alert.refresh_from_db()
+        audit = json.loads(alert.annotations["reevaluated_on_config_change"])
+        self.assertEqual(audit["requested_checker"], "cpu")
+
+    def test_a_node_wide_audit_records_no_requested_checker(self):
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        alert = self._alert(node, value=95.2)
+        apply_node_alert_reeval(node)
+        alert.refresh_from_db()
+        audit = json.loads(alert.annotations["reevaluated_on_config_change"])
+        self.assertIsNone(audit["requested_checker"])
+
+
+class UnregisteredNodeScopeTests(TestCase):
+    def setUp(self):
+        self.alert = Alert.objects.create(
+            fingerprint="cpu-web-99",
+            source="cluster",
+            name="cpu high",
+            severity="critical",
+            status="firing",
+            started_at=timezone.now(),
+            labels={"checker": "cpu", "instance_id": "web-99"},
+            annotations={"metrics": json.dumps({"cpu_percent": 95.0})},
+        )
+
+    def test_preview_reports_only_skips_and_names_the_unregistered_node(self):
+        scope = ReevalScope.for_alert(self.alert)
+        self.assertIsNone(scope.node)
+        report = preview_reeval(scope)
+        self.assertIsNone(report.node)
+        self.assertEqual(report.changes, [])
+        self.assertEqual(report.skips[0].sentence, "No policy set for cpu on web-99.")
+
+    def test_apply_writes_nothing(self):
+        report = apply_reeval(ReevalScope.for_alert(self.alert))
+        self.assertEqual(report.changes, [])
+        self.assertEqual(len(report.skips), 1)
+        self.alert.refresh_from_db()
+        self.assertEqual(self.alert.status, "firing")
+        self.assertEqual(self.alert.severity, "critical")
+        self.assertNotIn("reevaluated_on_config_change", self.alert.annotations)
+        self.assertFalse(AlertHistory.objects.exists())

@@ -31,6 +31,7 @@ __all__ = [
     "Skip",
     "SkipReason",
     "describe_skip",
+    "unchanged_skip",
 ]
 
 
@@ -50,6 +51,7 @@ class SkipReason(str, Enum):
     NO_METRICS = "no_metrics"
     NO_METRIC_VALUE = "no_metric_value"
     UNCHANGED = "unchanged"
+    UNCHANGED_NO_THRESHOLD = "unchanged_no_threshold"
 
 
 @dataclass(frozen=True)
@@ -101,6 +103,10 @@ _SKIP_SENTENCES: dict[SkipReason, str] = {
     SkipReason.UNCHANGED: (
         "Policy already matches: {checker} is at {value}, warning starts at {warning}."
     ),
+    SkipReason.UNCHANGED_NO_THRESHOLD: (
+        "Policy already matches: the {checker} policy on {instance_id} "
+        "scores this alert exactly as it stands."
+    ),
 }
 
 
@@ -128,6 +134,21 @@ PRIMARY_METRIC = {
     "cpu_temp": "hottest_c",
     "io_strain": "busiest_util_percent",
 }
+
+
+def unchanged_skip(checker: str, cfg: dict, verdict: Verdict) -> Skip:
+    """The skip for a re-score that agreed with what the alert already said.
+
+    Only a numeric checker has thresholds to quote. listening_ports scores against
+    an allowlist, so the threshold sentence would print "warning starts at None".
+    """
+    if checker in PRIMARY_METRIC:
+        return Skip(
+            SkipReason.UNCHANGED,
+            value=verdict.value,
+            warning=cfg.get("warning_threshold"),
+        )
+    return Skip(SkipReason.UNCHANGED_NO_THRESHOLD)
 
 
 def _metrics(parsed: ParsedAlert) -> dict | None:

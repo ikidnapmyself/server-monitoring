@@ -14,7 +14,16 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from apps.alerts.models import Alert, AlertHistory, Incident, IncidentStatus, Node
-from apps.alerts.reevaluation import SCORERS, Verdict, parse_metrics
+from apps.alerts.reevaluation import (
+    SCORERS,
+    Outcome,
+    Skip,
+    SkipReason,
+    Verdict,
+    describe_skip,
+    parse_metrics,
+    unchanged_skip,
+)
 from apps.alerts.services import resolve_node
 
 logger = logging.getLogger(__name__)
@@ -31,9 +40,17 @@ class AlertChange:
 
 
 @dataclass
+class AlertSkip:
+    alert: Alert
+    reason: SkipReason
+    sentence: str
+
+
+@dataclass
 class ReevalReport:
-    node: Node
+    node: Node | None
     changes: list[AlertChange] = field(default_factory=list)
+    skips: list[AlertSkip] = field(default_factory=list)
 
     @property
     def resolved_count(self) -> int:
@@ -82,54 +99,69 @@ class ReevalScope:
         return Alert.objects.filter(labels__instance_id=node.instance_id, status="firing")
 
 
-def _score_alert(alert: Alert, config: dict) -> tuple[str, str, float] | None:
+def _outcome_for(alert: Alert, config: dict) -> Outcome:
+    """Score one alert, or say why it cannot be scored."""
     checker = (alert.labels or {}).get("checker", "")
     scorer = SCORERS.get(checker)
     if scorer is None:
-        return None
-    cfg = (config or {}).get(checker)
+        return Skip(SkipReason.NO_SCORER, checker=checker)
     metrics = parse_metrics(alert.annotations)
     if metrics is None:
-        return None
-    outcome = scorer(checker, metrics, cfg)
-    if not isinstance(outcome, Verdict):
-        return None
-    return (outcome.severity, outcome.status, outcome.value)
+        return Skip(SkipReason.NO_METRICS, checker=checker)
+    return scorer(checker, metrics, (config or {}).get(checker))
 
 
-def preview_node_alert_reeval(node: Node) -> ReevalReport:
-    """Report which of the node's open alerts would change; no writes.
+def preview_reeval(scope: ReevalScope) -> ReevalReport:
+    """Report which alerts in ``scope`` would change, and why the rest would not.
 
-    Alerts are matched by their ``instance_id`` label, not the ``node`` FK: the FK
-    is stamped only at alert creation (``resolve_node``), so an alert created before
-    its node registered is unlinked yet still belongs to the node by label.
+    An alert the scope cannot score is a skip carrying its own sentence, never a
+    silence: the operator asked a question and is owed an answer for every row.
     """
-    report = ReevalReport(node=node)
-    open_alerts = Alert.objects.filter(labels__instance_id=node.instance_id, status="firing")
-    for alert in open_alerts:
-        outcome = _score_alert(alert, node.config)
-        if outcome is None:
-            continue
-        new_sev, new_status, value = outcome
-        if new_sev == alert.severity and new_status == alert.status:
-            continue
-        report.changes.append(
-            AlertChange(
+    report = ReevalReport(node=scope.node)
+    config = scope.node.config if scope.node else {}
+    for alert in scope.alerts:
+        labels = alert.labels or {}
+        checker = labels.get("checker", "")
+        # An unregistered node has no config to quote, so the label is the only name
+        # this alert's node has.
+        instance_id = scope.node.instance_id if scope.node else labels.get("instance_id", "")
+        outcome = _outcome_for(alert, config)
+        if isinstance(outcome, Verdict):
+            if outcome.severity != alert.severity or outcome.status != alert.status:
+                report.changes.append(
+                    AlertChange(
+                        alert=alert,
+                        old_severity=alert.severity,
+                        old_status=alert.status,
+                        new_severity=outcome.severity,
+                        new_status=outcome.status,
+                        value=outcome.value,
+                    )
+                )
+                continue
+            outcome = unchanged_skip(checker, (config or {}).get(checker) or {}, outcome)
+        report.skips.append(
+            AlertSkip(
                 alert=alert,
-                old_severity=alert.severity,
-                old_status=alert.status,
-                new_severity=new_sev,
-                new_status=new_status,
-                value=value,
+                reason=outcome.reason,
+                sentence=describe_skip(outcome, checker=checker, instance_id=instance_id),
             )
         )
     return report
 
 
+def preview_node_alert_reeval(node: Node) -> ReevalReport:
+    """Every open alert on ``node``; kept for the Node admin button and the command."""
+    return preview_reeval(ReevalScope.for_node(node))
+
+
 @transaction.atomic
-def apply_node_alert_reeval(node: Node) -> ReevalReport:
+def apply_reeval(scope: ReevalScope) -> ReevalReport:
     """Apply the re-score: update alerts, history, audit, and incidents."""
-    report = preview_node_alert_reeval(node)
+    report = preview_reeval(scope)
+    node = scope.node
+    if node is None:
+        return report
     for change in report.changes:
         alert = change.alert
         alert.severity = change.new_severity
@@ -151,6 +183,7 @@ def apply_node_alert_reeval(node: Node) -> ReevalReport:
                 "value": change.value,
                 "thresholds": (node.config or {}).get(checker, {}),
                 "checker": checker,
+                "requested_checker": scope.checker,
                 "by": "hub-node-policy:config-change",
                 "at": timezone.now().isoformat(),
             }
@@ -178,6 +211,11 @@ def apply_node_alert_reeval(node: Node) -> ReevalReport:
             report.severity_changed_count,
         )
     return report
+
+
+def apply_node_alert_reeval(node: Node) -> ReevalReport:
+    """Apply across every open alert on ``node``; kept for the admin button and the command."""
+    return apply_reeval(ReevalScope.for_node(node))
 
 
 def _resolve_incidents_for(node: Node) -> None:
