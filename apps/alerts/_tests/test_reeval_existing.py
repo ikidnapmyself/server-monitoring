@@ -736,3 +736,27 @@ class ReevalAnnounceTests(TestCase):
         run = PipelineRun.objects.get()
         self.assertEqual(run.source, "")
         self.assertIsNone(run.node)
+
+
+class MalformedNodeConfigTests(TestCase):
+    """``Node.config`` is never validated at ingest, so it can hold anything."""
+
+    def test_a_config_that_is_not_a_mapping_is_a_malformed_policy_skip(self):
+        node = Node.objects.create(instance_id="web-03", config="not a dict")
+        Alert.objects.create(
+            fingerprint="cpu-web-03",
+            source="cluster",
+            name="cpu high",
+            severity="critical",
+            status="firing",
+            started_at=timezone.now(),
+            node=node,
+            labels={"checker": "cpu", "instance_id": "web-03"},
+            annotations={"metrics": json.dumps({"cpu_percent": 95.2})},
+        )
+
+        report = preview_node_alert_reeval(node)
+
+        self.assertEqual(report.changes, [])
+        (skip,) = report.skips
+        self.assertEqual(skip.reason, SkipReason.MALFORMED_POLICY)

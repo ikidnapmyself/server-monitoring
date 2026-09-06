@@ -121,7 +121,19 @@ class ReevalScope:
         return Alert.objects.filter(labels__instance_id=node.instance_id, status="firing")
 
 
-def _outcome_for(alert: Alert, config: dict) -> Outcome:
+def _policy_for(config, checker: str):
+    """This checker's slice of a node's config, or the config itself if it is not a mapping.
+
+    A ``Node.config`` that is not a mapping is handed to the scorer unchanged so its
+    own contract answers with ``MALFORMED_POLICY``. Reading a key off it here would
+    raise instead, and take the whole policy page down with it.
+    """
+    if isinstance(config, dict):
+        return config.get(checker)
+    return config
+
+
+def _outcome_for(alert: Alert, config) -> Outcome:
     """Score one alert, or say why it will not be re-scored.
 
     A score matching what the alert already says is a skip, not a verdict, so the
@@ -134,7 +146,7 @@ def _outcome_for(alert: Alert, config: dict) -> Outcome:
     metrics = parse_metrics(alert.annotations)
     if metrics is None:
         return Skip(SkipReason.NO_METRICS, checker=checker)
-    cfg = (config or {}).get(checker)
+    cfg = _policy_for(config, checker)
     outcome = scorer(checker, metrics, cfg)
     if isinstance(outcome, Verdict) and (
         outcome.severity == alert.severity and outcome.status == alert.status
@@ -220,7 +232,7 @@ def apply_reeval(scope: ReevalScope) -> ReevalReport:
                 "status_from": change.old_status,
                 "status_to": change.new_status,
                 "value": change.value,
-                "thresholds": (node.config or {}).get(checker, {}),
+                "thresholds": _policy_for(node.config, checker) or {},
                 "checker": checker,
                 "requested_checker": scope.checker,
                 "by": "hub-node-policy:config-change",

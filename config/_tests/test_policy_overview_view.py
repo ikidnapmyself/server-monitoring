@@ -184,3 +184,18 @@ def test_an_unscorable_firing_checker_offers_no_re_evaluate_button(admin_client)
     body = admin_client.get(reverse("admin:policy-overview")).content.decode()
     assert "Not re-evaluatable" in body
     assert ">Re-evaluate</a>" not in body
+
+
+def test_a_node_whose_whole_config_is_not_a_mapping_still_renders(admin_client):
+    """The page scores every firing alert, including one on a node with junk config.
+
+    Reading a checker key off a config that is not a mapping used to raise, so one
+    bad row took the whole page (and the confirm action behind it) down with it.
+    """
+    Node.objects.create(instance_id="a", config="not a dict")
+    alert = _firing("a", "cpu")
+    alert.annotations = {"metrics": json.dumps({"cpu_percent": 42.0})}
+    alert.save()
+    response = admin_client.get(reverse("admin:policy-overview"))
+    assert response.status_code == 200
+    assert "1 firing, none would change" in response.content.decode()
