@@ -977,6 +977,10 @@ sentence and a skip sentence.
 - Add a `run_count` property to `ReevalReport`: the number of distinct incidents its
   changes touch.
 - Add a Value column note and a `Reported` column rendering `change.alert.received_at`.
+- **Round the printed value.** `Verdict.value` is a raw float, so a CPU reading can
+  render as `41.199999999999996`. Decide the precision once, here, and use it wherever
+  a value or a threshold is printed: this template, the skip sentences, the Alert
+  page's audit panel, and the overview page's columns.
 - Add a skips table below the changes table, headed so it reads as an explanation
   rather than a second list of actions.
 - Replace the bare `self.message_user(request, "No open alerts need re-evaluation.")`
