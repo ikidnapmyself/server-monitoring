@@ -809,9 +809,20 @@ def apply_node_alert_reeval(node: Node) -> ReevalReport:
     return apply_reeval(ReevalScope.for_node(node))
 ```
 
-`_resolve_incidents_for` still takes the node. Guard `apply_reeval` against
-`scope.node is None`: with no node there is no config, so `preview_reeval` returns only
-skips and the apply is a no-op — assert that rather than special-casing it.
+`_resolve_incidents_for` still takes the node. `scope.node` is `Node | None`, and that
+None is reachable from real data: an alert whose `instance_id` label names a node that
+was deleted or never registered. Write an explicit refusal branch. Do NOT reach for a
+`cast` or a `# type: ignore`.
+
+**Annotate `resolve_node` first.** `apps/alerts/services.py:37` has no return type, so
+mypy infers `Any` and will not flag `scope.node.config` for you. Add `-> "Node | None"`
+so the type checker enforces the refusal rather than leaving it to memory. That is a
+one-line change and it is the reason the honest annotation on `ReevalScope.node` was
+worth having.
+
+`ReevalScope.checker` records what the operator asked for. The audit annotation should
+say that, not just what was found: a checker scope matching nothing is otherwise
+indistinguishable from a node scope on a quiet node.
 
 **Step 4: Run** `uv run pytest apps/alerts/ -v` → PASS, including the existing
 `ReevalExistingTests`, which must not need edits.
