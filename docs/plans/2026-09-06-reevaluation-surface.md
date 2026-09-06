@@ -47,9 +47,13 @@ there, which is not yet merged). Do not use a git worktree.
   `uv run coverage run -m pytest && uv run coverage report`.
 - Commit after every task. Pre-commit runs the full test suite, so commits take a
   couple of minutes. That is expected.
-- **`SkipReason` is `str, Enum`, not `StrEnum`** (Python 3.10). So `str(member)` gives
-  `"SkipReason.NO_METRICS"`, not `"no_metrics"`. Any sentence or template that needs the
-  value must say `.value` explicitly. Never interpolate a member bare into an f-string.
+- **`SkipReason` is `str, Enum`, not `StrEnum`** (Python 3.10). An f-string is fine:
+  `__format__` comes from the `str` mixin, so `f"{SkipReason.NO_METRICS}"` gives
+  `"no_metrics"`. But `str(member)`, `"%s" % member` and a Django template `{{ member }}`
+  all give `"SkipReason.NO_METRICS"`. Say `.value` in those three places.
+- **Never use `dataclasses.replace` on a `Skip`.** Its constructor collects keyword
+  arguments into `context`, so `replace(skip, context={...})` nests one level and
+  silently produces the wrong object. Build a new `Skip` instead.
 
 ---
 
