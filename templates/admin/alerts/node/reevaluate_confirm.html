@@ -4,17 +4,14 @@
 <div class="breadcrumbs">
   <a href="{% url 'admin:index' %}">Home</a>
   &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
-  &rsaquo; <a href="{% url 'admin:alerts_node_changelist' %}">Nodes</a>
-  {% if node %}&rsaquo; <a href="{% url 'admin:alerts_node_change' node.pk %}">{{ node.instance_id }}</a>{% endif %}
+  {% if parent_url %}&rsaquo; <a href="{{ parent_url }}">{{ parent_label }}</a>{% endif %}
+  {% if subject_label %}&rsaquo; <a href="{{ back_url }}">{{ subject_label }}</a>{% endif %}
   &rsaquo; Re-evaluate
 </div>
 {% endblock %}
 
 {% block content %}
-<p>
-  Re-evaluate the open alerts for node
-  <strong>{{ node.instance_id }}</strong> against its current config.
-</p>
+<p>{{ intro }}</p>
 
 {% if report.changes %}
 <p>The following changes will be applied:</p>

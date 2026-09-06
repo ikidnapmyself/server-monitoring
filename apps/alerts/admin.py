@@ -37,7 +37,13 @@ from apps.alerts.node_policy import (
     sections_for,
     spec_for,
 )
-from apps.alerts.reeval_existing import apply_node_alert_reeval, preview_node_alert_reeval
+from apps.alerts.reeval_existing import (
+    ReevalScope,
+    apply_node_alert_reeval,
+    apply_reeval,
+    preview_node_alert_reeval,
+    preview_reeval,
+)
 from apps.alerts.services import IncidentManager, instance_key_from_labels
 from apps.alerts.timeline import build_incident_timeline
 from apps.orchestration.models import PipelineRun
@@ -110,9 +116,41 @@ class PipelineRunInline(admin.TabularInline):
         return False
 
 
+def alert_reeval_intro(alert, node) -> str:
+    """The confirm page's opening sentence for a single-alert re-evaluation.
+
+    A scope with no node has no policy to apply, so the sentence has to name the
+    missing node rather than promise a re-score the apply will refuse to make.
+    """
+    if node is not None:
+        return (
+            "Re-evaluate this alert against the current hub-side policy for node "
+            f"{node.instance_id}."
+        )
+    instance_id = (alert.labels or {}).get("instance_id")
+    if instance_id:
+        return (
+            f"This alert's instance_id label names {instance_id}, which is not registered "
+            "on this hub. There is no policy to score it against, so nothing here will change."
+        )
+    return (
+        "This alert carries no instance_id label, so no node's policy can score it. "
+        "Nothing here will change."
+    )
+
+
 @admin.register(Alert)
-class AlertAdmin(admin.ModelAdmin):
-    """Admin for Alert model."""
+class AlertAdmin(DjangoObjectActions, admin.ModelAdmin):
+    """Admin for Alert model.
+
+    Inherits DjangoObjectActions for the per-alert Re-evaluate button. It defines no
+    ``change_form_template`` of its own, so the mixin's template (which fills
+    object-tools-items with the change_actions buttons) applies; overriding it with a
+    template that does not extend ``django_object_actions/change_form.html`` would
+    silently drop the button while leaving its URL registered.
+    """
+
+    change_actions = ["reevaluate"]
 
     list_display = [
         "name",
@@ -271,6 +309,59 @@ class AlertAdmin(admin.ModelAdmin):
     @admin.display(description="Raw Payload")
     def pretty_raw_payload(self, obj):
         return prettify_json(obj.raw_payload)
+
+    @object_action(
+        label="Re-evaluate",
+        description="Re-score this alert against its node's current policy",
+    )
+    def reevaluate(self, request, obj):
+        """Preview (then, on POST confirm) re-evaluate this one alert.
+
+        Unlike the node action there is no "nothing to do" early return: a
+        single-alert scope always produces exactly one row, a change or a skip
+        carrying the sentence saying why. The operator clicked on this alert and
+        is owed an answer about it.
+
+        The scope deliberately does not filter on status, so a resolved alert
+        whose stored metrics still breach the current policy comes back as a
+        re-open. The confirm page warns about that before anything is written.
+        """
+        # django_object_actions gates the URL behind admin_view (is_staff only);
+        # enforce model change permission before any mutation.
+        if not self.has_change_permission(request, obj):
+            raise PermissionDenied
+        scope = ReevalScope.for_alert(obj)
+        report = preview_reeval(scope)
+        if report.changes and request.method == "POST" and request.POST.get("confirm"):
+            applied = apply_reeval(scope)
+            self.message_user(
+                request,
+                f"Resolved {applied.resolved_count}; changed severity on "
+                f"{applied.severity_changed_count}. Enqueued {applied.run_count} "
+                "pipeline run(s).",
+            )
+            return
+        return TemplateResponse(
+            request,
+            "admin/alerts/node/reevaluate_confirm.html",
+            {
+                **self.admin_site.each_context(request),
+                "report": report,
+                "title": "Confirm re-evaluation",
+                "opts": self.model._meta,
+                "intro": alert_reeval_intro(obj, report.node),
+                "parent_url": reverse(
+                    "admin:alerts_alert_changelist", current_app=self.admin_site.name
+                ),
+                "parent_label": "Alerts",
+                "subject_label": obj.name,
+                "back_url": reverse(
+                    "admin:alerts_alert_change",
+                    args=[obj.pk],
+                    current_app=self.admin_site.name,
+                ),
+            },
+        )
 
 
 @admin.register(Incident)
@@ -833,10 +924,18 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
             "admin/alerts/node/reevaluate_confirm.html",
             {
                 **self.admin_site.each_context(request),
-                "node": obj,
                 "report": report,
                 "title": "Confirm re-evaluation",
                 "opts": self.model._meta,
+                "intro": (
+                    f"Re-evaluate the open alerts for node {obj.instance_id} against "
+                    "its current config."
+                ),
+                "parent_url": reverse(
+                    "admin:alerts_node_changelist", current_app=self.admin_site.name
+                ),
+                "parent_label": "Nodes",
+                "subject_label": obj.instance_id,
                 "back_url": reverse(
                     f"admin:{obj._meta.app_label}_{obj._meta.model_name}_change",
                     args=[obj.pk],
