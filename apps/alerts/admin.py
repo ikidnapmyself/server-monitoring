@@ -40,9 +40,7 @@ from apps.alerts.node_policy import (
 from apps.alerts.reeval_display import reeval_panel
 from apps.alerts.reeval_existing import (
     ReevalScope,
-    apply_node_alert_reeval,
     apply_reeval,
-    preview_node_alert_reeval,
     preview_reeval,
 )
 from apps.alerts.services import IncidentManager, instance_key_from_labels
@@ -907,24 +905,44 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
         without it)."""
         return False
 
+    @staticmethod
+    def _requested_scope(obj, checker):
+        """The one checker the caller asked for, or the whole node.
+
+        ``?checker=`` is what the policy overview's per-row button carries, and it
+        arrives in a URL an operator can retype. A name matching no open alert falls
+        back to the node rather than previewing an empty page, which would read as
+        "nothing to do here" about a node that has plenty.
+        """
+        if checker:
+            scope = ReevalScope.for_checker(obj, checker)
+            if scope.alerts.exists():
+                return scope
+        return ReevalScope.for_node(obj)
+
     @object_action(
         label="Re-evaluate open alerts",
         description="Re-score this node's open alerts against its current config",
     )
     def reevaluate_open_alerts(self, request, obj):
-        """Preview (then, on POST confirm) re-evaluate this node's open alerts."""
+        """Preview (then, on POST confirm) re-evaluate this node's open alerts.
+
+        The confirm form posts back to this same URL, so a ``?checker=`` narrowing
+        survives the confirm without being re-stated in the form.
+        """
         # django_object_actions gates the URL behind admin_view (is_staff only);
         # enforce model change permission before any mutation.
         if not self.has_change_permission(request, obj):
             raise PermissionDenied
-        report = preview_node_alert_reeval(obj)
+        scope = self._requested_scope(obj, request.GET.get("checker", ""))
+        report = preview_reeval(scope)
         # A scope with skips and no changes still owes the operator the sentences
         # saying why; only a scope that found nothing at all gets the one-liner.
         if not report.changes and not report.skips:
             self.message_user(request, "No open alerts need re-evaluation.")
             return
         if report.changes and request.method == "POST" and request.POST.get("confirm"):
-            applied = apply_node_alert_reeval(obj)
+            applied = apply_reeval(scope)
             self.message_user(
                 request,
                 f"Resolved {applied.resolved_count}; changed severity on "
@@ -941,8 +959,13 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
                 "title": "Confirm re-evaluation",
                 "opts": self.model._meta,
                 "intro": (
-                    f"Re-evaluate the open alerts for node {obj.instance_id} against "
-                    "its current config."
+                    f"Re-evaluate the open {scope.checker} alerts for node "
+                    f"{obj.instance_id} against its current config."
+                    if scope.checker
+                    else (
+                        f"Re-evaluate the open alerts for node {obj.instance_id} against "
+                        "its current config."
+                    )
                 ),
                 "parent_url": reverse(
                     "admin:alerts_node_changelist", current_app=self.admin_site.name

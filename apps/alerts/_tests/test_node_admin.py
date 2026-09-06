@@ -68,7 +68,9 @@ class NodeAdminTests(TestCase):
         self.assertNotIn(db_models.JSONField, self._admin().formfield_overrides)
 
 
-class NodeReevaluateActionTests(TestCase):
+class ReevaluateActionMixin:
+    """The request plumbing and the two firing alerts both action suites need."""
+
     def setUp(self):
         self.factory = RequestFactory()
         self.model_admin = admin.site._registry[Node]
@@ -112,6 +114,8 @@ class NodeReevaluateActionTests(TestCase):
             annotations={"metrics": json.dumps({"memory_percent": 42.0})},
         )
 
+
+class NodeReevaluateActionTests(ReevaluateActionMixin, TestCase):
     def test_action_registered(self):
         self.assertIn("reevaluate_open_alerts", self.model_admin.change_actions)
 
@@ -322,6 +326,73 @@ class NodeReevaluateActionTests(TestCase):
             self.model_admin.reevaluate_open_alerts(request, node)
         alert.refresh_from_db()
         self.assertEqual(alert.status, "firing")
+
+
+class NodeReevaluateCheckerScopeTests(ReevaluateActionMixin, TestCase):
+    """``?checker=`` narrows the same action to one row of the policy overview."""
+
+    def _node(self):
+        return Node.objects.create(
+            instance_id="web-03",
+            config={
+                "cpu": {"warning_threshold": 99, "critical_threshold": 99},
+                "memory": {"warning_threshold": 99, "critical_threshold": 99},
+            },
+        )
+
+    def _checkers(self, response):
+        return sorted(
+            change.alert.labels["checker"] for change in response.context_data["report"].changes
+        )
+
+    def test_a_checker_parameter_previews_only_that_checkers_alerts(self):
+        node = self._node()
+        self._firing_cpu_alert(node)
+        self._firing_memory_alert(node)
+        response = self.model_admin.reevaluate_open_alerts(
+            self._request("get", {"checker": "cpu"}), node
+        )
+        self.assertEqual(self._checkers(response), ["cpu"])
+
+    def test_a_checker_parameter_names_itself_in_the_intro(self):
+        node = self._node()
+        self._firing_cpu_alert(node)
+        response = self.model_admin.reevaluate_open_alerts(
+            self._request("get", {"checker": "cpu"}), node
+        )
+        self.assertIn("open cpu alerts", response.context_data["intro"])
+
+    def test_an_unknown_checker_falls_back_to_the_whole_node(self):
+        node = self._node()
+        self._firing_cpu_alert(node)
+        self._firing_memory_alert(node)
+        response = self.model_admin.reevaluate_open_alerts(
+            self._request("get", {"checker": "nonsense"}), node
+        )
+        self.assertEqual(self._checkers(response), ["cpu", "memory"])
+        self.assertNotIn("nonsense", response.context_data["intro"])
+
+    def test_no_checker_parameter_previews_the_whole_node_as_before(self):
+        node = self._node()
+        self._firing_cpu_alert(node)
+        self._firing_memory_alert(node)
+        response = self.model_admin.reevaluate_open_alerts(self._request("get"), node)
+        self.assertEqual(self._checkers(response), ["cpu", "memory"])
+        self.assertIn(f"open alerts for node {node.instance_id}", response.context_data["intro"])
+
+    def test_a_confirm_applies_only_the_named_checkers_alerts(self):
+        node = self._node()
+        cpu = self._firing_cpu_alert(node)
+        memory = self._firing_memory_alert(node)
+        request = self.factory.post("/?checker=cpu", {"confirm": "1"})
+        request.user = self.user
+        request.session = self._request("get").session
+        request._messages = FallbackStorage(request)
+        self.assertIsNone(self.model_admin.reevaluate_open_alerts(request, node))
+        cpu.refresh_from_db()
+        memory.refresh_from_db()
+        self.assertEqual(cpu.status, "resolved")
+        self.assertEqual(memory.status, "firing")
 
 
 class ReevaluateConfirmTemplateTests(TestCase):

@@ -5,6 +5,8 @@ apps/alerts/_tests/test_policy_overview.py, so this covers reaching the page and
 what the template does with what it is handed.
 """
 
+import json
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
@@ -68,7 +70,7 @@ def test_one_node_with_no_policy_is_counted(admin_client):
     Node.objects.create(instance_id="a", config={"cpu": {"warning_threshold": 1}})
     Node.objects.create(instance_id="b", config={})
     body = admin_client.get(reverse("admin:policy-overview")).content.decode()
-    assert "1 other node has no hub-side policy" in body
+    assert "1 other node has no hub-side policy and nothing firing" in body
 
 
 def test_several_nodes_with_no_policy_are_counted(admin_client):
@@ -76,7 +78,7 @@ def test_several_nodes_with_no_policy_are_counted(admin_client):
     Node.objects.create(instance_id="b", config={})
     Node.objects.create(instance_id="c", config={})
     body = admin_client.get(reverse("admin:policy-overview")).content.decode()
-    assert "2 other nodes have no hub-side policy" in body
+    assert "2 other nodes have no hub-side policy and nothing firing" in body
 
 
 def test_an_unconfigured_hub_says_so(admin_client):
@@ -151,3 +153,34 @@ def test_a_checker_name_off_a_webhook_is_escaped(admin_client):
     body = admin_client.get(reverse("admin:policy-overview")).content.decode()
     assert "<script>x</script>" not in body
     assert "&lt;script&gt;" in body
+
+
+def test_a_firing_row_prints_its_effect_and_a_re_evaluate_button(admin_client):
+    node = Node.objects.create(
+        instance_id="a", config={"cpu": {"warning_threshold": 50, "critical_threshold": 60}}
+    )
+    alert = _firing("a", "cpu")
+    alert.annotations = {"metrics": json.dumps({"cpu_percent": 42.0})}
+    alert.save()
+    body = admin_client.get(reverse("admin:policy-overview")).content.decode()
+    assert "1 firing, 1 would change" in body
+    assert f"/admin/alerts/node/{node.pk}/actions/reevaluate_open_alerts/?checker=cpu" in body
+    assert ">Re-evaluate</a>" in body
+
+
+def test_a_row_with_nothing_firing_reads_so_and_offers_no_re_evaluate_button(admin_client):
+    Node.objects.create(
+        instance_id="a", config={"cpu": {"warning_threshold": 50, "critical_threshold": 60}}
+    )
+    body = admin_client.get(reverse("admin:policy-overview")).content.decode()
+    assert "Nothing firing" in body
+    assert "Never" in body
+    assert ">Re-evaluate</a>" not in body
+
+
+def test_an_unscorable_firing_checker_offers_no_re_evaluate_button(admin_client):
+    Node.objects.create(instance_id="a", config={})
+    _firing("a", "raid")
+    body = admin_client.get(reverse("admin:policy-overview")).content.decode()
+    assert "Not re-evaluatable" in body
+    assert ">Re-evaluate</a>" not in body
