@@ -47,6 +47,9 @@ there, which is not yet merged). Do not use a git worktree.
   `uv run coverage run -m pytest && uv run coverage report`.
 - Commit after every task. Pre-commit runs the full test suite, so commits take a
   couple of minutes. That is expected.
+- **`SkipReason` is `str, Enum`, not `StrEnum`** (Python 3.10). So `str(member)` gives
+  `"SkipReason.NO_METRICS"`, not `"no_metrics"`. Any sentence or template that needs the
+  value must say `.value` explicitly. Never interpolate a member bare into an f-string.
 
 ---
 
@@ -100,7 +103,7 @@ Expected: FAIL with `ImportError: cannot import name 'Verdict'`
 In `apps/alerts/reevaluation.py`, after the imports and before `PRIMARY_METRIC`:
 
 ```python
-class SkipReason(StrEnum):
+class SkipReason(str, Enum):
     """Why a re-evaluation produced no verdict.
 
     Every value is a passthrough at ingest. They differ only where a human asked
@@ -146,8 +149,11 @@ Add to the imports at the top of the module:
 
 ```python
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 ```
+
+`StrEnum` is 3.11+ and this project targets 3.10. `str, Enum` matches the existing
+precedent at `apps/alerts/diagnosis.py:17`.
 
 Add `"Verdict"`, `"Skip"`, `"SkipReason"` to `__all__`.
 
