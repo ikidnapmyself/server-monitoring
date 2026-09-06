@@ -9,8 +9,9 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.urls import reverse
+from django.utils import timezone
 
-from apps.alerts.models import Node
+from apps.alerts.models import Alert, Node
 
 pytestmark = pytest.mark.django_db
 
@@ -111,3 +112,42 @@ def test_a_cautioned_row_keeps_its_green_badge_and_reads_its_reason_in_amber(adm
     assert "#28a745" in body
     assert '<span style="color:#b26a00;">&#9888;' in body
     assert "Retyping it on the node page means changing it." in body
+
+
+def _firing(instance_id, checker):
+    return Alert.objects.create(
+        fingerprint=f"check:{instance_id}:{checker}",
+        source="cluster",
+        name=f"{checker} high",
+        severity="critical",
+        status="firing",
+        started_at=timezone.now(),
+        labels={"checker": checker, "instance_id": instance_id},
+    )
+
+
+def test_a_firing_checker_with_no_policy_is_listed_as_a_gap(admin_client):
+    node = Node.objects.create(instance_id="a", config={})
+    _firing("a", "disk")
+    body = admin_client.get(reverse("admin:policy-overview")).content.decode()
+    assert "No policy set" in body
+    assert "#b26a00" in body
+    assert f"/admin/alerts/node/{node.pk}/change/#id_policy__disk__warning_threshold" in body
+
+
+def test_an_unscorable_firing_checker_reads_muted_with_no_edit_link(admin_client):
+    Node.objects.create(instance_id="a", config={})
+    _firing("a", "raid")
+    body = admin_client.get(reverse("admin:policy-overview")).content.decode()
+    assert "Not re-evaluatable" in body
+    assert "#6c757d" in body
+    assert "no scorer reads raid" in body
+    assert ">Edit</a>" not in body
+
+
+def test_a_checker_name_off_a_webhook_is_escaped(admin_client):
+    Node.objects.create(instance_id="a", config={})
+    _firing("a", "<script>x</script>")
+    body = admin_client.get(reverse("admin:policy-overview")).content.decode()
+    assert "<script>x</script>" not in body
+    assert "&lt;script&gt;" in body

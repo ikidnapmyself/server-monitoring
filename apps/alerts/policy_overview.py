@@ -4,14 +4,19 @@
 for one node, in three lists. This module flattens that answer for printing. It
 adds no policy rule of its own.
 
+A checker firing with no config entry behind it also gets a row, because a page
+built from config alone cannot answer "is anything alerting that my policy does
+not cover?".
+
 Design: docs/plans/2026-09-03-policy-overview-design.md
 """
 
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 
 from django.urls import reverse
 
-from apps.alerts.models import Node
+from apps.alerts.models import Alert, Node
 from apps.alerts.node_policy import (
     PolicySection,
     UnreadKey,
@@ -19,6 +24,7 @@ from apps.alerts.node_policy import (
     field_name,
     spec_for,
 )
+from apps.alerts.reevaluation import SCORERS
 
 # The badge wording follows the change form's policy panel vocabulary, so one
 # state does not get two names across the two surfaces.
@@ -26,11 +32,16 @@ IN_EFFECT = "In effect"
 NOT_SCORING = "Saved but not scoring"
 NOT_HONOURED = "Not honoured"
 
-# Worst first, because a checker can land in two of the three lists at once and
-# the row shows one badge. "Saved but not scoring" outranks "Not honoured": a
-# half-filled threshold pair is a decision an operator has to finish, while a
-# leftover key changes no severity.
-_WORST_FIRST = [NOT_SCORING, NOT_HONOURED, IN_EFFECT]
+# The two states a firing alert can be in with no config entry behind it.
+NO_POLICY_SET = "No policy set"
+NOT_REEVALUATABLE = "Not re-evaluatable"
+
+# Worst first, because a checker can land in two of the three config lists at
+# once and the row shows one badge. "Saved but not scoring" outranks "Not
+# honoured": a half-filled threshold pair is a decision an operator has to
+# finish, while a leftover key changes no severity. "Not re-evaluatable" ranks
+# below "In effect" because no edit an operator makes can move it.
+_WORST_FIRST = [NOT_SCORING, NOT_HONOURED, NO_POLICY_SET, IN_EFFECT, NOT_REEVALUATABLE]
 
 NO_POLICY = "—"
 
@@ -48,8 +59,13 @@ class PolicyRow:
 
     @property
     def is_problem(self) -> bool:
-        """Whether this override is changing no severity."""
-        return self.status != IN_EFFECT
+        """Whether this row is something an operator can and should close."""
+        return self.status not in (IN_EFFECT, NOT_REEVALUATABLE)
+
+    @property
+    def is_muted(self) -> bool:
+        """Whether this row states a ceiling rather than a fault."""
+        return self.status == NOT_REEVALUATABLE
 
 
 def _node_url(node) -> str:
@@ -112,8 +128,40 @@ def _why(section: PolicySection | None, unread: list[UnreadKey]) -> str:
     return " ".join(parts)
 
 
-def rows_for_node(node) -> list[PolicyRow]:
-    """One row per checker this node has any config entry for, sorted by checker."""
+def _firing_only_row(checker: str, node_url: str) -> PolicyRow:
+    """The row for a checker this node is alerting on with no config entry.
+
+    ``SCORERS`` decides which of the two states it is in, because that is the map
+    re-evaluation actually dispatches on. A config key or a checker registration
+    proves nothing about whether anything can score the checker.
+    """
+    if checker in SCORERS:
+        return PolicyRow(
+            checker=checker,
+            policy=NO_POLICY,
+            status=NO_POLICY_SET,
+            why=f"Alerting now with no policy set, so {checker} scores as the node sends it.",
+            caution=False,
+            edit_url=_edit_url(checker, node_url),
+        )
+    return PolicyRow(
+        checker=checker,
+        policy=NO_POLICY,
+        status=NOT_REEVALUATABLE,
+        why=f"Alerting now, but no scorer reads {checker}, so no policy can change it.",
+        caution=False,
+        edit_url=node_url,
+    )
+
+
+def rows_for_node(node, firing: AbstractSet[str] = frozenset()) -> list[PolicyRow]:
+    """One row per checker this node configures or is alerting on, sorted by checker.
+
+    ``firing`` is the checkers with a firing alert on this node, gathered once by
+    ``build_policy_overview`` so the page does not query per node. A checker in
+    both places keeps its config-derived row: what the policy does outranks the
+    fact that something is firing under it.
+    """
     policy = build_effective_policy(node)
     node_url = _node_url(node)
     unread: dict[str, list[UnreadKey]] = {}
@@ -139,7 +187,36 @@ def rows_for_node(node) -> list[PolicyRow]:
                 edit_url=_edit_url(checker, node_url),
             )
         )
+    rows.extend(
+        _firing_only_row(checker, node_url)
+        for checker in sorted(set(firing) - set(sections) - set(unread))
+    )
+    # Only the un-actionable rows move: everything else stays alphabetical, which
+    # is the order the node page's own policy panel prints.
+    rows.sort(key=lambda row: (row.is_muted, row.checker))
     return rows
+
+
+def _firing_checkers() -> dict[str, set[str]]:
+    """The checkers with a firing alert, per node identity, in one query.
+
+    Matched on the ``instance_id`` label and not the ``node`` FK, which is stamped
+    only at alert creation: an alert raised before its node registered stays
+    unlinked while still belonging to that node. ``ReevalScope._open`` matches the
+    same way and for the same reason.
+    """
+    by_instance: dict[str, set[str]] = {}
+    rows = (
+        Alert.objects.filter(status="firing", labels__has_keys=["instance_id", "checker"])
+        .order_by()
+        .values_list("labels", flat=True)
+    )
+    for labels in rows:
+        instance_id, checker = labels["instance_id"], labels["checker"]
+        # labels is unvalidated JSON, so either value can be a list or a dict.
+        if isinstance(instance_id, str) and isinstance(checker, str):
+            by_instance.setdefault(instance_id, set()).add(checker)
+    return by_instance
 
 
 @dataclass(frozen=True)
@@ -162,16 +239,17 @@ class PolicyOverview:
 
 
 def build_policy_overview() -> PolicyOverview:
-    """Every hub-side override on this hub, the broken ones first.
+    """Every hub-side override on this hub, plus every gap in the cover, broken first.
 
-    A node with no config is counted rather than listed, because a page of
-    dashes would bury the rows worth reading.
+    A node with neither config nor a firing alert is counted rather than listed,
+    because a page of dashes would bury the rows worth reading.
     """
     groups, quiet_count = [], 0
+    firing = _firing_checkers()
     # order_by() clears the model's own -last_seen ordering, because the groups
     # are sorted below on whether they hold a problem.
     for node in Node.objects.order_by():
-        rows = rows_for_node(node)
+        rows = rows_for_node(node, firing.get(node.instance_id, frozenset()))
         if not rows:
             quiet_count += 1
             continue
