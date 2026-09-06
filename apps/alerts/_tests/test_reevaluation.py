@@ -8,6 +8,8 @@ from apps.alerts.drivers.base import ParsedAlert
 from apps.alerts.models import Node
 from apps.alerts.reevaluation import (
     PRIMARY_METRIC,
+    SkipReason,
+    Verdict,
     _score_allowlist,
     _score_numeric,
     allowlist_evaluator,
@@ -32,41 +34,51 @@ def test_score_numeric_is_the_shared_scorer():
     # value >= crit -> critical; between -> warning; below -> info/resolved
     assert _score_numeric(
         "cpu", {"cpu_percent": 99}, {"warning_threshold": 90, "critical_threshold": 95}
-    ) == ("critical", "firing", 99.0)
+    ) == Verdict("critical", "firing", 99.0)
     assert _score_numeric(
         "cpu", {"cpu_percent": 92}, {"warning_threshold": 90, "critical_threshold": 95}
-    ) == ("warning", "firing", 92.0)
+    ) == Verdict("warning", "firing", 92.0)
     assert _score_numeric(
         "cpu", {"cpu_percent": 50}, {"warning_threshold": 90, "critical_threshold": 95}
-    ) == ("info", "resolved", 50.0)
-    # fail-open cases
+    ) == Verdict("info", "resolved", 50.0)
+    # fail-open cases, each naming its own reason
     assert (
         _score_numeric(
             "cpu",
             {"cpu_percent": 99},
             {"warning_threshold": True, "critical_threshold": True},
-        )
-        is None
+        ).reason
+        is SkipReason.INCOMPLETE_THRESHOLDS
     )
     assert (
         _score_numeric(
             "cpu", {"cpu_percent": 99}, {"warning_threshold": 90, "critical_threshold": 50}
-        )
-        is None
+        ).reason
+        is SkipReason.INVERTED_THRESHOLDS
     )
     assert (
-        _score_numeric("cpu", {"other": 1}, {"warning_threshold": 90, "critical_threshold": 95})
-        is None
+        _score_numeric(
+            "cpu", {"other": 1}, {"warning_threshold": 90, "critical_threshold": 95}
+        ).reason
+        is SkipReason.NO_METRIC_VALUE
     )
     assert (
-        _score_numeric("unknown", {"x": 1}, {"warning_threshold": 90, "critical_threshold": 95})
-        is None
+        _score_numeric(
+            "unknown", {"x": 1}, {"warning_threshold": 90, "critical_threshold": 95}
+        ).reason
+        is SkipReason.NO_PRIMARY_METRIC
     )
-    assert _score_numeric("cpu", {"cpu_percent": 99}, "not-a-dict") is None
+    assert (
+        _score_numeric("cpu", {"cpu_percent": 99}, "not-a-dict").reason
+        is SkipReason.MALFORMED_POLICY
+    )
+    assert _score_numeric("cpu", {"cpu_percent": 99}, None).reason is SkipReason.NO_POLICY
     # non-dict metrics (defensive guard on the shared scorer)
     assert (
-        _score_numeric("cpu", "not-a-dict", {"warning_threshold": 90, "critical_threshold": 95})
-        is None
+        _score_numeric(
+            "cpu", "not-a-dict", {"warning_threshold": 90, "critical_threshold": 95}
+        ).reason
+        is SkipReason.NO_METRICS
     )
 
 
@@ -153,94 +165,103 @@ def test_primary_metric_covers_seven_numeric_checkers():
 def test_numeric_evaluator_below_thresholds_is_ok_resolved():
     parsed = _alert("cpu", '{"cpu_percent": 95.2}')
     out = numeric_evaluator(parsed, {"warning_threshold": 99, "critical_threshold": 99})
-    assert out == ("info", "resolved", 95.2)
+    assert out == Verdict("info", "resolved", 95.2)
 
 
 def test_numeric_evaluator_warning_band():
     parsed = _alert("cpu", '{"cpu_percent": 85}')
     out = numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95})
-    assert out == ("warning", "firing", 85.0)
+    assert out == Verdict("warning", "firing", 85.0)
 
 
 def test_numeric_evaluator_critical():
     parsed = _alert("disk_temp", '{"hottest_c": 70}')
     out = numeric_evaluator(parsed, {"warning_threshold": 60, "critical_threshold": 68})
-    assert out == ("critical", "firing", 70.0)
+    assert out == Verdict("critical", "firing", 70.0)
 
 
 def test_numeric_evaluator_value_equals_critical_threshold():
     # value exactly == critical_threshold pins the >= contract for critical.
     parsed = _alert("cpu", '{"cpu_percent": 99}')
     out = numeric_evaluator(parsed, {"warning_threshold": 99, "critical_threshold": 99})
-    assert out == ("critical", "firing", 99.0)
+    assert out == Verdict("critical", "firing", 99.0)
 
 
 def test_numeric_evaluator_value_equals_warning_threshold():
     # value exactly == warning_threshold (below critical) pins >= for warning.
     parsed = _alert("cpu", '{"cpu_percent": 80}')
     out = numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95})
-    assert out == ("warning", "firing", 80.0)
+    assert out == Verdict("warning", "firing", 80.0)
 
 
-def test_numeric_evaluator_unknown_checker_returns_none():
+def test_numeric_evaluator_unknown_checker_skips():
     parsed = _alert("not_a_checker", '{"cpu_percent": 95}')
-    assert numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95}) is None
+    out = numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95})
+    assert out.reason is SkipReason.NO_PRIMARY_METRIC
 
 
-def test_numeric_evaluator_bool_thresholds_return_none():
+def test_numeric_evaluator_bool_thresholds_skip():
     # bool is an int subclass; a boolean threshold is malformed config -> passthrough.
     parsed = _alert("cpu", '{"cpu_percent": 95}')
-    assert (
-        numeric_evaluator(parsed, {"warning_threshold": True, "critical_threshold": True}) is None
-    )
+    out = numeric_evaluator(parsed, {"warning_threshold": True, "critical_threshold": True})
+    assert out.reason is SkipReason.INCOMPLETE_THRESHOLDS
 
 
-def test_numeric_evaluator_inverted_thresholds_return_none():
+def test_numeric_evaluator_inverted_thresholds_skip():
     # critical below warning is nonsensical config -> passthrough.
     parsed = _alert("cpu", '{"cpu_percent": 95}')
-    assert numeric_evaluator(parsed, {"warning_threshold": 90, "critical_threshold": 50}) is None
+    out = numeric_evaluator(parsed, {"warning_threshold": 90, "critical_threshold": 50})
+    assert out.reason is SkipReason.INVERTED_THRESHOLDS
 
 
-def test_numeric_evaluator_missing_metric_returns_none():
+def test_numeric_evaluator_missing_metric_skips():
     parsed = _alert("cpu", '{"other": 1}')
-    assert numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95}) is None
+    out = numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95})
+    assert out.reason is SkipReason.NO_METRIC_VALUE
 
 
-def test_numeric_evaluator_malformed_metrics_returns_none():
+def test_numeric_evaluator_malformed_metrics_skip():
     parsed = _alert("cpu", "not json")
-    assert numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95}) is None
+    out = numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95})
+    assert out.reason is SkipReason.NO_METRICS
 
 
-def test_numeric_evaluator_no_metrics_annotation_returns_none():
+def test_numeric_evaluator_no_metrics_annotation_skips():
     parsed = _alert("cpu", '{"cpu_percent": 95}')
     parsed.annotations = {}
-    assert numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95}) is None
+    out = numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95})
+    assert out.reason is SkipReason.NO_METRICS
 
 
-def test_numeric_evaluator_metrics_not_a_dict_returns_none():
+def test_numeric_evaluator_metrics_not_a_dict_skips():
     parsed = _alert("cpu", "[1, 2, 3]")
-    assert numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95}) is None
+    out = numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95})
+    assert out.reason is SkipReason.NO_METRICS
 
 
-def test_numeric_evaluator_non_numeric_value_returns_none():
+def test_numeric_evaluator_non_numeric_value_skips():
     parsed = _alert("cpu", '{"cpu_percent": "high"}')
-    assert numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95}) is None
+    out = numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95})
+    assert out.reason is SkipReason.NO_METRIC_VALUE
 
 
-def test_numeric_evaluator_boolean_value_returns_none():
+def test_numeric_evaluator_boolean_value_skips():
     parsed = _alert("cpu", '{"cpu_percent": true}')
-    assert numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95}) is None
+    out = numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95})
+    assert out.reason is SkipReason.NO_METRIC_VALUE
 
 
-def test_numeric_evaluator_missing_thresholds_returns_none():
+def test_numeric_evaluator_missing_thresholds_skip():
     parsed = _alert("cpu", '{"cpu_percent": 95}')
-    assert numeric_evaluator(parsed, {"warning_threshold": 80}) is None
+    out = numeric_evaluator(parsed, {"warning_threshold": 80})
+    assert out.reason is SkipReason.INCOMPLETE_THRESHOLDS
 
 
-def test_numeric_evaluator_non_dict_cfg_returns_none():
+def test_numeric_evaluator_non_dict_cfg_skips():
     parsed = _alert("cpu", '{"cpu_percent": 95}')
-    assert numeric_evaluator(parsed, "99") is None
-    assert numeric_evaluator(parsed, [1, 2]) is None
+    assert numeric_evaluator(parsed, "99").reason is SkipReason.MALFORMED_POLICY
+    assert numeric_evaluator(parsed, [1, 2]).reason is SkipReason.MALFORMED_POLICY
+    assert numeric_evaluator(parsed, None).reason is SkipReason.NO_POLICY
 
 
 class ReevaluateSeverityTests(TestCase):
@@ -471,3 +492,64 @@ class OutcomeTypeTests(TestCase):
         skip = Skip(SkipReason.UNCHANGED, value=41.2, warning=99.0)
         self.assertEqual(skip.context["value"], 41.2)
         self.assertEqual(skip.context["warning"], 99.0)
+
+
+class ScoreNumericReasonTests(TestCase):
+    def _skip(self, cfg, metrics=None, checker="cpu"):
+        from apps.alerts.reevaluation import _score_numeric
+
+        return _score_numeric(checker, metrics if metrics is not None else {}, cfg)
+
+    def test_missing_policy_says_so(self):
+        from apps.alerts.reevaluation import SkipReason
+
+        self.assertEqual(self._skip(None).reason, SkipReason.NO_POLICY)
+
+    def test_non_mapping_policy_is_malformed(self):
+        from apps.alerts.reevaluation import SkipReason
+
+        self.assertEqual(self._skip("99").reason, SkipReason.MALFORMED_POLICY)
+
+    def test_half_filled_thresholds_are_incomplete(self):
+        from apps.alerts.reevaluation import SkipReason
+
+        skip = self._skip({"warning_threshold": 90})
+        self.assertEqual(skip.reason, SkipReason.INCOMPLETE_THRESHOLDS)
+
+    def test_inverted_thresholds_say_so(self):
+        from apps.alerts.reevaluation import SkipReason
+
+        skip = self._skip({"warning_threshold": 90, "critical_threshold": 80})
+        self.assertEqual(skip.reason, SkipReason.INVERTED_THRESHOLDS)
+        self.assertEqual(skip.context["warning"], 90.0)
+        self.assertEqual(skip.context["critical"], 80.0)
+
+    def test_unknown_checker_has_no_primary_metric(self):
+        from apps.alerts.reevaluation import SkipReason
+
+        skip = self._skip({"warning_threshold": 1, "critical_threshold": 2}, checker="raid")
+        self.assertEqual(skip.reason, SkipReason.NO_PRIMARY_METRIC)
+
+    def test_non_mapping_metrics_are_missing(self):
+        from apps.alerts.reevaluation import SkipReason
+
+        skip = self._skip({"warning_threshold": 1, "critical_threshold": 2}, metrics="x")
+        self.assertEqual(skip.reason, SkipReason.NO_METRICS)
+
+    def test_absent_metric_value_says_which_key(self):
+        from apps.alerts.reevaluation import SkipReason
+
+        skip = self._skip({"warning_threshold": 1, "critical_threshold": 2}, metrics={})
+        self.assertEqual(skip.reason, SkipReason.NO_METRIC_VALUE)
+        self.assertEqual(skip.context["metric_key"], "cpu_percent")
+
+    def test_a_score_is_a_verdict_carrying_the_thresholds(self):
+        from apps.alerts.reevaluation import Verdict
+
+        outcome = self._skip(
+            {"warning_threshold": 90, "critical_threshold": 95},
+            metrics={"cpu_percent": 91.5},
+        )
+        self.assertIsInstance(outcome, Verdict)
+        self.assertEqual(outcome.severity, "warning")
+        self.assertEqual(outcome.value, 91.5)

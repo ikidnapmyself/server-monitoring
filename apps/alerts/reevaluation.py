@@ -99,30 +99,36 @@ def _number(value) -> float | None:
     return None
 
 
-def _score_numeric(checker: str, metrics: dict, cfg) -> tuple[str, str, float] | None:
+def _score_numeric(checker: str, metrics: dict, cfg) -> Outcome:
     """Pure scorer shared by ingest and config-change re-evaluation.
 
     `_number` rejects bool (a subclass of int) and non-numbers. An inverted config
-    (critical below warning) is malformed → passthrough. Returns None for any
-    missing/invalid input so callers can fail open.
+    (critical below warning) is malformed. Every failure is a ``Skip``, which every
+    caller treats as passthrough, so this stays fail-open.
     """
+    if cfg is None:
+        return Skip(SkipReason.NO_POLICY, checker=checker)
     if not isinstance(cfg, dict):
-        return None
+        return Skip(SkipReason.MALFORMED_POLICY, checker=checker)
     warn = _number(cfg.get("warning_threshold"))
     crit = _number(cfg.get("critical_threshold"))
-    if warn is None or crit is None or crit < warn:
-        return None
+    if warn is None or crit is None:
+        return Skip(SkipReason.INCOMPLETE_THRESHOLDS, checker=checker)
+    if crit < warn:
+        return Skip(SkipReason.INVERTED_THRESHOLDS, warning=warn, critical=crit)
     metric_key = PRIMARY_METRIC.get(checker)
-    if metric_key is None or not isinstance(metrics, dict):
-        return None
+    if metric_key is None:
+        return Skip(SkipReason.NO_PRIMARY_METRIC, checker=checker)
+    if not isinstance(metrics, dict):
+        return Skip(SkipReason.NO_METRICS, checker=checker)
     value = _number(metrics.get(metric_key))
     if value is None:
-        return None
+        return Skip(SkipReason.NO_METRIC_VALUE, metric_key=metric_key)
     if value >= crit:
-        return ("critical", "firing", value)
+        return Verdict("critical", "firing", value)
     if value >= warn:
-        return ("warning", "firing", value)
-    return ("info", "resolved", value)
+        return Verdict("warning", "firing", value)
+    return Verdict("info", "resolved", value)
 
 
 def _int_set(values) -> set[int] | None:
@@ -188,12 +194,12 @@ def _score_allowlist(checker: str, metrics: dict, cfg) -> tuple[str, str, float]
     return ("info", "resolved", count)
 
 
-def numeric_evaluator(parsed: ParsedAlert, cfg: dict) -> tuple[str, str, float] | None:
-    """Return (severity, status, value) for a numeric checker, or None to passthrough."""
+def numeric_evaluator(parsed: ParsedAlert, cfg: dict) -> Outcome:
+    """Score a numeric checker from the alert's stored metrics."""
     metrics = _metrics(parsed)
-    if metrics is None:
-        return None
     checker = (parsed.labels or {}).get("checker", "")
+    if metrics is None:
+        return Skip(SkipReason.NO_METRICS, checker=checker)
     return _score_numeric(checker, metrics, cfg)
 
 
@@ -205,18 +211,22 @@ def allowlist_evaluator(parsed: ParsedAlert, cfg: dict) -> tuple[str, str, float
     return _score_allowlist("listening_ports", metrics, cfg)
 
 
-# Pure-scorer seam: checker -> (checker, metrics, cfg) -> (severity, status, value) | None.
+# Pure-scorer dispatch: checker -> (checker, metrics, cfg) -> Outcome. The union in
+# the annotation covers `_score_allowlist`, which still returns a tuple or None.
 # Shared by ingest (via the evaluators below) and config-change re-eval
 # (`apps.alerts.reeval_existing`), so both paths score a checker identically.
 # cfg is typed `object`: each scorer validates it (fail-open on a non-dict), and
 # callers pass a raw `Node.config[checker]` lookup that may be None/malformed.
-SCORERS: dict[str, Callable[[str, dict, object], "tuple[str, str, float] | None"]] = {
+SCORERS: dict[str, Callable[[str, dict, object], "Outcome | tuple[str, str, float] | None"]] = {
     **{checker: _score_numeric for checker in PRIMARY_METRIC},
     "listening_ports": _score_allowlist,
 }
 
-# Ingest dispatch seam: checker -> evaluator(parsed, cfg) -> (severity, status, value) | None.
-REEVALUATORS: dict[str, Callable[[ParsedAlert, dict], "tuple[str, str, float] | None"]] = {
+# Ingest dispatch: checker -> evaluator(parsed, cfg) -> Outcome, with the same
+# tuple-or-None union still covering `allowlist_evaluator`.
+REEVALUATORS: dict[
+    str, Callable[[ParsedAlert, dict], "Outcome | tuple[str, str, float] | None"]
+] = {
     **{checker: numeric_evaluator for checker in PRIMARY_METRIC},
     "listening_ports": allowlist_evaluator,
 }
@@ -244,10 +254,13 @@ def _reevaluate(parsed: ParsedAlert) -> ParsedAlert:
         return parsed
 
     outcome = evaluator(parsed, cfg)
-    if outcome is None:
+    # `allowlist_evaluator` still returns a bare tuple, so both shapes score here.
+    if isinstance(outcome, Verdict):
+        severity, status, value = outcome.severity, outcome.status, outcome.value
+    elif isinstance(outcome, tuple):
+        severity, status, value = outcome
+    else:
         return parsed
-
-    severity, status, value = outcome
     if severity == parsed.severity and status == parsed.status:
         return parsed
 

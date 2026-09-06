@@ -14,7 +14,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.alerts.models import Alert, AlertHistory, Incident, IncidentStatus, Node
-from apps.alerts.reevaluation import SCORERS, parse_metrics
+from apps.alerts.reevaluation import SCORERS, Verdict, parse_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,13 @@ def _score_alert(alert: Alert, config: dict) -> tuple[str, str, float] | None:
     metrics = parse_metrics(alert.annotations)
     if metrics is None:
         return None
-    return scorer(checker, metrics, cfg)
+    outcome = scorer(checker, metrics, cfg)
+    # `_score_allowlist` still returns a bare tuple, so both shapes score here.
+    if isinstance(outcome, Verdict):
+        return (outcome.severity, outcome.status, outcome.value)
+    if isinstance(outcome, tuple):
+        return outcome
+    return None
 
 
 def preview_node_alert_reeval(node: Node) -> ReevalReport:
