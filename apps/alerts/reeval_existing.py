@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from apps.alerts.models import Alert, AlertHistory, Incident, IncidentStatus, Node
 from apps.alerts.reevaluation import SCORERS, Verdict, parse_metrics
+from apps.alerts.services import resolve_node
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +51,15 @@ class ReevalScope:
     Alerts are matched by their ``instance_id`` label rather than the ``node`` FK:
     the FK is stamped only at alert creation (``resolve_node``), so an alert created
     before its node registered is unlinked yet still belongs to the node.
+
+    ``checker`` records what the operator asked for, not what was found: a checker
+    scope that matches nothing is otherwise indistinguishable from a node scope on a
+    quiet node. Nothing here branches on it.
     """
 
     node: Node | None
-    alerts: models.QuerySet
+    alerts: models.QuerySet[Alert]
+    checker: str | None = None
 
     @classmethod
     def for_node(cls, node: Node) -> "ReevalScope":
@@ -61,16 +67,18 @@ class ReevalScope:
 
     @classmethod
     def for_checker(cls, node: Node, checker: str) -> "ReevalScope":
-        return cls(node=node, alerts=cls._open(node).filter(labels__checker=checker))
+        return cls(
+            node=node,
+            alerts=cls._open(node).filter(labels__checker=checker),
+            checker=checker,
+        )
 
     @classmethod
     def for_alert(cls, alert: Alert) -> "ReevalScope":
-        instance_id = (alert.labels or {}).get("instance_id", "")
-        node = Node.objects.filter(instance_id=instance_id).first()
-        return cls(node=node, alerts=Alert.objects.filter(pk=alert.pk))
+        return cls(node=resolve_node(alert.labels), alerts=Alert.objects.filter(pk=alert.pk))
 
     @staticmethod
-    def _open(node: Node) -> models.QuerySet:
+    def _open(node: Node) -> models.QuerySet[Alert]:
         return Alert.objects.filter(labels__instance_id=node.instance_id, status="firing")
 
 

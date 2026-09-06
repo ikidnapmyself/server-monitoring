@@ -326,3 +326,28 @@ class ReevalScopeTests(TestCase):
     def test_alert_scope_keeps_a_resolved_alert(self):
         alert = self._alert("cpu", status="resolved")
         self.assertEqual([a.pk for a in ReevalScope.for_alert(alert).alerts], [alert.pk])
+
+    def test_node_scope_includes_an_alert_with_no_node_fk(self):
+        alert = self._alert("cpu")
+        alert.node = None
+        alert.save(update_fields=["node"])
+        self.assertEqual([a.pk for a in ReevalScope.for_node(self.node).alerts], [alert.pk])
+
+    def test_node_scope_excludes_an_alert_whose_fk_points_at_this_node_but_label_does_not(self):
+        alert = self._alert("cpu")
+        alert.labels = {"checker": "cpu", "instance_id": "web-99"}
+        alert.save(update_fields=["labels"])
+        self.assertEqual(list(ReevalScope.for_node(self.node).alerts), [])
+
+    def test_alert_scope_has_no_node_when_labels_are_empty(self):
+        Node.objects.create(instance_id="", config={})
+        alert = self._alert("cpu")
+        alert.labels = {}
+        alert.save(update_fields=["labels"])
+        self.assertIsNone(ReevalScope.for_alert(alert).node)
+
+    def test_only_the_checker_scope_records_a_checker(self):
+        alert = self._alert("cpu")
+        self.assertIsNone(ReevalScope.for_node(self.node).checker)
+        self.assertIsNone(ReevalScope.for_alert(alert).checker)
+        self.assertEqual(ReevalScope.for_checker(self.node, "cpu").checker, "cpu")
