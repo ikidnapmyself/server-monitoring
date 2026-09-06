@@ -183,3 +183,54 @@ class BuildIncidentTimelineQueryAndCorrelationTests(TestCase):
         for entry in timeline:
             if entry["kind"] in ("pipeline", "stage"):
                 assert entry["trace_id"] == "trace-99"
+
+
+class TimelineSeverityDetailTests(TestCase):
+    """A ``reevaluated`` row rendered as a bare word said nothing about what changed."""
+
+    def _history(self, **fields):
+        incident = Incident.objects.create(title="Reeval")
+        alert = Alert.objects.create(
+            fingerprint="check:web-03:cpu",
+            source="cluster",
+            name="cpu high",
+            incident=incident,
+            started_at=timezone.now(),
+        )
+        AlertHistory.objects.create(alert=alert, **fields)
+        return build_incident_timeline(incident)[0]
+
+    def test_severity_change_appears_in_detail(self):
+        entry = self._history(
+            event="reevaluated",
+            old_status="firing",
+            new_status="firing",
+            details={
+                "severity_from": "critical",
+                "severity_to": "warning",
+                "by": "hub-node-policy:config-change",
+            },
+        )
+        assert entry["label"] == "reevaluated"
+        assert "severity critical → warning" in entry["detail"]
+
+    def test_row_without_severity_details_keeps_its_status_detail(self):
+        entry = self._history(event="created", old_status="", new_status="firing")
+        assert entry["detail"] == "— → firing"
+
+    def test_row_with_no_statuses_and_no_severity_has_no_detail(self):
+        entry = self._history(event="noted", old_status="", new_status="")
+        assert entry["detail"] is None
+
+    def test_half_a_severity_change_still_renders(self):
+        entry = self._history(event="reevaluated", details={"severity_to": "warning"})
+        assert entry["detail"] == "severity ? → warning"
+
+    def test_non_dict_details_are_ignored(self):
+        entry = self._history(
+            event="reevaluated",
+            old_status="firing",
+            new_status="resolved",
+            details=["not", "a", "dict"],
+        )
+        assert entry["detail"] == "firing → resolved"

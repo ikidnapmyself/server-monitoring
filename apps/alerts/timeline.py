@@ -30,9 +30,16 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
     # 1) AlertHistory events (hang off Alert, reached via alert__incident).
     history = AlertHistory.objects.filter(alert__incident=incident)
     for h in history:
-        detail = None
+        parts = []
         if h.old_status or h.new_status:
-            detail = f"{h.old_status or '—'} → {h.new_status or '—'}"
+            parts.append(f"{h.old_status or '—'} → {h.new_status or '—'}")
+        # A re-evaluation often leaves the status alone and moves only the severity,
+        # so without this the row renders as the bare word "reevaluated".
+        details = h.details if isinstance(h.details, dict) else {}
+        severity_from, severity_to = details.get("severity_from"), details.get("severity_to")
+        if severity_from or severity_to:
+            parts.append(f"severity {severity_from or '?'} → {severity_to or '?'}")
+        detail = ", ".join(parts) or None
         entries.append(
             {
                 "when": h.created_at,

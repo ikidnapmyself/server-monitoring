@@ -37,6 +37,7 @@ from apps.alerts.node_policy import (
     sections_for,
     spec_for,
 )
+from apps.alerts.reeval_display import reeval_panel
 from apps.alerts.reeval_existing import (
     ReevalScope,
     apply_node_alert_reeval,
@@ -175,6 +176,7 @@ class AlertAdmin(DjangoObjectActions, admin.ModelAdmin):
         "received_at",
         "updated_at",
         "journey_display",
+        "reeval_display",
         "pretty_labels",
         "pretty_annotations",
         "pretty_raw_payload",
@@ -204,6 +206,13 @@ class AlertAdmin(DjangoObjectActions, admin.ModelAdmin):
             {
                 "fields": ["journey_display"],
                 "description": "trace_id → incident → pipeline run.",
+            },
+        ),
+        (
+            "Re-evaluation",
+            {
+                "fields": ["reeval_display"],
+                "description": "Whether hub-side node policy re-scored this alert, and how.",
             },
         ),
         (
@@ -297,6 +306,10 @@ class AlertAdmin(DjangoObjectActions, admin.ModelAdmin):
                 "not processed — inbox",
             )
         return format_html("{}{}", trace, body)
+
+    @admin.display(description="Re-evaluation")
+    def reeval_display(self, obj):
+        return reeval_panel(obj)
 
     @admin.display(description="Labels")
     def pretty_labels(self, obj):
