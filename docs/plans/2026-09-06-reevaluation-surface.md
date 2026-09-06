@@ -999,6 +999,12 @@ sentence and a skip sentence.
   table so the operator is told why. Keep the message only when the scope is genuinely
   empty.
 - Add the sentence: `This will create N pipeline run(s) and notify on them.`
+- **Warn when the apply would re-open a resolved alert.** `apply_reeval` on an alert
+  scope re-fires a resolved alert whose stored metrics policy still flags, which is the
+  honest answer but can reverse an operator's own resolve. Count those changes
+  (`old_status == "resolved"` and `new_status == "firing"`) and say so above the confirm
+  button: `This will re-open N resolved alert(s).` The operator decided this is the
+  right behaviour, so do not refuse it. Just never let it happen unannounced.
 
 **Step 4: Run** `uv run pytest apps/alerts/_tests/test_node_admin.py -v` → PASS
 
