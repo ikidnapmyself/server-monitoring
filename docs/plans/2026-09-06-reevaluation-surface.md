@@ -514,6 +514,18 @@ def describe_skip(skip: Skip, *, checker: str, instance_id: str) -> str:
 Write the sentences to match the tests above. Use an em-dash-free style consistent
 with the rest of the codebase, except in `NO_SCORER` where the test fixes the wording.
 
+Two things Task 3 left for you to resolve in the wording:
+
+`NO_METRIC_VALUE` covers two different situations for `listening_ports`: the inventory
+is not a list, and one entry in it is malformed. "No value for listening" describes the
+first well and the second loosely. Either widen the sentence to cover both honestly or
+give the malformed entry its own reason, but do not print a sentence that is false.
+
+`NO_METRICS` is likewise reached from two places: the metrics annotation would not
+parse (from the evaluators) and the metrics object is not a mapping (from the scorers).
+For an operator these are the same fact, so one sentence is probably right. Decide
+deliberately rather than by accident.
+
 **Step 4: Run** `uv run pytest apps/alerts/_tests/test_reevaluation.py -v` → PASS
 
 **Step 5: Commit**
