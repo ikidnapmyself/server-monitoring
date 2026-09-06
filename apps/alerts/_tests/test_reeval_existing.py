@@ -455,6 +455,8 @@ class ReportSkipTests(TestCase):
     def test_an_alert_scope_re_fires_a_resolved_alert_the_policy_still_flags(self):
         node = self._node({"cpu": {"warning_threshold": 80, "critical_threshold": 90}})
         alert = self._alert(node, value=95.0, severity="info", status="resolved")
+        alert.ended_at = timezone.now()
+        alert.save(update_fields=["ended_at"])
         report = apply_reeval(ReevalScope.for_alert(alert))
         self.assertEqual(report.severity_changed_count, 1)
         alert.refresh_from_db()
@@ -504,6 +506,8 @@ class UnregisteredNodeScopeTests(TestCase):
             labels={"checker": "cpu", "instance_id": "web-99"},
             annotations={"metrics": json.dumps({"cpu_percent": 95.0})},
         )
+        self.incident = Incident.objects.create(title="t", severity="critical", status="open")
+        self.incident.alerts.add(self.alert)
 
     def test_preview_reports_only_skips_and_names_the_unregistered_node(self):
         scope = ReevalScope.for_alert(self.alert)
@@ -522,3 +526,6 @@ class UnregisteredNodeScopeTests(TestCase):
         self.assertEqual(self.alert.severity, "critical")
         self.assertNotIn("reevaluated_on_config_change", self.alert.annotations)
         self.assertFalse(AlertHistory.objects.exists())
+        self.incident.refresh_from_db()
+        self.assertEqual(self.incident.status, "open")
+        self.assertIsNone(self.incident.resolved_at)

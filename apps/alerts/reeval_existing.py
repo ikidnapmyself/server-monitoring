@@ -100,7 +100,11 @@ class ReevalScope:
 
 
 def _outcome_for(alert: Alert, config: dict) -> Outcome:
-    """Score one alert, or say why it cannot be scored."""
+    """Score one alert, or say why it will not be re-scored.
+
+    A score matching what the alert already says is a skip, not a verdict, so the
+    policy that produced it is read once here and quoted from the same lookup.
+    """
     checker = (alert.labels or {}).get("checker", "")
     scorer = SCORERS.get(checker)
     if scorer is None:
@@ -108,7 +112,13 @@ def _outcome_for(alert: Alert, config: dict) -> Outcome:
     metrics = parse_metrics(alert.annotations)
     if metrics is None:
         return Skip(SkipReason.NO_METRICS, checker=checker)
-    return scorer(checker, metrics, (config or {}).get(checker))
+    cfg = (config or {}).get(checker)
+    outcome = scorer(checker, metrics, cfg)
+    if isinstance(outcome, Verdict) and (
+        outcome.severity == alert.severity and outcome.status == alert.status
+    ):
+        return unchanged_skip(checker, cfg or {}, outcome)
+    return outcome
 
 
 def preview_reeval(scope: ReevalScope) -> ReevalReport:
@@ -127,19 +137,17 @@ def preview_reeval(scope: ReevalScope) -> ReevalReport:
         instance_id = scope.node.instance_id if scope.node else labels.get("instance_id", "")
         outcome = _outcome_for(alert, config)
         if isinstance(outcome, Verdict):
-            if outcome.severity != alert.severity or outcome.status != alert.status:
-                report.changes.append(
-                    AlertChange(
-                        alert=alert,
-                        old_severity=alert.severity,
-                        old_status=alert.status,
-                        new_severity=outcome.severity,
-                        new_status=outcome.status,
-                        value=outcome.value,
-                    )
+            report.changes.append(
+                AlertChange(
+                    alert=alert,
+                    old_severity=alert.severity,
+                    old_status=alert.status,
+                    new_severity=outcome.severity,
+                    new_status=outcome.status,
+                    value=outcome.value,
                 )
-                continue
-            outcome = unchanged_skip(checker, (config or {}).get(checker) or {}, outcome)
+            )
+            continue
         report.skips.append(
             AlertSkip(
                 alert=alert,
@@ -157,7 +165,12 @@ def preview_node_alert_reeval(node: Node) -> ReevalReport:
 
 @transaction.atomic
 def apply_reeval(scope: ReevalScope) -> ReevalReport:
-    """Apply the re-score: update alerts, history, audit, and incidents."""
+    """Apply the re-score: update alerts, history, audit, and incidents.
+
+    A scope with no node has no policy to apply, so it writes nothing and returns
+    the preview. ``report.node is None`` is how a caller tells that refusal from a
+    scope that simply had nothing to change.
+    """
     report = preview_reeval(scope)
     node = scope.node
     if node is None:
