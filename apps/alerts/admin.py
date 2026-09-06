@@ -909,15 +909,14 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
     def _requested_scope(obj, checker):
         """The one checker the caller asked for, or the whole node.
 
-        ``?checker=`` is what the policy overview's per-row button carries, and it
-        arrives in a URL an operator can retype. A name matching no open alert falls
-        back to the node rather than previewing an empty page, which would read as
-        "nothing to do here" about a node that has plenty.
+        ``?checker=`` is what the policy overview's per-row button carries, and a
+        policy-page link can go stale between render and click. A present parameter
+        is honoured whether or not it matches anything: widening a stale link to the
+        whole node would re-evaluate, and now notify about, alerts nobody asked
+        about. Only an absent parameter means node-wide.
         """
         if checker:
-            scope = ReevalScope.for_checker(obj, checker)
-            if scope.alerts.exists():
-                return scope
+            return ReevalScope.for_checker(obj, checker)
         return ReevalScope.for_node(obj)
 
     @object_action(
@@ -937,8 +936,10 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
         scope = self._requested_scope(obj, request.GET.get("checker", ""))
         report = preview_reeval(scope)
         # A scope with skips and no changes still owes the operator the sentences
-        # saying why; only a scope that found nothing at all gets the one-liner.
-        if not report.changes and not report.skips:
+        # saying why; only a node-wide scope that found nothing at all gets the
+        # one-liner. A checker the operator named is answered on the page, even
+        # when the answer is that it has no open alerts.
+        if not report.changes and not report.skips and not scope.checker:
             self.message_user(request, "No open alerts need re-evaluation.")
             return
         if report.changes and request.method == "POST" and request.POST.get("confirm"):

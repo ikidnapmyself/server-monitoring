@@ -362,15 +362,22 @@ class NodeReevaluateCheckerScopeTests(ReevaluateActionMixin, TestCase):
         )
         self.assertIn("open cpu alerts", response.context_data["intro"])
 
-    def test_an_unknown_checker_falls_back_to_the_whole_node(self):
+    def test_a_checker_matching_nothing_previews_an_empty_scope_naming_it(self):
+        """A stale policy-page link must not widen into the whole node.
+
+        The link is rendered before it is clicked, so the checker it names can have
+        gone quiet in between. Confirming it would then re-evaluate, and notify
+        about, alerts the operator never asked about.
+        """
         node = self._node()
         self._firing_cpu_alert(node)
         self._firing_memory_alert(node)
         response = self.model_admin.reevaluate_open_alerts(
-            self._request("get", {"checker": "nonsense"}), node
+            self._request("get", {"checker": "disk"}), node
         )
-        self.assertEqual(self._checkers(response), ["cpu", "memory"])
-        self.assertNotIn("nonsense", response.context_data["intro"])
+        self.assertEqual(self._checkers(response), [])
+        self.assertEqual(response.context_data["report"].skips, [])
+        self.assertIn("open disk alerts", response.context_data["intro"])
 
     def test_no_checker_parameter_previews_the_whole_node_as_before(self):
         node = self._node()
