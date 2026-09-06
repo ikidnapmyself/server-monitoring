@@ -1,9 +1,10 @@
 import json
+from unittest import mock
 
 from django.test import TestCase
 from django.utils import timezone
 
-from apps.alerts.models import Alert, AlertHistory, Incident, Node
+from apps.alerts.models import Alert, AlertHistory, Incident, IncidentStatus, Node
 from apps.alerts.reeval_existing import (
     ReevalScope,
     apply_node_alert_reeval,
@@ -12,6 +13,13 @@ from apps.alerts.reeval_existing import (
     preview_reeval,
 )
 from apps.alerts.reevaluation import SkipReason, parse_metrics
+from apps.alerts.services import announce_incident_change
+from apps.orchestration.models import (
+    PipelineOrigin,
+    PipelineRun,
+    PipelineStatus,
+    StageExecution,
+)
 
 
 class ReevalExistingTests(TestCase):
@@ -545,3 +553,141 @@ class UnregisteredNodeScopeTests(TestCase):
         self.incident.refresh_from_db()
         self.assertEqual(self.incident.status, "open")
         self.assertIsNone(self.incident.resolved_at)
+
+
+class ReevalAnnounceTests(TestCase):
+    def _node(self, cfg=None):
+        return Node.objects.create(instance_id="web-03", config=cfg if cfg is not None else {})
+
+    def _alert(self, node, checker="cpu", metric="cpu_percent", value=95.2, incident=None):
+        return Alert.objects.create(
+            fingerprint=f"{checker}-web-03",
+            source="cluster",
+            name=f"{checker} high",
+            severity="critical",
+            status="firing",
+            started_at=timezone.now(),
+            node=node,
+            incident=incident,
+            labels={"checker": checker, "instance_id": "web-03"},
+            annotations={"metrics": json.dumps({metric: value})},
+        )
+
+    def _incident(self):
+        return Incident.objects.create(title="t", severity="critical", status="open")
+
+    def test_a_resolving_apply_enqueues_one_run_for_the_incident(self):
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        incident = self._incident()
+        self._alert(node, incident=incident)
+
+        apply_node_alert_reeval(node)
+
+        runs = PipelineRun.objects.filter(incident_id=incident.pk)
+        self.assertEqual(runs.count(), 1)
+        run = runs.get()
+        self.assertEqual(run.origin, PipelineOrigin.MANUAL)
+        self.assertEqual(run.status, PipelineStatus.PENDING)
+        self.assertEqual(run.source, "cluster")
+        self.assertEqual(run.node, node)
+        self.assertEqual(run.inbound_payload, {"downstream_incident_id": incident.pk})
+        self.assertEqual(StageExecution.objects.count(), 0)
+
+    def test_a_no_op_apply_enqueues_nothing(self):
+        node = self._node()
+        apply_node_alert_reeval(node)
+        self.assertEqual(PipelineRun.objects.count(), 0)
+
+    def test_two_changed_alerts_on_one_incident_enqueue_one_run(self):
+        node = self._node(
+            {
+                "cpu": {"warning_threshold": 99, "critical_threshold": 99},
+                "memory": {"warning_threshold": 99, "critical_threshold": 99},
+            }
+        )
+        incident = self._incident()
+        self._alert(node, incident=incident)
+        self._alert(node, checker="memory", metric="memory_percent", value=80.0, incident=incident)
+
+        report = apply_node_alert_reeval(node)
+
+        self.assertEqual(len(report.changes), 2)
+        self.assertEqual(PipelineRun.objects.filter(incident_id=incident.pk).count(), 1)
+
+    def test_a_changed_alert_with_no_incident_enqueues_nothing(self):
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        alert = self._alert(node)
+
+        report = apply_node_alert_reeval(node)
+
+        self.assertEqual(len(report.changes), 1)
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, "resolved")
+        self.assertEqual(PipelineRun.objects.count(), 0)
+
+    def test_a_severity_only_change_enqueues_a_run(self):
+        node = self._node({"cpu": {"warning_threshold": 80, "critical_threshold": 99}})
+        incident = self._incident()
+        self._alert(node, incident=incident)
+
+        report = apply_node_alert_reeval(node)
+
+        self.assertEqual(report.resolved_count, 0)
+        self.assertEqual(report.severity_changed_count, 1)
+        self.assertEqual(PipelineRun.objects.filter(incident_id=incident.pk).count(), 1)
+        incident.refresh_from_db()
+        self.assertEqual(incident.status, "open")
+
+    def test_a_scope_with_no_node_enqueues_nothing(self):
+        alert = Alert.objects.create(
+            fingerprint="cpu-web-99",
+            source="cluster",
+            name="cpu high",
+            severity="critical",
+            status="firing",
+            started_at=timezone.now(),
+            incident=self._incident(),
+            labels={"checker": "cpu", "instance_id": "web-99"},
+            annotations={"metrics": json.dumps({"cpu_percent": 95.0})},
+        )
+
+        report = apply_reeval(ReevalScope.for_alert(alert))
+
+        self.assertIsNone(report.node)
+        self.assertEqual(PipelineRun.objects.count(), 0)
+
+    def test_the_announced_incident_carries_the_status_the_sweep_just_wrote(self):
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        incident = self._incident()
+        self._alert(node, incident=incident)
+        seen: list[str] = []
+
+        with mock.patch(
+            "apps.alerts.reeval_existing.announce_incident_change",
+            side_effect=lambda inc: seen.append(inc.status),
+        ):
+            apply_node_alert_reeval(node)
+
+        self.assertEqual(seen, [IncidentStatus.RESOLVED])
+
+    def test_announce_incident_change_enqueues_one_manual_run(self):
+        node = self._node()
+        incident = self._incident()
+        self._alert(node, incident=incident)
+
+        announce_incident_change(incident)
+
+        run = PipelineRun.objects.get()
+        self.assertEqual(run.origin, PipelineOrigin.MANUAL)
+        self.assertEqual(run.incident_id, incident.pk)
+        self.assertEqual(run.source, "cluster")
+        self.assertEqual(run.node, node)
+
+    def test_announce_incident_change_on_an_incident_with_no_alerts(self):
+        incident = self._incident()
+
+        announce_incident_change(incident)
+
+        run = PipelineRun.objects.get()
+        self.assertEqual(run.source, "")
+        self.assertIsNone(run.node)

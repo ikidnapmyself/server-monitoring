@@ -24,7 +24,7 @@ from apps.alerts.reevaluation import (
     parse_metrics,
     unchanged_skip,
 )
-from apps.alerts.services import resolve_node
+from apps.alerts.services import announce_incident_change, resolve_node
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +165,11 @@ def preview_node_alert_reeval(node: Node) -> ReevalReport:
 
 @transaction.atomic
 def apply_reeval(scope: ReevalScope) -> ReevalReport:
-    """Apply the re-score: update alerts, history, audit, and incidents.
+    """Apply the re-score: update alerts, history, audit, incidents, then announce.
+
+    Every incident the apply changed gets one inbox run, enqueued inside this
+    transaction so the runs commit with the writes that justify them. Nothing is
+    drained here: no pipeline may execute inside the operator's request.
 
     A scope with no node has no policy to apply, so it writes nothing and returns
     the preview. ``report.node is None`` is how a caller tells that refusal from a
@@ -226,12 +230,31 @@ def apply_reeval(scope: ReevalScope) -> ReevalReport:
             report.resolved_count,
             report.severity_changed_count,
         )
+    for incident in _changed_incidents(report):
+        announce_incident_change(incident)
     return report
 
 
 def apply_node_alert_reeval(node: Node) -> ReevalReport:
     """Apply across every open alert on ``node``; kept for the admin button and the command."""
     return apply_reeval(ReevalScope.for_node(node))
+
+
+def _changed_incidents(report: ReevalReport) -> list[Incident]:
+    """The distinct incidents behind ``report.changes``, reloaded from the database.
+
+    Reloaded because ``_resolve_incidents_for`` has already run: an incident cached on
+    an in-memory alert would still report the status it had before that sweep.
+    """
+    seen: set[int] = set()
+    incidents: list[Incident] = []
+    for change in report.changes:
+        incident_id = change.alert.incident_id
+        if not incident_id or incident_id in seen:
+            continue
+        seen.add(incident_id)
+        incidents.append(Incident.objects.get(pk=incident_id))
+    return incidents
 
 
 def _resolve_incidents_for(node: Node) -> None:
