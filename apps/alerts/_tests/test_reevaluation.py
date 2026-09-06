@@ -8,11 +8,13 @@ from apps.alerts.drivers.base import ParsedAlert
 from apps.alerts.models import Node
 from apps.alerts.reevaluation import (
     PRIMARY_METRIC,
+    Skip,
     SkipReason,
     Verdict,
     _score_allowlist,
     _score_numeric,
     allowlist_evaluator,
+    describe_skip,
     numeric_evaluator,
     reevaluate_severity,
 )
@@ -580,3 +582,79 @@ class AllowlistEvaluatorReasonTests(TestCase):
         skip = allowlist_evaluator(parsed, {"allowlist": [22]})
         self.assertEqual(skip.reason, SkipReason.NO_METRICS)
         self.assertEqual(skip.context["checker"], "listening_ports")
+
+
+class DescribeSkipTests(TestCase):
+    def _say(self, skip, checker="cpu", instance_id="fiyat-ekrani"):
+        return describe_skip(skip, checker=checker, instance_id=instance_id)
+
+    def test_no_scorer_names_the_checker(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.NO_SCORER), checker="disk_temp"),
+            "disk_temp is not re-evaluatable. No scorer knows it.",
+        )
+
+    def test_no_policy_names_the_node(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.NO_POLICY)),
+            "No policy set for cpu on fiyat-ekrani.",
+        )
+
+    def test_no_metrics_explains_there_is_nothing_to_score(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.NO_METRICS)),
+            "This alert carries no metrics, so there is nothing to re-score.",
+        )
+
+    def test_no_metric_value_names_the_key_without_claiming_it_is_absent(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.NO_METRIC_VALUE, metric_key="cpu_percent")),
+            "This alert carries no usable cpu_percent value, so there is nothing to re-score.",
+        )
+
+    def test_malformed_policy_names_checker_and_node(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.MALFORMED_POLICY)),
+            "The cpu policy on fiyat-ekrani is not readable, so it was ignored.",
+        )
+
+    def test_incomplete_thresholds_says_both_are_needed(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.INCOMPLETE_THRESHOLDS)),
+            "The cpu policy on fiyat-ekrani needs both a warning and a critical threshold.",
+        )
+
+    def test_inverted_thresholds_prints_both_numbers(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.INVERTED_THRESHOLDS, warning=90.0, critical=80.0)),
+            "The cpu policy on fiyat-ekrani is backwards: critical 80.0 is below warning 90.0.",
+        )
+
+    def test_no_primary_metric_says_thresholds_do_not_apply(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.NO_PRIMARY_METRIC), checker="raid"),
+            "raid has no single number to score, so warning and critical thresholds do not apply.",
+        )
+
+    def test_unchanged_prints_the_value_and_the_threshold(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.UNCHANGED, value=41.2, warning=99.0)),
+            "Policy already matches: cpu is at 41.2, warning starts at 99.0.",
+        )
+
+    def test_caller_wins_over_a_stale_checker_in_the_context(self):
+        skip = Skip(SkipReason.NO_POLICY, checker="listening_ports")
+        self.assertEqual(self._say(skip), "No policy set for cpu on fiyat-ekrani.")
+
+    def test_a_missing_context_key_raises_rather_than_printing_a_broken_sentence(self):
+        with self.assertRaises(KeyError):
+            self._say(Skip(SkipReason.INVERTED_THRESHOLDS))
+
+    def test_every_reason_has_a_sentence(self):
+        for reason in SkipReason:
+            sentence = describe_skip(
+                Skip(reason, value=1.0, warning=2.0, critical=3.0, metric_key="k"),
+                checker="cpu",
+                instance_id="n1",
+            )
+            self.assertTrue(sentence.endswith("."), reason)

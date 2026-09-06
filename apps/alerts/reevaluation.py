@@ -30,6 +30,7 @@ __all__ = [
     "Verdict",
     "Skip",
     "SkipReason",
+    "describe_skip",
 ]
 
 
@@ -73,6 +74,46 @@ class Skip:
 
 
 Outcome = Verdict | Skip
+
+
+_SKIP_SENTENCES: dict[SkipReason, str] = {
+    SkipReason.NO_SCORER: "{checker} is not re-evaluatable. No scorer knows it.",
+    SkipReason.NO_POLICY: "No policy set for {checker} on {instance_id}.",
+    SkipReason.MALFORMED_POLICY: (
+        "The {checker} policy on {instance_id} is not readable, so it was ignored."
+    ),
+    SkipReason.INCOMPLETE_THRESHOLDS: (
+        "The {checker} policy on {instance_id} needs both a warning and a critical threshold."
+    ),
+    SkipReason.INVERTED_THRESHOLDS: (
+        "The {checker} policy on {instance_id} is backwards: "
+        "critical {critical} is below warning {warning}."
+    ),
+    SkipReason.NO_PRIMARY_METRIC: (
+        "{checker} has no single number to score, so warning and critical thresholds do not apply."
+    ),
+    SkipReason.NO_METRICS: "This alert carries no metrics, so there is nothing to re-score.",
+    SkipReason.NO_METRIC_VALUE: (
+        "This alert carries no usable {metric_key} value, so there is nothing to re-score."
+    ),
+    SkipReason.UNCHANGED: (
+        "Policy already matches: {checker} is at {value}, warning starts at {warning}."
+    ),
+}
+
+
+def describe_skip(skip: Skip, *, checker: str, instance_id: str) -> str:
+    """One sentence saying why this alert was not re-scored.
+
+    The scorers cannot know the node, so the caller supplies it. The caller's
+    ``checker`` also overrides any copy in the context, which is the same value read
+    from the same alert. Every reason has a sentence; a reason added without one
+    raises here rather than printing a blank cell, as does a context missing a key
+    its sentence needs.
+    """
+    template = _SKIP_SENTENCES[skip.reason]
+    fields = {**skip.context, "checker": checker, "instance_id": instance_id}
+    return template.format(**fields)
 
 
 # checker -> the metric key carrying its primary numeric value
@@ -172,21 +213,20 @@ def _score_allowlist(checker: str, metrics: dict, cfg) -> Outcome:
 
     Reuses the checker's own flagging semantics against the full ``listening``
     inventory the node reports. Every failure is a ``Skip``, which every caller
-    treats as passthrough, so this stays fail-open. ``checker`` is unused
-    (uniform scorer signature).
+    treats as passthrough, so this stays fail-open.
     """
     if cfg is None:
-        return Skip(SkipReason.NO_POLICY, checker="listening_ports")
+        return Skip(SkipReason.NO_POLICY, checker=checker)
     if not isinstance(cfg, dict):
-        return Skip(SkipReason.MALFORMED_POLICY, checker="listening_ports")
+        return Skip(SkipReason.MALFORMED_POLICY, checker=checker)
     if not isinstance(metrics, dict):
-        return Skip(SkipReason.NO_METRICS, checker="listening_ports")
+        return Skip(SkipReason.NO_METRICS, checker=checker)
     allow = cfg.get("allowlist")
     if not isinstance(allow, list):
-        return Skip(SkipReason.MALFORMED_POLICY, checker="listening_ports")
+        return Skip(SkipReason.MALFORMED_POLICY, checker=checker)
     allowset = _int_set(allow)
     if allowset is None:
-        return Skip(SkipReason.MALFORMED_POLICY, checker="listening_ports")
+        return Skip(SkipReason.MALFORMED_POLICY, checker=checker)
     listening = metrics.get("listening")
     if not isinstance(listening, list):
         return Skip(SkipReason.NO_METRIC_VALUE, metric_key="listening")
