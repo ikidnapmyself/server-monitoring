@@ -447,3 +447,27 @@ class ReevaluateSeverityTests(TestCase):
         out = reevaluate_severity(alert)
         self.assertIs(out, alert)
         self.assertEqual(out.severity, "critical")
+
+
+class OutcomeTypeTests(TestCase):
+    def test_verdict_carries_the_score(self):
+        from apps.alerts.reevaluation import Verdict
+
+        verdict = Verdict(severity="warning", status="firing", value=91.3)
+        self.assertEqual(verdict.severity, "warning")
+        self.assertEqual(verdict.status, "firing")
+        self.assertEqual(verdict.value, 91.3)
+
+    def test_skip_carries_a_reason_and_context(self):
+        from apps.alerts.reevaluation import Skip, SkipReason
+
+        skip = Skip(SkipReason.NO_METRICS)
+        self.assertEqual(skip.reason, SkipReason.NO_METRICS)
+        self.assertEqual(skip.context, {})
+
+    def test_skip_context_is_keyword_only(self):
+        from apps.alerts.reevaluation import Skip, SkipReason
+
+        skip = Skip(SkipReason.UNCHANGED, value=41.2, warning=99.0)
+        self.assertEqual(skip.context["value"], 41.2)
+        self.assertEqual(skip.context["warning"], 99.0)

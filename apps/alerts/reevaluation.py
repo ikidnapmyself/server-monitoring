@@ -10,6 +10,8 @@ See docs/plans/2026-08-07-hub-node-severity-reeval-design.md.
 import json
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
+from enum import Enum
 
 from apps.alerts.drivers.base import ParsedAlert
 from apps.alerts.metrics import parse_metrics
@@ -20,7 +22,58 @@ logger = logging.getLogger(__name__)
 # same "read a node's metrics back out of annotations" rule, and importing it from here
 # would couple the fan-out gate to the severity re-evaluator. It stays exported from this
 # module so the existing callers that import it from here keep working.
-__all__ = ["parse_metrics", "reevaluate_severity", "SCORERS", "REEVALUATORS"]
+__all__ = [
+    "parse_metrics",
+    "reevaluate_severity",
+    "SCORERS",
+    "REEVALUATORS",
+    "Verdict",
+    "Skip",
+    "SkipReason",
+]
+
+
+class SkipReason(str, Enum):
+    """Why a re-evaluation produced no verdict.
+
+    Every value is a passthrough at ingest. They differ only where a human asked
+    the question and is owed an answer.
+    """
+
+    NO_SCORER = "no_scorer"
+    NO_POLICY = "no_policy"
+    MALFORMED_POLICY = "malformed_policy"
+    INCOMPLETE_THRESHOLDS = "incomplete_thresholds"
+    INVERTED_THRESHOLDS = "inverted_thresholds"
+    NO_PRIMARY_METRIC = "no_primary_metric"
+    NO_METRICS = "no_metrics"
+    NO_METRIC_VALUE = "no_metric_value"
+    UNCHANGED = "unchanged"
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """A score the caller may act on."""
+
+    severity: str
+    status: str
+    value: float
+
+
+@dataclass(frozen=True)
+class Skip:
+    """No score, and why. ``context`` carries what the sentence needs."""
+
+    reason: SkipReason
+    context: dict
+
+    def __init__(self, reason: SkipReason, **context):
+        object.__setattr__(self, "reason", reason)
+        object.__setattr__(self, "context", context)
+
+
+Outcome = Verdict | Skip
+
 
 # checker -> the metric key carrying its primary numeric value
 PRIMARY_METRIC = {
