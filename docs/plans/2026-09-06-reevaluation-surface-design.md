@@ -5,7 +5,7 @@ parent: Plans
 
 # Re-evaluation as a surface
 
-**Status:** designed 2026-09-06, not yet implemented.
+**Status:** shipped 2026-09-06 on `feat/policy-overview-page`.
 
 Builds on the policy overview page (`docs/plans/2026-09-03-policy-overview-design.md`),
 which is on `feat/policy-overview-page` and not yet merged. This design reshapes
