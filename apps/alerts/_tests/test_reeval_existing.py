@@ -738,6 +738,191 @@ class ReevalAnnounceTests(TestCase):
         self.assertIsNone(run.node)
 
 
+class ReevalIncidentLifecycleTests(TestCase):
+    """An applied change moves its incident the way ingest does, or not at all.
+
+    ``apps.alerts.incident_gate.follow_alert`` owns that decision on both write
+    paths, so a re-fire here cannot leave a firing alert under a terminal incident,
+    and an acknowledged incident absorbs what it absorbs at ingest.
+    """
+
+    def _node(self, cfg=None):
+        return Node.objects.create(
+            instance_id="web-03",
+            config=cfg or {"cpu": {"warning_threshold": 80, "critical_threshold": 90}},
+        )
+
+    def _alert(self, node, checker="cpu", severity="info", status="resolved", value=95.2, **kw):
+        return Alert.objects.create(
+            fingerprint=f"{checker}-web-03",
+            source="cluster",
+            name=kw.pop("name", f"{checker} high"),
+            severity=severity,
+            status=status,
+            started_at=timezone.now(),
+            node=node,
+            labels={"checker": checker, "instance_id": "web-03"},
+            annotations={"metrics": json.dumps({"cpu_percent": value})},
+            **kw,
+        )
+
+    def _incident(self, status):
+        return Incident.objects.create(title="t", severity="critical", status=status)
+
+    def test_a_refire_reopens_its_resolved_incident(self):
+        node = self._node()
+        incident = self._incident(IncidentStatus.RESOLVED)
+        alert = self._alert(node, incident=incident)
+
+        report = apply_reeval(ReevalScope.for_alert(alert))
+
+        self.assertEqual(report.changes[0].new_status, "firing")
+        incident.refresh_from_db()
+        self.assertEqual(incident.status, IncidentStatus.OPEN)
+        self.assertIsNone(incident.resolved_at)
+        self.assertEqual(PipelineRun.objects.filter(incident_id=incident.pk).count(), 1)
+
+    def test_a_refire_reopens_its_closed_incident(self):
+        node = self._node()
+        incident = self._incident(IncidentStatus.CLOSED)
+        alert = self._alert(node, incident=incident)
+
+        apply_reeval(ReevalScope.for_alert(alert))
+
+        incident.refresh_from_db()
+        self.assertEqual(incident.status, IncidentStatus.OPEN)
+        self.assertIsNone(incident.closed_at)
+
+    def test_a_refire_joins_an_open_sibling_instead_of_reopening_its_own(self):
+        """One situation is one open incident, exactly as on the ingest path."""
+        node = self._node()
+        terminal = self._incident(IncidentStatus.RESOLVED)
+        sibling = self._incident(IncidentStatus.OPEN)
+        self._alert(
+            node,
+            checker="cpu2",
+            name="cpu high",
+            severity="critical",
+            status="firing",
+            incident=sibling,
+        )
+        alert = self._alert(node, incident=terminal)
+
+        apply_reeval(ReevalScope.for_alert(alert))
+
+        alert.refresh_from_db()
+        terminal.refresh_from_db()
+        self.assertEqual(alert.incident_id, sibling.pk)
+        self.assertEqual(terminal.status, IncidentStatus.RESOLVED)
+        self.assertEqual(PipelineRun.objects.filter(incident_id=terminal.pk).count(), 0)
+        self.assertEqual(PipelineRun.objects.filter(incident_id=sibling.pk).count(), 1)
+
+    def test_an_acknowledged_incident_absorbs_a_de_escalation_and_tells_nobody(self):
+        node = self._node({"cpu": {"warning_threshold": 90, "critical_threshold": 99}})
+        incident = self._incident(IncidentStatus.ACKNOWLEDGED)
+        alert = self._alert(node, severity="critical", status="firing", value=95.2)
+        alert.incident = incident
+        alert.save()
+
+        report = apply_reeval(ReevalScope.for_alert(alert))
+
+        alert.refresh_from_db()
+        self.assertEqual(alert.severity, "warning")
+        self.assertFalse(report.changes[0].notify)
+        self.assertEqual(report.run_count, 0)
+        incident.refresh_from_db()
+        self.assertEqual(incident.status, IncidentStatus.ACKNOWLEDGED)
+        self.assertEqual(PipelineRun.objects.count(), 0)
+
+    def test_an_acknowledged_incident_breaks_open_on_an_escalation(self):
+        node = self._node()
+        incident = self._incident(IncidentStatus.ACKNOWLEDGED)
+        alert = self._alert(node, severity="warning", status="firing", value=95.2)
+        alert.incident = incident
+        alert.save()
+
+        report = apply_reeval(ReevalScope.for_alert(alert))
+
+        alert.refresh_from_db()
+        self.assertEqual(alert.severity, "critical")
+        self.assertTrue(report.changes[0].notify)
+        incident.refresh_from_db()
+        self.assertEqual(incident.status, IncidentStatus.OPEN)
+        self.assertEqual(PipelineRun.objects.filter(incident_id=incident.pk).count(), 1)
+
+    def test_a_preview_reports_the_absorbed_change_without_promising_a_run(self):
+        node = self._node({"cpu": {"warning_threshold": 90, "critical_threshold": 99}})
+        incident = self._incident(IncidentStatus.ACKNOWLEDGED)
+        alert = self._alert(node, severity="critical", status="firing", value=95.2)
+        alert.incident = incident
+        alert.save()
+
+        report = preview_reeval(ReevalScope.for_alert(alert))
+
+        self.assertEqual(len(report.changes), 1)
+        self.assertEqual(report.run_count, 0)
+
+
+class ReevalSweepAnnounceTests(TestCase):
+    """A sweep resolution is a change too, and gets the run every change gets."""
+
+    def _node(self):
+        return Node.objects.create(
+            instance_id="web-03",
+            config={"cpu": {"warning_threshold": 99, "critical_threshold": 99}},
+        )
+
+    def _alert(self, node, checker, status="firing", severity="critical", incident=None):
+        return Alert.objects.create(
+            fingerprint=f"{checker}-web-03",
+            source="cluster",
+            name=f"{checker} high",
+            severity=severity,
+            status=status,
+            started_at=timezone.now(),
+            node=node,
+            incident=incident,
+            labels={"checker": checker, "instance_id": "web-03"},
+            annotations={"metrics": json.dumps({"cpu_percent": 95.2})},
+        )
+
+    def test_an_incident_swept_without_a_change_of_its_own_still_gets_a_run(self):
+        node = self._node()
+        changed = Incident.objects.create(title="changed", severity="critical", status="open")
+        self._alert(node, "cpu", incident=changed)
+        stale = Incident.objects.create(title="stale", severity="info", status="open")
+        self._alert(node, "memory", status="resolved", severity="info", incident=stale)
+
+        report = apply_node_alert_reeval(node)
+
+        stale.refresh_from_db()
+        self.assertEqual(stale.status, IncidentStatus.RESOLVED)
+        self.assertEqual(set(report.swept_incident_ids), {changed.pk, stale.pk})
+        self.assertEqual(PipelineRun.objects.filter(incident_id=stale.pk).count(), 1)
+
+    def test_the_applied_run_count_equals_the_runs_created(self):
+        node = self._node()
+        changed = Incident.objects.create(title="changed", severity="critical", status="open")
+        self._alert(node, "cpu", incident=changed)
+        stale = Incident.objects.create(title="stale", severity="info", status="open")
+        self._alert(node, "memory", status="resolved", severity="info", incident=stale)
+
+        report = apply_node_alert_reeval(node)
+
+        self.assertEqual(report.run_count, 2)
+        self.assertEqual(PipelineRun.objects.count(), 2)
+
+    def test_an_incident_both_changed_and_swept_gets_exactly_one_run(self):
+        node = self._node()
+        incident = Incident.objects.create(title="t", severity="critical", status="open")
+        self._alert(node, "cpu", incident=incident)
+
+        report = apply_node_alert_reeval(node)
+
+        self.assertEqual(report.run_count, 1)
+        self.assertEqual(PipelineRun.objects.filter(incident_id=incident.pk).count(), 1)
+
+
 class MalformedNodeConfigTests(TestCase):
     """``Node.config`` is never validated at ingest, so it can hold anything."""
 

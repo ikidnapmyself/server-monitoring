@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from django.db import models, transaction
 from django.utils import timezone
 
+from apps.alerts.incident_gate import follow_alert
 from apps.alerts.models import Alert, AlertHistory, Incident, IncidentStatus, Node
 from apps.alerts.reevaluation import (
     SCORERS,
@@ -25,7 +26,12 @@ from apps.alerts.reevaluation import (
     parse_metrics,
     unchanged_skip,
 )
-from apps.alerts.services import announce_incident_change, resolve_node
+from apps.alerts.services import (
+    AlertOrchestrator,
+    ProcessingResult,
+    announce_incident_change,
+    resolve_node,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +44,9 @@ class AlertChange:
     new_severity: str
     new_status: str
     value: float
+    # What apps.alerts.incident_gate.follow_alert said about this change: an
+    # acknowledged incident absorbs a refire, and an absorbed change tells nobody.
+    notify: bool = True
 
     @property
     def value_display(self) -> str:
@@ -60,6 +69,9 @@ class ReevalReport:
     node: Node | None
     changes: list[AlertChange] = field(default_factory=list)
     skips: list[AlertSkip] = field(default_factory=list)
+    # Incidents the apply's sweep resolved. Empty on a preview, which cannot know
+    # them: the sweep reaches incidents whose alerts had already cleared.
+    swept_incident_ids: list[int] = field(default_factory=list)
 
     @property
     def resolved_count(self) -> int:
@@ -75,12 +87,15 @@ class ReevalReport:
 
     @property
     def run_count(self) -> int:
-        """How many pipeline runs an apply would enqueue.
+        """How many pipeline runs an apply enqueued, or a preview's floor.
 
-        Shares ``_changed_incident_ids`` with the apply itself, so the number the
-        confirm page promises cannot drift from the number of runs created.
+        Shares ``_announced_incident_ids`` with the apply itself, so on an applied
+        report the number equals the runs created. On a preview it is a floor, not
+        a promise: an apply that resolves anything also sweeps the node for
+        incidents whose alerts have all cleared, and those can be incidents no
+        preview of this scope ever looked at.
         """
-        return len(_changed_incident_ids(self))
+        return len(_announced_incident_ids(self))
 
 
 @dataclass(frozen=True)
@@ -171,6 +186,9 @@ def preview_reeval(scope: ReevalScope) -> ReevalReport:
         instance_id = scope.node.instance_id if scope.node else labels.get("instance_id", "")
         outcome = _outcome_for(alert, config)
         if isinstance(outcome, Verdict):
+            _, notify = follow_alert(
+                alert.incident, alert.severity, outcome.severity, alert.status, outcome.status
+            )
             report.changes.append(
                 AlertChange(
                     alert=alert,
@@ -179,6 +197,7 @@ def preview_reeval(scope: ReevalScope) -> ReevalReport:
                     new_severity=outcome.severity,
                     new_status=outcome.status,
                     value=outcome.value,
+                    notify=notify,
                 )
             )
             continue
@@ -208,6 +227,9 @@ def apply_reeval(scope: ReevalScope) -> ReevalReport:
     A scope with no node has no policy to apply, so it writes nothing and returns
     the preview. ``report.node is None`` is how a caller tells that refusal from a
     scope that simply had nothing to change.
+
+    Each applied change then runs the same incident lifecycle ingest runs, so a
+    re-fired alert never ends up sitting under a resolved or closed incident.
     """
     report = preview_reeval(scope)
     node = scope.node
@@ -253,10 +275,11 @@ def apply_reeval(scope: ReevalScope) -> ReevalReport:
                 "by": "hub-node-policy:config-change",
             },
         )
+        _follow_incident(change)
     # Only sweep incidents when something actually resolved — a pure severity
     # change (or a no-op run) must not auto-resolve a manually-reopened incident.
     if report.resolved_count:
-        _resolve_incidents_for(node)
+        report.swept_incident_ids = _resolve_incidents_for(node)
     if report.changes:
         logger.info(
             "Config-change re-eval on %s: resolved %d, changed severity on %d",
@@ -264,7 +287,7 @@ def apply_reeval(scope: ReevalScope) -> ReevalReport:
             report.resolved_count,
             report.severity_changed_count,
         )
-    for incident in _changed_incidents(report):
+    for incident in _announced_incidents(report):
         announce_incident_change(incident)
     return report
 
@@ -274,34 +297,93 @@ def apply_node_alert_reeval(node: Node) -> ReevalReport:
     return apply_reeval(ReevalScope.for_node(node))
 
 
-def _changed_incidents(report: ReevalReport) -> list[Incident]:
-    """The distinct incidents behind ``report.changes``, reloaded from the database.
+def _follow_incident(change: AlertChange) -> None:
+    """Move the incident behind one applied change, the way ingest does.
+
+    Same lifecycle as ``AlertOrchestrator._process_alert``: a firing alert whose
+    incident is missing or terminal joins an existing open sibling rather than
+    reopening its own (one situation is one open incident), and only
+    ``follow_alert`` decides whether the incident reopens and whether anyone hears
+    about it. The answer is written back onto ``change`` so the announce loop and
+    the run count read the decision this apply actually took.
+    """
+    alert = change.alert
+    incident = _reload(alert.incident_id)
+    if change.new_status == "firing" and (
+        incident is None or incident.status in (IncidentStatus.RESOLVED, IncidentStatus.CLOSED)
+    ):
+        orchestrator = AlertOrchestrator()
+        sibling = orchestrator._find_open_incident(alert)
+        if sibling is not None:
+            orchestrator._attach_to_incident(alert, sibling, ProcessingResult())
+            incident = sibling
+    reopen, change.notify = follow_alert(
+        incident, change.old_severity, change.new_severity, change.old_status, change.new_status
+    )
+    if reopen:
+        assert incident is not None  # the gate never reopens a missing incident
+        incident.reopen()
+
+
+def _reload(incident_id: int | None) -> Incident | None:
+    """The incident as the database has it now, not as an alert cached it."""
+    if not incident_id:
+        return None
+    return Incident.objects.filter(pk=incident_id).first()
+
+
+def _announced_incidents(report: ReevalReport) -> list[Incident]:
+    """The incidents this apply owes a run, reloaded from the database.
 
     Reloaded because ``_resolve_incidents_for`` has already run: an incident cached on
     an in-memory alert would still report the status it had before that sweep.
     """
-    return [Incident.objects.get(pk=pk) for pk in _changed_incident_ids(report)]
+    return [Incident.objects.get(pk=pk) for pk in _announced_incident_ids(report)]
 
 
-def _changed_incident_ids(report: ReevalReport) -> list[int]:
-    """The distinct incident ids behind ``report.changes``, in first-seen order."""
-    seen: set[int] = set()
-    ids: list[int] = []
-    for change in report.changes:
-        incident_id = change.alert.incident_id
-        if not incident_id or incident_id in seen:
+def _announced_incident_ids(report: ReevalReport) -> list[int]:
+    """Every incident this report changed: notified changes first, then the sweep."""
+    ids = _changed_incident_ids(report)
+    seen = set(ids)
+    for incident_id in report.swept_incident_ids:
+        if incident_id in seen:
             continue
         seen.add(incident_id)
         ids.append(incident_id)
     return ids
 
 
-def _resolve_incidents_for(node: Node) -> None:
-    """Resolve open/ack incidents (touching this node) whose alerts all resolved."""
+def _changed_incident_ids(report: ReevalReport) -> list[int]:
+    """The distinct incident ids behind ``report.changes``, in first-seen order.
+
+    A change the gate absorbed (an acknowledged incident swallowing a refire) is
+    left out: it earned a history row, not a page.
+    """
+    seen: set[int] = set()
+    ids: list[int] = []
+    for change in report.changes:
+        incident_id = change.alert.incident_id
+        if not incident_id or not change.notify or incident_id in seen:
+            continue
+        seen.add(incident_id)
+        ids.append(incident_id)
+    return ids
+
+
+def _resolve_incidents_for(node: Node) -> list[int]:
+    """Resolve open/ack incidents (touching this node) whose alerts all resolved.
+
+    Returns the ids it resolved. They are announced like any other change: a sweep
+    can reach an incident whose own alerts cleared before this report, and that
+    resolution is news to exactly the same people.
+    """
     incidents = Incident.objects.filter(
         status__in=[IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED],
         alerts__labels__instance_id=node.instance_id,
     ).distinct()
+    resolved: list[int] = []
     for incident in incidents:
         if incident.alerts.exists() and not incident.alerts.filter(status="firing").exists():
             incident.resolve(summary="All alerts resolved by config-change re-evaluation")
+            resolved.append(incident.pk)
+    return resolved

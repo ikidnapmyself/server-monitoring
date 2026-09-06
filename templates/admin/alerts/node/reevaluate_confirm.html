@@ -50,12 +50,20 @@
 </p>
 {% if report.run_count %}
 <p>
-  This will create {{ report.run_count }} pipeline run(s), which notify once the
-  inbox drains, if their lane has a channel.
+  This will create {{ report.run_count }} pipeline run(s) for the changes above, which
+  notify once the inbox drains, if their lane has a channel.
 </p>
 {% else %}
 <p>
-  This will create 0 pipeline run(s): nothing above belongs to an incident.
+  This will create 0 pipeline run(s) from the changes above:
+  nothing above belongs to an incident that would be notified.
+</p>
+{% endif %}
+{% if report.resolved_count %}
+<p>
+  Resolving anything also sweeps this node for incidents whose alerts have all
+  cleared, including ones no change above touched. Each of those is resolved and
+  gets its own run too, on top of the count above.
 </p>
 {% endif %}
 {% if report.reopened_count %}

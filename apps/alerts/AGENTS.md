@@ -74,7 +74,16 @@ legacy `IngestExecutor`.
     runs commit with the writes that justify them. Nothing drains in the operator's request. That is
     why the command and both admin buttons state the run count and warn that applying notifies once
     `process_inbox` drains, if the lane has a channel. `ReevalReport.run_count` shares
-    `_changed_incident_ids` with the apply, so the promised number cannot drift from the runs created.
+    `_announced_incident_ids` with the apply, so on an applied report it equals the runs created. On a
+    preview it is a floor: an apply that resolves anything also sweeps the node for incidents whose
+    alerts have all cleared, and one of those can be an incident the preview never looked at. Those
+    sweep resolutions are announced too, so no incident this apply changed goes unreported.
+  - **The incident lifecycle is `incident_gate.follow_alert`'s, not this module's.** An applied change
+    runs the same lifecycle ingest does (`AlertOrchestrator._process_alert`): a re-fired alert whose
+    incident is resolved or closed joins an existing open sibling if there is one, otherwise
+    `follow_alert` reopens it, so a firing alert never sits under a terminal incident. `follow_alert`
+    also decides whether anyone hears about it, so an acknowledged incident absorbing a refire earns
+    a history row and no run, exactly as at ingest.
   See `docs/plans/2026-08-08-reeval-existing-alerts-design.md` and
   `docs/plans/2026-09-06-reevaluation-surface-design.md`.
 - `apps/alerts/materiality.py` — **the fan-out change gate**: one predicate,

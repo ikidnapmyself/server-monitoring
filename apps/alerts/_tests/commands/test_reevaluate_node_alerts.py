@@ -111,6 +111,13 @@ class ReevaluateNodeAlertsCommandTests(TestCase):
         call_command("reevaluate_node_alerts", "web-03", "--dry-run", stdout=out)
         self.assertIn("Applying will create 1 pipeline run(s)", out.getvalue())
 
+    def test_a_resolving_preview_says_the_sweep_creates_runs_of_its_own(self):
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        self._firing_cpu_alert(node)
+        out = StringIO()
+        call_command("reevaluate_node_alerts", "web-03", "--dry-run", stdout=out)
+        self.assertIn("Each of those is resolved and gets its own run too.", out.getvalue())
+
     def test_the_preview_rounds_the_value(self):
         node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
         self._firing_cpu_alert(node, value=41.199999999999996)

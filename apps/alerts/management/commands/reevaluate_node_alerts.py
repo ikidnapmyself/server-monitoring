@@ -73,8 +73,14 @@ class Command(BaseCommand):
             self.stdout.write("No open alerts need re-evaluation.")
             return
         self.stdout.write(
-            f"Applying will create {report.run_count} pipeline run(s), which notify "
-            "once the inbox drains, if their lane has a channel."
+            f"Applying will create {report.run_count} pipeline run(s) for the changes above, "
+            "which notify once the inbox drains, if their lane has a channel."
         )
+        if report.resolved_count:
+            self.stdout.write(
+                "Resolving anything also sweeps this node for incidents whose alerts have all "
+                "cleared, including ones no change above touched. Each of those is resolved "
+                "and gets its own run too."
+            )
         if report.reopened_count:
             self.stdout.write(f"Applying will re-open {report.reopened_count} resolved alert(s).")
