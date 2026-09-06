@@ -583,6 +583,14 @@ class AllowlistEvaluatorReasonTests(TestCase):
         self.assertEqual(skip.reason, SkipReason.NO_METRICS)
         self.assertEqual(skip.context["checker"], "listening_ports")
 
+    def test_the_sentence_for_corrupt_metrics_does_not_claim_they_are_absent(self):
+        parsed = _alert("listening_ports", "not json")
+        skip = allowlist_evaluator(parsed, {"allowlist": [22]})
+        self.assertEqual(
+            describe_skip(skip, checker="listening_ports", instance_id="web-03"),
+            "This alert carries no readable metrics, so there is nothing to re-score.",
+        )
+
 
 class DescribeSkipTests(TestCase):
     def _say(self, skip, checker="cpu", instance_id="fiyat-ekrani"):
@@ -600,10 +608,10 @@ class DescribeSkipTests(TestCase):
             "No policy set for cpu on fiyat-ekrani.",
         )
 
-    def test_no_metrics_explains_there_is_nothing_to_score(self):
+    def test_no_metrics_covers_both_absent_and_corrupt_metrics(self):
         self.assertEqual(
             self._say(Skip(SkipReason.NO_METRICS)),
-            "This alert carries no metrics, so there is nothing to re-score.",
+            "This alert carries no readable metrics, so there is nothing to re-score.",
         )
 
     def test_no_metric_value_names_the_key_without_claiming_it_is_absent(self):
@@ -658,3 +666,4 @@ class DescribeSkipTests(TestCase):
                 instance_id="n1",
             )
             self.assertTrue(sentence.endswith("."), reason)
+            self.assertNotIn("{", sentence, reason)

@@ -92,7 +92,9 @@ _SKIP_SENTENCES: dict[SkipReason, str] = {
     SkipReason.NO_PRIMARY_METRIC: (
         "{checker} has no single number to score, so warning and critical thresholds do not apply."
     ),
-    SkipReason.NO_METRICS: "This alert carries no metrics, so there is nothing to re-score.",
+    SkipReason.NO_METRICS: (
+        "This alert carries no readable metrics, so there is nothing to re-score."
+    ),
     SkipReason.NO_METRIC_VALUE: (
         "This alert carries no usable {metric_key} value, so there is nothing to re-score."
     ),
