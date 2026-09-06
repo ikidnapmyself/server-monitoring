@@ -1207,7 +1207,15 @@ git commit -am "feat(admin): show what each policy is doing, and act from the ro
 - Modify: `docs/plans/2026-09-06-reevaluation-surface-design.md` (status line only)
 
 Record the new scorer contract (`Verdict | Skip`, every `Skip` a passthrough), the
-`ReevalScope`, and that an applied re-evaluation announces. Mark the design as shipped.
+`ReevalScope`, and that an applied re-evaluation announces.
+
+**Say plainly that `reevaluate_node_alerts` now arms notifications.** Task 8 gave the
+command and the Node admin button a blast radius they did not have: an apply that changes
+an incident-attached alert leaves `PENDING` runs behind, which notify once `process_inbox`
+drains them. The command's own tests pass only because their fixtures build alerts with no
+incident, so nothing asserts this. Put it in the command's `help` text as well as the docs,
+because `--noinput` across several nodes is how someone finds out the hard way. `--dry-run`
+is the answer, and the help should say so next to the warning. Mark the design as shipped.
 
 Do **not** edit `docs/plans/2026-09-03-policy-overview-design.md` beyond a dated
 superseded remark: plan documents are historical records.
