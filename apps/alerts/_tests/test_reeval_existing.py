@@ -93,6 +93,22 @@ class ReevalExistingTests(TestCase):
         self.assertEqual(history.event, "reevaluated")
         self.assertEqual(history.new_status, "firing")
 
+    def test_history_marks_the_re_evaluation(self):
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        alert = self._alert(node, "cpu", 95.2)
+        apply_node_alert_reeval(node)
+        history = AlertHistory.objects.get(alert=alert)
+        self.assertEqual(history.event, "resolved")
+        self.assertEqual(history.details["by"], "hub-node-policy:config-change")
+
+    def test_history_marks_the_re_evaluation_on_a_severity_change(self):
+        node = self._node({"cpu": {"warning_threshold": 80, "critical_threshold": 99}})
+        alert = self._alert(node, "cpu", 85)
+        apply_node_alert_reeval(node)
+        history = AlertHistory.objects.get(alert=alert)
+        self.assertEqual(history.event, "reevaluated")
+        self.assertEqual(history.details["by"], "hub-node-policy:config-change")
+
     def test_finds_unlinked_alert_by_instance_id_label(self):
         # Alert created before the node registered → node FK is NULL, but its
         # instance_id label still identifies it. Reeval must find it by label.

@@ -210,6 +210,9 @@ def apply_reeval(scope: ReevalScope) -> ReevalReport:
             details={
                 "severity_from": change.old_severity,
                 "severity_to": change.new_severity,
+                # On both events, so a reader filters on one key instead of trusting
+                # event names to tell policy apart from an ingest-driven resolve.
+                "by": "hub-node-policy:config-change",
             },
         )
     # Only sweep incidents when something actually resolved — a pure severity
