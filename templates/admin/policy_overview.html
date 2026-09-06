@@ -8,7 +8,10 @@ autoescaping here must stay on.
 <div id="policy-overview">
   <p style="color:var(--body-quiet-color, #666); font-size:13px; margin:4px 0 16px;">
     Re-evaluation is fail-open, so an override the scorers cannot use looks exactly
-    like no override. Anything not marked "In effect" is changing no severity.
+    like no override. Anything not marked "In effect" is changing no severity. Rows
+    appear for checkers this hub holds policy for and for checkers alerting right now.
+    Effect scores the alerts open right now. Applied is the last time a re-evaluation
+    changed something here, not the last time an alert went quiet.
   </p>
 
   {% if overview.groups %}
@@ -27,6 +30,8 @@ autoescaping here must stay on.
             <th style="text-align:left;">Checker</th>
             <th style="text-align:left;">Policy</th>
             <th style="text-align:left;">Status</th>
+            <th style="text-align:left;">Effect</th>
+            <th style="text-align:left;">Applied</th>
             <th style="text-align:left;">Why</th>
             <th></th>
           </tr>
@@ -37,7 +42,10 @@ autoescaping here must stay on.
             <td>{{ row.checker }}</td>
             <td>{{ row.policy }}</td>
             <td>
-              {% if row.is_problem %}
+              {% if row.is_muted %}
+              <span style="background-color:#6c757d; color:#fff; padding:2px 8px;
+                           border-radius:10px; font-size:12px;">{{ row.status }}</span>
+              {% elif row.is_problem %}
               <span style="background-color:#b26a00; color:#fff; padding:2px 8px;
                            border-radius:10px; font-size:12px;">{{ row.status }}</span>
               {% else %}
@@ -45,12 +53,17 @@ autoescaping here must stay on.
                            border-radius:10px; font-size:12px;">{{ row.status }}</span>
               {% endif %}
             </td>
+            <td>{{ row.effect }}</td>
+            <td>{{ row.applied }}</td>
             <td>
               {% if row.caution %}
               <span style="color:#b26a00;">&#9888; {{ row.why }}</span>
               {% else %}{{ row.why }}{% endif %}
             </td>
-            <td style="text-align:right;"><a href="{{ row.edit_url }}">Edit</a></td>
+            <td style="text-align:right; white-space:nowrap;">
+              {% if not row.is_muted %}<a href="{{ row.edit_url }}">Edit</a>{% endif %}
+              {% if row.reeval_url %}<a href="{{ row.reeval_url }}">Re-evaluate</a>{% endif %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>
@@ -61,7 +74,7 @@ autoescaping here must stay on.
   {% if overview.quiet_count %}
   {% with n=overview.quiet_count %}
   <p style="color:var(--body-quiet-color, #666);">
-    {{ n }} other node{{ n|pluralize }} {{ n|pluralize:"has,have" }} no hub-side policy.
+    {{ n }} other node{{ n|pluralize }} {{ n|pluralize:"has,have" }} no hub-side policy and nothing firing.
   </p>
   {% endwith %}
   {% endif %}

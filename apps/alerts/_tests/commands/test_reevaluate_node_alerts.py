@@ -3,11 +3,14 @@ from io import StringIO
 from unittest.mock import patch
 
 from django.core.management import call_command
-from django.core.management.base import CommandError
+from django.core.management.base import CommandError, OutputWrapper
 from django.test import TestCase
 from django.utils import timezone
 
-from apps.alerts.models import Alert, Node
+from apps.alerts.management.commands.reevaluate_node_alerts import Command
+from apps.alerts.models import Alert, Incident, Node
+from apps.alerts.reeval_existing import AlertChange, ReevalReport
+from apps.orchestration.models import PipelineRun
 
 
 class ReevaluateNodeAlertsCommandTests(TestCase):
@@ -47,6 +50,91 @@ class ReevaluateNodeAlertsCommandTests(TestCase):
         out = StringIO()
         call_command("reevaluate_node_alerts", "web-03", stdout=out)
         self.assertIn("No open alerts need re-evaluation.", out.getvalue())
+
+    def test_the_help_warns_that_applying_notifies_without_promising_it(self):
+        self.assertIn("notifies", Command.help)
+        self.assertIn("if its lane has a channel", Command.help)
+        self.assertIn("--dry-run", Command.help)
+
+    def test_the_preview_prints_the_skips_with_their_reasons(self):
+        node = self._node({})
+        self._firing_cpu_alert(node)
+        out = StringIO()
+        call_command("reevaluate_node_alerts", "web-03", "--dry-run", stdout=out)
+        self.assertIn("No policy set for cpu on web-03.", out.getvalue())
+
+    def test_the_reasons_come_before_the_line_they_explain(self):
+        node = self._node({})
+        self._firing_cpu_alert(node)
+        out = StringIO()
+        call_command("reevaluate_node_alerts", "web-03", "--dry-run", stdout=out)
+        printed = out.getvalue()
+        self.assertLess(
+            printed.index("No policy set for cpu on web-03."),
+            printed.index("No open alerts need re-evaluation."),
+        )
+
+    def test_a_reopening_change_is_announced_before_it_is_applied(self):
+        """Only a per-alert scope can re-open, so the report is built by hand.
+
+        The command scopes firing alerts, but it and the confirm page read the
+        same report and must not disagree about what it means.
+        """
+        node = self._node({"cpu": {"warning_threshold": 80, "critical_threshold": 90}})
+        alert = self._firing_cpu_alert(node, value=95.0)
+        report = ReevalReport(
+            node=node,
+            changes=[
+                AlertChange(
+                    alert=alert,
+                    old_severity="info",
+                    old_status="resolved",
+                    new_severity="critical",
+                    new_status="firing",
+                    value=95.0,
+                )
+            ],
+        )
+        out = StringIO()
+        command = Command()
+        command.stdout = OutputWrapper(out)
+        command._print_report(report)
+        self.assertIn("Applying will re-open 1 resolved alert(s).", out.getvalue())
+
+    def test_the_preview_prints_how_many_runs_applying_would_create(self):
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        incident = Incident.objects.create(title="t", severity="critical", status="open")
+        alert = self._firing_cpu_alert(node)
+        alert.incident = incident
+        alert.save()
+        out = StringIO()
+        call_command("reevaluate_node_alerts", "web-03", "--dry-run", stdout=out)
+        self.assertIn("Applying will create 1 pipeline run(s)", out.getvalue())
+
+    def test_a_resolving_preview_says_the_sweep_creates_runs_of_its_own(self):
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        self._firing_cpu_alert(node)
+        out = StringIO()
+        call_command("reevaluate_node_alerts", "web-03", "--dry-run", stdout=out)
+        self.assertIn("Each of those is resolved and gets its own run too.", out.getvalue())
+
+    def test_the_preview_rounds_the_value(self):
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        self._firing_cpu_alert(node, value=41.199999999999996)
+        out = StringIO()
+        call_command("reevaluate_node_alerts", "web-03", "--dry-run", stdout=out)
+        self.assertIn("(41.2)", out.getvalue())
+
+    def test_dry_run_writes_nothing_and_enqueues_nothing(self):
+        node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
+        incident = Incident.objects.create(title="t", severity="critical", status="open")
+        alert = self._firing_cpu_alert(node)
+        alert.incident = incident
+        alert.save()
+        call_command("reevaluate_node_alerts", "web-03", "--dry-run", stdout=StringIO())
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, "firing")
+        self.assertEqual(PipelineRun.objects.count(), 0)
 
     def test_noinput_applies(self):
         node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})

@@ -4,18 +4,29 @@ Every case here is a shape ``Node.config`` can actually hold, because the ingest
 path never validates it.
 """
 
+import json
+from datetime import timedelta
+
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
-from apps.alerts.models import Node
+from apps.alerts.models import Alert, AlertHistory, Node
 from apps.alerts.policy_overview import (
+    APPLIED_AT_INGEST,
     IN_EFFECT,
+    NEVER_APPLIED,
     NO_POLICY,
+    NO_POLICY_SET,
     NOT_HONOURED,
+    NOT_REEVALUATABLE,
     NOT_SCORING,
+    NOTHING_FIRING,
+    POLICY_MARKER,
     build_policy_overview,
     rows_for_node,
 )
+from apps.alerts.reeval_existing import ReevalScope, preview_reeval
 
 
 class PolicyOverviewTestCase(TestCase):
@@ -209,3 +220,425 @@ class BuildPolicyOverviewTests(TestCase):
         overview = build_policy_overview()
         self.assertEqual([g.instance_id for g in overview.groups], ["healthy"])
         self.assertEqual(overview.quiet_count, 1)
+
+
+class FiringAlertRowTests(PolicyOverviewTestCase):
+    def _alert(self, checker, instance_id="node-a", status="firing", labels=None):
+        return Alert.objects.create(
+            fingerprint=f"check:{instance_id}:{checker}",
+            source="cluster",
+            name=f"{checker} high",
+            severity="critical",
+            status=status,
+            started_at=timezone.now(),
+            labels={"checker": checker, "instance_id": instance_id} if labels is None else labels,
+        )
+
+    def test_a_firing_checker_with_no_config_entry_is_a_no_policy_set_row(self):
+        node = self._node({})
+        self._alert("disk")
+        (row,) = rows_for_node(node, {"disk"})
+        self.assertEqual(row.checker, "disk")
+        self.assertEqual(row.status, NO_POLICY_SET)
+        self.assertEqual(row.policy, NO_POLICY)
+        self.assertEqual(
+            row.why, "Alerting now with no policy set, so disk scores as the node sends it."
+        )
+        self.assertTrue(row.is_problem)
+        self.assertFalse(row.is_muted)
+
+    def test_a_no_policy_set_row_links_to_that_checkers_own_box(self):
+        node = self._node({})
+        (row,) = rows_for_node(node, {"disk"})
+        self.assertEqual(
+            row.edit_url, f"{self._change_url(node)}#id_policy__disk__warning_threshold"
+        )
+
+    def test_a_firing_checker_no_scorer_reads_is_a_not_reevaluatable_row(self):
+        node = self._node({})
+        (row,) = rows_for_node(node, {"raid"})
+        self.assertEqual(row.checker, "raid")
+        self.assertEqual(row.status, NOT_REEVALUATABLE)
+        self.assertEqual(row.policy, NO_POLICY)
+        self.assertEqual(
+            row.why, "Alerting now, but no scorer reads raid, so no policy can change it."
+        )
+        self.assertFalse(row.is_problem)
+        self.assertTrue(row.is_muted)
+
+    def test_a_not_reevaluatable_row_links_to_the_page_with_no_fragment(self):
+        node = self._node({})
+        (row,) = rows_for_node(node, {"raid"})
+        self.assertEqual(row.edit_url, self._change_url(node))
+
+    def test_a_per_mount_disk_checker_is_not_reevaluatable(self):
+        (row,) = rows_for_node(self._node({}), {"disk:/var"})
+        self.assertEqual(row.status, NOT_REEVALUATABLE)
+
+    def test_a_checker_with_both_config_and_a_firing_alert_is_one_row(self):
+        node = self._node({"cpu": {"warning_threshold": 90, "critical_threshold": 99}})
+        (row,) = rows_for_node(node, {"cpu"})
+        self.assertEqual(row.status, IN_EFFECT)
+        self.assertEqual(row.policy, "Warning at 90, Critical at 99")
+
+    def test_a_firing_alert_for_an_unread_config_entry_is_one_not_honoured_row(self):
+        node = self._node({"network": {"warning_threshold": 60}})
+        (row,) = rows_for_node(node, {"network"})
+        self.assertEqual(row.status, NOT_HONOURED)
+        self.assertEqual(row.why, "Nothing reads network.")
+
+    def test_not_reevaluatable_rows_sort_last_and_the_rest_stay_alphabetical(self):
+        node = self._node({"memory": {"warning_threshold": 1, "critical_threshold": 2}})
+        rows = rows_for_node(node, {"raid", "cpu"})
+        self.assertEqual([row.checker for row in rows], ["cpu", "memory", "raid"])
+
+    def test_a_resolved_alert_makes_no_row(self):
+        node = self._node({})
+        self._alert("disk", status="resolved")
+        self.assertEqual(rows_for_node(node), [])
+        overview = build_policy_overview()
+        self.assertEqual(overview.groups, [])
+        self.assertEqual(overview.quiet_count, 1)
+
+    def test_an_alert_with_no_checker_label_makes_no_row(self):
+        self._node({})
+        self._alert("disk", labels={"instance_id": "node-a"})
+        overview = build_policy_overview()
+        self.assertEqual(overview.groups, [])
+        self.assertEqual(overview.quiet_count, 1)
+
+    def test_an_alert_with_no_instance_id_label_makes_no_row(self):
+        self._node({})
+        self._alert("disk", labels={"checker": "disk"})
+        overview = build_policy_overview()
+        self.assertEqual(overview.groups, [])
+        self.assertEqual(overview.quiet_count, 1)
+
+    def test_an_alert_whose_checker_label_is_not_a_string_makes_no_row(self):
+        self._node({})
+        self._alert("disk", labels={"checker": ["disk"], "instance_id": "node-a"})
+        overview = build_policy_overview()
+        self.assertEqual(overview.groups, [])
+        self.assertEqual(overview.quiet_count, 1)
+
+    def test_an_alert_is_matched_to_its_node_by_label_not_by_the_node_fk(self):
+        # The FK is stamped at alert creation, so an alert raised before its node
+        # registered is unlinked while still belonging to that node.
+        self._node({})
+        alert = self._alert("disk")
+        self.assertIsNone(alert.node)
+        (group,) = build_policy_overview().groups
+        self.assertEqual([row.status for row in group.rows], [NO_POLICY_SET])
+
+    def test_a_firing_alert_on_an_unknown_instance_id_lists_no_node(self):
+        self._node({})
+        self._alert("disk", instance_id="not-a-node")
+        overview = build_policy_overview()
+        self.assertEqual(overview.groups, [])
+        self.assertEqual(overview.quiet_count, 1)
+
+    def test_a_no_policy_set_row_makes_its_node_a_problem_node(self):
+        self._node({})
+        self._alert("disk")
+        (group,) = build_policy_overview().groups
+        self.assertTrue(group.has_problem)
+
+    def test_a_not_reevaluatable_row_does_not_make_its_node_a_problem_node(self):
+        self._node({})
+        self._alert("raid")
+        (group,) = build_policy_overview().groups
+        self.assertEqual([row.status for row in group.rows], [NOT_REEVALUATABLE])
+        self.assertFalse(group.has_problem)
+
+    def test_a_node_with_neither_config_nor_alerts_is_only_counted(self):
+        self._node({})
+        overview = build_policy_overview()
+        self.assertEqual(overview.groups, [])
+        self.assertEqual(overview.quiet_count, 1)
+
+
+class QueryCountTests(TestCase):
+    """Nodes, their firing alerts, and the history behind Applied: three, always.
+
+    Scoring every firing alert on the hub is exactly where this would turn into one
+    query per row, so the count is asserted against a growing fleet.
+    """
+
+    QUERIES = 3
+
+    def _populate(self, start, stop):
+        for index in range(start, stop):
+            instance_id = f"node-{index}"
+            Node.objects.create(
+                instance_id=instance_id,
+                config={"cpu": {"warning_threshold": 50, "critical_threshold": 60}},
+            )
+            for checker in ["cpu", "disk", "raid"]:
+                alert = Alert.objects.create(
+                    fingerprint=f"check:{instance_id}:{checker}",
+                    source="cluster",
+                    name=f"{checker} high",
+                    severity="critical",
+                    status="firing",
+                    started_at=timezone.now(),
+                    labels={"checker": checker, "instance_id": instance_id},
+                    annotations={"metrics": json.dumps({f"{checker}_percent": 42.0})},
+                )
+                AlertHistory.objects.create(
+                    alert=alert, event="resolved", details={"by": POLICY_MARKER}
+                )
+
+    def test_the_page_builds_in_three_queries_however_many_nodes_there_are(self):
+        self._populate(0, 2)
+        with self.assertNumQueries(self.QUERIES):
+            self.assertEqual(len(build_policy_overview().groups), 2)
+        self._populate(2, 8)
+        with self.assertNumQueries(self.QUERIES):
+            self.assertEqual(len(build_policy_overview().groups), 8)
+
+    def test_scoring_and_applied_are_read_from_those_same_three_queries(self):
+        self._populate(0, 8)
+        with self.assertNumQueries(self.QUERIES):
+            groups = build_policy_overview().groups
+        rows = [row for group in groups for row in group.rows]
+        self.assertEqual(len(rows), 24)
+        self.assertTrue(all(row.last_applied is not None for row in rows if row.firing_count))
+        self.assertTrue(any(row.would_change_count for row in rows))
+
+
+class EvidenceTestCase(TestCase):
+    """The Effect and Applied columns, built from one node's alerts and history."""
+
+    # 42% against a 50/60 policy scores "resolved", so the alert would change; against
+    # a 1/2 policy it scores critical, which is what it already says, so it would not.
+    WOULD_CHANGE = {"warning_threshold": 50, "critical_threshold": 60}
+    WOULD_NOT_CHANGE = {"warning_threshold": 1, "critical_threshold": 2}
+
+    def _node(self, cpu_policy):
+        return Node.objects.create(instance_id="node-a", config={"cpu": cpu_policy})
+
+    def _alert(self, checker="cpu", instance_id="node-a", annotations=None, percent=42.0):
+        return Alert.objects.create(
+            fingerprint=f"check:{instance_id}:{checker}",
+            source="cluster",
+            name=f"{checker} high",
+            severity="critical",
+            status="firing",
+            started_at=timezone.now(),
+            labels={"checker": checker, "instance_id": instance_id},
+            annotations={
+                "metrics": json.dumps({f"{checker}_percent": percent}),
+                **(annotations or {}),
+            },
+        )
+
+    def _history(self, alert, when, details=None):
+        row = AlertHistory.objects.create(
+            alert=alert,
+            event="resolved",
+            details={"by": POLICY_MARKER} if details is None else details,
+        )
+        AlertHistory.objects.filter(pk=row.pk).update(created_at=when)
+        return row
+
+    def _row(self, checker="cpu"):
+        (group,) = build_policy_overview().groups
+        return next(row for row in group.rows if row.checker == checker)
+
+
+class EffectTests(EvidenceTestCase):
+    def test_a_row_counts_the_firing_alerts_and_the_ones_that_would_change(self):
+        self._node(self.WOULD_CHANGE)
+        self._alert()
+        Alert.objects.create(
+            fingerprint="check:node-a:cpu-2",
+            source="cluster",
+            name="cpu high",
+            severity="critical",
+            status="firing",
+            started_at=timezone.now(),
+            labels={"checker": "cpu", "instance_id": "node-a"},
+            annotations={"metrics": json.dumps({"cpu_percent": 99.0})},
+        )
+        row = self._row()
+        self.assertEqual(row.firing_count, 2)
+        self.assertEqual(row.would_change_count, 1)
+        self.assertEqual(row.effect, "2 firing, 1 would change")
+
+    def test_the_page_scores_the_same_alerts_the_confirm_preview_would(self):
+        node = self._node(self.WOULD_CHANGE)
+        self._alert()
+        report = preview_reeval(ReevalScope.for_checker(node, "cpu"))
+        row = self._row()
+        self.assertEqual(row.would_change_count, len(report.changes))
+        self.assertEqual(row.firing_count, len(report.changes) + len(report.skips))
+
+    def test_a_policy_that_would_change_nothing_reads_plainly(self):
+        self._node(self.WOULD_NOT_CHANGE)
+        self._alert()
+        row = self._row()
+        self.assertEqual(row.would_change_count, 0)
+        self.assertEqual(row.effect, "1 firing, none would change")
+
+    def test_a_configured_checker_with_nothing_firing_says_so(self):
+        self._node(self.WOULD_CHANGE)
+        row = self._row()
+        self.assertEqual(row.firing_count, 0)
+        self.assertEqual(row.effect, NOTHING_FIRING)
+
+    def test_an_alert_carrying_no_metrics_is_firing_but_would_not_change(self):
+        Node.objects.create(instance_id="node-a", config={"cpu": self.WOULD_CHANGE})
+        Alert.objects.create(
+            fingerprint="check:node-a:cpu",
+            source="cluster",
+            name="cpu high",
+            severity="critical",
+            status="firing",
+            started_at=timezone.now(),
+            labels={"checker": "cpu", "instance_id": "node-a"},
+        )
+        row = self._row()
+        self.assertEqual(row.firing_count, 1)
+        self.assertEqual(row.would_change_count, 0)
+
+
+class AppliedTests(EvidenceTestCase):
+    def test_last_applied_reads_the_newest_matching_history_row(self):
+        self._node(self.WOULD_CHANGE)
+        alert = self._alert()
+        now = timezone.now()
+        self._history(alert, now - timedelta(days=2))
+        self._history(alert, now - timedelta(hours=1))
+        row = self._row()
+        self.assertEqual(row.last_applied, now - timedelta(hours=1))
+
+    def test_an_older_history_row_written_later_does_not_win(self):
+        self._node(self.WOULD_CHANGE)
+        alert = self._alert()
+        now = timezone.now()
+        self._history(alert, now - timedelta(hours=1))
+        self._history(alert, now - timedelta(days=2))
+        row = self._row()
+        self.assertEqual(row.last_applied, now - timedelta(hours=1))
+
+    def test_history_for_another_checker_does_not_leak_into_a_row(self):
+        self._node(self.WOULD_CHANGE)
+        self._alert()
+        self._history(self._alert(checker="memory"), timezone.now())
+        self.assertIsNone(self._row("cpu").last_applied)
+        self.assertIsNotNone(self._row("memory").last_applied)
+
+    def test_history_for_another_node_does_not_leak_into_a_row(self):
+        self._node(self.WOULD_CHANGE)
+        self._alert()
+        Node.objects.create(instance_id="node-b", config={"cpu": self.WOULD_CHANGE})
+        self._history(self._alert(instance_id="node-b"), timezone.now())
+        groups = {group.instance_id: group for group in build_policy_overview().groups}
+        (row_a,) = groups["node-a"].rows
+        (row_b,) = groups["node-b"].rows
+        self.assertIsNone(row_a.last_applied)
+        self.assertIsNotNone(row_b.last_applied)
+
+    def test_history_without_the_policy_marker_is_not_an_applied_policy(self):
+        self._node(self.WOULD_CHANGE)
+        alert = self._alert()
+        self._history(alert, timezone.now(), details={"severity_from": "warning"})
+        row = self._row()
+        self.assertIsNone(row.last_applied)
+        self.assertEqual(row.applied, NEVER_APPLIED)
+
+    def test_history_whose_alert_labels_name_no_checker_is_ignored(self):
+        self._node(self.WOULD_CHANGE)
+        alert = self._alert()
+        Alert.objects.filter(pk=alert.pk).update(
+            labels={"checker": ["cpu"], "instance_id": "node-a"}
+        )
+        self._history(alert, timezone.now())
+        row = self._row()
+        self.assertIsNone(row.last_applied)
+
+    def test_a_checker_with_history_but_nothing_firing_still_reports_it(self):
+        self._node(self.WOULD_CHANGE)
+        alert = self._alert()
+        when = timezone.now()
+        self._history(alert, when)
+        Alert.objects.filter(pk=alert.pk).update(status="resolved")
+        row = self._row()
+        self.assertEqual(row.firing_count, 0)
+        self.assertEqual(row.last_applied, when)
+
+    def test_a_firing_alert_re_evaluated_at_ingest_reports_as_applied_without_a_time(self):
+        self._node(self.WOULD_CHANGE)
+        self._alert(annotations={"severity_reevaluated": json.dumps({"by": "hub-node-policy"})})
+        row = self._row()
+        self.assertIsNone(row.last_applied)
+        self.assertTrue(row.applied_at_ingest)
+        self.assertEqual(row.applied, APPLIED_AT_INGEST)
+
+    def test_history_outranks_the_ingest_marker_because_it_carries_a_time(self):
+        self._node(self.WOULD_CHANGE)
+        alert = self._alert(
+            annotations={"severity_reevaluated": json.dumps({"by": "hub-node-policy"})}
+        )
+        when = timezone.now()
+        self._history(alert, when)
+        row = self._row()
+        self.assertEqual(row.last_applied, when)
+        self.assertNotEqual(row.applied, APPLIED_AT_INGEST)
+
+    def test_a_row_with_neither_history_nor_the_ingest_marker_reads_never(self):
+        self._node(self.WOULD_CHANGE)
+        self._alert()
+        row = self._row()
+        self.assertIsNone(row.last_applied)
+        self.assertFalse(row.applied_at_ingest)
+        self.assertEqual(row.applied, NEVER_APPLIED)
+
+    def test_an_alert_with_no_annotations_at_all_reads_never(self):
+        Node.objects.create(instance_id="node-a", config={"cpu": self.WOULD_CHANGE})
+        Alert.objects.create(
+            fingerprint="check:node-a:cpu",
+            source="cluster",
+            name="cpu high",
+            severity="critical",
+            status="firing",
+            started_at=timezone.now(),
+            labels={"checker": "cpu", "instance_id": "node-a"},
+            annotations={},
+        )
+        self.assertEqual(self._row().applied, NEVER_APPLIED)
+
+
+class ReevalUrlTests(EvidenceTestCase):
+    def _tool_url(self, node):
+        return reverse(
+            "admin:alerts_node_actions",
+            kwargs={"pk": node.pk, "tool": "reevaluate_open_alerts"},
+        )
+
+    def test_a_firing_row_links_to_the_node_action_narrowed_to_its_checker(self):
+        node = self._node(self.WOULD_CHANGE)
+        self._alert()
+        self.assertEqual(self._row().reeval_url, f"{self._tool_url(node)}?checker=cpu")
+
+    def test_a_checker_name_off_a_webhook_is_url_encoded(self):
+        # A name nothing scores still gets a button while it holds a config entry:
+        # the preview is where the operator learns nothing reads it.
+        node = Node.objects.create(
+            instance_id="node-a", config={"disk:/var": {"warning_threshold": 1}}
+        )
+        self._alert(checker="disk:/var")
+        row = self._row("disk:/var")
+        self.assertEqual(row.status, NOT_HONOURED)
+        self.assertEqual(row.reeval_url, f"{self._tool_url(node)}?checker=disk%3A%2Fvar")
+
+    def test_a_not_reevaluatable_row_has_no_reeval_url(self):
+        Node.objects.create(instance_id="node-a", config={})
+        self._alert(checker="raid")
+        row = self._row("raid")
+        self.assertEqual(row.status, NOT_REEVALUATABLE)
+        self.assertEqual(row.reeval_url, "")
+
+    def test_a_row_with_nothing_firing_has_no_reeval_url(self):
+        self._node(self.WOULD_CHANGE)
+        self.assertEqual(self._row().reeval_url, "")

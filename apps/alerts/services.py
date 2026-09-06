@@ -29,19 +29,18 @@ from apps.alerts.models import (
     AlertStatus,
     Incident,
     IncidentStatus,
+    Node,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def resolve_node(labels: dict | None):
+def resolve_node(labels: dict | None) -> "Node | None":
     """Return the Node matching an ``instance_id`` label, or None.
 
     Only links to an already-registered node (``Node.upsert`` on the cluster push
     owns creation); a missing label or unknown node leaves the alert unlinked.
     """
-    from apps.alerts.models import Node
-
     instance_id = (labels or {}).get("instance_id")
     if not instance_id:
         return None
@@ -602,6 +601,26 @@ class AlertOrchestrator:
         return severity_rank(severity)
 
 
+def announce_incident_change(incident: Incident) -> None:
+    """Something changed this incident: one inbox run, same as when a node does.
+
+    Shared by operator transitions and by an applied re-evaluation, so the same end
+    state reached two ways produces the same pipeline run.
+    """
+    # Imported here: orchestration imports alerts, so alerts must not import it at module level.
+    from apps.orchestration.inbox import enqueue_incident_runs
+    from apps.orchestration.models import PipelineOrigin
+
+    subject = incident.alerts.order_by("-received_at").first()
+    enqueue_incident_runs(
+        [incident.id],
+        trace_id=str(uuid.uuid4()),
+        origin=PipelineOrigin.MANUAL,
+        source=subject.source if subject else "",
+        node=subject.node if subject else None,
+    )
+
+
 class IncidentManager:
     """
     Service for managing incidents.
@@ -684,18 +703,7 @@ class IncidentManager:
     @staticmethod
     def _announce(incident: Incident) -> None:
         """A human changed the incident: one inbox run, same as when a node does."""
-        # Imported here: orchestration imports alerts, so alerts must not import it at module level.
-        from apps.orchestration.inbox import enqueue_incident_runs
-        from apps.orchestration.models import PipelineOrigin
-
-        subject = incident.alerts.order_by("-received_at").first()
-        enqueue_incident_runs(
-            [incident.id],
-            trace_id=str(uuid.uuid4()),
-            origin=PipelineOrigin.MANUAL,
-            source=subject.source if subject else "",
-            node=subject.node if subject else None,
-        )
+        announce_incident_change(incident)
 
     @staticmethod
     def add_note(incident_id: int, note: str, author: str = "") -> Incident:

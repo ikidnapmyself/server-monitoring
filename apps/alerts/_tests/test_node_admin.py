@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from unittest import mock
 
 from django.contrib import admin
@@ -7,10 +8,13 @@ from django.contrib.auth.models import Permission
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import PermissionDenied
 from django.db import models as db_models
+from django.template.loader import render_to_string
 from django.template.response import TemplateResponse
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.formats import localize
+from django.utils.timezone import localtime
 
 from apps.alerts.admin import NodeAdmin
 from apps.alerts.drivers.base import ParsedAlert
@@ -18,9 +22,15 @@ from apps.alerts.forms import ADD_SECTION_FIELD, NodePolicyForm
 from apps.alerts.identity import local_instance_id
 from apps.alerts.models import Alert, Incident, Node
 from apps.alerts.node_policy import FIELD_SPECS
+from apps.alerts.reeval_existing import AlertChange, ReevalReport
 from apps.alerts.reevaluation import reevaluate_severity
 from apps.checkers.models import CheckRun, PreflightRun
 from apps.orchestration.models import PipelineRun
+
+
+def _rendered(value):
+    """A datetime as the template prints it, so a test can look for one instant."""
+    return localize(localtime(value))
 
 
 class NodeAdminTests(TestCase):
@@ -58,7 +68,9 @@ class NodeAdminTests(TestCase):
         self.assertNotIn(db_models.JSONField, self._admin().formfield_overrides)
 
 
-class NodeReevaluateActionTests(TestCase):
+class ReevaluateActionMixin:
+    """The request plumbing and the two firing alerts both action suites need."""
+
     def setUp(self):
         self.factory = RequestFactory()
         self.model_admin = admin.site._registry[Node]
@@ -89,6 +101,21 @@ class NodeReevaluateActionTests(TestCase):
             annotations={"metrics": json.dumps({"cpu_percent": 42.0})},
         )
 
+    def _firing_memory_alert(self, node):
+        return Alert.objects.create(
+            fingerprint="memory-web-03",
+            source="cluster",
+            name="memory high",
+            severity="critical",
+            status="firing",
+            started_at=timezone.now(),
+            node=node,
+            labels={"checker": "memory", "instance_id": "web-03"},
+            annotations={"metrics": json.dumps({"memory_percent": 42.0})},
+        )
+
+
+class NodeReevaluateActionTests(ReevaluateActionMixin, TestCase):
     def test_action_registered(self):
         self.assertIn("reevaluate_open_alerts", self.model_admin.change_actions)
 
@@ -145,6 +172,145 @@ class NodeReevaluateActionTests(TestCase):
         alert.refresh_from_db()
         self.assertEqual(alert.status, "firing")
 
+    def test_the_page_states_how_many_pipeline_runs_the_apply_will_create(self):
+        node = Node.objects.create(
+            instance_id="web-03",
+            config={"cpu": {"warning_threshold": 99, "critical_threshold": 99}},
+        )
+        incident = Incident.objects.create(title="t", severity="critical", status="open")
+        alert = self._firing_cpu_alert(node)
+        alert.incident = incident
+        alert.save()
+        response = self.model_admin.reevaluate_open_alerts(self._request("get"), node)
+        response.render()
+        self.assertIn("This will create 1 pipeline run(s)", response.content.decode())
+
+    def test_two_alerts_on_one_incident_are_one_run_on_the_page(self):
+        node = Node.objects.create(
+            instance_id="web-03",
+            config={
+                "cpu": {"warning_threshold": 99, "critical_threshold": 99},
+                "memory": {"warning_threshold": 99, "critical_threshold": 99},
+            },
+        )
+        incident = Incident.objects.create(title="t", severity="critical", status="open")
+        for alert in [self._firing_cpu_alert(node), self._firing_memory_alert(node)]:
+            alert.incident = incident
+            alert.save()
+        response = self.model_admin.reevaluate_open_alerts(self._request("get"), node)
+        response.render()
+        self.assertIn("This will create 1 pipeline run(s)", response.content.decode())
+
+    def test_an_alert_with_no_incident_is_told_why_it_creates_no_run(self):
+        node = Node.objects.create(
+            instance_id="web-03",
+            config={"cpu": {"warning_threshold": 99, "critical_threshold": 99}},
+        )
+        self._firing_cpu_alert(node)
+        response = self.model_admin.reevaluate_open_alerts(self._request("get"), node)
+        response.render()
+        content = response.content.decode()
+        self.assertIn("This will create 0 pipeline run(s)", content)
+        self.assertIn("nothing above belongs to an incident", content)
+
+    def test_the_page_does_not_warn_about_reopening_when_nothing_reopens(self):
+        node = Node.objects.create(
+            instance_id="web-03",
+            config={"cpu": {"warning_threshold": 99, "critical_threshold": 99}},
+        )
+        self._firing_cpu_alert(node)
+        response = self.model_admin.reevaluate_open_alerts(self._request("get"), node)
+        response.render()
+        self.assertNotIn("resolved alert(s)", response.content.decode())
+
+    def test_the_page_shows_when_the_value_was_reported(self):
+        node = Node.objects.create(
+            instance_id="web-03",
+            config={"cpu": {"warning_threshold": 99, "critical_threshold": 99}},
+        )
+        alert = self._firing_cpu_alert(node)
+        response = self.model_admin.reevaluate_open_alerts(self._request("get"), node)
+        response.render()
+        content = response.content.decode()
+        self.assertIn("Reported", content)
+        self.assertIn(str(alert.updated_at.year), content)
+
+    def test_the_reported_time_moves_when_the_node_pushes_a_new_value(self):
+        """The column must track the value, not the row's birth.
+
+        ``received_at`` is auto_now_add, so a re-push overwrites the metrics and
+        leaves it behind: a fresh number beside a week-old timestamp.
+        """
+        node = Node.objects.create(
+            instance_id="web-03",
+            config={"cpu": {"warning_threshold": 99, "critical_threshold": 99}},
+        )
+        alert = self._firing_cpu_alert(node)
+        a_week_ago = timezone.now() - timedelta(days=7)
+        # .update() bypasses auto_now/auto_now_add, which is the only way to give
+        # the two fields a gap a rendered timestamp can tell apart.
+        Alert.objects.filter(pk=alert.pk).update(received_at=a_week_ago)
+        alert.refresh_from_db()
+        alert.annotations = {"metrics": json.dumps({"cpu_percent": 43.0})}
+        alert.save()
+        alert.refresh_from_db()
+        self.assertEqual(alert.received_at, a_week_ago)
+        self.assertGreater(alert.updated_at, a_week_ago)
+
+        response = self.model_admin.reevaluate_open_alerts(self._request("get"), node)
+        response.render()
+        content = response.content.decode()
+        self.assertIn(_rendered(alert.updated_at), content)
+        self.assertNotIn(_rendered(alert.received_at), content)
+
+    def test_the_page_rounds_the_value_instead_of_printing_a_raw_float(self):
+        node = Node.objects.create(
+            instance_id="web-03",
+            config={"cpu": {"warning_threshold": 99, "critical_threshold": 99}},
+        )
+        alert = self._firing_cpu_alert(node)
+        alert.annotations = {"metrics": json.dumps({"cpu_percent": 41.199999999999996})}
+        alert.save()
+        response = self.model_admin.reevaluate_open_alerts(self._request("get"), node)
+        response.render()
+        content = response.content.decode()
+        self.assertIn("41.2", content)
+        self.assertNotIn("41.199999999999996", content)
+
+    def test_a_preview_with_only_skips_renders_the_reasons_instead_of_a_message(self):
+        node = Node.objects.create(instance_id="web-03", config={})
+        self._firing_cpu_alert(node)
+        request = self._request("get")
+        response = self.model_admin.reevaluate_open_alerts(request, node)
+        self.assertIsInstance(response, TemplateResponse)
+        response.render()
+        self.assertIn("No policy set for cpu on web-03.", response.content.decode())
+        self.assertEqual(list(request._messages), [])
+
+    def test_a_post_confirm_with_only_skips_writes_nothing_and_renders_the_reasons(self):
+        node = Node.objects.create(instance_id="web-03", config={})
+        alert = self._firing_cpu_alert(node)
+        response = self.model_admin.reevaluate_open_alerts(
+            self._request("post", {"confirm": "1"}), node
+        )
+        self.assertIsInstance(response, TemplateResponse)
+        response.render()
+        self.assertIn("No policy set for cpu on web-03.", response.content.decode())
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, "firing")
+
+    def test_the_cancel_link_points_back_at_the_node_page(self):
+        node = Node.objects.create(
+            instance_id="web-03",
+            config={"cpu": {"warning_threshold": 99, "critical_threshold": 99}},
+        )
+        self._firing_cpu_alert(node)
+        response = self.model_admin.reevaluate_open_alerts(self._request("get"), node)
+        self.assertEqual(
+            response.context_data["back_url"],
+            reverse("admin:alerts_node_change", args=[node.pk]),
+        )
+
     def test_staff_without_change_permission_is_denied(self):
         node = Node.objects.create(
             instance_id="web-03",
@@ -160,6 +326,147 @@ class NodeReevaluateActionTests(TestCase):
             self.model_admin.reevaluate_open_alerts(request, node)
         alert.refresh_from_db()
         self.assertEqual(alert.status, "firing")
+
+
+class NodeReevaluateCheckerScopeTests(ReevaluateActionMixin, TestCase):
+    """``?checker=`` narrows the same action to one row of the policy overview."""
+
+    def _node(self):
+        return Node.objects.create(
+            instance_id="web-03",
+            config={
+                "cpu": {"warning_threshold": 99, "critical_threshold": 99},
+                "memory": {"warning_threshold": 99, "critical_threshold": 99},
+            },
+        )
+
+    def _checkers(self, response):
+        return sorted(
+            change.alert.labels["checker"] for change in response.context_data["report"].changes
+        )
+
+    def test_a_checker_parameter_previews_only_that_checkers_alerts(self):
+        node = self._node()
+        self._firing_cpu_alert(node)
+        self._firing_memory_alert(node)
+        response = self.model_admin.reevaluate_open_alerts(
+            self._request("get", {"checker": "cpu"}), node
+        )
+        self.assertEqual(self._checkers(response), ["cpu"])
+
+    def test_a_checker_parameter_names_itself_in_the_intro(self):
+        node = self._node()
+        self._firing_cpu_alert(node)
+        response = self.model_admin.reevaluate_open_alerts(
+            self._request("get", {"checker": "cpu"}), node
+        )
+        self.assertIn("open cpu alerts", response.context_data["intro"])
+
+    def test_a_checker_matching_nothing_previews_an_empty_scope_naming_it(self):
+        """A stale policy-page link must not widen into the whole node.
+
+        The link is rendered before it is clicked, so the checker it names can have
+        gone quiet in between. Confirming it would then re-evaluate, and notify
+        about, alerts the operator never asked about.
+        """
+        node = self._node()
+        self._firing_cpu_alert(node)
+        self._firing_memory_alert(node)
+        response = self.model_admin.reevaluate_open_alerts(
+            self._request("get", {"checker": "disk"}), node
+        )
+        self.assertEqual(self._checkers(response), [])
+        self.assertEqual(response.context_data["report"].skips, [])
+        self.assertIn("open disk alerts", response.context_data["intro"])
+
+    def test_no_checker_parameter_previews_the_whole_node_as_before(self):
+        node = self._node()
+        self._firing_cpu_alert(node)
+        self._firing_memory_alert(node)
+        response = self.model_admin.reevaluate_open_alerts(self._request("get"), node)
+        self.assertEqual(self._checkers(response), ["cpu", "memory"])
+        self.assertIn(f"open alerts for node {node.instance_id}", response.context_data["intro"])
+
+    def test_a_confirm_applies_only_the_named_checkers_alerts(self):
+        node = self._node()
+        cpu = self._firing_cpu_alert(node)
+        memory = self._firing_memory_alert(node)
+        request = self.factory.post("/?checker=cpu", {"confirm": "1"})
+        request.user = self.user
+        request.session = self._request("get").session
+        request._messages = FallbackStorage(request)
+        self.assertIsNone(self.model_admin.reevaluate_open_alerts(request, node))
+        cpu.refresh_from_db()
+        memory.refresh_from_db()
+        self.assertEqual(cpu.status, "resolved")
+        self.assertEqual(memory.status, "firing")
+
+
+class ReevaluateConfirmTemplateTests(TestCase):
+    """The confirm page's own text, driven by reports the admin scope cannot build.
+
+    An admin re-evaluation only ever scopes firing alerts, so the re-open warning
+    has no path through the node action. The per-alert scope does raise it.
+    """
+
+    TEMPLATE = "admin/alerts/node/reevaluate_confirm.html"
+
+    def setUp(self):
+        self.node = Node.objects.create(instance_id="web-03")
+        self.alert = Alert.objects.create(
+            fingerprint="cpu-web-03",
+            source="cluster",
+            name="cpu high",
+            severity="info",
+            status="resolved",
+            started_at=timezone.now(),
+            node=self.node,
+            labels={"checker": "cpu", "instance_id": "web-03"},
+            annotations={"metrics": json.dumps({"cpu_percent": 95.0})},
+        )
+
+    def _render(self, report):
+        return render_to_string(
+            self.TEMPLATE,
+            {
+                "node": self.node,
+                "report": report,
+                "opts": Node._meta,
+                "back_url": "/back/",
+            },
+        )
+
+    def _change(self, old_status, new_status):
+        return AlertChange(
+            alert=self.alert,
+            old_severity="info",
+            old_status=old_status,
+            new_severity="critical",
+            new_status=new_status,
+            value=95.0,
+        )
+
+    def test_a_resolved_alert_going_firing_is_announced_as_a_reopen(self):
+        report = ReevalReport(node=self.node, changes=[self._change("resolved", "firing")])
+        self.assertIn("This will re-open 1 resolved alert(s).", self._render(report))
+
+    def test_a_firing_alert_changing_severity_is_not_announced_as_a_reopen(self):
+        report = ReevalReport(node=self.node, changes=[self._change("firing", "firing")])
+        self.assertNotIn("resolved alert(s)", self._render(report))
+
+    def test_the_page_renders_without_a_node(self):
+        # Task 10 reuses this template for a per-alert scope whose node can be
+        # None; a breadcrumb reversing on node.pk would raise NoReverseMatch.
+        report = ReevalReport(node=None, changes=[self._change("firing", "firing")])
+        content = render_to_string(
+            self.TEMPLATE,
+            {"node": None, "report": report, "opts": Node._meta, "back_url": "/back/"},
+        )
+        self.assertIn('href="/back/"', content)
+
+    def test_the_cancel_link_uses_the_supplied_back_url(self):
+        report = ReevalReport(node=self.node, changes=[self._change("firing", "firing")])
+        self.assertIn('href="/back/"', self._render(report))
 
 
 class NodeChangeFormTests(TestCase):

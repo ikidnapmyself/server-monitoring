@@ -17,7 +17,12 @@ from apps.alerts.reeval_existing import (
 
 
 class Command(BaseCommand):
-    help = "Re-evaluate a node's existing open alerts against its current config."
+    help = (
+        "Re-evaluate a node's existing open alerts against its current config. "
+        "Applying enqueues one pipeline run per changed incident, which notifies "
+        "once process_inbox drains it, if its lane has a channel. Use --dry-run "
+        "to preview without writing or enqueueing anything."
+    )
 
     def add_arguments(self, parser):
         parser.add_argument("instance_id")
@@ -49,17 +54,33 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"Resolved {applied.resolved_count}; changed severity on "
-                f"{applied.severity_changed_count}."
+                f"{applied.severity_changed_count}. Enqueued {applied.run_count} "
+                "pipeline run(s)."
             )
         )
 
     def _print_report(self, report: ReevalReport) -> None:
-        if not report.changes:
-            self.stdout.write("No open alerts need re-evaluation.")
-            return
         for change in report.changes:
             checker = (change.alert.labels or {}).get("checker", "")
             self.stdout.write(
                 f"{checker}: {change.old_severity}/{change.old_status} -> "
-                f"{change.new_severity}/{change.new_status} ({change.value})"
+                f"{change.new_severity}/{change.new_status} ({change.value_display})"
             )
+        for skip in report.skips:
+            checker = (skip.alert.labels or {}).get("checker", "")
+            self.stdout.write(f"skipped {checker}: {skip.sentence}")
+        if not report.changes:
+            self.stdout.write("No open alerts need re-evaluation.")
+            return
+        self.stdout.write(
+            f"Applying will create {report.run_count} pipeline run(s) for the changes above, "
+            "which notify once the inbox drains, if their lane has a channel."
+        )
+        if report.resolved_count:
+            self.stdout.write(
+                "Resolving anything also sweeps this node for incidents whose alerts have all "
+                "cleared, including ones no change above touched. Each of those is resolved "
+                "and gets its own run too."
+            )
+        if report.reopened_count:
+            self.stdout.write(f"Applying will re-open {report.reopened_count} resolved alert(s).")

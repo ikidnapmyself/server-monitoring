@@ -99,7 +99,7 @@ def clean_number(value) -> float:
 def clean_thresholds(warning, critical) -> tuple[float, float] | None:
     """Both thresholds, or ``None`` when the checker has no policy at all.
 
-    ``_score_numeric`` returns ``None`` unless both thresholds are present and
+    ``_score_numeric`` produces no verdict unless both thresholds are present and
     ``critical >= warning``, so a half-filled or inverted pair saves cleanly and
     then does nothing. Both blank is the one legitimate way to say "no policy",
     so that is the only case allowed through empty.
@@ -539,7 +539,7 @@ def _inactive_reason(checker: str, entry: dict) -> str:
     Asked of ``clean_thresholds`` rather than restated, so the panel judges a
     stored policy by exactly the rule the editor enforces and ``_score_numeric``
     applies: both thresholds, both numbers, critical not below warning. A pair
-    failing any of those returns ``None`` from the scorer, which is passthrough,
+    failing any of those makes the scorer skip, which is passthrough,
     so calling it "in effect" is the same lie the empty-entry rule already
     refuses to tell. The message is the one the form puts on the box, so an
     operator reads the same sentence wherever they meet the problem.

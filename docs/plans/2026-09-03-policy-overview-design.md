@@ -7,6 +7,9 @@ parent: Plans
 
 **Status:** designed 2026-09-03, not yet implemented.
 
+**2026-09-06:** partly superseded by
+`docs/plans/2026-09-06-reevaluation-surface-design.md`, which reshaped this page.
+
 ## Problem
 
 Hub-side re-evaluation policy lives in `Node.config`, one JSON blob per node.

@@ -8,9 +8,13 @@ from apps.alerts.drivers.base import ParsedAlert
 from apps.alerts.models import Node
 from apps.alerts.reevaluation import (
     PRIMARY_METRIC,
+    Skip,
+    SkipReason,
+    Verdict,
     _score_allowlist,
     _score_numeric,
     allowlist_evaluator,
+    describe_skip,
     numeric_evaluator,
     reevaluate_severity,
 )
@@ -32,110 +36,86 @@ def test_score_numeric_is_the_shared_scorer():
     # value >= crit -> critical; between -> warning; below -> info/resolved
     assert _score_numeric(
         "cpu", {"cpu_percent": 99}, {"warning_threshold": 90, "critical_threshold": 95}
-    ) == ("critical", "firing", 99.0)
+    ) == Verdict("critical", "firing", 99.0)
     assert _score_numeric(
         "cpu", {"cpu_percent": 92}, {"warning_threshold": 90, "critical_threshold": 95}
-    ) == ("warning", "firing", 92.0)
+    ) == Verdict("warning", "firing", 92.0)
     assert _score_numeric(
         "cpu", {"cpu_percent": 50}, {"warning_threshold": 90, "critical_threshold": 95}
-    ) == ("info", "resolved", 50.0)
-    # fail-open cases
+    ) == Verdict("info", "resolved", 50.0)
+    # fail-open cases, each naming its own reason
     assert (
         _score_numeric(
             "cpu",
             {"cpu_percent": 99},
             {"warning_threshold": True, "critical_threshold": True},
-        )
-        is None
+        ).reason
+        is SkipReason.INCOMPLETE_THRESHOLDS
     )
     assert (
         _score_numeric(
             "cpu", {"cpu_percent": 99}, {"warning_threshold": 90, "critical_threshold": 50}
-        )
-        is None
+        ).reason
+        is SkipReason.INVERTED_THRESHOLDS
     )
     assert (
-        _score_numeric("cpu", {"other": 1}, {"warning_threshold": 90, "critical_threshold": 95})
-        is None
+        _score_numeric(
+            "cpu", {"other": 1}, {"warning_threshold": 90, "critical_threshold": 95}
+        ).reason
+        is SkipReason.NO_METRIC_VALUE
     )
     assert (
-        _score_numeric("unknown", {"x": 1}, {"warning_threshold": 90, "critical_threshold": 95})
-        is None
+        _score_numeric(
+            "unknown", {"x": 1}, {"warning_threshold": 90, "critical_threshold": 95}
+        ).reason
+        is SkipReason.NO_PRIMARY_METRIC
     )
-    assert _score_numeric("cpu", {"cpu_percent": 99}, "not-a-dict") is None
+    assert (
+        _score_numeric("cpu", {"cpu_percent": 99}, "not-a-dict").reason
+        is SkipReason.MALFORMED_POLICY
+    )
+    assert _score_numeric("cpu", {"cpu_percent": 99}, None).reason is SkipReason.NO_POLICY
     # non-dict metrics (defensive guard on the shared scorer)
     assert (
-        _score_numeric("cpu", "not-a-dict", {"warning_threshold": 90, "critical_threshold": 95})
-        is None
+        _score_numeric(
+            "cpu", "not-a-dict", {"warning_threshold": 90, "critical_threshold": 95}
+        ).reason
+        is SkipReason.NO_METRICS
     )
 
 
 def test_score_allowlist_all_ports_allowed_resolves():
     metrics = {"listening": [{"port": 22, "exposed": True}, {"port": 80, "exposed": True}]}
-    assert _score_allowlist("listening_ports", metrics, {"allowlist": [22, 80]}) == (
-        "info",
-        "resolved",
-        0.0,
+    assert _score_allowlist("listening_ports", metrics, {"allowlist": [22, 80]}) == Verdict(
+        "info", "resolved", 0.0
     )
 
 
 def test_score_allowlist_unexpected_port_fires():
     metrics = {"listening": [{"port": 22, "exposed": True}, {"port": 9999, "exposed": True}]}
-    assert _score_allowlist("listening_ports", metrics, {"allowlist": [22]}) == (
-        "warning",
-        "firing",
-        1.0,
+    assert _score_allowlist("listening_ports", metrics, {"allowlist": [22]}) == Verdict(
+        "warning", "firing", 1.0
     )
 
 
 def test_score_allowlist_empty_allowlist_flags_only_exposed():
     # No allowlist configured -> only externally-exposed (non-loopback) ports flag.
     metrics = {"listening": [{"port": 22, "exposed": False}, {"port": 9999, "exposed": True}]}
-    assert _score_allowlist("listening_ports", metrics, {"allowlist": []}) == (
-        "warning",
-        "firing",
-        1.0,
+    assert _score_allowlist("listening_ports", metrics, {"allowlist": []}) == Verdict(
+        "warning", "firing", 1.0
     )
 
 
 def test_score_allowlist_empty_allowlist_all_loopback_resolves():
     metrics = {"listening": [{"port": 22, "exposed": False}]}
-    assert _score_allowlist("listening_ports", metrics, {"allowlist": []}) == (
-        "info",
-        "resolved",
-        0.0,
+    assert _score_allowlist("listening_ports", metrics, {"allowlist": []}) == Verdict(
+        "info", "resolved", 0.0
     )
-
-
-def test_score_allowlist_fail_open_cases():
-    good = {"listening": [{"port": 22, "exposed": True}]}
-    assert _score_allowlist("listening_ports", good, "nope") is None  # cfg not a dict
-    assert _score_allowlist("listening_ports", good, {}) is None  # no allowlist key
-    assert _score_allowlist("listening_ports", good, {"allowlist": "x"}) is None  # not a list
-    assert _score_allowlist("listening_ports", good, {"allowlist": ["22"]}) is None  # string port
-    assert _score_allowlist("listening_ports", good, {"allowlist": [True]}) is None  # bool port
-    assert _score_allowlist("listening_ports", "x", {"allowlist": [22]}) is None  # metrics not dict
-    assert _score_allowlist("listening_ports", {"other": 1}, {"allowlist": [22]}) is None  # no key
-    assert (
-        _score_allowlist("listening_ports", {"listening": "x"}, {"allowlist": [22]}) is None
-    )  # listening not a list
-    assert (
-        _score_allowlist("listening_ports", {"listening": [1]}, {"allowlist": [22]}) is None
-    )  # entry not a dict
-    assert (
-        _score_allowlist("listening_ports", {"listening": [{"port": "x"}]}, {"allowlist": [22]})
-        is None
-    )  # malformed port
 
 
 def test_allowlist_evaluator_resolves_when_covered():
     parsed = _alert("listening_ports", '{"listening": [{"port": 22, "exposed": true}]}')
-    assert allowlist_evaluator(parsed, {"allowlist": [22]}) == ("info", "resolved", 0.0)
-
-
-def test_allowlist_evaluator_no_metrics_returns_none():
-    parsed = _alert("listening_ports", "not json")
-    assert allowlist_evaluator(parsed, {"allowlist": [22]}) is None
+    assert allowlist_evaluator(parsed, {"allowlist": [22]}) == Verdict("info", "resolved", 0.0)
 
 
 def test_primary_metric_covers_seven_numeric_checkers():
@@ -153,94 +133,103 @@ def test_primary_metric_covers_seven_numeric_checkers():
 def test_numeric_evaluator_below_thresholds_is_ok_resolved():
     parsed = _alert("cpu", '{"cpu_percent": 95.2}')
     out = numeric_evaluator(parsed, {"warning_threshold": 99, "critical_threshold": 99})
-    assert out == ("info", "resolved", 95.2)
+    assert out == Verdict("info", "resolved", 95.2)
 
 
 def test_numeric_evaluator_warning_band():
     parsed = _alert("cpu", '{"cpu_percent": 85}')
     out = numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95})
-    assert out == ("warning", "firing", 85.0)
+    assert out == Verdict("warning", "firing", 85.0)
 
 
 def test_numeric_evaluator_critical():
     parsed = _alert("disk_temp", '{"hottest_c": 70}')
     out = numeric_evaluator(parsed, {"warning_threshold": 60, "critical_threshold": 68})
-    assert out == ("critical", "firing", 70.0)
+    assert out == Verdict("critical", "firing", 70.0)
 
 
 def test_numeric_evaluator_value_equals_critical_threshold():
     # value exactly == critical_threshold pins the >= contract for critical.
     parsed = _alert("cpu", '{"cpu_percent": 99}')
     out = numeric_evaluator(parsed, {"warning_threshold": 99, "critical_threshold": 99})
-    assert out == ("critical", "firing", 99.0)
+    assert out == Verdict("critical", "firing", 99.0)
 
 
 def test_numeric_evaluator_value_equals_warning_threshold():
     # value exactly == warning_threshold (below critical) pins >= for warning.
     parsed = _alert("cpu", '{"cpu_percent": 80}')
     out = numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95})
-    assert out == ("warning", "firing", 80.0)
+    assert out == Verdict("warning", "firing", 80.0)
 
 
-def test_numeric_evaluator_unknown_checker_returns_none():
+def test_numeric_evaluator_unknown_checker_skips():
     parsed = _alert("not_a_checker", '{"cpu_percent": 95}')
-    assert numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95}) is None
+    out = numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95})
+    assert out.reason is SkipReason.NO_PRIMARY_METRIC
 
 
-def test_numeric_evaluator_bool_thresholds_return_none():
+def test_numeric_evaluator_bool_thresholds_skip():
     # bool is an int subclass; a boolean threshold is malformed config -> passthrough.
     parsed = _alert("cpu", '{"cpu_percent": 95}')
-    assert (
-        numeric_evaluator(parsed, {"warning_threshold": True, "critical_threshold": True}) is None
-    )
+    out = numeric_evaluator(parsed, {"warning_threshold": True, "critical_threshold": True})
+    assert out.reason is SkipReason.INCOMPLETE_THRESHOLDS
 
 
-def test_numeric_evaluator_inverted_thresholds_return_none():
+def test_numeric_evaluator_inverted_thresholds_skip():
     # critical below warning is nonsensical config -> passthrough.
     parsed = _alert("cpu", '{"cpu_percent": 95}')
-    assert numeric_evaluator(parsed, {"warning_threshold": 90, "critical_threshold": 50}) is None
+    out = numeric_evaluator(parsed, {"warning_threshold": 90, "critical_threshold": 50})
+    assert out.reason is SkipReason.INVERTED_THRESHOLDS
 
 
-def test_numeric_evaluator_missing_metric_returns_none():
+def test_numeric_evaluator_missing_metric_skips():
     parsed = _alert("cpu", '{"other": 1}')
-    assert numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95}) is None
+    out = numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95})
+    assert out.reason is SkipReason.NO_METRIC_VALUE
 
 
-def test_numeric_evaluator_malformed_metrics_returns_none():
+def test_numeric_evaluator_malformed_metrics_skip():
     parsed = _alert("cpu", "not json")
-    assert numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95}) is None
+    out = numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95})
+    assert out.reason is SkipReason.NO_METRICS
 
 
-def test_numeric_evaluator_no_metrics_annotation_returns_none():
+def test_numeric_evaluator_no_metrics_annotation_skips():
     parsed = _alert("cpu", '{"cpu_percent": 95}')
     parsed.annotations = {}
-    assert numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95}) is None
+    out = numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95})
+    assert out.reason is SkipReason.NO_METRICS
 
 
-def test_numeric_evaluator_metrics_not_a_dict_returns_none():
+def test_numeric_evaluator_metrics_not_a_dict_skips():
     parsed = _alert("cpu", "[1, 2, 3]")
-    assert numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95}) is None
+    out = numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95})
+    assert out.reason is SkipReason.NO_METRICS
 
 
-def test_numeric_evaluator_non_numeric_value_returns_none():
+def test_numeric_evaluator_non_numeric_value_skips():
     parsed = _alert("cpu", '{"cpu_percent": "high"}')
-    assert numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95}) is None
+    out = numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95})
+    assert out.reason is SkipReason.NO_METRIC_VALUE
 
 
-def test_numeric_evaluator_boolean_value_returns_none():
+def test_numeric_evaluator_boolean_value_skips():
     parsed = _alert("cpu", '{"cpu_percent": true}')
-    assert numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95}) is None
+    out = numeric_evaluator(parsed, {"warning_threshold": 80, "critical_threshold": 95})
+    assert out.reason is SkipReason.NO_METRIC_VALUE
 
 
-def test_numeric_evaluator_missing_thresholds_returns_none():
+def test_numeric_evaluator_missing_thresholds_skip():
     parsed = _alert("cpu", '{"cpu_percent": 95}')
-    assert numeric_evaluator(parsed, {"warning_threshold": 80}) is None
+    out = numeric_evaluator(parsed, {"warning_threshold": 80})
+    assert out.reason is SkipReason.INCOMPLETE_THRESHOLDS
 
 
-def test_numeric_evaluator_non_dict_cfg_returns_none():
+def test_numeric_evaluator_non_dict_cfg_skips():
     parsed = _alert("cpu", '{"cpu_percent": 95}')
-    assert numeric_evaluator(parsed, "99") is None
-    assert numeric_evaluator(parsed, [1, 2]) is None
+    assert numeric_evaluator(parsed, "99").reason is SkipReason.MALFORMED_POLICY
+    assert numeric_evaluator(parsed, [1, 2]).reason is SkipReason.MALFORMED_POLICY
+    assert numeric_evaluator(parsed, None).reason is SkipReason.NO_POLICY
 
 
 class ReevaluateSeverityTests(TestCase):
@@ -447,3 +436,234 @@ class ReevaluateSeverityTests(TestCase):
         out = reevaluate_severity(alert)
         self.assertIs(out, alert)
         self.assertEqual(out.severity, "critical")
+
+
+class OutcomeTypeTests(TestCase):
+    def test_verdict_carries_the_score(self):
+        from apps.alerts.reevaluation import Verdict
+
+        verdict = Verdict(severity="warning", status="firing", value=91.3)
+        self.assertEqual(verdict.severity, "warning")
+        self.assertEqual(verdict.status, "firing")
+        self.assertEqual(verdict.value, 91.3)
+
+    def test_skip_carries_a_reason_and_context(self):
+        from apps.alerts.reevaluation import Skip, SkipReason
+
+        skip = Skip(SkipReason.NO_METRICS)
+        self.assertEqual(skip.reason, SkipReason.NO_METRICS)
+        self.assertEqual(skip.context, {})
+
+    def test_skip_context_is_keyword_only(self):
+        from apps.alerts.reevaluation import Skip, SkipReason
+
+        skip = Skip(SkipReason.UNCHANGED, value=41.2, warning=99.0)
+        self.assertEqual(skip.context["value"], 41.2)
+        self.assertEqual(skip.context["warning"], 99.0)
+
+
+class ScoreNumericReasonTests(TestCase):
+    def _score(self, cfg, metrics=None, checker="cpu"):
+        return _score_numeric(checker, metrics if metrics is not None else {}, cfg)
+
+    def test_missing_policy_says_so(self):
+        self.assertEqual(self._score(None).reason, SkipReason.NO_POLICY)
+
+    def test_non_mapping_policy_is_malformed(self):
+        self.assertEqual(self._score("99").reason, SkipReason.MALFORMED_POLICY)
+
+    def test_half_filled_thresholds_are_incomplete(self):
+        skip = self._score({"warning_threshold": 90})
+        self.assertEqual(skip.reason, SkipReason.INCOMPLETE_THRESHOLDS)
+
+    def test_inverted_thresholds_say_so(self):
+        skip = self._score({"warning_threshold": 90, "critical_threshold": 80})
+        self.assertEqual(skip.reason, SkipReason.INVERTED_THRESHOLDS)
+        self.assertEqual(skip.context["warning"], 90.0)
+        self.assertEqual(skip.context["critical"], 80.0)
+
+    def test_unknown_checker_has_no_primary_metric(self):
+        skip = self._score({"warning_threshold": 1, "critical_threshold": 2}, checker="raid")
+        self.assertEqual(skip.reason, SkipReason.NO_PRIMARY_METRIC)
+
+    def test_non_mapping_metrics_are_missing(self):
+        skip = self._score({"warning_threshold": 1, "critical_threshold": 2}, metrics="x")
+        self.assertEqual(skip.reason, SkipReason.NO_METRICS)
+
+    def test_absent_metric_value_says_which_key(self):
+        skip = self._score({"warning_threshold": 1, "critical_threshold": 2}, metrics={})
+        self.assertEqual(skip.reason, SkipReason.NO_METRIC_VALUE)
+        self.assertEqual(skip.context["metric_key"], "cpu_percent")
+
+    def test_a_score_in_the_warning_band_is_a_firing_verdict(self):
+        outcome = self._score(
+            {"warning_threshold": 90, "critical_threshold": 95},
+            metrics={"cpu_percent": 91.5},
+        )
+        self.assertIsInstance(outcome, Verdict)
+        self.assertEqual(outcome.severity, "warning")
+        self.assertEqual(outcome.status, "firing")
+        self.assertEqual(outcome.value, 91.5)
+
+
+class ScoreAllowlistReasonTests(TestCase):
+    def _score(self, cfg, metrics=None):
+        return _score_allowlist(
+            "listening_ports",
+            metrics if metrics is not None else {"listening": [{"port": 22, "exposed": True}]},
+            cfg,
+        )
+
+    def test_missing_policy_says_so(self):
+        skip = self._score(None)
+        self.assertEqual(skip.reason, SkipReason.NO_POLICY)
+        self.assertEqual(skip.context["checker"], "listening_ports")
+
+    def test_non_mapping_policy_is_malformed(self):
+        self.assertEqual(self._score("nope").reason, SkipReason.MALFORMED_POLICY)
+
+    def test_non_mapping_metrics_are_missing(self):
+        skip = self._score({"allowlist": [22]}, metrics="x")
+        self.assertEqual(skip.reason, SkipReason.NO_METRICS)
+
+    def test_absent_allowlist_is_malformed(self):
+        self.assertEqual(self._score({}).reason, SkipReason.MALFORMED_POLICY)
+
+    def test_non_list_allowlist_is_malformed(self):
+        self.assertEqual(self._score({"allowlist": "x"}).reason, SkipReason.MALFORMED_POLICY)
+
+    def test_non_numeric_allowlist_entry_is_malformed(self):
+        self.assertEqual(self._score({"allowlist": ["22"]}).reason, SkipReason.MALFORMED_POLICY)
+
+    def test_bool_allowlist_entry_is_malformed(self):
+        self.assertEqual(self._score({"allowlist": [True]}).reason, SkipReason.MALFORMED_POLICY)
+
+    def test_absent_listening_inventory_says_which_key(self):
+        skip = self._score({"allowlist": [22]}, metrics={"other": 1})
+        self.assertEqual(skip.reason, SkipReason.NO_METRIC_VALUE)
+        self.assertEqual(skip.context["metric_key"], "listening")
+
+    def test_non_list_listening_inventory_says_which_key(self):
+        skip = self._score({"allowlist": [22]}, metrics={"listening": "x"})
+        self.assertEqual(skip.reason, SkipReason.NO_METRIC_VALUE)
+        self.assertEqual(skip.context["metric_key"], "listening")
+
+    def test_malformed_listening_entry_says_which_key(self):
+        skip = self._score({"allowlist": [22]}, metrics={"listening": [1]})
+        self.assertEqual(skip.reason, SkipReason.NO_METRIC_VALUE)
+        self.assertEqual(skip.context["metric_key"], "listening")
+
+    def test_malformed_port_says_which_key(self):
+        skip = self._score({"allowlist": [22]}, metrics={"listening": [{"port": "x"}]})
+        self.assertEqual(skip.reason, SkipReason.NO_METRIC_VALUE)
+        self.assertEqual(skip.context["metric_key"], "listening")
+
+    def test_a_flagged_port_is_a_firing_verdict(self):
+        outcome = self._score(
+            {"allowlist": [22]},
+            metrics={"listening": [{"port": 9999, "exposed": True}]},
+        )
+        self.assertIsInstance(outcome, Verdict)
+        self.assertEqual(outcome.severity, "warning")
+        self.assertEqual(outcome.status, "firing")
+        self.assertEqual(outcome.value, 1.0)
+
+    def test_a_covered_inventory_is_a_resolved_verdict(self):
+        outcome = self._score({"allowlist": [22]})
+        self.assertIsInstance(outcome, Verdict)
+        self.assertEqual(outcome.severity, "info")
+        self.assertEqual(outcome.status, "resolved")
+        self.assertEqual(outcome.value, 0.0)
+
+
+class AllowlistEvaluatorReasonTests(TestCase):
+    def test_unparseable_metrics_say_no_metrics(self):
+        parsed = _alert("listening_ports", "not json")
+        skip = allowlist_evaluator(parsed, {"allowlist": [22]})
+        self.assertEqual(skip.reason, SkipReason.NO_METRICS)
+        self.assertEqual(skip.context["checker"], "listening_ports")
+
+    def test_the_sentence_for_corrupt_metrics_does_not_claim_they_are_absent(self):
+        parsed = _alert("listening_ports", "not json")
+        skip = allowlist_evaluator(parsed, {"allowlist": [22]})
+        self.assertEqual(
+            describe_skip(skip, checker="listening_ports", instance_id="web-03"),
+            "This alert carries no readable metrics, so there is nothing to re-score.",
+        )
+
+
+class DescribeSkipTests(TestCase):
+    def _say(self, skip, checker="cpu", instance_id="fiyat-ekrani"):
+        return describe_skip(skip, checker=checker, instance_id=instance_id)
+
+    def test_no_scorer_names_the_checker(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.NO_SCORER), checker="disk_temp"),
+            "disk_temp is not re-evaluatable. No scorer knows it.",
+        )
+
+    def test_no_policy_names_the_node(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.NO_POLICY)),
+            "No policy set for cpu on fiyat-ekrani.",
+        )
+
+    def test_no_metrics_covers_both_absent_and_corrupt_metrics(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.NO_METRICS)),
+            "This alert carries no readable metrics, so there is nothing to re-score.",
+        )
+
+    def test_no_metric_value_names_the_key_without_claiming_it_is_absent(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.NO_METRIC_VALUE, metric_key="cpu_percent")),
+            "This alert carries no usable cpu_percent value, so there is nothing to re-score.",
+        )
+
+    def test_malformed_policy_names_checker_and_node(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.MALFORMED_POLICY)),
+            "The cpu policy on fiyat-ekrani is not readable, so it was ignored.",
+        )
+
+    def test_incomplete_thresholds_says_both_are_needed(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.INCOMPLETE_THRESHOLDS)),
+            "The cpu policy on fiyat-ekrani needs both a warning and a critical threshold.",
+        )
+
+    def test_inverted_thresholds_prints_both_numbers(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.INVERTED_THRESHOLDS, warning=90.0, critical=80.0)),
+            "The cpu policy on fiyat-ekrani is backwards: critical 80.0 is below warning 90.0.",
+        )
+
+    def test_no_primary_metric_says_thresholds_do_not_apply(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.NO_PRIMARY_METRIC), checker="raid"),
+            "raid has no single number to score, so warning and critical thresholds do not apply.",
+        )
+
+    def test_unchanged_prints_the_value_and_the_threshold(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.UNCHANGED, value=41.2, warning=99.0)),
+            "Policy already matches: cpu is at 41.2, warning starts at 99.0.",
+        )
+
+    def test_caller_wins_over_a_stale_checker_in_the_context(self):
+        skip = Skip(SkipReason.NO_POLICY, checker="listening_ports")
+        self.assertEqual(self._say(skip), "No policy set for cpu on fiyat-ekrani.")
+
+    def test_a_missing_context_key_raises_rather_than_printing_a_broken_sentence(self):
+        with self.assertRaises(KeyError):
+            self._say(Skip(SkipReason.INVERTED_THRESHOLDS))
+
+    def test_every_reason_has_a_sentence(self):
+        for reason in SkipReason:
+            sentence = describe_skip(
+                Skip(reason, value=1.0, warning=2.0, critical=3.0, metric_key="k"),
+                checker="cpu",
+                instance_id="n1",
+            )
+            self.assertTrue(sentence.endswith("."), reason)
+            self.assertNotIn("{", sentence, reason)
