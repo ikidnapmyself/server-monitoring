@@ -853,12 +853,12 @@ def test_history_marks_the_re_evaluation(self):
     apply_node_alert_reeval(node)
     history = AlertHistory.objects.get(alert=alert)
     self.assertEqual(history.event, "resolved")
-    self.assertEqual(history.details["by"], "reeval:config-change")
+    self.assertEqual(history.details["by"], "hub-node-policy:config-change")
 ```
 
 **Step 2: Run it** → FAIL with `KeyError: 'by'`
 
-**Step 3: Implement** — add `"by": "reeval:config-change"` to the `details` dict in the
+**Step 3: Implement** — add `"by": "hub-node-policy:config-change"` to the `details` dict in the
 `AlertHistory.objects.create` call. Rows written before this key existed simply lack it
 and read as unknown, which is correct.
 
@@ -1156,7 +1156,18 @@ git commit -am "feat(alerts): show checkers that are alerting with no policy"
 
 - A row reports `firing` and `would_change` counts, scored once from the same alerts.
 - `last_applied` reads the newest `AlertHistory` row for that node and checker whose
-  `details["by"]` marks a re-evaluation.
+  `details["by"]` marks a re-evaluation (`hub-node-policy:config-change`).
+- Node and checker come from `alert.labels` (`instance_id`, `checker`), not from
+  `details`. Those two labels are load-bearing in the checker-alert fingerprint
+  `check:{instance_id}:{checker_name}`, so a row's checker cannot drift without becoming
+  a different alert. `ReevalScope.for_checker` filters the same field.
+
+**An operator resolve writes no history at all.** `AlertAdmin.resolve_selected`
+(`apps/alerts/admin.py:194`) is a bare `queryset.update(status=RESOLVED)`, which bypasses
+`Alert.save()`, writes no `AlertHistory`, never sets `ended_at`, and sweeps no incident.
+So this column distinguishes a policy re-evaluation from an INGEST resolve, not from a
+human one. Do not word it as though a human resolve is visible here. Fixing that bulk
+update is its own slice, outside this plan.
 - A row with no history but a firing alert carrying `severity_reevaluated` still reports
   as applied, sourced from ingest.
 - A row with neither reports never applied.
