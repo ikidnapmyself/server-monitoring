@@ -127,6 +127,7 @@ class AlertReevaluateActionTests(TestCase):
         Node.objects.create(instance_id="web-03", config={})
         alert = self._alert(labels={"checker": "raid", "instance_id": "web-03"})
         content = self._rendered(self.model_admin.reevaluate(self._request("get"), alert))
+        self.assertIn("What was left alone, and why", content)
         self.assertIn("raid is not re-evaluatable. No scorer knows it.", content)
         self.assertNotIn('value="Confirm"', content)
 

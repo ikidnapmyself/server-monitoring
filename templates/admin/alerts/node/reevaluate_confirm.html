@@ -55,8 +55,7 @@
 </p>
 {% else %}
 <p>
-  This will create 0 pipeline run(s): none of these alerts belongs to an
-  incident.
+  This will create 0 pipeline run(s): nothing above belongs to an incident.
 </p>
 {% endif %}
 {% if report.reopened_count %}
@@ -67,7 +66,7 @@
 {% endif %}
 
 {% if report.skips %}
-<h2>Why these alerts were left alone</h2>
+<h2>What was left alone, and why</h2>
 <div class="results">
 <table>
   <thead>

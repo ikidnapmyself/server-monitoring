@@ -207,7 +207,7 @@ class NodeReevaluateActionTests(TestCase):
         response.render()
         content = response.content.decode()
         self.assertIn("This will create 0 pipeline run(s)", content)
-        self.assertIn("none of these alerts", content)
+        self.assertIn("nothing above belongs to an incident", content)
 
     def test_the_page_does_not_warn_about_reopening_when_nothing_reopens(self):
         node = Node.objects.create(
