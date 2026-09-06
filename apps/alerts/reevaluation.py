@@ -167,31 +167,36 @@ def _flag_ports(listening: list, allowset: set[int]) -> list[int] | None:
     return flagged
 
 
-def _score_allowlist(checker: str, metrics: dict, cfg) -> tuple[str, str, float] | None:
+def _score_allowlist(checker: str, metrics: dict, cfg) -> Outcome:
     """Re-flag listening ports against a per-node allowlist. Binary warning/ok.
 
     Reuses the checker's own flagging semantics against the full ``listening``
-    inventory the node reports. Returns None for any missing/invalid input so
-    callers can fail open. ``checker`` is unused (uniform scorer signature).
+    inventory the node reports. Every failure is a ``Skip``, which every caller
+    treats as passthrough, so this stays fail-open. ``checker`` is unused
+    (uniform scorer signature).
     """
-    if not isinstance(cfg, dict) or not isinstance(metrics, dict):
-        return None
+    if cfg is None:
+        return Skip(SkipReason.NO_POLICY, checker="listening_ports")
+    if not isinstance(cfg, dict):
+        return Skip(SkipReason.MALFORMED_POLICY, checker="listening_ports")
+    if not isinstance(metrics, dict):
+        return Skip(SkipReason.NO_METRICS, checker="listening_ports")
     allow = cfg.get("allowlist")
     if not isinstance(allow, list):
-        return None
+        return Skip(SkipReason.MALFORMED_POLICY, checker="listening_ports")
     allowset = _int_set(allow)
     if allowset is None:
-        return None
+        return Skip(SkipReason.MALFORMED_POLICY, checker="listening_ports")
     listening = metrics.get("listening")
     if not isinstance(listening, list):
-        return None
+        return Skip(SkipReason.NO_METRIC_VALUE, metric_key="listening")
     flagged = _flag_ports(listening, allowset)
     if flagged is None:
-        return None
+        return Skip(SkipReason.NO_METRIC_VALUE, metric_key="listening")
     count = float(len(flagged))
     if flagged:
-        return ("warning", "firing", count)
-    return ("info", "resolved", count)
+        return Verdict("warning", "firing", count)
+    return Verdict("info", "resolved", count)
 
 
 def numeric_evaluator(parsed: ParsedAlert, cfg: dict) -> Outcome:
@@ -203,30 +208,26 @@ def numeric_evaluator(parsed: ParsedAlert, cfg: dict) -> Outcome:
     return _score_numeric(checker, metrics, cfg)
 
 
-def allowlist_evaluator(parsed: ParsedAlert, cfg: dict) -> tuple[str, str, float] | None:
-    """Return (severity, status, value) for listening_ports, or None to passthrough."""
+def allowlist_evaluator(parsed: ParsedAlert, cfg: dict) -> Outcome:
+    """Score listening_ports from the alert's stored inventory."""
     metrics = _metrics(parsed)
     if metrics is None:
-        return None
+        return Skip(SkipReason.NO_METRICS, checker="listening_ports")
     return _score_allowlist("listening_ports", metrics, cfg)
 
 
-# Pure-scorer dispatch: checker -> (checker, metrics, cfg) -> Outcome. The union in
-# the annotation covers `_score_allowlist`, which still returns a tuple or None.
+# Pure-scorer dispatch: checker -> (checker, metrics, cfg) -> Outcome.
 # Shared by ingest (via the evaluators below) and config-change re-eval
 # (`apps.alerts.reeval_existing`), so both paths score a checker identically.
 # cfg is typed `object`: each scorer validates it (fail-open on a non-dict), and
 # callers pass a raw `Node.config[checker]` lookup that may be None/malformed.
-SCORERS: dict[str, Callable[[str, dict, object], "Outcome | tuple[str, str, float] | None"]] = {
+SCORERS: dict[str, Callable[[str, dict, object], Outcome]] = {
     **{checker: _score_numeric for checker in PRIMARY_METRIC},
     "listening_ports": _score_allowlist,
 }
 
-# Ingest dispatch: checker -> evaluator(parsed, cfg) -> Outcome, with the same
-# tuple-or-None union still covering `allowlist_evaluator`.
-REEVALUATORS: dict[
-    str, Callable[[ParsedAlert, dict], "Outcome | tuple[str, str, float] | None"]
-] = {
+# Ingest dispatch: checker -> evaluator(parsed, cfg) -> Outcome.
+REEVALUATORS: dict[str, Callable[[ParsedAlert, dict], Outcome]] = {
     **{checker: numeric_evaluator for checker in PRIMARY_METRIC},
     "listening_ports": allowlist_evaluator,
 }
@@ -254,13 +255,9 @@ def _reevaluate(parsed: ParsedAlert) -> ParsedAlert:
         return parsed
 
     outcome = evaluator(parsed, cfg)
-    # `allowlist_evaluator` still returns a bare tuple, so both shapes score here.
-    if isinstance(outcome, Verdict):
-        severity, status, value = outcome.severity, outcome.status, outcome.value
-    elif isinstance(outcome, tuple):
-        severity, status, value = outcome
-    else:
+    if not isinstance(outcome, Verdict):
         return parsed
+    severity, status, value = outcome.severity, outcome.status, outcome.value
     if severity == parsed.severity and status == parsed.status:
         return parsed
 

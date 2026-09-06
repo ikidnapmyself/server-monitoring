@@ -84,70 +84,36 @@ def test_score_numeric_is_the_shared_scorer():
 
 def test_score_allowlist_all_ports_allowed_resolves():
     metrics = {"listening": [{"port": 22, "exposed": True}, {"port": 80, "exposed": True}]}
-    assert _score_allowlist("listening_ports", metrics, {"allowlist": [22, 80]}) == (
-        "info",
-        "resolved",
-        0.0,
+    assert _score_allowlist("listening_ports", metrics, {"allowlist": [22, 80]}) == Verdict(
+        "info", "resolved", 0.0
     )
 
 
 def test_score_allowlist_unexpected_port_fires():
     metrics = {"listening": [{"port": 22, "exposed": True}, {"port": 9999, "exposed": True}]}
-    assert _score_allowlist("listening_ports", metrics, {"allowlist": [22]}) == (
-        "warning",
-        "firing",
-        1.0,
+    assert _score_allowlist("listening_ports", metrics, {"allowlist": [22]}) == Verdict(
+        "warning", "firing", 1.0
     )
 
 
 def test_score_allowlist_empty_allowlist_flags_only_exposed():
     # No allowlist configured -> only externally-exposed (non-loopback) ports flag.
     metrics = {"listening": [{"port": 22, "exposed": False}, {"port": 9999, "exposed": True}]}
-    assert _score_allowlist("listening_ports", metrics, {"allowlist": []}) == (
-        "warning",
-        "firing",
-        1.0,
+    assert _score_allowlist("listening_ports", metrics, {"allowlist": []}) == Verdict(
+        "warning", "firing", 1.0
     )
 
 
 def test_score_allowlist_empty_allowlist_all_loopback_resolves():
     metrics = {"listening": [{"port": 22, "exposed": False}]}
-    assert _score_allowlist("listening_ports", metrics, {"allowlist": []}) == (
-        "info",
-        "resolved",
-        0.0,
+    assert _score_allowlist("listening_ports", metrics, {"allowlist": []}) == Verdict(
+        "info", "resolved", 0.0
     )
-
-
-def test_score_allowlist_fail_open_cases():
-    good = {"listening": [{"port": 22, "exposed": True}]}
-    assert _score_allowlist("listening_ports", good, "nope") is None  # cfg not a dict
-    assert _score_allowlist("listening_ports", good, {}) is None  # no allowlist key
-    assert _score_allowlist("listening_ports", good, {"allowlist": "x"}) is None  # not a list
-    assert _score_allowlist("listening_ports", good, {"allowlist": ["22"]}) is None  # string port
-    assert _score_allowlist("listening_ports", good, {"allowlist": [True]}) is None  # bool port
-    assert _score_allowlist("listening_ports", "x", {"allowlist": [22]}) is None  # metrics not dict
-    assert _score_allowlist("listening_ports", {"other": 1}, {"allowlist": [22]}) is None  # no key
-    assert (
-        _score_allowlist("listening_ports", {"listening": "x"}, {"allowlist": [22]}) is None
-    )  # listening not a list
-    assert (
-        _score_allowlist("listening_ports", {"listening": [1]}, {"allowlist": [22]}) is None
-    )  # entry not a dict
-    assert (
-        _score_allowlist("listening_ports", {"listening": [{"port": "x"}]}, {"allowlist": [22]})
-        is None
-    )  # malformed port
 
 
 def test_allowlist_evaluator_resolves_when_covered():
     parsed = _alert("listening_ports", '{"listening": [{"port": 22, "exposed": true}]}')
-    assert allowlist_evaluator(parsed, {"allowlist": [22]}) == ("info", "resolved", 0.0)
-
-
-def test_allowlist_evaluator_no_metrics_returns_none():
-    parsed = _alert("listening_ports", "not json")
-    assert allowlist_evaluator(parsed, {"allowlist": [22]}) is None
+    assert allowlist_evaluator(parsed, {"allowlist": [22]}) == Verdict("info", "resolved", 0.0)
 
 
 def test_primary_metric_covers_seven_numeric_checkers():
@@ -495,61 +461,122 @@ class OutcomeTypeTests(TestCase):
 
 
 class ScoreNumericReasonTests(TestCase):
-    def _skip(self, cfg, metrics=None, checker="cpu"):
-        from apps.alerts.reevaluation import _score_numeric
-
+    def _score(self, cfg, metrics=None, checker="cpu"):
         return _score_numeric(checker, metrics if metrics is not None else {}, cfg)
 
     def test_missing_policy_says_so(self):
-        from apps.alerts.reevaluation import SkipReason
-
-        self.assertEqual(self._skip(None).reason, SkipReason.NO_POLICY)
+        self.assertEqual(self._score(None).reason, SkipReason.NO_POLICY)
 
     def test_non_mapping_policy_is_malformed(self):
-        from apps.alerts.reevaluation import SkipReason
-
-        self.assertEqual(self._skip("99").reason, SkipReason.MALFORMED_POLICY)
+        self.assertEqual(self._score("99").reason, SkipReason.MALFORMED_POLICY)
 
     def test_half_filled_thresholds_are_incomplete(self):
-        from apps.alerts.reevaluation import SkipReason
-
-        skip = self._skip({"warning_threshold": 90})
+        skip = self._score({"warning_threshold": 90})
         self.assertEqual(skip.reason, SkipReason.INCOMPLETE_THRESHOLDS)
 
     def test_inverted_thresholds_say_so(self):
-        from apps.alerts.reevaluation import SkipReason
-
-        skip = self._skip({"warning_threshold": 90, "critical_threshold": 80})
+        skip = self._score({"warning_threshold": 90, "critical_threshold": 80})
         self.assertEqual(skip.reason, SkipReason.INVERTED_THRESHOLDS)
         self.assertEqual(skip.context["warning"], 90.0)
         self.assertEqual(skip.context["critical"], 80.0)
 
     def test_unknown_checker_has_no_primary_metric(self):
-        from apps.alerts.reevaluation import SkipReason
-
-        skip = self._skip({"warning_threshold": 1, "critical_threshold": 2}, checker="raid")
+        skip = self._score({"warning_threshold": 1, "critical_threshold": 2}, checker="raid")
         self.assertEqual(skip.reason, SkipReason.NO_PRIMARY_METRIC)
 
     def test_non_mapping_metrics_are_missing(self):
-        from apps.alerts.reevaluation import SkipReason
-
-        skip = self._skip({"warning_threshold": 1, "critical_threshold": 2}, metrics="x")
+        skip = self._score({"warning_threshold": 1, "critical_threshold": 2}, metrics="x")
         self.assertEqual(skip.reason, SkipReason.NO_METRICS)
 
     def test_absent_metric_value_says_which_key(self):
-        from apps.alerts.reevaluation import SkipReason
-
-        skip = self._skip({"warning_threshold": 1, "critical_threshold": 2}, metrics={})
+        skip = self._score({"warning_threshold": 1, "critical_threshold": 2}, metrics={})
         self.assertEqual(skip.reason, SkipReason.NO_METRIC_VALUE)
         self.assertEqual(skip.context["metric_key"], "cpu_percent")
 
-    def test_a_score_is_a_verdict_carrying_the_thresholds(self):
-        from apps.alerts.reevaluation import Verdict
-
-        outcome = self._skip(
+    def test_a_score_in_the_warning_band_is_a_firing_verdict(self):
+        outcome = self._score(
             {"warning_threshold": 90, "critical_threshold": 95},
             metrics={"cpu_percent": 91.5},
         )
         self.assertIsInstance(outcome, Verdict)
         self.assertEqual(outcome.severity, "warning")
+        self.assertEqual(outcome.status, "firing")
         self.assertEqual(outcome.value, 91.5)
+
+
+class ScoreAllowlistReasonTests(TestCase):
+    def _score(self, cfg, metrics=None):
+        return _score_allowlist(
+            "listening_ports",
+            metrics if metrics is not None else {"listening": [{"port": 22, "exposed": True}]},
+            cfg,
+        )
+
+    def test_missing_policy_says_so(self):
+        skip = self._score(None)
+        self.assertEqual(skip.reason, SkipReason.NO_POLICY)
+        self.assertEqual(skip.context["checker"], "listening_ports")
+
+    def test_non_mapping_policy_is_malformed(self):
+        self.assertEqual(self._score("nope").reason, SkipReason.MALFORMED_POLICY)
+
+    def test_non_mapping_metrics_are_missing(self):
+        skip = self._score({"allowlist": [22]}, metrics="x")
+        self.assertEqual(skip.reason, SkipReason.NO_METRICS)
+
+    def test_absent_allowlist_is_malformed(self):
+        self.assertEqual(self._score({}).reason, SkipReason.MALFORMED_POLICY)
+
+    def test_non_list_allowlist_is_malformed(self):
+        self.assertEqual(self._score({"allowlist": "x"}).reason, SkipReason.MALFORMED_POLICY)
+
+    def test_non_numeric_allowlist_entry_is_malformed(self):
+        self.assertEqual(self._score({"allowlist": ["22"]}).reason, SkipReason.MALFORMED_POLICY)
+
+    def test_bool_allowlist_entry_is_malformed(self):
+        self.assertEqual(self._score({"allowlist": [True]}).reason, SkipReason.MALFORMED_POLICY)
+
+    def test_absent_listening_inventory_says_which_key(self):
+        skip = self._score({"allowlist": [22]}, metrics={"other": 1})
+        self.assertEqual(skip.reason, SkipReason.NO_METRIC_VALUE)
+        self.assertEqual(skip.context["metric_key"], "listening")
+
+    def test_non_list_listening_inventory_says_which_key(self):
+        skip = self._score({"allowlist": [22]}, metrics={"listening": "x"})
+        self.assertEqual(skip.reason, SkipReason.NO_METRIC_VALUE)
+        self.assertEqual(skip.context["metric_key"], "listening")
+
+    def test_malformed_listening_entry_says_which_key(self):
+        skip = self._score({"allowlist": [22]}, metrics={"listening": [1]})
+        self.assertEqual(skip.reason, SkipReason.NO_METRIC_VALUE)
+        self.assertEqual(skip.context["metric_key"], "listening")
+
+    def test_malformed_port_says_which_key(self):
+        skip = self._score({"allowlist": [22]}, metrics={"listening": [{"port": "x"}]})
+        self.assertEqual(skip.reason, SkipReason.NO_METRIC_VALUE)
+        self.assertEqual(skip.context["metric_key"], "listening")
+
+    def test_a_flagged_port_is_a_firing_verdict(self):
+        outcome = self._score(
+            {"allowlist": [22]},
+            metrics={"listening": [{"port": 9999, "exposed": True}]},
+        )
+        self.assertIsInstance(outcome, Verdict)
+        self.assertEqual(outcome.severity, "warning")
+        self.assertEqual(outcome.status, "firing")
+        self.assertEqual(outcome.value, 1.0)
+
+    def test_a_covered_inventory_is_a_resolved_verdict(self):
+        outcome = self._score({"allowlist": [22]})
+        self.assertIsInstance(outcome, Verdict)
+        self.assertEqual(outcome.severity, "info")
+        self.assertEqual(outcome.status, "resolved")
+        self.assertEqual(outcome.value, 0.0)
+
+
+class AllowlistEvaluatorReasonTests(TestCase):
+    def test_unparseable_metrics_say_no_metrics(self):
+        parsed = _alert("listening_ports", "not json")
+        skip = allowlist_evaluator(parsed, {"allowlist": [22]})
+        self.assertEqual(skip.reason, SkipReason.NO_METRICS)
+        self.assertEqual(skip.context["checker"], "listening_ports")

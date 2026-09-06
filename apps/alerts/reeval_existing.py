@@ -53,12 +53,9 @@ def _score_alert(alert: Alert, config: dict) -> tuple[str, str, float] | None:
     if metrics is None:
         return None
     outcome = scorer(checker, metrics, cfg)
-    # `_score_allowlist` still returns a bare tuple, so both shapes score here.
-    if isinstance(outcome, Verdict):
-        return (outcome.severity, outcome.status, outcome.value)
-    if isinstance(outcome, tuple):
-        return outcome
-    return None
+    if not isinstance(outcome, Verdict):
+        return None
+    return (outcome.severity, outcome.status, outcome.value)
 
 
 def preview_node_alert_reeval(node: Node) -> ReevalReport:
