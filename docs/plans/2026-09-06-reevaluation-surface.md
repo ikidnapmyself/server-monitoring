@@ -402,6 +402,17 @@ def allowlist_evaluator(parsed: ParsedAlert, cfg: dict) -> Outcome:
 Update the `SCORERS` and `REEVALUATORS` type annotations to return `Outcome`, and
 correct their docstring comments, which currently say `| None`.
 
+**Delete the transitional tuple branches Task 2 added.** Task 2 could not use a plain
+`isinstance(outcome, Verdict)` check, because `_score_allowlist` still returned a bare
+tuple, so both `_reevaluate` and `reeval_existing._score_alert` currently accept either
+shape behind a one-line comment. Once this task lands, no scorer returns a tuple, so
+both branches and both comments must go. Grep for `isinstance(outcome, tuple)` to be
+sure none is left: a dead branch here is one mypy cannot flag and no test will reach.
+
+**`reeval_existing._score_alert` has no test covering an allowlist alert.** Task 2's
+review confirmed it. Add one here rather than deleting the tuple branch blind, so the
+`listening_ports` path through that function is protected before it changes.
+
 Run: `uv run pytest apps/alerts/ -v` → PASS
 
 ```bash
