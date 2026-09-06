@@ -814,10 +814,12 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
         if not self.has_change_permission(request, obj):
             raise PermissionDenied
         report = preview_node_alert_reeval(obj)
-        if not report.changes:
+        # A scope with skips and no changes still owes the operator the sentences
+        # saying why; only a scope that found nothing at all gets the one-liner.
+        if not report.changes and not report.skips:
             self.message_user(request, "No open alerts need re-evaluation.")
             return
-        if request.method == "POST" and request.POST.get("confirm"):
+        if report.changes and request.method == "POST" and request.POST.get("confirm"):
             applied = apply_node_alert_reeval(obj)
             self.message_user(
                 request,
@@ -834,6 +836,11 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
                 "report": report,
                 "title": "Confirm re-evaluation",
                 "opts": self.model._meta,
+                "back_url": reverse(
+                    f"admin:{obj._meta.app_label}_{obj._meta.model_name}_change",
+                    args=[obj.pk],
+                    current_app=self.admin_site.name,
+                ),
             },
         )
 

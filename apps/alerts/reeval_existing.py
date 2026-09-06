@@ -21,6 +21,7 @@ from apps.alerts.reevaluation import (
     SkipReason,
     Verdict,
     describe_skip,
+    format_value,
     parse_metrics,
     unchanged_skip,
 )
@@ -37,6 +38,14 @@ class AlertChange:
     new_severity: str
     new_status: str
     value: float
+
+    @property
+    def value_display(self) -> str:
+        return format_value(self.value)
+
+    @property
+    def reopens(self) -> bool:
+        return self.old_status == "resolved" and self.new_status == "firing"
 
 
 @dataclass
@@ -59,6 +68,19 @@ class ReevalReport:
     @property
     def severity_changed_count(self) -> int:
         return sum(1 for c in self.changes if c.new_status != "resolved")
+
+    @property
+    def reopened_count(self) -> int:
+        return sum(1 for c in self.changes if c.reopens)
+
+    @property
+    def run_count(self) -> int:
+        """How many pipeline runs an apply would enqueue.
+
+        Shares ``_changed_incident_ids`` with the apply itself, so the number the
+        confirm page promises cannot drift from the number of runs created.
+        """
+        return len(_changed_incident_ids(self))
 
 
 @dataclass(frozen=True)
@@ -246,15 +268,20 @@ def _changed_incidents(report: ReevalReport) -> list[Incident]:
     Reloaded because ``_resolve_incidents_for`` has already run: an incident cached on
     an in-memory alert would still report the status it had before that sweep.
     """
+    return [Incident.objects.get(pk=pk) for pk in _changed_incident_ids(report)]
+
+
+def _changed_incident_ids(report: ReevalReport) -> list[int]:
+    """The distinct incident ids behind ``report.changes``, in first-seen order."""
     seen: set[int] = set()
-    incidents: list[Incident] = []
+    ids: list[int] = []
     for change in report.changes:
         incident_id = change.alert.incident_id
         if not incident_id or incident_id in seen:
             continue
         seen.add(incident_id)
-        incidents.append(Incident.objects.get(pk=incident_id))
-    return incidents
+        ids.append(incident_id)
+    return ids
 
 
 def _resolve_incidents_for(node: Node) -> None:

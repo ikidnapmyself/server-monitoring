@@ -17,7 +17,12 @@ from apps.alerts.reeval_existing import (
 
 
 class Command(BaseCommand):
-    help = "Re-evaluate a node's existing open alerts against its current config."
+    help = (
+        "Re-evaluate a node's existing open alerts against its current config. "
+        "Applying enqueues one pipeline run per changed incident, which notifies "
+        "once process_inbox drains it. Use --dry-run to preview without writing "
+        "or enqueueing anything."
+    )
 
     def add_arguments(self, parser):
         parser.add_argument("instance_id")
@@ -54,12 +59,18 @@ class Command(BaseCommand):
         )
 
     def _print_report(self, report: ReevalReport) -> None:
-        if not report.changes:
-            self.stdout.write("No open alerts need re-evaluation.")
-            return
         for change in report.changes:
             checker = (change.alert.labels or {}).get("checker", "")
             self.stdout.write(
                 f"{checker}: {change.old_severity}/{change.old_status} -> "
-                f"{change.new_severity}/{change.new_status} ({change.value})"
+                f"{change.new_severity}/{change.new_status} ({change.value_display})"
+            )
+        if not report.changes:
+            self.stdout.write("No open alerts need re-evaluation.")
+        for skip in report.skips:
+            checker = (skip.alert.labels or {}).get("checker", "")
+            self.stdout.write(f"skipped {checker}: {skip.sentence}")
+        if report.changes:
+            self.stdout.write(
+                f"Applying will create {report.run_count} pipeline run(s) and notify on them."
             )

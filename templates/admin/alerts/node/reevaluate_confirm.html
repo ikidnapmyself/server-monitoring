@@ -14,38 +14,94 @@
 <p>
   Re-evaluate the open alerts for node
   <strong>{{ node.instance_id }}</strong> against its current config.
-  The following changes will be applied:
 </p>
+
+{% if report.changes %}
+<p>The following changes will be applied:</p>
 
 <div class="results">
 <table>
   <thead>
     <tr>
       <th>Checker</th>
+      <th>Alert</th>
       <th>Severity</th>
       <th>Status</th>
       <th>Value</th>
+      <th>Reported</th>
     </tr>
   </thead>
   <tbody>
     {% for change in report.changes %}
     <tr>
       <td>{{ change.alert.labels.checker }}</td>
+      <td>{{ change.alert.name }}</td>
       <td>{{ change.old_severity }} &rarr; {{ change.new_severity }}</td>
       <td>{{ change.old_status }} &rarr; {{ change.new_status }}</td>
-      <td>{{ change.value }}</td>
+      <td>{{ change.value_display }}</td>
+      <td>{{ change.alert.received_at }}</td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
 </div>
 
+<p>
+  Every value above is the one the node last reported, at the time in the
+  Reported column. The hub does not re-read the node, so a node that stopped
+  reporting is scored on the numbers it left behind.
+</p>
+{% if report.run_count %}
+<p>This will create {{ report.run_count }} pipeline run(s) and notify on them.</p>
+{% else %}
+<p>
+  This will create 0 pipeline run(s) and notify on them: none of these alerts
+  belongs to an incident.
+</p>
+{% endif %}
+{% if report.reopened_count %}
+<p><strong>This will re-open {{ report.reopened_count }} resolved alert(s).</strong></p>
+{% endif %}
+{% else %}
+<p>Nothing here would change.</p>
+{% endif %}
+
+{% if report.skips %}
+<h2>Why these alerts were left alone</h2>
+<div class="results">
+<table>
+  <thead>
+    <tr>
+      <th>Checker</th>
+      <th>Alert</th>
+      <th>Reason</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for skip in report.skips %}
+    <tr>
+      <td>{{ skip.alert.labels.checker }}</td>
+      <td>{{ skip.alert.name }}</td>
+      <td>{{ skip.sentence }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+{% if report.changes %}
 <form method="post">
   {% csrf_token %}
   <input type="hidden" name="confirm" value="1">
   <div class="submit-row">
     <input type="submit" value="Confirm" class="default">
-    <a href="{% url 'admin:alerts_node_change' node.pk %}" class="button cancel-link">Cancel</a>
+    <a href="{{ back_url }}" class="button cancel-link">Cancel</a>
   </div>
 </form>
+{% else %}
+<div class="submit-row">
+  <a href="{{ back_url }}" class="button cancel-link">Back</a>
+</div>
+{% endif %}
 {% endblock %}

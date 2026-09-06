@@ -32,7 +32,24 @@ __all__ = [
     "SkipReason",
     "describe_skip",
     "unchanged_skip",
+    "format_value",
 ]
+
+# One decimal place, everywhere a metric value or a threshold is printed. Raw
+# floats reach the operator as 41.199999999999996, and the skip sentences, the
+# confirm page and the command all quote the same numbers.
+VALUE_PRECISION = 1
+
+
+def format_value(value):
+    """Round a printed metric value or threshold; anything non-numeric is passed through.
+
+    ``round`` keeps the input type, so an int threshold stays "80" and a float
+    stays "80.0" rather than gaining or losing a decimal point it never had.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return str(value)
+    return str(round(value, VALUE_PRECISION))
 
 
 class SkipReason(str, Enum):
@@ -120,7 +137,8 @@ def describe_skip(skip: Skip, *, checker: str, instance_id: str) -> str:
     its sentence needs.
     """
     template = _SKIP_SENTENCES[skip.reason]
-    fields = {**skip.context, "checker": checker, "instance_id": instance_id}
+    fields = {key: format_value(value) for key, value in skip.context.items()}
+    fields.update(checker=checker, instance_id=instance_id)
     return template.format(**fields)
 
 
