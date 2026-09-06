@@ -409,9 +409,16 @@ shape behind a one-line comment. Once this task lands, no scorer returns a tuple
 both branches and both comments must go. Grep for `isinstance(outcome, tuple)` to be
 sure none is left: a dead branch here is one mypy cannot flag and no test will reach.
 
-**`reeval_existing._score_alert` has no test covering an allowlist alert.** Task 2's
-review confirmed it. Add one here rather than deleting the tuple branch blind, so the
-`listening_ports` path through that function is protected before it changes.
+The `listening_ports` path through `_score_alert` is already covered, by
+`test_reeval_existing.py:150` and `:172`. Both drive `apply_node_alert_reeval` end to
+end through the tuple branch, so they are what proves the branch is safe to delete. Run
+them before and after.
+
+**Also clean up three things Task 2's review flagged in `test_reevaluation.py`:**
+rename `test_a_score_is_a_verdict_carrying_the_thresholds` (a `Verdict` carries no
+thresholds) and assert its `status` too; drop the eight function-local imports in
+`ScoreNumericReasonTests`, which re-import names the file already imports at module
+level; and rename the `_skip` helper, which is used for the verdict case as well.
 
 Run: `uv run pytest apps/alerts/ -v` → PASS
 
