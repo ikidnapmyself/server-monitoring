@@ -20,8 +20,8 @@ class Command(BaseCommand):
     help = (
         "Re-evaluate a node's existing open alerts against its current config. "
         "Applying enqueues one pipeline run per changed incident, which notifies "
-        "once process_inbox drains it. Use --dry-run to preview without writing "
-        "or enqueueing anything."
+        "once process_inbox drains it, if its lane has a channel. Use --dry-run "
+        "to preview without writing or enqueueing anything."
     )
 
     def add_arguments(self, parser):
@@ -54,7 +54,8 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"Resolved {applied.resolved_count}; changed severity on "
-                f"{applied.severity_changed_count}."
+                f"{applied.severity_changed_count}. Enqueued {applied.run_count} "
+                "pipeline run(s)."
             )
         )
 
@@ -65,12 +66,15 @@ class Command(BaseCommand):
                 f"{checker}: {change.old_severity}/{change.old_status} -> "
                 f"{change.new_severity}/{change.new_status} ({change.value_display})"
             )
-        if not report.changes:
-            self.stdout.write("No open alerts need re-evaluation.")
         for skip in report.skips:
             checker = (skip.alert.labels or {}).get("checker", "")
             self.stdout.write(f"skipped {checker}: {skip.sentence}")
-        if report.changes:
-            self.stdout.write(
-                f"Applying will create {report.run_count} pipeline run(s) and notify on them."
-            )
+        if not report.changes:
+            self.stdout.write("No open alerts need re-evaluation.")
+            return
+        self.stdout.write(
+            f"Applying will create {report.run_count} pipeline run(s), which notify "
+            "once the inbox drains, if their lane has a channel."
+        )
+        if report.reopened_count:
+            self.stdout.write(f"Applying will re-open {report.reopened_count} resolved alert(s).")

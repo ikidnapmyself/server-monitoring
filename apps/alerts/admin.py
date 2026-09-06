@@ -824,7 +824,8 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
             self.message_user(
                 request,
                 f"Resolved {applied.resolved_count}; changed severity on "
-                f"{applied.severity_changed_count}.",
+                f"{applied.severity_changed_count}. Enqueued {applied.run_count} "
+                "pipeline run(s).",
             )
             return
         return TemplateResponse(

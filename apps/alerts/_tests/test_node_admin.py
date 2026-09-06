@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from unittest import mock
 
 from django.contrib import admin
@@ -12,6 +13,8 @@ from django.template.response import TemplateResponse
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.formats import localize
+from django.utils.timezone import localtime
 
 from apps.alerts.admin import NodeAdmin
 from apps.alerts.drivers.base import ParsedAlert
@@ -23,6 +26,11 @@ from apps.alerts.reeval_existing import AlertChange, ReevalReport
 from apps.alerts.reevaluation import reevaluate_severity
 from apps.checkers.models import CheckRun, PreflightRun
 from apps.orchestration.models import PipelineRun
+
+
+def _rendered(value):
+    """A datetime as the template prints it, so a test can look for one instant."""
+    return localize(localtime(value))
 
 
 class NodeAdminTests(TestCase):
@@ -171,10 +179,7 @@ class NodeReevaluateActionTests(TestCase):
         alert.save()
         response = self.model_admin.reevaluate_open_alerts(self._request("get"), node)
         response.render()
-        self.assertIn(
-            "This will create 1 pipeline run(s) and notify on them.",
-            response.content.decode(),
-        )
+        self.assertIn("This will create 1 pipeline run(s)", response.content.decode())
 
     def test_two_alerts_on_one_incident_are_one_run_on_the_page(self):
         node = Node.objects.create(
@@ -190,10 +195,7 @@ class NodeReevaluateActionTests(TestCase):
             alert.save()
         response = self.model_admin.reevaluate_open_alerts(self._request("get"), node)
         response.render()
-        self.assertIn(
-            "This will create 1 pipeline run(s) and notify on them.",
-            response.content.decode(),
-        )
+        self.assertIn("This will create 1 pipeline run(s)", response.content.decode())
 
     def test_an_alert_with_no_incident_is_told_why_it_creates_no_run(self):
         node = Node.objects.create(
@@ -204,7 +206,7 @@ class NodeReevaluateActionTests(TestCase):
         response = self.model_admin.reevaluate_open_alerts(self._request("get"), node)
         response.render()
         content = response.content.decode()
-        self.assertIn("This will create 0 pipeline run(s) and notify on them", content)
+        self.assertIn("This will create 0 pipeline run(s)", content)
         self.assertIn("none of these alerts", content)
 
     def test_the_page_does_not_warn_about_reopening_when_nothing_reopens(self):
@@ -227,7 +229,35 @@ class NodeReevaluateActionTests(TestCase):
         response.render()
         content = response.content.decode()
         self.assertIn("Reported", content)
-        self.assertIn(str(alert.received_at.year), content)
+        self.assertIn(str(alert.updated_at.year), content)
+
+    def test_the_reported_time_moves_when_the_node_pushes_a_new_value(self):
+        """The column must track the value, not the row's birth.
+
+        ``received_at`` is auto_now_add, so a re-push overwrites the metrics and
+        leaves it behind: a fresh number beside a week-old timestamp.
+        """
+        node = Node.objects.create(
+            instance_id="web-03",
+            config={"cpu": {"warning_threshold": 99, "critical_threshold": 99}},
+        )
+        alert = self._firing_cpu_alert(node)
+        a_week_ago = timezone.now() - timedelta(days=7)
+        # .update() bypasses auto_now/auto_now_add, which is the only way to give
+        # the two fields a gap a rendered timestamp can tell apart.
+        Alert.objects.filter(pk=alert.pk).update(received_at=a_week_ago)
+        alert.refresh_from_db()
+        alert.annotations = {"metrics": json.dumps({"cpu_percent": 43.0})}
+        alert.save()
+        alert.refresh_from_db()
+        self.assertEqual(alert.received_at, a_week_ago)
+        self.assertGreater(alert.updated_at, a_week_ago)
+
+        response = self.model_admin.reevaluate_open_alerts(self._request("get"), node)
+        response.render()
+        content = response.content.decode()
+        self.assertIn(_rendered(alert.updated_at), content)
+        self.assertNotIn(_rendered(alert.received_at), content)
 
     def test_the_page_rounds_the_value_instead_of_printing_a_raw_float(self):
         node = Node.objects.create(
@@ -345,6 +375,16 @@ class ReevaluateConfirmTemplateTests(TestCase):
     def test_a_firing_alert_changing_severity_is_not_announced_as_a_reopen(self):
         report = ReevalReport(node=self.node, changes=[self._change("firing", "firing")])
         self.assertNotIn("resolved alert(s)", self._render(report))
+
+    def test_the_page_renders_without_a_node(self):
+        # Task 10 reuses this template for a per-alert scope whose node can be
+        # None; a breadcrumb reversing on node.pk would raise NoReverseMatch.
+        report = ReevalReport(node=None, changes=[self._change("firing", "firing")])
+        content = render_to_string(
+            self.TEMPLATE,
+            {"node": None, "report": report, "opts": Node._meta, "back_url": "/back/"},
+        )
+        self.assertIn('href="/back/"', content)
 
     def test_the_cancel_link_uses_the_supplied_back_url(self):
         report = ReevalReport(node=self.node, changes=[self._change("firing", "firing")])

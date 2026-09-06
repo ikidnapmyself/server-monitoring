@@ -619,6 +619,34 @@ class ReevalAnnounceTests(TestCase):
         self.assertEqual(len(report.changes), 2)
         self.assertEqual(PipelineRun.objects.filter(incident_id=incident.pk).count(), 1)
 
+    def test_two_changed_incidents_promise_and_enqueue_two_runs(self):
+        """The counting case, not the dedup case.
+
+        ``run_count`` is printed to the operator as a promise, so an undercount
+        has to fail here rather than on the confirm page.
+        """
+        node = self._node(
+            {
+                "cpu": {"warning_threshold": 99, "critical_threshold": 99},
+                "memory": {"warning_threshold": 99, "critical_threshold": 99},
+            }
+        )
+        first, second = self._incident(), self._incident()
+        self._alert(node, incident=first)
+        self._alert(node, checker="memory", metric="memory_percent", value=80.0, incident=second)
+
+        preview = preview_node_alert_reeval(node)
+        self.assertEqual(preview.run_count, 2)
+
+        report = apply_node_alert_reeval(node)
+
+        self.assertEqual(report.run_count, 2)
+        self.assertEqual(PipelineRun.objects.count(), 2)
+        self.assertEqual(
+            set(PipelineRun.objects.values_list("incident_id", flat=True)),
+            {first.pk, second.pk},
+        )
+
     def test_a_changed_alert_with_no_incident_enqueues_nothing(self):
         node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
         alert = self._alert(node)

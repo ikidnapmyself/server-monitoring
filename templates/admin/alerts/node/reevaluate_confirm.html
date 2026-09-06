@@ -5,7 +5,7 @@
   <a href="{% url 'admin:index' %}">Home</a>
   &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
   &rsaquo; <a href="{% url 'admin:alerts_node_changelist' %}">Nodes</a>
-  &rsaquo; <a href="{% url 'admin:alerts_node_change' node.pk %}">{{ node.instance_id }}</a>
+  {% if node %}&rsaquo; <a href="{% url 'admin:alerts_node_change' node.pk %}">{{ node.instance_id }}</a>{% endif %}
   &rsaquo; Re-evaluate
 </div>
 {% endblock %}
@@ -39,7 +39,7 @@
       <td>{{ change.old_severity }} &rarr; {{ change.new_severity }}</td>
       <td>{{ change.old_status }} &rarr; {{ change.new_status }}</td>
       <td>{{ change.value_display }}</td>
-      <td>{{ change.alert.received_at }}</td>
+      <td>{{ change.alert.updated_at }}</td>
     </tr>
     {% endfor %}
   </tbody>
@@ -47,16 +47,19 @@
 </div>
 
 <p>
-  Every value above is the one the node last reported, at the time in the
-  Reported column. The hub does not re-read the node, so a node that stopped
-  reporting is scored on the numbers it left behind.
+  Every value above is one the node pushed, not a fresh reading: the hub never
+  re-reads a node. Reported is when that alert row was last written, so an old
+  timestamp means the numbers being scored are old too.
 </p>
 {% if report.run_count %}
-<p>This will create {{ report.run_count }} pipeline run(s) and notify on them.</p>
+<p>
+  This will create {{ report.run_count }} pipeline run(s), which notify once the
+  inbox drains, if their lane has a channel.
+</p>
 {% else %}
 <p>
-  This will create 0 pipeline run(s) and notify on them: none of these alerts
-  belongs to an incident.
+  This will create 0 pipeline run(s): none of these alerts belongs to an
+  incident.
 </p>
 {% endif %}
 {% if report.reopened_count %}
