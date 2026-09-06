@@ -21,11 +21,14 @@ change and the incident is already named. Same door, one step further in.
 
 Being honest about the exception rather than overstating the invariant: this
 is where work is *supposed* to enter, not yet a chokepoint the code enforces.
-``apps.alerts.reeval_existing`` writes alerts and calls ``incident.resolve()``
-(see ``apply_node_alert_reeval`` and ``_resolve_incidents_for``) without passing through here at
-all, so a config-change re-evaluation can resolve an incident that nobody is
-ever told about. That is a known follow-up, not a licence to add a seventh
-path — a new producer belongs here.
+``apps.alerts.reeval_existing`` changes alerts and resolves incidents without
+passing through here at all (see ``apply_node_alert_reeval`` and
+``_resolve_incidents_for``). It announces what it changed the way an operator
+transition does, by calling ``enqueue_incident_runs`` below ``enqueue_for``:
+the policy is the material change and the incident is already named, so there
+is no producer result to read ``material_alerts`` off. Same door, one step
+further in. That is the shape a caller without a producer result takes, not a
+licence for a new producer to skip this module.
 
 Whether the caller drains those runs before returning is a mode, not a
 different path. A synchronous caller (``check_health``, an operator looking at

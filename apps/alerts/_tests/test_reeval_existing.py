@@ -555,6 +555,11 @@ class UnregisteredNodeScopeTests(TestCase):
         self.assertIsNone(self.incident.resolved_at)
 
 
+def _primed(report, prime):
+    prime(report)
+    return report
+
+
 class ReevalAnnounceTests(TestCase):
     def _node(self, cfg=None):
         return Node.objects.create(instance_id="web-03", config=cfg if cfg is not None else {})
@@ -662,9 +667,21 @@ class ReevalAnnounceTests(TestCase):
         self._alert(node, incident=incident)
         seen: list[str] = []
 
-        with mock.patch(
-            "apps.alerts.reeval_existing.announce_incident_change",
-            side_effect=lambda inc: seen.append(inc.status),
+        def prime_cached_incidents(report):
+            # Populate each alert's cached incident BEFORE the sweep resolves it, so a
+            # reload that is not really a reload would hand the announce a stale OPEN.
+            for change in report.changes:
+                self.assertEqual(change.alert.incident.status, IncidentStatus.OPEN)
+
+        with (
+            mock.patch(
+                "apps.alerts.reeval_existing.preview_reeval",
+                side_effect=lambda scope: _primed(preview_reeval(scope), prime_cached_incidents),
+            ),
+            mock.patch(
+                "apps.alerts.reeval_existing.announce_incident_change",
+                side_effect=lambda inc: seen.append(inc.status),
+            ),
         ):
             apply_node_alert_reeval(node)
 

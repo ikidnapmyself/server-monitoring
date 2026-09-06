@@ -137,9 +137,10 @@ def enqueue_incident_runs(
 ) -> list[PipelineRun]:
     """Record one PENDING run per incident — the ONE way an incident change reaches on-call.
 
-    Two producers call this: the alert write path (a node changed an incident) and
-    ``IncidentManager`` (a human did). Neither runs anything; ``drain`` is the only
-    executor. Left PENDING rather than run inline for the reasons on
+    Three producers call this: the alert write path (a node changed an incident),
+    ``IncidentManager`` (a human did) and ``apps.alerts.reeval_existing`` (an applied
+    re-evaluation did). None of them runs anything; ``drain`` is the only executor.
+    Left PENDING rather than run inline for the reasons on
     ``PipelineOrchestrator._enqueue_downstream_runs``.
 
     ``no_notify`` travels with the work. NOTIFY runs in the child, not in the run
