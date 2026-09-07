@@ -318,6 +318,22 @@ class TestMapView:
     def test_requires_staff(self, client):
         assert client.get(reverse("admin:netmap")).status_code == 302  # redirected to login
 
+    def test_staff_without_view_pipelinedefinition_is_refused(self, client):
+        from django.contrib.auth import get_user_model
+
+        user = get_user_model().objects.create_user(username="plain", password="pw", is_staff=True)
+        client.force_login(user)
+        assert client.get(reverse("admin:netmap")).status_code == 403
+
+    def test_staff_with_view_pipelinedefinition_gets_the_page(self, client):
+        from django.contrib.auth import get_user_model
+        from django.contrib.auth.models import Permission
+
+        user = get_user_model().objects.create_user(username="viewer", password="pw", is_staff=True)
+        user.user_permissions.add(Permission.objects.get(codename="view_pipelinedefinition"))
+        client.force_login(user)
+        assert client.get(reverse("admin:netmap")).status_code == 200
+
     def test_renders(self, admin_client):
         PipelineDefinition.objects.create(name="catch-all", priority=100, match=[])
         resp = admin_client.get(reverse("admin:netmap"))

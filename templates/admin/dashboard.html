@@ -161,6 +161,41 @@
     color: #fff;
   }
 
+  /* Fleet metrics: the reading is coloured, not badged, so a wide grid of
+     numbers still reads as numbers. */
+  .metric-grid th.metric-node {
+    text-align: left;
+  }
+
+  .metric-grid td.metric-value {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .metric-unit {
+    font-size: 11px;
+    font-weight: normal;
+    color: var(--body-quiet-color);
+  }
+
+  .metric-ok {
+    color: #28a745;
+  }
+
+  .metric-warning {
+    color: #b26a00;
+    font-weight: bold;
+  }
+
+  .metric-critical {
+    color: #dc3545;
+    font-weight: bold;
+  }
+
+  .metric-unknown {
+    color: #6c757d;
+  }
+
   /* Links */
   .view-all-link {
     margin-top: 10px;
@@ -424,6 +459,40 @@
       <div class="success-message">No failed pipelines</div>
       {% endif %}
     </div>
+  </div>
+
+  <!-- Row 3: what the fleet is reporting right now -->
+  <div class="module">
+    <h2>Fleet metrics</h2>
+    {% if fleet_metrics.rows %}
+    <div style="overflow-x:auto;">
+      <table class="dashboard-table metric-grid">
+        <thead>
+          <tr>
+            <th class="metric-node">Node</th>
+            {% for column in fleet_metrics.columns %}
+            <th style="text-align:right;">
+              {{ column.checker }} <span class="metric-unit">{{ column.unit }}</span>
+            </th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in fleet_metrics.rows %}
+          <tr>
+            <td><a href="{{ row.url }}">{{ row.hostname|default:row.instance_id }}</a></td>
+            {% for cell in row.cells %}
+            <td class="metric-value metric-{{ cell.status }}">{{ cell.value }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="table-link"><a href="{% url 'admin:policy-overview' %}">Hub-side policy &rarr;</a></div>
+    {% else %}
+    <div class="no-data-message">No node has reported a headline metric yet</div>
+    {% endif %}
   </div>
 
   <!-- Row 3: 7-Day Trends -->

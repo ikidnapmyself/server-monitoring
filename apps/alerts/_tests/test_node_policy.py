@@ -13,6 +13,7 @@ from apps.alerts.node_policy import (
     clean_number,
     clean_stored_allowlist,
     clean_thresholds,
+    editor_link,
     field_name,
     scoring_changed,
     sections_for,
@@ -781,3 +782,26 @@ class ScoringChangedTests(TestCase):
                 {"listening_ports": {"allowlist": [1, 80]}},
             )
         )
+
+
+class TestEditorLink(TestCase):
+    """Where the read-only panel points a reader who came to set a threshold."""
+
+    def test_a_node_with_no_editable_checker_gets_no_link(self):
+        node = Node.objects.create(instance_id="quiet", hostname="quiet")
+        assert editor_link(node) is None
+
+    def test_the_anchor_is_the_first_section_s_first_box(self):
+        node = Node.objects.create(instance_id="peer", hostname="peer", config={"memory": {}})
+        link = editor_link(node)
+        assert link.anchor == f"id_{field_name('memory', spec_for('memory')[0].name)}"
+        assert link.count == 1
+
+    def test_the_count_is_every_section_the_form_will_render(self):
+        node = Node.objects.create(
+            instance_id="peer2", hostname="peer2", config={"memory": {}, "cpu": {}}
+        )
+        link = editor_link(node)
+        assert link.count == 2
+        # sections_for sorts, so the anchor is cpu's box, not memory's.
+        assert link.anchor == f"id_{field_name('cpu', spec_for('cpu')[0].name)}"

@@ -9,11 +9,24 @@ def su(db):
     return get_user_model().objects.create_superuser("admin", "a@b.co", "x")
 
 
-def _sections(su):
+def _app_list(user):
     req = RequestFactory().get("/admin/")
-    req.user = su
+    req.user = user
+    return admin.site.get_app_list(req)
+
+
+def _sections(su):
+    # Models only. The non-model pages a section also carries are asserted
+    # separately by _links, so a new link cannot quietly satisfy a model test.
     return {
-        a["name"]: [m["object_name"] for m in a["models"]] for a in admin.site.get_app_list(req)
+        a["name"]: [m["object_name"] for m in a["models"] if not m.get("is_link")]
+        for a in _app_list(su)
+    }
+
+
+def _links(user):
+    return {
+        a["name"]: [m["name"] for m in a["models"] if m.get("is_link")] for a in _app_list(user)
     }
 
 
@@ -76,7 +89,8 @@ def test_sections_respect_permissions_and_hide_empty():
     req = RequestFactory().get("/admin/")
     req.user = user
     sections = {
-        a["name"]: [m["object_name"] for m in a["models"]] for a in admin.site.get_app_list(req)
+        a["name"]: [m["object_name"] for m in a["models"] if not m.get("is_link")]
+        for a in admin.site.get_app_list(req)
     }
     # Only Configuration (with just NotificationChannel) should appear; others hidden.
     assert "Operations" not in sections
@@ -99,3 +113,36 @@ def test_unmapped_models_fall_into_other_section(su, monkeypatch):
     assert "Node" in sections["Other"]
     assert "NotificationChannel" in sections["Other"]
     assert "User" in sections["Other"]
+
+
+@pytest.mark.django_db
+def test_sections_carry_the_pages_that_are_not_changelists(su):
+    links = _links(su)
+    assert "Hub-side policy" in links["Operations"]
+    assert "Network map" in links["Configuration"]
+
+
+@pytest.mark.django_db
+def test_a_link_points_at_its_page(su):
+    entry = next(
+        m
+        for a in _app_list(su)
+        for m in a["models"]
+        if m.get("is_link") and m["name"] == "Hub-side policy"
+    )
+    assert entry["admin_url"] == "/admin/policy/"
+    # Nothing to add on a page that is not a changelist.
+    assert entry["add_url"] is None
+    assert entry["view_only"] is True
+
+
+@pytest.mark.django_db
+def test_a_link_is_hidden_from_a_user_who_cannot_open_it():
+    from django.contrib.auth.models import Permission
+
+    user = get_user_model().objects.create_user("staff2", "s2@b.co", "x", is_staff=True)
+    user.user_permissions.add(Permission.objects.get(codename="view_node"))
+    links = _links(user)
+    # Node view opens the policy page. Nothing here opens the map.
+    assert links["Operations"] == ["Hub-side policy"]
+    assert "Configuration" not in links
