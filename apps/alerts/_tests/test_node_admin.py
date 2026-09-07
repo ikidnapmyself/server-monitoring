@@ -748,6 +748,26 @@ class NodePolicyFormWiringTests(TestCase):
         self.assertContains(response, 'value="80"')
         self.assertContains(response, 'value="95"')
 
+    def test_the_panel_points_at_the_boxes_below_it(self):
+        # The panel opens the page and the boxes are several screens down, so a
+        # reader who came to set a threshold has to be told they exist.
+        node = self._node_reporting_cpu()
+        response = self.client.get(self._url(node))
+        self.assertContains(response, "#id_policy__cpu__warning_threshold")
+        self.assertContains(response, "Edit 1 policy section")
+
+    def test_the_empty_panel_names_the_boxes_rather_than_stopping(self):
+        node = self._node_reporting_cpu()
+        response = self.client.get(self._url(node))
+        self.assertContains(response, "No hub-side policy is configured for this node")
+        self.assertContains(response, "policy boxes further down this page")
+
+    def test_a_node_with_nothing_to_edit_is_offered_no_jump(self):
+        node = Node.objects.create(instance_id="quiet", hostname="quiet")
+        response = self.client.get(self._url(node))
+        self.assertNotContains(response, "policy boxes further down this page")
+        self.assertNotContains(response, "Edit 1 policy section")
+
     def test_the_raw_json_editor_is_gone(self):
         # Two writers for one column is a silent data-loss bug: whichever the
         # admin renders last wins. The JSON editor must not come back.
@@ -838,6 +858,13 @@ class NodePolicyViewOnlyTests(TestCase):
         response = self.client.get(reverse("admin:alerts_node_change", args=[node.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "web-03")
+
+    def test_a_reader_who_gets_no_boxes_is_offered_no_jump(self):
+        # get_fieldsets drops every policy section without change permission, so
+        # the anchor would point at an id this page never renders.
+        node = self._node_with_a_cpu_policy()
+        response = self.client.get(reverse("admin:alerts_node_change", args=[node.pk]))
+        self.assertNotContains(response, "#id_policy__cpu__warning_threshold")
 
     def test_a_set_policy_is_readable(self):
         # From the panel, which is the whole read-only answer for this reader.

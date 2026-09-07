@@ -441,6 +441,37 @@ def sections_for(node) -> list[str]:
     ]
 
 
+@dataclass(frozen=True)
+class EditorLink:
+    """Where the boxes are, for a panel that sits above them.
+
+    The node page opens with several screens of read-only panels, so a reader
+    who came to set a threshold has no way of knowing the boxes exist. The
+    anchor is built the same way ``policy_overview._edit_url`` builds its own,
+    from ``field_name`` plus Django's ``id_`` prefix, so both land on the same
+    input.
+    """
+
+    anchor: str
+    count: int
+
+
+def editor_link(node) -> EditorLink | None:
+    """The jump target for this node's policy boxes, or None when it has none.
+
+    Takes the node rather than the sections because the panel that renders this
+    is built from the node, and ``sections_for`` is cheap to ask twice: the scan
+    behind it is memoised on the instance.
+    """
+    sections = sections_for(node)
+    if not sections:
+        return None
+    return EditorLink(
+        anchor=f"id_{field_name(sections[0], spec_for(sections[0])[0].name)}",
+        count=len(sections),
+    )
+
+
 def addable_checkers(sections: list[str]) -> list[str]:
     """The checkers a node could be given a policy section for, sorted.
 

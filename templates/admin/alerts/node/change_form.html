@@ -133,7 +133,13 @@ dashes, and it is what tells anyone that a preserved config key is dead.
 {% if node_policy %}
 <div class="module" style="margin-bottom:20px; padding:12px 16px;">
 
-  <h2 style="margin-top:0;">Hub-side policy</h2>
+  <h2 style="margin-top:0; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;">
+    <span>Hub-side policy</span>
+    {% if node_policy_editor %}
+    <a href="#{{ node_policy_editor.anchor }}" style="font-size:13px; font-weight:normal;"
+    >&darr; Edit {{ node_policy_editor.count }} policy section{{ node_policy_editor.count|pluralize }}</a>
+    {% endif %}
+  </h2>
   {% if node_policy.has_content %}
 
   <h3 style="margin-bottom:6px;">Policy in effect</h3>
@@ -218,7 +224,13 @@ dashes, and it is what tells anyone that a preserved config key is dead.
   {% endif %}
 
   {% else %}
-  <p>No hub-side policy is configured for this node, so its alerts score as they arrive.</p>
+  <p>
+    No hub-side policy is configured for this node, so its alerts score as they arrive.
+    {% if node_policy_editor %}
+    Set one in the
+    <a href="#{{ node_policy_editor.anchor }}">policy boxes further down this page</a>.
+    {% endif %}
+  </p>
   {% endif %}
 
 </div>

@@ -32,6 +32,7 @@ from apps.alerts.node_overview import (
 from apps.alerts.node_policy import (
     addable_checkers,
     build_effective_policy,
+    editor_link,
     field_name,
     scoring_changed,
     sections_for,
@@ -1073,4 +1074,9 @@ class NodeAdmin(DjangoObjectActions, admin.ModelAdmin):
             # the boxes that will change it, and a panel that appears for some
             # users is a condition that has to stay right.
             context["node_policy"] = build_effective_policy(obj)
+            # Only for a reader who will actually get boxes. get_fieldsets drops
+            # every policy section for view-only, so a jump link there would
+            # point at an id that is never rendered.
+            if self.has_change_permission(request, obj):
+                context["node_policy_editor"] = editor_link(obj)
         return super().render_change_form(request, context, *args, obj=obj, **kwargs)
