@@ -122,7 +122,10 @@ class Command(BaseCommand):
         for name in checker_names:
             checker_class = CHECKER_REGISTRY[name]
             checker_kwargs = self._build_checker_kwargs(name, options)
-            checker = checker_class(**checker_kwargs)
+            try:
+                checker = checker_class(**checker_kwargs)
+            except ValueError as e:
+                raise CommandError(str(e))
             result = checker.run()
             results.append(result)
 

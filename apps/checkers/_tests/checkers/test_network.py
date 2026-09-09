@@ -11,6 +11,11 @@ from apps.checkers.checkers import CheckStatus, NetworkChecker
 class NetworkCheckerTests(TestCase):
     """Tests for the NetworkChecker."""
 
+    def setUp(self):
+        patcher = patch("apps.checkers.checkers.network.shutil.which", return_value="/sbin/ping")
+        self.mock_which = patcher.start()
+        self.addCleanup(patcher.stop)
+
     @patch("apps.checkers.checkers.network.subprocess.run")
     def test_network_check_all_reachable(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0, stdout="avg = 10ms")
@@ -81,6 +86,11 @@ class ParseLatencyTests(TestCase):
 class PingHostEdgeCaseTests(TestCase):
     """Tests for NetworkChecker._ping_host edge cases."""
 
+    def setUp(self):
+        patcher = patch("apps.checkers.checkers.network.shutil.which", return_value="/sbin/ping")
+        self.mock_which = patcher.start()
+        self.addCleanup(patcher.stop)
+
     @patch("apps.checkers.checkers.network.subprocess.run")
     def test_ping_host_timeout_expired(self, mock_run):
         """TimeoutExpired returns (False, None)."""
@@ -117,6 +127,11 @@ class PingHostEdgeCaseTests(TestCase):
 
 class NetworkCoverageGapTests(TestCase):
     """Tests covering remaining branch gaps in network.py."""
+
+    def setUp(self):
+        patcher = patch("apps.checkers.checkers.network.shutil.which", return_value="/sbin/ping")
+        self.mock_which = patcher.start()
+        self.addCleanup(patcher.stop)
 
     @patch("apps.checkers.checkers.network.sys")
     @patch("apps.checkers.checkers.network.subprocess.run")
@@ -168,3 +183,27 @@ class NetworkCoverageGapTests(TestCase):
 
         self.assertEqual(result.status, CheckStatus.UNKNOWN)
         self.assertIn("unexpected", result.message)
+
+
+class PingTargetValidationTests(TestCase):
+    """Constructor input validation and a missing ping binary."""
+
+    def test_invalid_host_rejected(self):
+        with self.assertRaises(ValueError):
+            NetworkChecker(hosts=["8.8.8.8; rm -rf /"])
+
+    def test_option_like_host_rejected(self):
+        with self.assertRaises(ValueError):
+            NetworkChecker(hosts=["-f"])
+
+    def test_hostname_and_ip_accepted(self):
+        checker = NetworkChecker(hosts=["8.8.8.8", "example.com", "2001:4860:4860::8888"])
+        self.assertEqual(len(checker.hosts), 3)
+
+    @patch("apps.checkers.checkers.network.shutil.which", return_value=None)
+    def test_missing_ping_binary_is_unreachable(self, _mock_which):
+        checker = NetworkChecker(hosts=["8.8.8.8"])
+        success, latency = checker._ping_host("8.8.8.8")
+
+        self.assertFalse(success)
+        self.assertIsNone(latency)
