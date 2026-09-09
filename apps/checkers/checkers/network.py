@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
 
@@ -71,9 +72,10 @@ class NetworkChecker(BaseChecker):
         Returns:
             Tuple of (success: bool, latency_ms: float | None).
         """
-        ping_path = shutil.which("ping")
-        if not ping_path:
+        resolved = shutil.which("ping")
+        if not resolved:
             return False, None
+        ping_path = str(Path(resolved).resolve())
 
         if sys.platform == "win32":
             cmd = [ping_path, "-n", str(self.ping_count), "-w", str(int(self.timeout * 1000)), host]

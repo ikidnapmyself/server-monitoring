@@ -128,7 +128,7 @@ class Command(BaseCommand):
         try:
             checker = checker_class(**kwargs)
         except ValueError as e:
-            raise CommandError(str(e))
+            raise CommandError(str(e)) from e
         result = checker.run()
 
         # Output
