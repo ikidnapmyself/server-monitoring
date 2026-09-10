@@ -22,7 +22,7 @@ import pprint
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import psutil
 
@@ -38,17 +38,13 @@ logger = logging.getLogger(__name__)
 # inline Jinja2 source via the bare-string form.
 _FILENAME_PATTERN = re.compile(r"^[\w-]+(\.[\w]+)?$")
 
-if TYPE_CHECKING:
-    import jinja2
-
-# Declare the env with an Optional type so assigning None in the except branch
-# doesn't conflict with the Environment type during type-checking.
-_JINJA_ENV: "jinja2.Environment | None" = None
-
 try:
     import jinja2
     from jinja2.sandbox import ImmutableSandboxedEnvironment
 
+    # Optional type so assigning None in the except branch doesn't conflict
+    # with the Environment type during type-checking.
+    _JINJA_ENV: jinja2.Environment | None = None
     _JINJA_AVAILABLE = True
     # ImmutableSandboxedEnvironment blocks access to dunder attributes
     # (__class__, __globals__, __init__, __mro__, __subclasses__) which are
