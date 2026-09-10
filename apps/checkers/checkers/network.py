@@ -2,10 +2,30 @@
 Network connectivity checker (ping).
 """
 
+import ipaddress
+import re
+import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
+
+_HOSTNAME_RE = re.compile(
+    r"^(?=.{1,253}$)[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
+    r"(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
+)
+
+
+def _validate_host(host: str) -> str:
+    """Return `host` if it is a bare IP address or DNS hostname, else raise."""
+    try:
+        return str(ipaddress.ip_address(host))
+    except ValueError:
+        pass
+    if not _HOSTNAME_RE.match(host):
+        raise ValueError(f"Invalid ping target: {host!r}")
+    return host
 
 
 class NetworkChecker(BaseChecker):
@@ -39,7 +59,7 @@ class NetworkChecker(BaseChecker):
             **kwargs: Additional BaseChecker arguments.
         """
         super().__init__(**kwargs)
-        self.hosts = hosts or ["8.8.8.8", "1.1.1.1"]
+        self.hosts = [_validate_host(h) for h in (hosts or ["8.8.8.8", "1.1.1.1"])]
         self.ping_count = ping_count
 
     def _ping_host(self, host: str) -> tuple[bool, float | None]:
@@ -52,14 +72,18 @@ class NetworkChecker(BaseChecker):
         Returns:
             Tuple of (success: bool, latency_ms: float | None).
         """
-        # Build ping command based on platform
+        resolved = shutil.which("ping")
+        if not resolved:
+            return False, None
+        ping_path = str(Path(resolved).resolve())
+
         if sys.platform == "win32":
-            cmd = ["ping", "-n", str(self.ping_count), "-w", str(int(self.timeout * 1000)), host]
+            cmd = [ping_path, "-n", str(self.ping_count), "-w", str(int(self.timeout * 1000)), host]
         else:
-            cmd = ["ping", "-c", str(self.ping_count), "-W", str(int(self.timeout)), host]
+            cmd = [ping_path, "-c", str(self.ping_count), "-W", str(int(self.timeout)), host]
 
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603  # nosemgrep
                 cmd,
                 capture_output=True,
                 text=True,

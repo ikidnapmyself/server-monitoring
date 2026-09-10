@@ -238,6 +238,15 @@ class CheckHealthCommandTests(TestCase):
             )
         mock_checker.assert_called_once_with(hosts=["8.8.8.8", "1.1.1.1"])
 
+    def test_invalid_ping_host_raises_command_error(self):
+        mock_checker = self._make_checker(checker_name="network")
+        mock_checker.side_effect = ValueError("Invalid ping target: '-f'")
+        with patch.dict(self.REGISTRY_PATH, {"network": mock_checker}, clear=True):
+            with self.assertRaises(CommandError):
+                call_command(
+                    "check_health", "network", "--ping-hosts", "bad;host", stdout=StringIO()
+                )
+
     def test_processes_kwarg(self):
         mock_checker = self._make_checker(checker_name="process")
         with patch.dict(self.REGISTRY_PATH, {"process": mock_checker}, clear=True):
@@ -706,6 +715,13 @@ class RunCheckCommandTests(TestCase):
         with patch.dict(self.REGISTRY_PATH, {"network": mock_checker}, clear=True):
             call_command("run_check", "network", "--hosts", "8.8.8.8", stdout=StringIO())
         mock_checker.assert_called_once_with(hosts=["8.8.8.8"])
+
+    def test_invalid_network_host_raises_command_error(self):
+        mock_checker = self._make_checker(checker_name="network")
+        mock_checker.side_effect = ValueError("Invalid ping target: '-f'")
+        with patch.dict(self.REGISTRY_PATH, {"network": mock_checker}, clear=True):
+            with self.assertRaises(CommandError):
+                call_command("run_check", "network", "--hosts", "bad;host", stdout=StringIO())
 
     def test_process_names(self):
         mock_checker = self._make_checker(checker_name="process")

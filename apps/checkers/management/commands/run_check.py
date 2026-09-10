@@ -125,7 +125,10 @@ class Command(BaseCommand):
 
         # Run the check
         checker_class = CHECKER_REGISTRY[checker_name]
-        checker = checker_class(**kwargs)
+        try:
+            checker = checker_class(**kwargs)
+        except ValueError as e:
+            raise CommandError(str(e)) from e
         result = checker.run()
 
         # Output
