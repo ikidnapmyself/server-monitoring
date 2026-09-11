@@ -21,7 +21,7 @@ from apps.alerts.drivers.base import ParsedAlert
 from apps.alerts.forms import ADD_SECTION_FIELD, NodePolicyForm
 from apps.alerts.identity import local_instance_id
 from apps.alerts.models import Alert, Incident, Node
-from apps.alerts.node_policy import FIELD_SPECS
+from apps.alerts.node_policy import FIELD_SPECS, build_effective_policy
 from apps.alerts.reeval_existing import AlertChange, ReevalReport
 from apps.alerts.reevaluation import reevaluate_severity
 from apps.checkers.models import CheckRun, PreflightRun
@@ -1208,7 +1208,8 @@ class EffectivePolicyPanelTests(TestCase):
         # Not "saving never deletes what it cannot show": that is true of an
         # unknown checker, and false of a known one holding a non-dict, whose
         # own section is right there and whose next save replaces the string.
-        self.assertContains(response, "kept unless you edit that checker's boxes below")
+        self.assertContains(response, "kept unless you edit that checker's")
+        self.assertContains(response, "boxes below")
 
     def test_the_overview_panels_and_the_action_button_still_render(self):
         self._login("view_node", "change_node")
@@ -1313,3 +1314,104 @@ class NodeChangelistPolicyLinkTests(TestCase):
         ):
             body = self._body()
         self.assertIn('data-tool-name="policy_link_probe"', body)
+
+
+class ReevaluateConfirmSkipLinkTests(TestCase):
+    """The skips table is the page's only content when nothing would change.
+
+    A reason an operator can act on has to be a way in, not a sentence.
+    """
+
+    def setUp(self):
+        from django.contrib.admin.sites import AdminSite
+
+        self.model_admin = NodeAdmin(Node, AdminSite())
+        self.factory = RequestFactory()
+
+    def _request(self):
+        from django.contrib.sessions.backends.db import SessionStore
+
+        request = self.factory.get("/")
+        request.user = get_user_model().objects.create_superuser("root", "r@t.com", "pw")
+        request.session = SessionStore()
+        request._messages = FallbackStorage(request)
+        return request
+
+    def _alert(self, node, checker="cpu", annotations=None):
+        if annotations is None:
+            annotations = {"metrics": json.dumps({"cpu_percent": 95.0})}
+        return Alert.objects.create(
+            fingerprint=f"{checker}-web-03",
+            source="cluster",
+            name=f"{checker} high",
+            severity="critical",
+            status="firing",
+            started_at=timezone.now(),
+            node=node,
+            labels={"checker": checker, "instance_id": "web-03"},
+            annotations=annotations,
+        )
+
+    def _render(self, node):
+        response = self.model_admin.reevaluate_open_alerts(self._request(), node)
+        response.render()
+        return response.content.decode()
+
+    def test_a_policy_skip_links_the_editor(self):
+        node = Node.objects.create(instance_id="web-03", config={})
+        self._alert(node)
+        content = self._render(node)
+        assert (
+            f'<a href="/admin/alerts/node/{node.pk}/change/">'
+            "No policy set for cpu on web-03.</a>"
+        ) in content
+
+    def test_a_skip_nobody_can_fix_stays_plain_text(self):
+        node = Node.objects.create(instance_id="web-03", config={})
+        self._alert(node, checker="raid", annotations={})
+        content = self._render(node)
+        assert "not re-evaluatable" in content
+        assert "not re-evaluatable. No scorer knows it.</a>" not in content
+
+
+class PolicyPanelFixLinkTests(TestCase):
+    """Both fault panels name the boxes that fix them, so both link to them."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = get_user_model().objects.create_superuser("root", "r@t.com", "pw")
+
+    def setUp(self):
+        self.client.force_login(self.user)
+
+    def _url(self, node):
+        return reverse("admin:alerts_node_change", args=[node.pk])
+
+    def test_an_unusable_section_links_its_own_boxes(self):
+        node = Node.objects.create(instance_id="web-03", config={"cpu": {"warning_threshold": 80}})
+        title = build_effective_policy(node).inactive[0].title
+        response = self.client.get(self._url(node))
+        self.assertContains(response, "Saved but not scoring")
+        self.assertContains(response, f'<a href="#id_policy__cpu__warning_threshold">{title}</a>')
+
+    def test_an_unread_key_links_the_editor_it_tells_you_to_use(self):
+        node = Node.objects.create(
+            instance_id="web-03",
+            config={
+                "cpu": {"warning_threshold": 80, "critical_threshold": 90, "nonsense": 1},
+            },
+        )
+        response = self.client.get(self._url(node))
+        self.assertContains(response, "Not honoured")
+        self.assertContains(
+            response, '<a href="#id_policy__cpu__warning_threshold">boxes below</a>'
+        )
+
+    def test_the_latest_preflight_links_its_own_row(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        run = PreflightRun.objects.create(
+            instance_id=node.instance_id, overall_status="ok", passed=3, warnings=0, errors=0
+        )
+        url = reverse("admin:checkers_preflightrun_change", args=[run.pk])
+        response = self.client.get(self._url(node))
+        self.assertContains(response, f'<a href="{url}">')

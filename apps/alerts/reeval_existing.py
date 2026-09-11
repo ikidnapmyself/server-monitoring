@@ -16,6 +16,7 @@ from django.utils import timezone
 from apps.alerts.incident_gate import follow_alert
 from apps.alerts.models import Alert, AlertHistory, Incident, IncidentStatus, Node
 from apps.alerts.reevaluation import (
+    EDITOR_FIXABLE,
     SCORERS,
     Outcome,
     Skip,
@@ -32,6 +33,7 @@ from apps.alerts.services import (
     announce_incident_change,
     resolve_node,
 )
+from config.admin_links import admin_url
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,8 @@ class AlertSkip:
     alert: Alert
     reason: SkipReason
     sentence: str
+    # Where an operator fixes this, or None when the reason is not theirs to fix.
+    fix_url: str | None = None
 
 
 @dataclass
@@ -206,6 +210,7 @@ def preview_reeval(scope: ReevalScope) -> ReevalReport:
                 alert=alert,
                 reason=outcome.reason,
                 sentence=describe_skip(outcome, checker=checker, instance_id=instance_id),
+                fix_url=(admin_url(scope.node) if outcome.reason in EDITOR_FIXABLE else None),
             )
         )
     return report

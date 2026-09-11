@@ -411,7 +411,7 @@
         <tbody>
           {% for run in recent_check_runs %}
           <tr>
-            <td>{{ run.checker_name }}</td>
+            <td><a href="{% url 'admin:checkers_checkrun_change' run.pk %}">{{ run.checker_name }}</a></td>
             <td>{{ run.hostname }}</td>
             <td>
               <span class="status-badge {% if run.status == 'ok' %}ok{% elif run.status == 'warning' %}warning{% elif run.status == 'critical' %}critical{% else %}unknown{% endif %}">
@@ -506,7 +506,7 @@
         <table class="trends-table">
           {% for item in top_failing_checkers %}
           <tr>
-            <td>{{ item.checker_name }}</td>
+            <td><a href="{{ item.url }}">{{ item.checker_name }}</a></td>
             <td>{{ item.count }}</td>
           </tr>
           {% endfor %}
@@ -522,7 +522,7 @@
         <table class="trends-table">
           {% for item in top_error_types %}
           <tr>
-            <td>{{ item.last_error_type|default:"Unknown" }}</td>
+            <td><a href="{{ item.url }}">{{ item.last_error_type|default:"Unknown" }}</a></td>
             <td>{{ item.count }}</td>
           </tr>
           {% endfor %}
@@ -545,7 +545,7 @@
           </thead>
           {% for item in provider_usage %}
           <tr>
-            <td>{{ item.provider }}</td>
+            <td><a href="{{ item.url }}">{{ item.provider }}</a></td>
             <td>{{ item.runs }}</td>
             <td>{{ item.tokens|default:0 }}</td>
           </tr>

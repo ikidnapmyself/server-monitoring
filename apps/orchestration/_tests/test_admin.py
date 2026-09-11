@@ -301,8 +301,9 @@ class TestJsonWidgetRendering(TestCase):
         # The wired channel's name reaches the rendered changelist, not just the method.
         assert "ops" in body
         admin_obj = PipelineDefinitionAdmin(PipelineDefinition, site)
-        assert admin_obj.channel_name(pd) == "ops"
-        assert admin_obj.channel_name(bare) == "\u2014"
+        # The name is the link text; an unrouted lane offers the channel list.
+        assert ">ops</a>" in admin_obj.channel_name(pd)
+        assert "\u2014</a>" in admin_obj.channel_name(bare)
 
     def test_pipeline_definition_changelist_marks_an_inactive_channel(self):
         """A deactivated channel routes nowhere, so the changelist must not imply it does."""
@@ -771,3 +772,96 @@ class RoutingHelpTextDiscoverabilityTests(SimpleTestCase):
         description = self._routing_description()
         for value in PipelineOrigin.values:
             assert value in description
+
+
+class TestPipelineFlowLinks(TestCase):
+    """The flow strip is what an operator clicks when a stage shows a cross.
+
+    A stage with an execution links to it; one that never ran has nothing to
+    point at and stays plain.
+    """
+
+    def setUp(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.orchestration.admin import PipelineRunAdmin
+
+        self.admin = PipelineRunAdmin(PipelineRun, AdminSite())
+        self.run = PipelineRun.objects.create(
+            trace_id="t", run_id="r", status=PipelineStatus.FAILED
+        )
+
+    def test_a_stage_with_an_execution_links_to_it(self):
+        execution = StageExecution.objects.create(
+            pipeline_run=self.run, stage="notify", status=StageStatus.FAILED, attempt=1
+        )
+        html = str(self.admin.pipeline_flow(self.run))
+        assert f'href="/admin/orchestration/stageexecution/{execution.pk}/change/"' in html
+
+    def test_the_latest_attempt_is_the_one_linked(self):
+        StageExecution.objects.create(
+            pipeline_run=self.run, stage="check", status=StageStatus.FAILED, attempt=1
+        )
+        second = StageExecution.objects.create(
+            pipeline_run=self.run, stage="check", status=StageStatus.SUCCEEDED, attempt=2
+        )
+        html = str(self.admin.pipeline_flow(self.run))
+        assert f'href="/admin/orchestration/stageexecution/{second.pk}/change/"' in html
+
+    def test_an_earlier_attempt_seen_last_does_not_win(self):
+        """Prefetch order is not attempt order, so a lower attempt must lose."""
+        high = StageExecution.objects.create(
+            pipeline_run=self.run, stage="check", status=StageStatus.FAILED, attempt=5
+        )
+        StageExecution.objects.create(
+            pipeline_run=self.run, stage="check", status=StageStatus.SUCCEEDED, attempt=2
+        )
+        html = str(self.admin.pipeline_flow(self.run))
+        assert f'href="/admin/orchestration/stageexecution/{high.pk}/change/"' in html
+
+    def test_a_stage_that_never_ran_is_not_a_link(self):
+        html = str(self.admin.pipeline_flow(self.run))
+        assert "stageexecution" not in html
+        assert "NOTIFY" in html
+
+
+class TestChannelColumnLinksTheChannel(TestCase):
+    """The lane list names a channel; naming it is how you get to it."""
+
+    def setUp(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.orchestration.admin import PipelineDefinitionAdmin
+        from apps.orchestration.models import PipelineDefinition
+
+        self.admin = PipelineDefinitionAdmin(PipelineDefinition, AdminSite())
+
+    def _lane(self, channel):
+        from apps.orchestration.models import PipelineDefinition
+
+        return PipelineDefinition.objects.create(
+            name="l", priority=1, match=[], stages=["notify"], channel=channel
+        )
+
+    def test_an_active_channel_is_a_link(self):
+        from apps.notify.models import NotificationChannel
+
+        channel = NotificationChannel.objects.create(
+            name="ops", driver="email", is_active=True, config={}
+        )
+        html = str(self.admin.channel_name(self._lane(channel)))
+        assert f'<a href="/admin/notify/notificationchannel/{channel.pk}/change/">ops</a>' in html
+
+    def test_an_inactive_channel_is_a_link_and_still_marked(self):
+        from apps.notify.models import NotificationChannel
+
+        channel = NotificationChannel.objects.create(
+            name="dormant", driver="email", is_active=False, config={}
+        )
+        html = str(self.admin.channel_name(self._lane(channel)))
+        assert f"/admin/notify/notificationchannel/{channel.pk}/change/" in html
+        assert "(inactive)" in html
+
+    def test_a_lane_with_no_channel_offers_the_channel_list(self):
+        html = str(self.admin.channel_name(self._lane(None)))
+        assert '<a href="/admin/notify/notificationchannel/">' in html

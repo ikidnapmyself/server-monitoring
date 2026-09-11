@@ -511,6 +511,19 @@ class PolicySection:
     inactive_reason: str = ""
     editor_note: str = ""
 
+    @property
+    def anchor(self) -> str:
+        """The id of this section's first box, or blank when it has none.
+
+        Spelled from ``field_name`` plus Django's ``id_`` prefix, the same way
+        ``editor_link`` and ``policy_overview._edit_url`` spell theirs, so every
+        surface that offers "the boxes below" lands on the same input.
+        """
+        fields = spec_for(self.checker)
+        if not fields:
+            return ""
+        return f"id_{field_name(self.checker, fields[0].name)}"
+
 
 @dataclass(frozen=True)
 class UnreadKey:

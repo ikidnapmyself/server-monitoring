@@ -30,6 +30,7 @@ __all__ = [
     "Verdict",
     "Skip",
     "SkipReason",
+    "EDITOR_FIXABLE",
     "describe_skip",
     "unchanged_skip",
     "format_value",
@@ -125,6 +126,19 @@ _SKIP_SENTENCES: dict[SkipReason, str] = {
         "scores this alert exactly as it stands."
     ),
 }
+
+
+# The reasons a human can act on, and the only ones a surface should offer a
+# destination for. Everything else is a fact about the alert or the checker:
+# pointing those at the editor would send an operator somewhere that cannot help.
+EDITOR_FIXABLE = frozenset(
+    {
+        SkipReason.NO_POLICY,
+        SkipReason.MALFORMED_POLICY,
+        SkipReason.INCOMPLETE_THRESHOLDS,
+        SkipReason.INVERTED_THRESHOLDS,
+    }
+)
 
 
 def describe_skip(skip: Skip, *, checker: str, instance_id: str) -> str:

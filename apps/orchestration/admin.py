@@ -9,6 +9,7 @@ from django_json_widget.widgets import JSONEditorWidget
 from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
 
+from apps.notify.models import NotificationChannel
 from apps.orchestration import inbox
 from apps.orchestration.models import (
     InboxItem,
@@ -17,6 +18,7 @@ from apps.orchestration.models import (
     PipelineStatus,
     StageExecution,
 )
+from config.admin_links import DASH, admin_link, changelist_link
 from config.dashboard import prettify_json
 
 
@@ -201,10 +203,17 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
             (PipelineStage.ANALYZE, "ANALYZE"),
             (PipelineStage.NOTIFY, "NOTIFY"),
         ]
-        executions = {se.stage: se.status for se in obj.stage_executions.all()}
+        # Latest attempt per stage, so a retried stage shows the attempt an
+        # operator would open rather than whichever row the prefetch ended on.
+        latest = {}
+        for se in obj.stage_executions.all():
+            current = latest.get(se.stage)
+            if current is None or se.attempt >= current.attempt:
+                latest[se.stage] = se
         parts = []
         for stage_value, stage_label in stages:
-            status = executions.get(stage_value, None)
+            execution = latest.get(stage_value)
+            status = execution.status if execution is not None else None
             if status == StageStatus.SUCCEEDED:
                 color, icon = "#28a745", "✓"
             elif status == StageStatus.RUNNING:
@@ -222,6 +231,12 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
                 icon,
                 stage_label,
             )
+            if execution is not None:
+                part = format_html(
+                    '<a href="{}">{}</a>',
+                    reverse("admin:orchestration_stageexecution_change", args=[execution.pk]),
+                    part,
+                )
             parts.append(part)
 
         # Join parts with format_html_join — Django's safe way to join HTML fragments.
@@ -400,12 +415,13 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
         same "config that lies" this field's own FK refactor was meant to end.
         """
         if obj.channel is None:
-            return "—"
+            return changelist_link(NotificationChannel, DASH)
+        link = admin_link(obj.channel, obj.channel.name)
         if obj.routed_channel() is not None:
-            return obj.channel.name
+            return link
         return format_html(
             '{} <span style="color:#999;font-size:11px;">(inactive)</span>',
-            obj.channel.name,
+            link,
         )
 
     def save_model(self, request, obj, form, change):

@@ -945,3 +945,97 @@ class MalformedNodeConfigTests(TestCase):
         self.assertEqual(report.changes, [])
         (skip,) = report.skips
         self.assertEqual(skip.reason, SkipReason.MALFORMED_POLICY)
+
+
+class SkipFixUrlTests(TestCase):
+    """A skip an operator can act on says where to act.
+
+    The four policy reasons are fixed in the node's policy editor. The rest are
+    facts about the alert or the checker, so they carry no destination rather
+    than pointing somewhere that would not help.
+    """
+
+    def _node(self, config):
+        return Node.objects.create(instance_id="web-03", hostname="web-03", config=config)
+
+    def _alert(self, node, checker="cpu", annotations=None, value=95.0):
+        if annotations is None:
+            annotations = {"metrics": json.dumps({f"{checker}_percent": value})}
+        return Alert.objects.create(
+            fingerprint=f"{checker}-web-03",
+            source="cluster",
+            name=f"{checker} high",
+            severity="critical",
+            status="firing",
+            started_at=timezone.now(),
+            node=node,
+            labels={"checker": checker, "instance_id": "web-03"},
+            annotations=annotations,
+        )
+
+    def _skip(self, node):
+        return preview_reeval(ReevalScope.for_node(node)).skips[0]
+
+    def test_no_policy_points_at_the_node_policy_editor(self):
+        node = self._node({})
+        self._alert(node)
+        skip = self._skip(node)
+        self.assertEqual(skip.reason, SkipReason.NO_POLICY)
+        self.assertEqual(skip.fix_url, f"/admin/alerts/node/{node.pk}/change/")
+
+    def test_incomplete_thresholds_point_at_the_editor(self):
+        node = self._node({"cpu": {"warning_threshold": 80}})
+        self._alert(node)
+        skip = self._skip(node)
+        self.assertEqual(skip.reason, SkipReason.INCOMPLETE_THRESHOLDS)
+        self.assertEqual(skip.fix_url, f"/admin/alerts/node/{node.pk}/change/")
+
+    def test_inverted_thresholds_point_at_the_editor(self):
+        node = self._node({"cpu": {"warning_threshold": 90, "critical_threshold": 10}})
+        self._alert(node)
+        skip = self._skip(node)
+        self.assertEqual(skip.reason, SkipReason.INVERTED_THRESHOLDS)
+        self.assertEqual(skip.fix_url, f"/admin/alerts/node/{node.pk}/change/")
+
+    def test_malformed_policy_points_at_the_editor(self):
+        node = self._node({"cpu": "not-a-mapping"})
+        self._alert(node)
+        skip = self._skip(node)
+        self.assertEqual(skip.reason, SkipReason.MALFORMED_POLICY)
+        self.assertEqual(skip.fix_url, f"/admin/alerts/node/{node.pk}/change/")
+
+    def test_a_checker_with_no_scorer_has_nowhere_to_go(self):
+        node = self._node({})
+        self._alert(node, checker="raid", annotations={})
+        skip = self._skip(node)
+        self.assertEqual(skip.reason, SkipReason.NO_SCORER)
+        self.assertIsNone(skip.fix_url)
+
+    def test_an_alert_with_no_metrics_has_nowhere_to_go(self):
+        node = self._node({"cpu": {"warning_threshold": 80, "critical_threshold": 90}})
+        self._alert(node, annotations={})
+        skip = self._skip(node)
+        self.assertEqual(skip.reason, SkipReason.NO_METRICS)
+        self.assertIsNone(skip.fix_url)
+
+    def test_an_unchanged_score_has_nothing_to_fix(self):
+        node = self._node({"cpu": {"warning_threshold": 80, "critical_threshold": 90}})
+        self._alert(node)
+        skip = self._skip(node)
+        self.assertEqual(skip.reason, SkipReason.UNCHANGED)
+        self.assertIsNone(skip.fix_url)
+
+    def test_an_unregistered_node_has_no_editor_to_point_at(self):
+        Alert.objects.create(
+            fingerprint="cpu-ghost",
+            source="cluster",
+            name="cpu high",
+            severity="critical",
+            status="firing",
+            started_at=timezone.now(),
+            labels={"checker": "cpu", "instance_id": "ghost"},
+            annotations={"metrics": json.dumps({"cpu_percent": 95.0})},
+        )
+        alert = Alert.objects.get(fingerprint="cpu-ghost")
+        skip = preview_reeval(ReevalScope.for_alert(alert)).skips[0]
+        self.assertIsNone(skip.fix_url)

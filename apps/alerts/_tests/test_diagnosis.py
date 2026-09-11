@@ -276,3 +276,50 @@ class DiagnoseIncidentIngestIsHistoryTests(TestCase):
         self.assertEqual(entries["check"]["status"], "ok")
         self.assertEqual(entries["analyze"]["status"], "skipped")
         self.assertEqual(entries["notify"]["status"], "never_ran")
+
+
+class DiagnoseIncidentExecutionLinkTests(TestCase):
+    """Each entry carries the execution it classified, so a surface can link it.
+
+    Without this the diagnosis names a failure and gives an operator nowhere to
+    go, which is the dead-end this field exists to close.
+    """
+
+    def setUp(self):
+        self.incident = Incident.objects.create(title="Links")
+        self.run = PipelineRun.objects.create(trace_id="t1", run_id="r1", incident=self.incident)
+
+    def _entry(self, stage):
+        return {e["stage"]: e for e in diagnose_incident(self.incident)}[stage]
+
+    def test_entry_carries_the_execution_it_classified(self):
+        execution = StageExecution.objects.create(
+            pipeline_run=self.run, stage="notify", status="failed", error_message="boom"
+        )
+        self.assertEqual(self._entry("notify")["execution_pk"], execution.id)
+
+    def test_entry_carries_the_run_of_that_execution(self):
+        StageExecution.objects.create(pipeline_run=self.run, stage="notify", status="failed")
+        self.assertEqual(self._entry("notify")["run_pk"], self.run.id)
+
+    def test_latest_attempt_wins(self):
+        StageExecution.objects.create(
+            pipeline_run=self.run, stage="check", status="failed", attempt=1
+        )
+        second = StageExecution.objects.create(
+            pipeline_run=self.run, stage="check", status="failed", attempt=2
+        )
+        self.assertEqual(self._entry("check")["execution_pk"], second.id)
+
+    def test_a_stage_that_never_ran_carries_no_execution(self):
+        entry = self._entry("analyze")
+        self.assertIsNone(entry["execution_pk"])
+        self.assertIsNone(entry["run_pk"])
+
+    def test_a_stage_skipped_by_config_carries_no_execution(self):
+        pipe = PipelineDefinition.objects.create(name="no-intel", stages=["check", "notify"])
+        self.incident.pipeline = pipe
+        self.incident.save(update_fields=["pipeline"])
+        entry = self._entry("analyze")
+        self.assertIsNone(entry["execution_pk"])
+        self.assertIsNone(entry["run_pk"])

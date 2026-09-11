@@ -89,7 +89,10 @@
     <tr>
       <td>{{ skip.alert.labels.checker }}</td>
       <td>{{ skip.alert.name }}</td>
-      <td>{{ skip.sentence }}</td>
+      <td>
+        {% if skip.fix_url %}<a href="{{ skip.fix_url }}">{{ skip.sentence }}</a>
+        {% else %}{{ skip.sentence }}{% endif %}
+      </td>
     </tr>
     {% endfor %}
   </tbody>

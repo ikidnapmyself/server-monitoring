@@ -10,8 +10,10 @@ Design: docs/plans/2026-08-23-network-map-design.md
 
 from django.urls import reverse
 
+from apps.notify.models import NotificationChannel
 from apps.orchestration.models import PipelineDefinition
 from apps.orchestration.seeding import SEED_SHAPE_KEY
+from config.admin_links import admin_url, changelist_url
 
 
 def _as_set(value) -> set | None:
@@ -142,13 +144,29 @@ def _render_condition(c: dict) -> str:
 
 
 def _delivery(lane) -> dict:
-    """Delivery state for one lane, asking the model helpers — never re-derived."""
+    """Delivery state for one lane, asking the model helpers — never re-derived.
+
+    ``channel_url`` is where the state is changed: the bound channel's page when
+    there is one, the channel list when there is none to bind, and ``None`` for a
+    recording-only lane, which has nothing to fix.
+    """
     if "notify" not in lane.routable_stages():
-        return {"state": "recording-only", "channel": None}
+        return {"state": "recording-only", "channel": None, "channel_url": None}
+    channel_url = (
+        admin_url(lane.channel) if lane.channel_id else changelist_url(NotificationChannel)
+    )
     gap = lane.delivery_gap()
     if gap is None:
-        return {"state": "bound", "channel": lane.routed_channel().name}
-    return {"state": gap, "channel": lane.channel.name if lane.channel else None}
+        return {
+            "state": "bound",
+            "channel": lane.routed_channel().name,
+            "channel_url": channel_url,
+        }
+    return {
+        "state": gap,
+        "channel": lane.channel.name if lane.channel else None,
+        "channel_url": channel_url,
+    }
 
 
 def get_map_context() -> dict:
