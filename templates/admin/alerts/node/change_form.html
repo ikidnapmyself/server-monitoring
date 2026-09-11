@@ -104,7 +104,7 @@ dashes, and it is what tells anyone that a preserved config key is dead.
   <h3 style="margin-bottom:6px;">Latest preflight</h3>
   {% if node_overview.preflight.run %}
   <p>
-    {{ node_overview.preflight.run.created_at }} &mdash;
+    <a href="{% url 'admin:checkers_preflightrun_change' node_overview.preflight.run.pk %}">{{ node_overview.preflight.run.created_at }}</a> &mdash;
     <b>{{ node_overview.preflight.run.overall_status }}</b>
     (passed {{ node_overview.preflight.run.passed }},
      warnings {{ node_overview.preflight.run.warnings }},
@@ -183,6 +183,7 @@ dashes, and it is what tells anyone that a preserved config key is dead.
     each of these checkers is skipped whole and its alerts keep the severity the
     node sent.
     Finish it in the boxes below, or clear it so nobody reads it as active.
+    {% if node_policy_editor %}Each checker below links to its own boxes.{% endif %}
   </p>
   <div style="overflow-x:auto; border-left:4px solid #b26a00; padding-left:10px;">
     <table style="width:100%; border-collapse:collapse;">
@@ -198,7 +199,7 @@ dashes, and it is what tells anyone that a preserved config key is dead.
         {% for section in node_policy.inactive %}
         {% for value in section.values %}
         <tr>
-          <td>{% if forloop.first %}{{ section.title }}{% endif %}</td>
+          <td>{% if forloop.first %}{% if node_policy_editor and section.anchor %}<a href="#{{ section.anchor }}">{{ section.title }}</a>{% else %}{{ section.title }}{% endif %}{% endif %}</td>
           <td>{{ value.label }}</td>
           <td style="text-align:right;">{{ value.value }}</td>
           <td>{% if forloop.first %}{{ section.inactive_reason }}{% endif %}</td>
@@ -214,7 +215,9 @@ dashes, and it is what tells anyone that a preserved config key is dead.
   <h3 style="margin-bottom:6px;">Not honoured</h3>
   <p style="color:var(--body-quiet-color);">
     Nothing reads these, so they change no severity.
-    They are kept unless you edit that checker's boxes below, which rewrite its entry.
+    They are kept unless you edit that checker's
+    {% if node_policy_editor %}<a href="#{{ node_policy_editor.anchor }}">boxes below</a>{% else %}boxes below{% endif %},
+    which rewrite its entry.
   </p>
   <ul style="margin:0 0 0 16px; padding:0;">
     {% for entry in node_policy.unread %}

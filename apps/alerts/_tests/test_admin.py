@@ -11,6 +11,7 @@ from apps.alerts.models import (
     Node,
 )
 from apps.orchestration.models import PipelineOrigin, PipelineRun, PipelineStatus
+from config.admin_links import DASH
 
 
 def _manual_runs(incident):
@@ -595,3 +596,139 @@ class NodeLabelTests(TestCase):
         from apps.alerts.admin import node_label
 
         self.assertEqual(node_label(Node(instance_id="node-a", hostname="")), "node-a")
+
+
+class IncidentPanelLinkTests(TestCase):
+    """The diagnostic panels name objects; every one of them has to be reachable.
+
+    A panel that reports "notify failed" and leaves an operator to find the run
+    by hand is the dead-end these assertions exist to prevent.
+    """
+
+    def setUp(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import IncidentAdmin
+        from apps.orchestration.models import PipelineDefinition
+
+        self.admin = IncidentAdmin(Incident, AdminSite())
+        self.pipeline = PipelineDefinition.objects.create(
+            name="admin-lane", match=[], priority=7, stages=["check", "analyze", "notify"]
+        )
+        self.incident = Incident.objects.create(title="High CPU", pipeline=self.pipeline)
+
+    def _run(self, **kw):
+        return PipelineRun.objects.create(
+            trace_id="tr-1", run_id="run-1", incident=self.incident, **kw
+        )
+
+    def test_diagnosis_links_a_failed_stage_to_its_execution(self):
+        run = self._run()
+        execution = run.stage_executions.create(
+            stage="notify", status="failed", error_message="boom", attempt=1
+        )
+        html = str(self.admin.diagnosis_display(self.incident))
+        assert f'href="/admin/orchestration/stageexecution/{execution.pk}/change/"' in html
+
+    def test_diagnosis_leaves_a_stage_that_never_ran_unlinked(self):
+        html = str(self.admin.diagnosis_display(self.incident))
+        assert "stageexecution" not in html
+
+    def test_journey_links_the_routing_lane(self):
+        html = str(self.admin.journey_display(self.incident))
+        assert f'href="/admin/orchestration/pipelinedefinition/{self.pipeline.pk}/change/"' in html
+
+    def test_journey_links_each_run(self):
+        run = self._run()
+        html = str(self.admin.journey_display(self.incident))
+        assert f'href="/admin/orchestration/pipelinerun/{run.pk}/change/"' in html
+
+    def test_journey_links_each_stage_execution(self):
+        run = self._run()
+        execution = run.stage_executions.create(stage="check", status="succeeded", duration_ms=1.0)
+        html = str(self.admin.journey_display(self.incident))
+        assert f'href="/admin/orchestration/stageexecution/{execution.pk}/change/"' in html
+
+    def test_an_undrained_incident_links_the_inbox_instead_of_naming_a_command(self):
+        """The inbox admin has a drain action, so the page must not send an
+        operator to a terminal for it."""
+        html = str(self.admin.journey_display(self.incident))
+        assert 'href="/admin/orchestration/inboxitem/' in html
+        assert "process_inbox" not in html
+
+    def test_journey_is_dash_for_an_unrouted_incident(self):
+        unrouted = Incident.objects.create(title="no lane")
+        html = str(self.admin.journey_display(unrouted))
+        assert "pipelinedefinition" not in html
+
+
+class IncidentCountLinkTests(TestCase):
+    """A count on the incident page is a question: which ones?
+
+    Each one answers itself by landing on exactly the rows it counted.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_superuser("counter", "c@t.com", "password")
+
+    def setUp(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import IncidentAdmin
+
+        self.admin = IncidentAdmin(Incident, AdminSite())
+        self.incident = Incident.objects.create(title="High CPU")
+        self.client.login(username="counter", password="password")
+
+    def _alert(self, fingerprint, status):
+        return Alert.objects.create(
+            fingerprint=fingerprint,
+            source="cluster",
+            name="cpu",
+            severity="critical",
+            status=status,
+            started_at=timezone.now(),
+            incident=self.incident,
+        )
+
+    def test_the_alert_count_links_this_incidents_alerts(self):
+        self._alert("a", "firing")
+        html = str(self.admin.alert_count_display(self.incident))
+        url = f"/admin/alerts/alert/?incident__id__exact={self.incident.pk}"
+        assert f'<a href="{url}">1</a>' == html
+        assert self.client.get(url).status_code == 200
+
+    def test_the_firing_count_links_only_the_firing_ones(self):
+        self._alert("a", "firing")
+        self._alert("b", "resolved")
+        html = str(self.admin.firing_alert_count_display(self.incident))
+        url = f"/admin/alerts/alert/?incident__id__exact={self.incident.pk}" "&status__exact=firing"
+        # The href is HTML-escaped; the browser sends the raw query.
+        assert f'href="{url.replace("&", "&amp;")}"' in html
+        assert self.client.get(url).status_code == 200
+
+    def test_a_zero_alert_count_is_not_a_link(self):
+        assert self.admin.alert_count_display(self.incident) == 0
+
+    def test_a_zero_firing_count_is_not_a_link(self):
+        self._alert("a", "resolved")
+        assert self.admin.firing_alert_count_display(self.incident) == 0
+
+    def test_the_run_count_links_this_incidents_runs(self):
+        PipelineRun.objects.create(trace_id="t", run_id="r", incident=self.incident)
+        html = str(self.admin.pipeline_runs_display(self.incident))
+        url = f"/admin/orchestration/pipelinerun/?incident__id__exact={self.incident.pk}"
+        assert f'<a href="{url}">1</a>' == html
+        assert self.client.get(url).status_code == 200
+
+    def test_a_zero_run_count_is_not_a_link(self):
+        assert self.admin.pipeline_runs_display(self.incident) == 0
+
+    def test_a_subject_with_no_runs_relation_is_a_dash(self):
+        """The readonly field is reused for objects that have no such relation."""
+
+        class NoRuns:
+            pass
+
+        assert self.admin.pipeline_runs_display(NoRuns()) == DASH

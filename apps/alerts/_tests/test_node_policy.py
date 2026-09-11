@@ -805,3 +805,32 @@ class TestEditorLink(TestCase):
         assert link.count == 2
         # sections_for sorts, so the anchor is cpu's box, not memory's.
         assert link.anchor == f"id_{field_name('cpu', spec_for('cpu')[0].name)}"
+
+
+class PolicySectionAnchorTests(TestCase):
+    """A section says where its own boxes are, so a panel row can link them.
+
+    Built from ``field_name`` the same way ``editor_link`` builds its own, so the
+    panel and the overview page land on the same input.
+    """
+
+    def test_a_section_anchors_at_its_first_box(self):
+        from apps.alerts.node_policy import field_name, spec_for
+
+        node = Node.objects.create(
+            instance_id="web-03",
+            config={"cpu": {"warning_threshold": 80, "critical_threshold": 90}},
+        )
+        section = build_effective_policy(node).sections[0]
+        assert section.anchor == f"id_{field_name('cpu', spec_for('cpu')[0].name)}"
+
+    def test_an_inactive_section_anchors_too(self):
+        node = Node.objects.create(instance_id="web-03", config={"cpu": {"warning_threshold": 80}})
+        section = build_effective_policy(node).inactive[0]
+        assert section.anchor.startswith("id_")
+        assert "cpu" in section.anchor
+
+    def test_a_section_for_a_checker_with_no_boxes_has_no_anchor(self):
+        from apps.alerts.node_policy import PolicySection
+
+        assert PolicySection(checker="raid", title="Raid", values=[]).anchor == ""

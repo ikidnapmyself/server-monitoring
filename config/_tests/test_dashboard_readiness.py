@@ -196,7 +196,9 @@ def test_lane_that_claims_to_deliver_but_cannot_is_an_error():
     entry = _by_key(build_readiness())["lane_channels"]
     assert entry["status"] == "error"
     assert "mute" in entry["detail"]
-    assert entry["url"] == reverse("admin:orchestration_pipelinedefinition_changelist")
+    # A fault goes to the map, which names the gap per lane — see
+    # test_an_undeliverable_lane_points_at_the_map_which_names_the_gap.
+    assert entry["url"] == reverse("admin:netmap")
 
 
 @pytest.mark.django_db
@@ -431,3 +433,40 @@ def test_no_peers_seen_recently_still_warns(settings):
     entry = _by_key(build_readiness())["nodes"]
     assert entry["status"] == "warn"
     assert "No node seen in" in entry["detail"]
+
+
+@pytest.mark.django_db
+def test_the_inbox_entry_filters_to_the_runs_it_counted():
+    """A count that names pending or stuck work has to land on that work."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.orchestration.models import PipelineRun, PipelineStatus
+
+    base = reverse("admin:orchestration_inboxitem_changelist")
+    assert _by_key(build_readiness())["inbox"]["url"] == base
+
+    PipelineRun.objects.create(trace_id="t", run_id="p1", status=PipelineStatus.PENDING)
+    assert _by_key(build_readiness())["inbox"]["url"] == f"{base}?status__exact=pending"
+
+    run = PipelineRun.objects.create(trace_id="t", run_id="p2", status=PipelineStatus.PROCESSING)
+    PipelineRun.objects.filter(pk=run.pk).update(updated_at=timezone.now() - timedelta(hours=1))
+    assert _by_key(build_readiness())["inbox"]["url"] == f"{base}?status__exact=processing"
+
+
+@pytest.mark.django_db
+def test_an_undeliverable_lane_points_at_the_map_which_names_the_gap():
+    """The lane list cannot show a delivery gap; the map shows it per lane."""
+    from apps.orchestration.models import PipelineDefinition
+
+    PipelineDefinition.objects.create(
+        name="promises",
+        priority=1,
+        match=[],
+        stages=["notify"],
+        is_active=True,
+    )
+    entry = _by_key(build_readiness())["lane_channels"]
+    assert entry["status"] == "error"
+    assert entry["url"] == reverse("admin:netmap")

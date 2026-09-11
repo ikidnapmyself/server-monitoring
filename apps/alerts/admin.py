@@ -46,7 +46,8 @@ from apps.alerts.reeval_existing import (
 )
 from apps.alerts.services import IncidentManager, instance_key_from_labels
 from apps.alerts.timeline import build_incident_timeline
-from apps.orchestration.models import PipelineRun
+from apps.orchestration.models import InboxItem, PipelineRun
+from config.admin_links import DASH, admin_link, changelist_link
 from config.dashboard import prettify_json
 
 
@@ -568,24 +569,33 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
 
     @admin.display(description="Alerts")
     def alert_count_display(self, obj):
-        return obj.alert_count
+        count = obj.alert_count
+        if not count:
+            return count
+        return changelist_link(Alert, count, incident__id__exact=obj.pk)
 
     @admin.display(description="Firing Alerts")
     def firing_alert_count_display(self, obj):
+        """Zero stays a plain number: there is nothing behind it to open."""
         count = obj.firing_alert_count
-        if count > 0:
-            return format_html(
-                '<span style="color: #dc3545; font-weight: bold;">{}</span>',
-                count,
-            )
-        return count
+        if not count:
+            return count
+        return changelist_link(
+            Alert,
+            format_html('<span style="color: #dc3545; font-weight: bold;">{}</span>', count),
+            incident__id__exact=obj.pk,
+            status__exact=AlertStatus.FIRING,
+        )
 
     @admin.display(description="Pipeline Runs")
     def pipeline_runs_display(self, obj):
         try:
-            return obj.pipeline_runs.count()
+            count = obj.pipeline_runs.count()
         except AttributeError:
-            return "-"
+            return DASH
+        if not count:
+            return count
+        return changelist_link(PipelineRun, count, incident__id__exact=obj.pk)
 
     _STAGE_LABELS = {
         "ingest": "alerts",
@@ -611,17 +621,13 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         ``runs`` reads "succeeded in N/M runs" where M is the incident's total
         pipeline-run count (not attempts of this stage).
         """
-        entries = diagnose_incident(obj)
         rows = format_html_join(
             "",
-            '<li><b style="display:inline-block;width:90px;">{}</b>'
-            '<span style="color:{};">{} {}</span>{}{}</li>',
+            '<li><b style="display:inline-block;width:90px;">{}</b>{}{}{}</li>',
             (
                 (
                     self._STAGE_LABELS.get(e["stage"], e["stage"]),
-                    self._STATUS_RENDER.get(e["status"], ("?", "#888", e["status"]))[1],
-                    self._STATUS_RENDER.get(e["status"], ("?", "#888", e["status"]))[0],
-                    self._STATUS_RENDER.get(e["status"], ("?", "#888", e["status"]))[2],
+                    self._render_status(e),
                     format_html(" — {}", e["detail"]) if e.get("detail") else "",
                     (
                         format_html(' <span style="color:#888;">({})</span>', e["runs"])
@@ -629,10 +635,28 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
                         else ""
                     ),
                 )
-                for e in entries
+                for e in diagnose_incident(obj)
             ),
         )
         return format_html('<ul style="margin:0 0 0 16px;list-style:none;padding:0;">{}</ul>', rows)
+
+    def _render_status(self, entry):
+        """Coloured glyph and label, linked to the execution it was read from.
+
+        A stage that never ran, or that config skipped, has no execution to link,
+        so it stays plain text rather than pointing at the wrong row.
+        """
+        glyph, color, label = self._STATUS_RENDER.get(
+            entry["status"], ("?", "#888", entry["status"])
+        )
+        body = format_html('<span style="color:{};">{} {}</span>', color, glyph, label)
+        if entry.get("execution_pk") is None:
+            return body
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse("admin:orchestration_stageexecution_change", args=[entry["execution_pk"]]),
+            body,
+        )
 
     @admin.display(description="Journey")
     def journey_display(self, obj):
@@ -640,20 +664,21 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
             parts = [
                 format_html(
                     "<div><b>Routed by:</b> {} (priority {})</div>",
-                    obj.pipeline.name,
+                    admin_link(obj.pipeline, obj.pipeline.name),
                     obj.pipeline.priority,
                 )
             ]
         else:
-            parts = [format_html("<div><b>Routed by:</b> {}</div>", "—")]
+            parts = [format_html("<div><b>Routed by:</b> {}</div>", DASH)]
 
         runs = list(obj.pipeline_runs.all().order_by("created_at"))
         if not runs:
             parts.append(
                 format_html(
-                    '<div style="color:#b00;"><b>{}</b> (no pipeline run; drain with '
-                    "<code>manage.py process_inbox</code>)</div>",
+                    '<div style="color:#b00;"><b>{}</b> (no pipeline run — '
+                    "{} drains what is waiting)</div>",
                     "inbox — not processed",
+                    changelist_link(InboxItem, "the inbox"),
                 )
             )
         for run in runs:
@@ -661,7 +686,7 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
                 format_html(
                     '<div style="margin-top:6px;"><b>Run</b> {} — {} '
                     '<span style="color:#888;">trace {}</span></div>',
-                    run.run_id,
+                    admin_link(run, run.run_id),
                     run.status,
                     run.trace_id,
                 )
@@ -670,7 +695,10 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
             items = format_html_join(
                 "",
                 "<li>{} — {} ({} ms, attempt {})</li>",
-                ((s.stage, s.status, f"{s.duration_ms:.0f}", s.attempt) for s in stages),
+                (
+                    (admin_link(s, s.stage), s.status, f"{s.duration_ms:.0f}", s.attempt)
+                    for s in stages
+                ),
             )
             parts.append(
                 format_html(

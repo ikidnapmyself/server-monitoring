@@ -174,13 +174,13 @@
 
         <div class="lane-delivery">
           {% if lane.delivery.state == "bound" %}
-            <span class="delivery-bound">&rarr; {{ lane.delivery.channel }}</span>
+            <span class="delivery-bound">&rarr; <a href="{{ lane.delivery.channel_url }}">{{ lane.delivery.channel }}</a></span>
           {% elif lane.delivery.state == "recording-only" %}
             <span class="delivery-recording">recording only</span>
           {% elif lane.delivery.state == "no_channel" %}
-            <span class="delivery-gap">cannot deliver: no channel{% if lane.delivery.channel %} &mdash; bound to {{ lane.delivery.channel }} (inactive){% endif %}</span>
+            <span class="delivery-gap">cannot deliver: {% if lane.delivery.channel %}no channel &mdash; bound to <a href="{{ lane.delivery.channel_url }}">{{ lane.delivery.channel }}</a> (inactive){% else %}<a href="{{ lane.delivery.channel_url }}">no channel</a>{% endif %}</span>
           {% elif lane.delivery.state == "no_driver" %}
-            <span class="delivery-gap">cannot deliver: driver not registered ({{ lane.delivery.channel }})</span>
+            <span class="delivery-gap">cannot deliver: driver not registered (<a href="{{ lane.delivery.channel_url }}">{{ lane.delivery.channel }}</a>)</span>
           {% endif %}
         </div>
       </div>
@@ -188,7 +188,8 @@
     {% endfor %}
   </ol>
   {% else %}
-  <p>No routing configured.</p>
+  <p>No routing configured.
+    <a href="{% url 'admin:orchestration_pipelinedefinition_changelist' %}">Add a lane</a>.</p>
   {% endif %}
 </div>
 {% endblock %}

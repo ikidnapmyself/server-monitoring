@@ -13,6 +13,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html
 
+from config.admin_links import changelist_url
+
 NODE_RECENT_MINUTES = 15
 
 
@@ -116,7 +118,15 @@ def build_readiness():
             "label": "Lane delivery",
             "status": l_status,
             "detail": detail,
-            "url": reverse("admin:orchestration_pipelinedefinition_changelist"),
+            # A gap is per-lane and the changelist cannot filter on one, so a fault
+            # goes to the map, which names the gap on each card and links the
+            # channel behind it. With nothing wrong, the lane list is the place to
+            # edit routing.
+            "url": (
+                reverse("admin:netmap")
+                if l_status == "error"
+                else reverse("admin:orchestration_pipelinedefinition_changelist")
+            ),
         }
     )
 
@@ -161,10 +171,15 @@ def build_readiness():
         status=PipelineStatus.PROCESSING,
         updated_at__lt=now - timedelta(minutes=DEFAULT_STALE_MINUTES),
     ).count()
+    inbox_url = reverse("admin:orchestration_inboxitem_changelist")
     if stuck:
         i_status, detail = "error", f"{stuck} stuck run(s)"
+        # Land on the rows the count is about. "Stuck" is an age, not a stored
+        # field, so PROCESSING is the closest filter the changelist has.
+        inbox_url = f"{inbox_url}?status__exact={PipelineStatus.PROCESSING}"
     elif pending:
         i_status, detail = "warn", f"{pending} pending"
+        inbox_url = f"{inbox_url}?status__exact={PipelineStatus.PENDING}"
     else:
         i_status, detail = "ok", "Drained"
     out.append(
@@ -173,7 +188,7 @@ def build_readiness():
             "label": "Inbox",
             "status": i_status,
             "detail": detail,
-            "url": reverse("admin:orchestration_inboxitem_changelist"),
+            "url": inbox_url,
         }
     )
 
@@ -292,32 +307,44 @@ def get_dashboard_context():
     )
 
     # --- 7-Day Aggregations ---
-    top_failing_checkers = list(
-        CheckRun.objects.filter(
+    # Each trend row names something the changelists can filter on, so each row
+    # carries the filtered URL rather than leaving an operator to rebuild it.
+    top_failing_checkers = [
+        dict(row, url=changelist_url(CheckRun, checker_name__exact=row["checker_name"]))
+        for row in CheckRun.objects.filter(
             status__in=[CheckStatus.WARNING, CheckStatus.CRITICAL],
             executed_at__gte=last_7d,
         )
         .values("checker_name")
         .annotate(count=Count("id"))
         .order_by("-count")[:5]
-    )
+    ]
 
-    top_error_types = list(
-        PipelineRun.objects.filter(
+    top_error_types = [
+        dict(
+            row,
+            url=changelist_url(
+                PipelineRun,
+                status__exact=PipelineStatus.FAILED,
+                last_error_type__exact=row["last_error_type"],
+            ),
+        )
+        for row in PipelineRun.objects.filter(
             status=PipelineStatus.FAILED,
             created_at__gte=last_7d,
         )
         .values("last_error_type")
         .annotate(count=Count("id"))
         .order_by("-count")[:5]
-    )
+    ]
 
-    provider_usage = list(
-        AnalysisRun.objects.filter(created_at__gte=last_7d)
+    provider_usage = [
+        dict(row, url=changelist_url(AnalysisRun, provider__exact=row["provider"]))
+        for row in AnalysisRun.objects.filter(created_at__gte=last_7d)
         .values("provider")
         .annotate(runs=Count("id"), tokens=Sum("total_tokens"))
         .order_by("-runs")
-    )
+    ]
 
     return {
         "active_incidents": active_incidents,

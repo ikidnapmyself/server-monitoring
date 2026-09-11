@@ -82,7 +82,9 @@ def diagnose_incident(incident) -> list[dict]:
     """Return one diagnosis entry per expected pipeline stage for ``incident``.
 
     Each entry: ``stage`` (str), ``status`` (ok|empty|failed|stalled|skipped|
-    never_ran), ``detail`` (str|None), ``runs`` (str|None rollup).
+    never_ran), ``detail`` (str|None), ``runs`` (str|None rollup), and
+    ``execution_pk`` / ``run_pk`` naming the execution the status came from, so a
+    surface can link the failure it reports rather than only describing it.
 
     INGEST appears only for an incident with a run from before "a run is an
     incident" — see ``_stage_order``.
@@ -102,6 +104,8 @@ def _diagnose_stage(incident, stage, runs, total) -> dict:
         "status": StageDiag.NEVER_RAN.value,
         "detail": None,
         "runs": None,
+        "execution_pk": None,
+        "run_pk": None,
     }
 
     if not _is_expected(incident, stage):
@@ -128,6 +132,8 @@ def _diagnose_stage(incident, stage, runs, total) -> dict:
         entry["status"] = StageDiag.NEVER_RAN.value
         return entry
 
+    entry["execution_pk"] = latest.pk
+    entry["run_pk"] = latest.pipeline_run_id
     _classify_from_execution(entry, latest, stage)
     return entry
 

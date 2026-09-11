@@ -196,5 +196,7 @@ class AlertReevaluateActionTests(TestCase):
         self.assertEqual(response.context_data["back_url"], alert_url)
         content = self._rendered(response)
         self.assertIn(f'<a href="{alert_url}" class="button cancel-link">Back</a>', content)
+        # The node may still be linked from a skip row, which is a way forward,
+        # not a way back: what must not happen is the page offering it as Back.
         node_url = reverse("admin:alerts_node_change", args=[node.pk])
-        self.assertNotIn(f'href="{node_url}"', content)
+        self.assertNotIn(f'<a href="{node_url}" class="button cancel-link">', content)

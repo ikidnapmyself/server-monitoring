@@ -150,3 +150,69 @@ class TestFleetMetrics:
         node = self._peer("peer-a", "cpu", {"cpu_percent": "41.5"})
         (row,) = build_fleet_metrics().rows
         assert row.url == reverse("admin:alerts_node_change", args=[node.pk])
+
+
+@pytest.mark.django_db
+class TestTrendRowsAreReachable:
+    """Every trend row names something filterable, so every row is a link.
+
+    A count with nowhere to click is the dead-end these cover: the operator can
+    see that ``disk`` failed twelve times and has to rebuild the filter by hand.
+    """
+
+    def test_a_failing_checker_links_its_own_check_runs(self, admin_client):
+        from django.urls import reverse
+
+        from apps.checkers.models import CheckRun, CheckStatus
+
+        CheckRun.objects.create(
+            checker_name="disk", hostname="h", status=CheckStatus.CRITICAL, message="m"
+        )
+        row = get_dashboard_context()["top_failing_checkers"][0]
+        expected = reverse("admin:checkers_checkrun_changelist") + "?checker_name__exact=disk"
+        assert row["url"] == expected
+        assert admin_client.get(expected).status_code == 200
+
+    def test_an_error_type_links_the_failed_runs_that_raised_it(self, admin_client):
+        from django.urls import reverse
+
+        from apps.orchestration.models import PipelineRun, PipelineStatus
+
+        PipelineRun.objects.create(
+            trace_id="t",
+            run_id="r",
+            status=PipelineStatus.FAILED,
+            last_error_type="TimeoutError",
+        )
+        row = get_dashboard_context()["top_error_types"][0]
+        expected = (
+            reverse("admin:orchestration_pipelinerun_changelist")
+            + "?last_error_type__exact=TimeoutError&status__exact=failed"
+        )
+        assert row["url"] == expected
+        assert admin_client.get(expected).status_code == 200
+
+    def test_a_provider_links_its_analysis_runs(self, admin_client):
+        from django.urls import reverse
+
+        from apps.intelligence.models import AnalysisRun
+
+        AnalysisRun.objects.create(trace_id="t", provider="anthropic", status="succeeded")
+        row = get_dashboard_context()["provider_usage"][0]
+        expected = (
+            reverse("admin:intelligence_analysisrun_changelist") + "?provider__exact=anthropic"
+        )
+        assert row["url"] == expected
+        assert admin_client.get(expected).status_code == 200
+
+    def test_a_recent_check_run_links_its_own_row(self, admin_client):
+        from django.urls import reverse
+
+        from apps.checkers.models import CheckRun, CheckStatus
+
+        run = CheckRun.objects.create(
+            checker_name="cpu", hostname="h", status=CheckStatus.OK, message="m"
+        )
+        body = admin_client.get(reverse("admin:index")).content.decode()
+        url = reverse("admin:checkers_checkrun_change", args=[run.pk])
+        assert f'<a href="{url}">cpu</a>' in body
