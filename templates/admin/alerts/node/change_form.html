@@ -183,7 +183,7 @@ dashes, and it is what tells anyone that a preserved config key is dead.
     each of these checkers is skipped whole and its alerts keep the severity the
     node sent.
     Finish it in the boxes below, or clear it so nobody reads it as active.
-    Each checker below links to its own boxes.
+    {% if node_policy_editor %}Each checker below links to its own boxes.{% endif %}
   </p>
   <div style="overflow-x:auto; border-left:4px solid #b26a00; padding-left:10px;">
     <table style="width:100%; border-collapse:collapse;">
@@ -199,7 +199,7 @@ dashes, and it is what tells anyone that a preserved config key is dead.
         {% for section in node_policy.inactive %}
         {% for value in section.values %}
         <tr>
-          <td>{% if forloop.first %}{% if section.anchor %}<a href="#{{ section.anchor }}">{{ section.title }}</a>{% else %}{{ section.title }}{% endif %}{% endif %}</td>
+          <td>{% if forloop.first %}{% if node_policy_editor and section.anchor %}<a href="#{{ section.anchor }}">{{ section.title }}</a>{% else %}{{ section.title }}{% endif %}{% endif %}</td>
           <td>{{ value.label }}</td>
           <td style="text-align:right;">{{ value.value }}</td>
           <td>{% if forloop.first %}{{ section.inactive_reason }}{% endif %}</td>

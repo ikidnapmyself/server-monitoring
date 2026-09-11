@@ -1415,3 +1415,37 @@ class PolicyPanelFixLinkTests(TestCase):
         url = reverse("admin:checkers_preflightrun_change", args=[run.pk])
         response = self.client.get(self._url(node))
         self.assertContains(response, f'<a href="{url}">')
+
+
+class PolicyPanelViewOnlyTests(TestCase):
+    """A reader without change permission gets no boxes, so no links to boxes.
+
+    An anchor to an id the page never renders is a link to nowhere, which is
+    worse than the plain text it replaced.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.viewer = get_user_model().objects.create_user("viewer", password="pw", is_staff=True)
+        cls.viewer.user_permissions.add(Permission.objects.get(codename="view_node"))
+
+    def setUp(self):
+        self.client.force_login(self.viewer)
+        self.node = Node.objects.create(
+            instance_id="web-03", config={"cpu": {"warning_threshold": 80}}
+        )
+
+    def _content(self):
+        url = reverse("admin:alerts_node_change", args=[self.node.pk])
+        return self.client.get(url).content.decode()
+
+    def test_the_panel_still_explains_the_fault(self):
+        assert "Saved but not scoring" in self._content()
+
+    def test_no_section_links_to_boxes_that_are_not_on_the_page(self):
+        content = self._content()
+        assert 'href="#id_policy__' not in content
+        assert 'id="id_policy__' not in content
+
+    def test_the_panel_does_not_promise_links_it_does_not_render(self):
+        assert "links to its own boxes" not in self._content()
