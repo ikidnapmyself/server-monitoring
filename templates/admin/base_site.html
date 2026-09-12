@@ -1,0 +1,29 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% comment %}
+Single hook for the ops skin. Every admin page reaches this template, including the
+django_object_actions change_form and change_list, which extend admin/change_form.html
+and admin/change_list.html rather than this file directly.
+
+ops.css is loaded after block.super so it wins over Django's base.css without any
+!important. It redefines Django's own custom properties rather than re-selecting.
+
+The title/branding/nav-global blocks below reproduce Django 5.2's stock
+admin/base_site.html, which this file replaces.
+{% endcomment %}
+
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block extrastyle %}{{ block.super }}
+<link rel="stylesheet" href="{% static 'admin/css/ops.css' %}">
+{% endblock %}
+
+{% block branding %}
+<div id="site-name"><a href="{% url 'admin:index' %}">{{ site_header|default:_('Django administration') }}</a></div>
+{% if user.is_anonymous %}
+  {% include "admin/color_theme_toggle.html" %}
+{% endif %}
+{% endblock %}
+
+{% block nav-global %}{% endblock %}

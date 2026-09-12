@@ -1,0 +1,146 @@
+/*
+ * Ops console skin. Redefines Django 5.2's admin custom properties rather than
+ * re-selecting its rules, so the built-in light/dark/auto toggle keeps working.
+ */
+
+:root {
+  --ops-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --ops-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  --ops-radius: 6px;
+  --ops-radius-sm: 4px;
+  --ops-space-1: 4px;
+  --ops-space-2: 8px;
+  --ops-space-3: 12px;
+  --ops-space-4: 16px;
+  --ops-space-6: 24px;
+}
+
+/* Light theme: the five tones, tuned for a light ground. */
+:root,
+[data-theme="light"] {
+  --ops-critical-fg: #b91c1c;
+  --ops-critical-bg: #fee2e2;
+  --ops-warning-fg: #92400e;
+  --ops-warning-bg: #fef3c7;
+  --ops-info-fg: #1e40af;
+  --ops-info-bg: #dbeafe;
+  --ops-ok-fg: #166534;
+  --ops-ok-bg: #dcfce7;
+  --ops-muted-fg: #4b5563;
+  --ops-muted-bg: #e5e7eb;
+
+  --primary: #1f2937;
+  --secondary: #111827;
+  --accent: #2563eb;
+  --link-fg: #2563eb;
+  --link-hover-color: #1d4ed8;
+  --header-bg: #111827;
+  --header-color: #f9fafb;
+  --header-branding-color: #f9fafb;
+  --header-link-color: #e5e7eb;
+  --breadcrumbs-bg: #1f2937;
+  --breadcrumbs-fg: #d1d5db;
+  --breadcrumbs-link-fg: #f9fafb;
+}
+
+[data-theme="dark"] {
+  --ops-critical-fg: #f87171;
+  --ops-critical-bg: #7f1d1d;
+  --ops-warning-fg: #fbbf24;
+  --ops-warning-bg: #78350f;
+  --ops-info-fg: #60a5fa;
+  --ops-info-bg: #1e3a5f;
+  --ops-ok-fg: #4ade80;
+  --ops-ok-bg: #14532d;
+  --ops-muted-fg: #9ca3af;
+  --ops-muted-bg: #374151;
+
+  --body-bg: #0b0f14;
+  --body-fg: #e5e7eb;
+  --body-quiet-color: #9ca3af;
+  --body-loud-color: #f9fafb;
+  --hairline-color: #1f2937;
+  --border-color: #1f2937;
+  --darkened-bg: #111721;
+  --selected-bg: #111721;
+  --selected-row: #1c2330;
+  --module-bg: #111721;
+  --primary: #0b0f14;
+  --accent: #60a5fa;
+  --link-fg: #60a5fa;
+  --link-hover-color: #93c5fd;
+  --header-bg: #0b0f14;
+  --header-color: #e5e7eb;
+  --breadcrumbs-bg: #111721;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    /* Duplicate of the [data-theme="dark"] block above. Django's own base.css
+       does the same, because the auto state stamps no attribute on the root. */
+    --body-bg: #0b0f14;
+    --body-fg: #e5e7eb;
+    --body-quiet-color: #9ca3af;
+    --hairline-color: #1f2937;
+    --border-color: #1f2937;
+    --darkened-bg: #111721;
+    --module-bg: #111721;
+    --accent: #60a5fa;
+    --link-fg: #60a5fa;
+    --header-bg: #0b0f14;
+
+    --ops-critical-fg: #f87171;
+    --ops-critical-bg: #7f1d1d;
+    --ops-warning-fg: #fbbf24;
+    --ops-warning-bg: #78350f;
+    --ops-info-fg: #60a5fa;
+    --ops-info-bg: #1e3a5f;
+    --ops-ok-fg: #4ade80;
+    --ops-ok-bg: #14532d;
+    --ops-muted-fg: #9ca3af;
+    --ops-muted-bg: #374151;
+  }
+}
+
+body {
+  font-family: var(--ops-sans);
+}
+
+/* The badge and tint system emitted by config/admin_badges.py. */
+.ops-badge {
+  display: inline-block;
+  padding: 2px var(--ops-space-2);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+a.ops-badge:hover {
+  filter: brightness(1.15);
+}
+
+.ops-badge--critical { color: var(--ops-critical-fg); background: var(--ops-critical-bg); }
+.ops-badge--warning  { color: var(--ops-warning-fg);  background: var(--ops-warning-bg); }
+.ops-badge--info     { color: var(--ops-info-fg);     background: var(--ops-info-bg); }
+.ops-badge--ok       { color: var(--ops-ok-fg);       background: var(--ops-ok-bg); }
+.ops-badge--muted    { color: var(--ops-muted-fg);    background: var(--ops-muted-bg); }
+
+.ops-tint--critical { color: var(--ops-critical-fg); }
+.ops-tint--warning  { color: var(--ops-warning-fg); }
+.ops-tint--info     { color: var(--ops-info-fg); }
+.ops-tint--ok       { color: var(--ops-ok-fg); }
+.ops-tint--muted    { color: var(--ops-muted-fg); }
+
+/* Identifiers are read character by character. */
+.ops-mono,
+.field-trace_id, .field-run_id, .field-instance_id, .field-fingerprint,
+td.field-trace_id, td.field-run_id, td.field-instance_id, td.field-fingerprint {
+  font-family: var(--ops-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}

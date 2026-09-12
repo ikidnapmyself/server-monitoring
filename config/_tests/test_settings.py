@@ -46,3 +46,10 @@ class TestDatabasePathNormalization(SimpleTestCase):
         settings = self._reload_settings({"DATABASE_PATH": "data/mydb.sqlite3"})
         base_dir = Path(__file__).resolve().parent.parent.parent
         assert settings.DATABASES["default"]["NAME"] == base_dir / "data" / "mydb.sqlite3"
+
+
+def test_staticfiles_dirs_includes_project_static():
+    """The project-level static/ dir is on the staticfiles search path."""
+    from django.conf import settings
+
+    assert settings.BASE_DIR / "static" in settings.STATICFILES_DIRS

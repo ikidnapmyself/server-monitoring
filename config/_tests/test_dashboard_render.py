@@ -60,3 +60,11 @@ def test_dashboard_says_so_when_no_node_reports_a_metric(client):
     client.login(username="admin3", password="x")
     body = client.get(reverse("admin:index")).content.decode()
     assert "No node has reported a headline metric yet" in body
+
+
+@pytest.mark.django_db
+def test_dashboard_links_the_ops_stylesheet(client):
+    get_user_model().objects.create_superuser("admin4", "a4@b.co", "x")
+    client.login(username="admin4", password="x")
+    body = client.get(reverse("admin:index")).content.decode()
+    assert "admin/css/ops.css" in body
