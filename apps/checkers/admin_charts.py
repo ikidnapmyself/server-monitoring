@@ -83,7 +83,7 @@ def render_sparkline(
 
         markers_svg = format_html_join(
             "",
-            '<circle cx="{}" cy="{}" r="2" fill="#d33"/>',
+            '<circle class="spark-marker" cx="{}" cy="{}" r="2"/>',
             ((sx(x), sy(y)) for x, y in points if x in marker_xs),
         )
         plot = body + markers_svg

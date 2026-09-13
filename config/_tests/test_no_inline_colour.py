@@ -15,9 +15,9 @@ What counts as an offence is a CSS colour declaration: any property whose name
 ends in ``color``, plus ``background``, ``border``, ``outline``, ``box-shadow``,
 ``fill`` and ``stroke``, carrying a hex. A bare ``style="..."`` attribute holding
 a hex under any property at all counts too, so inventing a property is not a way
-round. SVG presentation attributes (``fill="#d33"`` in
-``apps/checkers/admin_charts.py``) are outside that definition: they are a
-generated chart's own paint, not a declaration, and are tracked separately.
+round. So does an SVG presentation attribute, ``fill="#d33"`` on a sparkline
+marker being the last hex the sweep had to move: a generated chart's paint is
+still paint, and it has to change with the theme like everything else.
 """
 
 import re
@@ -40,6 +40,9 @@ DECLARATION = re.compile(
 )
 
 STYLE_ATTR = re.compile(rf"style\s*=\s*([\"'])[^\"']*{HEX}[^\"']*\1")
+
+# fill="#d33" on a generated <circle>: a colour, just not a declaration.
+SVG_ATTR = re.compile(rf"(?:fill|stroke|stop-color|flood-color)\s*=\s*([\"']){HEX}\1")
 
 
 def _scanned() -> list[Path]:
@@ -90,7 +93,9 @@ MUST_BE_SCANNED = {
 def offences(text: str) -> list[str]:
     """The colour declarations in one file's text, entities discounted."""
     stripped = ENTITY.sub("", text)
-    return DECLARATION.findall(stripped) + [m.group(0) for m in STYLE_ATTR.finditer(stripped)]
+    return DECLARATION.findall(stripped) + [
+        m.group(0) for pattern in (STYLE_ATTR, SVG_ATTR) for m in pattern.finditer(stripped)
+    ]
 
 
 def _offenders() -> dict[str, list[str]]:
@@ -132,3 +137,4 @@ def test_the_guard_catches_what_it_is_for():
     assert offences("  background-color: #6c757d;")
     assert offences(".x { border-left-color: #28a745; }")
     assert offences('<td style="letter-spacing:1px; outline:1px solid #fff">')
+    assert offences('<circle cx="1" cy="2" r="2" fill="#d33"/>')

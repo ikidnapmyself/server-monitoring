@@ -550,7 +550,7 @@ class ChartTests(TestCase):
         self._run("disk", "worst_percent", 40.0, minutes_ago=1)
         self._run("disk", "worst_percent", 95.0, alert=alert)
         svg = build_charts(node)[0].svg
-        self.assertIn('fill="#d33"', svg)
+        self.assertIn('class="spark-marker"', svg)
 
     def test_a_peer_gets_no_charts(self):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")

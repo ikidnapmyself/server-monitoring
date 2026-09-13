@@ -47,6 +47,20 @@ html[data-theme="light"],
   --selected-row: #eef2f7;
   --link-selected-fg: #1d4ed8;
 
+  --ops-accent-fg: #ffffff;
+  --button-bg: #1f2937;
+  --button-fg: #ffffff;
+  --button-hover-bg: #111827;
+  --default-button-bg: #2563eb;
+  --default-button-hover-bg: #1d4ed8;
+  --delete-button-bg: #b91c1c;
+  --delete-button-hover-bg: #991b1b;
+  --close-button-bg: #6b7280;
+  --close-button-hover-bg: #4b5563;
+  --object-tools-bg: var(--darkened-bg);
+  --object-tools-fg: var(--body-fg);
+  --object-tools-hover-bg: var(--selected-row);
+
   --primary: #1f2937;
   --secondary: #111827;
   --accent: #2563eb;
@@ -89,6 +103,20 @@ html[data-theme="dark"] {
   --link-fg: #60a5fa;
   --link-hover-color: #93c5fd;
   --link-selected-fg: #93c5fd;
+
+  --ops-accent-fg: #0b0f14;
+  --button-bg: #1f2937;
+  --button-fg: #e5e7eb;
+  --button-hover-bg: #2b3a4f;
+  --default-button-bg: #60a5fa;
+  --default-button-hover-bg: #93c5fd;
+  --delete-button-bg: #991b1b;
+  --delete-button-hover-bg: #b91c1c;
+  --close-button-bg: #374151;
+  --close-button-hover-bg: #4b5563;
+  --object-tools-bg: var(--darkened-bg);
+  --object-tools-fg: var(--body-fg);
+  --object-tools-hover-bg: var(--selected-row);
   --header-bg: #0b0f14;
   --header-color: #e5e7eb;
   --breadcrumbs-bg: #111721;
@@ -127,6 +155,20 @@ html[data-theme="dark"] {
     --link-fg: #60a5fa;
     --link-hover-color: #93c5fd;
     --link-selected-fg: #93c5fd;
+
+    --ops-accent-fg: #0b0f14;
+    --button-bg: #1f2937;
+    --button-fg: #e5e7eb;
+    --button-hover-bg: #2b3a4f;
+    --default-button-bg: #60a5fa;
+    --default-button-hover-bg: #93c5fd;
+    --delete-button-bg: #991b1b;
+    --delete-button-hover-bg: #b91c1c;
+    --close-button-bg: #374151;
+    --close-button-hover-bg: #4b5563;
+    --object-tools-bg: var(--darkened-bg);
+    --object-tools-fg: var(--body-fg);
+    --object-tools-hover-bg: var(--selected-row);
     --header-bg: #0b0f14;
     --header-color: #e5e7eb;
     --breadcrumbs-bg: #111721;
@@ -456,4 +498,206 @@ a.ops-badge:hover {
   border-left: 3px solid var(--accent);
   padding-left: var(--ops-space-3);
   margin-left: -15px;
+}
+
+/* ---------------------------------------------------------------------- forms */
+
+.button,
+input[type=submit],
+input[type=button],
+.submit-row input,
+a.button {
+  background: var(--button-bg);
+  color: var(--button-fg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--ops-radius-sm);
+  padding: var(--ops-space-2) var(--ops-space-4);
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+/* The one action the form is for, so it carries the accent rather than the
+   neutral ground the rest of the row sits on. */
+.button.default,
+input[type=submit].default,
+.submit-row input.default {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--ops-accent-fg);
+  text-transform: none;
+}
+
+.button.default:active,
+.button.default:focus,
+.button.default:hover,
+input[type=submit].default:active,
+input[type=submit].default:focus,
+input[type=submit].default:hover {
+  background: var(--default-button-hover-bg);
+  border-color: var(--default-button-hover-bg);
+}
+
+/* Destructive, so it is tinted rather than solid: loud enough to find, quiet
+   enough that it is not the thing the eye lands on first. */
+.submit-row a.deletelink,
+.submit-row a.deletelink:link,
+.submit-row a.deletelink:visited {
+  background: var(--ops-critical-bg);
+  color: var(--ops-critical-fg);
+  border: 1px solid transparent;
+  border-radius: var(--ops-radius-sm);
+}
+
+.submit-row a.deletelink:active,
+.submit-row a.deletelink:focus,
+.submit-row a.deletelink:hover {
+  background: var(--ops-critical-bg);
+  border-color: var(--ops-critical-fg);
+}
+
+/* Keyboard focus has to survive a restyle that rounds and re-grounds every
+   control, so it is stated once for all of them. */
+.button:focus-visible,
+input[type=submit]:focus-visible,
+input[type=button]:focus-visible,
+a.button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.object-tools a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Django scopes these two harder than the shared button rule above, so the
+   toolbar's Search and the action bar's Go need saying twice. */
+#changelist #toolbar form input[type=submit],
+#changelist .actions .button {
+  background: var(--button-bg);
+  color: var(--button-fg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--ops-radius-sm);
+  box-shadow: none;
+  height: auto;
+  padding: var(--ops-space-1) var(--ops-space-3);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+#changelist #toolbar form input[type=submit]:focus,
+#changelist #toolbar form input[type=submit]:hover,
+#changelist .actions .button:focus,
+#changelist .actions .button:hover {
+  background: var(--button-hover-bg);
+  border-color: var(--border-color);
+}
+
+input:not([type]),
+input[type=text],
+input[type=password],
+input[type=email],
+input[type=url],
+input[type=number],
+input[type=tel],
+textarea,
+select,
+.vTextField {
+  background: var(--body-bg);
+  color: var(--body-fg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--ops-radius-sm);
+  padding: var(--ops-space-2);
+}
+
+/* A panel, not a page-wide band: fieldsets, the changelist and the sidebar's
+   own sections all reach this rule. */
+.module {
+  background: var(--ops-module-bg);
+  border: 1px solid var(--hairline-color);
+  border-radius: var(--ops-radius);
+}
+
+.module h2,
+.module caption,
+.inline-group h2 {
+  background: var(--darkened-bg);
+  color: var(--body-quiet-color);
+  border-bottom: 1px solid var(--hairline-color);
+  border-radius: var(--ops-radius) var(--ops-radius) 0 0;
+  padding: var(--ops-space-2) var(--ops-space-3);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+/* A caption names a whole table of links, which is a label rather than a title. */
+.module caption,
+.inline-group h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.submit-row {
+  background: var(--darkened-bg);
+  border: 1px solid var(--hairline-color);
+  border-radius: var(--ops-radius);
+}
+
+/* Page-level actions read as secondary buttons, not as pills. */
+.object-tools a:link,
+.object-tools a:visited {
+  background: var(--object-tools-bg);
+  color: var(--object-tools-fg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--ops-radius-sm);
+  padding: var(--ops-space-1) var(--ops-space-3);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.object-tools a:focus,
+.object-tools a:hover {
+  background: var(--object-tools-hover-bg);
+  color: var(--object-tools-fg);
+}
+
+.object-tools li {
+  height: auto;
+}
+
+/* The alert marker on a sparkline (apps/checkers/admin_charts.py). */
+.spark-marker {
+  fill: var(--ops-critical-fg);
+}
+
+/* jsoneditor.min.css arrives with the widget's own media, which the admin puts
+   in extrahead after this file, so a tie there is decided against us on load
+   order. These four win on specificity instead of !important; the vendor
+   selectors they beat are .jsoneditor, .jsoneditor-menu, div.jsoneditor-outer
+   and textarea.jsoneditor-text. */
+div.jsoneditor {
+  border: 1px solid var(--border-color);
+}
+
+/* The menu's buttons are white glyphs in a sprite, so its ground stays dark in
+   both themes or the icons vanish. */
+.jsoneditor > .jsoneditor-menu {
+  background-color: var(--secondary);
+  border-bottom: 1px solid var(--secondary);
+}
+
+.jsoneditor > div.jsoneditor-outer {
+  background: var(--body-bg);
+}
+
+.jsoneditor textarea.jsoneditor-text {
+  background-color: var(--body-bg);
+  color: var(--body-fg);
+  font-family: var(--ops-mono);
 }
