@@ -39,6 +39,14 @@ html[data-theme="light"],
   --ops-muted-bg: #e5e7eb;
   --ops-module-bg: #ffffff;
 
+  --body-quiet-color: #4b5563;
+  --hairline-color: #e5e7eb;
+  --border-color: #d1d5db;
+  --darkened-bg: #f3f4f6;
+  --selected-bg: #e5e7eb;
+  --selected-row: #eef2f7;
+  --link-selected-fg: #1d4ed8;
+
   --primary: #1f2937;
   --secondary: #111827;
   --accent: #2563eb;
@@ -72,7 +80,7 @@ html[data-theme="dark"] {
   --body-loud-color: #f9fafb;
   --hairline-color: #1f2937;
   --border-color: #1f2937;
-  --darkened-bg: #111721;
+  --darkened-bg: #161e2b;
   --selected-bg: #111721;
   --selected-row: #1c2330;
   --primary: #0b0f14;
@@ -80,6 +88,7 @@ html[data-theme="dark"] {
   --accent: #60a5fa;
   --link-fg: #60a5fa;
   --link-hover-color: #93c5fd;
+  --link-selected-fg: #93c5fd;
   --header-bg: #0b0f14;
   --header-color: #e5e7eb;
   --breadcrumbs-bg: #111721;
@@ -109,7 +118,7 @@ html[data-theme="dark"] {
     --body-loud-color: #f9fafb;
     --hairline-color: #1f2937;
     --border-color: #1f2937;
-    --darkened-bg: #111721;
+    --darkened-bg: #161e2b;
     --selected-bg: #111721;
     --selected-row: #1c2330;
     --primary: #0b0f14;
@@ -117,6 +126,7 @@ html[data-theme="dark"] {
     --accent: #60a5fa;
     --link-fg: #60a5fa;
     --link-hover-color: #93c5fd;
+    --link-selected-fg: #93c5fd;
     --header-bg: #0b0f14;
     --header-color: #e5e7eb;
     --breadcrumbs-bg: #111721;
@@ -270,4 +280,180 @@ a.ops-badge:hover {
   overflow: auto;
   font-family: var(--ops-mono);
   font-size: 12px;
+}
+
+/* ------------------------------------------------------------------ changelist */
+
+/* Django renders the search box (#toolbar), the date drilldown (.toplinks) and the
+   action bar (.actions) as three separate strips above the results. They share a
+   ground and a hairline here so they read as one control bar, whichever of them
+   the model happens to have. */
+#toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ops-space-3);
+  background: var(--darkened-bg);
+  border: 1px solid var(--hairline-color);
+  border-bottom: 0;
+  border-radius: var(--ops-radius) var(--ops-radius) 0 0;
+  padding: var(--ops-space-2) var(--ops-space-3);
+  margin-bottom: 0;
+}
+
+#toolbar form,
+#toolbar form > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ops-space-2);
+  margin: 0;
+}
+
+#toolbar form {
+  flex: 1 1 auto;
+}
+
+#toolbar #searchbar {
+  flex: 1 1 220px;
+  height: auto;
+  padding: var(--ops-space-1) var(--ops-space-2);
+  border-radius: var(--ops-radius-sm);
+}
+
+#changelist .toplinks {
+  background: var(--darkened-bg);
+  border-left: 1px solid var(--hairline-color);
+  border-right: 1px solid var(--hairline-color);
+  border-bottom: 1px solid var(--hairline-color);
+  padding: var(--ops-space-2) var(--ops-space-3);
+  margin: 0;
+}
+
+#changelist .actions {
+  background: var(--darkened-bg);
+  border: 1px solid var(--hairline-color);
+  border-radius: 0 0 var(--ops-radius) var(--ops-radius);
+  padding: var(--ops-space-2) var(--ops-space-3);
+  margin-bottom: var(--ops-space-3);
+}
+
+/* Without a search box the action bar is the whole bar, so it carries every corner. */
+#changelist:not(:has(#toolbar)) .actions {
+  border-radius: var(--ops-radius);
+}
+
+#changelist table {
+  border-collapse: collapse;
+}
+
+#changelist table thead th {
+  background: var(--darkened-bg);
+  color: var(--body-quiet-color);
+  border-top: 0;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+/* A sortable column that is not sorted yet says nothing in stock Django. */
+#changelist table thead th.sortable .text a {
+  position: relative;
+  padding-right: 20px;
+}
+
+#changelist table thead th.sortable:not(.sorted) .text a::after {
+  content: "\2195";
+  position: absolute;
+  right: var(--ops-space-2);
+  opacity: 0.4;
+}
+
+#changelist table thead th.sortable:not(.sorted) .text a:focus::after,
+#changelist table thead th.sortable:not(.sorted) .text a:hover::after {
+  opacity: 1;
+}
+
+#changelist table thead th.sorted {
+  background: var(--selected-bg);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+#changelist table thead th.sorted .text a {
+  color: var(--body-loud-color);
+  font-weight: 700;
+}
+
+#changelist tbody tr {
+  background: transparent;
+}
+
+#changelist tbody td,
+#changelist tbody th {
+  border-bottom: 1px solid var(--hairline-color);
+  padding: var(--ops-space-2) var(--ops-space-3);
+  vertical-align: middle;
+}
+
+#changelist tbody tr:hover {
+  background: var(--selected-row);
+}
+
+/* A checked row has to stay distinct from the one under the cursor, so it keeps a
+   marker as well as a ground. */
+#changelist tbody tr.selected,
+#changelist tbody tr:has(.action-select:checked) {
+  background: var(--selected-bg);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Counts and durations are compared down the column, not read across the row. */
+#changelist td.field-duration_ms,
+#changelist td.field-duration_display,
+#changelist td.field-attempt,
+#changelist td.field-priority,
+#changelist td.field-passed,
+#changelist td.field-warnings,
+#changelist td.field-errors,
+#changelist td.field-recommendations_count,
+#changelist td.field-alert_count_display,
+#changelist td.field-firing_alert_count_display,
+#changelist td.field-pipeline_runs_display {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#changelist .paginator {
+  background: transparent;
+  border-top: 1px solid var(--hairline-color);
+  border-bottom: 0;
+  padding: var(--ops-space-3) 0;
+  font-size: 12px;
+}
+
+#changelist-filter {
+  background: var(--ops-module-bg);
+  border-left: 1px solid var(--hairline-color);
+}
+
+#changelist-filter h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--body-quiet-color);
+  border-bottom: 1px solid var(--hairline-color);
+  padding-bottom: var(--ops-space-2);
+}
+
+/* 5.2 puts each filter title in a <details><summary>, not an <h3>. */
+#changelist-filter details summary {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--body-fg);
+}
+
+#changelist-filter li.selected {
+  border-left: 3px solid var(--accent);
+  padding-left: var(--ops-space-3);
+  margin-left: -15px;
 }

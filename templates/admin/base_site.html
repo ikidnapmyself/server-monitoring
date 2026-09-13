@@ -6,8 +6,11 @@ Single hook for the ops skin. Every admin page reaches this template, including 
 django_object_actions change_form and change_list, which extend admin/change_form.html
 and admin/change_list.html rather than this file directly.
 
-ops.css is loaded after block.super so it wins over Django's base.css without any
-!important. It redefines Django's own custom properties rather than re-selecting.
+ops.css is loaded from extrahead, not extrastyle. change_list.html and
+change_form.html append changelists.css and forms.css to extrastyle after
+block.super, so a stylesheet linked there loses every tie with them on load
+order. extrahead is the last hook the admin offers before the widget media,
+and it redefines Django's own custom properties rather than re-selecting.
 
 The title/branding/nav-global blocks below reproduce Django 5.2's stock
 admin/base_site.html, which this file replaces.
@@ -15,7 +18,7 @@ admin/base_site.html, which this file replaces.
 
 {% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
 
-{% block extrastyle %}{{ block.super }}
+{% block extrahead %}{{ block.super }}
 <link rel="stylesheet" href="{% static 'admin/css/ops.css' %}">
 {% endblock %}
 
