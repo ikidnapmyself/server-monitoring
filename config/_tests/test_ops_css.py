@@ -111,3 +111,28 @@ def test_only_the_signal_tints_are_bolded():
     loudest.
     """
     assert _bold_tint_tones() == {"critical", "warning", "info", "ok"}
+
+
+@pytest.mark.parametrize("tone", sorted(TONES))
+def test_an_anchor_badge_restates_its_tone(tone):
+    """``badge(..., url=...)`` renders an anchor, and Django paints those.
+
+    ``a:link, a:visited`` in base.css is (0,1,1) and outweighs a bare
+    ``.ops-badge--<tone>`` at (0,1,0), so without the element in the selector the
+    node severity chips take the generic link colour instead of their tone.
+    """
+    text = OPS_CSS.read_text()
+    assert re.search(rf"a\.ops-badge--{tone}:link", text), f"{tone} has no anchor rule"
+    assert re.search(rf"a\.ops-badge--{tone}:visited", text), f"{tone} has no visited rule"
+
+
+def test_the_changelist_header_is_sticky():
+    """Column names have to survive a long result list."""
+    text = OPS_CSS.read_text()
+    match = re.search(r"#changelist table thead th \{([^}]*)\}", text)
+    assert match, "the changelist header rule is gone"
+    body = match.group(1)
+    assert "position: sticky" in body
+    assert "top: 0" in body
+    # A transparent sticky header lets rows scroll through it.
+    assert "background:" in body

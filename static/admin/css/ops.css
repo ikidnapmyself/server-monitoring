@@ -256,6 +256,16 @@ a.ops-badge:hover {
 .ops-badge--ok       { color: var(--ops-ok-fg);       background: var(--ops-ok-bg); }
 .ops-badge--muted    { color: var(--ops-muted-fg);    background: var(--ops-muted-bg); }
 
+/* Django's `a:link, a:visited` is (0,1,1) and outweighs a bare tone class, so an
+   anchor badge from badge(..., url=...) keeps the generic link colour unless its
+   tone is said again with the element in the selector. The node severity chips
+   are the live case. */
+a.ops-badge--critical:link, a.ops-badge--critical:visited { color: var(--ops-critical-fg); }
+a.ops-badge--warning:link,  a.ops-badge--warning:visited  { color: var(--ops-warning-fg); }
+a.ops-badge--info:link,     a.ops-badge--info:visited     { color: var(--ops-info-fg); }
+a.ops-badge--ok:link,       a.ops-badge--ok:visited       { color: var(--ops-ok-fg); }
+a.ops-badge--muted:link,    a.ops-badge--muted:visited    { color: var(--ops-muted-fg); }
+
 .ops-tint--critical { color: var(--ops-critical-fg); }
 .ops-tint--warning  { color: var(--ops-warning-fg); }
 .ops-tint--info     { color: var(--ops-info-fg); }
@@ -389,7 +399,12 @@ a.ops-badge:hover {
   border-collapse: collapse;
 }
 
+/* Sticky so the column names survive a long result list. The ground must stay
+   opaque or rows scroll through it. */
 #changelist table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   background: var(--darkened-bg);
   color: var(--body-quiet-color);
   border-top: 0;
