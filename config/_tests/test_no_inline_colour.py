@@ -1,0 +1,134 @@
+"""Colour lives in ops.css. This is what keeps it there.
+
+Without this, the next person adding a status column reaches for
+``format_html('<span style="color:#dc3545">')``, because that is what the
+neighbouring code used to look like.
+
+The boundary is every file that can paint an admin page: each template under
+``templates/``, every admin module under ``apps/`` and ``config/``, and the
+projection modules those templates render. It stops at two places on purpose.
+``static/admin/css/ops.css`` is where the hexes are supposed to be. And
+``apps/notify/drivers/`` holds hexes that are Slack attachment colours sent over
+the wire, not paint on a page this project renders.
+
+What counts as an offence is a CSS colour declaration: any property whose name
+ends in ``color``, plus ``background``, ``border``, ``outline``, ``box-shadow``,
+``fill`` and ``stroke``, carrying a hex. A bare ``style="..."`` attribute holding
+a hex under any property at all counts too, so inventing a property is not a way
+round. SVG presentation attributes (``fill="#d33"`` in
+``apps/checkers/admin_charts.py``) are outside that definition: they are a
+generated chart's own paint, not a declaration, and are tracked separately.
+"""
+
+import re
+from pathlib import Path
+
+from django.conf import settings
+
+ROOT = Path(settings.BASE_DIR)
+
+# HTML numeric entities are stripped before matching. "&#9888;" is the warning
+# triangle this admin prints in several places, and its digits read as a hex
+# colour to anything scanning for "#" followed by hex digits.
+ENTITY = re.compile(r"&#x?[0-9a-fA-F]+;")
+
+HEX = r"#[0-9a-fA-F]{3,8}"
+
+DECLARATION = re.compile(
+    r"(?:[a-z]+-)*(?:color|background|border|outline|box-shadow|fill|stroke)"
+    rf"\s*:\s*[^;\"'{{}}]*{HEX}"
+)
+
+STYLE_ATTR = re.compile(rf"style\s*=\s*([\"'])[^\"']*{HEX}[^\"']*\1")
+
+
+def _scanned() -> list[Path]:
+    """Every file colour could reach an admin page from."""
+    paths = {
+        *(ROOT / "templates").rglob("*.html"),
+        *(ROOT / "apps").rglob("admin*.py"),
+        *(ROOT / "apps").rglob("*_overview.py"),
+        *(ROOT / "config").glob("admin*.py"),
+        ROOT / "config" / "dashboard.py",
+    }
+    return sorted(path for path in paths if "_tests" not in path.parts)
+
+
+SCANNED = _scanned()
+
+# Two templates still carry a whole <style> block of their own. The ops-skin plan
+# deletes both in its later dashboard and map tasks
+# (docs/plans/2026-09-12-admin-skin-implementation.md). They are named here rather
+# than excluded by pattern, and the retirement test below fails the moment one of
+# them comes back clean, so this allowance cannot outlive the cleanup.
+PENDING_STYLE_BLOCKS = {
+    "templates/admin/dashboard.html",
+    "templates/admin/map.html",
+}
+
+# Named so a rename or a move fails loudly here instead of silently dropping out
+# of the scan. Every one of these has held a hex at some point in the sweep.
+MUST_BE_SCANNED = {
+    "templates/admin/policy_overview.html",
+    "templates/admin/dashboard.html",
+    "templates/admin/map.html",
+    "templates/admin/alerts/node/change_form.html",
+    "apps/alerts/admin.py",
+    "apps/checkers/admin.py",
+    "apps/checkers/admin_charts.py",
+    "apps/intelligence/admin.py",
+    "apps/notify/admin.py",
+    "apps/orchestration/admin.py",
+    "apps/alerts/node_overview.py",
+    "apps/alerts/policy_overview.py",
+    "config/admin.py",
+    "config/admin_badges.py",
+    "config/dashboard.py",
+}
+
+
+def offences(text: str) -> list[str]:
+    """The colour declarations in one file's text, entities discounted."""
+    stripped = ENTITY.sub("", text)
+    return DECLARATION.findall(stripped) + [m.group(0) for m in STYLE_ATTR.finditer(stripped)]
+
+
+def _offenders() -> dict[str, list[str]]:
+    found = {}
+    for path in SCANNED:
+        name = str(path.relative_to(ROOT))
+        hits = offences(path.read_text())
+        if hits:
+            found[name] = hits
+    return found
+
+
+def test_no_inline_colour_outside_the_stylesheet():
+    offenders = {
+        name: hits for name, hits in _offenders().items() if name not in PENDING_STYLE_BLOCKS
+    }
+    assert offenders == {}, f"inline colour belongs in ops.css: {offenders}"
+
+
+def test_the_pending_allowance_retires_itself():
+    offenders = _offenders()
+    clean = PENDING_STYLE_BLOCKS - set(offenders)
+    assert clean == set(), f"no longer carries inline colour, drop from the allowance: {clean}"
+
+
+def test_the_guard_scans_the_files_it_names():
+    scanned = {str(path.relative_to(ROOT)) for path in SCANNED}
+    assert MUST_BE_SCANNED <= scanned, f"dropped out of the scan: {MUST_BE_SCANNED - scanned}"
+
+
+def test_a_warning_entity_is_not_a_colour():
+    # "&#9888;" is four hex digits behind a "#". It is the triangle glyph, not paint.
+    assert offences('<span class="ops-tint ops-tint--warning">&#9888; why</span>') == []
+    assert offences('format_html("&#9888; cannot deliver: {}", gap)') == []
+
+
+def test_the_guard_catches_what_it_is_for():
+    assert offences('<span style="color:#dc3545">x</span>')
+    assert offences("  background-color: #6c757d;")
+    assert offences(".x { border-left-color: #28a745; }")
+    assert offences('<td style="letter-spacing:1px; outline:1px solid #fff">')
