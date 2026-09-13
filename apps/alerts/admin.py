@@ -47,6 +47,13 @@ from apps.alerts.reeval_existing import (
 from apps.alerts.services import IncidentManager, instance_key_from_labels
 from apps.alerts.timeline import build_incident_timeline
 from apps.orchestration.models import InboxItem, PipelineRun
+from config.admin_badges import (
+    ALERT_STATUS_TONES,
+    SEVERITY_TONES,
+    badge,
+    tinted,
+    tone_for,
+)
 from config.admin_links import DASH, admin_link, changelist_link
 from config.dashboard import prettify_json
 
@@ -244,27 +251,11 @@ class AlertAdmin(DjangoObjectActions, admin.ModelAdmin):
 
     @admin.display(description="Severity")
     def severity_badge(self, obj):
-        color = SEVERITY_COLORS.get(obj.severity, "#6c757d")
-        return format_html(
-            '<span style="background-color: {}; color: white; padding: 3px 8px; '
-            'border-radius: 3px; font-size: 11px;">{}</span>',
-            color,
-            obj.severity.upper(),
-        )
+        return badge(obj.severity.upper(), tone_for(SEVERITY_TONES, obj.severity))
 
     @admin.display(description="Status")
     def status_badge(self, obj):
-        colors = {
-            "firing": "#dc3545",
-            "resolved": "#28a745",
-        }
-        color = colors.get(obj.status, "#6c757d")
-        return format_html(
-            '<span style="background-color: {}; color: white; padding: 3px 8px; '
-            'border-radius: 3px; font-size: 11px;">{}</span>',
-            color,
-            obj.status.upper(),
-        )
+        return badge(obj.status.upper(), tone_for(ALERT_STATUS_TONES, obj.status))
 
     @admin.display(description="Incident")
     def incident_link(self, obj):
@@ -302,8 +293,11 @@ class AlertAdmin(DjangoObjectActions, admin.ModelAdmin):
             )
         else:
             body = format_html(
-                '<div style="color:#b00;"><b>{}</b> (no incident; ingest not run)</div>',
-                "not processed — inbox",
+                "<div>{}</div>",
+                tinted(
+                    format_html("<b>{}</b> (no incident; ingest not run)", "not processed — inbox"),
+                    "critical",
+                ),
             )
         return format_html("{}{}", trace, body)
 

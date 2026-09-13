@@ -732,3 +732,44 @@ class IncidentCountLinkTests(TestCase):
             pass
 
         assert self.admin.pipeline_runs_display(NoRuns()) == DASH
+
+
+class AlertBadgeToneTests(TestCase):
+    """The severity and status pills carry a tone class, never a hex."""
+
+    def _admin(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import AlertAdmin
+
+        return AlertAdmin(Alert, AdminSite())
+
+    def test_each_severity_carries_its_tone(self):
+        for severity, tone in [
+            ("critical", "critical"),
+            ("warning", "warning"),
+            ("info", "info"),
+            ("chartreuse", "muted"),
+        ]:
+            html = str(self._admin().severity_badge(Alert(severity=severity)))
+            assert f"ops-badge--{tone}" in html
+            assert severity.upper() in html
+            assert "#" not in html
+
+    def test_each_status_carries_its_tone(self):
+        for status, tone in [
+            ("firing", "critical"),
+            ("resolved", "ok"),
+            ("pondering", "muted"),
+        ]:
+            html = str(self._admin().status_badge(Alert(status=status)))
+            assert f"ops-badge--{tone}" in html
+            assert status.upper() in html
+            assert "#" not in html
+
+    def test_an_alert_with_no_incident_reads_critical(self):
+        html = str(self._admin().journey_display(Alert(trace_id="tr-1")))
+        assert "ops-tint--critical" in html
+        assert "no incident; ingest not run" in html
+        assert "<b>not processed — inbox</b>" in html
+        assert "#" not in html
