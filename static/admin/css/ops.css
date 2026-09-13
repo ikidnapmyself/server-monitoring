@@ -197,6 +197,19 @@ a.ops-badge:hover {
   margin: 0 2px;
 }
 
+/* The incident page's expected-vs-actual stage strip (apps/alerts/admin.py:
+   diagnosis_display). */
+.ops-diag {
+  margin: 0 0 0 var(--ops-space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.ops-diag-stage {
+  display: inline-block;
+  width: 90px;
+}
+
 /* Read-only JSON on a change form (config/dashboard.py: prettify_json). */
 .ops-pre {
   background: var(--darkened-bg);
