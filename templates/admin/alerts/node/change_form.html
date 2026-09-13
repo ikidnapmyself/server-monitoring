@@ -20,38 +20,28 @@ dashes, and it is what tells anyone that a preserved config key is dead.
 
 {% block content %}
 {% if node_overview %}
-<div class="module" style="margin-bottom:20px; padding:12px 16px;">
+<div class="module ops-module">
 
   <h2 style="margin-top:0; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
     <span>{{ node_overview.identity.role_label }}</span>
-    {# Three states, not two: a peer is ok/warn, the local node is always info. #}
-    {# Painting the hub amber for its own self-check age is the bug Task 3b fixed. #}
-    {% if node_overview.identity.freshness_status == "ok" %}
-      <span style="background-color:#28a745; color:#fff; padding:2px 8px;
-                   border-radius:10px; font-size:12px; font-weight:normal;"
-      >{{ node_overview.identity.freshness_label }}</span>
-    {% elif node_overview.identity.freshness_status == "warn" %}
-      <span style="background-color:#ffc107; color:#332701; padding:2px 8px;
-                   border-radius:10px; font-size:12px; font-weight:normal;"
-      >{{ node_overview.identity.freshness_label }}</span>
-    {% else %}
-      <span style="background-color:#6c757d; color:#fff; padding:2px 8px;
-                   border-radius:10px; font-size:12px; font-weight:normal;"
-      >{{ node_overview.identity.freshness_label }}</span>
-    {% endif %}
+    {# Three tones, not two: a peer reads ok/warn, the local node carries no #}
+    {# verdict at all. Painting the hub amber for its own self-check age is #}
+    {# the bug Task 3b fixed. #}
+    <span class="ops-badge ops-badge--{{ node_overview.identity.freshness_tone }}"
+    >{{ node_overview.identity.freshness_label }}</span>
     <span style="font-size:12px; font-weight:normal;">{{ node_overview.chips }}</span>
   </h2>
 
   <h3 style="margin-bottom:6px;">Checker state</h3>
   {% if node_overview.checker_rows %}
-  <div style="overflow-x:auto;">
-    <table style="width:100%; border-collapse:collapse;">
+  <div class="ops-scroll">
+    <table class="ops-table">
       <thead>
         <tr>
-          <th style="text-align:left;">Checker</th>
-          <th style="text-align:left;">Status</th>
+          <th>Checker</th>
+          <th>Status</th>
           <th style="text-align:right;">Value</th>
-          <th style="text-align:left;">{{ node_overview.checker_time_label }}</th>
+          <th>{{ node_overview.checker_time_label }}</th>
         </tr>
       </thead>
       <tbody>
@@ -75,8 +65,7 @@ dashes, and it is what tells anyone that a preserved config key is dead.
   <ul style="margin:0 0 0 16px; padding:0;">
     {% for row in node_overview.incident_rows %}
     <li style="margin-bottom:3px;">
-      <span style="background-color:{{ row.color }}; color:white; padding:2px 6px;
-                   border-radius:3px; font-size:11px;">{{ row.severity|upper }}</span>
+      <span class="ops-badge ops-badge--{{ row.tone }}">{{ row.severity|upper }}</span>
       <a href="{{ row.url }}">{{ row.title }}</a>
       &mdash; {{ row.status }} &mdash; {{ row.created_at }}
     </li>
@@ -131,7 +120,7 @@ dashes, and it is what tells anyone that a preserved config key is dead.
 </div>
 {% endif %}
 {% if node_policy %}
-<div class="module" style="margin-bottom:20px; padding:12px 16px;">
+<div class="module ops-module">
 
   <h2 style="margin-top:0; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;">
     <span>Hub-side policy</span>
@@ -144,12 +133,12 @@ dashes, and it is what tells anyone that a preserved config key is dead.
 
   <h3 style="margin-bottom:6px;">Policy in effect</h3>
   {% if node_policy.sections %}
-  <div style="overflow-x:auto;">
-    <table style="width:100%; border-collapse:collapse;">
+  <div class="ops-scroll">
+    <table class="ops-table">
       <thead>
         <tr>
-          <th style="text-align:left;">Checker</th>
-          <th style="text-align:left;">Setting</th>
+          <th>Checker</th>
+          <th>Setting</th>
           <th style="text-align:right;">Value</th>
         </tr>
       </thead>
@@ -167,7 +156,7 @@ dashes, and it is what tells anyone that a preserved config key is dead.
     </table>
   </div>
   {% for section in node_policy.sections %}{% if section.editor_note %}
-  <p style="color:#b26a00;">
+  <p class="ops-tint ops-tint--warning">
     &#9888; {{ section.title }} is scoring as stored, but {{ section.editor_note }}
     Retyping it in the boxes below means changing it.
   </p>
@@ -177,7 +166,7 @@ dashes, and it is what tells anyone that a preserved config key is dead.
   {% endif %}
 
   {% if node_policy.inactive %}
-  <h3 style="margin-bottom:6px; color:#b26a00;">&#9888; Saved but not scoring</h3>
+  <h3 class="ops-tint ops-tint--warning" style="margin-bottom:6px;">&#9888; Saved but not scoring</h3>
   <p style="color:var(--body-quiet-color);">
     These are the keys the scorers read, but the value is one they cannot use, so
     each of these checkers is skipped whole and its alerts keep the severity the
@@ -185,14 +174,14 @@ dashes, and it is what tells anyone that a preserved config key is dead.
     Finish it in the boxes below, or clear it so nobody reads it as active.
     {% if node_policy_editor %}Each checker below links to its own boxes.{% endif %}
   </p>
-  <div style="overflow-x:auto; border-left:4px solid #b26a00; padding-left:10px;">
-    <table style="width:100%; border-collapse:collapse;">
+  <div class="ops-scroll ops-callout--warning">
+    <table class="ops-table">
       <thead>
         <tr>
-          <th style="text-align:left;">Checker</th>
-          <th style="text-align:left;">Setting</th>
+          <th>Checker</th>
+          <th>Setting</th>
           <th style="text-align:right;">Value</th>
-          <th style="text-align:left;">Why it does nothing</th>
+          <th>Why it does nothing</th>
         </tr>
       </thead>
       <tbody>

@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import timedelta
 from unittest import mock
 
@@ -503,6 +504,23 @@ class NodeChangeFormTests(TestCase):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
         response = self.client.get(self._url(node))
         self.assertContains(response, "Re-evaluate open alerts")
+
+    def test_the_overview_paints_with_tone_classes_not_inline_hexes(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        incident = Incident.objects.create(title="cpu high", severity="critical", status="open")
+        Alert.objects.create(
+            incident=incident,
+            node=node,
+            name="cpu",
+            fingerprint="cpu-toned",
+            source="cluster",
+            severity="critical",
+            started_at=timezone.now(),
+        )
+        panel = self.client.get(self._url(node)).content.decode().split('id="node_form"')[0]
+        self.assertIn("ops-badge--ok", panel)  # a peer seen just now
+        self.assertIn("ops-badge--critical", panel)  # the incident row
+        self.assertIsNone(re.search(r"#[0-9a-fA-F]{6}\b", panel))
 
     def test_a_peer_is_told_why_it_has_no_charts(self):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
@@ -1229,6 +1247,15 @@ class EffectivePolicyPanelTests(TestCase):
         self.assertContains(response, "Saved but not scoring")
         self.assertContains(response, "Set a critical threshold too, or clear both.")
         self.assertContains(response, "70")
+
+    def test_the_not_scoring_callout_is_toned_rather_than_painted(self):
+        self.node.config = {"memory": {"warning_threshold": 70}}
+        self.node.save()
+        self._login("view_node")
+        body = self.client.get(self._url()).content.decode()
+        self.assertIn("ops-callout--warning", body)
+        self.assertIn("ops-tint--warning", body)
+        self.assertNotIn("#b26a00", body)
 
     def test_a_complete_pair_is_not_called_out_as_not_scoring(self):
         self._login("view_node")
