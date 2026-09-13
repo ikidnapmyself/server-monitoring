@@ -23,6 +23,7 @@ def test_dashboard_renders_readiness_and_sections(client):
     assert reverse("admin:alerts_incident_changelist") in body  # a model link in the grid
     assert reverse("admin:netmap") in body  # readiness heading links to the network map
     assert reverse("admin:policy-overview") in body  # and to the hub-side policy overview
+    assert "<style>" not in body  # the dashboard's styles live in ops.css
 
 
 @pytest.mark.django_db
@@ -138,3 +139,24 @@ def test_the_ops_stylesheet_loads_after_djangos_own(client):
     for url, stylesheet in pages.items():
         body = client.get(url).content.decode()
         assert body.index("admin/css/ops.css") > body.index(stylesheet), url
+
+
+@pytest.mark.django_db
+def test_the_dashboard_badges_are_the_shared_badge(client):
+    """One badge system. The dashboard used to carry a second one of its own."""
+    from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
+    from apps.checkers.models import CheckRun, CheckStatus
+
+    get_user_model().objects.create_superuser("admin8", "a8@b.co", "x")
+    client.login(username="admin8", password="x")
+    Incident.objects.create(
+        title="disk full", severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN
+    )
+    CheckRun.objects.create(
+        checker_name="disk", hostname="h", status=CheckStatus.CRITICAL, message="m"
+    )
+
+    body = client.get(reverse("admin:index")).content.decode()
+    assert "ops-badge ops-badge--critical" in body  # the severity count
+    assert "severity-badge" not in body
+    assert "status-badge" not in body

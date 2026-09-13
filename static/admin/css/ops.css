@@ -702,6 +702,359 @@ div.jsoneditor {
   font-family: var(--ops-mono);
 }
 
+/* ------------------------------------------------------------------ dashboard */
+
+#dashboard {
+  margin-bottom: var(--ops-space-6);
+}
+
+.dashboard-row {
+  display: flex;
+  gap: var(--ops-space-4);
+  margin-bottom: var(--ops-space-4);
+}
+
+.dashboard-card {
+  flex: 1;
+  padding: var(--ops-space-4);
+}
+
+.dashboard-card h2,
+.trends-module h2,
+#nav-sections .dashboard-card h3 {
+  margin-top: 0;
+}
+
+.metric-value {
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: var(--ops-space-2);
+}
+
+.metric-value.compact {
+  margin-bottom: var(--ops-space-1);
+}
+
+.metric-subtitle {
+  font-size: 12px;
+  color: var(--body-quiet-color);
+  margin-bottom: var(--ops-space-2);
+}
+
+.no-data-message,
+.trends-no-data {
+  color: var(--body-quiet-color);
+}
+
+.success-message {
+  color: var(--ops-ok-fg);
+  font-size: 18px;
+}
+
+.badge-container {
+  display: flex;
+  gap: var(--ops-space-2);
+}
+
+/* The bar is the only reading of the rate that is not a number, so it takes the
+   solid tone rather than the badge tint. */
+.progress-bar-container {
+  background: var(--darkened-bg);
+  border-radius: var(--ops-radius-sm);
+  height: 8px;
+  margin-bottom: var(--ops-space-2);
+}
+
+.progress-bar {
+  height: 8px;
+  border-radius: var(--ops-radius-sm);
+}
+
+.progress-bar.success { background: var(--ops-ok-fg); }
+.progress-bar.warning { background: var(--ops-warning-fg); }
+.progress-bar.error   { background: var(--ops-critical-fg); }
+
+.trends-module {
+  padding: var(--ops-space-4);
+  margin-bottom: var(--ops-space-4);
+}
+
+.stats-container {
+  display: flex;
+  gap: var(--ops-space-4);
+  font-size: 12px;
+}
+
+.dashboard-table {
+  width: 100%;
+  font-size: 13px;
+}
+
+.dashboard-table th,
+.dashboard-table td {
+  padding: var(--ops-space-1) var(--ops-space-2);
+}
+
+.dashboard-table th {
+  text-align: left;
+}
+
+/* Fleet metrics: the reading is coloured, not badged, so a wide grid of
+   numbers still reads as numbers. */
+.metric-grid th.metric-node {
+  text-align: left;
+}
+
+.metric-grid th.metric-reading,
+.metric-grid td.metric-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-unit {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--body-quiet-color);
+}
+
+.metric-ok       { color: var(--ops-ok-fg); }
+.metric-warning  { color: var(--ops-warning-fg); font-weight: 700; }
+.metric-critical { color: var(--ops-critical-fg); font-weight: 700; }
+.metric-unknown  { color: var(--ops-muted-fg); }
+
+.view-all-link,
+.table-link {
+  margin-top: var(--ops-space-2);
+}
+
+.trends-container {
+  display: flex;
+  gap: var(--ops-space-4);
+}
+
+.trends-section {
+  flex: 1;
+}
+
+.trends-section h3 {
+  font-size: 14px;
+  margin-bottom: var(--ops-space-2);
+}
+
+.trends-table {
+  width: 100%;
+  font-size: 13px;
+}
+
+.trends-table td {
+  padding: var(--ops-space-1) 0;
+}
+
+.trends-table th {
+  text-align: left;
+}
+
+.trends-table tbody td:last-child {
+  text-align: right;
+  font-weight: 700;
+}
+
+.trends-table th:nth-child(2),
+.trends-table th:nth-child(3) {
+  text-align: right;
+}
+
+.trends-no-data {
+  font-size: 13px;
+}
+
+#readiness h2 .heading-link {
+  font-size: 13px;
+  font-weight: 400;
+  margin-left: var(--ops-space-2);
+}
+
+.readiness-card {
+  display: block;
+  flex: 1;
+  padding: var(--ops-space-3);
+  background: var(--ops-module-bg);
+  border: 1px solid var(--hairline-color);
+  border-left-width: 4px;
+  border-radius: var(--ops-radius-sm);
+  color: var(--body-fg);
+  text-decoration: none;
+}
+
+.readiness-card strong {
+  display: block;
+}
+
+.readiness-status {
+  font-size: 11px;
+  font-weight: 700;
+  opacity: .8;
+}
+
+.readiness-detail {
+  display: block;
+  font-size: 12px;
+  opacity: .75;
+  margin-top: var(--ops-space-1);
+}
+
+.readiness-ok    { border-left-color: var(--ops-ok-fg); }
+.readiness-warn  { border-left-color: var(--ops-warning-fg); }
+.readiness-error { border-left-color: var(--ops-critical-fg); }
+
+/* Information, not a fault: a hub that records rather than delivers. */
+.readiness-info    { border-left-color: var(--ops-info-fg); }
+.readiness-neutral { border-left-color: var(--ops-muted-fg); }
+
+#nav-sections .dashboard-card {
+  background: var(--ops-module-bg);
+  border: 1px solid var(--hairline-color);
+  border-radius: var(--ops-radius-sm);
+}
+
+/* ----------------------------------------------------------------- netmap */
+
+#netmap {
+  max-width: 720px;
+}
+
+#netmap .netmap-caption {
+  color: var(--body-quiet-color);
+  font-size: 13px;
+  margin: var(--ops-space-1) 0 var(--ops-space-4);
+}
+
+#netmap ol.lane-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lane-card {
+  display: flex;
+  gap: var(--ops-space-3);
+  background: var(--ops-module-bg);
+  border: 1px solid var(--hairline-color);
+  border-radius: var(--ops-radius-sm);
+  padding: var(--ops-space-3);
+  margin-bottom: var(--ops-space-1);
+}
+
+/* Priority gutter: top wins. */
+.lane-gutter {
+  flex: 0 0 48px;
+  text-align: center;
+  color: var(--body-quiet-color);
+  font-size: 12px;
+}
+
+.lane-gutter .lane-order {
+  display: block;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--body-fg);
+}
+
+.lane-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.lane-name {
+  font-weight: 700;
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.lane-banner {
+  font-size: 12px;
+  margin-top: var(--ops-space-1);
+}
+
+.lane-conditions {
+  margin-top: var(--ops-space-2);
+  font-size: 13px;
+}
+
+.lane-conditions code {
+  background: var(--darkened-bg);
+  border: 1px solid var(--hairline-color);
+  border-radius: var(--ops-radius-sm);
+  padding: 1px var(--ops-space-1);
+  margin-right: var(--ops-space-1);
+}
+
+.lane-muted {
+  color: var(--body-quiet-color);
+  font-style: italic;
+}
+
+.lane-stages {
+  margin-top: var(--ops-space-2);
+  font-size: 12px;
+  color: var(--body-quiet-color);
+}
+
+.stage-chip {
+  display: inline-block;
+  background: var(--darkened-bg);
+  border-radius: 999px;
+  padding: 1px var(--ops-space-2);
+}
+
+.lane-delivery {
+  margin-top: var(--ops-space-2);
+  font-size: 13px;
+}
+
+.delivery-bound     { color: var(--ops-ok-fg); }
+.delivery-recording { color: var(--body-quiet-color); }
+.delivery-gap       { color: var(--ops-critical-fg); }
+
+/* Seed *shaping*, not provenance: the seed stripped notify on a
+   channel-less hub; delivery auto-restores once a channel exists. */
+.seed-badge {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--body-quiet-color);
+  border: 1px dashed var(--border-color);
+  border-radius: 999px;
+  padding: 0 var(--ops-space-2);
+  margin-left: var(--ops-space-1);
+  vertical-align: middle;
+}
+
+.lane-card.shadowed {
+  opacity: .55;
+  background: var(--darkened-bg);
+}
+
+.lane-card.inactive {
+  opacity: .55;
+}
+
+.lane-card.inactive .lane-name {
+  text-decoration: line-through;
+}
+
+.lane-card.never-matches {
+  border-color: var(--ops-critical-fg);
+}
+
+.lane-banner.banner-shadowed,
+.lane-banner.banner-inactive {
+  color: var(--body-quiet-color);
+}
+
+.lane-banner.banner-never {
+  color: var(--ops-critical-fg);
+}
+
 /* --------------------------------------------------------------------- chrome */
 
 #header {

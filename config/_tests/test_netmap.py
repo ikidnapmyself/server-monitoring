@@ -352,6 +352,14 @@ class TestMapView:
         resp = admin_client.get(reverse("admin:netmap"))
         assert b"No routing configured" in resp.content
 
+    def test_the_page_carries_no_style_block(self, admin_client):
+        """The map's styles live in ops.css, under the dashboard section."""
+        PipelineDefinition.objects.create(name="catch-all", priority=100, match=[])
+        body = admin_client.get(reverse("admin:netmap")).content.decode()
+        assert "<style>" not in body
+        assert "lane-card" in body
+        assert "admin/css/ops.css" in body
+
     def test_template_branches_render_each_state(self, admin_client):
         # Context tests cannot catch a typo'd key inside a template branch (it
         # renders empty and stays green), so every non-happy branch is asserted

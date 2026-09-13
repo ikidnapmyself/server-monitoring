@@ -59,16 +59,6 @@ def _scanned() -> list[Path]:
 
 SCANNED = _scanned()
 
-# Two templates still carry a whole <style> block of their own. The ops-skin plan
-# deletes both in its later dashboard and map tasks
-# (docs/plans/2026-09-12-admin-skin-implementation.md). They are named here rather
-# than excluded by pattern, and the retirement test below fails the moment one of
-# them comes back clean, so this allowance cannot outlive the cleanup.
-PENDING_STYLE_BLOCKS = {
-    "templates/admin/dashboard.html",
-    "templates/admin/map.html",
-}
-
 # Named so a rename or a move fails loudly here instead of silently dropping out
 # of the scan. Every one of these has held a hex at some point in the sweep.
 MUST_BE_SCANNED = {
@@ -109,16 +99,7 @@ def _offenders() -> dict[str, list[str]]:
 
 
 def test_no_inline_colour_outside_the_stylesheet():
-    offenders = {
-        name: hits for name, hits in _offenders().items() if name not in PENDING_STYLE_BLOCKS
-    }
-    assert offenders == {}, f"inline colour belongs in ops.css: {offenders}"
-
-
-def test_the_pending_allowance_retires_itself():
-    offenders = _offenders()
-    clean = PENDING_STYLE_BLOCKS - set(offenders)
-    assert clean == set(), f"no longer carries inline colour, drop from the allowance: {clean}"
+    assert _offenders() == {}, f"inline colour belongs in ops.css: {_offenders()}"
 
 
 def test_the_guard_scans_the_files_it_names():
