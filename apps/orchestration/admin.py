@@ -17,9 +17,23 @@ from apps.orchestration.models import (
     PipelineRun,
     PipelineStatus,
     StageExecution,
+    StageStatus,
 )
+from config.admin_badges import STAGE_STATUS_TONES, tinted, tone_for
 from config.admin_links import DASH, admin_link, changelist_link
 from config.dashboard import prettify_json
+
+# One mark per stage state. ``retrying`` and ``skipped`` get their own so a stage in
+# backoff and a stage deliberately passed over stop reading as one that never started;
+# the default covers a stage with no execution row at all.
+STAGE_GLYPHS = {
+    StageStatus.PENDING: "\u25cb",
+    StageStatus.RUNNING: "\u25cf",
+    StageStatus.SUCCEEDED: "\u2713",
+    StageStatus.FAILED: "\u2717",
+    StageStatus.RETRYING: "\u21bb",
+    StageStatus.SKIPPED: "\u2298",
+}
 
 
 class StageExecutionInline(admin.TabularInline):
@@ -195,7 +209,7 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
         added to list_display as it would cause N+1 query problems. Use only in
         readonly_fields and detail view fieldsets where prefetch_related is effective.
         """
-        from apps.orchestration.models import PipelineStage, StageStatus
+        from apps.orchestration.models import PipelineStage
 
         stages = [
             (PipelineStage.INGEST, "INGEST"),
@@ -214,21 +228,10 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
         for stage_value, stage_label in stages:
             execution = latest.get(stage_value)
             status = execution.status if execution is not None else None
-            if status == StageStatus.SUCCEEDED:
-                color, icon = "#28a745", "✓"
-            elif status == StageStatus.RUNNING:
-                color, icon = "#ffc107", "●"
-            elif status == StageStatus.FAILED:
-                color, icon = "#dc3545", "✗"
-            else:
-                color, icon = "#ccc", "○"
             # Build each stage part with format_html for proper escaping of dynamic content
             part = format_html(
-                '<span style="display:inline-block;text-align:center;margin:0 4px;">'
-                '<span style="color:{};font-size:18px;">{}</span><br>'
-                '<span style="font-size:11px;">{}</span></span>',
-                color,
-                icon,
+                '<span class="ops-stage">{}<br><span class="ops-stage-label">{}</span></span>',
+                tinted(STAGE_GLYPHS.get(status, "○"), tone_for(STAGE_STATUS_TONES, status)),
                 stage_label,
             )
             if execution is not None:
@@ -243,8 +246,8 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
         # Each part is already a SafeString from format_html above.
         # The separator uses format_html with a placeholder to avoid the no-args deprecation.
         separator = format_html(
-            '<span style="color:#999;margin:0 2px;">{}</span>',
-            "\u2192",
+            '<span class="ops-stage-arrow">{}</span>',
+            tinted("\u2192", "muted"),
         )
         stages_html = format_html_join(separator, "{}", ((part,) for part in parts))
 
@@ -420,8 +423,9 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
         if obj.routed_channel() is not None:
             return link
         return format_html(
-            '{} <span style="color:#999;font-size:11px;">(inactive)</span>',
+            '{} <span class="ops-note">{}</span>',
             link,
+            tinted("(inactive)", "muted"),
         )
 
     def save_model(self, request, obj, form, change):

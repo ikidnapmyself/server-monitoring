@@ -136,6 +136,11 @@ td.field-trace_id, td.field-run_id, td.field-instance_id, td.field-fingerprint {
   font-variant-numeric: tabular-nums;
 }
 
+/* Secondary text riding alongside a link or label. */
+.ops-note {
+  font-size: 11px;
+}
+
 /* Emitted by config/admin_badges.py. */
 .ops-badge {
   display: inline-block;
@@ -172,3 +177,22 @@ a.ops-badge:hover {
 .ops-tint--info     { color: var(--ops-info-fg); }
 .ops-tint--ok       { color: var(--ops-ok-fg); }
 .ops-tint--muted    { color: var(--ops-muted-fg); }
+
+/* The pipeline run's stage strip (apps/orchestration/admin.py: pipeline_flow). */
+.ops-stage {
+  display: inline-block;
+  text-align: center;
+  margin: 0 var(--ops-space-1);
+}
+
+.ops-stage .ops-tint {
+  font-size: 18px;
+}
+
+.ops-stage-label {
+  font-size: 11px;
+}
+
+.ops-stage-arrow {
+  margin: 0 2px;
+}
