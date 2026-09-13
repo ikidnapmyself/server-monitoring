@@ -55,6 +55,9 @@ lives in the header and silently breaking it is worse than supporting both.
 | `templates/admin/alerts/node/change_form.html` | three inline-styled badge spans collapse to `ops-badge--{{ freshness_status }}`. |
 | `apps/*/admin.py` | migrate status-rendering `format_html` sites to `badge()`. |
 
+> **Superseded 2026-09-13.** The implementation loads `ops.css` from `extrahead`, not `extrastyle`. `admin/change_list.html` and `admin/change_form.html` append their own styles after `block.super`, so an `extrastyle` link loses ties on load order. The original text above is left as written; `templates/admin/base_site.html` is the truth.
+
+
 ## Public interface
 
 ```python

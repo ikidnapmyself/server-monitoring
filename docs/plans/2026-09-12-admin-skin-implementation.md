@@ -121,6 +121,8 @@ ops.css is loaded after block.super so it wins over Django's base.css without an
 {% block nav-global %}{% endblock %}
 ```
 
+> **Superseded 2026-09-13.** The implementation loads `ops.css` from `extrahead`, not `extrastyle`. `admin/change_list.html` and `admin/change_form.html` append their own styles after `block.super`, so an `extrastyle` link loses ties on load order. The original text above is left as written; `templates/admin/base_site.html` is the truth.
+
 **Step 5: Create `static/admin/css/ops.css` with the token layer only**
 
 Styling of individual surfaces comes in later tasks. This step establishes only the
