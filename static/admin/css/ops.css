@@ -701,3 +701,61 @@ div.jsoneditor {
   color: var(--body-fg);
   font-family: var(--ops-mono);
 }
+
+/* --------------------------------------------------------------------- chrome */
+
+#header {
+  padding: var(--ops-space-3) var(--ops-space-6);
+  border-bottom: 1px solid var(--hairline-color);
+}
+
+#site-name {
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* Django paints this with --accent, a link colour tuned for the body ground.
+   Both themes keep a dark header, so in light that lands blue-on-near-black at
+   about 2.5:1. The branding token is the one already scoped to this ground. */
+#site-name a:link,
+#site-name a:visited {
+  color: var(--header-branding-color);
+}
+
+div.breadcrumbs {
+  padding: var(--ops-space-2) var(--ops-space-6);
+  border-bottom: 1px solid var(--hairline-color);
+  font-size: 12px;
+}
+
+/* The sections come from MonitoringAdminSite.get_app_list(), which regroups
+   every model into Operations / Configuration / History & Audit. They are the
+   sidebar's real structure, so they read as labels rather than as links. */
+#nav-sidebar .module caption a.section:link,
+#nav-sidebar .module caption a.section:visited {
+  color: var(--body-quiet-color);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Outweighs the rule above, which is more specific than Django's own
+   .current-app rule and would otherwise swallow it. */
+#nav-sidebar .module.current-app caption a.section:link,
+#nav-sidebar .module.current-app caption a.section:visited {
+  color: var(--body-loud-color);
+}
+
+/* Django already grounds the row. The edge is what finds it at a glance, and it
+   is inset rather than a border so the row does not shift by 3px when current. */
+#nav-sidebar tr.current-model {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+#nav-sidebar .module th a,
+#nav-sidebar .module td a {
+  padding-top: var(--ops-space-1);
+  padding-bottom: var(--ops-space-1);
+}
