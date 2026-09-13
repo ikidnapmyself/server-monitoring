@@ -49,7 +49,8 @@ class TestDatabasePathNormalization(SimpleTestCase):
 
 
 def test_staticfiles_dirs_includes_project_static():
-    """The project-level static/ dir is on the staticfiles search path."""
+    # Imported here, not at module scope: the tests above bind `settings` as a local
+    # to a reloaded module, and a module-level import would read as the same object.
     from django.conf import settings
 
     assert settings.BASE_DIR / "static" in settings.STATICFILES_DIRS

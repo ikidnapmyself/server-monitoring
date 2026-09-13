@@ -1,6 +1,15 @@
 /*
  * Ops console skin. Redefines Django 5.2's admin custom properties rather than
  * re-selecting its rules, so the built-in light/dark/auto toggle keeps working.
+ *
+ * Selectors here must match Django's own weight or lose. base.css declares light
+ * under `html[data-theme="light"], :root` and dark_mode.css declares dark under
+ * `html[data-theme="dark"]`, both (0,1,1). A bare `[data-theme="dark"]` is (0,1,0)
+ * and loses on specificity no matter how late this file loads.
+ *
+ * Section order, which appended blocks must keep:
+ *   tokens, primitives, badges and tints, changelist, forms, dashboard, chrome.
+ * An appended block belongs in its section, not at the end of the file.
  */
 
 :root {
@@ -16,9 +25,8 @@
   --ops-space-6: 24px;
 }
 
-/* Light theme: the five tones, tuned for a light ground. */
-:root,
-[data-theme="light"] {
+html[data-theme="light"],
+:root {
   --ops-critical-fg: #b91c1c;
   --ops-critical-bg: #fee2e2;
   --ops-warning-fg: #92400e;
@@ -29,6 +37,7 @@
   --ops-ok-bg: #dcfce7;
   --ops-muted-fg: #4b5563;
   --ops-muted-bg: #e5e7eb;
+  --ops-module-bg: #ffffff;
 
   --primary: #1f2937;
   --secondary: #111827;
@@ -44,17 +53,18 @@
   --breadcrumbs-link-fg: #f9fafb;
 }
 
-[data-theme="dark"] {
-  --ops-critical-fg: #f87171;
+html[data-theme="dark"] {
+  --ops-critical-fg: #fca5a5;
   --ops-critical-bg: #7f1d1d;
   --ops-warning-fg: #fbbf24;
   --ops-warning-bg: #78350f;
   --ops-info-fg: #60a5fa;
-  --ops-info-bg: #1e3a5f;
+  --ops-info-bg: #17304f;
   --ops-ok-fg: #4ade80;
   --ops-ok-bg: #14532d;
-  --ops-muted-fg: #9ca3af;
+  --ops-muted-fg: #d1d5db;
   --ops-muted-bg: #374151;
+  --ops-module-bg: #111721;
 
   --body-bg: #0b0f14;
   --body-fg: #e5e7eb;
@@ -65,8 +75,8 @@
   --darkened-bg: #111721;
   --selected-bg: #111721;
   --selected-row: #1c2330;
-  --module-bg: #111721;
   --primary: #0b0f14;
+  --secondary: #1f2937;
   --accent: #60a5fa;
   --link-fg: #60a5fa;
   --link-hover-color: #93c5fd;
@@ -75,21 +85,23 @@
   --breadcrumbs-bg: #111721;
 }
 
-/* The auto state stamps no attribute on the root, so it cannot share a selector
-   list with [data-theme="dark"]; the token set has to be written twice. Django's
-   own base.css duplicates for the same reason. Keep the two blocks identical. */
+/* The auto state carries data-theme="auto", never "dark", so it cannot share a
+   selector list with the block above and the token set has to be written twice.
+   Django's own CSS duplicates for the same reason. Keep the two blocks identical;
+   test_ops_css.py enforces it. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --ops-critical-fg: #f87171;
+    --ops-critical-fg: #fca5a5;
     --ops-critical-bg: #7f1d1d;
     --ops-warning-fg: #fbbf24;
     --ops-warning-bg: #78350f;
     --ops-info-fg: #60a5fa;
-    --ops-info-bg: #1e3a5f;
+    --ops-info-bg: #17304f;
     --ops-ok-fg: #4ade80;
     --ops-ok-bg: #14532d;
-    --ops-muted-fg: #9ca3af;
+    --ops-muted-fg: #d1d5db;
     --ops-muted-bg: #374151;
+    --ops-module-bg: #111721;
 
     --body-bg: #0b0f14;
     --body-fg: #e5e7eb;
@@ -100,8 +112,8 @@
     --darkened-bg: #111721;
     --selected-bg: #111721;
     --selected-row: #1c2330;
-    --module-bg: #111721;
     --primary: #0b0f14;
+    --secondary: #1f2937;
     --accent: #60a5fa;
     --link-fg: #60a5fa;
     --link-hover-color: #93c5fd;
@@ -115,7 +127,16 @@ body {
   font-family: var(--ops-sans);
 }
 
-/* The badge and tint system emitted by config/admin_badges.py. */
+/* Identifiers are read character by character. */
+.ops-mono,
+.field-trace_id, .field-run_id, .field-instance_id, .field-fingerprint,
+td.field-trace_id, td.field-run_id, td.field-instance_id, td.field-fingerprint {
+  font-family: var(--ops-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Emitted by config/admin_badges.py. */
 .ops-badge {
   display: inline-block;
   padding: 2px var(--ops-space-2);
@@ -128,8 +149,12 @@ body {
   white-space: nowrap;
 }
 
+/* The outline carries the hover affordance. Brightening far enough to read as a
+   state change would drag the text/background pair back under 4.5:1. */
 a.ops-badge:hover {
-  filter: brightness(1.15);
+  filter: brightness(1.08);
+  outline: 1px solid currentColor;
+  outline-offset: 1px;
 }
 
 .ops-badge--critical { color: var(--ops-critical-fg); background: var(--ops-critical-bg); }
@@ -138,17 +163,12 @@ a.ops-badge:hover {
 .ops-badge--ok       { color: var(--ops-ok-fg);       background: var(--ops-ok-bg); }
 .ops-badge--muted    { color: var(--ops-muted-fg);    background: var(--ops-muted-bg); }
 
+.ops-tint {
+  font-weight: 600;
+}
+
 .ops-tint--critical { color: var(--ops-critical-fg); }
 .ops-tint--warning  { color: var(--ops-warning-fg); }
 .ops-tint--info     { color: var(--ops-info-fg); }
 .ops-tint--ok       { color: var(--ops-ok-fg); }
 .ops-tint--muted    { color: var(--ops-muted-fg); }
-
-/* Identifiers are read character by character. */
-.ops-mono,
-.field-trace_id, .field-run_id, .field-instance_id, .field-fingerprint,
-td.field-trace_id, td.field-run_id, td.field-instance_id, td.field-fingerprint {
-  font-family: var(--ops-mono);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}

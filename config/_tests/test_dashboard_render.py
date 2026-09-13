@@ -63,8 +63,16 @@ def test_dashboard_says_so_when_no_node_reports_a_metric(client):
 
 
 @pytest.mark.django_db
-def test_dashboard_links_the_ops_stylesheet(client):
+def test_every_admin_surface_links_the_ops_stylesheet(client):
+    """Including the django_object_actions changelist, which extends admin/change_list.html
+    rather than base_site.html directly."""
     get_user_model().objects.create_superuser("admin4", "a4@b.co", "x")
     client.login(username="admin4", password="x")
-    body = client.get(reverse("admin:index")).content.decode()
-    assert "admin/css/ops.css" in body
+
+    for name in ("admin:index", "admin:alerts_node_changelist", "admin:alerts_incident_changelist"):
+        resp = client.get(reverse(name))
+        assert resp.status_code == 200, name
+        assert "admin/css/ops.css" in resp.content.decode(), name
+
+    body = client.get(reverse("admin:alerts_node_changelist")).content.decode()
+    assert "object-tools" in body  # the skin must not cost the changelist its buttons
