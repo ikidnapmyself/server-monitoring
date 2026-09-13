@@ -196,3 +196,17 @@ a.ops-badge:hover {
 .ops-stage-arrow {
   margin: 0 2px;
 }
+
+/* Read-only JSON on a change form (config/dashboard.py: prettify_json). */
+.ops-pre {
+  background: var(--darkened-bg);
+  color: var(--body-fg);
+  border: 1px solid var(--hairline-color);
+  border-radius: var(--ops-radius-sm);
+  padding: var(--ops-space-3);
+  margin: 0;
+  max-height: 400px;
+  overflow: auto;
+  font-family: var(--ops-mono);
+  font-size: 12px;
+}

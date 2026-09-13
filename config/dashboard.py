@@ -23,13 +23,7 @@ def prettify_json(data):
     if data is None:
         return "-"
     formatted = json.dumps(data, indent=2, ensure_ascii=False, default=str)
-    return format_html(
-        '<pre style="background:var(--body-bg, #f8f9fa);color:var(--body-fg, #333);'
-        "border:1px solid var(--hairline-color, #ddd);"
-        "padding:10px;border-radius:4px;"
-        'max-height:400px;overflow:auto;font-size:13px;margin:0;">{}</pre>',
-        formatted,
-    )
+    return format_html('<pre class="ops-pre">{}</pre>', formatted)
 
 
 def build_readiness():

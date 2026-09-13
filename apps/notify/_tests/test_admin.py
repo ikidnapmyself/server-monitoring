@@ -82,7 +82,18 @@ def test_the_panel_marks_a_lane_that_would_stop_delivering(model_admin, channel)
     _lane("a", channel)
     channel.is_active = False
     channel.save(update_fields=["is_active"])
-    assert "cannot deliver" in str(model_admin.lanes_display(channel))
+    html = str(model_admin.lanes_display(channel))
+    assert "cannot deliver" in html
+    assert "ops-tint--warning" in html
+    assert "&#9888;" in html
+    assert "#" not in html.replace("&#9888;", "")
+
+
+def test_a_deliverable_lane_carries_no_warning(model_admin, channel):
+    _lane("a", channel)
+    html = str(model_admin.lanes_display(channel))
+    assert "cannot deliver" not in html
+    assert "ops-tint" not in html
 
 
 def _queries_for(client, url):

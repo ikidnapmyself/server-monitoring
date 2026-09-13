@@ -7,6 +7,7 @@ from django.utils.html import format_html, format_html_join
 from django_json_widget.widgets import JSONEditorWidget
 
 from apps.notify.models import NotificationChannel
+from config.admin_badges import tinted
 from config.admin_links import admin_link, changelist_link
 
 
@@ -94,18 +95,13 @@ class NotificationChannelAdmin(admin.ModelAdmin):
         return format_html_join(
             "",
             "<div>{}{}</div>",
-            (
-                (
-                    admin_link(lane, lane.name),
-                    (
-                        format_html(
-                            ' <span style="color:#b26a00;">&#9888; cannot deliver: {}</span>',
-                            gap,
-                        )
-                        if (gap := lane.delivery_gap()) is not None
-                        else ""
-                    ),
-                )
-                for lane in lanes
-            ),
+            ((admin_link(lane, lane.name), self._gap_note(lane)) for lane in lanes),
         )
+
+    @staticmethod
+    def _gap_note(lane):
+        """The warning riding beside a lane that can no longer deliver, or nothing."""
+        gap = lane.delivery_gap()
+        if gap is None:
+            return ""
+        return format_html(" {}", tinted(format_html("&#9888; cannot deliver: {}", gap), "warning"))
