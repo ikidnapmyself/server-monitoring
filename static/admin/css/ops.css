@@ -141,6 +141,34 @@ td.field-trace_id, td.field-run_id, td.field-instance_id, td.field-fingerprint {
   font-size: 11px;
 }
 
+/* A read-only panel stacked above a change form. */
+.ops-module {
+  margin-bottom: var(--ops-space-6);
+  padding: var(--ops-space-3) var(--ops-space-4);
+}
+
+.ops-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ops-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--body-quiet-color);
+}
+
+.ops-table th,
+.ops-table td {
+  padding: var(--ops-space-2) var(--ops-space-3);
+  border-bottom: 1px solid var(--hairline-color);
+}
+
+/* Narrow viewports scroll the table, never the page. */
+.ops-scroll {
+  overflow-x: auto;
+}
+
 /* Emitted by config/admin_badges.py. */
 .ops-badge {
   display: inline-block;
@@ -168,15 +196,27 @@ a.ops-badge:hover {
 .ops-badge--ok       { color: var(--ops-ok-fg);       background: var(--ops-ok-bg); }
 .ops-badge--muted    { color: var(--ops-muted-fg);    background: var(--ops-muted-bg); }
 
-.ops-tint {
-  font-weight: 600;
-}
-
 .ops-tint--critical { color: var(--ops-critical-fg); }
 .ops-tint--warning  { color: var(--ops-warning-fg); }
 .ops-tint--info     { color: var(--ops-info-fg); }
 .ops-tint--ok       { color: var(--ops-ok-fg); }
 .ops-tint--muted    { color: var(--ops-muted-fg); }
+
+/* Weight is the non-colour half of the signal, so the four states worth noticing
+   carry it. Muted is the tone for text that should recede (run counts, trace ids,
+   timeline stamps) and stays at body weight. */
+.ops-tint--critical,
+.ops-tint--warning,
+.ops-tint--info,
+.ops-tint--ok {
+  font-weight: 600;
+}
+
+/* A block the page is warning about, marked down its left edge. */
+.ops-callout--warning {
+  border-left: 4px solid var(--ops-warning-fg);
+  padding-left: var(--ops-space-3);
+}
 
 /* The pipeline run's stage strip (apps/orchestration/admin.py: pipeline_flow). */
 .ops-stage {

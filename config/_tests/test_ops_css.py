@@ -88,3 +88,26 @@ def test_badge_pairs_meet_wcag_aa(marker, tone):
     declared = _declarations(marker)
     ratio = _contrast(declared[f"--ops-{tone}-fg"], declared[f"--ops-{tone}-bg"])
     assert ratio >= MIN_CONTRAST, f"{tone} is {ratio:.2f}:1"
+
+
+def _bold_tint_tones() -> set[str]:
+    """Which tint tones a rule in the file renders at 600."""
+    text = OPS_CSS.read_text()
+    bold: set[str] = set()
+    for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", text):
+        if "font-weight: 600" not in body:
+            continue
+        if re.search(r"\.ops-tint(?![-\w])", selectors):
+            bold |= set(TONES)
+        bold |= set(re.findall(r"\.ops-tint--([\w-]+)", selectors))
+    return bold
+
+
+def test_only_the_signal_tints_are_bolded():
+    """Muted tints carry secondary text: run counts, trace ids, timeline stamps.
+
+    Weight is the non-colour signal for a state worth noticing, so bolding the
+    tone that means "nothing to see" makes the quietest text on the page the
+    loudest.
+    """
+    assert _bold_tint_tones() == {"critical", "warning", "info", "ok"}
