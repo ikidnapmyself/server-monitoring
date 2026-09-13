@@ -773,3 +773,61 @@ class AlertBadgeToneTests(TestCase):
         assert "no incident; ingest not run" in html
         assert "<b>not processed — inbox</b>" in html
         assert "#" not in html
+
+
+class IncidentBadgeToneTests(TestCase):
+    """The incident pills carry a tone class, never a hex."""
+
+    def _admin(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import IncidentAdmin
+
+        return IncidentAdmin(Incident, AdminSite())
+
+    def test_each_severity_carries_its_tone(self):
+        for severity, tone in [
+            ("critical", "critical"),
+            ("warning", "warning"),
+            ("info", "info"),
+            ("chartreuse", "muted"),
+        ]:
+            html = str(self._admin().severity_badge(Incident(severity=severity)))
+            assert f"ops-badge--{tone}" in html
+            assert severity.upper() in html
+            assert "#" not in html
+
+    def test_each_status_carries_its_tone(self):
+        for status, tone in [
+            ("open", "critical"),
+            ("acknowledged", "warning"),
+            ("resolved", "ok"),
+            ("closed", "muted"),
+            ("pondering", "muted"),
+        ]:
+            html = str(self._admin().status_badge(Incident(status=status)))
+            assert f"ops-badge--{tone}" in html
+            assert status.upper() in html
+            assert "#" not in html
+
+
+class IncidentFiringCountToneTests(TestCase):
+    def test_a_firing_count_is_a_critical_tint(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import IncidentAdmin
+
+        incident = Incident.objects.create(title="High CPU")
+        Alert.objects.create(
+            fingerprint="f",
+            source="cluster",
+            name="cpu",
+            severity="critical",
+            status="firing",
+            started_at=timezone.now(),
+            incident=incident,
+        )
+        html = str(IncidentAdmin(Incident, AdminSite()).firing_alert_count_display(incident))
+        assert "ops-tint--critical" in html
+        assert ">1<" in html
+        assert "#" not in html

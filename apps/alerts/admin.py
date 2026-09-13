@@ -24,7 +24,6 @@ from apps.alerts.models import (
 )
 from apps.alerts.node_overview import (
     SEVERITIES_WORST_FIRST,
-    SEVERITY_COLORS,
     UNRESOLVED_INCIDENT_STATUSES,
     build_node_overview,
     render_severity_chips,
@@ -49,6 +48,7 @@ from apps.alerts.timeline import build_incident_timeline
 from apps.orchestration.models import InboxItem, PipelineRun
 from config.admin_badges import (
     ALERT_STATUS_TONES,
+    INCIDENT_STATUS_TONES,
     SEVERITY_TONES,
     badge,
     tinted,
@@ -537,29 +537,11 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
 
     @admin.display(description="Severity")
     def severity_badge(self, obj):
-        color = SEVERITY_COLORS.get(obj.severity, "#6c757d")
-        return format_html(
-            '<span style="background-color: {}; color: white; padding: 3px 8px; '
-            'border-radius: 3px; font-size: 11px;">{}</span>',
-            color,
-            obj.severity.upper(),
-        )
+        return badge(obj.severity.upper(), tone_for(SEVERITY_TONES, obj.severity))
 
     @admin.display(description="Status")
     def status_badge(self, obj):
-        colors = {
-            "open": "#dc3545",
-            "acknowledged": "#ffc107",
-            "resolved": "#28a745",
-            "closed": "#6c757d",
-        }
-        color = colors.get(obj.status, "#6c757d")
-        return format_html(
-            '<span style="background-color: {}; color: white; padding: 3px 8px; '
-            'border-radius: 3px; font-size: 11px;">{}</span>',
-            color,
-            obj.status.upper(),
-        )
+        return badge(obj.status.upper(), tone_for(INCIDENT_STATUS_TONES, obj.status))
 
     @admin.display(description="Alerts")
     def alert_count_display(self, obj):
@@ -576,7 +558,7 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
             return count
         return changelist_link(
             Alert,
-            format_html('<span style="color: #dc3545; font-weight: bold;">{}</span>', count),
+            tinted(count, "critical"),
             incident__id__exact=obj.pk,
             status__exact=AlertStatus.FIRING,
         )
