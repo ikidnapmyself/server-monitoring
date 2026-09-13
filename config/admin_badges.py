@@ -28,3 +28,49 @@ def tinted(text: object, tone: str) -> SafeString:
     """Coloured inline text with no pill. For glyph strips and inline warnings."""
     _check(tone)
     return format_html('<span class="ops-tint ops-tint--{}">{}</span>', tone, text)
+
+
+# Keyed on the raw string values rather than the enum members: ``config`` is imported
+# by every ``apps/*/admin.py``, so importing an app enum here would close a
+# config -> apps -> config cycle at module load. ``config/_tests`` asserts each table
+# still covers its enum.
+SEVERITY_TONES = {"critical": "critical", "warning": "warning", "info": "info"}
+
+ALERT_STATUS_TONES = {"firing": "critical", "resolved": "ok"}
+
+INCIDENT_STATUS_TONES = {
+    "open": "critical",
+    "acknowledged": "warning",
+    "resolved": "ok",
+    "closed": "muted",
+}
+
+CHECK_STATUS_TONES = {
+    "ok": "ok",
+    "warning": "warning",
+    "critical": "critical",
+    "unknown": "muted",
+}
+
+STAGE_STATUS_TONES = {
+    "pending": "muted",
+    "running": "warning",
+    "succeeded": "ok",
+    "failed": "critical",
+    "retrying": "warning",
+    "skipped": "muted",
+}
+
+DIAGNOSIS_TONES = {
+    "ok": "ok",
+    "empty": "warning",
+    "failed": "critical",
+    "stalled": "warning",
+    "skipped": "muted",
+    "never_ran": "critical",
+}
+
+
+def tone_for(table: dict[str, str], value: str) -> str:
+    """Tone for a domain status, falling back to ``muted`` for anything unmapped."""
+    return table.get(value, "muted")

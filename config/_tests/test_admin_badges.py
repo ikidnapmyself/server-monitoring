@@ -4,7 +4,31 @@ import pytest
 from django.utils.html import format_html
 from django.utils.safestring import SafeString
 
-from config.admin_badges import TONES, badge, tinted
+from apps.alerts.diagnosis import StageDiag
+from apps.alerts.models import AlertSeverity, AlertStatus, IncidentStatus
+from apps.checkers.models import CheckStatus
+from apps.orchestration.models import StageStatus
+from config.admin_badges import (
+    ALERT_STATUS_TONES,
+    CHECK_STATUS_TONES,
+    DIAGNOSIS_TONES,
+    INCIDENT_STATUS_TONES,
+    SEVERITY_TONES,
+    STAGE_STATUS_TONES,
+    TONES,
+    badge,
+    tinted,
+    tone_for,
+)
+
+_ALL_TABLES = {
+    "severity": SEVERITY_TONES,
+    "alert_status": ALERT_STATUS_TONES,
+    "incident_status": INCIDENT_STATUS_TONES,
+    "check": CHECK_STATUS_TONES,
+    "stage": STAGE_STATUS_TONES,
+    "diagnosis": DIAGNOSIS_TONES,
+}
 
 
 def test_badge_renders_its_tone_class():
@@ -80,3 +104,34 @@ def test_tinted_rejects_an_unknown_tone():
 
 def test_tones_are_the_five_documented_ones():
     assert TONES == frozenset({"critical", "warning", "info", "ok", "muted"})
+
+
+def test_tone_for_maps_a_known_value():
+    assert tone_for(INCIDENT_STATUS_TONES, "acknowledged") == "warning"
+
+
+def test_tone_for_falls_back_to_muted():
+    # An unmapped status renders grey rather than raising in a list column.
+    assert tone_for(INCIDENT_STATUS_TONES, "wat") == "muted"
+
+
+@pytest.mark.parametrize("table", _ALL_TABLES.values(), ids=_ALL_TABLES.keys())
+def test_every_mapped_tone_is_a_known_tone(table):
+    assert set(table.values()) <= TONES
+
+
+@pytest.mark.parametrize(
+    ("table", "enum"),
+    [
+        (SEVERITY_TONES, AlertSeverity),
+        (ALERT_STATUS_TONES, AlertStatus),
+        (INCIDENT_STATUS_TONES, IncidentStatus),
+        (CHECK_STATUS_TONES, CheckStatus),
+        (STAGE_STATUS_TONES, StageStatus),
+        (DIAGNOSIS_TONES, StageDiag),
+    ],
+    ids=["severity", "alert_status", "incident_status", "check", "stage", "diagnosis"],
+)
+def test_table_covers_its_whole_enum(table, enum):
+    # A status added to the enum without a tone would silently render muted.
+    assert set(table) == {member.value for member in enum}
