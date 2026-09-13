@@ -35,6 +35,7 @@ from apps.alerts.node_policy import (
 )
 from apps.alerts.reeval_existing import _outcome_for
 from apps.alerts.reevaluation import SCORERS, Verdict
+from config.admin_badges import tone_for
 
 # The badge wording follows the change form's policy panel vocabulary, so one
 # state does not get two names across the two surfaces.
@@ -69,6 +70,17 @@ NEVER_APPLIED = "Never"
 APPLIED_AT_INGEST = "At ingest, time not recorded"
 
 NOTHING_FIRING = "Nothing firing"
+
+# The status badge's colour, keyed on the status word the row already carries so
+# the word and the colour cannot drift apart. Muted is the ceiling states: no
+# edit an operator makes can move them, so they carry no verdict.
+STATUS_TONES = {
+    IN_EFFECT: "ok",
+    NOT_SCORING: "warning",
+    NOT_HONOURED: "warning",
+    NO_POLICY_SET: "warning",
+    NOT_REEVALUATABLE: "muted",
+}
 
 
 @dataclass(frozen=True)
@@ -125,6 +137,11 @@ class PolicyRow:
         if self.applied_at_ingest:
             return APPLIED_AT_INGEST
         return NEVER_APPLIED
+
+    @property
+    def tone(self) -> str:
+        """The badge tone for this row's status."""
+        return tone_for(STATUS_TONES, self.status)
 
     @property
     def is_problem(self) -> bool:

@@ -138,7 +138,15 @@ td.field-trace_id, td.field-run_id, td.field-instance_id, td.field-fingerprint {
 
 /* Secondary text riding alongside a link or label. */
 .ops-note {
+  color: var(--body-quiet-color);
   font-size: 11px;
+}
+
+/* The same note standing on its own is prose: reading size, and the room to sit
+   under a heading. */
+p.ops-note {
+  font-size: 13px;
+  margin: var(--ops-space-1) 0 var(--ops-space-4);
 }
 
 /* A read-only panel stacked above a change form. */
