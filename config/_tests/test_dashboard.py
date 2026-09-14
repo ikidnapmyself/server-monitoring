@@ -24,6 +24,12 @@ class TestPrettifyJson(SimpleTestCase):
         result = prettify_json({"a": {"b": [1, 2]}})
         assert "<pre" in result
 
+    def test_the_block_is_styled_by_class_not_by_inline_colour(self):
+        result = prettify_json({"key": "value"})
+        assert 'class="ops-pre"' in result
+        assert "style=" not in result
+        assert "#" not in result
+
 
 @pytest.mark.django_db
 class TestGetDashboardContext(TestCase):

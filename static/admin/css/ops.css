@@ -1,0 +1,1129 @@
+/*
+ * Ops console skin. Redefines Django 5.2's admin custom properties rather than
+ * re-selecting its rules, so the built-in light/dark/auto toggle keeps working.
+ *
+ * Selectors here must match Django's own weight or lose. base.css declares light
+ * under `html[data-theme="light"], :root` and dark_mode.css declares dark under
+ * `html[data-theme="dark"]`, both (0,1,1). A bare `[data-theme="dark"]` is (0,1,0)
+ * and loses on specificity no matter how late this file loads.
+ *
+ * Section order, which appended blocks must keep:
+ *   tokens, primitives, badges and tints, changelist, forms, dashboard, chrome.
+ * An appended block belongs in its section, not at the end of the file.
+ */
+
+:root {
+  --ops-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --ops-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  --ops-radius: 6px;
+  --ops-radius-sm: 4px;
+  --ops-space-1: 4px;
+  --ops-space-2: 8px;
+  --ops-space-3: 12px;
+  --ops-space-4: 16px;
+  --ops-space-6: 24px;
+}
+
+html[data-theme="light"],
+:root {
+  --ops-critical-fg: #b91c1c;
+  --ops-critical-bg: #fee2e2;
+  --ops-warning-fg: #92400e;
+  --ops-warning-bg: #fef3c7;
+  --ops-info-fg: #1e40af;
+  --ops-info-bg: #dbeafe;
+  --ops-ok-fg: #166534;
+  --ops-ok-bg: #dcfce7;
+  --ops-muted-fg: #4b5563;
+  --ops-muted-bg: #e5e7eb;
+  --ops-module-bg: #ffffff;
+
+  --body-quiet-color: #4b5563;
+  --hairline-color: #e5e7eb;
+  --border-color: #d1d5db;
+  --darkened-bg: #f3f4f6;
+  --selected-bg: #e5e7eb;
+  --selected-row: #eef2f7;
+  --link-selected-fg: #1d4ed8;
+
+  --ops-accent-fg: #ffffff;
+  --button-bg: #1f2937;
+  --button-fg: #ffffff;
+  --button-hover-bg: #111827;
+  --default-button-bg: #2563eb;
+  --default-button-hover-bg: #1d4ed8;
+  --delete-button-bg: #b91c1c;
+  --delete-button-hover-bg: #991b1b;
+  --close-button-bg: #6b7280;
+  --close-button-hover-bg: #4b5563;
+  --object-tools-bg: var(--darkened-bg);
+  --object-tools-fg: var(--body-fg);
+  --object-tools-hover-bg: var(--selected-row);
+
+  --primary: #1f2937;
+  --secondary: #111827;
+  --accent: #2563eb;
+  --link-fg: #2563eb;
+  --link-hover-color: #1d4ed8;
+  --header-bg: #111827;
+  --header-color: #f9fafb;
+  --header-branding-color: #f9fafb;
+  --header-link-color: #e5e7eb;
+  --breadcrumbs-bg: #1f2937;
+  --breadcrumbs-fg: #d1d5db;
+  --breadcrumbs-link-fg: #f9fafb;
+}
+
+html[data-theme="dark"] {
+  --ops-critical-fg: #fca5a5;
+  --ops-critical-bg: #7f1d1d;
+  --ops-warning-fg: #fbbf24;
+  --ops-warning-bg: #78350f;
+  --ops-info-fg: #60a5fa;
+  --ops-info-bg: #17304f;
+  --ops-ok-fg: #4ade80;
+  --ops-ok-bg: #14532d;
+  --ops-muted-fg: #d1d5db;
+  --ops-muted-bg: #374151;
+  --ops-module-bg: #111721;
+
+  --body-bg: #0b0f14;
+  --body-fg: #e5e7eb;
+  --body-quiet-color: #9ca3af;
+  --body-loud-color: #f9fafb;
+  --hairline-color: #1f2937;
+  --border-color: #1f2937;
+  --darkened-bg: #161e2b;
+  --selected-bg: #111721;
+  --selected-row: #1c2330;
+  --primary: #0b0f14;
+  --secondary: #1f2937;
+  --accent: #60a5fa;
+  --link-fg: #60a5fa;
+  --link-hover-color: #93c5fd;
+  --link-selected-fg: #93c5fd;
+
+  --ops-accent-fg: #0b0f14;
+  --button-bg: #1f2937;
+  --button-fg: #e5e7eb;
+  --button-hover-bg: #2b3a4f;
+  --default-button-bg: #60a5fa;
+  --default-button-hover-bg: #93c5fd;
+  --delete-button-bg: #991b1b;
+  --delete-button-hover-bg: #b91c1c;
+  --close-button-bg: #374151;
+  --close-button-hover-bg: #4b5563;
+  --object-tools-bg: var(--darkened-bg);
+  --object-tools-fg: var(--body-fg);
+  --object-tools-hover-bg: var(--selected-row);
+  --header-bg: #0b0f14;
+  --header-color: #e5e7eb;
+  --breadcrumbs-bg: #111721;
+}
+
+/* The auto state carries data-theme="auto", never "dark", so it cannot share a
+   selector list with the block above and the token set has to be written twice.
+   Django's own CSS duplicates for the same reason. Keep the two blocks identical;
+   test_ops_css.py enforces it. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ops-critical-fg: #fca5a5;
+    --ops-critical-bg: #7f1d1d;
+    --ops-warning-fg: #fbbf24;
+    --ops-warning-bg: #78350f;
+    --ops-info-fg: #60a5fa;
+    --ops-info-bg: #17304f;
+    --ops-ok-fg: #4ade80;
+    --ops-ok-bg: #14532d;
+    --ops-muted-fg: #d1d5db;
+    --ops-muted-bg: #374151;
+    --ops-module-bg: #111721;
+
+    --body-bg: #0b0f14;
+    --body-fg: #e5e7eb;
+    --body-quiet-color: #9ca3af;
+    --body-loud-color: #f9fafb;
+    --hairline-color: #1f2937;
+    --border-color: #1f2937;
+    --darkened-bg: #161e2b;
+    --selected-bg: #111721;
+    --selected-row: #1c2330;
+    --primary: #0b0f14;
+    --secondary: #1f2937;
+    --accent: #60a5fa;
+    --link-fg: #60a5fa;
+    --link-hover-color: #93c5fd;
+    --link-selected-fg: #93c5fd;
+
+    --ops-accent-fg: #0b0f14;
+    --button-bg: #1f2937;
+    --button-fg: #e5e7eb;
+    --button-hover-bg: #2b3a4f;
+    --default-button-bg: #60a5fa;
+    --default-button-hover-bg: #93c5fd;
+    --delete-button-bg: #991b1b;
+    --delete-button-hover-bg: #b91c1c;
+    --close-button-bg: #374151;
+    --close-button-hover-bg: #4b5563;
+    --object-tools-bg: var(--darkened-bg);
+    --object-tools-fg: var(--body-fg);
+    --object-tools-hover-bg: var(--selected-row);
+    --header-bg: #0b0f14;
+    --header-color: #e5e7eb;
+    --breadcrumbs-bg: #111721;
+  }
+}
+
+body {
+  font-family: var(--ops-sans);
+}
+
+/* Identifiers are read character by character. */
+.ops-mono,
+.field-trace_id, .field-run_id, .field-instance_id, .field-fingerprint,
+td.field-trace_id, td.field-run_id, td.field-instance_id, td.field-fingerprint {
+  font-family: var(--ops-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Secondary text riding alongside a link or label. */
+.ops-note {
+  color: var(--body-quiet-color);
+  font-size: 11px;
+}
+
+/* The same note standing on its own is prose: reading size, and the room to sit
+   under a heading. */
+p.ops-note {
+  font-size: 13px;
+  margin: var(--ops-space-1) 0 var(--ops-space-4);
+}
+
+/* A read-only panel stacked above a change form. */
+.ops-module {
+  margin-bottom: var(--ops-space-6);
+  padding: var(--ops-space-3) var(--ops-space-4);
+}
+
+.ops-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ops-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--body-quiet-color);
+}
+
+.ops-table th,
+.ops-table td {
+  padding: var(--ops-space-2) var(--ops-space-3);
+  border-bottom: 1px solid var(--hairline-color);
+}
+
+/* Narrow viewports scroll the table, never the page. */
+.ops-scroll {
+  overflow-x: auto;
+}
+
+/* Emitted by config/admin_badges.py. */
+.ops-badge {
+  display: inline-block;
+  padding: 2px var(--ops-space-2);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+/* The outline carries the hover affordance. Brightening far enough to read as a
+   state change would drag the text/background pair back under 4.5:1. */
+a.ops-badge:hover {
+  filter: brightness(1.08);
+  outline: 1px solid currentColor;
+  outline-offset: 1px;
+}
+
+.ops-badge--critical { color: var(--ops-critical-fg); background: var(--ops-critical-bg); }
+.ops-badge--warning  { color: var(--ops-warning-fg);  background: var(--ops-warning-bg); }
+.ops-badge--info     { color: var(--ops-info-fg);     background: var(--ops-info-bg); }
+.ops-badge--ok       { color: var(--ops-ok-fg);       background: var(--ops-ok-bg); }
+.ops-badge--muted    { color: var(--ops-muted-fg);    background: var(--ops-muted-bg); }
+
+/* Django's `a:link, a:visited` is (0,1,1) and outweighs a bare tone class, so an
+   anchor badge from badge(..., url=...) keeps the generic link colour unless its
+   tone is said again with the element in the selector. The node severity chips
+   are the live case. */
+a.ops-badge--critical:link, a.ops-badge--critical:visited { color: var(--ops-critical-fg); }
+a.ops-badge--warning:link,  a.ops-badge--warning:visited  { color: var(--ops-warning-fg); }
+a.ops-badge--info:link,     a.ops-badge--info:visited     { color: var(--ops-info-fg); }
+a.ops-badge--ok:link,       a.ops-badge--ok:visited       { color: var(--ops-ok-fg); }
+a.ops-badge--muted:link,    a.ops-badge--muted:visited    { color: var(--ops-muted-fg); }
+
+.ops-tint--critical { color: var(--ops-critical-fg); }
+.ops-tint--warning  { color: var(--ops-warning-fg); }
+.ops-tint--info     { color: var(--ops-info-fg); }
+.ops-tint--ok       { color: var(--ops-ok-fg); }
+.ops-tint--muted    { color: var(--ops-muted-fg); }
+
+/* Weight is the non-colour half of the signal, so the four states worth noticing
+   carry it. Muted is the tone for text that should recede (run counts, trace ids,
+   timeline stamps) and stays at body weight. */
+.ops-tint--critical,
+.ops-tint--warning,
+.ops-tint--info,
+.ops-tint--ok {
+  font-weight: 600;
+}
+
+/* A block the page is warning about, marked down its left edge. */
+.ops-callout--warning {
+  border-left: 4px solid var(--ops-warning-fg);
+  padding-left: var(--ops-space-3);
+}
+
+/* The pipeline run's stage strip (apps/orchestration/admin.py: pipeline_flow). */
+.ops-stage {
+  display: inline-block;
+  text-align: center;
+  margin: 0 var(--ops-space-1);
+}
+
+.ops-stage .ops-tint {
+  font-size: 18px;
+}
+
+.ops-stage-label {
+  font-size: 11px;
+}
+
+.ops-stage-arrow {
+  margin: 0 2px;
+}
+
+/* The incident page's expected-vs-actual stage strip (apps/alerts/admin.py:
+   diagnosis_display). */
+.ops-diag {
+  margin: 0 0 0 var(--ops-space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.ops-diag-stage {
+  display: inline-block;
+  width: 90px;
+}
+
+/* Read-only JSON on a change form (config/dashboard.py: prettify_json). */
+.ops-pre {
+  background: var(--darkened-bg);
+  color: var(--body-fg);
+  border: 1px solid var(--hairline-color);
+  border-radius: var(--ops-radius-sm);
+  padding: var(--ops-space-3);
+  margin: 0;
+  max-height: 400px;
+  overflow: auto;
+  font-family: var(--ops-mono);
+  font-size: 12px;
+}
+
+/* ------------------------------------------------------------------ changelist */
+
+/* Django renders the search box (#toolbar), the date drilldown (.toplinks) and the
+   action bar (.actions) as three separate strips above the results. They share a
+   ground and a hairline here so they read as one control bar, whichever of them
+   the model happens to have. */
+#toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ops-space-3);
+  background: var(--darkened-bg);
+  border: 1px solid var(--hairline-color);
+  border-bottom: 0;
+  border-radius: var(--ops-radius) var(--ops-radius) 0 0;
+  padding: var(--ops-space-2) var(--ops-space-3);
+  margin-bottom: 0;
+}
+
+#toolbar form,
+#toolbar form > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ops-space-2);
+  margin: 0;
+}
+
+#toolbar form {
+  flex: 1 1 auto;
+}
+
+#toolbar #searchbar {
+  flex: 1 1 220px;
+  height: auto;
+  padding: var(--ops-space-1) var(--ops-space-2);
+  border-radius: var(--ops-radius-sm);
+}
+
+#changelist .toplinks {
+  background: var(--darkened-bg);
+  border-left: 1px solid var(--hairline-color);
+  border-right: 1px solid var(--hairline-color);
+  border-bottom: 1px solid var(--hairline-color);
+  padding: var(--ops-space-2) var(--ops-space-3);
+  margin: 0;
+}
+
+#changelist .actions {
+  background: var(--darkened-bg);
+  border: 1px solid var(--hairline-color);
+  border-radius: 0 0 var(--ops-radius) var(--ops-radius);
+  padding: var(--ops-space-2) var(--ops-space-3);
+  margin-bottom: var(--ops-space-3);
+}
+
+/* Without a search box the action bar is the whole bar, so it carries every corner. */
+#changelist:not(:has(#toolbar)) .actions {
+  border-radius: var(--ops-radius);
+}
+
+#changelist table {
+  border-collapse: collapse;
+}
+
+/* Sticky so the column names survive a long result list. The ground must stay
+   opaque or rows scroll through it. */
+#changelist table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--darkened-bg);
+  color: var(--body-quiet-color);
+  border-top: 0;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+/* A sortable column that is not sorted yet says nothing in stock Django. */
+#changelist table thead th.sortable .text a {
+  position: relative;
+  padding-right: 20px;
+}
+
+#changelist table thead th.sortable:not(.sorted) .text a::after {
+  content: "\2195";
+  position: absolute;
+  right: var(--ops-space-2);
+  opacity: 0.4;
+}
+
+#changelist table thead th.sortable:not(.sorted) .text a:focus::after,
+#changelist table thead th.sortable:not(.sorted) .text a:hover::after {
+  opacity: 1;
+}
+
+#changelist table thead th.sorted {
+  background: var(--selected-bg);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+#changelist table thead th.sorted .text a {
+  color: var(--body-loud-color);
+  font-weight: 700;
+}
+
+#changelist tbody tr {
+  background: transparent;
+}
+
+#changelist tbody td,
+#changelist tbody th {
+  border-bottom: 1px solid var(--hairline-color);
+  padding: var(--ops-space-2) var(--ops-space-3);
+  vertical-align: middle;
+}
+
+#changelist tbody tr:hover {
+  background: var(--selected-row);
+}
+
+/* A checked row has to stay distinct from the one under the cursor, so it keeps a
+   marker as well as a ground. */
+#changelist tbody tr.selected,
+#changelist tbody tr:has(.action-select:checked) {
+  background: var(--selected-bg);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Counts and durations are compared down the column, not read across the row. */
+#changelist td.field-duration_ms,
+#changelist td.field-duration_display,
+#changelist td.field-attempt,
+#changelist td.field-priority,
+#changelist td.field-passed,
+#changelist td.field-warnings,
+#changelist td.field-errors,
+#changelist td.field-recommendations_count,
+#changelist td.field-alert_count_display,
+#changelist td.field-firing_alert_count_display,
+#changelist td.field-pipeline_runs_display {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#changelist .paginator {
+  background: transparent;
+  border-top: 1px solid var(--hairline-color);
+  border-bottom: 0;
+  padding: var(--ops-space-3) 0;
+  font-size: 12px;
+}
+
+#changelist-filter {
+  background: var(--ops-module-bg);
+  border-left: 1px solid var(--hairline-color);
+}
+
+#changelist-filter h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--body-quiet-color);
+  border-bottom: 1px solid var(--hairline-color);
+  padding-bottom: var(--ops-space-2);
+}
+
+/* 5.2 puts each filter title in a <details><summary>, not an <h3>. */
+#changelist-filter details summary {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--body-fg);
+}
+
+#changelist-filter li.selected {
+  border-left: 3px solid var(--accent);
+  padding-left: var(--ops-space-3);
+  margin-left: -15px;
+}
+
+/* ---------------------------------------------------------------------- forms */
+
+.button,
+input[type=submit],
+input[type=button],
+.submit-row input,
+a.button {
+  background: var(--button-bg);
+  color: var(--button-fg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--ops-radius-sm);
+  padding: var(--ops-space-2) var(--ops-space-4);
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+/* The one action the form is for, so it carries the accent rather than the
+   neutral ground the rest of the row sits on. */
+.button.default,
+input[type=submit].default,
+.submit-row input.default {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--ops-accent-fg);
+  text-transform: none;
+}
+
+.button.default:active,
+.button.default:focus,
+.button.default:hover,
+input[type=submit].default:active,
+input[type=submit].default:focus,
+input[type=submit].default:hover {
+  background: var(--default-button-hover-bg);
+  border-color: var(--default-button-hover-bg);
+}
+
+/* Destructive, so it is tinted rather than solid: loud enough to find, quiet
+   enough that it is not the thing the eye lands on first. */
+.submit-row a.deletelink,
+.submit-row a.deletelink:link,
+.submit-row a.deletelink:visited {
+  background: var(--ops-critical-bg);
+  color: var(--ops-critical-fg);
+  border: 1px solid transparent;
+  border-radius: var(--ops-radius-sm);
+}
+
+.submit-row a.deletelink:active,
+.submit-row a.deletelink:focus,
+.submit-row a.deletelink:hover {
+  background: var(--ops-critical-bg);
+  border-color: var(--ops-critical-fg);
+}
+
+/* Keyboard focus has to survive a restyle that rounds and re-grounds every
+   control, so it is stated once for all of them. */
+.button:focus-visible,
+input[type=submit]:focus-visible,
+input[type=button]:focus-visible,
+a.button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.object-tools a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Django scopes these two harder than the shared button rule above, so the
+   toolbar's Search and the action bar's Go need saying twice. */
+#changelist #toolbar form input[type=submit],
+#changelist .actions .button {
+  background: var(--button-bg);
+  color: var(--button-fg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--ops-radius-sm);
+  box-shadow: none;
+  height: auto;
+  padding: var(--ops-space-1) var(--ops-space-3);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+#changelist #toolbar form input[type=submit]:focus,
+#changelist #toolbar form input[type=submit]:hover,
+#changelist .actions .button:focus,
+#changelist .actions .button:hover {
+  background: var(--button-hover-bg);
+  border-color: var(--border-color);
+}
+
+input:not([type]),
+input[type=text],
+input[type=password],
+input[type=email],
+input[type=url],
+input[type=number],
+input[type=tel],
+textarea,
+select,
+.vTextField {
+  background: var(--body-bg);
+  color: var(--body-fg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--ops-radius-sm);
+  padding: var(--ops-space-2);
+}
+
+/* A panel, not a page-wide band: fieldsets, the changelist and the sidebar's
+   own sections all reach this rule. */
+.module {
+  background: var(--ops-module-bg);
+  border: 1px solid var(--hairline-color);
+  border-radius: var(--ops-radius);
+}
+
+.module h2,
+.module caption,
+.inline-group h2 {
+  background: var(--darkened-bg);
+  color: var(--body-quiet-color);
+  border-bottom: 1px solid var(--hairline-color);
+  border-radius: var(--ops-radius) var(--ops-radius) 0 0;
+  padding: var(--ops-space-2) var(--ops-space-3);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+/* A caption names a whole table of links, which is a label rather than a title. */
+.module caption,
+.inline-group h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.submit-row {
+  background: var(--darkened-bg);
+  border: 1px solid var(--hairline-color);
+  border-radius: var(--ops-radius);
+}
+
+/* Page-level actions read as secondary buttons, not as pills. */
+.object-tools a:link,
+.object-tools a:visited {
+  background: var(--object-tools-bg);
+  color: var(--object-tools-fg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--ops-radius-sm);
+  padding: var(--ops-space-1) var(--ops-space-3);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.object-tools a:focus,
+.object-tools a:hover {
+  background: var(--object-tools-hover-bg);
+  color: var(--object-tools-fg);
+}
+
+.object-tools li {
+  height: auto;
+}
+
+/* The alert marker on a sparkline (apps/checkers/admin_charts.py). */
+.spark-marker {
+  fill: var(--ops-critical-fg);
+}
+
+/* jsoneditor.min.css arrives with the widget's own media, which the admin puts
+   in extrahead after this file, so a tie there is decided against us on load
+   order. These four win on specificity instead of !important; the vendor
+   selectors they beat are .jsoneditor, .jsoneditor-menu, div.jsoneditor-outer
+   and textarea.jsoneditor-text. */
+div.jsoneditor {
+  border: 1px solid var(--border-color);
+}
+
+/* The menu's buttons are white glyphs in a sprite, so its ground stays dark in
+   both themes or the icons vanish. */
+.jsoneditor > .jsoneditor-menu {
+  background-color: var(--secondary);
+  border-bottom: 1px solid var(--secondary);
+}
+
+.jsoneditor > div.jsoneditor-outer {
+  background: var(--body-bg);
+}
+
+.jsoneditor textarea.jsoneditor-text {
+  background-color: var(--body-bg);
+  color: var(--body-fg);
+  font-family: var(--ops-mono);
+}
+
+/* ------------------------------------------------------------------ dashboard */
+
+#dashboard {
+  margin-bottom: var(--ops-space-6);
+}
+
+.dashboard-row {
+  display: flex;
+  gap: var(--ops-space-4);
+  margin-bottom: var(--ops-space-4);
+}
+
+.dashboard-card {
+  flex: 1;
+  padding: var(--ops-space-4);
+}
+
+.dashboard-card h2,
+.trends-module h2,
+#nav-sections .dashboard-card h3 {
+  margin-top: 0;
+}
+
+.metric-value {
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: var(--ops-space-2);
+}
+
+.metric-value.compact {
+  margin-bottom: var(--ops-space-1);
+}
+
+.metric-subtitle {
+  font-size: 12px;
+  color: var(--body-quiet-color);
+  margin-bottom: var(--ops-space-2);
+}
+
+.no-data-message,
+.trends-no-data {
+  color: var(--body-quiet-color);
+}
+
+.success-message {
+  color: var(--ops-ok-fg);
+  font-size: 18px;
+}
+
+.badge-container {
+  display: flex;
+  gap: var(--ops-space-2);
+}
+
+/* The bar is the only reading of the rate that is not a number, so it takes the
+   solid tone rather than the badge tint. */
+.progress-bar-container {
+  background: var(--darkened-bg);
+  border-radius: var(--ops-radius-sm);
+  height: 8px;
+  margin-bottom: var(--ops-space-2);
+}
+
+.progress-bar {
+  height: 8px;
+  border-radius: var(--ops-radius-sm);
+}
+
+.progress-bar.success { background: var(--ops-ok-fg); }
+.progress-bar.warning { background: var(--ops-warning-fg); }
+.progress-bar.error   { background: var(--ops-critical-fg); }
+
+.trends-module {
+  padding: var(--ops-space-4);
+  margin-bottom: var(--ops-space-4);
+}
+
+.stats-container {
+  display: flex;
+  gap: var(--ops-space-4);
+  font-size: 12px;
+}
+
+.dashboard-table {
+  width: 100%;
+  font-size: 13px;
+}
+
+.dashboard-table th,
+.dashboard-table td {
+  padding: var(--ops-space-1) var(--ops-space-2);
+}
+
+.dashboard-table th {
+  text-align: left;
+}
+
+/* Fleet metrics: the reading is coloured, not badged, so a wide grid of
+   numbers still reads as numbers. */
+.metric-grid th.metric-node {
+  text-align: left;
+}
+
+.metric-grid th.metric-reading,
+.metric-grid td.metric-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-unit {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--body-quiet-color);
+}
+
+.metric-ok       { color: var(--ops-ok-fg); }
+.metric-warning  { color: var(--ops-warning-fg); font-weight: 700; }
+.metric-critical { color: var(--ops-critical-fg); font-weight: 700; }
+.metric-unknown  { color: var(--ops-muted-fg); }
+
+.view-all-link,
+.table-link {
+  margin-top: var(--ops-space-2);
+}
+
+.trends-container {
+  display: flex;
+  gap: var(--ops-space-4);
+}
+
+.trends-section {
+  flex: 1;
+}
+
+.trends-section h3 {
+  font-size: 14px;
+  margin-bottom: var(--ops-space-2);
+}
+
+.trends-table {
+  width: 100%;
+  font-size: 13px;
+}
+
+.trends-table td {
+  padding: var(--ops-space-1) 0;
+}
+
+.trends-table th {
+  text-align: left;
+}
+
+.trends-table tbody td:last-child {
+  text-align: right;
+  font-weight: 700;
+}
+
+.trends-table th:nth-child(2),
+.trends-table th:nth-child(3) {
+  text-align: right;
+}
+
+.trends-no-data {
+  font-size: 13px;
+}
+
+#readiness h2 .heading-link {
+  font-size: 13px;
+  font-weight: 400;
+  margin-left: var(--ops-space-2);
+}
+
+.readiness-card {
+  display: block;
+  flex: 1;
+  padding: var(--ops-space-3);
+  background: var(--ops-module-bg);
+  border: 1px solid var(--hairline-color);
+  border-left-width: 4px;
+  border-radius: var(--ops-radius-sm);
+  color: var(--body-fg);
+  text-decoration: none;
+}
+
+.readiness-card strong {
+  display: block;
+}
+
+.readiness-status {
+  font-size: 11px;
+  font-weight: 700;
+  opacity: .8;
+}
+
+.readiness-detail {
+  display: block;
+  font-size: 12px;
+  opacity: .75;
+  margin-top: var(--ops-space-1);
+}
+
+.readiness-ok    { border-left-color: var(--ops-ok-fg); }
+.readiness-warn  { border-left-color: var(--ops-warning-fg); }
+.readiness-error { border-left-color: var(--ops-critical-fg); }
+
+/* Information, not a fault: a hub that records rather than delivers. */
+.readiness-info    { border-left-color: var(--ops-info-fg); }
+.readiness-neutral { border-left-color: var(--ops-muted-fg); }
+
+#nav-sections .dashboard-card {
+  background: var(--ops-module-bg);
+  border: 1px solid var(--hairline-color);
+  border-radius: var(--ops-radius-sm);
+}
+
+/* ----------------------------------------------------------------- netmap */
+
+#netmap {
+  max-width: 720px;
+}
+
+#netmap .netmap-caption {
+  color: var(--body-quiet-color);
+  font-size: 13px;
+  margin: var(--ops-space-1) 0 var(--ops-space-4);
+}
+
+#netmap ol.lane-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lane-card {
+  display: flex;
+  gap: var(--ops-space-3);
+  background: var(--ops-module-bg);
+  border: 1px solid var(--hairline-color);
+  border-radius: var(--ops-radius-sm);
+  padding: var(--ops-space-3);
+  margin-bottom: var(--ops-space-1);
+}
+
+/* Priority gutter: top wins. */
+.lane-gutter {
+  flex: 0 0 48px;
+  text-align: center;
+  color: var(--body-quiet-color);
+  font-size: 12px;
+}
+
+.lane-gutter .lane-order {
+  display: block;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--body-fg);
+}
+
+.lane-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.lane-name {
+  font-weight: 700;
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.lane-banner {
+  font-size: 12px;
+  margin-top: var(--ops-space-1);
+}
+
+.lane-conditions {
+  margin-top: var(--ops-space-2);
+  font-size: 13px;
+}
+
+.lane-conditions code {
+  background: var(--darkened-bg);
+  border: 1px solid var(--hairline-color);
+  border-radius: var(--ops-radius-sm);
+  padding: 1px var(--ops-space-1);
+  margin-right: var(--ops-space-1);
+}
+
+.lane-muted {
+  color: var(--body-quiet-color);
+  font-style: italic;
+}
+
+.lane-stages {
+  margin-top: var(--ops-space-2);
+  font-size: 12px;
+  color: var(--body-quiet-color);
+}
+
+.stage-chip {
+  display: inline-block;
+  background: var(--darkened-bg);
+  border-radius: 999px;
+  padding: 1px var(--ops-space-2);
+}
+
+.lane-delivery {
+  margin-top: var(--ops-space-2);
+  font-size: 13px;
+}
+
+.delivery-bound     { color: var(--ops-ok-fg); }
+.delivery-recording { color: var(--body-quiet-color); }
+.delivery-gap       { color: var(--ops-critical-fg); }
+
+/* Seed *shaping*, not provenance: the seed stripped notify on a
+   channel-less hub; delivery auto-restores once a channel exists. */
+.seed-badge {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--body-quiet-color);
+  border: 1px dashed var(--border-color);
+  border-radius: 999px;
+  padding: 0 var(--ops-space-2);
+  margin-left: var(--ops-space-1);
+  vertical-align: middle;
+}
+
+.lane-card.shadowed {
+  opacity: .55;
+  background: var(--darkened-bg);
+}
+
+.lane-card.inactive {
+  opacity: .55;
+}
+
+.lane-card.inactive .lane-name {
+  text-decoration: line-through;
+}
+
+.lane-card.never-matches {
+  border-color: var(--ops-critical-fg);
+}
+
+.lane-banner.banner-shadowed,
+.lane-banner.banner-inactive {
+  color: var(--body-quiet-color);
+}
+
+.lane-banner.banner-never {
+  color: var(--ops-critical-fg);
+}
+
+/* --------------------------------------------------------------------- chrome */
+
+#header {
+  padding: var(--ops-space-3) var(--ops-space-6);
+  border-bottom: 1px solid var(--hairline-color);
+}
+
+#site-name {
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* Django paints this with --accent, a link colour tuned for the body ground.
+   Both themes keep a dark header, so in light that lands blue-on-near-black at
+   about 2.5:1. The branding token is the one already scoped to this ground. */
+#site-name a:link,
+#site-name a:visited {
+  color: var(--header-branding-color);
+}
+
+div.breadcrumbs {
+  padding: var(--ops-space-2) var(--ops-space-6);
+  border-bottom: 1px solid var(--hairline-color);
+  font-size: 12px;
+}
+
+/* The sections come from MonitoringAdminSite.get_app_list(), which regroups
+   every model into Operations / Configuration / History & Audit. They are the
+   sidebar's real structure, so they read as labels rather than as links. */
+#nav-sidebar .module caption a.section:link,
+#nav-sidebar .module caption a.section:visited {
+  color: var(--body-quiet-color);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Outweighs the rule above, which is more specific than Django's own
+   .current-app rule and would otherwise swallow it. */
+#nav-sidebar .module.current-app caption a.section:link,
+#nav-sidebar .module.current-app caption a.section:visited {
+  color: var(--body-loud-color);
+}
+
+/* Django already grounds the row. The edge is what finds it at a glance, and it
+   is inset rather than a border so the row does not shift by 3px when current. */
+#nav-sidebar tr.current-model {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+#nav-sidebar .module th a,
+#nav-sidebar .module td a {
+  padding-top: var(--ops-space-1);
+  padding-bottom: var(--ops-space-1);
+}

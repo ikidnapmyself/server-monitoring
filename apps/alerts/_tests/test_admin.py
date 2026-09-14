@@ -732,3 +732,193 @@ class IncidentCountLinkTests(TestCase):
             pass
 
         assert self.admin.pipeline_runs_display(NoRuns()) == DASH
+
+
+class AlertBadgeToneTests(TestCase):
+    """The severity and status pills carry a tone class, never a hex."""
+
+    def _admin(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import AlertAdmin
+
+        return AlertAdmin(Alert, AdminSite())
+
+    def test_each_severity_carries_its_tone(self):
+        for severity, tone in [
+            ("critical", "critical"),
+            ("warning", "warning"),
+            ("info", "info"),
+            ("chartreuse", "muted"),
+        ]:
+            html = str(self._admin().severity_badge(Alert(severity=severity)))
+            assert f"ops-badge--{tone}" in html
+            assert severity.upper() in html
+            assert "#" not in html
+
+    def test_each_status_carries_its_tone(self):
+        for status, tone in [
+            ("firing", "critical"),
+            ("resolved", "ok"),
+            ("pondering", "muted"),
+        ]:
+            html = str(self._admin().status_badge(Alert(status=status)))
+            assert f"ops-badge--{tone}" in html
+            assert status.upper() in html
+            assert "#" not in html
+
+    def test_an_alert_with_no_incident_reads_critical(self):
+        html = str(self._admin().journey_display(Alert(trace_id="tr-1")))
+        assert "ops-tint--critical" in html
+        assert "no incident; ingest not run" in html
+        assert "<b>not processed — inbox</b>" in html
+        assert "#" not in html
+
+
+class IncidentBadgeToneTests(TestCase):
+    """The incident pills carry a tone class, never a hex."""
+
+    def _admin(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import IncidentAdmin
+
+        return IncidentAdmin(Incident, AdminSite())
+
+    def test_each_severity_carries_its_tone(self):
+        for severity, tone in [
+            ("critical", "critical"),
+            ("warning", "warning"),
+            ("info", "info"),
+            ("chartreuse", "muted"),
+        ]:
+            html = str(self._admin().severity_badge(Incident(severity=severity)))
+            assert f"ops-badge--{tone}" in html
+            assert severity.upper() in html
+            assert "#" not in html
+
+    def test_each_status_carries_its_tone(self):
+        for status, tone in [
+            ("open", "critical"),
+            ("acknowledged", "warning"),
+            ("resolved", "ok"),
+            ("closed", "muted"),
+            ("pondering", "muted"),
+        ]:
+            html = str(self._admin().status_badge(Incident(status=status)))
+            assert f"ops-badge--{tone}" in html
+            assert status.upper() in html
+            assert "#" not in html
+
+
+class IncidentFiringCountToneTests(TestCase):
+    def test_a_firing_count_is_a_critical_tint(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import IncidentAdmin
+
+        incident = Incident.objects.create(title="High CPU")
+        Alert.objects.create(
+            fingerprint="f",
+            source="cluster",
+            name="cpu",
+            severity="critical",
+            status="firing",
+            started_at=timezone.now(),
+            incident=incident,
+        )
+        html = str(IncidentAdmin(Incident, AdminSite()).firing_alert_count_display(incident))
+        assert "ops-tint--critical" in html
+        assert ">1<" in html
+        assert "#" not in html
+
+
+class IncidentDiagnosisToneTests(TestCase):
+    """The stage strip's colour is its whole point: a glance says which stage broke."""
+
+    def setUp(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import IncidentAdmin
+
+        self.admin = IncidentAdmin(Incident, AdminSite())
+
+    def _status(self, status):
+        return str(self.admin._render_status({"status": status, "execution_pk": None}))
+
+    def test_each_status_carries_its_tone_and_glyph(self):
+        for status, tone, glyph, label in [
+            ("ok", "ok", "✓", "ok"),
+            ("empty", "warning", "✓→∅", "empty"),
+            ("failed", "critical", "✗", "failed"),
+            ("stalled", "warning", "…", "running / stalled"),
+            ("skipped", "muted", "⊘", "skipped"),
+            ("never_ran", "critical", "✗", "never ran"),
+        ]:
+            html = self._status(status)
+            assert f"ops-tint--{tone}" in html
+            assert glyph in html
+            assert label in html
+            assert "#" not in html
+
+    def test_an_unmapped_status_is_muted_and_labels_itself(self):
+        html = self._status("brand-new")
+        assert "ops-tint--muted" in html
+        assert "? brand-new" in html
+
+    def test_a_linked_status_keeps_its_tone_inside_the_anchor(self):
+        run = PipelineRun.objects.create(trace_id="t", run_id="r")
+        execution = run.stage_executions.create(stage="notify", status="failed", attempt=1)
+        html = str(self.admin._render_status({"status": "failed", "execution_pk": execution.pk}))
+        assert f'href="/admin/orchestration/stageexecution/{execution.pk}/change/"' in html
+        assert "ops-tint--critical" in html
+
+    def test_the_run_rollup_is_a_muted_parenthetical(self):
+        incident = Incident.objects.create(title="rollup")
+        run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
+        run.stage_executions.create(stage="check", status="succeeded", attempt=1)
+        html = str(self.admin.diagnosis_display(incident))
+        assert "ops-tint--muted" in html
+        assert "succeeded in 1/1 runs" in html
+
+    def test_the_strip_hardcodes_no_colour_and_carries_its_layout_classes(self):
+        incident = Incident.objects.create(title="layout")
+        html = str(self.admin.diagnosis_display(incident))
+        assert "#" not in html
+        assert "ops-diag" in html
+        assert "ops-diag-stage" in html
+
+
+class IncidentJourneyToneTests(TestCase):
+    def setUp(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import IncidentAdmin
+
+        self.admin = IncidentAdmin(Incident, AdminSite())
+        self.incident = Incident.objects.create(title="J")
+
+    def test_an_undrained_incident_reads_critical(self):
+        html = str(self.admin.journey_display(self.incident))
+        assert "ops-tint--critical" in html
+        assert "<b>inbox — not processed</b>" in html
+
+    def test_a_runs_trace_id_is_muted(self):
+        PipelineRun.objects.create(trace_id="tr-9", run_id="r", incident=self.incident)
+        html = str(self.admin.journey_display(self.incident))
+        assert "ops-tint--muted" in html
+        assert "trace tr-9" in html
+
+    def test_the_timeline_timestamp_is_muted(self):
+        Alert.objects.create(
+            fingerprint="f",
+            source="cluster",
+            name="cpu",
+            severity="critical",
+            status="firing",
+            started_at=timezone.now(),
+            incident=self.incident,
+        ).history.create(event="created")
+        html = str(self.admin.journey_timeline(self.incident))
+        assert "ops-tint--muted" in html
+        assert "#" not in html

@@ -865,3 +865,67 @@ class TestChannelColumnLinksTheChannel(TestCase):
     def test_a_lane_with_no_channel_offers_the_channel_list(self):
         html = str(self.admin.channel_name(self._lane(None)))
         assert '<a href="/admin/notify/notificationchannel/">' in html
+
+
+class TestPipelineFlowTones(TestCase):
+    """The strip's colour is the whole point of it: a glance says where a run stands.
+
+    Before the tone sweep ``pending``, ``retrying`` and ``skipped`` all fell into
+    one grey branch, so a stage mid-backoff looked exactly like one that had not
+    started.
+    """
+
+    def setUp(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.orchestration.admin import PipelineRunAdmin
+
+        self.admin = PipelineRunAdmin(PipelineRun, AdminSite())
+        self.run = PipelineRun.objects.create(
+            trace_id="t", run_id="r", status=PipelineStatus.PROCESSING
+        )
+
+    def _flow(self, status):
+        StageExecution.objects.create(
+            pipeline_run=self.run, stage="check", status=status, attempt=1
+        )
+        return str(self.admin.pipeline_flow(self.run))
+
+    def test_a_succeeded_stage_reads_ok(self):
+        html = self._flow(StageStatus.SUCCEEDED)
+        assert "ops-tint--ok" in html
+        assert "✓" in html
+
+    def test_a_failed_stage_reads_critical(self):
+        html = self._flow(StageStatus.FAILED)
+        assert "ops-tint--critical" in html
+        assert "✗" in html
+
+    def test_a_running_stage_reads_warning(self):
+        html = self._flow(StageStatus.RUNNING)
+        assert "ops-tint--warning" in html
+        assert "●" in html
+
+    def test_a_retrying_stage_is_warning_and_not_a_dormant_circle(self):
+        html = self._flow(StageStatus.RETRYING)
+        assert "ops-tint--warning" in html
+        assert "↻" in html
+
+    def test_a_skipped_stage_is_muted_with_its_own_mark(self):
+        html = self._flow(StageStatus.SKIPPED)
+        assert "ops-tint--muted" in html
+        assert "⊘" in html
+
+    def test_a_stage_with_no_execution_is_a_muted_empty_circle(self):
+        html = str(self.admin.pipeline_flow(self.run))
+        assert "ops-tint--muted" in html
+        assert "○" in html
+
+    def test_the_strip_hardcodes_no_colour(self):
+        html = self._flow(StageStatus.SUCCEEDED)
+        assert "#" not in html
+
+    def test_the_arrow_keeps_its_spacing_class(self):
+        html = str(self.admin.pipeline_flow(self.run))
+        assert "ops-stage-arrow" in html
+        assert "ops-stage-label" in html

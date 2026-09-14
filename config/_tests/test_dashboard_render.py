@@ -23,6 +23,7 @@ def test_dashboard_renders_readiness_and_sections(client):
     assert reverse("admin:alerts_incident_changelist") in body  # a model link in the grid
     assert reverse("admin:netmap") in body  # readiness heading links to the network map
     assert reverse("admin:policy-overview") in body  # and to the hub-side policy overview
+    assert "<style>" not in body  # the dashboard's styles live in ops.css
 
 
 @pytest.mark.django_db
@@ -60,3 +61,102 @@ def test_dashboard_says_so_when_no_node_reports_a_metric(client):
     client.login(username="admin3", password="x")
     body = client.get(reverse("admin:index")).content.decode()
     assert "No node has reported a headline metric yet" in body
+
+
+@pytest.mark.django_db
+def test_every_admin_surface_links_the_ops_stylesheet(client):
+    """Including the django_object_actions changelist, which extends admin/change_list.html
+    rather than base_site.html directly."""
+    get_user_model().objects.create_superuser("admin4", "a4@b.co", "x")
+    client.login(username="admin4", password="x")
+
+    for name in ("admin:index", "admin:alerts_node_changelist", "admin:alerts_incident_changelist"):
+        resp = client.get(reverse(name))
+        assert resp.status_code == 200, name
+        assert "admin/css/ops.css" in resp.content.decode(), name
+
+    body = client.get(reverse("admin:alerts_node_changelist")).content.decode()
+    assert "object-tools" in body  # the skin must not cost the changelist its buttons
+
+
+@pytest.mark.django_db
+def test_every_skinned_surface_renders(client):
+    """The skin is CSS, so nothing here asserts how a page looks.
+
+    What it asserts is that each surface the restyle touches still renders: a
+    changelist with filters and actions, a change form with the admin-action
+    buttons, an add form carrying the JSON editor widget, and the two custom views.
+    """
+    from apps.alerts.models import Node
+
+    get_user_model().objects.create_superuser("admin5", "a5@b.co", "x")
+    client.login(username="admin5", password="x")
+    node = Node.objects.create(instance_id="peer-b", hostname="peer-b")
+
+    urls = [
+        reverse("admin:index"),
+        reverse("admin:alerts_incident_changelist"),
+        reverse("admin:alerts_alert_changelist"),
+        reverse("admin:alerts_node_changelist"),
+        reverse("admin:alerts_node_change", args=[node.pk]),
+        reverse("admin:orchestration_pipelinedefinition_add"),
+        reverse("admin:policy-overview"),
+        reverse("admin:netmap"),
+    ]
+    for url in urls:
+        resp = client.get(url)
+        assert resp.status_code == 200, url
+        assert "admin/css/ops.css" in resp.content.decode(), url
+
+
+@pytest.mark.django_db
+def test_the_json_editor_widget_still_reaches_the_add_form(client):
+    get_user_model().objects.create_superuser("admin6", "a6@b.co", "x")
+    client.login(username="admin6", password="x")
+    body = client.get(reverse("admin:orchestration_pipelinedefinition_add")).content.decode()
+    assert "jsoneditor" in body
+
+
+@pytest.mark.django_db
+def test_the_ops_stylesheet_loads_after_djangos_own(client):
+    """Load order is load-bearing.
+
+    A rule in ops.css that ties with one in changelists.css or forms.css on
+    specificity is decided by which link came last, so the ops link has to sit
+    after both. change_list.html and change_form.html append theirs to
+    extrastyle, which is why ops.css is linked from extrahead.
+    """
+    from apps.alerts.models import Node
+
+    get_user_model().objects.create_superuser("admin7", "a7@b.co", "x")
+    client.login(username="admin7", password="x")
+    node = Node.objects.create(instance_id="peer-c", hostname="peer-c")
+
+    pages = {
+        reverse("admin:alerts_incident_changelist"): "admin/css/changelists.css",
+        reverse("admin:alerts_node_change", args=[node.pk]): "admin/css/forms.css",
+    }
+    for url, stylesheet in pages.items():
+        body = client.get(url).content.decode()
+        assert body.index("admin/css/ops.css") > body.index(stylesheet), url
+
+
+@pytest.mark.django_db
+def test_the_dashboard_badges_are_the_shared_badge(client):
+    """One badge system. The dashboard used to carry a second one of its own."""
+    from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
+    from apps.checkers.models import CheckRun, CheckStatus
+
+    get_user_model().objects.create_superuser("admin8", "a8@b.co", "x")
+    client.login(username="admin8", password="x")
+    Incident.objects.create(
+        title="disk full", severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN
+    )
+    CheckRun.objects.create(
+        checker_name="disk", hostname="h", status=CheckStatus.CRITICAL, message="m"
+    )
+
+    body = client.get(reverse("admin:index")).content.decode()
+    assert "ops-badge ops-badge--critical" in body  # the severity count
+    assert "severity-badge" not in body
+    assert "status-badge" not in body

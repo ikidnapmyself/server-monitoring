@@ -53,17 +53,16 @@ def test_a_configured_node_renders_its_row_and_an_edit_link(admin_client):
     assert "fiyat-ekrani" in body
     assert "Warning at 90, Critical at 99" in body
     assert f"/admin/alerts/node/{node.pk}/change/#id_policy__cpu__warning_threshold" in body
-    assert "#28a745" in body
-    assert "#b26a00" not in body
+    assert '<span class="ops-badge ops-badge--ok">In effect</span>' in body
+    assert "ops-badge--warning" not in body
 
 
 def test_a_broken_policy_shows_its_reason(admin_client):
     Node.objects.create(instance_id="a", config={"cpu": {"warning_threshold": 90}})
     body = admin_client.get(reverse("admin:policy-overview")).content.decode()
-    assert "Saved but not scoring" in body
     assert "Set a critical threshold too, or clear both." in body
-    assert "#b26a00" in body
-    assert "#28a745" not in body
+    assert '<span class="ops-badge ops-badge--warning">Saved but not scoring</span>' in body
+    assert "ops-badge--ok" not in body
 
 
 def test_one_node_with_no_policy_is_counted(admin_client):
@@ -108,11 +107,11 @@ def test_a_hostname_is_escaped(admin_client):
     assert "&lt;b&gt;y&lt;/b&gt;" in body
 
 
-def test_a_cautioned_row_keeps_its_green_badge_and_reads_its_reason_in_amber(admin_client):
+def test_a_cautioned_row_keeps_its_ok_badge_and_tints_its_reason_as_a_warning(admin_client):
     Node.objects.create(instance_id="a", config={"listening_ports": {"allowlist": [70000]}})
     body = admin_client.get(reverse("admin:policy-overview")).content.decode()
-    assert "#28a745" in body
-    assert '<span style="color:#b26a00;">&#9888;' in body
+    assert '<span class="ops-badge ops-badge--ok">In effect</span>' in body
+    assert '<span class="ops-tint ops-tint--warning">&#9888;' in body
     assert "Retyping it on the node page means changing it." in body
 
 
@@ -132,8 +131,7 @@ def test_a_firing_checker_with_no_policy_is_listed_as_a_gap(admin_client):
     node = Node.objects.create(instance_id="a", config={})
     _firing("a", "disk")
     body = admin_client.get(reverse("admin:policy-overview")).content.decode()
-    assert "No policy set" in body
-    assert "#b26a00" in body
+    assert '<span class="ops-badge ops-badge--warning">No policy set</span>' in body
     assert f"/admin/alerts/node/{node.pk}/change/#id_policy__disk__warning_threshold" in body
 
 
@@ -141,8 +139,7 @@ def test_an_unscorable_firing_checker_reads_muted_with_no_edit_link(admin_client
     Node.objects.create(instance_id="a", config={})
     _firing("a", "raid")
     body = admin_client.get(reverse("admin:policy-overview")).content.decode()
-    assert "Not re-evaluatable" in body
-    assert "#6c757d" in body
+    assert '<span class="ops-badge ops-badge--muted">Not re-evaluatable</span>' in body
     assert "no scorer reads raid" in body
     assert ">Edit</a>" not in body
 

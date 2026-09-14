@@ -24,7 +24,6 @@ from apps.alerts.models import (
 )
 from apps.alerts.node_overview import (
     SEVERITIES_WORST_FIRST,
-    SEVERITY_COLORS,
     UNRESOLVED_INCIDENT_STATUSES,
     build_node_overview,
     render_severity_chips,
@@ -47,6 +46,15 @@ from apps.alerts.reeval_existing import (
 from apps.alerts.services import IncidentManager, instance_key_from_labels
 from apps.alerts.timeline import build_incident_timeline
 from apps.orchestration.models import InboxItem, PipelineRun
+from config.admin_badges import (
+    ALERT_STATUS_TONES,
+    DIAGNOSIS_TONES,
+    INCIDENT_STATUS_TONES,
+    SEVERITY_TONES,
+    badge,
+    tinted,
+    tone_for,
+)
 from config.admin_links import DASH, admin_link, changelist_link
 from config.dashboard import prettify_json
 
@@ -244,27 +252,11 @@ class AlertAdmin(DjangoObjectActions, admin.ModelAdmin):
 
     @admin.display(description="Severity")
     def severity_badge(self, obj):
-        color = SEVERITY_COLORS.get(obj.severity, "#6c757d")
-        return format_html(
-            '<span style="background-color: {}; color: white; padding: 3px 8px; '
-            'border-radius: 3px; font-size: 11px;">{}</span>',
-            color,
-            obj.severity.upper(),
-        )
+        return badge(obj.severity.upper(), tone_for(SEVERITY_TONES, obj.severity))
 
     @admin.display(description="Status")
     def status_badge(self, obj):
-        colors = {
-            "firing": "#dc3545",
-            "resolved": "#28a745",
-        }
-        color = colors.get(obj.status, "#6c757d")
-        return format_html(
-            '<span style="background-color: {}; color: white; padding: 3px 8px; '
-            'border-radius: 3px; font-size: 11px;">{}</span>',
-            color,
-            obj.status.upper(),
-        )
+        return badge(obj.status.upper(), tone_for(ALERT_STATUS_TONES, obj.status))
 
     @admin.display(description="Incident")
     def incident_link(self, obj):
@@ -302,8 +294,11 @@ class AlertAdmin(DjangoObjectActions, admin.ModelAdmin):
             )
         else:
             body = format_html(
-                '<div style="color:#b00;"><b>{}</b> (no incident; ingest not run)</div>',
-                "not processed — inbox",
+                "<div>{}</div>",
+                tinted(
+                    format_html("<b>{}</b> (no incident; ingest not run)", "not processed — inbox"),
+                    "critical",
+                ),
             )
         return format_html("{}{}", trace, body)
 
@@ -543,29 +538,11 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
 
     @admin.display(description="Severity")
     def severity_badge(self, obj):
-        color = SEVERITY_COLORS.get(obj.severity, "#6c757d")
-        return format_html(
-            '<span style="background-color: {}; color: white; padding: 3px 8px; '
-            'border-radius: 3px; font-size: 11px;">{}</span>',
-            color,
-            obj.severity.upper(),
-        )
+        return badge(obj.severity.upper(), tone_for(SEVERITY_TONES, obj.severity))
 
     @admin.display(description="Status")
     def status_badge(self, obj):
-        colors = {
-            "open": "#dc3545",
-            "acknowledged": "#ffc107",
-            "resolved": "#28a745",
-            "closed": "#6c757d",
-        }
-        color = colors.get(obj.status, "#6c757d")
-        return format_html(
-            '<span style="background-color: {}; color: white; padding: 3px 8px; '
-            'border-radius: 3px; font-size: 11px;">{}</span>',
-            color,
-            obj.status.upper(),
-        )
+        return badge(obj.status.upper(), tone_for(INCIDENT_STATUS_TONES, obj.status))
 
     @admin.display(description="Alerts")
     def alert_count_display(self, obj):
@@ -582,7 +559,7 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
             return count
         return changelist_link(
             Alert,
-            format_html('<span style="color: #dc3545; font-weight: bold;">{}</span>', count),
+            tinted(count, "critical"),
             incident__id__exact=obj.pk,
             status__exact=AlertStatus.FIRING,
         )
@@ -603,15 +580,15 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         "analyze": "intelligence",
         "notify": "notify",
     }
-    # status -> (glyph, colour, label). "stalled" reads "running / stalled" so a
+    # status -> (glyph, label). "stalled" reads "running / stalled" so a
     # legitimately in-flight stage is not misread as stuck.
     _STATUS_RENDER = {
-        "ok": ("✓", "#2e7d32", "ok"),
-        "empty": ("✓→∅", "#b26a00", "empty"),
-        "failed": ("✗", "#b00020", "failed"),
-        "stalled": ("…", "#b26a00", "running / stalled"),
-        "skipped": ("⊘", "#888", "skipped"),
-        "never_ran": ("✗", "#b00020", "never ran"),
+        "ok": ("✓", "ok"),
+        "empty": ("✓→∅", "empty"),
+        "failed": ("✗", "failed"),
+        "stalled": ("…", "running / stalled"),
+        "skipped": ("⊘", "skipped"),
+        "never_ran": ("✗", "never ran"),
     }
 
     @admin.display(description="Stage diagnosis (expected vs actual)")
@@ -623,22 +600,18 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         """
         rows = format_html_join(
             "",
-            '<li><b style="display:inline-block;width:90px;">{}</b>{}{}{}</li>',
+            '<li><b class="ops-diag-stage">{}</b>{}{}{}</li>',
             (
                 (
                     self._STAGE_LABELS.get(e["stage"], e["stage"]),
                     self._render_status(e),
                     format_html(" — {}", e["detail"]) if e.get("detail") else "",
-                    (
-                        format_html(' <span style="color:#888;">({})</span>', e["runs"])
-                        if e.get("runs")
-                        else ""
-                    ),
+                    (tinted(format_html(" ({})", e["runs"]), "muted") if e.get("runs") else ""),
                 )
                 for e in diagnose_incident(obj)
             ),
         )
-        return format_html('<ul style="margin:0 0 0 16px;list-style:none;padding:0;">{}</ul>', rows)
+        return format_html('<ul class="ops-diag">{}</ul>', rows)
 
     def _render_status(self, entry):
         """Coloured glyph and label, linked to the execution it was read from.
@@ -646,10 +619,10 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         A stage that never ran, or that config skipped, has no execution to link,
         so it stays plain text rather than pointing at the wrong row.
         """
-        glyph, color, label = self._STATUS_RENDER.get(
-            entry["status"], ("?", "#888", entry["status"])
+        glyph, label = self._STATUS_RENDER.get(entry["status"], ("?", entry["status"]))
+        body = tinted(
+            format_html("{} {}", glyph, label), tone_for(DIAGNOSIS_TONES, entry["status"])
         )
-        body = format_html('<span style="color:{};">{} {}</span>', color, glyph, label)
         if entry.get("execution_pk") is None:
             return body
         return format_html(
@@ -675,20 +648,24 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         if not runs:
             parts.append(
                 format_html(
-                    '<div style="color:#b00;"><b>{}</b> (no pipeline run — '
-                    "{} drains what is waiting)</div>",
-                    "inbox — not processed",
-                    changelist_link(InboxItem, "the inbox"),
+                    "<div>{}</div>",
+                    tinted(
+                        format_html(
+                            "<b>{}</b> (no pipeline run — {} drains what is waiting)",
+                            "inbox — not processed",
+                            changelist_link(InboxItem, "the inbox"),
+                        ),
+                        "critical",
+                    ),
                 )
             )
         for run in runs:
             parts.append(
                 format_html(
-                    '<div style="margin-top:6px;"><b>Run</b> {} — {} '
-                    '<span style="color:#888;">trace {}</span></div>',
+                    '<div style="margin-top:6px;"><b>Run</b> {} — {} {}</div>',
                     admin_link(run, run.run_id),
                     run.status,
-                    run.trace_id,
+                    tinted(format_html("trace {}", run.trace_id), "muted"),
                 )
             )
             stages = run.stage_executions.all().order_by("started_at")
@@ -723,10 +700,10 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
             return format_html("<em>{}</em>", "No timeline events yet.")
         rows = format_html_join(
             "",
-            '<li><span style="color:#888;">{}</span> <b>[{}]</b> {}{}</li>',
+            "<li>{} <b>[{}]</b> {}{}</li>",
             (
                 (
-                    e["when"].isoformat(),
+                    tinted(e["when"].isoformat(), "muted"),
                     e["kind"],
                     e["label"],
                     format_html(" — {}", e["detail"]) if e.get("detail") else "",

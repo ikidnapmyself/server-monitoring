@@ -4,6 +4,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 
 from apps.checkers.models import CheckRun, PreflightCheck, PreflightRun
+from config.admin_badges import CHECK_STATUS_TONES, badge, tone_for
 from config.dashboard import prettify_json
 
 
@@ -79,19 +80,7 @@ class CheckRunAdmin(admin.ModelAdmin):
 
     @admin.display(description="Status")
     def status_badge(self, obj):
-        colors = {
-            "ok": "#28a745",
-            "warning": "#ffc107",
-            "critical": "#dc3545",
-            "unknown": "#6c757d",
-        }
-        color = colors.get(obj.status, "#6c757d")
-        return format_html(
-            '<span style="background-color: {}; color: white; padding: 3px 8px; '
-            'border-radius: 3px; font-size: 11px;">{}</span>',
-            color,
-            obj.status.upper(),
-        )
+        return badge(obj.status.upper(), tone_for(CHECK_STATUS_TONES, obj.status))
 
     @admin.display(description="Message")
     def message_short(self, obj):

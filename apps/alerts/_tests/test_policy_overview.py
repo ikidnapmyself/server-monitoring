@@ -23,10 +23,13 @@ from apps.alerts.policy_overview import (
     NOT_SCORING,
     NOTHING_FIRING,
     POLICY_MARKER,
+    STATUS_TONES,
+    PolicyRow,
     build_policy_overview,
     rows_for_node,
 )
 from apps.alerts.reeval_existing import ReevalScope, preview_reeval
+from config.admin_badges import TONES
 
 
 class PolicyOverviewTestCase(TestCase):
@@ -35,6 +38,32 @@ class PolicyOverviewTestCase(TestCase):
 
     def _change_url(self, node):
         return reverse("admin:alerts_node_change", args=[node.pk])
+
+
+class StatusToneTests(TestCase):
+    """Every status word the page can print has to name a tone of its own.
+
+    ``tone_for`` falls back to "muted", which is also a real verdict here, so a
+    status missing from the table would paint itself grey rather than fail.
+    """
+
+    def test_every_status_names_a_known_tone(self):
+        statuses = {IN_EFFECT, NOT_SCORING, NOT_HONOURED, NO_POLICY_SET, NOT_REEVALUATABLE}
+        self.assertEqual(set(STATUS_TONES), statuses)
+        self.assertLessEqual(set(STATUS_TONES.values()), TONES)
+
+    def test_a_row_carries_the_tone_for_its_status(self):
+        for status, tone in STATUS_TONES.items():
+            with self.subTest(status=status):
+                row = PolicyRow(
+                    checker="cpu",
+                    policy=NO_POLICY,
+                    status=status,
+                    why="",
+                    caution=False,
+                    edit_url="",
+                )
+                self.assertEqual(row.tone, tone)
 
 
 class RowsForNodeTests(PolicyOverviewTestCase):

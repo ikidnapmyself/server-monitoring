@@ -13,7 +13,7 @@ from datetime import timedelta
 from django.db.models import Count
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.html import format_html, format_html_join
+from django.utils.html import format_html_join
 from django.utils.timesince import timesince
 
 from apps.alerts.check_integration import STATUS_TO_SEVERITY
@@ -23,13 +23,8 @@ from apps.alerts.reevaluation import PRIMARY_METRIC
 from apps.checkers.admin_charts import render_sparkline
 from apps.checkers.checkers import CheckStatus
 from apps.checkers.models import CheckRun, PreflightRun
+from config.admin_badges import SEVERITY_TONES, badge, tone_for
 from config.dashboard import NODE_RECENT_MINUTES
-
-SEVERITY_COLORS: dict[str, str] = {
-    AlertSeverity.CRITICAL: "#dc3545",
-    AlertSeverity.WARNING: "#ffc107",
-    AlertSeverity.INFO: "#17a2b8",
-}
 
 # Worst first: the order both the changelist column and the detail header read in.
 SEVERITIES_WORST_FIRST = [AlertSeverity.CRITICAL, AlertSeverity.WARNING, AlertSeverity.INFO]
@@ -39,12 +34,22 @@ SEVERITIES_WORST_FIRST = [AlertSeverity.CRITICAL, AlertSeverity.WARNING, AlertSe
 UNRESOLVED_INCIDENT_STATUSES = [IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED]
 
 
+# The header chip's tone, derived from the freshness verdict rather than stored
+# beside it so the two cannot disagree. "info" is the local node, whose self-check
+# age is reported, not judged, so it gets the tone that carries no verdict.
+FRESHNESS_TONES = {"ok": "ok", "warn": "warning"}
+
+
 @dataclass(frozen=True)
 class Identity:
     is_local: bool
     role_label: str
     freshness_status: str  # "ok" | "warn" | "info"
     freshness_label: str
+
+    @property
+    def freshness_tone(self) -> str:
+        return tone_for(FRESHNESS_TONES, self.freshness_status)
 
 
 def build_identity(node) -> Identity:
@@ -114,14 +119,7 @@ def render_severity_chips(node) -> str:
             severity,
         )
         parts.append(
-            format_html(
-                '<a href="{}" style="background-color: {}; color: white; padding: 3px 8px; '
-                'border-radius: 3px; font-size: 11px; text-decoration: none;">{} {}</a>',
-                url,
-                SEVERITY_COLORS.get(severity, "#6c757d"),
-                count,
-                severity.upper(),
-            )
+            badge(f"{count} {severity.upper()}", tone_for(SEVERITY_TONES, severity), url=url)
         )
     if not parts:
         return "—"
@@ -335,7 +333,7 @@ class IncidentRow:
     title: str
     severity: str
     status: str
-    color: str
+    tone: str
     created_at: object
     url: str
 
@@ -354,7 +352,7 @@ def build_incident_rows(node, limit: int = 10) -> list[IncidentRow]:
             title=incident.title,
             severity=incident.severity,
             status=incident.status,
-            color=SEVERITY_COLORS.get(incident.severity, "#6c757d"),
+            tone=tone_for(SEVERITY_TONES, incident.severity),
             created_at=incident.created_at,
             url=reverse("admin:alerts_incident_change", args=[incident.pk]),
         )

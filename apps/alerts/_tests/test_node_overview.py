@@ -11,7 +11,6 @@ from apps.alerts.admin import NodeAdmin
 from apps.alerts.identity import local_instance_id
 from apps.alerts.models import Alert, AlertSeverity, Incident, IncidentStatus, Node
 from apps.alerts.node_overview import (
-    SEVERITY_COLORS,
     build_charts,
     build_checker_rows,
     build_identity,
@@ -77,6 +76,23 @@ class IdentityHeaderTests(TestCase):
         node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
         self.assertIn("self-check", build_identity(node).freshness_label)
 
+    def test_a_fresh_peer_carries_the_ok_tone(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        self.assertEqual(build_identity(node).freshness_tone, "ok")
+
+    def test_a_stale_peer_carries_the_warning_tone(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        Node.objects.filter(pk=node.pk).update(
+            last_seen=timezone.now() - timezone.timedelta(minutes=NODE_RECENT_MINUTES + 1)
+        )
+        node.refresh_from_db()
+        self.assertEqual(build_identity(node).freshness_tone, "warning")
+
+    def test_the_local_nodes_self_check_age_carries_no_verdict_tone(self):
+        # Amber here would be the bug the informational status exists to avoid.
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        self.assertEqual(build_identity(node).freshness_tone, "muted")
+
 
 class SeverityChipTests(TestCase):
     def _incident(self, node, severity, status=IncidentStatus.OPEN):
@@ -124,6 +140,8 @@ class SeverityChipTests(TestCase):
         self.assertIn(f"alerts__node__id__exact={node.pk}", html)
         self.assertIn("severity__exact=warning", html)
         self.assertIn("1 WARNING", html)
+        self.assertIn("ops-badge--warning", html)
+        self.assertNotIn("#", html)
 
     def test_annotated_counts_are_reused_when_present(self):
         # The changelist annotates; the helper must not re-query in that case.
@@ -455,19 +473,19 @@ class RecentIncidentTests(TestCase):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
         self.assertEqual(build_incident_rows(node), [])
 
-    def test_each_row_links_to_the_incident_and_carries_its_severity_color(self):
+    def test_each_row_links_to_the_incident_and_carries_its_severity_tone(self):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
         incident = self._incident(node, "hot disk", severity=AlertSeverity.CRITICAL)
         row = build_incident_rows(node)[0]
         self.assertEqual(row.severity, AlertSeverity.CRITICAL)
         self.assertEqual(row.status, IncidentStatus.OPEN)
-        self.assertEqual(row.color, SEVERITY_COLORS[AlertSeverity.CRITICAL])
+        self.assertEqual(row.tone, "critical")
         self.assertIn(str(incident.pk), row.url)
 
-    def test_an_unknown_severity_falls_back_to_the_neutral_color(self):
+    def test_an_unknown_severity_falls_back_to_the_neutral_tone(self):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
         self._incident(node, "odd", severity="mauve")
-        self.assertEqual(build_incident_rows(node)[0].color, "#6c757d")
+        self.assertEqual(build_incident_rows(node)[0].tone, "muted")
 
 
 class ChartTests(TestCase):
@@ -532,7 +550,7 @@ class ChartTests(TestCase):
         self._run("disk", "worst_percent", 40.0, minutes_ago=1)
         self._run("disk", "worst_percent", 95.0, alert=alert)
         svg = build_charts(node)[0].svg
-        self.assertIn('fill="#d33"', svg)
+        self.assertIn('class="spark-marker"', svg)
 
     def test_a_peer_gets_no_charts(self):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")

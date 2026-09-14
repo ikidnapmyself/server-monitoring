@@ -2,319 +2,6 @@
 {% load i18n %}
 
 {% block content %}
-<style>
-  /* Dashboard container */
-  #dashboard {
-    margin-bottom: 30px;
-  }
-
-  /* Layout */
-  .dashboard-row {
-    display: flex;
-    gap: 20px;
-    margin-bottom: 20px;
-  }
-
-  .dashboard-card {
-    flex: 1;
-    padding: 15px;
-  }
-
-  /* Typography */
-  .dashboard-card h2 {
-    margin-top: 0;
-  }
-
-  .metric-value {
-    font-size: 32px;
-    font-weight: bold;
-    margin-bottom: 10px;
-  }
-
-  .metric-value.compact {
-    margin-bottom: 5px;
-  }
-
-  .metric-subtitle {
-    font-size: 12px;
-    color: #666;
-    margin-bottom: 10px;
-  }
-
-  .no-data-message {
-    color: #666;
-  }
-
-  .success-message {
-    color: #28a745;
-    font-size: 18px;
-  }
-
-  /* Badges */
-  .badge-container {
-    display: flex;
-    gap: 10px;
-  }
-
-  .severity-badge {
-    padding: 3px 8px;
-    border-radius: 3px;
-    font-size: 12px;
-  }
-
-  .severity-badge.critical {
-    background: #dc3545;
-    color: #fff;
-  }
-
-  .severity-badge.warning {
-    background: #ffc107;
-    color: #000;
-  }
-
-  .severity-badge.info {
-    background: #17a2b8;
-    color: #fff;
-  }
-
-  /* Progress bar */
-  .progress-bar-container {
-    background: #eee;
-    border-radius: 4px;
-    height: 8px;
-    margin-bottom: 10px;
-  }
-
-  .progress-bar {
-    height: 8px;
-    border-radius: 4px;
-  }
-
-  .progress-bar.success {
-    background: #28a745;
-  }
-
-  .progress-bar.warning {
-    background: #ffc107;
-  }
-
-  .progress-bar.error {
-    background: #dc3545;
-  }
-
-  /* Trends module */
-  .trends-module {
-    padding: 15px;
-    margin-bottom: 20px;
-  }
-
-  .trends-module h2 {
-    margin-top: 0;
-  }
-
-  /* Stats display */
-  .stats-container {
-    display: flex;
-    gap: 15px;
-    font-size: 12px;
-  }
-
-  /* Tables */
-  .dashboard-table {
-    width: 100%;
-    font-size: 13px;
-  }
-
-  .dashboard-table th {
-    text-align: left;
-    padding: 4px 8px;
-  }
-
-  .dashboard-table td {
-    padding: 4px 8px;
-  }
-
-  /* Status badges */
-  .status-badge {
-    padding: 2px 6px;
-    border-radius: 3px;
-    font-size: 11px;
-  }
-
-  .status-badge.ok {
-    background: #28a745;
-    color: #fff;
-  }
-
-  .status-badge.warning {
-    background: #ffc107;
-    color: #000;
-  }
-
-  .status-badge.critical {
-    background: #dc3545;
-    color: #fff;
-  }
-
-  .status-badge.unknown {
-    background: #6c757d;
-    color: #fff;
-  }
-
-  /* Fleet metrics: the reading is coloured, not badged, so a wide grid of
-     numbers still reads as numbers. */
-  .metric-grid th.metric-node {
-    text-align: left;
-  }
-
-  .metric-grid td.metric-value {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .metric-unit {
-    font-size: 11px;
-    font-weight: normal;
-    color: var(--body-quiet-color);
-  }
-
-  .metric-ok {
-    color: #28a745;
-  }
-
-  .metric-warning {
-    color: #b26a00;
-    font-weight: bold;
-  }
-
-  .metric-critical {
-    color: #dc3545;
-    font-weight: bold;
-  }
-
-  .metric-unknown {
-    color: #6c757d;
-  }
-
-  /* Links */
-  .view-all-link {
-    margin-top: 10px;
-  }
-
-  .table-link {
-    margin-top: 8px;
-  }
-
-  /* Trends section */
-  .trends-container {
-    display: flex;
-    gap: 20px;
-  }
-
-  .trends-section {
-    flex: 1;
-  }
-
-  .trends-section h3 {
-    font-size: 14px;
-    margin-bottom: 8px;
-  }
-
-  .trends-table {
-    width: 100%;
-    font-size: 13px;
-  }
-
-  .trends-table td {
-    padding: 3px 0;
-  }
-
-  .trends-table tbody td:last-child {
-    text-align: right;
-    font-weight: bold;
-  }
-
-  .trends-table th {
-    text-align: left;
-  }
-
-  .trends-table th:nth-child(2),
-  .trends-table th:nth-child(3) {
-    text-align: right;
-  }
-
-  .trends-no-data {
-    color: #666;
-    font-size: 13px;
-  }
-
-  #readiness h2 .heading-link {
-    font-size: 13px;
-    font-weight: normal;
-    margin-left: 10px;
-  }
-
-  /* Readiness cards */
-  .readiness-card {
-    display: block;
-    flex: 1;
-    padding: 12px;
-    border: 1px solid var(--hairline-color, #ddd);
-    border-radius: 4px;
-    text-decoration: none;
-    color: var(--body-fg, #333);
-    border-left-width: 4px;
-  }
-
-  .readiness-card strong {
-    display: block;
-  }
-
-  .readiness-status {
-    font-size: 11px;
-    font-weight: bold;
-    opacity: .8;
-  }
-
-  .readiness-detail {
-    display: block;
-    font-size: 12px;
-    opacity: .75;
-    margin-top: 4px;
-  }
-
-  .readiness-ok {
-    border-left-color: #28a745;
-  }
-
-  .readiness-warn {
-    border-left-color: #f0ad4e;
-  }
-
-  .readiness-error {
-    border-left-color: #dc3545;
-  }
-
-  /* Information, not a fault: a hub that records rather than delivers. */
-  .readiness-info {
-    border-left-color: #17a2b8;
-  }
-
-  .readiness-neutral {
-    border-left-color: var(--hairline-color, #aaa);
-  }
-
-  /* Grouped nav grid */
-  #nav-sections .dashboard-card {
-    border: 1px solid var(--hairline-color, #ddd);
-    border-radius: 4px;
-  }
-
-  #nav-sections .dashboard-card h3 {
-    margin-top: 0;
-  }
-</style>
-
 <div id="readiness">
   <h2>Readiness
     <a class="heading-link" href="{% url 'admin:netmap' %}">Network map</a>
@@ -345,17 +32,17 @@
       </div>
       <div class="badge-container">
         {% if active_incidents.critical > 0 %}
-        <span class="severity-badge critical">
+        <span class="ops-badge ops-badge--critical">
           {{ active_incidents.critical }} Critical
         </span>
         {% endif %}
         {% if active_incidents.warning > 0 %}
-        <span class="severity-badge warning">
+        <span class="ops-badge ops-badge--warning">
           {{ active_incidents.warning }} Warning
         </span>
         {% endif %}
         {% if active_incidents.info > 0 %}
-        <span class="severity-badge info">
+        <span class="ops-badge ops-badge--info">
           {{ active_incidents.info }} Info
         </span>
         {% endif %}
@@ -414,7 +101,7 @@
             <td><a href="{% url 'admin:checkers_checkrun_change' run.pk %}">{{ run.checker_name }}</a></td>
             <td>{{ run.hostname }}</td>
             <td>
-              <span class="status-badge {% if run.status == 'ok' %}ok{% elif run.status == 'warning' %}warning{% elif run.status == 'critical' %}critical{% else %}unknown{% endif %}">
+              <span class="ops-badge ops-badge--{% if run.status == 'ok' %}ok{% elif run.status == 'warning' %}warning{% elif run.status == 'critical' %}critical{% else %}muted{% endif %}">
                 {{ run.status|upper }}
               </span>
             </td>
@@ -465,13 +152,13 @@
   <div class="module">
     <h2>Fleet metrics</h2>
     {% if fleet_metrics.rows %}
-    <div style="overflow-x:auto;">
+    <div class="ops-scroll">
       <table class="dashboard-table metric-grid">
         <thead>
           <tr>
             <th class="metric-node">Node</th>
             {% for column in fleet_metrics.columns %}
-            <th style="text-align:right;">
+            <th class="metric-reading">
               {{ column.checker }} <span class="metric-unit">{{ column.unit }}</span>
             </th>
             {% endfor %}
