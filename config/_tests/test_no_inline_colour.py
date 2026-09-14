@@ -34,8 +34,11 @@ ENTITY = re.compile(r"&#x?[0-9a-fA-F]+;")
 
 HEX = r"#[0-9a-fA-F]{3,8}"
 
+# The property-name prefix is one character class rather than `(?:[a-z]+-)*`.
+# A `+` nested in a `*` backtracks exponentially over a long run of letters that
+# never completes a match, which a minified stylesheet is full of.
 DECLARATION = re.compile(
-    r"(?:[a-z]+-)*(?:color|background|border|outline|box-shadow|fill|stroke)"
+    r"[a-z-]*(?:color|background|border|outline|box-shadow|fill|stroke)"
     rf"\s*:\s*[^;\"'{{}}]*{HEX}"
 )
 
