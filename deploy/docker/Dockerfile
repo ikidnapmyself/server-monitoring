@@ -20,6 +20,13 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
+# Pull the base image's security updates. python:3.10-slim lags Debian's security
+# archive, so OS packages it ships (perl-base) fail the CRITICAL trivy scan even
+# after Debian publishes a fixed version.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create non-root user for running the application
 RUN groupadd --system appuser && useradd --system --gid appuser appuser
 
