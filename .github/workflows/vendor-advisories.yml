@@ -1,0 +1,36 @@
+name: Vendor advisories
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "static/console/vendor/**"
+      - ".github/workflows/vendor-advisories.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  htmx:
+    name: htmx advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Query OSV for the pinned htmx version
+        run: |
+          set -euo pipefail
+          version=$(awk -F'|' '/`htmx.min.js`/ {gsub(/ /, "", $3); print $3}' \
+            static/console/vendor/VENDOR.md)
+          test -n "$version"
+          echo "Pinned htmx version: $version"
+          body=$(curl -sSf --max-time 30 --retry 3 -X POST https://api.osv.dev/v1/query \
+            -d "{\"package\":{\"name\":\"htmx.org\",\"ecosystem\":\"npm\"},\"version\":\"$version\"}")
+          count=$(echo "$body" | jq '.vulns // [] | length')
+          if [ "$count" -gt 0 ]; then
+            echo "$body" | jq -r '.vulns[] | "\(.id)  \(.summary // "no summary")"'
+            exit 1
+          fi
+          echo "No known advisories."
