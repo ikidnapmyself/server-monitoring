@@ -9,10 +9,10 @@ from apps.alerts.models import Alert, Incident, Node
 from apps.console.queries import overview
 
 
-def _incident(title, severity="warning", status="open", age_hours=0):
+def _incident(title, severity="warning", status="open", age_hours=0, created_at=None):
     incident = Incident.objects.create(title=title, severity=severity, status=status)
     Incident.objects.filter(pk=incident.pk).update(
-        created_at=timezone.now() - timedelta(hours=age_hours)
+        created_at=created_at or timezone.now() - timedelta(hours=age_hours)
     )
     return incident
 
@@ -65,21 +65,31 @@ def test_incident_row_carries_tones_count_and_a_link():
     _alert(node, incident=incident, key="a")
     _alert(node, incident=incident, key="b")
 
-    (row,) = overview.open_incidents()
+    other = _incident("swap low", "warning")
+    _alert(node, incident=other, key="c")
+    _incident("quiet", "info")
+
+    row, other_row, quiet_row = overview.open_incidents()
 
     assert row.severity_tone == "critical"
     assert row.status_tone == "critical"
     assert row.alert_count == 2
     assert row.url == reverse("admin:alerts_incident_change", args=[incident.pk])
+    assert (other_row.title, other_row.alert_count) == ("swap low", 1)
+    assert other_row.url == reverse("admin:alerts_incident_change", args=[other.pk])
+    assert (quiet_row.title, quiet_row.alert_count) == ("quiet", 0)
 
 
 @pytest.mark.django_db
-def test_open_incidents_are_capped(monkeypatch):
+def test_open_incidents_cap_keeps_the_highest_ranked_rows(monkeypatch):
     monkeypatch.setattr(overview, "INCIDENT_LIMIT", 2)
-    for n in range(3):
-        _incident(f"i{n}")
+    _incident("old warning", "warning", age_hours=5)
+    _incident("new warning", "warning", age_hours=1)
+    _incident("critical", "critical")
 
-    assert len(overview.open_incidents()) == 2
+    rows = overview.open_incidents()
+
+    assert [row.title for row in rows] == ["critical", "old warning"]
 
 
 @pytest.mark.django_db
@@ -114,17 +124,54 @@ def test_node_tile_takes_the_worst_firing_tone(alerts, tone, firing):
 
     assert (tile.name, tile.tone, tile.firing) == ("web-1", tone, firing)
     assert tile.url == reverse("admin:alerts_node_change", args=[node.pk])
+    assert tile.last_seen == Node.objects.get(pk=node.pk).last_seen
 
 
 @pytest.mark.django_db
-def test_node_tiles_cost_one_query_and_fall_back_to_the_instance_id(django_assert_num_queries):
-    Node.objects.create(instance_id="b-id", hostname="")
-    Node.objects.create(instance_id="a-id", hostname="alpha")
+def test_each_node_tile_counts_only_its_own_firing_alerts():
+    loud = Node.objects.create(instance_id="n1", hostname="loud")
+    mild = Node.objects.create(instance_id="n2", hostname="mild")
+    Node.objects.create(instance_id="n3", hostname="quiet")
+    _alert(loud, severity="critical", key="a")
+    _alert(loud, severity="critical", key="b")
+    _alert(loud, severity="warning", key="c")
+    _alert(loud, severity="critical", status="resolved", key="d")
+    _alert(mild, severity="info", key="a")
+    _alert(mild, severity="warning", status="resolved", key="b")
 
-    with django_assert_num_queries(1):
+    tiles = overview.node_tiles()
+
+    assert [(tile.name, tile.tone, tile.firing) for tile in tiles] == [
+        ("loud", "critical", 3),
+        ("mild", "info", 1),
+        ("quiet", "ok", 0),
+    ]
+    assert [tile.url for tile in tiles[:2]] == [
+        reverse("admin:alerts_node_change", args=[loud.pk]),
+        reverse("admin:alerts_node_change", args=[mild.pk]),
+    ]
+
+
+@pytest.mark.django_db
+def test_node_tiles_cost_two_queries_and_fall_back_to_the_instance_id(django_assert_num_queries):
+    Node.objects.create(instance_id="b-id", hostname="")
+    alpha = Node.objects.create(instance_id="a-id", hostname="alpha")
+    _alert(alpha, severity="critical", key="a")
+    _alert(alpha, severity="warning", key="b")
+
+    with django_assert_num_queries(2):
         tiles = overview.node_tiles()
 
     assert [tile.name for tile in tiles] == ["alpha", "b-id"]
+
+
+@pytest.mark.django_db
+def test_node_tiles_sort_by_name_ignoring_case():
+    Node.objects.create(instance_id="n1", hostname="Zeta")
+    Node.objects.create(instance_id="n2", hostname="alpha")
+    Node.objects.create(instance_id="n3", hostname="Beta")
+
+    assert [tile.name for tile in overview.node_tiles()] == ["alpha", "Beta", "Zeta"]
 
 
 @pytest.mark.django_db
@@ -138,15 +185,21 @@ def test_spark_has_one_point_per_hour_and_counts_into_the_right_bucket(
     _incident("also now")
     _incident("three hours ago", age_hours=3)
     _incident("too old", age_hours=30)
+    this_hour = frozen.replace(minute=0)
+    first = this_hour - timedelta(hours=overview.SPARK_HOURS - 1)
+    _incident("on the first bucket", created_at=first)
+    _incident("on the current hour", created_at=this_hour)
+    _incident("a second too old", created_at=first - timedelta(seconds=1))
 
     with django_assert_num_queries(1):
         points = overview.incident_spark()
 
     assert len(points) == overview.SPARK_HOURS
     assert [x for x, _ in points] == list(range(overview.SPARK_HOURS))
-    assert points[-1][1] == 2
+    assert points[0][1] == 1
+    assert points[-1][1] == 3
     assert points[-4][1] == 1
-    assert sum(y for _, y in points) == 3
+    assert sum(y for _, y in points) == 5
 
 
 def test_attention_keeps_only_warn_and_error_and_maps_them_to_tones(monkeypatch):

@@ -1,5 +1,6 @@
 """Read model for the Overview page. Returns dataclasses, never querysets."""
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
@@ -9,7 +10,14 @@ from django.db.models.functions import TruncHour
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.alerts.models import AlertSeverity, AlertStatus, Incident, IncidentStatus, Node
+from apps.alerts.models import (
+    Alert,
+    AlertSeverity,
+    AlertStatus,
+    Incident,
+    IncidentStatus,
+    Node,
+)
 from config.admin_badges import INCIDENT_STATUS_TONES, SEVERITY_TONES, tone_for
 from config.dashboard import build_readiness
 
@@ -112,28 +120,47 @@ def _node_tone(critical: int, warning: int, firing: int) -> str:
     return "ok"
 
 
-def node_tiles() -> tuple[NodeTile, ...]:
-    firing = Q(alerts__status=AlertStatus.FIRING)
-    nodes = Node.objects.annotate(
-        firing=Count("alerts", filter=firing),
-        critical=Count("alerts", filter=firing & Q(alerts__severity=AlertSeverity.CRITICAL)),
-        warning=Count("alerts", filter=firing & Q(alerts__severity=AlertSeverity.WARNING)),
+def _firing_by_node() -> tuple[Counter[int], Counter[int], Counter[int]]:
+    # Counted from the alert side so only firing rows are read. Joining from Node
+    # reads every alert a node ever had, which grows without bound.
+    rows = (
+        Alert.objects.filter(status=AlertStatus.FIRING, node__isnull=False)
+        .values_list("node_id", "severity")
+        .annotate(n=Count("id"))
+        .order_by()
     )
+    firing: Counter[int] = Counter()
+    critical: Counter[int] = Counter()
+    warning: Counter[int] = Counter()
+    for node_id, severity, n in rows:
+        firing[node_id] += n
+        if severity == AlertSeverity.CRITICAL:
+            critical[node_id] += n
+        elif severity == AlertSeverity.WARNING:
+            warning[node_id] += n
+    return firing, critical, warning
+
+
+def node_tiles() -> tuple[NodeTile, ...]:
+    firing, critical, warning = _firing_by_node()
     tiles = [
         NodeTile(
             name=node.hostname or node.instance_id,
-            tone=_node_tone(node.critical, node.warning, node.firing),
-            firing=node.firing,
+            tone=_node_tone(critical[node.pk], warning[node.pk], firing[node.pk]),
+            firing=firing[node.pk],
             last_seen=node.last_seen,
             url=reverse("admin:alerts_node_change", args=[node.pk]),
         )
-        for node in nodes
+        for node in Node.objects.order_by()
     ]
-    return tuple(sorted(tiles, key=lambda tile: tile.name))
+    return tuple(sorted(tiles, key=lambda tile: tile.name.casefold()))
 
 
 def incident_spark() -> tuple[tuple[float, float], ...]:
-    """Incidents opened per hour over the last ``SPARK_HOURS``, oldest first."""
+    """Incidents opened per hour, oldest first.
+
+    The window is the current partial hour plus the ``SPARK_HOURS - 1`` full hours before it.
+    """
     this_hour = timezone.now().replace(minute=0, second=0, microsecond=0)
     first = this_hour - timedelta(hours=SPARK_HOURS - 1)
     # Buckets are cut in UTC so they match ``first`` whatever TIME_ZONE is set to.
