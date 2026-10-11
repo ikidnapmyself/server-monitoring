@@ -1,10 +1,12 @@
 import re
+from datetime import timedelta
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.alerts.models import Incident, Node
 from apps.console._tests.test_templates import FORBIDDEN
@@ -262,6 +264,48 @@ def test_rendered_overview_is_clean(client, staff, monkeypatch, label, headers):
     assert not FORBIDDEN[label].search(body), label
 
 
+@pytest.mark.django_db
+def test_a_silent_node_renders_as_quiet(client, staff, monkeypatch):
+    monkeypatch.setattr(overview_queries, "local_instance_id", lambda: "this-hub")
+    node = Node.objects.create(instance_id="web-1", hostname="web-1")
+    Node.objects.filter(pk=node.pk).update(last_seen=timezone.now() - timedelta(days=3))
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert '<span class="c-badge c-tone-muted">quiet</span>' in body
+    assert "healthy" not in body
+
+
+def _polled_region(body):
+    return body[body.index('id="overview"') : body.index("</main>")]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
+def test_every_link_in_the_polled_region_has_a_unique_id(client, staff, monkeypatch, headers):
+    monkeypatch.setattr(overview_queries, "INCIDENT_LIMIT", 2)
+    _readiness(monkeypatch, "3 stuck")
+    incidents = [
+        Incident.objects.create(title=f"incident {index}", severity="warning") for index in range(3)
+    ]
+    nodes = [Node.objects.create(instance_id=f"web-{index}") for index in range(2)]
+
+    body = client.get(reverse("console:overview"), **headers).content.decode()
+    region = body if headers else _polled_region(body)
+
+    links = re.findall(r"<a\b[^>]*>", region)
+    ids = re.findall(r'\sid="([^"]*)"', region)
+    expected = (
+        ["readiness-x"]
+        + [f"incident-{incident.pk}" for incident in incidents[:2]]
+        + ["incidents-more"]
+        + [f"node-{node.pk}" for node in nodes]
+    )
+    assert len(links) == len(expected)
+    assert [re.search(r'\sid="([^"]*)"', link).group(1) for link in links] == expected
+    assert len(ids) == len(set(ids))
+
+
 MARKUP = "<img src=x onerror=alert(1)>"
 
 
@@ -296,7 +340,9 @@ def test_incidents_past_the_cap_link_to_the_admin_list(client, staff, monkeypatc
     body = client.get(reverse("console:overview")).content.decode()
 
     assert body.count("c-list__more") == 1
-    link = re.search(r'<li class="c-list__more"><a href="([^"]+)">([^<]+)</a></li>', body)
+    link = re.search(
+        r'<li class="c-list__more"><a id="incidents-more" href="([^"]+)">([^<]+)</a></li>', body
+    )
     assert link.group(2) == "3 more open incidents"
     target = urlsplit(link.group(1).replace("&amp;", "&"))
     assert target.path == reverse("admin:alerts_incident_changelist")

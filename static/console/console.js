@@ -1,27 +1,14 @@
 (function () {
   "use strict";
 
-  function hasSelectionIn(element) {
-    var selection = window.getSelection();
-    if (!selection || selection.isCollapsed || !selection.rangeCount) {
-      return false;
-    }
-    return selection.getRangeAt(0).intersectsNode(element);
-  }
-
   // htmx's own trigger filters need eval, which the CSP forbids, so polling is paused here.
-  // A swap drops focus and selection inside the element, so it waits while either is there.
+  // Focus is never a reason to pause: htmx refocuses the element with the same id after a swap.
   document.addEventListener("htmx:beforeRequest", function (event) {
     var element = event.detail.elt;
     if (!element.hasAttribute("data-poll")) {
       return;
     }
-    if (
-      document.hidden ||
-      element.querySelector("details[open]") ||
-      element.contains(document.activeElement) ||
-      hasSelectionIn(element)
-    ) {
+    if (document.hidden || element.querySelector("details[open]")) {
       event.preventDefault();
     }
   });

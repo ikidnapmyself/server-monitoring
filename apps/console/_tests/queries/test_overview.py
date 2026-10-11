@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from apps.alerts.models import Alert, Incident, Node
 from apps.console.queries import overview
+from config.dashboard import NODE_RECENT_MINUTES
 
 
 def _incident(title, severity="warning", status="open", age_hours=0, created_at=None):
@@ -75,6 +76,7 @@ def test_incident_row_carries_tones_count_and_a_link():
     assert row.status_tone == "critical"
     assert row.alert_count == 2
     assert row.url == reverse("admin:alerts_incident_change", args=[incident.pk])
+    assert (row.pk, other_row.pk) == (incident.pk, other.pk)
     assert (other_row.title, other_row.alert_count) == ("swap low", 1)
     assert other_row.url == reverse("admin:alerts_incident_change", args=[other.pk])
     assert (quiet_row.title, quiet_row.alert_count) == ("quiet", 0)
@@ -123,8 +125,90 @@ def test_node_tile_takes_the_worst_firing_tone(alerts, tone, firing):
     (tile,) = overview.node_tiles()
 
     assert (tile.name, tile.tone, tile.firing) == ("web-1", tone, firing)
+    assert tile.label == (f"{firing} firing" if firing else "healthy")
+    assert tile.pk == node.pk
     assert tile.url == reverse("admin:alerts_node_change", args=[node.pk])
     assert tile.last_seen == Node.objects.get(pk=node.pk).last_seen
+
+
+FROZEN = datetime(2026, 10, 11, 12, 30, tzinfo=dt_timezone.utc)
+STALE = timedelta(minutes=NODE_RECENT_MINUTES)
+
+
+def _node_seen(monkeypatch, ago, instance_id="n1", local_id="this-hub"):
+    monkeypatch.setattr(timezone, "now", lambda: FROZEN)
+    monkeypatch.setattr(overview, "local_instance_id", lambda: local_id)
+    node = Node.objects.create(instance_id=instance_id, hostname="web-1")
+    Node.objects.filter(pk=node.pk).update(last_seen=FROZEN - ago)
+    return node
+
+
+@pytest.mark.django_db
+def test_a_silent_node_with_nothing_firing_is_quiet(monkeypatch):
+    _node_seen(monkeypatch, timedelta(days=3))
+
+    (tile,) = overview.node_tiles()
+
+    assert (tile.tone, tile.label, tile.firing) == ("muted", "quiet", 0)
+
+
+@pytest.mark.django_db
+def test_a_fresh_node_with_nothing_firing_is_healthy(monkeypatch):
+    _node_seen(monkeypatch, timedelta(minutes=1))
+
+    (tile,) = overview.node_tiles()
+
+    assert (tile.tone, tile.label, tile.firing) == ("ok", "healthy", 0)
+
+
+@pytest.mark.django_db
+def test_a_silent_node_with_firing_alerts_keeps_its_firing_tone_and_label(monkeypatch):
+    node = _node_seen(monkeypatch, timedelta(days=3))
+    _alert(node, severity="critical", key="a")
+    _alert(node, severity="warning", key="b")
+
+    (tile,) = overview.node_tiles()
+
+    assert (tile.tone, tile.label, tile.firing) == ("critical", "2 firing", 2)
+
+
+@pytest.mark.django_db
+def test_this_instances_own_node_is_never_quiet(monkeypatch):
+    _node_seen(monkeypatch, timedelta(days=3), instance_id="this-hub", local_id="this-hub")
+
+    (tile,) = overview.node_tiles()
+
+    assert (tile.tone, tile.label) == ("ok", "healthy")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("ago", "tone", "label"),
+    [
+        (STALE, "ok", "healthy"),
+        (STALE + timedelta(microseconds=1), "muted", "quiet"),
+    ],
+    ids=["exactly-at-the-boundary", "just-past-it"],
+)
+def test_a_node_is_quiet_only_once_it_is_older_than_the_window(monkeypatch, ago, tone, label):
+    _node_seen(monkeypatch, ago)
+
+    (tile,) = overview.node_tiles()
+
+    assert (tile.tone, tile.label) == (tone, label)
+
+
+@pytest.mark.django_db
+def test_node_tiles_read_the_clock_once(monkeypatch):
+    calls = []
+    monkeypatch.setattr(timezone, "now", lambda: calls.append(1) or FROZEN)
+    Node.objects.create(instance_id="n1", hostname="a")
+    Node.objects.create(instance_id="n2", hostname="b")
+    calls.clear()
+
+    overview.node_tiles()
+
+    assert len(calls) == 1
 
 
 @pytest.mark.django_db
@@ -216,9 +300,9 @@ def test_attention_keeps_only_warn_and_error_and_maps_them_to_tones(monkeypatch)
 
     items = overview.attention()
 
-    assert [(item.label, item.tone, item.detail, item.url) for item in items] == [
-        ("Inbox", "warning", "3 stuck", "/b"),
-        ("Provider", "critical", "none", "/c"),
+    assert [(item.key, item.label, item.tone, item.detail, item.url) for item in items] == [
+        ("b", "Inbox", "warning", "3 stuck", "/b"),
+        ("c", "Provider", "critical", "none", "/c"),
     ]
 
 

@@ -10,6 +10,7 @@ from django.db.models.functions import TruncHour
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.alerts.identity import local_instance_id
 from apps.alerts.models import (
     Alert,
     AlertSeverity,
@@ -20,7 +21,7 @@ from apps.alerts.models import (
 )
 from config.admin_badges import INCIDENT_STATUS_TONES, SEVERITY_TONES, tone_for
 from config.admin_links import changelist_url
-from config.dashboard import build_readiness
+from config.dashboard import NODE_RECENT_MINUTES, build_readiness
 
 OPEN_STATUSES = [IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED]
 INCIDENT_LIMIT = 20
@@ -37,6 +38,7 @@ _SEVERITY_RANK = Case(
 
 @dataclass(frozen=True)
 class IncidentRow:
+    pk: int
     title: str
     severity: str
     severity_tone: str
@@ -49,8 +51,10 @@ class IncidentRow:
 
 @dataclass(frozen=True)
 class NodeTile:
+    pk: int
     name: str
     tone: str
+    label: str
     firing: int
     last_seen: datetime
     url: str
@@ -58,6 +62,7 @@ class NodeTile:
 
 @dataclass(frozen=True)
 class AttentionItem:
+    key: str
     label: str
     detail: str
     tone: str
@@ -104,6 +109,7 @@ def open_incidents() -> tuple[IncidentRow, ...]:
     )
     return tuple(
         IncidentRow(
+            pk=incident.pk,
             title=incident.title,
             severity=incident.severity,
             severity_tone=tone_for(SEVERITY_TONES, incident.severity),
@@ -117,14 +123,14 @@ def open_incidents() -> tuple[IncidentRow, ...]:
     )
 
 
-def _node_tone(critical: int, warning: int, firing: int) -> str:
-    if critical:
-        return "critical"
-    if warning:
-        return "warning"
+def _node_badge(critical: int, warning: int, firing: int, silent: bool) -> tuple[str, str]:
+    """Tone and label for a node tile. Firing alerts outrank silence."""
     if firing:
-        return "info"
-    return "ok"
+        tone = "critical" if critical else "warning" if warning else "info"
+        return tone, f"{firing} firing"
+    if silent:
+        return "muted", "quiet"
+    return "ok", "healthy"
 
 
 def _firing_by_node() -> tuple[Counter[int], Counter[int], Counter[int]]:
@@ -150,16 +156,24 @@ def _firing_by_node() -> tuple[Counter[int], Counter[int], Counter[int]]:
 
 def node_tiles() -> tuple[NodeTile, ...]:
     firing, critical, warning = _firing_by_node()
-    tiles = [
-        NodeTile(
-            name=node.hostname or node.instance_id,
-            tone=_node_tone(critical[node.pk], warning[node.pk], firing[node.pk]),
-            firing=firing[node.pk],
-            last_seen=node.last_seen,
-            url=reverse("admin:alerts_node_change", args=[node.pk]),
+    cutoff = timezone.now() - timedelta(minutes=NODE_RECENT_MINUTES)
+    # This instance's own row is never silent: a hub checked by hand is not a quiet agent.
+    self_id = local_instance_id()
+    tiles = []
+    for node in Node.objects.order_by():
+        silent = node.last_seen < cutoff and node.instance_id != self_id
+        tone, label = _node_badge(critical[node.pk], warning[node.pk], firing[node.pk], silent)
+        tiles.append(
+            NodeTile(
+                pk=node.pk,
+                name=node.hostname or node.instance_id,
+                tone=tone,
+                label=label,
+                firing=firing[node.pk],
+                last_seen=node.last_seen,
+                url=reverse("admin:alerts_node_change", args=[node.pk]),
+            )
         )
-        for node in Node.objects.order_by()
-    ]
     return tuple(sorted(tiles, key=lambda tile: tile.name.casefold()))
 
 
@@ -186,6 +200,7 @@ def incident_spark() -> tuple[tuple[float, float], ...]:
 def attention() -> tuple[AttentionItem, ...]:
     return tuple(
         AttentionItem(
+            key=entry["key"],
             label=entry["label"],
             detail=entry["detail"],
             tone=ATTENTION_TONES[entry["status"]],

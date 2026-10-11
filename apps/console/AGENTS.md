@@ -37,9 +37,13 @@ pipeline stage and not an alert producer.
   `timeout` is 10 seconds, so a hung request ends in `htmx:timeout` and shows the
   banner.
 - **Polling is paused in `console.js`, not in `hx-trigger`.** A `data-poll` element
-  skips a poll while the tab is hidden, while it holds an open `<details>`, while
-  keyboard focus is inside it, and while a text selection touches it. A swap would
-  throw each of those away. When a hidden tab becomes visible, `console.js` dispatches
+  skips a poll while the tab is hidden and while it holds an open `<details>`. Polls
+  are never paused for focus or for a text selection, because a page that stops
+  updating without saying so is worse than a lost selection. Every focusable element
+  in a polled region needs a stable unique `id` built from its record, such as
+  `incident-<pk>`, `node-<pk>` or `readiness-<key>`. After a swap htmx puts focus
+  back on the element with the same `id`. An element without one loses focus on
+  every poll. When a hidden tab becomes visible, `console.js` dispatches
   `console:refresh` on every `data-poll` element, so list that event in the element's
   `hx-trigger` next to the interval.
 - **Colour lives in `static/console/console.css`** as tokens. Tone names match

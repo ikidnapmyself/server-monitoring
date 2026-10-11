@@ -4,7 +4,7 @@
   {% for item in overview.attention %}
   <li>
     <span class="c-badge c-tone-{{ item.tone }}">{{ item.tone }}</span>
-    <span><a href="{{ item.url }}">{{ item.label }}</a> <span class="c-muted">{{ item.detail }}</span></span>
+    <span><a id="readiness-{{ item.key }}" href="{{ item.url }}">{{ item.label }}</a> <span class="c-muted">{{ item.detail }}</span></span>
   </li>
   {% endfor %}
 </ul>
@@ -20,7 +20,7 @@
       {% for row in overview.incidents %}
       <li>
         <span class="c-badge c-tone-{{ row.severity_tone }}">{{ row.severity }}</span>
-        <a href="{{ row.url }}">{{ row.title }}</a>
+        <a id="incident-{{ row.pk }}" href="{{ row.url }}">{{ row.title }}</a>
         <span class="c-muted">{{ row.alert_count }} alert{{ row.alert_count|pluralize }}</span>
         <span>
           <span class="c-badge c-tone-{{ row.status_tone }}">{{ row.status }}</span>
@@ -29,7 +29,7 @@
       </li>
       {% endfor %}
       {% if overview.open_hidden > 0 %}
-      <li class="c-list__more"><a href="{{ overview.more_url }}">{{ overview.open_hidden }} more open incident{{ overview.open_hidden|pluralize }}</a></li>
+      <li class="c-list__more"><a id="incidents-more" href="{{ overview.more_url }}">{{ overview.open_hidden }} more open incident{{ overview.open_hidden|pluralize }}</a></li>
       {% endif %}
     </ul>
     {% else %}
@@ -43,9 +43,9 @@
   {% if overview.nodes %}
   <div class="c-grid">
     {% for tile in overview.nodes %}
-    <a class="c-card c-tile" href="{{ tile.url }}">
+    <a id="node-{{ tile.pk }}" class="c-card c-tile" href="{{ tile.url }}">
       <span class="c-tile__name">{{ tile.name }}</span>
-      <span class="c-badge c-tone-{{ tile.tone }}">{% if tile.firing %}{{ tile.firing }} firing{% else %}healthy{% endif %}</span>
+      <span class="c-badge c-tone-{{ tile.tone }}">{{ tile.label }}</span>
       <time class="c-muted" datetime="{{ tile.last_seen|date:'c' }}" title="{{ tile.last_seen|date:'Y-m-d H:i:s T' }}">seen {{ tile.last_seen|timesince }} ago</time>
     </a>
     {% endfor %}
