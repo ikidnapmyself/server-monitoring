@@ -11,5 +11,13 @@ or a file appears that this table does not list.
 ## Upgrading
 
 1. Read the upstream changelog for every version between the pinned one and the new one.
-2. Fetch the new file from two CDNs and confirm the hashes agree.
+2. Fetch the new file from two CDNs and confirm the hashes agree. All three hashes below
+   must be identical:
+
+   ```bash
+   curl -sSfL "https://unpkg.com/htmx.org@<version>/dist/htmx.min.js" -o /tmp/htmx.min.js
+   shasum -a 256 /tmp/htmx.min.js
+   curl -sSfL "https://cdn.jsdelivr.net/npm/htmx.org@<version>/dist/htmx.min.js" | shasum -a 256
+   ```
+
 3. Replace the file, update the row above, run `uv run pytest apps/console`.

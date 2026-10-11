@@ -125,6 +125,10 @@ def test_anonymous_htmx_login_returns_to_the_page_the_operator_was_on(
         "http://testserver/admin/logout/",
         "http://testserver/consolex/",
         "http://testserver",
+        "http://testserver/console/../admin/logout/",
+        "http://testserver/console/%2e%2e/admin/logout/",
+        "http://testserver/console/..\\admin/logout/",
+        "http://testserver/console/\t../admin/",
     ],
     ids=[
         "foreign-host",
@@ -134,6 +138,10 @@ def test_anonymous_htmx_login_returns_to_the_page_the_operator_was_on(
         "outside-the-console",
         "prefix-lookalike",
         "bare-origin",
+        "dot-segment",
+        "encoded-dot-segment",
+        "backslash-dot-segment",
+        "tab-before-dot-segment",
     ],
 )
 def test_anonymous_htmx_login_ignores_a_current_url_it_cannot_trust(client, current_url):

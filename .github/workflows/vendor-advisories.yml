@@ -28,9 +28,9 @@ jobs:
           echo "Pinned htmx version: $version"
           body=$(curl -sSf --max-time 30 --retry 3 -X POST https://api.osv.dev/v1/query \
             -d "{\"package\":{\"name\":\"htmx.org\",\"ecosystem\":\"npm\"},\"version\":\"$version\"}")
-          count=$(echo "$body" | jq '.vulns // [] | length')
+          count=$(printf '%s' "$body" | jq '.vulns // [] | length')
           if [ "$count" -gt 0 ]; then
-            echo "$body" | jq -r '.vulns[] | "\(.id)  \(.summary // "no summary")"'
+            printf '%s' "$body" | jq -r '.vulns[] | "\(.id)  \(.summary // "no summary")"'
             exit 1
           fi
           echo "No known advisories."

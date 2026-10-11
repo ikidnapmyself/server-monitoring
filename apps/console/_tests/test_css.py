@@ -35,6 +35,7 @@ PAIRS = [
     ("--text-muted", "--bg"),
     ("--text-muted", "--surface"),
     ("--accent", "--bg"),
+    ("--accent", "--surface"),
     *[(f"--tone-{tone}-fg", f"--tone-{tone}-bg") for tone in TONES],
 ]
 

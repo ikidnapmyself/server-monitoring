@@ -1,4 +1,4 @@
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from django.contrib.auth.views import redirect_to_login
 from django.http import HttpResponse, HttpResponseForbidden
@@ -71,7 +71,13 @@ class ConsoleView(TemplateView):
         if is_local(current):
             parts = urlsplit(current)
             path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+            # A browser collapses dot segments, also encoded or behind a backslash.
+            segments = unquote(parts.path).replace("\\", "/").split("/")
             # A same-host URL can still carry a path like //evil.example/x.
-            if is_local(path) and parts.path.startswith(CONSOLE_PATH_PREFIX):
+            if (
+                is_local(path)
+                and parts.path.startswith(CONSOLE_PATH_PREFIX)
+                and ".." not in segments
+            ):
                 return path
         return request.get_full_path()
