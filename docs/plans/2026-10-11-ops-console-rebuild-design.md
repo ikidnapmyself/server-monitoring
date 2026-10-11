@@ -42,6 +42,11 @@ There is no `package.json`, no bundler and no node in CI or the Docker image.
 | Dashboard and readiness data | `config/dashboard.py` | Move into `apps/console/queries/` |
 | Routing map data | `config/netmap.py` | Move into `apps/console/queries/` |
 | Tone vocabulary | `config/admin_badges.py` | Reuse the tone names |
+| Incident timeline | `apps/alerts/timeline.py` `build_incident_timeline` | Extend and render, don't rewrite |
+| Stage diagnosis | `apps/alerts/diagnosis.py` `diagnose_incident` | Reuse on the incident and run pages |
+| Node page data | `apps/alerts/node_overview.py` | Reuse for the node page |
+| Policy page data | `apps/alerts/policy_overview.py` | Reuse for System |
+| SVG sparkline | `apps/checkers/admin_charts.py` `render_sparkline` | Reuse. Add bar charts beside it |
 | Admin deep links | `config/admin_links.py` | Reuse for every "Edit raw" link |
 | Incident transitions | `IncidentManager` in `apps/alerts/` | Call from action views |
 | Run retry and mark-failed | `PipelineRunAdmin` change actions | Lift into `apps/orchestration`, call from both surfaces |
@@ -100,7 +105,6 @@ filters.
 apps/console/
   views/        overview.py incidents.py alerts.py runs.py nodes.py reports.py system.py export.py
   queries/      one module per page, plain functions returning frozen dataclasses
-  charts.py     dataclass in, SVG string out
   filters.py    parse and validate a querystring into a typed filter object
   urls.py  AGENTS.md  _tests/
 templates/console/   base.html, one template per page, partials/_*.html
@@ -114,8 +118,8 @@ linkable and every page works with JavaScript off.
 
 **Reads.** `queries/` is the only place that touches the ORM. Functions return
 dataclasses, never querysets, so a template can't trigger a lazy query. The incident
-timeline is one function merging `Alert`, `AlertHistory`, `PipelineRun`,
-`StageExecution` and notification refs into a sorted list of typed events.
+timeline comes from the existing `build_incident_timeline`, extended with alert and
+notification entries where it lacks them.
 
 **Writes.** Action views are POST-only, CSRF-protected and permission-checked. They
 call the same functions the admin calls. Logic that lives inside a `ModelAdmin` method
@@ -142,8 +146,10 @@ One `console.css` built on CSS custom properties, no preprocessor.
 - Motion is limited to 150ms fades on swaps and is disabled under
   `prefers-reduced-motion`.
 
-**Charts.** `charts.py` emits SVG sparklines, stacked bars and a severity-by-day strip.
-Hover values use native `<title>` elements. There is no chart library.
+**Charts.** Server-rendered SVG. Sparklines reuse `render_sparkline` from
+`apps/checkers/admin_charts.py`. Stacked bars and the severity-by-day strip are added
+beside it in PR 6. Hover values use native `<title>` elements. There is no chart
+library.
 
 ## Frontend dependency policy
 
@@ -185,7 +191,7 @@ The console renders what the model holds and doesn't work around this.
   render.
 - Every action view is tested for GET rejected, missing permission rejected and
   delegation to the existing function.
-- `charts.py` is tested on empty, single-point and normal data.
+- New chart renderers are tested on empty, single-point and normal data.
 - Guard tests cover the CSP header, absence of inline script and style in console
   templates, the vendor hash, the vendor directory listing and contrast pairs.
 - 100% branch coverage on new code.
