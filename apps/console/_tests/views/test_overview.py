@@ -105,9 +105,8 @@ def _next_after_login(client, current_url):
     [
         ("http://testserver/console/incidents/?page=2&q=disk", "/console/incidents/?page=2&q=disk"),
         ("http://testserver/console/incidents/#row-4", "/console/incidents/"),
-        ("http://testserver", "/"),
     ],
-    ids=["path-and-query", "fragment-dropped", "bare-origin"],
+    ids=["path-and-query", "fragment-dropped"],
 )
 def test_anonymous_htmx_login_returns_to_the_page_the_operator_was_on(
     client, current_url, expected
@@ -123,8 +122,19 @@ def test_anonymous_htmx_login_returns_to_the_page_the_operator_was_on(
         "http://testserver//evil.example/x",
         "javascript:alert(1)",
         "",
+        "http://testserver/admin/logout/",
+        "http://testserver/consolex/",
+        "http://testserver",
     ],
-    ids=["foreign-host", "scheme-relative-path", "bad-scheme", "empty"],
+    ids=[
+        "foreign-host",
+        "scheme-relative-path",
+        "bad-scheme",
+        "empty",
+        "outside-the-console",
+        "prefix-lookalike",
+        "bare-origin",
+    ],
 )
 def test_anonymous_htmx_login_ignores_a_current_url_it_cannot_trust(client, current_url):
     assert _next_after_login(client, current_url) == ["/console/"]

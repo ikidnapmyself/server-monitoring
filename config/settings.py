@@ -66,6 +66,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "apps.console.middleware.ConsoleHeadersMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -74,7 +75,6 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "config.middleware.api_key_auth.APIKeyAuthMiddleware",
     "config.middleware.rate_limit.RateLimitMiddleware",
-    "apps.console.middleware.ConsoleHeadersMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"

@@ -1,4 +1,5 @@
 import pytest
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 
@@ -75,3 +76,10 @@ def test_paths_outside_the_console_are_left_alone(client):
     assert resp.status_code == 200
     assert resp.get("Content-Security-Policy") != CSP
     assert "HX-Request" not in resp.get("Vary", "")
+
+
+def test_the_middleware_wraps_everything_but_the_security_middleware():
+    names = settings.MIDDLEWARE
+    security = names.index("django.middleware.security.SecurityMiddleware")
+
+    assert names[security + 1] == "apps.console.middleware.ConsoleHeadersMiddleware"

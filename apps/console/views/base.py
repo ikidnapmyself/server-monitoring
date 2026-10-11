@@ -6,6 +6,8 @@ from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.generic import TemplateView
 
+from apps.console.middleware import CONSOLE_PATH_PREFIX
+
 
 class ConsoleView(TemplateView):
     """Base for every console page. Staff only.
@@ -70,6 +72,6 @@ class ConsoleView(TemplateView):
             parts = urlsplit(current)
             path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
             # A same-host URL can still carry a path like //evil.example/x.
-            if is_local(path):
+            if is_local(path) and parts.path.startswith(CONSOLE_PATH_PREFIX):
                 return path
         return request.get_full_path()
