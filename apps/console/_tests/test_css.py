@@ -1,4 +1,4 @@
-"""Contrast guard on console.css. A palette tweak must not drop text below AA."""
+"""Guards on console.css: text contrast stays at AA and every badge tone has a rule."""
 
 import re
 from pathlib import Path
@@ -6,9 +6,10 @@ from pathlib import Path
 import pytest
 from django.conf import settings
 
+from config.admin_badges import TONES
+
 CSS = Path(settings.BASE_DIR) / "static" / "console" / "console.css"
 DARK_MARKER = "@media (prefers-color-scheme: dark)"
-TONES = ("critical", "warning", "info", "ok", "muted")
 MIN_CONTRAST = 4.5
 
 
@@ -36,7 +37,7 @@ PAIRS = [
     ("--text-muted", "--surface"),
     ("--accent", "--bg"),
     ("--accent", "--surface"),
-    *[(f"--tone-{tone}-fg", f"--tone-{tone}-bg") for tone in TONES],
+    *[(f"--tone-{tone}-fg", f"--tone-{tone}-bg") for tone in sorted(TONES)],
 ]
 
 
@@ -50,3 +51,8 @@ def test_text_pairs_meet_aa(theme, fg, bg):
 
 def test_both_themes_define_the_same_tokens():
     assert _tokens("light").keys() == _tokens("dark").keys()
+
+
+@pytest.mark.parametrize("tone", sorted(TONES))
+def test_every_tone_has_a_rule(tone):
+    assert re.search(rf"^\.c-tone-{tone}\s*\{{[^}}]*\bcolor\s*:", CSS.read_text(), re.M)

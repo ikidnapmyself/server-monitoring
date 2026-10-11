@@ -48,7 +48,6 @@
   --radius: 10px;
   --shadow: 0 1px 2px rgb(0 0 0 / 8%);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
-  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   color-scheme: light dark;
 }
 
@@ -57,7 +56,7 @@
 body {
   margin: 0;
   display: grid;
-  grid-template-columns: 200px 1fr;
+  grid-template-columns: 200px minmax(0, 1fr);
   min-height: 100vh;
   background: var(--bg);
   color: var(--text);
@@ -105,13 +104,15 @@ a:hover { text-decoration: underline; }
 .c-list { margin: 0; padding: 0; list-style: none; }
 .c-list > li {
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border);
 }
 .c-list > li:last-child { border-bottom: 0; }
+.c-list > li > a { overflow-wrap: anywhere; }
+.c-list__more > a { grid-column: 1 / -1; }
 .c-empty { padding: var(--space-6) var(--space-4); color: var(--text-muted); }
 
 .c-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--space-3); }
@@ -133,7 +134,7 @@ a:hover { text-decoration: underline; }
 .c-tone-muted { color: var(--tone-muted-fg); background: var(--tone-muted-bg); }
 
 .c-spark { padding: var(--space-4); color: var(--accent); }
-.c-spark svg { display: block; width: 100%; height: 48px; }
+.c-spark svg { display: block; max-width: 100%; height: auto; }
 
 .c-banner {
   margin-bottom: var(--space-4);
@@ -141,18 +142,13 @@ a:hover { text-decoration: underline; }
   border-radius: var(--radius);
 }
 
-.htmx-swapping { opacity: 0; transition: opacity 150ms ease-out; }
-.htmx-settling { opacity: 1; transition: opacity 150ms ease-in; }
-
-@media (prefers-reduced-motion: reduce) {
-  .htmx-swapping, .htmx-settling { transition: none; }
-}
-
 @media (max-width: 720px) {
-  body { grid-template-columns: 1fr; }
+  body { grid-template-columns: minmax(0, 1fr); }
   .c-side { flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--border); }
   .c-side__foot { margin-top: 0; margin-left: auto; flex-direction: row; }
   .c-main { padding: var(--space-4); }
+  .c-list > li { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .c-list > li > a { grid-column: 1 / -1; grid-row: 1; }
 }
 
 @media print {

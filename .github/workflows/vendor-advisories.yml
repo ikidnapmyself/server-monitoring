@@ -22,14 +22,32 @@ jobs:
       - name: Query OSV for the pinned htmx version
         run: |
           set -euo pipefail
+          osv_query() {
+            curl -sSf --max-time 30 --retry 3 -X POST https://api.osv.dev/v1/query \
+              -d "{\"package\":{\"name\":\"$1\",\"ecosystem\":\"npm\"},\"version\":\"$2\"}"
+          }
+          vuln_count() {
+            printf '%s' "$1" | jq '.vulns // [] | length'
+          }
+
+          control=$(osv_query lodash 4.17.20)
+          if [ "$(vuln_count "$control")" -eq 0 ]; then
+            echo "OSV returned no advisories for lodash 4.17.20, which has known ones." >&2
+            echo "The API or the query shape has changed. The htmx result can't be trusted." >&2
+            exit 1
+          fi
+          echo "Positive control: OSV lists $(vuln_count "$control") advisories for lodash 4.17.20."
+
           version=$(awk -F'|' '/`htmx.min.js`/ {gsub(/ /, "", $3); print $3}' \
             static/console/vendor/VENDOR.md)
           test -n "$version"
           echo "Pinned htmx version: $version"
-          body=$(curl -sSf --max-time 30 --retry 3 -X POST https://api.osv.dev/v1/query \
-            -d "{\"package\":{\"name\":\"htmx.org\",\"ecosystem\":\"npm\"},\"version\":\"$version\"}")
-          count=$(printf '%s' "$body" | jq '.vulns // [] | length')
-          if [ "$count" -gt 0 ]; then
+          body=$(osv_query htmx.org "$version")
+          if printf '%s' "$body" | jq -e 'has("next_page_token")' >/dev/null; then
+            echo "OSV paginated the htmx response. This check reads one page only." >&2
+            exit 1
+          fi
+          if [ "$(vuln_count "$body")" -gt 0 ]; then
             printf '%s' "$body" | jq -r '.vulns[] | "\(.id)  \(.summary // "no summary")"'
             exit 1
           fi

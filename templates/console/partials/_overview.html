@@ -28,6 +28,9 @@
         </span>
       </li>
       {% endfor %}
+      {% if overview.open_hidden > 0 %}
+      <li class="c-list__more"><a href="{{ overview.more_url }}">{{ overview.open_hidden }} more open incident{{ overview.open_hidden|pluralize }}</a></li>
+      {% endif %}
     </ul>
     {% else %}
     <p class="c-empty">Nothing needs you right now.</p>

@@ -234,3 +234,23 @@ def test_build_overview_assembles_every_part():
     assert [tile.name for tile in result.nodes] == ["n1"]
     assert len(result.spark) == overview.SPARK_HOURS
     assert isinstance(result.attention, tuple)
+    assert (result.open_total, result.open_hidden) == (1, 0)
+
+
+@pytest.mark.django_db
+def test_build_overview_counts_the_incidents_past_the_cap(monkeypatch, django_assert_num_queries):
+    monkeypatch.setattr(overview, "INCIDENT_LIMIT", 2)
+    monkeypatch.setattr(overview, "build_readiness", lambda: [])
+    for index in range(5):
+        _incident(f"incident {index}")
+    _incident("resolved", status="resolved")
+
+    # Counts, incident rows, firing alerts, nodes, sparkline.
+    with django_assert_num_queries(5):
+        result = overview.build_overview()
+
+    assert len(result.incidents) == 2
+    assert (result.open_total, result.open_hidden) == (5, 3)
+    assert result.more_url == (
+        reverse("admin:alerts_incident_changelist") + "?status__in=open%2Cacknowledged"
+    )

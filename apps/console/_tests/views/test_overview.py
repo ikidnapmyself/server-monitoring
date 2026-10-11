@@ -6,6 +6,9 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory
 from django.urls import reverse
 
+from apps.alerts.models import Incident, Node
+from apps.console._tests.test_templates import FORBIDDEN
+from apps.console.queries import overview as overview_queries
 from apps.console.views.overview import OverviewView
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
@@ -170,8 +173,6 @@ def test_empty_install_reads_as_calm(client, staff):
 
 @pytest.mark.django_db
 def test_page_shows_incidents_nodes_and_the_sparkline(client, staff):
-    from apps.alerts.models import Incident, Node
-
     incident = Incident.objects.create(title="Disk full on web-1", severity="critical")
     node = Node.objects.create(instance_id="web-1", hostname="web-1")
 
@@ -194,6 +195,7 @@ def test_page_loads_only_first_party_assets_and_disables_htmx_eval(client, staff
     assert "console/console.css" in body
     assert '"allowEval":false' in body
     assert '"refreshOnHistoryMiss":true' in body
+    assert '"timeout":10000' in body
     assert not re.search(r'(?:src|href)="(?:https?:)?//', body)
 
 
@@ -202,16 +204,14 @@ def test_page_polls_itself_and_links_onward(client, staff):
     body = client.get(reverse("console:overview")).content.decode()
 
     assert f'hx-get="{reverse("console:overview")}"' in body
-    assert 'hx-trigger="every 30s"' in body
+    assert 'hx-trigger="every 30s, console:refresh"' in body
     assert reverse("admin:index") in body
     assert reverse("admin:logout") in body
 
 
 def _readiness(monkeypatch, detail):
-    from apps.console.queries import overview
-
     monkeypatch.setattr(
-        overview,
+        overview_queries,
         "build_readiness",
         lambda: [{"key": "x", "label": "Inbox", "status": "warn", "detail": detail, "url": "/x/"}],
     )
@@ -235,3 +235,103 @@ def test_readiness_detail_is_escaped(client, staff, monkeypatch):
 
     assert "&lt;b&gt;web-1&lt;/b&gt; stuck" in body
     assert "<b>web-1</b>" not in body
+
+
+@pytest.mark.django_db
+def test_page_carries_the_hooks_console_js_binds_to(client, staff):
+    body = client.get(reverse("console:overview")).content.decode()
+
+    polling = re.search(r"<div[^>]*\bhx-get=[^>]*>", body).group()
+    assert re.search(r"\sdata-poll[\s>]", polling)
+    assert 'id="c-banner"' in body
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("label", sorted(FORBIDDEN))
+@pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
+def test_rendered_overview_is_clean(client, staff, monkeypatch, label, headers):
+    monkeypatch.setattr(overview_queries, "INCIDENT_LIMIT", 1)
+    _readiness(monkeypatch, "3 stuck")
+    Incident.objects.create(title="Disk full on web-1", severity="critical")
+    Incident.objects.create(title="Swap low on web-1", severity="warning")
+    Node.objects.create(instance_id="web-1", hostname="web-1")
+
+    body = client.get(reverse("console:overview"), **headers).content.decode()
+
+    assert "<svg" in body and "c-badge" in body and "1 more open incident" in body
+    assert not FORBIDDEN[label].search(body), label
+
+
+MARKUP = "<img src=x onerror=alert(1)>"
+
+
+@pytest.mark.django_db
+def test_incident_title_is_escaped(client, staff):
+    Incident.objects.create(title=f"disk {MARKUP}", severity="critical")
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert "disk &lt;img src=x onerror=alert(1)&gt;" in body
+    assert "<img" not in body
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("field", ["hostname", "instance_id"])
+def test_node_name_is_escaped(client, staff, field):
+    Node.objects.create(**{"instance_id": "n1", "hostname": "", field: f"web {MARKUP}"})
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert "web &lt;img src=x onerror=alert(1)&gt;" in body
+    assert "<img" not in body
+
+
+@pytest.mark.django_db
+def test_incidents_past_the_cap_link_to_the_admin_list(client, staff, monkeypatch):
+    monkeypatch.setattr(overview_queries, "INCIDENT_LIMIT", 2)
+    for index in range(5):
+        Incident.objects.create(title=f"incident {index}", severity="warning")
+    Incident.objects.create(title="done", severity="warning", status="resolved")
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert body.count("c-list__more") == 1
+    link = re.search(r'<li class="c-list__more"><a href="([^"]+)">([^<]+)</a></li>', body)
+    assert link.group(2) == "3 more open incidents"
+    target = urlsplit(link.group(1).replace("&amp;", "&"))
+    assert target.path == reverse("admin:alerts_incident_changelist")
+    assert parse_qs(target.query) == {"status__in": ["open,acknowledged"]}
+
+
+@pytest.mark.django_db
+def test_one_incident_past_the_cap_reads_in_the_singular(client, staff, monkeypatch):
+    monkeypatch.setattr(overview_queries, "INCIDENT_LIMIT", 1)
+    Incident.objects.create(title="a", severity="warning")
+    Incident.objects.create(title="b", severity="warning")
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert ">1 more open incident</a>" in body
+
+
+@pytest.mark.django_db
+def test_incidents_within_the_cap_show_no_more_row(client, staff):
+    Incident.objects.create(title="only", severity="warning")
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert "c-list__more" not in body
+
+
+@pytest.mark.django_db
+def test_the_more_link_opens_a_list_of_only_open_incidents(admin_client):
+    Incident.objects.create(title="still open", severity="warning")
+    Incident.objects.create(title="acked", severity="warning", status="acknowledged")
+    Incident.objects.create(title="long gone", severity="warning", status="closed")
+
+    resp = admin_client.get(overview_queries.build_overview().more_url)
+
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "still open" in body and "acked" in body
+    assert "long gone" not in body

@@ -19,6 +19,7 @@ from apps.alerts.models import (
     Node,
 )
 from config.admin_badges import INCIDENT_STATUS_TONES, SEVERITY_TONES, tone_for
+from config.admin_links import changelist_url
 from config.dashboard import build_readiness
 
 OPEN_STATUSES = [IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED]
@@ -70,6 +71,12 @@ class Overview:
     nodes: tuple[NodeTile, ...]
     spark: tuple[tuple[float, float], ...]
     attention: tuple[AttentionItem, ...]
+    open_total: int
+    more_url: str
+
+    @property
+    def open_hidden(self) -> int:
+        return self.open_total - len(self.incidents)
 
 
 def headline(total: int, critical: int) -> str:
@@ -190,10 +197,13 @@ def attention() -> tuple[AttentionItem, ...]:
 
 
 def build_overview() -> Overview:
+    total, critical = open_counts()
     return Overview(
-        headline=headline(*open_counts()),
+        headline=headline(total, critical),
         incidents=open_incidents(),
         nodes=node_tiles(),
         spark=incident_spark(),
         attention=attention(),
+        open_total=total,
+        more_url=changelist_url(Incident, status__in=",".join(OPEN_STATUSES)),
     )

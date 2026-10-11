@@ -25,13 +25,23 @@ pipeline stage and not an alert producer.
   headers for every `/console/` response. That includes a 404, a 500 and a CSRF
   refusal, which no console view returns.
 - **No inline script, style or handlers** in `templates/console/`. The CSP blocks them
-  and `_tests/test_templates.py` fails on them. Put behaviour in
-  `static/console/console.js`.
+  and `_tests/test_templates.py` fails on them. That test scans template source only,
+  so it can't see markup a helper such as `render_sparkline` emits. A view test in
+  `_tests/views/test_overview.py` scans the rendered Overview page and partial for the
+  same patterns. Put behaviour in `static/console/console.js`.
 - **htmx is locked down** in the `htmx-config` meta in `templates/console/base.html`.
   `allowEval`, `allowScriptTags` and `includeIndicatorStyles` are off, so `hx-on` and
   bracketed trigger filters don't work. `refreshOnHistoryMiss` is on, because on a
   history cache miss htmx ignores `HX-Redirect` and would swap the empty 204 of an
   expired session into `<body>`. With the key on, a miss is a full page reload.
+  `timeout` is 10 seconds, so a hung request ends in `htmx:timeout` and shows the
+  banner.
+- **Polling is paused in `console.js`, not in `hx-trigger`.** A `data-poll` element
+  skips a poll while the tab is hidden, while it holds an open `<details>`, while
+  keyboard focus is inside it, and while a text selection touches it. A swap would
+  throw each of those away. When a hidden tab becomes visible, `console.js` dispatches
+  `console:refresh` on every `data-poll` element, so list that event in the element's
+  `hx-trigger` next to the interval.
 - **Colour lives in `static/console/console.css`** as tokens. Tone names match
   `config/admin_badges.py`.
 - **No dead ends.** Every page links onward. The sidebar lists only pages that exist.
@@ -49,8 +59,10 @@ frontend code, and `VENDOR.md` there records each file's version and SHA-256.
 
 `.github/workflows/vendor-advisories.yml` reads the pinned version from `VENDOR.md` and
 queries OSV for the npm package `htmx.org` every week. OSV held no advisories for that
-package at any version when this was written. The check has only been proven to fail
-against another package, never against htmx itself.
+package at any version when this was written, so the job first queries `lodash`
+4.17.20 as a positive control and fails if OSV returns nothing for it. It also fails if
+the htmx response is paginated. The check has only been proven to fail against another
+package, never against htmx itself.
 
 `static/console/console.js` has no automated test. Check a change to it in a browser.
 

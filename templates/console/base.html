@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"includeIndicatorStyles":false,"selfRequestsOnly":true,"refreshOnHistoryMiss":true}'>
+  <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"includeIndicatorStyles":false,"selfRequestsOnly":true,"refreshOnHistoryMiss":true,"timeout":10000}'>
   <title>{% block title %}Console{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'console/console.css' %}">
   <script src="{% static 'console/vendor/htmx.min.js' %}" defer></script>
