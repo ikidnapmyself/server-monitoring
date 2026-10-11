@@ -1,1 +1,58 @@
-<p>Overview</p>
+<h1 class="c-headline">{{ overview.headline }}</h1>
+{% if overview.attention %}
+<ul class="c-list c-card">
+  {% for item in overview.attention %}
+  <li>
+    <span class="c-badge c-tone-{{ item.tone }}">{{ item.tone }}</span>
+    <span><a href="{{ item.url }}">{{ item.label }}</a> <span class="c-muted">{{ item.detail }}</span></span>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="c-muted">System ready.</p>
+{% endif %}
+
+<section class="c-section">
+  <h2>Open incidents</h2>
+  <div class="c-card">
+    {% if overview.incidents %}
+    <ul class="c-list">
+      {% for row in overview.incidents %}
+      <li>
+        <span class="c-badge c-tone-{{ row.severity_tone }}">{{ row.severity }}</span>
+        <a href="{{ row.url }}">{{ row.title }}</a>
+        <span class="c-muted">{{ row.alert_count }} alert{{ row.alert_count|pluralize }}</span>
+        <span>
+          <span class="c-badge c-tone-{{ row.status_tone }}">{{ row.status }}</span>
+          <time class="c-muted" datetime="{{ row.created_at|date:'c' }}" title="{{ row.created_at|date:'Y-m-d H:i:s T' }}">{{ row.created_at|timesince }} ago</time>
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="c-empty">Nothing needs you right now.</p>
+    {% endif %}
+  </div>
+</section>
+
+<section class="c-section">
+  <h2>Nodes</h2>
+  {% if overview.nodes %}
+  <div class="c-grid">
+    {% for tile in overview.nodes %}
+    <a class="c-card c-tile" href="{{ tile.url }}">
+      <span class="c-tile__name">{{ tile.name }}</span>
+      <span class="c-badge c-tone-{{ tile.tone }}">{% if tile.firing %}{{ tile.firing }} firing{% else %}healthy{% endif %}</span>
+      <time class="c-muted" datetime="{{ tile.last_seen|date:'c' }}" title="{{ tile.last_seen|date:'Y-m-d H:i:s T' }}">seen {{ tile.last_seen|timesince }} ago</time>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="c-card c-empty">No nodes have reported yet.</p>
+  {% endif %}
+</section>
+
+<section class="c-section">
+  <h2>Incidents opened, last 24 hours</h2>
+  <div class="c-card c-spark">{{ spark }}</div>
+</section>

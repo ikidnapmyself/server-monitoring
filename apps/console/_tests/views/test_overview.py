@@ -1,3 +1,4 @@
+import re
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -156,3 +157,81 @@ def test_non_htmx_login_ignores_the_current_url_header(client):
 
     assert resp.status_code == 302
     assert resp["Location"] == f"{reverse('admin:login')}?next=/console/"
+
+
+@pytest.mark.django_db
+def test_empty_install_reads_as_calm(client, staff):
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert "No open incidents." in body
+    assert "Nothing needs you right now." in body
+    assert "No nodes have reported yet." in body
+
+
+@pytest.mark.django_db
+def test_page_shows_incidents_nodes_and_the_sparkline(client, staff):
+    from apps.alerts.models import Incident, Node
+
+    incident = Incident.objects.create(title="Disk full on web-1", severity="critical")
+    node = Node.objects.create(instance_id="web-1", hostname="web-1")
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert "1 open incident, 1 critical." in body
+    assert "Disk full on web-1" in body
+    assert reverse("admin:alerts_incident_change", args=[incident.pk]) in body
+    assert reverse("admin:alerts_node_change", args=[node.pk]) in body
+    assert "c-tone-critical" in body
+    assert "<svg" in body
+
+
+@pytest.mark.django_db
+def test_page_loads_only_first_party_assets_and_disables_htmx_eval(client, staff):
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert "console/vendor/htmx.min.js" in body
+    assert "console/console.js" in body
+    assert "console/console.css" in body
+    assert '"allowEval":false' in body
+    assert '"refreshOnHistoryMiss":true' in body
+    assert not re.search(r'(?:src|href)="(?:https?:)?//', body)
+
+
+@pytest.mark.django_db
+def test_page_polls_itself_and_links_onward(client, staff):
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert f'hx-get="{reverse("console:overview")}"' in body
+    assert 'hx-trigger="every 30s"' in body
+    assert reverse("admin:index") in body
+    assert reverse("admin:logout") in body
+
+
+def _readiness(monkeypatch, detail):
+    from apps.console.queries import overview
+
+    monkeypatch.setattr(
+        overview,
+        "build_readiness",
+        lambda: [{"key": "x", "label": "Inbox", "status": "warn", "detail": detail, "url": "/x/"}],
+    )
+
+
+@pytest.mark.django_db
+def test_readiness_problems_are_listed(client, staff, monkeypatch):
+    _readiness(monkeypatch, "3 stuck")
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert "Inbox" in body and "3 stuck" in body
+    assert "System ready." not in body
+
+
+@pytest.mark.django_db
+def test_readiness_detail_is_escaped(client, staff, monkeypatch):
+    _readiness(monkeypatch, "<b>web-1</b> stuck")
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert "&lt;b&gt;web-1&lt;/b&gt; stuck" in body
+    assert "<b>web-1</b>" not in body

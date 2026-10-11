@@ -1,0 +1,31 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"includeIndicatorStyles":false,"selfRequestsOnly":true,"refreshOnHistoryMiss":true}'>
+  <title>{% block title %}Console{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'console/console.css' %}">
+  <script src="{% static 'console/vendor/htmx.min.js' %}" defer></script>
+  <script src="{% static 'console/console.js' %}" defer></script>
+</head>
+<body>
+  <nav class="c-side" aria-label="Console">
+    <p class="c-side__brand">Ops console</p>
+    <a href="{% url 'console:overview' %}"{% if nav == "overview" %} aria-current="page"{% endif %}>Overview</a>
+    <div class="c-side__foot">
+      <a href="{% url 'admin:index' %}">Admin</a>
+      <form method="post" action="{% url 'admin:logout' %}">
+        {% csrf_token %}
+        <button type="submit">Sign out</button>
+      </form>
+    </div>
+  </nav>
+  <main class="c-main">
+    <p id="c-banner" class="c-banner c-tone-warning" role="status" hidden>
+      Couldn't refresh. Showing the last data that loaded.
+    </p>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

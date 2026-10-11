@@ -1,5 +1,7 @@
-<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><title>Console</title></head>
-<body>{% include "console/partials/_overview.html" %}</body>
-</html>
+{% extends "console/base.html" %}
+{% block title %}Overview · Console{% endblock %}
+{% block content %}
+<div id="overview" data-poll hx-get="{% url 'console:overview' %}" hx-trigger="every 30s" hx-swap="innerHTML">
+  {% include "console/partials/_overview.html" %}
+</div>
+{% endblock %}
