@@ -1,9 +1,10 @@
+from urllib.parse import parse_qs, urlsplit
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory
 from django.urls import reverse
 
-from apps.console.views.base import CSP
 from apps.console.views.overview import OverviewView
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
@@ -62,29 +63,23 @@ def test_root_redirects_to_the_console(client):
 
 
 @pytest.mark.django_db
-def test_every_response_carries_the_csp(client, staff):
-    resp = client.get(reverse("console:overview"))
-
-    assert resp["Content-Security-Policy"] == CSP
-    assert "script-src 'self'" in CSP
-    assert "style-src 'self'" in CSP
-    assert "unsafe" not in CSP
-
-
-@pytest.mark.django_db
-def test_refusals_carry_the_csp_too(client):
-    resp = client.get(reverse("console:overview"))
-
-    assert resp["Content-Security-Policy"] == CSP
-
-
-@pytest.mark.django_db
 def test_htmx_request_gets_only_the_partial(client, staff):
     resp = client.get(reverse("console:overview"), **HTMX)
 
     assert resp.status_code == 200
     assert "<html" not in resp.content.decode()
+    assert [t.name for t in resp.templates] == ["console/partials/_overview.html"]
     assert "HX-Request" in resp["Vary"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("header", ["HTTP_HX_HISTORY_RESTORE_REQUEST", "HTTP_HX_BOOSTED"])
+def test_htmx_request_that_swaps_the_body_gets_the_full_page(client, staff, header):
+    resp = client.get(reverse("console:overview"), **HTMX, **{header: "true"})
+
+    assert resp.status_code == 200
+    assert "<html" in resp.content.decode()
+    assert resp.templates[0].name == "console/overview.html"
 
 
 @pytest.mark.django_db
@@ -95,15 +90,51 @@ def test_anonymous_htmx_request_is_told_to_do_a_full_redirect(client):
     assert resp["HX-Redirect"] == f"{reverse('admin:login')}?next=/console/"
 
 
+def _next_after_login(client, current_url):
+    resp = client.get(reverse("console:overview"), **HTMX, HTTP_HX_CURRENT_URL=current_url)
+
+    assert resp.status_code == 204
+    target = urlsplit(resp["HX-Redirect"])
+    assert target.path == reverse("admin:login")
+    return parse_qs(target.query)["next"]
+
+
 @pytest.mark.django_db
-def test_staff_response_is_never_cached(client, staff):
-    resp = client.get(reverse("console:overview"))
-
-    assert "no-store" in resp["Cache-Control"]
+@pytest.mark.parametrize(
+    ("current_url", "expected"),
+    [
+        ("http://testserver/console/incidents/?page=2&q=disk", "/console/incidents/?page=2&q=disk"),
+        ("http://testserver/console/incidents/#row-4", "/console/incidents/"),
+        ("http://testserver", "/"),
+    ],
+    ids=["path-and-query", "fragment-dropped", "bare-origin"],
+)
+def test_anonymous_htmx_login_returns_to_the_page_the_operator_was_on(
+    client, current_url, expected
+):
+    assert _next_after_login(client, current_url) == [expected]
 
 
 @pytest.mark.django_db
-def test_refusals_are_never_cached(client):
-    resp = client.get(reverse("console:overview"))
+@pytest.mark.parametrize(
+    "current_url",
+    [
+        "https://evil.example/x",
+        "http://testserver//evil.example/x",
+        "javascript:alert(1)",
+        "",
+    ],
+    ids=["foreign-host", "scheme-relative-path", "bad-scheme", "empty"],
+)
+def test_anonymous_htmx_login_ignores_a_current_url_it_cannot_trust(client, current_url):
+    assert _next_after_login(client, current_url) == ["/console/"]
 
-    assert "no-store" in resp["Cache-Control"]
+
+@pytest.mark.django_db
+def test_non_htmx_login_ignores_the_current_url_header(client):
+    resp = client.get(
+        reverse("console:overview"), HTTP_HX_CURRENT_URL="http://testserver/console/other/"
+    )
+
+    assert resp.status_code == 302
+    assert resp["Location"] == f"{reverse('admin:login')}?next=/console/"

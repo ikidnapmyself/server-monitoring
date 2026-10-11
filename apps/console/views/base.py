@@ -1,57 +1,75 @@
+from urllib.parse import urlsplit
+
 from django.contrib.auth.views import redirect_to_login
 from django.http import HttpResponse, HttpResponseForbidden
 from django.urls import reverse
-from django.utils.cache import add_never_cache_headers, patch_vary_headers
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.generic import TemplateView
-
-CSP = "; ".join(
-    [
-        "default-src 'self'",
-        "script-src 'self'",
-        "style-src 'self'",
-        "img-src 'self' data:",
-        "base-uri 'self'",
-        "form-action 'self'",
-        "frame-ancestors 'none'",
-    ]
-)
 
 
 class ConsoleView(TemplateView):
-    """Base for every console page. Staff only, CSP on every response.
+    """Base for every console page. Staff only.
 
     One URL serves two sizes: the full page, and only ``partial_template_name``
-    when htmx asks. Subclasses must set both template names.
+    when htmx asks for a fragment. Subclasses must set both template names.
+    Response headers belong to ``ConsoleHeadersMiddleware``, not to this view.
     """
 
     template_name: str
     partial_template_name: str
 
     def dispatch(self, request, *args, **kwargs):
-        response = self._refusal(request) or super().dispatch(request, *args, **kwargs)
-        response["Content-Security-Policy"] = CSP
-        patch_vary_headers(response, ["HX-Request"])
-        add_never_cache_headers(response)
-        return response
+        return self._refusal(request) or super().dispatch(request, *args, **kwargs)
 
     @property
     def is_htmx(self) -> bool:
         return self.request.headers.get("HX-Request") == "true"
 
+    @property
+    def wants_partial(self) -> bool:
+        # History restores and boosted navigation swap the response into <body>,
+        # so a fragment there would replace the whole layout.
+        headers = self.request.headers
+        return (
+            self.is_htmx
+            and headers.get("HX-History-Restore-Request") != "true"
+            and headers.get("HX-Boosted") != "true"
+        )
+
     def get_template_names(self) -> list[str]:
-        if self.is_htmx:
+        if self.wants_partial:
             return [self.partial_template_name]
         return [self.template_name]
 
     def _refusal(self, request):
         if not request.user.is_authenticated:
-            redirect = redirect_to_login(request.get_full_path(), reverse("admin:login"))
+            login_url = reverse("admin:login")
             if not self.is_htmx:
-                return redirect
+                return redirect_to_login(request.get_full_path(), login_url)
             # htmx would swap a followed redirect's login form into the page.
             response = HttpResponse(status=204)
-            response["HX-Redirect"] = redirect.url
+            response["HX-Redirect"] = redirect_to_login(self._page_path(request), login_url).url
             return response
         if not (request.user.is_active and request.user.is_staff):
             return HttpResponseForbidden("Staff access required.")
         return None
+
+    def _page_path(self, request) -> str:
+        """Local path of the page an htmx request came from, for the login ``next``.
+
+        The request URL itself may be a fragment or a POST-only action.
+        """
+
+        def is_local(url: str) -> bool:
+            return url_has_allowed_host_and_scheme(
+                url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+            )
+
+        current = request.headers.get("HX-Current-URL", "")
+        if is_local(current):
+            parts = urlsplit(current)
+            path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+            # A same-host URL can still carry a path like //evil.example/x.
+            if is_local(path):
+                return path
+        return request.get_full_path()

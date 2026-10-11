@@ -74,6 +74,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "config.middleware.api_key_auth.APIKeyAuthMiddleware",
     "config.middleware.rate_limit.RateLimitMiddleware",
+    "apps.console.middleware.ConsoleHeadersMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
