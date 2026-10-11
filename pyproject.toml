@@ -68,6 +68,9 @@ dev = [
     "django-stubs>=5.0.0",
     "types-psutil>=5.9.5.20240423",
     "pre-commit>=4.0.0",
+    # Security floor: PYSEC-2026-4011..4014 — virtualenv is transitive (pre-commit);
+    # pinned explicitly so future `uv lock --upgrade` cannot regress.
+    "virtualenv>=21.7.13",
     "pip-audit>=2.7.0",
     "bandit>=1.7.0",
     "detect-secrets>=1.4.0",
