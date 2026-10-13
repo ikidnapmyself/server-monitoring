@@ -197,6 +197,7 @@ def test_page_loads_only_first_party_assets_and_disables_htmx_eval(client, staff
     assert "console/console.css" in body
     assert '"allowEval":false' in body
     assert '"refreshOnHistoryMiss":true' in body
+    assert '"historyCacheSize":0' in body
     assert '"timeout":10000' in body
     assert not re.search(r'(?:src|href)="(?:https?:)?//', body)
 

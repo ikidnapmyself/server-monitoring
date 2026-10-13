@@ -17,7 +17,7 @@ PAGE_SIZE = 50
 
 Choice = tuple[str, str, str | int | None]
 
-STATUS_CHOICES: tuple[Choice, ...] = (
+STATUS_CHIPS: tuple[Choice, ...] = (
     ("active", "Active", "active"),
     ("open", "Open", "open"),
     ("acknowledged", "Acknowledged", "acknowledged"),
@@ -25,11 +25,11 @@ STATUS_CHOICES: tuple[Choice, ...] = (
     ("closed", "Closed", "closed"),
     ("all", "All", "all"),
 )
-SEVERITY_CHOICES: tuple[Choice, ...] = (
+SEVERITY_CHIPS: tuple[Choice, ...] = (
     ("any", "Any severity", ""),
     *((str(value), str(label), str(value)) for value, label in AlertSeverity.choices),
 )
-SINCE_CHOICES: tuple[Choice, ...] = (
+SINCE_CHIPS: tuple[Choice, ...] = (
     ("any", "Any time", ""),
     ("24h", "24h", "24h"),
     ("7d", "7d", "7d"),
@@ -185,18 +185,21 @@ def build_incident_list(filter: IncidentFilter) -> IncidentList:
     if total:
         rows = _rows(incidents, page)
         empty = ""
+    elif not Incident.objects.exists():
+        rows, empty = (), "none"
+    elif replace(filter, dropped=()) == IncidentFilter():
+        rows, empty = (), "none_active"
     else:
-        rows = ()
-        empty = "no_match" if Incident.objects.exists() else "none"
+        rows, empty = (), "no_match"
 
     groups = [
-        _group("status", "Status", STATUS_CHOICES, filter, base),
-        _group("severity", "Severity", SEVERITY_CHOICES, filter, base),
+        _group("status", "Status", STATUS_CHIPS, filter, base),
+        _group("severity", "Severity", SEVERITY_CHIPS, filter, base),
     ]
     if node_choices:
         any_node: Choice = ("any", "Any node", None)
         groups.append(_group("node", "Node", (any_node, *node_choices), filter, base))
-    groups.append(_group("since", "Since", SINCE_CHOICES, filter, base))
+    groups.append(_group("since", "Since", SINCE_CHIPS, filter, base))
 
     return IncidentList(
         rows=rows,

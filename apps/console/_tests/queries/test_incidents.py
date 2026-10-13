@@ -7,6 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.alerts.models import Alert, Incident, Node
+from apps.console import filters
 from apps.console.filters import IncidentFilter
 from apps.console.queries import incidents
 from apps.console.queries.incidents import build_incident_list
@@ -258,7 +259,7 @@ def test_a_node_filter_with_no_nodes_at_all_is_dropped_too():
 def test_the_notice_names_every_dropped_param():
     result = build_incident_list(IncidentFilter(node=5, dropped=("status", "page")))
 
-    assert result.notice == "Ignored invalid filter: status, page, node."
+    assert result.notice == "Ignored invalid filter: status, node, page."
 
 
 @pytest.mark.django_db
@@ -274,10 +275,35 @@ def test_no_incident_at_all_reads_as_none(base):
 def test_incidents_the_filter_hides_read_as_no_match():
     _incident("resolved", status="resolved")
 
-    result = build_incident_list(IncidentFilter())
+    result = build_incident_list(IncidentFilter(severity="info"))
 
     assert result.empty == "no_match"
     assert (result.rows, result.total) == ((), 0)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "default",
+    [IncidentFilter(), IncidentFilter(page=4), IncidentFilter(node=77, dropped=("since",))],
+    ids=["bare", "page-clamped", "only-dropped-params"],
+)
+def test_default_filters_with_only_finished_incidents_read_as_none_active(default):
+    _incident("resolved", status="resolved")
+    _incident("closed", status="closed")
+
+    result = build_incident_list(default)
+
+    assert result.empty == "none_active"
+    assert (result.rows, result.total) == ((), 0)
+
+
+def test_every_value_the_filter_accepts_has_a_chip():
+    def values(choices):
+        return [value for _, _, value in choices]
+
+    assert values(incidents.STATUS_CHIPS) == list(filters.STATUS_CHOICES)
+    assert values(incidents.SEVERITY_CHIPS) == list(filters.SEVERITY_CHOICES)
+    assert values(incidents.SINCE_CHIPS) == list(filters.SINCE_CHOICES)
 
 
 @pytest.mark.django_db
@@ -465,4 +491,4 @@ def test_an_empty_page_costs_the_any_incident_check_instead_of_the_row_queries(
     with django_assert_num_queries(3):
         result = build_incident_list(IncidentFilter())
 
-    assert result.empty == "no_match"
+    assert result.empty == "none_active"

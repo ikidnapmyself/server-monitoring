@@ -22,6 +22,19 @@
     });
   });
 
+  // htmx only leaves modified clicks alone on boosted links. Without this, a click meant
+  // to open a new tab or window swaps the list in place.
+  document.addEventListener(
+    "click",
+    function (event) {
+      var modified = event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+      if ((modified || event.button !== 0) && event.target.closest("a[hx-get]")) {
+        event.stopPropagation();
+      }
+    },
+    true
+  );
+
   var banner = document.getElementById("c-banner");
   if (!banner) {
     return;

@@ -221,6 +221,12 @@ def test_with_node_dropped_clears_the_node_and_reports_it():
     current = IncidentFilter(status="all", node=9, page=2, dropped=("since",))
 
     assert current.with_node_dropped() == IncidentFilter(
-        status="all", page=2, dropped=("since", "node")
+        status="all", page=2, dropped=("node", "since")
     )
     assert current.node == 9
+
+
+def test_with_node_dropped_keeps_dropped_in_field_order():
+    current = IncidentFilter(node=9, dropped=("status", "severity", "since", "page"))
+
+    assert current.with_node_dropped().dropped == ("status", "severity", "node", "since", "page")

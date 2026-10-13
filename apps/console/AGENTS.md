@@ -35,7 +35,11 @@ pipeline stage and not an alert producer.
   history cache miss htmx ignores `HX-Redirect` and would swap the empty 204 of an
   expired session into `<body>`. With the key on, a miss is a full page reload.
   `timeout` is 10 seconds, so a hung request ends in `htmx:timeout` and shows the
-  banner.
+  banner. `historyCacheSize` is 0, so htmx keeps no page snapshots and Back is
+  always a full reload. A snapshot restore replaces `<body>`, which orphans the
+  `#c-banner` reference `console.js` holds, and it paints stale data with no server
+  round trip. The snapshot also put page HTML with the CSRF token in `sessionStorage`,
+  against the never-cache headers.
 - **Polling is paused in `console.js`, not in `hx-trigger`.** A `data-poll` element
   skips a poll while the tab is hidden and while it holds an open `<details>`. Polls
   are never paused for focus or for a text selection, because a page that stops

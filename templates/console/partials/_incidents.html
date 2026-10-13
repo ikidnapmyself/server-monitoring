@@ -6,7 +6,7 @@
     {% for group in list.groups %}
     <nav class="c-chips" aria-label="{{ group.label }}">
       {% for chip in group.chips %}
-      <a id="chip-{{ group.name }}-{{ chip.key }}" class="c-chip" href="{{ chip.url }}" hx-get="{{ chip.url }}" hx-target="#incidents" hx-swap="outerHTML" hx-push-url="true"{% if chip.active %} aria-current="true"{% endif %}>{{ chip.label }}</a>
+      <a id="chip-{{ group.name }}-{{ chip.key }}" class="c-chip" href="{{ chip.url }}" hx-get="{{ chip.url }}" hx-target="#incidents" hx-swap="outerHTML" hx-push-url="true" hx-sync="#incidents:replace"{% if chip.active %} aria-current="true"{% endif %}>{{ chip.label }}</a>
       {% endfor %}
     </nav>
     {% endfor %}
@@ -20,7 +20,7 @@
         <li>
           <span class="c-badge c-tone-{{ row.severity_tone }}">{{ row.severity }}</span>
           <a id="incident-{{ row.pk }}" href="{{ row.url }}">{{ row.title }}</a>
-          <span class="c-muted">{% if row.nodes %}{{ row.nodes }} · {% endif %}{{ row.alert_count }} alert{{ row.alert_count|pluralize }}</span>
+          <span class="c-muted c-list__meta">{% if row.nodes %}{{ row.nodes }} · {% endif %}{{ row.alert_count }} alert{{ row.alert_count|pluralize }}</span>
           <span>
             <span class="c-badge c-tone-{{ row.status_tone }}">{{ row.status }}</span>
             <time class="c-muted" datetime="{{ row.created_at|date:'c' }}" title="{{ row.created_at|date:'Y-m-d H:i:s T' }}">{{ row.created_at|timesince }} ago</time>
@@ -30,17 +30,19 @@
       </ul>
       {% elif list.empty == "none" %}
       <p class="c-empty">No incidents yet.</p>
+      {% elif list.empty == "none_active" %}
+      <p class="c-empty">No active incidents.</p>
       {% else %}
       {% url 'console:incidents' as clear_url %}
-      <p class="c-empty">No incidents match these filters.{% if list.url != clear_url %} <a id="filters-clear" href="{{ clear_url }}" hx-get="{{ clear_url }}" hx-target="#incidents" hx-swap="outerHTML" hx-push-url="true">Clear filters</a>{% endif %}</p>
+      <p class="c-empty">No incidents match these filters. <a id="filters-clear" href="{{ clear_url }}" hx-get="{{ clear_url }}" hx-target="#incidents" hx-swap="outerHTML" hx-push-url="true" hx-sync="#incidents:replace">Clear filters</a></p>
       {% endif %}
     </div>
   </section>
   {% if list.pages > 1 %}
   <nav class="c-pager" aria-label="Pages">
-    {% if list.prev_url %}<a id="page-prev" href="{{ list.prev_url }}" hx-get="{{ list.prev_url }}" hx-target="#incidents" hx-swap="outerHTML" hx-push-url="true">Previous</a>{% endif %}
+    {% if list.prev_url %}<a id="page-prev" href="{{ list.prev_url }}" hx-get="{{ list.prev_url }}" hx-target="#incidents" hx-swap="outerHTML" hx-push-url="true" hx-sync="#incidents:replace">Previous</a>{% endif %}
     <span class="c-muted">Page {{ list.page }} of {{ list.pages }}</span>
-    {% if list.next_url %}<a id="page-next" href="{{ list.next_url }}" hx-get="{{ list.next_url }}" hx-target="#incidents" hx-swap="outerHTML" hx-push-url="true">Next</a>{% endif %}
+    {% if list.next_url %}<a id="page-next" href="{{ list.next_url }}" hx-get="{{ list.next_url }}" hx-target="#incidents" hx-swap="outerHTML" hx-push-url="true" hx-sync="#incidents:replace">Next</a>{% endif %}
   </nav>
   {% endif %}
 </div>

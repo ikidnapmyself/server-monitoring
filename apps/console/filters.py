@@ -22,6 +22,8 @@ SINCE_CHOICES: dict[str, timedelta | None] = {
     "30d": timedelta(days=30),
 }
 
+FIELDS = ("status", "severity", "node", "since", "page")
+
 # Capped at 18 digits so the value always fits a 64-bit database integer.
 _POSITIVE_INT = re.compile(r"[0-9]{1,18}")
 
@@ -80,10 +82,11 @@ class IncidentFilter:
         default = IncidentFilter()
         pairs = [
             (name, getattr(target, name))
-            for name in ("status", "severity", "node", "since", "page")
+            for name in FIELDS
             if getattr(target, name) != getattr(default, name)
         ]
         return f"?{urlencode(pairs)}" if pairs else ""
 
     def with_node_dropped(self) -> "IncidentFilter":
-        return replace(self, node=None, dropped=(*self.dropped, "node"))
+        dropped = tuple(name for name in FIELDS if name == "node" or name in self.dropped)
+        return replace(self, node=None, dropped=dropped)

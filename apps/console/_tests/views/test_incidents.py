@@ -146,7 +146,7 @@ def test_rows_show_badges_title_nodes_count_and_age(client, staff, url):
     assert '<span class="c-badge c-tone-critical">open</span>' in body
     assert '<span class="c-badge c-tone-warning">acknowledged</span>' in body
     assert "web-1 +1 · 2 alerts" in body
-    assert re.search(r'<span class="c-muted">\s*0 alerts\s*</span>', body)
+    assert re.search(r'<span class="c-muted c-list__meta">\s*0 alerts\s*</span>', body)
     assert f'id="incident-{lonely.pk}"' in body
     assert re.search(r'<time class="c-muted" datetime="[^"]+" title="[^"]+">[^<]+ ago</time>', body)
     assert "2 incidents" in body
@@ -160,7 +160,7 @@ def test_a_single_alert_and_a_single_incident_read_in_the_singular(client, staff
 
     body = client.get(url).content.decode()
 
-    assert re.search(r'<span class="c-muted">\s*1 alert\s*</span>', body)
+    assert re.search(r'<span class="c-muted c-list__meta">\s*1 alert\s*</span>', body)
     assert re.search(r">\s*1 incident\s*<", body)
 
 
@@ -255,7 +255,7 @@ def test_invalid_filters_are_named_in_a_notice(client, staff, url):
 
     assert re.search(
         r'<p class="c-notice c-tone-warning" role="status">\s*'
-        r"Ignored invalid filter: status, page, node\.\s*</p>",
+        r"Ignored invalid filter: status, node, page\.\s*</p>",
         body,
     )
     assert "still listed" in body
@@ -297,12 +297,14 @@ def test_filters_that_match_nothing_offer_a_way_to_clear_them(client, staff, url
 
 
 @pytest.mark.django_db
-def test_default_filters_that_match_nothing_have_nothing_to_clear(client, staff, url):
+def test_default_filters_with_only_finished_incidents_say_none_are_active(client, staff, url):
     Incident.objects.create(title="done", severity="critical", status="resolved")
 
     body = client.get(url).content.decode()
 
-    assert "No incidents match these filters." in body
+    assert "No active incidents." in body
+    assert "No incidents match these filters." not in body
+    assert "No incidents yet." not in body
     assert "filters-clear" not in body
 
 
@@ -349,6 +351,32 @@ def test_a_single_page_shows_no_pager(client, staff, url):
 
     assert "page-prev" not in body and "page-next" not in body
     assert "Page 1 of 1" not in body
+
+
+SYNC = 'hx-sync="#incidents:replace"'
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("query", "count"),
+    [("?page=2", 18), ("?severity=info", 17)],
+    ids=["chips-and-pager", "chips-and-clear"],
+)
+def test_every_swapping_link_replaces_the_request_in_flight(
+    client, staff, url, monkeypatch, query, count
+):
+    _busy_list(monkeypatch)
+
+    body = client.get(f"{url}{query}", **HTMX).content.decode()
+
+    swapping = [tag for tag in re.findall(r"<[a-z]+\b[^>]*>", body) if "hx-get=" in tag]
+    root, links = swapping[0], swapping[1:]
+    assert root.startswith('<div id="incidents"')
+    # The polled root keeps htmx's default, so a poll never aborts a click.
+    assert "hx-sync" not in root
+    assert len(links) == count
+    assert all(link.startswith("<a ") and SYNC in link for link in links)
+    assert body.count(SYNC) == count
 
 
 def _busy_list(monkeypatch, suffix=""):

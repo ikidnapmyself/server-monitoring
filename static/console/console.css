@@ -113,6 +113,7 @@ a:hover { text-decoration: underline; }
 .c-list > li:last-child { border-bottom: 0; }
 .c-list > li > a { overflow-wrap: anywhere; }
 .c-list__more > a { grid-column: 1 / -1; }
+.c-list__meta { max-width: 32ch; overflow-wrap: anywhere; }
 .c-empty { padding: var(--space-6) var(--space-4); color: var(--text-muted); }
 
 .c-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--space-3); }
@@ -168,6 +169,7 @@ a:hover { text-decoration: underline; }
   .c-main { padding: var(--space-4); }
   .c-list > li { grid-template-columns: auto minmax(0, 1fr) auto; }
   .c-list > li > a { grid-column: 1 / -1; grid-row: 1; }
+  .c-list__meta { max-width: none; }
 }
 
 @media print {
