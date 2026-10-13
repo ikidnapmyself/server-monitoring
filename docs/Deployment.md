@@ -245,6 +245,16 @@ A sample config is provided at `deploy/docker/nginx.conf`. Two values must be ad
 | `upstream` | `server web:8000;` | `server unix:/run/server-monitoring/gunicorn.sock;` |
 | `location /static/ alias` | `/app/staticfiles/` (shared volume) | `/opt/server-monitoring/staticfiles/` |
 
+### Static file names
+
+With `DJANGO_DEBUG` off, `collectstatic` writes every asset under a content-hashed name
+and templates link to that name. The sample configs serve `/static/` as `immutable` for
+30 days, so the hash is what lets a deploy reach browsers straight away.
+
+`collectstatic` must run before the app serves a page. Without its manifest, any page
+that links a static file returns a 500. The installer, `bin/update.sh` and the Docker
+entrypoint already run it.
+
 ### Docker setup
 
 Nginx runs on the host (or as another container) and proxies to the `web` service. If Nginx runs as a separate container, it needs access to the same staticfiles volume or network.
