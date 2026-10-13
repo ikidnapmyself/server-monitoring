@@ -331,7 +331,7 @@ def test_node_name_is_escaped(client, staff, field):
 
 
 @pytest.mark.django_db
-def test_incidents_past_the_cap_link_to_the_admin_list(client, staff, monkeypatch):
+def test_incidents_past_the_cap_link_to_the_incident_list(client, staff, monkeypatch):
     monkeypatch.setattr(overview_queries, "INCIDENT_LIMIT", 2)
     for index in range(5):
         Incident.objects.create(title=f"incident {index}", severity="warning")
@@ -344,9 +344,7 @@ def test_incidents_past_the_cap_link_to_the_admin_list(client, staff, monkeypatc
         r'<li class="c-list__more"><a id="incidents-more" href="([^"]+)">([^<]+)</a></li>', body
     )
     assert link.group(2) == "3 more open incidents"
-    target = urlsplit(link.group(1).replace("&amp;", "&"))
-    assert target.path == reverse("admin:alerts_incident_changelist")
-    assert parse_qs(target.query) == {"status__in": ["open,acknowledged"]}
+    assert link.group(1) == reverse("console:incidents")
 
 
 @pytest.mark.django_db
@@ -370,14 +368,15 @@ def test_incidents_within_the_cap_show_no_more_row(client, staff):
 
 
 @pytest.mark.django_db
-def test_the_more_link_opens_a_list_of_only_open_incidents(admin_client):
+def test_the_more_link_opens_a_list_of_only_open_incidents(client, staff):
     Incident.objects.create(title="still open", severity="warning")
     Incident.objects.create(title="acked", severity="warning", status="acknowledged")
     Incident.objects.create(title="long gone", severity="warning", status="closed")
 
-    resp = admin_client.get(overview_queries.build_overview().more_url)
+    resp = client.get(overview_queries.build_overview().more_url)
 
     assert resp.status_code == 200
+    assert resp.templates[0].name == "console/incidents.html"
     body = resp.content.decode()
     assert "still open" in body and "acked" in body
     assert "long gone" not in body

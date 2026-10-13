@@ -335,6 +335,4 @@ def test_build_overview_counts_the_incidents_past_the_cap(monkeypatch, django_as
 
     assert len(result.incidents) == 2
     assert (result.open_total, result.open_hidden) == (5, 3)
-    assert result.more_url == (
-        reverse("admin:alerts_incident_changelist") + "?status__in=open%2Cacknowledged"
-    )
+    assert result.more_url == reverse("console:incidents")

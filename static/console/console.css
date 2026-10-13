@@ -133,6 +133,25 @@ a:hover { text-decoration: underline; }
 .c-tone-ok { color: var(--tone-ok-fg); background: var(--tone-ok-bg); }
 .c-tone-muted { color: var(--tone-muted-fg); background: var(--tone-muted-bg); }
 
+.c-notice { margin: 0 0 var(--space-4); padding: var(--space-3) var(--space-4); border-radius: var(--radius); }
+.c-filters { display: flex; flex-direction: column; gap: var(--space-2); }
+.c-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.c-chip {
+  max-width: 100%;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 26px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.c-chip:hover { text-decoration: none; background: var(--surface); }
+.c-chip[aria-current="true"] { border-color: var(--text); background: var(--text); color: var(--bg); font-weight: 600; }
+.c-pager { display: flex; align-items: center; gap: var(--space-4); margin-top: var(--space-4); }
+
 .c-spark { padding: var(--space-4); color: var(--accent); }
 .c-spark svg { display: block; max-width: 100%; height: auto; }
 

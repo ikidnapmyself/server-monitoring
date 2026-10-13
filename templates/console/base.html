@@ -13,6 +13,7 @@
   <nav class="c-side" aria-label="Console">
     <p class="c-side__brand">Ops console</p>
     <a href="{% url 'console:overview' %}"{% if nav == "overview" %} aria-current="page"{% endif %}>Overview</a>
+    <a href="{% url 'console:incidents' %}"{% if nav == "incidents" %} aria-current="page"{% endif %}>Incidents</a>
     <div class="c-side__foot">
       <a href="{% url 'admin:index' %}">Admin</a>
       <form method="post" action="{% url 'admin:logout' %}">

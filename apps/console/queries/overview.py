@@ -20,7 +20,6 @@ from apps.alerts.models import (
     Node,
 )
 from config.admin_badges import INCIDENT_STATUS_TONES, SEVERITY_TONES, tone_for
-from config.admin_links import changelist_url
 from config.dashboard import NODE_RECENT_MINUTES, build_readiness
 
 OPEN_STATUSES = [IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED]
@@ -28,7 +27,7 @@ INCIDENT_LIMIT = 20
 SPARK_HOURS = 24
 ATTENTION_TONES = {"warn": "warning", "error": "critical"}
 
-_SEVERITY_RANK = Case(
+SEVERITY_RANK = Case(
     When(severity=AlertSeverity.CRITICAL, then=Value(0)),
     When(severity=AlertSeverity.WARNING, then=Value(1)),
     default=Value(2),
@@ -104,7 +103,7 @@ def open_counts() -> tuple[int, int]:
 def open_incidents() -> tuple[IncidentRow, ...]:
     incidents = (
         Incident.objects.filter(status__in=OPEN_STATUSES)
-        .annotate(rank=_SEVERITY_RANK, alerts_total=Count("alerts"))
+        .annotate(rank=SEVERITY_RANK, alerts_total=Count("alerts"))
         .order_by("rank", "created_at")[:INCIDENT_LIMIT]
     )
     return tuple(
@@ -220,5 +219,5 @@ def build_overview() -> Overview:
         spark=incident_spark(),
         attention=attention(),
         open_total=total,
-        more_url=changelist_url(Incident, status__in=",".join(OPEN_STATUSES)),
+        more_url=reverse("console:incidents"),
     )
