@@ -323,3 +323,42 @@ class DiagnoseIncidentExecutionLinkTests(TestCase):
         entry = self._entry("analyze")
         self.assertIsNone(entry["execution_pk"])
         self.assertIsNone(entry["run_pk"])
+
+
+class DiagnoseIncidentEvidenceOutranksConfigTests(TestCase):
+    """A stage that ran is reported from its execution, whatever the lane lists.
+
+    An incident routed to a lane with no stages still has executions when legacy runs
+    or an earlier lane produced them. Reporting those as "skipped: config" contradicts
+    the timeline the same page shows.
+    """
+
+    def setUp(self):
+        self.pipe = PipelineDefinition.objects.create(name="retired-lane", stages=[])
+        self.incident = Incident.objects.create(title="Routed late", pipeline=self.pipe)
+        self.run = PipelineRun.objects.create(trace_id="t1", run_id="r1", incident=self.incident)
+
+    def _entry(self, stage):
+        return {e["stage"]: e for e in diagnose_incident(self.incident)}[stage]
+
+    def test_an_unlisted_stage_that_ran_reads_from_its_execution(self):
+        execution = StageExecution.objects.create(
+            pipeline_run=self.run, stage="check", status="succeeded", output_ref="ref"
+        )
+        entry = self._entry("check")
+        self.assertEqual(entry["status"], "ok")
+        self.assertEqual(entry["execution_pk"], execution.id)
+        self.assertEqual(entry["runs"], "succeeded in 1/1 runs")
+
+    def test_an_unlisted_stage_that_failed_reads_failed(self):
+        StageExecution.objects.create(
+            pipeline_run=self.run, stage="notify", status="failed", error_message="boom"
+        )
+        self.assertEqual(self._entry("notify")["status"], "failed")
+
+    def test_an_unlisted_stage_with_no_execution_still_reads_skipped_by_config(self):
+        StageExecution.objects.create(pipeline_run=self.run, stage="check", status="succeeded")
+        entry = self._entry("analyze")
+        self.assertEqual(entry["status"], "skipped")
+        self.assertIn("config", entry["detail"])
+        self.assertIsNone(entry["runs"])

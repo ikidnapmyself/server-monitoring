@@ -108,11 +108,6 @@ def _diagnose_stage(incident, stage, runs, total) -> dict:
         "run_pk": None,
     }
 
-    if not _is_expected(incident, stage):
-        entry["status"] = StageDiag.SKIPPED.value
-        entry["detail"] = f"config: {stage.value} not in the pipeline's stages"
-        return entry
-
     # Latest execution for this stage: newest run first, highest attempt within.
     latest = None
     succeeded_runs = 0
@@ -125,11 +120,17 @@ def _diagnose_stage(incident, stage, runs, total) -> dict:
         if latest is None:
             latest = max(execs, key=lambda e: e.attempt)
 
+    # Evidence outranks config. A stage the lane doesn't list still ran if a legacy run or
+    # an earlier lane executed it, so "skipped by config" is only true with no execution.
+    if latest is None and not _is_expected(incident, stage):
+        entry["status"] = StageDiag.SKIPPED.value
+        entry["detail"] = f"config: {stage.value} not in the pipeline's stages"
+        return entry
+
     if total:
         entry["runs"] = f"succeeded in {succeeded_runs}/{total} runs"
 
     if latest is None:
-        entry["status"] = StageDiag.NEVER_RAN.value
         return entry
 
     entry["execution_pk"] = latest.pk
