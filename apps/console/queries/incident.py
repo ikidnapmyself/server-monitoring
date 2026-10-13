@@ -26,22 +26,22 @@ from config.admin_badges import (
 
 STAGE_LABELS = {"ingest": "Ingest", "check": "Diagnose", "analyze": "Analyze", "notify": "Notify"}
 SUMMARY_TONES = {**DIAGNOSIS_TONES, "never_ran": "muted"}
-# One table for stage and run statuses. A run that ended at an earlier stage's status
-# finished the stages its lane asked for.
+# One table for stage and run statuses. A run between stages must not read as finished.
 EXECUTION_TONES = {
     **STAGE_STATUS_TONES,
     "pending": "info",
     "running": "info",
     "retrying": "info",
     "processing": "info",
+    "ingested": "info",
+    "checked": "info",
+    "analyzed": "info",
     "completed": "ok",
-    "ingested": "ok",
-    "checked": "ok",
-    "analyzed": "ok",
     "notified": "ok",
 }
 DELIVERY_TONES = {"success": "ok", "failed": "critical"}
-SEVERITY_EVENTS = frozenset({"created", "refired"})
+HISTORY_TONES = {"resolved": "ok", "created": "info", "refired": "info"}
+TIMELINE_LIMIT = 100
 LIFECYCLE = (
     ("created", "created_at", "Incident opened", "open"),
     ("acknowledged", "acknowledged_at", "Incident acknowledged", "acknowledged"),
@@ -158,6 +158,10 @@ class IncidentDetail:
     pipeline: str
     alert_count: int
     admin_url: str
+    url: str
+    full_url: str
+    recent_url: str
+    hidden: int
     stages: tuple[StageSummary, ...]
     timeline: tuple[TimelineEntry, ...]
 
@@ -187,9 +191,12 @@ def _dicts(value: object) -> tuple[dict[str, Any], ...]:
 
 
 def _percent(value: object) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return round(max(0.0, min(1.0, value)) * 100)
+    # isfinite raises OverflowError on an int too large for a float.
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return round(max(0, min(1, value)) * 100)
 
 
 def _check_body(snapshot: dict[str, Any], raw: str) -> CheckBody:
@@ -284,19 +291,18 @@ def stage_body(stage: str, snapshot: object) -> StageBody | None:
     """
     if not snapshot:
         return None
-    raw = json.dumps(snapshot, indent=2, sort_keys=True, default=str)
+    raw = json.dumps(snapshot, indent=2, sort_keys=True, default=str, ensure_ascii=False)
     keys, builder = _BODY_BUILDERS.get(stage, (frozenset(), None))
     if builder is None or not isinstance(snapshot, dict) or keys.isdisjoint(snapshot):
         return RawBody(raw=raw)
     return builder(snapshot, raw)
 
 
-def history_tone(event: str, severity: str) -> str:
-    if event == "resolved":
-        return "ok"
-    if event in SEVERITY_EVENTS:
-        return SEVERITY_TONES.get(severity, "info")
-    return "muted"
+def history_tone(event: str, severity_to: object) -> str:
+    """Tone from the severity the row itself moved to, never the alert's current one."""
+    if isinstance(severity_to, str) and severity_to in SEVERITY_TONES:
+        return SEVERITY_TONES[severity_to]
+    return tone_for(HISTORY_TONES, event)
 
 
 def execution_tone(status: str) -> str:
@@ -332,7 +338,7 @@ def _history_entry(event: dict[str, Any]) -> TimelineEntry:
         id=f"entry-alert_history-{event['history_pk']}",
         when=event["when"],
         kind="alert_history",
-        tone=history_tone(event["event"], event["alert_severity"]),
+        tone=history_tone(event["event"], event["severity_to"]),
         title=f"Alert {event['alert_name']} {_words(event['event'])}",
         detail=event["detail"] or "",
         url=reverse("admin:alerts_alert_change", args=[event["alert_pk"]]),
@@ -346,8 +352,8 @@ def _pipeline_entry(event: dict[str, Any]) -> TimelineEntry:
         when=event["when"],
         kind="pipeline",
         tone=execution_tone(event["status"]),
-        title=f"Pipeline run {event['status']}",
-        detail=event["run_id"],
+        title="Pipeline run started",
+        detail=f"{event['status']} · {event['run_id']}",
         url=reverse("admin:orchestration_pipelinerun_change", args=[event["run_pk"]]),
         body=None,
     )
@@ -376,14 +382,22 @@ _ENTRY_BUILDERS = {
 }
 
 
-def _timeline(incident: Incident) -> tuple[TimelineEntry, ...]:
+def _timeline(incident: Incident, full: bool) -> tuple[tuple[TimelineEntry, ...], int]:
+    """Entries in time order, and how many recorded events exist.
+
+    Unless ``full``, only the newest ``TIMELINE_LIMIT`` events are kept. Lifecycle
+    entries always stay. The cut happens before entries are built, so a dropped
+    stage never pays for its body.
+    """
+    events = build_incident_timeline(incident)
+    recorded = len(events)
+    if not full:
+        events = events[-TIMELINE_LIMIT:]
     entries = _lifecycle_entries(incident)
-    entries.extend(
-        _ENTRY_BUILDERS[event["kind"]](event) for event in build_incident_timeline(incident)
-    )
+    entries.extend(_ENTRY_BUILDERS[event["kind"]](event) for event in events)
     # The sort is stable, so a lifecycle entry leads anything else at the same instant.
     entries.sort(key=lambda entry: entry.when)
-    return tuple(entries)
+    return tuple(entries), recorded
 
 
 def _stages(incident: Incident) -> tuple[StageSummary, ...]:
@@ -416,7 +430,7 @@ def _nodes(pk: int) -> str:
     return ", ".join(sorted(names, key=str.casefold))
 
 
-def build_incident_detail(pk: int) -> IncidentDetail | None:
+def build_incident_detail(pk: int, *, full: bool = False) -> IncidentDetail | None:
     incident = (
         Incident.objects.select_related("pipeline")
         .annotate(alerts_total=Count("alerts"))
@@ -427,6 +441,10 @@ def build_incident_detail(pk: int) -> IncidentDetail | None:
         return None
     ended_at = incident.resolved_at or incident.closed_at
     elapsed = (ended_at or timezone.now()) - incident.created_at
+    timeline, recorded = _timeline(incident, full)
+    over = max(0, recorded - TIMELINE_LIMIT)
+    recent_url = reverse("console:incident", args=[incident.pk])
+    full_url = f"{recent_url}?all=1"
     return IncidentDetail(
         pk=incident.pk,
         title=incident.title,
@@ -443,6 +461,10 @@ def build_incident_detail(pk: int) -> IncidentDetail | None:
         pipeline=incident.pipeline.name if incident.pipeline else "",
         alert_count=incident.alerts_total,
         admin_url=reverse("admin:alerts_incident_change", args=[incident.pk]),
+        url=full_url if full else recent_url,
+        full_url=full_url,
+        recent_url=recent_url if full and over else "",
+        hidden=0 if full else over,
         stages=_stages(incident),
-        timeline=_timeline(incident),
+        timeline=timeline,
     )

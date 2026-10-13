@@ -35,11 +35,12 @@
     true
   );
 
-  // A print should show every stage's output. An open details also holds off the poll,
-  // which would otherwise replace the elements remembered here.
+  // A print shows every stage's output but not its raw JSON, so only the list's own
+  // details open. An open details also holds off the poll, which would otherwise
+  // replace the elements remembered here.
   var printOpened = [];
   window.addEventListener("beforeprint", function () {
-    document.querySelectorAll("[data-print-open] details:not([open])").forEach(function (details) {
+    document.querySelectorAll("[data-print-open] > * > details:not([open])").forEach(function (details) {
       details.open = true;
       printOpened.push(details);
     });

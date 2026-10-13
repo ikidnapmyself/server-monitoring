@@ -29,8 +29,18 @@
 
 <section class="c-section">
   <h2>Timeline</h2>
-  {% if incident.timeline %}
   <ol class="c-card c-timeline" data-print-open>
+    {% if incident.hidden %}
+    <li class="c-timeline__note">
+      <span class="c-muted">{{ incident.hidden }} earlier entr{{ incident.hidden|pluralize:"y,ies" }} not shown.</span>
+      <a id="timeline-all" href="{{ incident.full_url }}">Show all</a>
+    </li>
+    {% elif incident.recent_url %}
+    <li class="c-timeline__note">
+      <span class="c-muted">Showing all {{ incident.timeline|length }} entries.</span>
+      <a id="timeline-recent" href="{{ incident.recent_url }}">Show recent only</a>
+    </li>
+    {% endif %}
     {% for entry in incident.timeline %}
     <li class="c-timeline__item">
       {% if entry.body %}
@@ -41,8 +51,8 @@
         </summary>
         <div class="c-entry__body">
           {% include "console/partials/_stage_body.html" with body=entry.body %}
-          <p><a id="{{ entry.id }}-link" href="{{ entry.url }}">Open in admin</a></p>
-          <details id="{{ entry.id }}-raw">
+          <p class="c-entry__link"><a id="{{ entry.id }}-link" href="{{ entry.url }}">Open in admin</a></p>
+          <details id="{{ entry.id }}-raw" class="c-entry__raw">
             <summary id="{{ entry.id }}-raw-summary">Raw JSON</summary>
             <pre id="{{ entry.id }}-json" class="c-raw">{{ entry.body.raw }}</pre>
           </details>
@@ -57,7 +67,4 @@
     </li>
     {% endfor %}
   </ol>
-  {% else %}
-  <p class="c-card c-empty">Nothing recorded for this incident yet.</p>
-  {% endif %}
 </section>

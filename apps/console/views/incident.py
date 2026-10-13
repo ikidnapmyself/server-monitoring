@@ -1,4 +1,4 @@
-from django.http import Http404
+from django.shortcuts import render
 
 from apps.console.queries.incident import build_incident_detail
 from apps.console.views.base import ConsoleView
@@ -8,11 +8,9 @@ class IncidentDetailView(ConsoleView):
     template_name = "console/incident.html"
     partial_template_name = "console/partials/_incident.html"
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        incident = build_incident_detail(self.kwargs["pk"])
+    def get(self, request, *args, **kwargs):
+        incident = build_incident_detail(kwargs["pk"], full=request.GET.get("all") == "1")
         if incident is None:
-            raise Http404("No such incident.")
-        context["incident"] = incident
-        context["nav"] = "incidents"
-        return context
+            # The whole page for htmx too. It doesn't swap a 404, it shows the banner.
+            return render(request, "console/not_found.html", {"nav": "incidents"}, status=404)
+        return self.render_to_response(self.get_context_data(incident=incident, nav="incidents"))

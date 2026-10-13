@@ -1,0 +1,7 @@
+{% extends "console/base.html" %}
+{% block title %}Not found · Console{% endblock %}
+{% block content %}
+<h1 class="c-headline">Not found</h1>
+<p>This incident doesn't exist. It may have been deleted.</p>
+<p><a id="not-found-back" href="{% url 'console:incidents' %}">Back to incidents</a></p>
+{% endblock %}

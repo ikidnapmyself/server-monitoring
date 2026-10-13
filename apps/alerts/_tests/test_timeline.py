@@ -250,16 +250,21 @@ class TimelineConsoleKeysTests(TestCase):
             started_at=timezone.now(),
         )
         first = AlertHistory.objects.create(alert=alert, event="created", new_status="firing")
-        second = AlertHistory.objects.create(alert=alert, event="refired")
+        second = AlertHistory.objects.create(
+            alert=alert, event="refired", details={"severity_to": "warning"}
+        )
 
         entries = build_incident_timeline(incident)
 
         assert {e["history_pk"] for e in entries} == {first.pk, second.pk}
-        assert {e["event"] for e in entries} == {"created", "refired"}
+        assert {e["event"]: e["severity_to"] for e in entries} == {
+            "created": None,
+            "refired": "warning",
+        }
         for entry in entries:
             assert entry["alert_pk"] == alert.pk
             assert entry["alert_name"] == "cpu high"
-            assert entry["alert_severity"] == "critical"
+            assert "alert_severity" not in entry
             assert entry["label"] == entry["event"]
 
     def test_alert_history_does_not_query_per_row(self):

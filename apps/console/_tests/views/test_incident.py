@@ -1,5 +1,4 @@
 import re
-from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -14,7 +13,7 @@ from apps.console._tests.queries.test_incident import (
     NOTIFY_SNAPSHOT,
 )
 from apps.console._tests.test_templates import FORBIDDEN
-from apps.console.views import incident as incident_view
+from apps.console.queries import incident as incident_queries
 from apps.orchestration.models import PipelineDefinition, PipelineRun, StageExecution
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
@@ -137,12 +136,19 @@ def test_non_staff_is_refused(client):
 @pytest.mark.django_db
 @pytest.mark.parametrize("pk", ["404", "99999999999999999999999999"])
 @BOTH
-def test_a_missing_incident_is_a_404_with_the_console_headers(client, staff, pk, headers):
+def test_a_missing_incident_is_a_console_404_that_links_onward(client, staff, pk, headers):
     resp = client.get(f"/console/incidents/{pk}/", **headers)
 
+    body = resp.content.decode()
     assert resp.status_code == 404
+    assert [t.name for t in resp.templates][0] == "console/not_found.html"
     assert "script-src 'self'" in resp["Content-Security-Policy"]
     assert "HX-Request" in resp["Vary"]
+    assert "This incident doesn't exist." in body
+    back = reverse("console:incidents")
+    assert f'<a id="not-found-back" href="{back}">Back to incidents</a>' in body
+    assert f'<a href="{back}" aria-current="page">Incidents</a>' in body
+    assert "<title>Not found · Console</title>" in body
 
 
 @pytest.mark.django_db
@@ -272,8 +278,8 @@ def test_the_timeline_lists_every_entry_with_time_badge_and_title(client, staff,
         assert link in body
     assert "— → firing" in body
     run_url = reverse("admin:orchestration_pipelinerun_change", args=[run.pk])
-    assert f'<a id="entry-pipeline-{run.pk}" href="{run_url}">Pipeline run notified</a>' in body
-    assert '<span class="c-muted">run-1</span>' in body
+    assert f'<a id="entry-pipeline-{run.pk}" href="{run_url}">Pipeline run started</a>' in body
+    assert '<span class="c-muted">notified · run-1</span>' in body
     failed_url = reverse("admin:orchestration_stageexecution_change", args=[failed.pk])
     assert f'<a id="entry-stage-{failed.pk}" href="{failed_url}">Notify failed</a>' in body
     assert "slack 500" in body
@@ -282,8 +288,13 @@ def test_the_timeline_lists_every_entry_with_time_badge_and_title(client, staff,
     for kind in ("incident", "alert", "run", "stage"):
         assert re.search(rf'<span class="c-badge c-tone-[a-z]+">{kind}</span>', body)
     assert "alert_history<" not in body
-    assert re.search(r'<time class="c-muted" datetime="[^"]+" title="[^"]+">[^<]+</time>', body)
-    assert "Nothing recorded" not in body
+    assert re.search(
+        r'<time class="c-muted" datetime="[^"]+" title="[^"]+">'
+        r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d</time>",
+        body,
+    )
+    assert "timeline-all" not in body and "timeline-recent" not in body
+    assert "not shown" not in body
 
 
 @pytest.mark.django_db
@@ -305,7 +316,7 @@ def test_an_entry_with_output_is_a_details_holding_its_body_and_raw_json(client,
         assert title in body
         url = reverse("admin:orchestration_stageexecution_change", args=[stages[name].pk])
         assert f'<a id="{entry}-link" href="{url}">Open in admin</a>' in body
-        assert _tag(body, f"{entry}-raw") == f'<details id="{entry}-raw">'
+        assert _tag(body, f"{entry}-raw") == f'<details id="{entry}-raw" class="c-entry__raw">'
         assert f'<summary id="{entry}-raw-summary">Raw JSON</summary>' in body
         assert _tag(body, f"{entry}-json").startswith("<pre ")
     assert body.count("<details") == 8
@@ -420,21 +431,6 @@ def test_the_rendered_page_is_clean(client, staff, label, headers):
 
 
 @pytest.mark.django_db
-@BOTH
-def test_an_empty_timeline_says_so(client, staff, monkeypatch, headers):
-    incident = Incident.objects.create(title="Blank")
-    build = incident_view.build_incident_detail
-    monkeypatch.setattr(
-        incident_view, "build_incident_detail", lambda pk: replace(build(pk), timeline=())
-    )
-
-    body = client.get(_url(incident), **headers).content.decode()
-
-    assert '<p class="c-card c-empty">Nothing recorded for this incident yet.</p>' in body
-    assert "c-timeline" not in body
-
-
-@pytest.mark.django_db
 def test_overview_and_list_rows_link_to_the_console_page(client, staff):
     incident = Incident.objects.create(title="Disk full on web-1", severity="critical")
 
@@ -444,3 +440,77 @@ def test_overview_and_list_rows_link_to_the_console_page(client, staff):
         link = f'<a id="incident-{incident.pk}" href="{_url(incident)}">Disk full on web-1</a>'
         assert link in body
         assert reverse("admin:alerts_incident_change", args=[incident.pk]) not in body
+
+
+def _long_incident(monkeypatch):
+    monkeypatch.setattr(incident_queries, "TIMELINE_LIMIT", 2)
+    incident = Incident.objects.create(title="Long")
+    run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
+    for index in range(5):
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage="check",
+            status="succeeded",
+            attempt=index + 1,
+            started_at=timezone.now() + timedelta(seconds=index),
+        )
+    return incident
+
+
+@pytest.mark.django_db
+@BOTH
+def test_a_long_timeline_is_capped_and_offers_the_rest(client, staff, monkeypatch, headers):
+    incident = _long_incident(monkeypatch)
+
+    body = client.get(_url(incident), **headers).content.decode()
+
+    assert body.count('<li class="c-timeline__item">') == 3
+    assert re.search(
+        r'<li class="c-timeline__note">\s*<span class="c-muted">4 earlier entries not shown\.'
+        rf'</span>\s*<a id="timeline-all" href="{re.escape(_url(incident))}\?all=1">Show all</a>',
+        body,
+    )
+    assert "timeline-recent" not in body
+    if not headers:
+        assert f'hx-get="{_url(incident)}"' in _tag(body, "incident")
+
+
+@pytest.mark.django_db
+def test_a_single_hidden_entry_reads_in_the_singular(client, staff, monkeypatch):
+    incident = _long_incident(monkeypatch)
+    monkeypatch.setattr(incident_queries, "TIMELINE_LIMIT", 5)
+
+    body = client.get(_url(incident)).content.decode()
+
+    assert "1 earlier entry not shown." in body
+
+
+@pytest.mark.django_db
+@BOTH
+def test_all_shows_every_entry_and_keeps_polling_with_the_parameter(
+    client, staff, monkeypatch, headers
+):
+    incident = _long_incident(monkeypatch)
+
+    body = client.get(f"{_url(incident)}?all=1", **headers).content.decode()
+
+    assert body.count('<li class="c-timeline__item">') == 7
+    assert "not shown" not in body and "timeline-all" not in body
+    assert re.search(
+        r'<li class="c-timeline__note">\s*<span class="c-muted">Showing all 7 entries\.</span>'
+        rf'\s*<a id="timeline-recent" href="{re.escape(_url(incident))}">Show recent only</a>',
+        body,
+    )
+    if not headers:
+        assert f'hx-get="{_url(incident)}?all=1"' in _tag(body, "incident")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("query", ["?all=0", "?all=true", "?all=", "?all=1&all=2", "?other=1"])
+def test_any_other_all_value_is_off(client, staff, monkeypatch, query):
+    incident = _long_incident(monkeypatch)
+
+    body = client.get(f"{_url(incident)}{query}").content.decode()
+
+    assert "timeline-all" in body
+    assert f'hx-get="{_url(incident)}"' in _tag(body, "incident")

@@ -185,11 +185,12 @@ a:hover { text-decoration: underline; }
 .c-stage__name { font-size: 15px; font-weight: 600; }
 
 .c-timeline { margin: 0; padding: 0; list-style: none; }
-.c-timeline__item { border-bottom: 1px solid var(--border); }
-.c-timeline__item:last-child { border-bottom: 0; }
+.c-timeline > li { border-bottom: 1px solid var(--border); }
+.c-timeline > li:last-child { border-bottom: 0; }
+.c-timeline__note { display: flex; flex-wrap: wrap; gap: var(--space-3); padding: var(--space-3) var(--space-4); font-size: 13px; }
 .c-entry {
   display: grid;
-  grid-template-columns: 15ch 9ch minmax(0, 1fr);
+  grid-template-columns: 18ch 9ch minmax(0, 1fr);
   align-items: baseline;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
@@ -248,9 +249,9 @@ details[open] > summary.c-entry > .c-entry__text::after { content: " \25BE"; }
 
 @media print {
   body { display: block; }
-  .c-side, .c-banner, .c-chips, .c-back { display: none; }
+  .c-side, .c-banner, .c-chips, .c-back, #incident-admin, .c-entry__link, .c-entry__raw, .c-timeline__note > a { display: none; }
+  summary.c-entry > .c-entry__text::after, details[open] > summary.c-entry > .c-entry__text::after { content: none; }
   a, a:hover { text-decoration: none; }
   .c-card { box-shadow: none; }
   .c-timeline__item { break-inside: avoid; }
-  .c-raw { overflow: visible; white-space: pre-wrap; overflow-wrap: anywhere; }
 }

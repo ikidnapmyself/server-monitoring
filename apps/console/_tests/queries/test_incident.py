@@ -138,7 +138,7 @@ def _entry(detail, entry_id):
 
 
 def _raw(snapshot):
-    return json.dumps(snapshot, indent=2, sort_keys=True, default=str)
+    return json.dumps(snapshot, indent=2, sort_keys=True, default=str, ensure_ascii=False)
 
 
 @pytest.mark.django_db
@@ -177,6 +177,10 @@ def test_header_fields_describe_the_incident():
     assert detail.pipeline == "pager"
     assert detail.alert_count == 4
     assert detail.admin_url == reverse("admin:alerts_incident_change", args=[incident.pk])
+    assert detail.url == f"/console/incidents/{incident.pk}/"
+    assert detail.full_url == f"/console/incidents/{incident.pk}/?all=1"
+    assert detail.recent_url == ""
+    assert detail.hidden == 0
     assert isinstance(detail.stages, tuple)
     assert isinstance(detail.timeline, tuple)
     with pytest.raises(FrozenInstanceError):
@@ -317,29 +321,34 @@ def test_alert_history_entries_read_as_sentences_and_link_the_alert():
     assert entry.title == "Alert cpu high created"
     assert entry.detail == "— → firing"
     assert entry.url == reverse("admin:alerts_alert_change", args=[alert.pk])
-    assert entry.tone == "critical"
+    assert entry.tone == "info"
     assert entry.body is None
     entry = _entry(detail, f"entry-alert_history-{changed.pk}")
     assert entry.title == "Alert cpu high severity changed"
     assert entry.detail == "severity warning → critical"
-    assert entry.tone == "muted"
+    assert entry.tone == "critical"
     entry = _entry(detail, f"entry-alert_history-{resolved.pk}")
     assert entry.detail == ""
     assert entry.tone == "ok"
 
 
 @pytest.mark.parametrize(
-    ("event", "severity", "tone"),
+    ("event", "severity_to", "tone"),
     [
-        ("created", "warning", "warning"),
-        ("refired", "info", "info"),
-        ("refired", "bogus", "info"),
-        ("resolved", "critical", "ok"),
-        ("updated", "critical", "muted"),
+        ("created", None, "info"),
+        ("refired", None, "info"),
+        ("resolved", None, "ok"),
+        ("updated", None, "muted"),
+        ("severity_changed", "critical", "critical"),
+        ("reevaluated", "warning", "warning"),
+        ("created", "critical", "critical"),
+        ("created", "bogus", "info"),
+        ("updated", ["critical"], "muted"),
+        ("resolved", {"a": 1}, "ok"),
     ],
 )
-def test_alert_history_tones(event, severity, tone):
-    assert incident_queries.history_tone(event, severity) == tone
+def test_alert_history_tones(event, severity_to, tone):
+    assert incident_queries.history_tone(event, severity_to) == tone
 
 
 @pytest.mark.parametrize(
@@ -348,7 +357,9 @@ def test_alert_history_tones(event, severity, tone):
         ("succeeded", "ok"),
         ("completed", "ok"),
         ("notified", "ok"),
-        ("checked", "ok"),
+        ("ingested", "info"),
+        ("checked", "info"),
+        ("analyzed", "info"),
         ("failed", "critical"),
         ("running", "info"),
         ("pending", "info"),
@@ -378,8 +389,8 @@ def test_run_and_stage_entries_read_as_sentences_and_link_the_admin():
 
     entry = _entry(detail, f"entry-pipeline-{run.pk}")
     assert entry.kind == "pipeline"
-    assert entry.title == "Pipeline run failed"
-    assert entry.detail == "run-9"
+    assert entry.title == "Pipeline run started"
+    assert entry.detail == "failed · run-9"
     assert entry.tone == "critical"
     assert entry.url == reverse("admin:orchestration_pipelinerun_change", args=[run.pk])
     assert entry.body is None
@@ -566,6 +577,8 @@ def test_a_malformed_check_snapshot_does_not_raise():
         (7.5, 100),
         (-1, 0),
         (1e308, 100),
+        (10**400, 100),
+        (-(10**400), 0),
         (float("nan"), None),
         (float("inf"), None),
         (True, None),
@@ -661,3 +674,109 @@ def test_the_query_count_does_not_grow_with_the_incident():
 
     assert len(detail.timeline) == 1 + 6 * 5
     assert len(few) == len(many) == 7
+
+
+def test_raw_json_keeps_non_ascii_text_readable():
+    assert stage_body("ingest", {"note": "Disk doldu, çöp topla"}).raw == (
+        '{\n  "note": "Disk doldu, çöp topla"\n}'
+    )
+
+
+def _long(count):
+    """A resolved incident with ``count`` stage entries, oldest first, plus two lifecycle."""
+    incident = _incident(status="resolved", resolved_at=T0 + timedelta(minutes=30))
+    run = _run(incident, T0 - timedelta(hours=1))
+    stages = [
+        _stage(
+            run,
+            "check",
+            T0 + timedelta(minutes=index),
+            attempt=index,
+            output_snapshot=CHECK_SNAPSHOT,
+        )
+        for index in range(1, count)
+    ]
+    return incident, run, stages
+
+
+@pytest.mark.django_db
+def test_a_timeline_at_the_limit_is_shown_whole(monkeypatch):
+    monkeypatch.setattr(incident_queries, "TIMELINE_LIMIT", 4)
+    incident, run, stages = _long(4)
+
+    detail = build_incident_detail(incident.pk)
+
+    assert detail.hidden == 0
+    assert detail.recent_url == ""
+    assert [entry.id for entry in detail.timeline] == [
+        f"entry-pipeline-{run.pk}",
+        "entry-incident-created",
+        *(f"entry-stage-{stage.pk}" for stage in stages),
+        "entry-incident-resolved",
+    ]
+    assert build_incident_detail(incident.pk, full=True).recent_url == ""
+
+
+@pytest.mark.django_db
+def test_a_timeline_over_the_limit_keeps_lifecycle_and_the_newest_entries(monkeypatch):
+    monkeypatch.setattr(incident_queries, "TIMELINE_LIMIT", 4)
+    incident, run, stages = _long(7)
+    built = []
+    stage_body = incident_queries.stage_body
+    monkeypatch.setattr(
+        incident_queries, "stage_body", lambda *args: built.append(args) or stage_body(*args)
+    )
+
+    detail = build_incident_detail(incident.pk)
+
+    assert detail.hidden == 3
+    assert [entry.id for entry in detail.timeline] == [
+        "entry-incident-created",
+        *(f"entry-stage-{stage.pk}" for stage in stages[2:]),
+        "entry-incident-resolved",
+    ]
+    assert len(built) == 4
+    assert detail.url == f"/console/incidents/{incident.pk}/"
+    assert detail.full_url == f"/console/incidents/{incident.pk}/?all=1"
+    assert detail.recent_url == ""
+
+
+@pytest.mark.django_db
+def test_one_entry_over_the_limit_hides_one(monkeypatch):
+    monkeypatch.setattr(incident_queries, "TIMELINE_LIMIT", 4)
+    incident, run, stages = _long(5)
+
+    detail = build_incident_detail(incident.pk)
+
+    assert detail.hidden == 1
+    assert f"entry-pipeline-{run.pk}" not in [entry.id for entry in detail.timeline]
+    assert len(detail.timeline) == 4 + 2
+
+
+@pytest.mark.django_db
+def test_the_full_view_shows_everything_and_polls_itself(monkeypatch):
+    monkeypatch.setattr(incident_queries, "TIMELINE_LIMIT", 4)
+    incident, run, stages = _long(7)
+
+    detail = build_incident_detail(incident.pk, full=True)
+
+    assert detail.hidden == 0
+    assert len(detail.timeline) == 7 + 2
+    assert detail.timeline[0].id == f"entry-pipeline-{run.pk}"
+    assert detail.url == detail.full_url == f"/console/incidents/{incident.pk}/?all=1"
+    assert detail.recent_url == f"/console/incidents/{incident.pk}/"
+
+
+@pytest.mark.django_db
+def test_the_cap_does_not_change_the_query_count(monkeypatch):
+    incident, _, _ = _long(7)
+    with CaptureQueriesContext(connection) as whole:
+        build_incident_detail(incident.pk)
+    monkeypatch.setattr(incident_queries, "TIMELINE_LIMIT", 4)
+
+    with CaptureQueriesContext(connection) as capped:
+        build_incident_detail(incident.pk)
+    with CaptureQueriesContext(connection) as full:
+        build_incident_detail(incident.pk, full=True)
+
+    assert len(whole) == len(capped) == len(full) == 7
