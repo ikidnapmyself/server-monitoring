@@ -91,7 +91,7 @@ def test_a_row_carries_tones_count_and_the_admin_link():
     assert (row.status, row.status_tone) == ("acknowledged", "warning")
     assert row.alert_count == 2
     assert row.created_at == Incident.objects.get(pk=incident.pk).created_at
-    assert row.url == reverse("admin:alerts_incident_change", args=[incident.pk])
+    assert row.url == reverse("console:incident", args=[incident.pk])
     assert row.nodes == ""
     assert (quiet_row.pk, quiet_row.alert_count) == (quiet.pk, 0)
     assert (quiet_row.severity_tone, quiet_row.status_tone) == ("info", "muted")

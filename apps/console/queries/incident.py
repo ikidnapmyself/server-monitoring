@@ -251,20 +251,42 @@ def _notify_body(snapshot: dict[str, Any], raw: str) -> NotifyBody:
     )
 
 
-_BODY_BUILDERS: dict[str, Callable[[dict[str, Any], str], StageBody]] = {
-    "check": _check_body,
-    "analyze": _analyze_body,
-    "notify": _notify_body,
+_BODY_BUILDERS: dict[str, tuple[frozenset[str], Callable[[dict[str, Any], str], StageBody]]] = {
+    "check": (
+        frozenset({"checks", "checks_run", "checks_passed", "checks_failed"}),
+        _check_body,
+    ),
+    "analyze": (
+        frozenset(
+            {
+                "summary",
+                "probable_cause",
+                "actions",
+                "recommendations",
+                "confidence",
+                "fallback_used",
+            }
+        ),
+        _analyze_body,
+    ),
+    "notify": (
+        frozenset({"deliveries", "channels_attempted", "channels_succeeded", "channels_failed"}),
+        _notify_body,
+    ),
 }
 
 
 def stage_body(stage: str, snapshot: object) -> StageBody | None:
-    """Renderable form of a stage's stored output. The JSON is untrusted in shape."""
+    """Renderable form of a stage's stored output. The JSON is untrusted in shape.
+
+    A snapshot that is not an object, or that carries none of its stage's keys, is
+    shown raw. Old runs stored a different object under the same stage name.
+    """
     if not snapshot:
         return None
     raw = json.dumps(snapshot, indent=2, sort_keys=True, default=str)
-    builder = _BODY_BUILDERS.get(stage)
-    if builder is None or not isinstance(snapshot, dict):
+    keys, builder = _BODY_BUILDERS.get(stage, (frozenset(), None))
+    if builder is None or not isinstance(snapshot, dict) or keys.isdisjoint(snapshot):
         return RawBody(raw=raw)
     return builder(snapshot, raw)
 

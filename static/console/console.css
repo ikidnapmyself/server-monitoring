@@ -89,7 +89,13 @@ a:hover { text-decoration: underline; }
 }
 
 .c-main { max-width: 1200px; width: 100%; padding: var(--space-8); }
-.c-headline { margin: 0 0 var(--space-2); font-size: 28px; font-weight: 600; letter-spacing: -0.01em; }
+.c-headline {
+  margin: 0 0 var(--space-2);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
 .c-muted { color: var(--text-muted); }
 .c-section { margin-top: var(--space-8); }
 .c-section h2 { margin: 0 0 var(--space-3); font-size: 13px; font-weight: 600; color: var(--text-muted); }
@@ -153,6 +159,72 @@ a:hover { text-decoration: underline; }
 .c-chip[aria-current="true"] { border-color: var(--text); background: var(--text); color: var(--bg); font-weight: 600; }
 .c-pager { display: flex; align-items: center; gap: var(--space-4); margin-top: var(--space-4); }
 
+.c-back { margin: 0 0 var(--space-2); font-size: 13px; }
+.c-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin: 0; }
+.c-meta > * { min-width: 0; overflow-wrap: anywhere; }
+.c-prose { max-width: 80ch; margin: var(--space-3) 0 0; overflow-wrap: anywhere; white-space: pre-line; }
+
+.c-stages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.c-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.c-stage__name { font-size: 15px; font-weight: 600; }
+
+.c-timeline { margin: 0; padding: 0; list-style: none; }
+.c-timeline__item { border-bottom: 1px solid var(--border); }
+.c-timeline__item:last-child { border-bottom: 0; }
+.c-entry {
+  display: grid;
+  grid-template-columns: 15ch 9ch minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+}
+.c-entry > time { font-size: 13px; font-variant-numeric: tabular-nums; }
+.c-entry__text { overflow-wrap: anywhere; }
+/* A grid summary loses its disclosure triangle, so the title carries one. */
+summary.c-entry { cursor: pointer; list-style: none; }
+summary.c-entry::-webkit-details-marker { display: none; }
+summary.c-entry > .c-entry__text::after { content: " \25B8"; color: var(--text-muted); }
+details[open] > summary.c-entry > .c-entry__text::after { content: " \25BE"; }
+.c-entry__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-4);
+  overflow-wrap: anywhere;
+}
+.c-entry__body p, .c-entry__body ul { margin: 0; }
+.c-entry__body summary { cursor: pointer; color: var(--text-muted); font-size: 13px; }
+.c-lines { display: grid; gap: var(--space-2); padding: 0; list-style: none; }
+.c-lines > li { display: grid; grid-template-columns: 9ch minmax(0, 1fr); gap: var(--space-3); align-items: baseline; }
+.c-bullets { padding-left: var(--space-6); }
+.c-errors { color: var(--tone-critical-fg); }
+.c-raw {
+  max-width: 100%;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 .c-spark { padding: var(--space-4); color: var(--accent); }
 .c-spark svg { display: block; max-width: 100%; height: auto; }
 
@@ -170,9 +242,15 @@ a:hover { text-decoration: underline; }
   .c-list > li { grid-template-columns: auto minmax(0, 1fr) auto; }
   .c-list > li > a { grid-column: 1 / -1; grid-row: 1; }
   .c-list__meta { max-width: none; }
+  .c-entry { grid-template-columns: auto minmax(0, 1fr); gap: var(--space-1) var(--space-3); }
+  .c-entry__text { grid-column: 1 / -1; }
 }
 
 @media print {
   body { display: block; }
-  .c-side, .c-banner { display: none; }
+  .c-side, .c-banner, .c-chips, .c-back { display: none; }
+  a, a:hover { text-decoration: none; }
+  .c-card { box-shadow: none; }
+  .c-timeline__item { break-inside: avoid; }
+  .c-raw { overflow: visible; white-space: pre-wrap; overflow-wrap: anywhere; }
 }

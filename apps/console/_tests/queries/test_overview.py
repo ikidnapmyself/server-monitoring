@@ -75,10 +75,10 @@ def test_incident_row_carries_tones_count_and_a_link():
     assert row.severity_tone == "critical"
     assert row.status_tone == "critical"
     assert row.alert_count == 2
-    assert row.url == reverse("admin:alerts_incident_change", args=[incident.pk])
+    assert row.url == reverse("console:incident", args=[incident.pk])
     assert (row.pk, other_row.pk) == (incident.pk, other.pk)
     assert (other_row.title, other_row.alert_count) == ("swap low", 1)
-    assert other_row.url == reverse("admin:alerts_incident_change", args=[other.pk])
+    assert other_row.url == reverse("console:incident", args=[other.pk])
     assert (quiet_row.title, quiet_row.alert_count) == ("quiet", 0)
 
 

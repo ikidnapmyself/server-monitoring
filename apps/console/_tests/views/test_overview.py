@@ -182,7 +182,7 @@ def test_page_shows_incidents_nodes_and_the_sparkline(client, staff):
 
     assert "1 open incident, 1 critical." in body
     assert "Disk full on web-1" in body
-    assert reverse("admin:alerts_incident_change", args=[incident.pk]) in body
+    assert reverse("console:incident", args=[incident.pk]) in body
     assert reverse("admin:alerts_node_change", args=[node.pk]) in body
     assert "c-tone-critical" in body
     assert "<svg" in body

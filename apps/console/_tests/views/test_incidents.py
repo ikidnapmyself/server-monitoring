@@ -140,8 +140,8 @@ def test_rows_show_badges_title_nodes_count_and_age(client, staff, url):
 
     body = client.get(url).content.decode()
 
-    admin_url = reverse("admin:alerts_incident_change", args=[incident.pk])
-    assert f'<a id="incident-{incident.pk}" href="{admin_url}">Disk full on web-1</a>' in body
+    page_url = reverse("console:incident", args=[incident.pk])
+    assert f'<a id="incident-{incident.pk}" href="{page_url}">Disk full on web-1</a>' in body
     assert '<span class="c-badge c-tone-critical">critical</span>' in body
     assert '<span class="c-badge c-tone-critical">open</span>' in body
     assert '<span class="c-badge c-tone-warning">acknowledged</span>' in body

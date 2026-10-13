@@ -525,6 +525,13 @@ def test_a_stage_without_a_renderer_is_shown_raw(stage):
     assert stage_body(stage, snapshot) == RawBody(raw=_raw(snapshot))
 
 
+@pytest.mark.parametrize("stage", ["check", "analyze", "notify"])
+def test_an_object_with_none_of_the_stage_keys_is_shown_raw(stage):
+    snapshot = {"node_id": "n1", "output": {}, "skipped": True, "errors": ["boom"]}
+
+    assert stage_body(stage, snapshot) == RawBody(raw=_raw(snapshot))
+
+
 def test_a_malformed_check_snapshot_does_not_raise():
     snapshot = {
         "checks": [
@@ -548,7 +555,6 @@ def test_a_malformed_check_snapshot_does_not_raise():
         raw=_raw(snapshot),
     )
     assert stage_body("check", {"checks": {"name": "cpu"}}).lines == ()
-    assert stage_body("check", {"other": 1}).lines == ()
 
 
 @pytest.mark.parametrize(

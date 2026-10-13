@@ -164,7 +164,7 @@ def _rows(incidents, page: int) -> tuple[IncidentListRow, ...]:
             nodes=nodes.get(incident.pk, ""),
             created_at=incident.created_at,
             alert_count=incident.alerts_total,
-            url=reverse("admin:alerts_incident_change", args=[incident.pk]),
+            url=reverse("console:incident", args=[incident.pk]),
         )
         for incident in found
     )

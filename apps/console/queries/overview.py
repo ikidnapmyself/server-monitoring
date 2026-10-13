@@ -116,7 +116,7 @@ def open_incidents() -> tuple[IncidentRow, ...]:
             status_tone=tone_for(INCIDENT_STATUS_TONES, incident.status),
             created_at=incident.created_at,
             alert_count=incident.alerts_total,
-            url=reverse("admin:alerts_incident_change", args=[incident.pk]),
+            url=reverse("console:incident", args=[incident.pk]),
         )
         for incident in incidents
     )

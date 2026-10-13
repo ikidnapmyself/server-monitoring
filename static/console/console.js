@@ -35,6 +35,22 @@
     true
   );
 
+  // A print should show every stage's output. An open details also holds off the poll,
+  // which would otherwise replace the elements remembered here.
+  var printOpened = [];
+  window.addEventListener("beforeprint", function () {
+    document.querySelectorAll("[data-print-open] details:not([open])").forEach(function (details) {
+      details.open = true;
+      printOpened.push(details);
+    });
+  });
+  window.addEventListener("afterprint", function () {
+    printOpened.forEach(function (details) {
+      details.open = false;
+    });
+    printOpened = [];
+  });
+
   var banner = document.getElementById("c-banner");
   if (!banner) {
     return;
