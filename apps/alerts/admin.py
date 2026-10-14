@@ -490,8 +490,20 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
             count += 1
         self.message_user(request, f"{count} incident(s) resolved.")
 
-    @object_action(label="Acknowledge", description="Mark this incident as acknowledged")
+    def get_change_actions(self, request, object_id, form_url):
+        if not self.has_change_permission(request):
+            return []
+        return super().get_change_actions(request, object_id, form_url)
+
+    @object_action(
+        label="Acknowledge",
+        description="Mark this incident as acknowledged",
+        methods=("POST",),
+        button_type="form",
+    )
     def acknowledge_incident(self, request, obj):
+        if not self.has_change_permission(request, obj):
+            raise PermissionDenied
         if obj.status == IncidentStatus.OPEN:
             IncidentManager.acknowledge(obj.id, acknowledged_by=request.user.get_username())
             self.message_user(request, f"Incident '{obj.title}' acknowledged.")
@@ -500,16 +512,30 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
                 request, f"Cannot acknowledge — status is '{obj.status}'.", level="warning"
             )
 
-    @object_action(label="Resolve", description="Mark this incident as resolved")
+    @object_action(
+        label="Resolve",
+        description="Mark this incident as resolved",
+        methods=("POST",),
+        button_type="form",
+    )
     def resolve_incident(self, request, obj):
+        if not self.has_change_permission(request, obj):
+            raise PermissionDenied
         if obj.status not in (IncidentStatus.RESOLVED, IncidentStatus.CLOSED):
             IncidentManager.resolve(obj.id, resolved_by=request.user.get_username())
             self.message_user(request, f"Incident '{obj.title}' resolved.")
         else:
             self.message_user(request, f"Already {obj.status}.", level="warning")
 
-    @object_action(label="Close", description="Mark this incident as closed")
+    @object_action(
+        label="Close",
+        description="Mark this incident as closed",
+        methods=("POST",),
+        button_type="form",
+    )
     def close_incident(self, request, obj):
+        if not self.has_change_permission(request, obj):
+            raise PermissionDenied
         if obj.status != IncidentStatus.CLOSED:
             IncidentManager.close(obj.id)
             self.message_user(request, f"Incident '{obj.title}' closed.")
