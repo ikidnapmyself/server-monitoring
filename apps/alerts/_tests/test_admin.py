@@ -156,6 +156,45 @@ class TestPerObjectActions(TestCase):
         assert incident.status == IncidentStatus.RESOLVED
         assert _manual_runs(incident).count() == 1
 
+    def test_a_get_never_transitions_an_incident(self):
+        """A link, a redirect or a prefetch must not be able to change an incident."""
+        for tool in ("acknowledge_incident", "resolve_incident", "close_incident"):
+            incident = Incident.objects.create(title=tool, status=IncidentStatus.OPEN)
+            response = self.client.get(f"/admin/alerts/incident/{incident.pk}/actions/{tool}/")
+            assert response.status_code == 405
+            incident.refresh_from_db()
+            assert incident.status == IncidentStatus.OPEN
+            assert _manual_runs(incident).count() == 0
+
+    def test_staff_without_change_permission_cannot_transition(self):
+        User.objects.create_user("viewer", password="password", is_staff=True)
+        self.client.login(username="viewer", password="password")
+        for tool in ("acknowledge_incident", "resolve_incident", "close_incident"):
+            incident = Incident.objects.create(title=tool, status=IncidentStatus.OPEN)
+            response = self.client.post(f"/admin/alerts/incident/{incident.pk}/actions/{tool}/")
+            assert response.status_code == 403
+            incident.refresh_from_db()
+            assert incident.status == IncidentStatus.OPEN
+            assert _manual_runs(incident).count() == 0
+
+    def test_buttons_are_csrf_protected_forms(self):
+        incident = Incident.objects.create(title="Test", status=IncidentStatus.OPEN)
+        content = self.client.get(f"/admin/alerts/incident/{incident.pk}/change/").content.decode()
+        action_url = f"/admin/alerts/incident/{incident.pk}/actions/resolve_incident/"
+        assert f'<form method="post" action="{action_url}">' in content
+        assert f'href="{action_url}"' not in content
+
+    def test_view_only_staff_see_no_buttons(self):
+        from django.contrib.auth.models import Permission
+
+        viewer = User.objects.create_user("viewer", password="password", is_staff=True)
+        viewer.user_permissions.add(Permission.objects.get(codename="view_incident"))
+        self.client.login(username="viewer", password="password")
+        incident = Incident.objects.create(title="Test", status=IncidentStatus.OPEN)
+        response = self.client.get(f"/admin/alerts/incident/{incident.pk}/change/")
+        assert response.status_code == 200
+        assert "/actions/" not in response.content.decode()
+
     def test_close_button_works(self):
         incident = Incident.objects.create(
             title="Test",
