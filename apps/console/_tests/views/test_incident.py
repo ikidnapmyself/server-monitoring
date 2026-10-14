@@ -247,6 +247,9 @@ def test_a_finished_bare_incident_drops_the_optional_header_parts(client, staff)
     assert "0 alerts" in body
     assert "pipeline " not in body
     assert body.count('<span class="c-muted">None</span>') == 2
+    assert re.search(
+        r'<span class="c-host c-host--lg c-host--unknown">.*?</svg>Unknown host</span>', body
+    )
     assert "c-prose" not in body
 
 
@@ -534,3 +537,24 @@ def test_any_other_all_value_is_off(client, staff, monkeypatch, query):
 
     assert "timeline-all" in body
     assert f'hx-get="{_url(incident)}"' in _tag(body, "incident")
+
+
+@pytest.mark.django_db
+def test_the_header_names_the_host_right_after_the_state(client, staff):
+    incident = Incident.objects.create(title="Disk full", severity="critical")
+    Alert.objects.create(
+        fingerprint="f",
+        name="disk",
+        source="cluster",
+        labels={"instance_id": "db-7"},
+        incident=incident,
+        started_at=timezone.now(),
+    )
+
+    body = client.get(_url(incident)).content.decode()
+
+    assert re.search(
+        r'c-state c-status--open">.*?Open</span>\s*<span class="c-host c-host--lg">.*?</svg>db-7</span>',
+        body,
+        re.S,
+    )

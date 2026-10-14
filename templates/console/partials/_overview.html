@@ -71,6 +71,20 @@
 <section class="c-section c-box" aria-labelledby="spark-title">
   <div class="c-box__header">
     <h2 id="spark-title" class="c-box__title">Incidents opened, last 24 hours</h2>
+    {% if overview.opened_total %}<span class="c-counter">{{ overview.opened_total }}</span>{% endif %}
   </div>
-  <div class="c-spark">{{ spark }}</div>
+  {% if overview.opened_total %}
+  <div class="c-bars">
+    <svg class="c-bars__chart" viewBox="0 0 240 40" preserveAspectRatio="none" role="img" aria-label="{{ overview.opened_total }} incident{{ overview.opened_total|pluralize }} opened in the last 24 hours, by hour">
+      {% for bar in overview.bars %}<rect class="c-bars__bar{% if not bar.count %} c-bars__bar--empty{% endif %}" x="{{ bar.x }}" y="{{ bar.y }}" width="8" height="{{ bar.height }}"><title>{{ bar.hour|date:"M j, H:i" }}: {{ bar.count }} opened</title></rect>{% endfor %}
+    </svg>
+    <div class="c-bars__axis"><span>24 hours ago</span><span>Now</span></div>
+  </div>
+  {% else %}
+  <div class="c-blankslate c-blankslate--sm">
+    {% include "console/partials/_octicon.html" with name="pulse" %}
+    <h3 class="c-blankslate__heading">No incidents opened in the last 24 hours.</h3>
+    <p>New incidents show up here, one bar per hour.</p>
+  </div>
+  {% endif %}
 </section>

@@ -552,9 +552,6 @@ a.c-label:hover { text-decoration: none; background: var(--tone-bg); }
   color: var(--fgColor-muted);
   font-size: 12px;
 }
-.c-spark { padding: var(--space-4); color: var(--fgColor-accent); }
-.c-spark svg { display: block; width: 100%; height: auto; }
-.c-spark polyline { stroke-width: 2px; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
 
 /* Incident page header */
 .c-crumb { display: inline-flex; align-items: center; gap: var(--space-1); margin-bottom: var(--space-2); font-size: 12px; }
@@ -788,3 +785,16 @@ summary.c-entry:hover .c-entry__title { color: var(--fgColor-accent); }
   a, a:hover { color: inherit; text-decoration: none; }
   .c-timeline__item { break-inside: avoid; }
 }
+
+/* Host: the machine an incident is about, shown wherever an incident is */
+.c-host { color: var(--fgColor-default); font-weight: 600; overflow-wrap: anywhere; }
+.c-host > .octicon { margin-right: var(--space-1); vertical-align: text-bottom; color: var(--fgColor-muted); }
+.c-host--lg { font-size: 14px; }
+.c-host--unknown { color: var(--fgColor-muted); font-weight: 400; }
+
+/* Opened-incidents chart: one bar per hour, scaled to the busiest hour */
+.c-bars { padding: var(--space-4); }
+.c-bars__chart { display: block; width: 100%; height: 72px; }
+.c-bars__bar { fill: var(--fgColor-accent); }
+.c-bars__bar--empty { fill: var(--borderColor-default); }
+.c-bars__axis { display: flex; justify-content: space-between; margin-top: var(--space-2); color: var(--fgColor-muted); font-size: 12px; }

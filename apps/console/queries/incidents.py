@@ -1,6 +1,5 @@
 """Read model for the incident list. Returns dataclasses, never querysets."""
 
-from collections import defaultdict
 from dataclasses import dataclass, replace
 from datetime import datetime
 
@@ -10,6 +9,7 @@ from django.utils import timezone
 
 from apps.alerts.models import Alert, AlertSeverity, Incident, IncidentStatus, Node
 from apps.console.filters import STATUS_CHOICES, IncidentFilter
+from apps.console.queries.hosts import host_summary, incident_hosts
 from apps.console.queries.overview import SEVERITY_RANK
 from config.admin_badges import INCIDENT_STATUS_TONES, SEVERITY_TONES, tone_for
 
@@ -81,15 +81,16 @@ class IncidentList:
     url: str
 
 
-def _node_choices() -> tuple[Choice, ...]:
+def _nodes() -> tuple[tuple[int, str, tuple[str, ...]], ...]:
+    """Every node as its pk, display name and the label values that name it."""
     nodes = [
-        (pk, hostname or instance_id)
+        (pk, hostname or instance_id, tuple(key for key in (instance_id, hostname) if key))
         for pk, hostname, instance_id in Node.objects.order_by().values_list(
             "pk", "hostname", "instance_id"
         )
     ]
     nodes.sort(key=lambda node: node[1].casefold())
-    return tuple((str(pk), name, pk) for pk, name in nodes)
+    return tuple(nodes)
 
 
 def _group(
@@ -117,7 +118,7 @@ def _group(
     )
 
 
-def _matching(filter: IncidentFilter):
+def _matching(filter: IncidentFilter, node_keys: tuple[str, ...] = ()):
     incidents = Incident.objects.all()
     statuses = filter.statuses()
     if statuses:
@@ -128,39 +129,33 @@ def _matching(filter: IncidentFilter):
     if cutoff:
         incidents = incidents.filter(created_at__gte=cutoff)
     if filter.node is not None:
+        # Most checker alerts name their machine only in labels, so a node also matches
+        # an unlinked alert whose instance label is one of the node's own names.
+        named = (
+            Q(labels__instance_id__in=node_keys)
+            | Q(labels__instance__in=node_keys)
+            | Q(labels__hostname__in=node_keys)
+        )
         # A subquery, not a join: a join would cut the alert count down to this node's alerts.
         incidents = incidents.filter(
-            Exists(Alert.objects.filter(incident=OuterRef("pk"), node_id=filter.node))
+            Exists(
+                Alert.objects.filter(incident=OuterRef("pk")).filter(
+                    Q(node_id=filter.node) | Q(node__isnull=True) & named
+                )
+            )
         )
     return incidents
 
 
-def _status_counts(filter: IncidentFilter) -> dict[str, int]:
+def _status_counts(filter: IncidentFilter, node_keys: tuple[str, ...]) -> dict[str, int]:
     """Incidents per status chip under every filter but the status itself. One query."""
-    found = _matching(replace(filter, status="all")).aggregate(
+    found = _matching(replace(filter, status="all"), node_keys).aggregate(
         **{status: Count("pk", filter=Q(status=status)) for status in IncidentStatus.values}
     )
     return {
         key: sum(found.values()) if not statuses else sum(found[s] for s in statuses)
         for key, statuses in STATUS_CHOICES.items()
     }
-
-
-def _node_strings(incident_pks: list[int]) -> dict[int, str]:
-    names: defaultdict[int, list[str]] = defaultdict(list)
-    seen = (
-        Alert.objects.filter(incident_id__in=incident_pks, node__isnull=False)
-        .values_list("incident_id", "node__hostname", "node__instance_id")
-        .distinct()
-        .order_by()
-    )
-    for incident_pk, hostname, instance_id in seen:
-        names[incident_pk].append(hostname or instance_id)
-    strings = {}
-    for incident_pk, found in names.items():
-        found.sort(key=str.casefold)
-        strings[incident_pk] = found[0] if len(found) == 1 else f"{found[0]} +{len(found) - 1}"
-    return strings
 
 
 def _rows(incidents, page: int) -> tuple[IncidentListRow, ...]:
@@ -170,7 +165,7 @@ def _rows(incidents, page: int) -> tuple[IncidentListRow, ...]:
             "rank", "-created_at", "-pk"
         )[start : start + PAGE_SIZE]
     )
-    nodes = _node_strings([incident.pk for incident in found])
+    hosts = incident_hosts(incident.pk for incident in found)
     return tuple(
         IncidentListRow(
             pk=incident.pk,
@@ -179,7 +174,7 @@ def _rows(incidents, page: int) -> tuple[IncidentListRow, ...]:
             severity_tone=tone_for(SEVERITY_TONES, incident.severity),
             status=incident.status,
             status_tone=tone_for(INCIDENT_STATUS_TONES, incident.status),
-            nodes=nodes.get(incident.pk, ""),
+            nodes=host_summary(hosts.get(incident.pk, ())),
             created_at=incident.created_at,
             alert_count=incident.alerts_total,
             url=reverse("console:incident", args=[incident.pk]),
@@ -190,11 +185,14 @@ def _rows(incidents, page: int) -> tuple[IncidentListRow, ...]:
 
 def build_incident_list(filter: IncidentFilter) -> IncidentList:
     base = reverse("console:incidents")
-    node_choices = _node_choices()
-    if filter.node is not None and all(filter.node != pk for _, _, pk in node_choices):
+    nodes = _nodes()
+    node_keys = next((keys for pk, _, keys in nodes if pk == filter.node), None)
+    if filter.node is not None and node_keys is None:
         filter = filter.with_node_dropped()
+    node_keys = node_keys or ()
+    node_choices: tuple[Choice, ...] = tuple((str(pk), name, pk) for pk, name, _ in nodes)
 
-    incidents = _matching(filter)
+    incidents = _matching(filter, node_keys)
     total = incidents.count()
     pages = max(1, -(-total // PAGE_SIZE))
     page = min(filter.page, pages)
@@ -211,7 +209,7 @@ def build_incident_list(filter: IncidentFilter) -> IncidentList:
         rows, empty = (), "no_match"
 
     groups = [
-        _group("status", "Status", STATUS_CHIPS, filter, base, _status_counts(filter)),
+        _group("status", "Status", STATUS_CHIPS, filter, base, _status_counts(filter, node_keys)),
         _group("severity", "Severity", SEVERITY_CHIPS, filter, base),
     ]
     if node_choices:

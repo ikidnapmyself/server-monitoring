@@ -8,7 +8,7 @@ from django.test import RequestFactory
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.alerts.models import Incident, Node
+from apps.alerts.models import Alert, Incident, Node
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console.queries import overview as overview_queries
 from apps.console.views.overview import OverviewView
@@ -426,3 +426,39 @@ def test_the_more_link_opens_a_list_of_only_open_incidents(client, staff):
     body = resp.content.decode()
     assert "still open" in body and "acked" in body
     assert "long gone" not in body
+
+
+@pytest.mark.django_db
+def test_a_quiet_day_shows_an_empty_state_instead_of_a_chart(client, staff):
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert "No incidents opened in the last 24 hours." in body
+    assert "c-bars__chart" not in body
+
+
+@pytest.mark.django_db
+def test_a_busy_day_shows_one_bar_per_hour_with_its_count(client, staff):
+    Incident.objects.create(title="Disk full")
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert body.count('<rect class="c-bars__bar') == 24
+    assert ": 1 opened</title>" in body
+    assert "No incidents opened in the last 24 hours." not in body
+
+
+@pytest.mark.django_db
+def test_open_incident_rows_name_their_host(client, staff):
+    incident = Incident.objects.create(title="Disk full", severity="critical")
+    Alert.objects.create(
+        fingerprint="f",
+        name="disk",
+        source="cluster",
+        labels={"hostname": "db-7"},
+        incident=incident,
+        started_at=timezone.now(),
+    )
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert re.search(r'<span class="c-host">.*?</svg>db-7</span>', body)

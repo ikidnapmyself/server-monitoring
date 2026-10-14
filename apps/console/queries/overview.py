@@ -19,6 +19,7 @@ from apps.alerts.models import (
     IncidentStatus,
     Node,
 )
+from apps.console.queries.hosts import host_summary, incident_hosts
 from config.admin_badges import INCIDENT_STATUS_TONES, SEVERITY_TONES, tone_for
 from config.dashboard import NODE_RECENT_MINUTES, build_readiness
 
@@ -45,6 +46,7 @@ class IncidentRow:
     status_tone: str
     created_at: datetime
     alert_count: int
+    nodes: str
     url: str
 
 
@@ -74,6 +76,7 @@ class Overview:
     incidents: tuple[IncidentRow, ...]
     nodes: tuple[NodeTile, ...]
     spark: tuple[tuple[float, float], ...]
+    spark_from: datetime
     attention: tuple[AttentionItem, ...]
     open_total: int
     more_url: str
@@ -81,6 +84,49 @@ class Overview:
     @property
     def open_hidden(self) -> int:
         return self.open_total - len(self.incidents)
+
+    @property
+    def opened_total(self) -> int:
+        return int(sum(count for _, count in self.spark))
+
+    @property
+    def bars(self) -> tuple["HourBar", ...]:
+        return hour_bars(self.spark, self.spark_from)
+
+
+@dataclass(frozen=True)
+class HourBar:
+    """One hour of the opened-incidents chart, in SVG units of a ``BAR_PITCH`` grid."""
+
+    hour: datetime
+    count: int
+    x: int
+    y: int
+    height: int
+
+
+BAR_PITCH = 10
+BAR_WIDTH = 8
+BAR_CHART_HEIGHT = 40
+
+
+def hour_bars(spark: tuple[tuple[float, float], ...], first: datetime) -> tuple[HourBar, ...]:
+    """Bars scaled to the busiest hour. An empty hour keeps a one-unit stub as its baseline."""
+    peak = max((count for _, count in spark), default=0)
+    bars = []
+    for index, value in spark:
+        count = int(value)
+        height = max(1, round(count / peak * BAR_CHART_HEIGHT)) if count else 1
+        bars.append(
+            HourBar(
+                hour=first + timedelta(hours=int(index)),
+                count=count,
+                x=int(index) * BAR_PITCH,
+                y=BAR_CHART_HEIGHT - height,
+                height=height,
+            )
+        )
+    return tuple(bars)
 
 
 def headline(total: int, critical: int) -> str:
@@ -106,6 +152,7 @@ def open_incidents() -> tuple[IncidentRow, ...]:
         .annotate(rank=SEVERITY_RANK, alerts_total=Count("alerts"))
         .order_by("rank", "created_at")[:INCIDENT_LIMIT]
     )
+    hosts = incident_hosts(incident.pk for incident in incidents)
     return tuple(
         IncidentRow(
             pk=incident.pk,
@@ -116,6 +163,7 @@ def open_incidents() -> tuple[IncidentRow, ...]:
             status_tone=tone_for(INCIDENT_STATUS_TONES, incident.status),
             created_at=incident.created_at,
             alert_count=incident.alerts_total,
+            nodes=host_summary(hosts.get(incident.pk, ())),
             url=reverse("console:incident", args=[incident.pk]),
         )
         for incident in incidents
@@ -176,13 +224,17 @@ def node_tiles() -> tuple[NodeTile, ...]:
     return tuple(sorted(tiles, key=lambda tile: tile.name.casefold()))
 
 
-def incident_spark() -> tuple[tuple[float, float], ...]:
+def spark_start(now: datetime) -> datetime:
+    """The first hour of the spark window: ``SPARK_HOURS - 1`` full hours before this one."""
+    return now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=SPARK_HOURS - 1)
+
+
+def incident_spark(now: datetime | None = None) -> tuple[tuple[float, float], ...]:
     """Incidents opened per hour, oldest first.
 
     The window is the current partial hour plus the ``SPARK_HOURS - 1`` full hours before it.
     """
-    this_hour = timezone.now().replace(minute=0, second=0, microsecond=0)
-    first = this_hour - timedelta(hours=SPARK_HOURS - 1)
+    first = spark_start(now or timezone.now())
     # Buckets are cut in UTC so they match ``first`` whatever TIME_ZONE is set to.
     counts = dict(
         Incident.objects.filter(created_at__gte=first)
@@ -212,11 +264,13 @@ def attention() -> tuple[AttentionItem, ...]:
 
 def build_overview() -> Overview:
     total, critical = open_counts()
+    now = timezone.now()
     return Overview(
         headline=headline(total, critical),
         incidents=open_incidents(),
         nodes=node_tiles(),
-        spark=incident_spark(),
+        spark=incident_spark(now),
+        spark_from=spark_start(now),
         attention=attention(),
         open_total=total,
         more_url=reverse("console:incidents"),

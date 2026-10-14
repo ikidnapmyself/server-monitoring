@@ -161,10 +161,11 @@ def test_rows_show_state_title_label_nodes_count_and_age(client, staff, url):
     assert re.search(r'class="c-box__row [^"]*c-status--acknowledged"', body)
     assert '<span class="c-sr-only">open</span>' in body
     assert '<span class="c-sr-only">acknowledged</span>' in body
-    assert "web-1 +1 · 2 alerts" in body
+    assert re.search(r'<span class="c-host">.*?</svg>web-1 \+1</span> · #\d+ opened', body)
     assert re.search(
-        rf'<div class="c-row__meta">#{lonely.pk} opened <time datetime="[^"]+" title="[^"]+">'
-        r"[^<]+ ago</time> · 0 alerts</div>",
+        rf'<div class="c-row__meta"><span class="c-host c-host--unknown">.*?</svg>Unknown host'
+        rf'</span> · #{lonely.pk} opened <time datetime="[^"]+" title="[^"]+">[^<]+ ago</time>'
+        r" · 0 alerts</div>",
         body,
     )
     assert f'id="incident-{lonely.pk}"' in body
@@ -466,7 +467,7 @@ def test_a_hostile_title_and_hostname_are_escaped(client, staff, url, monkeypatc
     body = client.get(url, **headers).content.decode()
 
     assert f"disk 4 {ESCAPED}" in body
-    assert f"web {ESCAPED} · 1 alert" in body
+    assert f"</svg>web {ESCAPED}</span> · #" in body
     assert f">web {ESCAPED}</a>" in body
     assert f'id="chip-node-{node.pk}"' in body
     assert "<img" not in body
@@ -495,3 +496,67 @@ def test_every_link_in_the_polled_region_has_a_unique_id(client, staff, url, mon
     assert ids == ["incidents", *expected]
     assert len(ids) == len(set(ids))
     assert not re.search(r"<(?:button|input|select|textarea|details|summary)\b", region)
+
+
+def _labelled(incident, key, **labels):
+    return Alert.objects.create(
+        fingerprint=f"{incident.pk}:{key}",
+        name=key,
+        severity="warning",
+        status="firing",
+        source="cluster",
+        labels=labels,
+        incident=incident,
+        started_at=timezone.now(),
+    )
+
+
+@pytest.mark.django_db
+def test_a_row_names_the_host_from_alert_labels_when_no_node_is_linked(client, staff, url):
+    incident = Incident.objects.create(title="Disk full", severity="critical")
+    _labelled(incident, "a", hostname="db-7")
+
+    body = client.get(url).content.decode()
+
+    assert re.search(r'<span class="c-host">.*?</svg>db-7</span> · #\d+ opened', body)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("label", ["instance_id", "instance", "hostname"])
+def test_the_node_filter_matches_alerts_that_name_the_node_only_in_labels(
+    client, staff, url, label
+):
+    node = Node.objects.create(instance_id="i-db7", hostname="db-7")
+    name = "i-db7" if label != "hostname" else "db-7"
+    mine = Incident.objects.create(title="Mine")
+    _labelled(mine, "a", **{label: name})
+    theirs = Incident.objects.create(title="Theirs")
+    _labelled(theirs, "a", hostname="web-1")
+    linked = Incident.objects.create(title="Linked")
+    _alert(linked, node)
+
+    body = client.get(f"{url}?node={node.pk}").content.decode()
+
+    assert f'id="incident-{mine.pk}"' in body
+    assert f'id="incident-{linked.pk}"' in body
+    assert f'id="incident-{theirs.pk}"' not in body
+
+
+@pytest.mark.django_db
+def test_a_label_naming_the_node_does_not_override_a_link_to_another_node(client, staff, url):
+    node = Node.objects.create(instance_id="db-7", hostname="db-7")
+    other = Node.objects.create(instance_id="web-1", hostname="web-1")
+    incident = Incident.objects.create(title="Elsewhere")
+    Alert.objects.create(
+        fingerprint="x",
+        name="x",
+        source="cluster",
+        labels={"hostname": "db-7"},
+        node=other,
+        incident=incident,
+        started_at=timezone.now(),
+    )
+
+    body = client.get(f"{url}?node={node.pk}").content.decode()
+
+    assert f'id="incident-{incident.pk}"' not in body
