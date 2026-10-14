@@ -1,94 +1,130 @@
-{% if notice %}<p id="incident-notice" class="c-notice c-tone-{{ notice.tone }}" role="status" tabindex="-1" data-fresh>{{ notice.text }}</p>{% endif %}
-<p class="c-back"><a id="incident-back" href="{% url 'console:incidents' %}">Back to incidents</a></p>
-<h1 class="c-headline">{{ incident.title }}</h1>
-<p class="c-meta">
-  <span class="c-badge c-tone-{{ incident.severity_tone }}">{{ incident.severity }}</span>
-  <span class="c-badge c-tone-{{ incident.status_tone }}">{{ incident.status }}</span>
-  <span class="c-muted">Started <time datetime="{{ incident.created_at|date:'c' }}" title="{{ incident.created_at|date:'Y-m-d H:i:s T' }}">{{ incident.created_at|date:'M j, H:i' }}</time></span>
-  <span class="c-muted">{{ incident.duration }}{% if incident.ongoing %} so far{% endif %}</span>
-  {% if incident.nodes %}<span class="c-muted">{{ incident.nodes }}</span>{% endif %}
-  <span class="c-muted">{{ incident.alert_count }} alert{{ incident.alert_count|pluralize }}</span>
-  {% if incident.pipeline %}<span class="c-muted">pipeline {{ incident.pipeline }}</span>{% endif %}
-  <a id="incident-admin" href="{{ incident.admin_url }}">Edit raw</a>
-</p>
-{% if incident.actions %}
-<div class="c-actions">
-  {% for action in incident.actions %}
-  <form method="post" action="{{ action.url }}" hx-post="{{ action.url }}" hx-target="#incident" hx-swap="innerHTML" hx-sync="#incident:replace" hx-disabled-elt="#incident .c-button">
-    {% csrf_token %}
-    {% if incident.full %}<input type="hidden" name="all" value="1">{% endif %}
-    <button id="action-{{ action.key }}" class="c-button" type="submit">{{ action.label }}</button>
-  </form>
-  {% endfor %}
-  {% for action in incident.actions %}{% if action.key == "resolve" %}
-  <details id="resolve-note" class="c-note">
-    <summary id="resolve-note-summary">Resolve with a note</summary>
-    <form class="c-note__form" method="post" action="{{ action.url }}" hx-post="{{ action.url }}" hx-target="#incident" hx-swap="innerHTML" hx-sync="#incident:replace" hx-disabled-elt="#incident .c-button">
-      {% csrf_token %}
-      {% if incident.full %}<input type="hidden" name="all" value="1">{% endif %}
-      <label for="resolve-summary">What fixed it</label>
-      <textarea id="resolve-summary" name="summary" rows="3" maxlength="{{ summary_limit }}"></textarea>
-      <button id="action-resolve-note" class="c-button" type="submit">Resolve with this note</button>
-    </form>
-  </details>
-  {% endif %}{% endfor %}
+{% if notice %}<div id="incident-notice" class="c-flash c-tone-{{ notice.tone }}" role="status" tabindex="-1" data-fresh>{% include "console/partials/_flash_icon.html" with tone=notice.tone %}<span>{{ notice.text }}</span></div>{% endif %}
+<a id="incident-back" class="c-crumb" href="{% url 'console:incidents' %}">{% include "console/partials/_octicon.html" with name="chevron-right" %}Back to incidents</a>
+<div class="c-pagehead">
+  <div class="c-pagehead__top">
+    <h1 class="c-pagehead__title">{{ incident.title }} <span class="c-pagehead__number">#{{ incident.pk }}</span></h1>
+    <div class="c-pagehead__actions"><a id="incident-admin" class="c-button c-button--sm" href="{{ incident.admin_url }}">Edit raw</a></div>
+  </div>
+  <div class="c-pagehead__meta">
+    <span class="c-state c-status--{{ incident.status }}">{% include "console/partials/_status_icon.html" with status=incident.status %}{{ incident.status|capfirst }}</span>
+    <span>Started <time datetime="{{ incident.created_at|date:'c' }}" title="{{ incident.created_at|date:'Y-m-d H:i:s T' }}">{{ incident.created_at|date:'M j, H:i' }}</time></span>
+    <span class="c-pagehead__dot">{{ incident.duration }}{% if incident.ongoing %} so far{% endif %}</span>
+  </div>
 </div>
-{% endif %}
-{% if incident.description %}<p class="c-prose">{{ incident.description }}</p>{% endif %}
-{% if incident.summary %}<p class="c-prose">{{ incident.summary }}</p>{% endif %}
 
-<section class="c-section">
-  <h2>Stages</h2>
-  <ul class="c-stages">
-    {% for stage in incident.stages %}
-    <li class="c-card c-stage">
-      <span class="c-stage__name">{{ stage.label }}</span>
-      {% if stage.url %}<a id="stage-{{ stage.stage }}" class="c-badge c-tone-{{ stage.tone }}" href="{{ stage.url }}">{{ stage.status }}</a>{% else %}<span class="c-badge c-tone-{{ stage.tone }}">{{ stage.status }}</span>{% endif %}
-      {% if stage.detail %}<span>{{ stage.detail }}</span>{% endif %}
-      {% if stage.runs %}<span class="c-muted">{{ stage.runs }}</span>{% endif %}
-    </li>
-    {% endfor %}
-  </ul>
-</section>
-
-<section class="c-section">
-  <h2>Timeline</h2>
-  <ol class="c-card c-timeline" data-print-open>
-    {% if incident.hidden %}
-    <li class="c-timeline__note">
-      <span class="c-muted">{{ incident.hidden }} earlier entr{{ incident.hidden|pluralize:"y,ies" }} not shown.</span>
-      <a id="timeline-all" href="{{ incident.full_url }}">Show all</a>
-    </li>
-    {% elif incident.recent_url %}
-    <li class="c-timeline__note">
-      <span class="c-muted">Showing all {{ incident.timeline|length }} entries.</span>
-      <a id="timeline-recent" href="{{ incident.recent_url }}">Show recent only</a>
-    </li>
+<div class="c-layout">
+  <div>
+    {% if incident.description %}
+    <section class="c-box c-comment">
+      <h2 class="c-box__header c-box__title">Description</h2>
+      <div class="c-box__body"><p class="c-prose">{{ incident.description }}</p></div>
+    </section>
     {% endif %}
-    {% for entry in incident.timeline %}
-    <li class="c-timeline__item">
-      {% if entry.body %}
-      <details id="{{ entry.id }}">
-        <summary id="{{ entry.id }}-summary" class="c-entry">
-          {% include "console/partials/_entry_lead.html" %}
-          <span class="c-entry__text">{{ entry.title }}{% if entry.detail %} <span class="c-muted">{{ entry.detail }}</span>{% endif %}</span>
-        </summary>
-        <div class="c-entry__body">
-          {% include "console/partials/_stage_body.html" with body=entry.body %}
-          <p class="c-entry__link"><a id="{{ entry.id }}-link" href="{{ entry.url }}">Open in admin</a></p>
-          <details id="{{ entry.id }}-raw" class="c-entry__raw">
-            <summary id="{{ entry.id }}-raw-summary">Raw JSON</summary>
-            <pre id="{{ entry.id }}-json" class="c-raw">{{ entry.body.raw }}</pre>
-          </details>
-        </div>
-      </details>
-      {% else %}
-      <div class="c-entry">
-        {% include "console/partials/_entry_lead.html" %}
-        <span class="c-entry__text">{% if entry.url %}<a id="{{ entry.id }}" href="{{ entry.url }}">{{ entry.title }}</a>{% else %}<span id="{{ entry.id }}">{{ entry.title }}</span>{% endif %}{% if entry.detail %} <span class="c-muted">{{ entry.detail }}</span>{% endif %}</span>
-      </div>
+    {% if incident.summary %}
+    <section class="c-box c-comment">
+      <h2 class="c-box__header c-box__title">Summary</h2>
+      <div class="c-box__body"><p class="c-prose">{{ incident.summary }}</p></div>
+    </section>
+    {% endif %}
+    <h2 class="c-sr-only">Timeline</h2>
+    <ol class="c-timeline" data-print-open>
+      {% if incident.hidden %}
+      <li class="c-timeline__note">
+        <span class="c-muted">{{ incident.hidden }} earlier entr{{ incident.hidden|pluralize:"y,ies" }} not shown.</span>
+        <a id="timeline-all" href="{{ incident.full_url }}">Show all</a>
+      </li>
+      {% elif incident.recent_url %}
+      <li class="c-timeline__note">
+        <span class="c-muted">Showing all {{ incident.timeline|length }} entries.</span>
+        <a id="timeline-recent" href="{{ incident.recent_url }}">Show recent only</a>
+      </li>
       {% endif %}
-    </li>
-    {% endfor %}
-  </ol>
-</section>
+      {% for entry in incident.timeline %}
+      <li class="c-timeline__item">
+        {% include "console/partials/_timeline_badge.html" %}
+        {% if entry.body %}
+        <details id="{{ entry.id }}">
+          <summary id="{{ entry.id }}-summary" class="c-entry">
+            <span class="c-entry__text"><span class="c-entry__title">{{ entry.title }}</span>{% if entry.detail %} <span class="c-muted">{{ entry.detail }}</span>{% endif %}</span>
+            {% include "console/partials/_entry_lead.html" %}
+          </summary>
+          <div class="c-entry__body">
+            {% include "console/partials/_stage_body.html" with body=entry.body %}
+            <div class="c-entry__foot">
+              <a id="{{ entry.id }}-link" href="{{ entry.url }}">Open in admin</a>
+              <details id="{{ entry.id }}-raw" class="c-entry__raw">
+                <summary id="{{ entry.id }}-raw-summary">Raw JSON</summary>
+                <pre id="{{ entry.id }}-json" class="c-raw">{{ entry.body.raw }}</pre>
+              </details>
+            </div>
+          </div>
+        </details>
+        {% else %}
+        <div class="c-entry">
+          <span class="c-entry__text">{% if entry.url %}<a id="{{ entry.id }}" href="{{ entry.url }}">{{ entry.title }}</a>{% else %}<span id="{{ entry.id }}">{{ entry.title }}</span>{% endif %}{% if entry.detail %} <span class="c-muted">{{ entry.detail }}</span>{% endif %}</span>
+          {% include "console/partials/_entry_lead.html" %}
+        </div>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+
+  <aside class="c-sidebar" aria-label="Incident details">
+    {% if incident.actions %}
+    <div class="c-sidebar__item c-sidebar__item--actions">
+      <h2 class="c-sidebar__heading">Actions</h2>
+      <div class="c-actions">
+        {% for action in incident.actions %}
+        <form method="post" action="{{ action.url }}" hx-post="{{ action.url }}" hx-target="#incident" hx-swap="innerHTML" hx-sync="#incident:replace" hx-disabled-elt="#incident .c-button">
+          {% csrf_token %}
+          {% if incident.full %}<input type="hidden" name="all" value="1">{% endif %}
+          <button id="action-{{ action.key }}" class="c-button c-button--block{% if action.key == "close" %} c-button--danger{% elif forloop.first %} c-button--primary{% endif %}" type="submit">{{ action.label }}</button>
+        </form>
+        {% endfor %}
+        {% for action in incident.actions %}{% if action.key == "resolve" %}
+        <details id="resolve-note" class="c-note">
+          <summary id="resolve-note-summary">{% include "console/partials/_octicon.html" with name="chevron-right" %}Resolve with a note</summary>
+          <form class="c-note__form" method="post" action="{{ action.url }}" hx-post="{{ action.url }}" hx-target="#incident" hx-swap="innerHTML" hx-sync="#incident:replace" hx-disabled-elt="#incident .c-button">
+            {% csrf_token %}
+            {% if incident.full %}<input type="hidden" name="all" value="1">{% endif %}
+            <label for="resolve-summary">What fixed it</label>
+            <textarea id="resolve-summary" name="summary" rows="3" maxlength="{{ summary_limit }}"></textarea>
+            <button id="action-resolve-note" class="c-button c-button--block" type="submit">Resolve with this note</button>
+          </form>
+        </details>
+        {% endif %}{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Severity</h2>
+      <span class="c-label c-tone-{{ incident.severity_tone }}">{{ incident.severity }}</span>
+    </div>
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Nodes</h2>
+      <p class="c-sidebar__value">{% include "console/partials/_octicon.html" with name="server" %}{% if incident.nodes %}<span>{{ incident.nodes }}</span>{% else %}<span class="c-muted">None</span>{% endif %}</p>
+    </div>
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Pipeline</h2>
+      <p class="c-sidebar__value">{% include "console/partials/_octicon.html" with name="workflow" %}{% if incident.pipeline %}<span>{{ incident.pipeline }}</span>{% else %}<span class="c-muted">None</span>{% endif %}</p>
+    </div>
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Alerts</h2>
+      <p class="c-sidebar__value">{% include "console/partials/_octicon.html" with name="bell" %}<span>{{ incident.alert_count }} alert{{ incident.alert_count|pluralize }}</span></p>
+    </div>
+    <div class="c-sidebar__item c-sidebar__item--stages">
+      <h2 class="c-sidebar__heading">Stages</h2>
+      <ul class="c-stages">
+        {% for stage in incident.stages %}
+        <li class="c-stage">
+          <span class="c-stage__icon c-tone-{{ stage.tone }}">{% include "console/partials/_tone_icon.html" with tone=stage.tone %}</span>
+          <span class="c-stage__head"><span class="c-stage__name">{{ stage.label }}</span>{% if stage.url %}<a id="stage-{{ stage.stage }}" class="c-label c-tone-{{ stage.tone }}" href="{{ stage.url }}">{{ stage.status }}</a>{% else %}<span class="c-label c-tone-{{ stage.tone }}">{{ stage.status }}</span>{% endif %}</span>
+          {% if stage.detail %}<span class="c-stage__detail">{{ stage.detail }}</span>{% endif %}
+          {% if stage.runs %}<span class="c-stage__detail">{{ stage.runs }}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </aside>
+</div>

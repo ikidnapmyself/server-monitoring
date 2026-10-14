@@ -44,6 +44,13 @@ def _tag(body, element_id):
     return re.search(rf'<[a-z]+\b[^>]*\sid="{re.escape(element_id)}"[^>]*>', body).group()
 
 
+def _nav(body, label):
+    """The opening tag of the underline nav tab named ``label``."""
+    return re.search(
+        rf'(<a class="c-unav__item" [^>]*>)(?:(?!</a>).)*<span>{label}</span></a>', body, re.S
+    ).group(1)
+
+
 def test_the_list_lives_at_incidents(url):
     assert url == "/console/incidents/"
 
@@ -75,7 +82,7 @@ def test_non_staff_is_refused(client, url):
 
 
 @pytest.mark.django_db
-def test_staff_gets_the_full_page_with_the_sidebar_entry_current(client, staff, url):
+def test_staff_gets_the_full_page_with_the_nav_tab_current(client, staff, url):
     resp = client.get(url)
 
     body = resp.content.decode()
@@ -83,17 +90,22 @@ def test_staff_gets_the_full_page_with_the_sidebar_entry_current(client, staff, 
     assert "<html" in body
     assert resp.templates[0].name == "console/incidents.html"
     assert "<title>Incidents · Console</title>" in body
-    assert f'<a href="{url}" aria-current="page">Incidents</a>' in body
-    assert f'<a href="{reverse("console:overview")}">Overview</a>' in body
+    assert _nav(body, "Incidents") == f'<a class="c-unav__item" href="{url}" aria-current="page">'
+    assert _nav(body, "Overview") == (
+        f'<a class="c-unav__item" href="{reverse("console:overview")}">'
+    )
     assert "script-src 'self'" in resp["Content-Security-Policy"]
 
 
 @pytest.mark.django_db
-def test_the_overview_sidebar_links_to_the_list_without_marking_it_current(client, staff, url):
+def test_the_overview_nav_links_to_the_list_without_marking_it_current(client, staff, url):
     body = client.get(reverse("console:overview")).content.decode()
 
-    assert f'<a href="{url}">Incidents</a>' in body
-    assert f'<a href="{reverse("console:overview")}" aria-current="page">Overview</a>' in body
+    overview = reverse("console:overview")
+    assert _nav(body, "Incidents") == f'<a class="c-unav__item" href="{url}">'
+    assert _nav(body, "Overview") == (
+        f'<a class="c-unav__item" href="{overview}" aria-current="page">'
+    )
 
 
 @pytest.mark.django_db
@@ -103,7 +115,8 @@ def test_htmx_request_gets_only_the_partial_rooted_at_the_polled_element(client,
     body = resp.content.decode()
     assert resp.status_code == 200
     assert "<html" not in body
-    assert [t.name for t in resp.templates] == ["console/partials/_incidents.html"]
+    assert resp.templates[0].name == "console/partials/_incidents.html"
+    assert "console/base.html" not in [t.name for t in resp.templates]
     assert body.lstrip().startswith('<div id="incidents"')
     assert body.rstrip().endswith("</div>")
     assert body.count('id="incidents"') == 1
@@ -132,7 +145,7 @@ def test_the_polled_element_requests_the_current_filters(client, staff, url, hea
 
 
 @pytest.mark.django_db
-def test_rows_show_badges_title_nodes_count_and_age(client, staff, url):
+def test_rows_show_state_title_label_nodes_count_and_age(client, staff, url):
     incident = Incident.objects.create(title="Disk full on web-1", severity="critical")
     for index, name in enumerate(["web-1", "web-2"]):
         _alert(incident, Node.objects.create(instance_id=name, hostname=name), key=str(index))
@@ -142,13 +155,19 @@ def test_rows_show_badges_title_nodes_count_and_age(client, staff, url):
 
     page_url = reverse("console:incident", args=[incident.pk])
     assert f'<a id="incident-{incident.pk}" href="{page_url}">Disk full on web-1</a>' in body
-    assert '<span class="c-badge c-tone-critical">critical</span>' in body
-    assert '<span class="c-badge c-tone-critical">open</span>' in body
-    assert '<span class="c-badge c-tone-warning">acknowledged</span>' in body
+    assert '<span class="c-label c-tone-critical">critical</span>' in body
+    assert '<span class="c-label c-tone-warning">warning</span>' in body
+    assert re.search(r'class="c-box__row [^"]*c-status--open"', body)
+    assert re.search(r'class="c-box__row [^"]*c-status--acknowledged"', body)
+    assert '<span class="c-sr-only">open</span>' in body
+    assert '<span class="c-sr-only">acknowledged</span>' in body
     assert "web-1 +1 · 2 alerts" in body
-    assert re.search(r'<span class="c-muted c-list__meta">\s*0 alerts\s*</span>', body)
+    assert re.search(
+        rf'<div class="c-row__meta">#{lonely.pk} opened <time datetime="[^"]+" title="[^"]+">'
+        r"[^<]+ ago</time> · 0 alerts</div>",
+        body,
+    )
     assert f'id="incident-{lonely.pk}"' in body
-    assert re.search(r'<time class="c-muted" datetime="[^"]+" title="[^"]+">[^<]+ ago</time>', body)
     assert "2 incidents" in body
     assert "No incidents" not in body
 
@@ -160,7 +179,7 @@ def test_a_single_alert_and_a_single_incident_read_in_the_singular(client, staff
 
     body = client.get(url).content.decode()
 
-    assert re.search(r'<span class="c-muted c-list__meta">\s*1 alert\s*</span>', body)
+    assert re.search(r"</time> · 1 alert</div>", body)
     assert re.search(r">\s*1 incident\s*<", body)
 
 
@@ -239,6 +258,30 @@ def test_chips_are_links_that_also_swap_the_list_in_place(client, staff, url):
 
 
 @pytest.mark.django_db
+def test_the_box_header_counts_each_status_under_the_other_filters(client, staff, url):
+    Incident.objects.create(title="a", severity="critical")
+    Incident.objects.create(title="b", severity="critical", status="resolved")
+    Incident.objects.create(title="c", severity="info", status="resolved")
+
+    body = client.get(f"{url}?severity=critical").content.decode()
+
+    header = body[body.index('<nav class="c-states"') :]
+    header = header[: header.index("</nav>")]
+    counts = dict(
+        re.findall(r'id="chip-status-(\w+)".*?<span class="c-counter">(\d+)</span></a>', header)
+    )
+    assert counts == {
+        "active": "1",
+        "open": "1",
+        "acknowledged": "0",
+        "resolved": "1",
+        "closed": "0",
+        "all": "2",
+    }
+    assert 'aria-label="Status"' in header
+
+
+@pytest.mark.django_db
 def test_the_node_chips_are_left_out_when_no_node_exists(client, staff, url):
     body = client.get(url).content.decode()
 
@@ -254,8 +297,8 @@ def test_invalid_filters_are_named_in_a_notice(client, staff, url):
     body = client.get(f"{url}?status=bogus&node=999&page=x").content.decode()
 
     assert re.search(
-        r'<p class="c-notice c-tone-warning" role="status">\s*'
-        r"Ignored invalid filter: status, node, page\.\s*</p>",
+        r'<div class="c-flash c-tone-warning" role="status"><svg\b.*?</svg>'
+        r"<span>Ignored invalid filter: status, node, page\.</span></div>",
         body,
     )
     assert "still listed" in body
@@ -266,7 +309,7 @@ def test_invalid_filters_are_named_in_a_notice(client, staff, url):
 def test_valid_filters_show_no_notice(client, staff, url):
     body = client.get(f"{url}?status=all").content.decode()
 
-    assert "c-notice" not in body
+    assert '<div class="c-flash' not in body
     assert "Ignored invalid filter" not in body
 
 
@@ -398,7 +441,7 @@ def test_rendered_list_is_clean(client, staff, url, monkeypatch, label, headers)
 
     body = client.get(f"{url}?page=2&since=bogus", **headers).content.decode()
 
-    assert "c-badge" in body and "c-chip" in body and "c-notice" in body
+    assert "c-label" in body and "c-seg" in body and '<div class="c-flash' in body
     assert "page-prev" in body and "page-next" in body
     assert not FORBIDDEN[label].search(body), label
 
@@ -440,11 +483,11 @@ def test_every_link_in_the_polled_region_has_a_unique_id(client, staff, url, mon
     links = re.findall(r"<a\b[^>]*>", region)
     ids = re.findall(r'\sid="([^"]*)"', region)
     expected = (
-        [f"chip-status-{key}" for key in ("active", "open", "acknowledged", "resolved")]
-        + ["chip-status-closed", "chip-status-all"]
-        + [f"chip-severity-{key}" for key in ("any", "critical", "warning", "info")]
+        [f"chip-severity-{key}" for key in ("any", "critical", "warning", "info")]
         + ["chip-node-any", f"chip-node-{node.pk}"]
         + [f"chip-since-{key}" for key in ("any", "24h", "7d", "30d")]
+        + [f"chip-status-{key}" for key in ("active", "open", "acknowledged", "resolved")]
+        + ["chip-status-closed", "chip-status-all"]
         + [f"incident-{incident.pk}" for incident in (created[2], created[1])]
         + ["page-prev", "page-next"]
     )

@@ -1,7 +1,12 @@
 {% extends "console/base.html" %}
 {% block title %}Not found · Console{% endblock %}
 {% block content %}
-<h1 class="c-headline">Not found</h1>
-<p>This incident doesn't exist. It may have been deleted.</p>
-<p><a id="not-found-back" href="{% url 'console:incidents' %}">Back to incidents</a></p>
+<div class="c-box">
+  <div class="c-blankslate">
+    {% include "console/partials/_octicon.html" with name="issue-opened" %}
+    <h1 class="c-blankslate__heading">Not found</h1>
+    <p>This incident doesn't exist. It may have been deleted.</p>
+    <p class="c-section"><a id="not-found-back" href="{% url 'console:incidents' %}">Back to incidents</a></p>
+  </div>
+</div>
 {% endblock %}

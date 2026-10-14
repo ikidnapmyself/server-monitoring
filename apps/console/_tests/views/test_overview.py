@@ -74,7 +74,8 @@ def test_htmx_request_gets_only_the_partial(client, staff):
 
     assert resp.status_code == 200
     assert "<html" not in resp.content.decode()
-    assert [t.name for t in resp.templates] == ["console/partials/_overview.html"]
+    assert resp.templates[0].name == "console/partials/_overview.html"
+    assert "console/base.html" not in [t.name for t in resp.templates]
     assert "HX-Request" in resp["Vary"]
 
 
@@ -189,6 +190,21 @@ def test_page_shows_incidents_nodes_and_the_sparkline(client, staff):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("severities", "tone"),
+    [((), "ok"), (("warning", "info"), "warning"), (("warning", "critical"), "critical")],
+    ids=["none-open", "no-critical", "critical"],
+)
+def test_the_headline_flash_takes_the_tone_of_what_is_open(client, staff, severities, tone):
+    for severity in severities:
+        Incident.objects.create(title=severity, severity=severity)
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert re.findall(r'<div class="c-flash c-flash--headline c-tone-(\w+)">', body) == [tone]
+
+
+@pytest.mark.django_db
 def test_page_loads_only_first_party_assets_and_disables_htmx_eval(client, staff):
     body = client.get(reverse("console:overview")).content.decode()
 
@@ -290,7 +306,7 @@ def test_rendered_overview_is_clean(client, staff, monkeypatch, label, headers):
 
     body = client.get(reverse("console:overview"), **headers).content.decode()
 
-    assert "<svg" in body and "c-badge" in body and "1 more open incident" in body
+    assert "<svg" in body and "c-label" in body and "1 more open incident" in body
     assert not FORBIDDEN[label].search(body), label
 
 
@@ -302,7 +318,7 @@ def test_a_silent_node_renders_as_quiet(client, staff, monkeypatch):
 
     body = client.get(reverse("console:overview")).content.decode()
 
-    assert '<span class="c-badge c-tone-muted">quiet</span>' in body
+    assert '<span class="c-label c-tone-muted">quiet</span>' in body
     assert "healthy" not in body
 
 
@@ -326,9 +342,8 @@ def test_every_link_in_the_polled_region_has_a_unique_id(client, staff, monkeypa
     links = re.findall(r"<a\b[^>]*>", region)
     ids = re.findall(r'\sid="([^"]*)"', region)
     expected = (
-        ["readiness-x"]
-        + [f"incident-{incident.pk}" for incident in incidents[:2]]
-        + ["incidents-more"]
+        [f"incident-{incident.pk}" for incident in incidents[:2]]
+        + ["incidents-more", "readiness-x"]
         + [f"node-{node.pk}" for node in nodes]
     )
     assert len(links) == len(expected)
@@ -369,9 +384,10 @@ def test_incidents_past_the_cap_link_to_the_incident_list(client, staff, monkeyp
 
     body = client.get(reverse("console:overview")).content.decode()
 
-    assert body.count("c-list__more") == 1
+    assert body.count("c-row__more") == 1
     link = re.search(
-        r'<li class="c-list__more"><a id="incidents-more" href="([^"]+)">([^<]+)</a></li>', body
+        r'<li class="c-box__row c-row__more"><a id="incidents-more" href="([^"]+)">([^<]+)</a></li>',
+        body,
     )
     assert link.group(2) == "3 more open incidents"
     assert link.group(1) == reverse("console:incidents")
@@ -394,7 +410,7 @@ def test_incidents_within_the_cap_show_no_more_row(client, staff):
 
     body = client.get(reverse("console:overview")).content.decode()
 
-    assert "c-list__more" not in body
+    assert "c-row__more" not in body
 
 
 @pytest.mark.django_db

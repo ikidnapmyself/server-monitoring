@@ -30,3 +30,17 @@ def test_there_are_templates_to_scan():
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
 def test_template_is_clean(template, label):
     assert not FORBIDDEN[label].search(template.read_text()), f"{label} in {template}"
+
+
+def test_every_icon_a_template_names_is_in_the_sprite():
+    sprite = (
+        Path(settings.BASE_DIR) / "static" / "console" / "vendor" / "octicons.svg"
+    ).read_text()
+    named = {
+        name
+        for template in TEMPLATES
+        for name in re.findall(r'_octicon\.html" with name="([a-z-]+)"', template.read_text())
+    }
+
+    assert named
+    assert {name for name in named if f'id="octicon-{name}"' not in sprite} == set()

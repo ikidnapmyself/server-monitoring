@@ -1,61 +1,76 @@
-<h1 class="c-headline">{{ overview.headline }}</h1>
-{% if overview.attention %}
-<ul class="c-list c-card">
-  {% for item in overview.attention %}
-  <li>
-    <span class="c-badge c-tone-{{ item.tone }}">{{ item.tone }}</span>
-    <span><a id="readiness-{{ item.key }}" href="{{ item.url }}">{{ item.label }}</a> <span class="c-muted">{{ item.detail }}</span></span>
-  </li>
-  {% endfor %}
-</ul>
+{% if not overview.open_total %}
+<div class="c-flash c-flash--headline c-tone-ok">{% include "console/partials/_octicon.html" with name="check-circle" %}<h1>{{ overview.headline }}</h1></div>
+{% elif overview.incidents.0.severity_tone == "critical" %}
+<div class="c-flash c-flash--headline c-tone-critical">{% include "console/partials/_octicon.html" with name="alert" %}<h1>{{ overview.headline }}</h1></div>
 {% else %}
-<p class="c-muted">System ready.</p>
+<div class="c-flash c-flash--headline c-tone-warning">{% include "console/partials/_octicon.html" with name="alert" %}<h1>{{ overview.headline }}</h1></div>
 {% endif %}
 
-<section class="c-section">
-  <h2>Open incidents</h2>
-  <div class="c-card">
+<div class="c-columns">
+  <section class="c-box" aria-labelledby="open-incidents-title">
+    <div class="c-box__header">
+      <h2 id="open-incidents-title" class="c-box__title">Open incidents</h2>
+      <span class="c-counter">{{ overview.open_total }}</span>
+    </div>
     {% if overview.incidents %}
-    <ul class="c-list">
-      {% for row in overview.incidents %}
-      <li>
-        <span class="c-badge c-tone-{{ row.severity_tone }}">{{ row.severity }}</span>
-        <a id="incident-{{ row.pk }}" href="{{ row.url }}">{{ row.title }}</a>
-        <span class="c-muted">{{ row.alert_count }} alert{{ row.alert_count|pluralize }}</span>
-        <span>
-          <span class="c-badge c-tone-{{ row.status_tone }}">{{ row.status }}</span>
-          <time class="c-muted" datetime="{{ row.created_at|date:'c' }}" title="{{ row.created_at|date:'Y-m-d H:i:s T' }}">{{ row.created_at|timesince }} ago</time>
-        </span>
-      </li>
-      {% endfor %}
+    <ul class="c-box__list">
+      {% for row in overview.incidents %}{% include "console/partials/_incident_row.html" %}{% endfor %}
       {% if overview.open_hidden > 0 %}
-      <li class="c-list__more"><a id="incidents-more" href="{{ overview.more_url }}">{{ overview.open_hidden }} more open incident{{ overview.open_hidden|pluralize }}</a></li>
+      <li class="c-box__row c-row__more"><a id="incidents-more" href="{{ overview.more_url }}">{{ overview.open_hidden }} more open incident{{ overview.open_hidden|pluralize }}</a></li>
       {% endif %}
     </ul>
     {% else %}
-    <p class="c-empty">Nothing needs you right now.</p>
+    <div class="c-blankslate c-blankslate--sm">
+      {% include "console/partials/_octicon.html" with name="check-circle" %}
+      <h3 class="c-blankslate__heading">Nothing needs you right now.</h3>
+      <p>New incidents show up here as they open.</p>
+    </div>
     {% endif %}
-  </div>
-</section>
+  </section>
 
-<section class="c-section">
-  <h2>Nodes</h2>
+  <section class="c-box" aria-labelledby="readiness-title">
+    <div class="c-box__header">
+      <h2 id="readiness-title" class="c-box__title">Readiness</h2>
+    </div>
+    <ul class="c-box__list">
+      {% for item in overview.attention %}
+      <li class="c-box__row c-readiness">
+        <span class="c-tone-{{ item.tone }}">{% include "console/partials/_octicon.html" with name="alert" %}</span>
+        <span class="c-readiness__text"><a id="readiness-{{ item.key }}" href="{{ item.url }}">{{ item.label }}</a> <span class="c-readiness__detail">{{ item.detail }}</span></span>
+      </li>
+      {% empty %}
+      <li class="c-box__row c-ready">{% include "console/partials/_octicon.html" with name="check-circle" %}<span>System ready.</span></li>
+      {% endfor %}
+    </ul>
+  </section>
+</div>
+
+<section class="c-section" aria-labelledby="nodes-title">
+  <h2 id="nodes-title" class="c-section-title">Nodes</h2>
   {% if overview.nodes %}
   <div class="c-grid">
     {% for tile in overview.nodes %}
-    <a id="node-{{ tile.pk }}" class="c-card c-tile" href="{{ tile.url }}">
+    <a id="node-{{ tile.pk }}" class="c-box c-tile" href="{{ tile.url }}">
+      <span class="c-tone-{{ tile.tone }}">{% include "console/partials/_octicon.html" with name="dot-fill" %}</span>
       <span class="c-tile__name">{{ tile.name }}</span>
-      <span class="c-badge c-tone-{{ tile.tone }}">{{ tile.label }}</span>
-      <time class="c-muted" datetime="{{ tile.last_seen|date:'c' }}" title="{{ tile.last_seen|date:'Y-m-d H:i:s T' }}">seen {{ tile.last_seen|timesince }} ago</time>
+      <span class="c-tile__meta"><span class="c-label c-tone-{{ tile.tone }}">{{ tile.label }}</span><time datetime="{{ tile.last_seen|date:'c' }}" title="{{ tile.last_seen|date:'Y-m-d H:i:s T' }}">seen {{ tile.last_seen|timesince }} ago</time></span>
     </a>
     {% endfor %}
   </div>
   {% else %}
-  <p class="c-card c-empty">No nodes have reported yet.</p>
+  <div class="c-box">
+    <div class="c-blankslate c-blankslate--sm">
+      {% include "console/partials/_octicon.html" with name="server" %}
+      <h3 class="c-blankslate__heading">No nodes have reported yet.</h3>
+      <p>A node shows up here once it reports to this hub.</p>
+    </div>
+  </div>
   {% endif %}
 </section>
 
-<section class="c-section">
-  <h2>Incidents opened, last 24 hours</h2>
-  <div class="c-card c-spark">{{ spark }}</div>
+<section class="c-section c-box" aria-labelledby="spark-title">
+  <div class="c-box__header">
+    <h2 id="spark-title" class="c-box__title">Incidents opened, last 24 hours</h2>
+  </div>
+  <div class="c-spark">{{ spark }}</div>
 </section>
