@@ -229,7 +229,7 @@ actor, summary)`** in `services.py`. It owns the status rules. The admin actions
 other operator surface are thin callers. `available_incident_actions(status)` is the
 table: acknowledge only from open, resolve from anything but resolved and closed, close
 from anything but closed. `transition` locks the row with `select_for_update()`, decides
-from that row, and returns a `TransitionOutcome` with `ok`, an operator-facing `message`
+from that row, writes to that same instance, and returns a `TransitionOutcome` with `ok`, an operator-facing `message`
 and the `incident`. A refused action writes nothing and enqueues nothing, so a double
 submit announces once. SQLite ignores the lock. An unknown action raises `ValueError` and
 a missing incident raises `Incident.DoesNotExist`. Don't put a status rule in a surface,

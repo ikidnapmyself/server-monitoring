@@ -1,6 +1,4 @@
-{% for message in messages %}
-<p class="c-notice c-tone-{% if message.level_tag == "success" %}ok{% elif message.level_tag == "warning" %}warning{% elif message.level_tag == "error" %}critical{% else %}info{% endif %}" role="status">{{ message }}</p>
-{% endfor %}
+{% if notice %}<p id="incident-notice" class="c-notice c-tone-{{ notice.tone }}" role="status" tabindex="-1" data-fresh>{{ notice.text }}</p>{% endif %}
 <p class="c-back"><a id="incident-back" href="{% url 'console:incidents' %}">Back to incidents</a></p>
 <h1 class="c-headline">{{ incident.title }}</h1>
 <p class="c-meta">
@@ -16,24 +14,24 @@
 {% if incident.actions %}
 <div class="c-actions">
   {% for action in incident.actions %}
-  <form method="post" action="{{ action.url }}" hx-post="{{ action.url }}" hx-target="#incident" hx-swap="innerHTML" hx-sync="#incident:replace" hx-disabled-elt="find button">
+  <form method="post" action="{{ action.url }}" hx-post="{{ action.url }}" hx-target="#incident" hx-swap="innerHTML" hx-sync="#incident:replace" hx-disabled-elt="#incident .c-button">
     {% csrf_token %}
     {% if incident.full %}<input type="hidden" name="all" value="1">{% endif %}
     <button id="action-{{ action.key }}" class="c-button" type="submit">{{ action.label }}</button>
   </form>
-  {% if action.key == "resolve" %}
+  {% endfor %}
+  {% for action in incident.actions %}{% if action.key == "resolve" %}
   <details id="resolve-note" class="c-note">
     <summary id="resolve-note-summary">Resolve with a note</summary>
-    <form class="c-note__form" method="post" action="{{ action.url }}" hx-post="{{ action.url }}" hx-target="#incident" hx-swap="innerHTML" hx-sync="#incident:replace" hx-disabled-elt="find button">
+    <form class="c-note__form" method="post" action="{{ action.url }}" hx-post="{{ action.url }}" hx-target="#incident" hx-swap="innerHTML" hx-sync="#incident:replace" hx-disabled-elt="#incident .c-button">
       {% csrf_token %}
       {% if incident.full %}<input type="hidden" name="all" value="1">{% endif %}
       <label for="resolve-summary">What fixed it</label>
-      <textarea id="resolve-summary" name="summary" rows="3" maxlength="2000"></textarea>
+      <textarea id="resolve-summary" name="summary" rows="3" maxlength="{{ summary_limit }}"></textarea>
       <button id="action-resolve-note" class="c-button" type="submit">Resolve with this note</button>
     </form>
   </details>
-  {% endif %}
-  {% endfor %}
+  {% endif %}{% endfor %}
 </div>
 {% endif %}
 {% if incident.description %}<p class="c-prose">{{ incident.description }}</p>{% endif %}

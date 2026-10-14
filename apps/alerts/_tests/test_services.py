@@ -2,8 +2,8 @@ import copy
 from typing import Any, cast
 from unittest import mock
 
-from django.db import transaction
-from django.test import TestCase
+from django.db import connection
+from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 
 from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
@@ -557,19 +557,17 @@ class IncidentTransitionTests(TestCase):
         self.assertEqual(resolved.metadata["resolved_by"], "oncall")
         self.assertEqual(resolved.summary, "Rotated logs")
 
-    def test_decides_from_a_locked_row_inside_one_transaction(self):
-        incident = self._incident()
-        real = Incident.objects.select_for_update
-        seen = []
+    def test_the_write_goes_to_the_locked_row_without_a_second_fetch(self):
+        for action in INCIDENT_ACTIONS:
+            with self.subTest(action=action):
+                incident = self._incident()
+                with mock.patch.object(
+                    Incident.objects, "get", side_effect=AssertionError("re-fetched")
+                ):
+                    outcome = IncidentManager.transition(incident.pk, action, actor="ops")
 
-        def spy(*args, **kwargs):
-            seen.append(transaction.get_connection().in_atomic_block)
-            return real(*args, **kwargs)
-
-        with mock.patch.object(Incident.objects, "select_for_update", side_effect=spy):
-            IncidentManager.transition(incident.pk, "acknowledge")
-
-        self.assertEqual(seen, [True])
+                self.assertTrue(outcome.ok)
+                self.assertEqual(self._runs().filter(incident=incident).count(), 1)
 
     def test_failed_enqueue_rolls_back_the_transition(self):
         incident = self._incident()
@@ -597,6 +595,36 @@ class IncidentTransitionTests(TestCase):
         with self.assertRaises(Incident.DoesNotExist):
             IncidentManager.transition(999_999, "resolve")
         self.assertEqual(self._runs().count(), 0)
+
+
+class IncidentTransitionLockTests(TransactionTestCase):
+    """Outside a ``TestCase``'s own transaction, so the atomic block is ``transition``'s.
+
+    Nothing after this class needs a routing lane from it, and it leaves none behind.
+    """
+
+    def test_decides_from_a_locked_row_inside_its_own_transaction(self):
+        incident = Incident.objects.create(title="Disk full", severity="warning")
+        real = Incident.objects.select_for_update
+        atomic_at_lock = []
+        locked = []
+
+        def spy(*args, **kwargs):
+            atomic_at_lock.append(connection.in_atomic_block)
+            queryset = real(*args, **kwargs)
+            queryset.get = mock.Mock(wraps=queryset.get)
+            locked.append(queryset)
+            return queryset
+
+        self.assertFalse(connection.in_atomic_block)
+        with mock.patch.object(Incident.objects, "select_for_update", side_effect=spy):
+            outcome = IncidentManager.transition(incident.pk, "acknowledge")
+
+        self.assertEqual(atomic_at_lock, [True])
+        (queryset,) = locked
+        queryset.get.assert_called_once_with(pk=incident.pk)
+        self.assertTrue(outcome.ok)
+        self.assertFalse(connection.in_atomic_block)
 
 
 class ProcessingResultTests(TestCase):

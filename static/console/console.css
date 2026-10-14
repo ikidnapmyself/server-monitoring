@@ -141,6 +141,7 @@ a:hover { text-decoration: underline; }
 .c-tone-muted { color: var(--tone-muted-fg); background: var(--tone-muted-bg); }
 
 .c-notice { margin: 0 0 var(--space-4); padding: var(--space-3) var(--space-4); border-radius: var(--radius); }
+.c-notice:focus { outline: 2px solid currentColor; outline-offset: 2px; }
 .c-filters { display: flex; flex-direction: column; gap: var(--space-2); }
 .c-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .c-chip {
@@ -277,7 +278,7 @@ details[open] > summary.c-entry > .c-entry__text::after { content: " \25BE"; }
 
 @media print {
   body { display: block; }
-  .c-side, .c-banner, .c-chips, .c-back, .c-actions, #incident-admin, .c-entry__link, .c-entry__raw, .c-timeline__note > a { display: none; }
+  .c-side, .c-banner, .c-notice, .c-chips, .c-back, .c-actions, #incident-admin, .c-entry__link, .c-entry__raw, .c-timeline__note > a { display: none; }
   summary.c-entry > .c-entry__text::after, details[open] > summary.c-entry > .c-entry__text::after { content: none; }
   a, a:hover { text-decoration: none; }
   .c-card { box-shadow: none; }

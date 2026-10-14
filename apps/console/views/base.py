@@ -47,7 +47,7 @@ class ConsoleView(TemplateView):
         if not request.user.is_authenticated:
             login_url = reverse("admin:login")
             if not self.is_htmx:
-                return redirect_to_login(request.get_full_path(), login_url)
+                return redirect_to_login(self._return_path(request), login_url)
             # htmx would swap a followed redirect's login form into the page.
             response = HttpResponse(status=204)
             response["HX-Redirect"] = redirect_to_login(self._page_path(request), login_url).url
@@ -55,6 +55,15 @@ class ConsoleView(TemplateView):
         if not (request.user.is_active and request.user.is_staff):
             return HttpResponseForbidden("Staff access required.")
         return None
+
+    def landing_path(self) -> str:
+        """Where a login lands after a request that can't be replayed as a GET."""
+        return reverse("console:overview")
+
+    def _return_path(self, request) -> str:
+        if request.method in ("GET", "HEAD"):
+            return request.get_full_path()
+        return self.landing_path()
 
     def _page_path(self, request) -> str:
         """Local path of the page an htmx request came from, for the login ``next``.
@@ -80,4 +89,4 @@ class ConsoleView(TemplateView):
                 and ".." not in segments
             ):
                 return path
-        return request.get_full_path()
+        return self._return_path(request)

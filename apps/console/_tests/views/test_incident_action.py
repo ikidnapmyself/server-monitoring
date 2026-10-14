@@ -1,4 +1,5 @@
 import re
+from unittest import mock
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -6,9 +7,9 @@ from django.contrib.auth.models import Permission
 from django.test import Client
 from django.urls import reverse
 
-from apps.alerts.models import Incident
+from apps.alerts.models import Incident, Node
 from apps.console._tests.test_templates import FORBIDDEN
-from apps.console.views import incident_action
+from apps.console.views.incident import IncidentPageView
 from apps.orchestration.models import PipelineOrigin, PipelineRun, PipelineStatus, StageExecution
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
@@ -63,7 +64,7 @@ def _forms(body):
 
 
 def _notices(body):
-    return re.findall(r'<p class="c-notice c-tone-(\w+)" role="status">(.*?)</p>', body)
+    return re.findall(r'<p\b[^>]*\sclass="c-notice c-tone-(\w+)"[^>]*>(.*?)</p>', body)
 
 
 def test_the_action_lives_under_the_incident():
@@ -79,9 +80,38 @@ def test_anonymous_post_is_sent_to_the_admin_login(client):
     resp = client.post(_url(incident, "resolve"))
 
     assert resp.status_code == 302
-    assert resp["Location"].startswith(f"{reverse('admin:login')}?next=")
+    assert resp["Location"] == f"{reverse('admin:login')}?next={_page(incident)}"
     assert Incident.objects.get(pk=incident.pk).status == "open"
     assert not PipelineRun.objects.exists()
+
+
+@pytest.mark.django_db
+def test_logging_in_after_an_anonymous_post_lands_on_the_incident_page(client):
+    user = _operator()
+    user.set_password("pw")
+    user.save()
+    incident = _incident()
+
+    refused = client.post(_url(incident, "resolve"))
+    landed = client.post(refused["Location"], {"username": "op", "password": "pw"}, follow=True)
+
+    assert landed.redirect_chain == [(_page(incident), 302)]
+    assert landed.status_code == 200
+    assert landed.templates[0].name == "console/incident.html"
+    assert Incident.objects.get(pk=incident.pk).status == "open"
+    assert not PipelineRun.objects.exists()
+
+
+@pytest.mark.django_db
+def test_anonymous_htmx_post_without_a_usable_page_falls_back_to_the_incident(client):
+    incident = _incident()
+
+    resp = client.post(
+        _url(incident, "resolve"), HTTP_HX_CURRENT_URL="http://evil.example/x", **HTMX
+    )
+
+    assert resp.status_code == 204
+    assert resp["HX-Redirect"] == f"{reverse('admin:login')}?next={_page(incident)}"
 
 
 @pytest.mark.django_db
@@ -215,6 +245,10 @@ def test_an_htmx_post_gets_the_partial_with_a_success_message(client, operator):
     assert resp.templates[0].name == "console/partials/_incident.html"
     assert "<html" not in body and 'id="incident"' not in body
     assert _notices(body) == [("ok", "Incident &#x27;Disk full&#x27; acknowledged.")]
+    notice = _tag(body, "incident-notice")
+    assert 'role="status"' in notice and 'tabindex="-1"' in notice
+    assert re.search(r"\sdata-fresh[\s>]", notice)
+    assert body.lstrip().startswith(notice)
     assert '<span class="c-badge c-tone-warning">acknowledged</span>' in body
     assert 'id="action-acknowledge"' not in body
     assert 'id="action-resolve"' in body
@@ -230,9 +264,51 @@ def test_a_plain_post_redirects_to_the_page_which_shows_the_message_once(client,
 
     assert resp.status_code == 303
     assert resp["Location"] == _page(incident)
+    assert _notices(client.get(_page(incident), **HTMX).content.decode()) == []
     body = client.get(_page(incident)).content.decode()
     assert _notices(body) == [("ok", "Incident &#x27;Disk full&#x27; resolved.")]
+    assert body.index('class="c-notice') < body.index('<div id="incident"')
+    assert "data-fresh" not in body and 'id="incident-notice"' not in body
     assert _notices(client.get(_page(incident)).content.decode()) == []
+
+
+@pytest.mark.django_db
+def test_an_htmx_outcome_never_reaches_the_messages_framework(client, operator):
+    incident = _incident()
+
+    acted = client.post(_url(incident, "acknowledge"), **HTMX)
+    refused = client.post(_url(incident, "acknowledge"), **HTMX)
+
+    assert list(acted.wsgi_request._messages) == []
+    assert list(refused.wsgi_request._messages) == []
+    assert _notices(client.get(_page(incident), **HTMX).content.decode()) == []
+    assert _notices(client.get(_page(incident)).content.decode()) == []
+
+
+@pytest.mark.django_db
+def test_a_poll_leaves_another_surfaces_message_alone(client, operator):
+    incident = _incident("closed")
+    client.post(_url(incident, "close"))
+
+    for _ in range(2):
+        assert _notices(client.get(_page(incident), **HTMX).content.decode()) == []
+
+    assert _notices(client.get(_page(incident)).content.decode()) == [
+        ("warning", "Already closed.")
+    ]
+
+
+@pytest.mark.django_db
+def test_a_lookup_failure_inside_the_announce_is_not_a_missing_incident(client, operator):
+    incident = _incident()
+
+    with mock.patch(
+        "apps.alerts.services.announce_incident_change", side_effect=Node.DoesNotExist("gone")
+    ):
+        with pytest.raises(Node.DoesNotExist):
+            client.post(_url(incident, "resolve"), **HTMX)
+
+    assert Incident.objects.get(pk=incident.pk).status == "open"
 
 
 @pytest.mark.django_db
@@ -311,7 +387,7 @@ def test_all_in_the_querystring_of_the_action_url_is_ignored(client, operator):
 
 @pytest.mark.django_db
 def test_a_resolve_note_is_stripped_capped_and_stored(client, operator, monkeypatch):
-    monkeypatch.setattr(incident_action, "SUMMARY_LIMIT", 5)
+    monkeypatch.setattr(IncidentPageView, "summary_limit", 5)
     incident = _incident()
 
     client.post(_url(incident, "resolve"), {"summary": "  rotated the logs  "})
@@ -319,8 +395,37 @@ def test_a_resolve_note_is_stripped_capped_and_stored(client, operator, monkeypa
     assert Incident.objects.get(pk=incident.pk).summary == "rotat"
 
 
-def test_the_note_cap_matches_the_field_in_the_form():
-    assert incident_action.SUMMARY_LIMIT == 2000
+@pytest.mark.django_db
+@pytest.mark.parametrize("limit", [2000, 7])
+@pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
+def test_the_field_carries_the_cap_the_view_enforces(client, operator, monkeypatch, limit, headers):
+    assert IncidentPageView.summary_limit == 2000
+    monkeypatch.setattr(IncidentPageView, "summary_limit", limit)
+    incident = _incident()
+
+    body = client.get(_page(incident), **headers).content.decode()
+
+    assert f'maxlength="{limit}"' in _tag(body, "resolve-summary")
+
+
+@pytest.mark.django_db
+def test_a_note_at_the_cap_keeps_its_tail_when_the_browser_sends_crlf(client, operator):
+    lines = ["123456789"] * 200
+    assert len("\n".join(lines)) == 1999
+    incident = _incident()
+
+    client.post(_url(incident, "resolve"), {"summary": "\r\n".join(lines)})
+
+    assert Incident.objects.get(pk=incident.pk).summary == "\n".join(lines)
+
+
+@pytest.mark.django_db
+def test_a_nul_in_the_note_is_dropped(client, operator):
+    incident = _incident()
+
+    client.post(_url(incident, "resolve"), {"summary": "ro\x00tated\x00"})
+
+    assert Incident.objects.get(pk=incident.pk).summary == "rotated"
 
 
 @pytest.mark.django_db
@@ -350,6 +455,7 @@ def test_a_hostile_note_and_title_are_stored_verbatim_and_rendered_escaped(clien
 
     assert Incident.objects.get(pk=incident.pk).summary == MARKUP
     assert MARKUP not in body
+    assert 'id="incident-notice"' in body
     assert f'<p class="c-prose">{ESCAPED}</p>' in body
     assert _notices(body) == [("ok", f"Incident &#x27;Disk {ESCAPED}&#x27; resolved.")]
 
@@ -397,6 +503,8 @@ def test_buttons_follow_the_status(client, operator, status, headers):
     body = client.get(_page(incident), **headers).content.decode()
 
     assert re.findall(r'<button id="action-(\w+)"', body) == AVAILABLE[status]
+    if "resolve" in AVAILABLE[status]:
+        assert body.index('id="resolve-note"') > body.index('id="action-close"')
     assert ('id="resolve-note"' in body) is ("resolve" in AVAILABLE[status])
     assert ('class="c-actions"' in body) is bool(AVAILABLE[status])
     for action in AVAILABLE[status]:
@@ -423,15 +531,16 @@ def test_every_form_posts_to_its_action_with_a_token_and_the_htmx_contract(clien
         assert 'hx-target="#incident"' in opening
         assert 'hx-swap="innerHTML"' in opening
         assert 'hx-sync="#incident:replace"' in opening
-        assert 'hx-disabled-elt="find button"' in opening
+        assert 'hx-disabled-elt="#incident .c-button"' in opening
+        assert 'class="c-button"' in re.search(r"<button\b[^>]*>", form).group()
         assert form.count('name="csrfmiddlewaretoken"') == 1
         assert form.count("<button") == 1
         assert 'name="all"' not in form
     assert targets == [
         _url(incident, "acknowledge"),
         _url(incident, "resolve"),
-        _url(incident, "resolve"),
         _url(incident, "close"),
+        _url(incident, "resolve"),
     ]
 
 
@@ -447,7 +556,7 @@ def test_the_resolve_note_is_a_details_with_its_own_form(client, operator):
     assert f'hx-post="{_url(incident, "resolve")}"' in details
     field = _tag(details, "resolve-summary")
     assert 'name="summary"' in field
-    assert 'maxlength="2000"' in field
+    assert f'maxlength="{IncidentPageView.summary_limit}"' in field
     assert '<label for="resolve-summary">' in details
     assert 'id="action-resolve-note"' in details
 
