@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from apps.alerts.diagnosis import diagnose_incident
 from apps.alerts.models import Alert, Incident
+from apps.alerts.services import available_incident_actions
 from apps.alerts.timeline import build_incident_timeline
 from apps.console.formatting import humanize_duration
 from config.admin_badges import (
@@ -41,6 +42,7 @@ EXECUTION_TONES = {
 }
 DELIVERY_TONES = {"success": "ok", "failed": "critical"}
 HISTORY_TONES = {"resolved": "ok", "created": "info", "refired": "info"}
+ACTION_LABELS = {"acknowledge": "Acknowledge", "resolve": "Resolve", "close": "Close"}
 TIMELINE_LIMIT = 100
 LIFECYCLE = (
     ("created", "created_at", "Incident opened", "open"),
@@ -142,6 +144,13 @@ class TimelineEntry:
 
 
 @dataclass(frozen=True)
+class IncidentAction:
+    key: str
+    label: str
+    url: str
+
+
+@dataclass(frozen=True)
 class IncidentDetail:
     pk: int
     title: str
@@ -164,6 +173,8 @@ class IncidentDetail:
     hidden: int
     stages: tuple[StageSummary, ...]
     timeline: tuple[TimelineEntry, ...]
+    full: bool
+    actions: tuple[IncidentAction, ...]
 
 
 def _text(value: object) -> str:
@@ -430,7 +441,21 @@ def _nodes(pk: int) -> str:
     return ", ".join(sorted(names, key=str.casefold))
 
 
-def build_incident_detail(pk: int, *, full: bool = False) -> IncidentDetail | None:
+def _actions(incident: Incident) -> tuple[IncidentAction, ...]:
+    return tuple(
+        IncidentAction(
+            key=key,
+            label=ACTION_LABELS[key],
+            url=reverse("console:incident-action", args=[incident.pk, key]),
+        )
+        for key in available_incident_actions(incident.status)
+    )
+
+
+def build_incident_detail(
+    pk: int, *, full: bool = False, can_act: bool = False
+) -> IncidentDetail | None:
+    """One incident for its page. ``actions`` is empty unless the caller may act."""
     incident = (
         Incident.objects.select_related("pipeline")
         .annotate(alerts_total=Count("alerts"))
@@ -467,4 +492,6 @@ def build_incident_detail(pk: int, *, full: bool = False) -> IncidentDetail | No
         hidden=0 if full else over,
         stages=_stages(incident),
         timeline=timeline,
+        full=full,
+        actions=_actions(incident) if can_act else (),
     )

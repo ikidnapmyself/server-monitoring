@@ -3,14 +3,30 @@ from django.shortcuts import render
 from apps.console.queries.incident import build_incident_detail
 from apps.console.views.base import ConsoleView
 
+CHANGE_PERMISSION = "alerts.change_incident"
 
-class IncidentDetailView(ConsoleView):
+
+class IncidentPageView(ConsoleView):
+    """What the incident page and its action view share, so both render one thing."""
+
     template_name = "console/incident.html"
     partial_template_name = "console/partials/_incident.html"
 
-    def get(self, request, *args, **kwargs):
-        incident = build_incident_detail(kwargs["pk"], full=request.GET.get("all") == "1")
+    @property
+    def can_act(self) -> bool:
+        return self.request.user.has_perm(CHANGE_PERMISSION)
+
+    def not_found(self):
+        # The whole page for htmx too. It doesn't swap a 404, it shows the banner.
+        return render(self.request, "console/not_found.html", {"nav": "incidents"}, status=404)
+
+    def render_incident(self, pk: int, *, full: bool):
+        incident = build_incident_detail(pk, full=full, can_act=self.can_act)
         if incident is None:
-            # The whole page for htmx too. It doesn't swap a 404, it shows the banner.
-            return render(request, "console/not_found.html", {"nav": "incidents"}, status=404)
+            return self.not_found()
         return self.render_to_response(self.get_context_data(incident=incident, nav="incidents"))
+
+
+class IncidentDetailView(IncidentPageView):
+    def get(self, request, *args, **kwargs):
+        return self.render_incident(kwargs["pk"], full=request.GET.get("all") == "1")

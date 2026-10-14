@@ -164,6 +164,34 @@ a:hover { text-decoration: underline; }
 .c-meta > * { min-width: 0; overflow-wrap: anywhere; }
 .c-prose { max-width: 80ch; margin: var(--space-3) 0 0; overflow-wrap: anywhere; white-space: pre-line; }
 
+.c-actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-2); margin: var(--space-3) 0 0; }
+.c-button {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.c-button:hover { background: var(--surface); }
+.c-button:disabled { color: var(--text-muted); cursor: default; }
+.c-note[open] { flex-basis: 100%; }
+.c-note > summary { padding: var(--space-1) 0; color: var(--text-muted); font-size: 13px; cursor: pointer; }
+.c-note__form { display: grid; gap: var(--space-2); justify-items: start; width: min(60ch, 100%); margin-top: var(--space-2); }
+.c-note__form label { color: var(--text-muted); font-size: 13px; }
+.c-note__form textarea {
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
 .c-stages {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -249,7 +277,7 @@ details[open] > summary.c-entry > .c-entry__text::after { content: " \25BE"; }
 
 @media print {
   body { display: block; }
-  .c-side, .c-banner, .c-chips, .c-back, #incident-admin, .c-entry__link, .c-entry__raw, .c-timeline__note > a { display: none; }
+  .c-side, .c-banner, .c-chips, .c-back, .c-actions, #incident-admin, .c-entry__link, .c-entry__raw, .c-timeline__note > a { display: none; }
   summary.c-entry > .c-entry__text::after, details[open] > summary.c-entry > .c-entry__text::after { content: none; }
   a, a:hover { text-decoration: none; }
   .c-card { box-shadow: none; }

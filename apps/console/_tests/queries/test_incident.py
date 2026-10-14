@@ -9,12 +9,14 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from apps.alerts.models import Alert, AlertHistory, Incident, Node
+from apps.alerts.services import INCIDENT_ACTIONS
 from apps.console.queries import incident as incident_queries
 from apps.console.queries.incident import (
     AnalyzeBody,
     CheckBody,
     CheckLine,
     Delivery,
+    IncidentAction,
     NotifyBody,
     RawBody,
     Recommendation,
@@ -780,3 +782,58 @@ def test_the_cap_does_not_change_the_query_count(monkeypatch):
         build_incident_detail(incident.pk, full=True)
 
     assert len(whole) == len(capped) == len(full) == 7
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status", ["open", "acknowledged", "resolved", "closed"])
+def test_no_actions_unless_the_caller_may_act(status):
+    incident = _incident(status=status)
+
+    assert build_incident_detail(incident.pk).actions == ()
+    assert build_incident_detail(incident.pk, can_act=False).actions == ()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("status", "keys"),
+    [
+        ("open", ("acknowledge", "resolve", "close")),
+        ("acknowledged", ("resolve", "close")),
+        ("resolved", ("close",)),
+        ("closed", ()),
+    ],
+)
+def test_actions_follow_the_status_when_the_caller_may_act(status, keys):
+    incident = _incident(status=status)
+
+    detail = build_incident_detail(incident.pk, can_act=True)
+
+    assert tuple(action.key for action in detail.actions) == keys
+    assert detail.actions == tuple(
+        IncidentAction(
+            key=key,
+            label=key.capitalize(),
+            url=f"/console/incidents/{incident.pk}/{key}/",
+        )
+        for key in keys
+    )
+
+
+@pytest.mark.django_db
+def test_an_action_is_frozen():
+    (action,) = build_incident_detail(_incident(status="resolved").pk, can_act=True).actions
+
+    with pytest.raises(FrozenInstanceError):
+        action.label = "x"
+
+
+@pytest.mark.django_db
+def test_the_detail_says_whether_it_is_the_full_timeline():
+    incident = _incident()
+
+    assert build_incident_detail(incident.pk).full is False
+    assert build_incident_detail(incident.pk, full=True).full is True
+
+
+def test_every_incident_action_has_a_label():
+    assert set(incident_queries.ACTION_LABELS) == set(INCIDENT_ACTIONS)
