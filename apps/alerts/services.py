@@ -621,6 +621,32 @@ def announce_incident_change(incident: Incident) -> None:
     )
 
 
+INCIDENT_ACTIONS = ("acknowledge", "resolve", "close")
+
+_ACTION_DONE = MappingProxyType(
+    {"acknowledge": "acknowledged", "resolve": "resolved", "close": "closed"}
+)
+
+
+def available_incident_actions(status: str) -> tuple[str, ...]:
+    """The operator actions an incident in ``status`` accepts, in display order."""
+    allowed = {
+        "acknowledge": status == IncidentStatus.OPEN,
+        "resolve": status not in (IncidentStatus.RESOLVED, IncidentStatus.CLOSED),
+        "close": status != IncidentStatus.CLOSED,
+    }
+    return tuple(action for action in INCIDENT_ACTIONS if allowed[action])
+
+
+@dataclass(frozen=True)
+class TransitionOutcome:
+    """What ``IncidentManager.transition`` decided, in words an operator can read."""
+
+    ok: bool
+    message: str
+    incident: Incident
+
+
 class IncidentManager:
     """
     Service for managing incidents.
@@ -629,6 +655,45 @@ class IncidentManager:
     what the orchestrator handles automatically. Every transition enqueues a
     MANUAL inbox run atomically with the status change (see ``_announce``).
     """
+
+    @staticmethod
+    def transition(
+        incident_id: int, action: str, *, actor: str = "", summary: str = ""
+    ) -> TransitionOutcome:
+        """Apply one operator action if the incident's current status accepts it.
+
+        The row is locked before the status is read, so two submits of the same
+        button can't both pass the check: the second waits, then sees the first
+        one's status and is refused without a write or a run.
+
+        Raises ``ValueError`` for an action outside ``INCIDENT_ACTIONS`` and
+        ``Incident.DoesNotExist`` for a missing incident.
+        """
+        if action not in INCIDENT_ACTIONS:
+            raise ValueError(f"Unknown incident action: {action!r}")
+
+        with transaction.atomic():
+            incident = Incident.objects.select_for_update().get(pk=incident_id)
+            status = incident.status
+            if action not in available_incident_actions(status):
+                if action == "acknowledge":
+                    message = f"Cannot acknowledge — status is '{status}'."
+                else:
+                    message = f"Already {status}."
+                return TransitionOutcome(ok=False, message=message, incident=incident)
+
+            if action == "acknowledge":
+                incident = IncidentManager.acknowledge(incident_id, acknowledged_by=actor)
+            elif action == "resolve":
+                incident = IncidentManager.resolve(incident_id, summary=summary, resolved_by=actor)
+            else:
+                incident = IncidentManager.close(incident_id)
+
+        return TransitionOutcome(
+            ok=True,
+            message=f"Incident '{incident.title}' {_ACTION_DONE[action]}.",
+            incident=incident,
+        )
 
     @staticmethod
     def acknowledge(incident_id: int, acknowledged_by: str = "") -> Incident:

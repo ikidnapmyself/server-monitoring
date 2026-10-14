@@ -19,7 +19,6 @@ from apps.alerts.models import (
     AlertHistory,
     AlertStatus,
     Incident,
-    IncidentStatus,
     Node,
 )
 from apps.alerts.node_overview import (
@@ -472,49 +471,40 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         ),
     ]
 
+    def _transition(self, request, incident, action):
+        return IncidentManager.transition(incident.pk, action, actor=request.user.get_username())
+
+    def _transition_selected(self, request, queryset, action):
+        return sum(self._transition(request, incident, action).ok for incident in queryset)
+
+    def _transition_and_report(self, request, obj, action):
+        outcome = self._transition(request, obj, action)
+        if outcome.ok:
+            self.message_user(request, outcome.message)
+        else:
+            self.message_user(request, outcome.message, level="warning")
+
     @admin.action(description="Acknowledge selected incidents")
     def acknowledge_selected(self, request, queryset):
-        count = 0
-        for incident in queryset.filter(status=IncidentStatus.OPEN):
-            IncidentManager.acknowledge(incident.id, acknowledged_by=request.user.get_username())
-            count += 1
+        count = self._transition_selected(request, queryset, "acknowledge")
         self.message_user(request, f"{count} incident(s) acknowledged.")
 
     @admin.action(description="Resolve selected incidents")
     def resolve_selected(self, request, queryset):
-        count = 0
-        for incident in queryset.exclude(
-            status__in=[IncidentStatus.RESOLVED, IncidentStatus.CLOSED]
-        ):
-            IncidentManager.resolve(incident.id, resolved_by=request.user.get_username())
-            count += 1
+        count = self._transition_selected(request, queryset, "resolve")
         self.message_user(request, f"{count} incident(s) resolved.")
 
     @object_action(label="Acknowledge", description="Mark this incident as acknowledged")
     def acknowledge_incident(self, request, obj):
-        if obj.status == IncidentStatus.OPEN:
-            IncidentManager.acknowledge(obj.id, acknowledged_by=request.user.get_username())
-            self.message_user(request, f"Incident '{obj.title}' acknowledged.")
-        else:
-            self.message_user(
-                request, f"Cannot acknowledge — status is '{obj.status}'.", level="warning"
-            )
+        self._transition_and_report(request, obj, "acknowledge")
 
     @object_action(label="Resolve", description="Mark this incident as resolved")
     def resolve_incident(self, request, obj):
-        if obj.status not in (IncidentStatus.RESOLVED, IncidentStatus.CLOSED):
-            IncidentManager.resolve(obj.id, resolved_by=request.user.get_username())
-            self.message_user(request, f"Incident '{obj.title}' resolved.")
-        else:
-            self.message_user(request, f"Already {obj.status}.", level="warning")
+        self._transition_and_report(request, obj, "resolve")
 
     @object_action(label="Close", description="Mark this incident as closed")
     def close_incident(self, request, obj):
-        if obj.status != IncidentStatus.CLOSED:
-            IncidentManager.close(obj.id)
-            self.message_user(request, f"Incident '{obj.title}' closed.")
-        else:
-            self.message_user(request, "Already closed.", level="warning")
+        self._transition_and_report(request, obj, "close")
 
     @admin.display(description="Host")
     def host(self, obj):

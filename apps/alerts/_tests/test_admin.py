@@ -171,6 +171,86 @@ class TestPerObjectActions(TestCase):
         assert _manual_runs(incident).count() == 1
 
 
+class TestIncidentActionMessages(TestCase):
+    """The admin says what `IncidentManager.transition` decided, in the same words."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
+
+    def setUp(self):
+        self.client.login(username="admin", password="password")
+
+    def _click(self, status, action):
+        incident = Incident.objects.create(title="Disk full", severity="critical", status=status)
+        response = self.client.post(
+            f"/admin/alerts/incident/{incident.pk}/actions/{action}/", follow=True
+        )
+        incident.refresh_from_db()
+        (message,) = list(response.context["messages"])
+        return incident, message
+
+    def test_accepted_actions_report_success(self):
+        cases = [
+            (IncidentStatus.OPEN, "acknowledge_incident", "Incident 'Disk full' acknowledged."),
+            (IncidentStatus.ACKNOWLEDGED, "resolve_incident", "Incident 'Disk full' resolved."),
+            (IncidentStatus.RESOLVED, "close_incident", "Incident 'Disk full' closed."),
+        ]
+        for status, action, text in cases:
+            with self.subTest(action=action):
+                incident, message = self._click(status, action)
+                assert message.message == text
+                assert message.level_tag == "info"
+                assert _manual_runs(incident).count() == 1
+
+    def test_refused_actions_warn_and_enqueue_nothing(self):
+        cases = [
+            (
+                IncidentStatus.ACKNOWLEDGED,
+                "acknowledge_incident",
+                "Cannot acknowledge — status is 'acknowledged'.",
+            ),
+            (IncidentStatus.RESOLVED, "resolve_incident", "Already resolved."),
+            (IncidentStatus.CLOSED, "resolve_incident", "Already closed."),
+            (IncidentStatus.CLOSED, "close_incident", "Already closed."),
+        ]
+        for status, action, text in cases:
+            with self.subTest(status=status, action=action):
+                incident, message = self._click(status, action)
+                assert message.message == text
+                assert message.level_tag == "warning"
+                assert incident.status == status
+                assert _manual_runs(incident).count() == 0
+
+    def _bulk(self, action):
+        incidents = [
+            Incident.objects.create(title=status, severity="warning", status=status)
+            for status in IncidentStatus.values
+        ]
+        response = self.client.post(
+            "/admin/alerts/incident/",
+            {"action": action, "_selected_action": [i.pk for i in incidents]},
+            follow=True,
+        )
+        (message,) = list(response.context["messages"])
+        return {i.title: Incident.objects.get(pk=i.pk) for i in incidents}, message.message
+
+    def test_bulk_acknowledge_counts_only_the_open_ones(self):
+        by_status, text = self._bulk("acknowledge_selected")
+        assert text == "1 incident(s) acknowledged."
+        assert [s for s, i in by_status.items() if _manual_runs(i).exists()] == ["open"]
+        assert by_status["open"].status == IncidentStatus.ACKNOWLEDGED
+        assert by_status["resolved"].status == IncidentStatus.RESOLVED
+        assert by_status["closed"].status == IncidentStatus.CLOSED
+
+    def test_bulk_resolve_skips_resolved_and_closed(self):
+        by_status, text = self._bulk("resolve_selected")
+        assert text == "2 incident(s) resolved."
+        announced = sorted(s for s, i in by_status.items() if _manual_runs(i).exists())
+        assert announced == ["acknowledged", "open"]
+        assert by_status["closed"].status == IncidentStatus.CLOSED
+
+
 class TestJsonPrettyDisplay(TestCase):
     @classmethod
     def setUpTestData(cls):
