@@ -4,12 +4,12 @@ from collections import defaultdict
 from dataclasses import dataclass, replace
 from datetime import datetime
 
-from django.db.models import Count, Exists, OuterRef
+from django.db.models import Count, Exists, OuterRef, Q
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.alerts.models import Alert, AlertSeverity, Incident, Node
-from apps.console.filters import IncidentFilter
+from apps.alerts.models import Alert, AlertSeverity, Incident, IncidentStatus, Node
+from apps.console.filters import STATUS_CHOICES, IncidentFilter
 from apps.console.queries.overview import SEVERITY_RANK
 from config.admin_badges import INCIDENT_STATUS_TONES, SEVERITY_TONES, tone_for
 
@@ -57,6 +57,7 @@ class Chip:
     label: str
     url: str
     active: bool
+    count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,12 @@ def _node_choices() -> tuple[Choice, ...]:
 
 
 def _group(
-    name: str, label: str, choices: tuple[Choice, ...], filter: IncidentFilter, base: str
+    name: str,
+    label: str,
+    choices: tuple[Choice, ...],
+    filter: IncidentFilter,
+    base: str,
+    counts: dict[str, int] | None = None,
 ) -> ChipGroup:
     current = getattr(filter, name)
     return ChipGroup(
@@ -104,6 +110,7 @@ def _group(
                 label=text,
                 url=base + filter.querystring(**{name: value}),
                 active=value == current,
+                count=None if counts is None else counts[key],
             )
             for key, text, value in choices
         ),
@@ -126,6 +133,17 @@ def _matching(filter: IncidentFilter):
             Exists(Alert.objects.filter(incident=OuterRef("pk"), node_id=filter.node))
         )
     return incidents
+
+
+def _status_counts(filter: IncidentFilter) -> dict[str, int]:
+    """Incidents per status chip under every filter but the status itself. One query."""
+    found = _matching(replace(filter, status="all")).aggregate(
+        **{status: Count("pk", filter=Q(status=status)) for status in IncidentStatus.values}
+    )
+    return {
+        key: sum(found.values()) if not statuses else sum(found[s] for s in statuses)
+        for key, statuses in STATUS_CHOICES.items()
+    }
 
 
 def _node_strings(incident_pks: list[int]) -> dict[int, str]:
@@ -193,7 +211,7 @@ def build_incident_list(filter: IncidentFilter) -> IncidentList:
         rows, empty = (), "no_match"
 
     groups = [
-        _group("status", "Status", STATUS_CHIPS, filter, base),
+        _group("status", "Status", STATUS_CHIPS, filter, base, _status_counts(filter)),
         _group("severity", "Severity", SEVERITY_CHIPS, filter, base),
     ]
     if node_choices:
