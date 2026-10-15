@@ -9,9 +9,11 @@ See docs/plans/2026-08-07-thermal-io-checkers-design.md.
 """
 
 import sys
+from typing import Any
 
 from apps.checkers.checkers._sensors import TempReading, read_temps
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
+from config.describing import Action, Description
 
 DISK_CHIPS = {"drivetemp", "nvme"}
 
@@ -20,6 +22,8 @@ class DiskTempChecker(BaseChecker):
     """Report the hottest disk temperature (°C)."""
 
     name = "disk_temp"
+    label = "Disk temperature"
+    problem = "Disk running hot"
     warning_threshold = 55.0
     critical_threshold = 60.0
 
@@ -64,3 +68,14 @@ class DiskTempChecker(BaseChecker):
                 for r in readings
             ],
         }
+
+    def describe_result(self, status: CheckStatus, metrics: dict[str, Any]) -> Description:
+        degrees = round(metrics["hottest_c"])
+        return self._describe(
+            status,
+            f"Hottest disk {metrics['hottest_disk']} at {degrees}°C",
+            metrics,
+            action=Action(
+                "Check the airflow around the disks. A disk that stays hot fails sooner."
+            ),
+        )

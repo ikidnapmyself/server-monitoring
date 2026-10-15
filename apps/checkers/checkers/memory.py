@@ -2,9 +2,12 @@
 Memory usage checker.
 """
 
+from typing import Any
+
 import psutil
 
-from apps.checkers.checkers.base import BaseChecker, CheckResult
+from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
+from config.describing import Action, Description, format_percent, format_size_mb
 
 
 class MemoryChecker(BaseChecker):
@@ -16,6 +19,8 @@ class MemoryChecker(BaseChecker):
     """
 
     name = "memory"
+    label = "Memory usage"
+    problem = "High memory usage"
     warning_threshold = 70.0
     critical_threshold = 90.0
 
@@ -65,3 +70,16 @@ class MemoryChecker(BaseChecker):
 
         except Exception as e:
             return self._error_result(str(e))
+
+    def describe_result(self, status: CheckStatus, metrics: dict[str, Any]) -> Description:
+        percent = format_percent(metrics["memory_percent"])
+        free = format_size_mb(metrics["memory_available_gb"] * 1024)
+        total = format_size_mb(metrics["memory_total_gb"] * 1024)
+        return self._describe(
+            status,
+            f"Memory at {percent}, {free} free of {total}",
+            metrics,
+            action=Action(
+                "Find the largest processes with top, sorted by memory, and restart or limit them."
+            ),
+        )

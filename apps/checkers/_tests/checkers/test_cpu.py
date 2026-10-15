@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
+from apps.checkers._tests.checkers.test_describe_contract import RAW
 from apps.checkers.checkers import CheckStatus, CPUChecker
 
 
@@ -142,3 +143,28 @@ class CPUCheckerTests(TestCase):
         result = checker.check()
 
         self.assertEqual(result.checker_name, "cpu")
+
+
+class CPUDescribeTests(TestCase):
+    def test_ok_names_the_core_count(self):
+        d = CPUChecker().describe(CheckStatus.OK, {"cpu_percent": 41.0, "cpu_count": 8})
+        self.assertEqual(d.headline, "CPU at 41% across 8 cores")
+        self.assertIsNone(d.action)
+
+    def test_ok_without_a_core_count(self):
+        d = CPUChecker().describe(CheckStatus.OK, {"cpu_percent": 41.0})
+        self.assertEqual(d.headline, "CPU at 41%")
+
+    def test_critical_says_what_to_do(self):
+        d = CPUChecker().describe(CheckStatus.CRITICAL, {"cpu_percent": 94.0, "cpu_count": 8})
+        self.assertEqual(d.headline, "CPU at 94%")
+        self.assertIn("top", d.action.text)
+
+    @patch("apps.checkers.checkers.cpu.psutil")
+    def test_real_output_reads_in_words(self, mock_psutil):
+        mock_psutil.cpu_percent.side_effect = [95.0]
+        mock_psutil.cpu_count.return_value = 4
+        result = CPUChecker(samples=1, sample_interval=0.0).check()
+        d = CPUChecker().describe(result.status, result.metrics, result.message)
+        self.assertEqual(d.headline, "CPU at 95%")
+        self.assertIsNone(RAW.search(d.headline))

@@ -6,6 +6,7 @@ from unittest import mock
 
 from django.test import TestCase
 
+from apps.checkers._tests.checkers.test_describe_contract import RAW
 from apps.checkers.checkers.base import CheckStatus
 from apps.checkers.checkers.disk_temp import DiskTempChecker
 
@@ -82,3 +83,35 @@ class DiskTempCheckerTests(TestCase):
         from apps.checkers.checkers import DiskTempChecker as Exported
 
         self.assertIs(CHECKER_REGISTRY["disk_temp"], Exported)
+
+
+class DiskTempDescribeTests(TestCase):
+    def test_ok_names_the_hottest_disk(self):
+        d = DiskTempChecker().describe(CheckStatus.OK, {"hottest_c": 41.0, "hottest_disk": "nvme0"})
+        self.assertEqual(d.headline, "Hottest disk nvme0 at 41°C")
+        self.assertIsNone(d.action)
+
+    def test_warning_says_what_to_do(self):
+        metrics = {"hottest_c": 57.6, "hottest_disk": "sda"}
+        d = DiskTempChecker().describe(CheckStatus.WARNING, metrics)
+        self.assertEqual(d.headline, "Hottest disk sda at 58°C")
+        self.assertIn("airflow", d.action.text)
+
+    def test_no_reading_falls_back_to_the_message(self):
+        metrics = {"hottest_c": None, "hottest_disk": None}
+        d = DiskTempChecker().describe(CheckStatus.OK, metrics, "No disks")
+        self.assertEqual(d.headline, "No disks")
+
+    def test_real_output_reads_in_words(self):
+        with (
+            mock.patch.object(sys, "platform", "linux"),
+            mock.patch(
+                "apps.checkers.checkers._sensors.psutil.sensors_temperatures",
+                return_value={"drivetemp": [shwtemp("sda", 61.0, 60.0, 65.0)]},
+                create=True,
+            ),
+        ):
+            result = DiskTempChecker().check()
+        d = DiskTempChecker().describe(result.status, result.metrics, result.message)
+        self.assertEqual(d.headline, "Hottest disk sda at 61°C")
+        self.assertIsNone(RAW.search(d.headline))
