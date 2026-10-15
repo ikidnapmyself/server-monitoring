@@ -15,7 +15,6 @@ from apps.alerts.diagnosis import diagnose_incident
 from apps.alerts.models import Incident
 from apps.alerts.services import available_incident_actions
 from apps.alerts.timeline import build_incident_timeline
-from apps.console.formatting import humanize_duration
 from apps.console.queries.hosts import incident_hosts
 from config.admin_badges import (
     CHECK_STATUS_TONES,
@@ -25,6 +24,7 @@ from config.admin_badges import (
     STAGE_STATUS_TONES,
     tone_for,
 )
+from config.describing import format_duration
 
 STAGE_LABELS = {"ingest": "Ingest", "check": "Diagnose", "analyze": "Analyze", "notify": "Notify"}
 SUMMARY_TONES = {**DIAGNOSIS_TONES, "never_ran": "muted"}
@@ -374,7 +374,7 @@ def _pipeline_entry(event: dict[str, Any]) -> TimelineEntry:
 def _stage_entry(event: dict[str, Any]) -> TimelineEntry:
     title = f"{STAGE_LABELS.get(event['stage'], event['stage'])} {event['status']}"
     if event["duration_ms"]:
-        title += f" in {humanize_duration(event['duration_ms'] / 1000)}"
+        title += f" in {format_duration(event['duration_ms'] / 1000)}"
     return TimelineEntry(
         id=f"entry-stage-{event['execution_pk']}",
         when=event["when"],
@@ -470,7 +470,7 @@ def build_incident_detail(
         description=incident.description,
         summary=incident.summary,
         created_at=incident.created_at,
-        duration=humanize_duration(elapsed.total_seconds()),
+        duration=format_duration(elapsed.total_seconds()),
         ongoing=ended_at is None,
         nodes=", ".join(incident_hosts([incident.pk]).get(incident.pk, ())),
         pipeline=incident.pipeline.name if incident.pipeline else "",
