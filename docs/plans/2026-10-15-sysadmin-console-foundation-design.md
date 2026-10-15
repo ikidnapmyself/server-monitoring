@@ -56,9 +56,10 @@ There is no user base, so data can be reset and fundamentals changed.
   checker alerts.
 - New `Alert.subject`: a machine key for the kind of problem. Checker alerts write
   `checker:<name>`. Webhook drivers write `<source>:<alertname>`.
-- `Incident` gains `subject` and `node`. Grouping is an open or acknowledged incident with
-  the same `(subject, node)`, in one indexed query. A webhook alert with no known node
-  falls back to its instance label. Two hosts with the same problem stay two incidents.
+- `Incident` gains `subject`, `instance` and `node`. Grouping is an open or acknowledged
+  incident with the same `(subject, instance)`, in one indexed query. `instance` comes from
+  the alert's labels, so a webhook alert with no registered node still groups. Two hosts
+  with the same problem stay two incidents.
 - `Alert.name` stops being load-bearing. Webhook alerts keep the name their source gave,
   which is already human. Checker alerts stop writing `<CHECKER> Check Alert`. The "alert
   name is deliberately stable" rule leaves both AGENTS.md files.
@@ -68,9 +69,9 @@ There is no user base, so data can be reset and fundamentals changed.
   from the subject, node and current alerts. The first-fire timestamp symptom is the
   episode question and stays out of scope.
 - `CheckStatus.SKIPPED` is added. A skip never raises an alert.
-- Reset: one migration adds the fields and drops the columns, with no data migration.
-  Alerts, incidents, runs and history are flushed and pipeline definitions re-seeded.
-  Channels, providers, nodes and API keys survive.
+- No reset. `subject`, `instance` and `node` derive from data already on every row, so the
+  migration that adds them backfills them. The two columns are dropped in PR 2, once
+  `describe_incident` replaces them.
 
 ## 2. The describer contract
 
@@ -149,8 +150,10 @@ an agent it points at another machine.
 
 Fundamentals first:
 
-1. Identity reset (section 1).
+1. Identity keys: `subject`, incident `subject`, `instance` and `node`, grouping, and
+   `CheckStatus.SKIPPED`. Plan: `2026-10-15-sysadmin-console-pr1-identity.md`.
 2. Describer contract, formatters, all checker describers, incident and alert describers.
+   Drops `Incident.title` and `Incident.description`.
 3. Reason registries for orchestration, intelligence and notify. Removes the fake
    confidence.
 4. Notify on describers.
