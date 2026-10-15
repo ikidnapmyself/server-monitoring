@@ -797,16 +797,21 @@ class ReevalIncidentLifecycleTests(TestCase):
         """One situation is one open incident, exactly as on the ingest path."""
         node = self._node()
         terminal = self._incident(IncidentStatus.RESOLVED)
-        sibling = self._incident(IncidentStatus.OPEN)
+        sibling = Incident.objects.create(
+            title="t",
+            severity="critical",
+            status=IncidentStatus.OPEN,
+            subject="checker:cpu",
+            instance="web-03",
+        )
         self._alert(
             node,
             checker="cpu2",
-            name="cpu high",
             severity="critical",
             status="firing",
             incident=sibling,
         )
-        alert = self._alert(node, incident=terminal)
+        alert = self._alert(node, incident=terminal, subject="checker:cpu")
 
         apply_reeval(ReevalScope.for_alert(alert))
 

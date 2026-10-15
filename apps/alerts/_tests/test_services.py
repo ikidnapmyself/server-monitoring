@@ -7,7 +7,14 @@ from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 
 from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
-from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus
+from apps.alerts.models import (
+    Alert,
+    AlertHistory,
+    AlertStatus,
+    Incident,
+    IncidentStatus,
+    Node,
+)
 from apps.alerts.services import (
     INCIDENT_ACTIONS,
     AlertOrchestrator,
@@ -1006,7 +1013,7 @@ class AlertSubjectWriteTests(TestCase):
 
 
 class IncidentGroupingTests(TestCase):
-    """Incident grouping is scoped by (name, instance) — no cross-host merge."""
+    """Incident grouping is scoped by (subject, instance) — no cross-host merge."""
 
     def setUp(self):
         self.orchestrator = AlertOrchestrator()
@@ -1060,11 +1067,57 @@ class IncidentGroupingTests(TestCase):
         inc = Incident.objects.get()
         self.assertEqual(inc.severity, "critical")
 
-    def test_no_instance_label_groups_by_name_only(self):
-        # Alerts with no instance/hostname label fall back to "" — grouped by name.
+    def test_no_instance_label_groups_by_subject_only(self):
+        # Alerts with no instance/hostname label fall back to "" — grouped by subject.
         self.orchestrator.process_webhook(self._am("g1", "", name="Generic"), driver="alertmanager")
         self.orchestrator.process_webhook(self._am("g2", "", name="Generic"), driver="alertmanager")
         self.assertEqual(Incident.objects.count(), 1)
+
+    def test_new_incident_carries_subject_and_instance(self):
+        self.orchestrator.process_webhook(self._am("fp1", "web-03"), driver="alertmanager")
+        inc = Incident.objects.get()
+        self.assertEqual((inc.subject, inc.instance), ("alertmanager:HighCPU", "web-03"))
+
+    def test_same_name_from_two_sources_do_not_merge(self):
+        self.orchestrator.process_webhook(self._am("fp1", "web-03"), driver="alertmanager")
+        Incident.objects.update(subject="grafana:HighCPU")
+        self.orchestrator.process_webhook(self._am("fp2", "web-03"), driver="alertmanager")
+        self.assertEqual(Incident.objects.count(), 2)
+
+    def test_grouping_ignores_display_name(self):
+        self.orchestrator.process_webhook(self._am("fp1", "web-03"), driver="alertmanager")
+        Alert.objects.update(name="renamed for display")
+        self.orchestrator.process_webhook(self._am("fp2", "web-03"), driver="alertmanager")
+        self.assertEqual(Incident.objects.count(), 1)
+
+    def test_grouping_is_one_query(self):
+        self.orchestrator.process_webhook(self._am("fp1", "web-03"), driver="alertmanager")
+        alert = Alert.objects.get()
+        with self.assertNumQueries(1):
+            self.orchestrator._find_open_incident(alert)
+
+    def test_checker_incident_carries_checker_subject_and_node(self):
+        payload = {
+            "source": "cluster",
+            "instance_id": "web-01",
+            "hostname": "ip-10-0-1-42",
+            "version": "1.0",
+            "alerts": [
+                {
+                    "name": "CPU Check Alert",
+                    "status": "firing",
+                    "severity": "critical",
+                    "started_at": "2026-03-29T12:00:00Z",
+                    "labels": {"checker": "cpu", "hostname": "ip-10-0-1-42"},
+                    "annotations": {"message": "CPU at 95.2%"},
+                }
+            ],
+        }
+        self.orchestrator.process_webhook(payload, driver="cluster")
+        inc = Incident.objects.get()
+        node = Node.objects.get(instance_id="web-01")
+        self.assertEqual((inc.subject, inc.instance), ("checker:cpu", "web-01"))
+        self.assertEqual(inc.node_id, node.pk)
 
 
 class InstanceKeyFromLabelsTests(TestCase):
@@ -1091,6 +1144,16 @@ class InstanceKeyFromLabelsTests(TestCase):
 
         self.assertEqual(instance_key_from_labels("pwned"), "")
         self.assertEqual(instance_key_from_labels(["not", "a", "dict"]), "")
+
+    def test_non_string_label_value_becomes_string(self):
+        from apps.alerts.services import instance_key_from_labels
+
+        self.assertEqual(instance_key_from_labels({"instance_id": 42}), "42")
+
+    def test_nested_label_value_is_treated_as_absent(self):
+        from apps.alerts.services import instance_key_from_labels
+
+        self.assertEqual(instance_key_from_labels({"hostname": {"nested": "x"}}), "")
 
     def test_incident_instance_key_delegates(self):
         from apps.alerts.services import incident_instance_key

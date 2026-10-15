@@ -94,16 +94,19 @@ def instance_key_from_labels(labels: dict | None) -> str:
     datadog/checker: hostname), so fall back through them. Empty string when none
     is present. Guards against non-dict input (e.g. attacker-controlled webhook
     payloads where ``labels`` is a string) by treating anything non-dict as empty.
+    A scalar value is stringified, and a nested one (a dict or list) is treated as
+    absent rather than rendered as a host name.
     """
     labels = labels if isinstance(labels, dict) else {}
-    return labels.get("instance_id") or labels.get("instance") or labels.get("hostname") or ""
+    value = labels.get("instance_id") or labels.get("instance") or labels.get("hostname")
+    return str(value) if isinstance(value, (str, int, float)) else ""
 
 
 def incident_instance_key(alert) -> str:
     """Instance/host an alert belongs to, for incident grouping.
 
     Delegates to :func:`instance_key_from_labels`. Empty string when no instance
-    label is present (grouping then falls back to name-only).
+    label is present (grouping then falls back to subject-only).
     """
     return instance_key_from_labels(alert.labels)
 
@@ -471,7 +474,7 @@ class AlertOrchestrator:
         # apps.alerts.incident_gate.follow_alert — not here. An alert row is
         # reused per fingerprint, so its FK may still point at a resolved
         # incident; the gate handles that. But a sibling alert with the same
-        # (name, instance) may have opened its own incident meanwhile — join it
+        # (subject, instance) may have opened its own incident meanwhile — join it
         # rather than reopening ours: one situation is one open incident, and
         # the alert must end up under it either way (it is what the downstream
         # run is enqueued against). This runs on every refire, and also on a
@@ -523,10 +526,10 @@ class AlertOrchestrator:
     ) -> Incident:
         """Create a new incident or attach the alert to an existing one.
 
-        Grouping is scoped to (name, instance): an open incident already holding an
-        alert with the same name AND same instance (see ``incident_instance_key``).
-        This keeps per-host incidents distinct — two servers firing the same alert
-        are two incidents, not one.
+        Grouping is scoped to (subject, instance): an open incident about the same
+        subject on the same instance (see ``incident_instance_key``). This keeps
+        per-host incidents distinct — two servers firing the same alert are two
+        incidents, not one.
         """
         existing_incident = self._find_open_incident(alert)
 
@@ -538,6 +541,9 @@ class AlertOrchestrator:
             title=alert.name,
             severity=alert.severity,
             description=alert.description,
+            subject=alert.subject,
+            instance=incident_instance_key(alert)[:255],
+            node=alert.node,
         )
 
         alert.incident = incident
@@ -570,21 +576,12 @@ class AlertOrchestrator:
         return incident
 
     def _find_open_incident(self, alert) -> "Incident | None":
-        """Open incident already holding an alert with this (name, instance)."""
-        instance = incident_instance_key(alert)
-        candidates = (
-            Incident.objects.filter(
-                status__in=[IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED],
-                alerts__name=alert.name,
-            )
-            .distinct()
-            .prefetch_related("alerts")
-        )
-        for incident in candidates:
-            for existing in incident.alerts.all():
-                if existing.name == alert.name and incident_instance_key(existing) == instance:
-                    return incident
-        return None
+        """Open incident about the same subject on the same instance."""
+        return Incident.objects.filter(
+            status__in=[IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED],
+            subject=alert.subject,
+            instance=incident_instance_key(alert)[:255],
+        ).first()
 
     def _check_incident_resolution(self):
         """Check if any incidents should be auto-resolved."""

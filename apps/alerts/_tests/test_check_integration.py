@@ -419,6 +419,8 @@ class CheckAlertBridgeTests(TestCase):
         # so the bridge's fingerprint lookup won't find it but incident query will.
         incident = Incident.objects.create(
             title="Disk issue",
+            subject="checker:disk",
+            instance="test-server",
             severity="warning",
             status=IncidentStatus.OPEN,
         )
@@ -710,6 +712,8 @@ class CheckAlertBridgeTests(TestCase):
         # Create an open incident with a critical alert
         incident = Incident.objects.create(
             title="Critical issue",
+            subject="checker:cpu",
+            instance="test-server",
             severity="critical",
             status=IncidentStatus.OPEN,
         )
