@@ -61,6 +61,21 @@ class SubjectBackfillTests(TestCase):
             ("checker:cpu", "n1", node.pk),
         )
 
+    def test_unlinked_alert_resolves_its_node_from_the_instance_label(self):
+        node = Node.objects.create(instance_id="n1", hostname="h1")
+        incident = Incident.objects.create(title="t", severity="warning")
+        _alert(labels={"checker": "cpu", "instance_id": "n1"}, incident=incident)
+        forward(_Apps(), None)
+        incident.refresh_from_db()
+        self.assertEqual(incident.node_id, node.pk)
+
+    def test_unknown_instance_leaves_node_empty(self):
+        incident = Incident.objects.create(title="t", severity="warning")
+        _alert(labels={"checker": "cpu", "instance_id": "ghost"}, incident=incident)
+        forward(_Apps(), None)
+        incident.refresh_from_db()
+        self.assertIsNone(incident.node_id)
+
     def test_incident_without_alerts_is_left_blank(self):
         incident = Incident.objects.create(title="t", severity="warning")
         forward(_Apps(), None)

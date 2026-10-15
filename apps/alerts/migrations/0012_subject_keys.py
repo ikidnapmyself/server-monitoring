@@ -20,9 +20,20 @@ def _instance(labels):
     return labels.get("instance_id") or labels.get("instance") or labels.get("hostname") or ""
 
 
+def _node_id(Node, alert):
+    if alert.node_id:
+        return alert.node_id
+    labels = alert.labels if isinstance(alert.labels, dict) else {}
+    instance_id = labels.get("instance_id")
+    if not isinstance(instance_id, str) or not instance_id:
+        return None
+    return Node.objects.filter(instance_id=instance_id).values_list("pk", flat=True).first()
+
+
 def forward(apps, schema_editor):
     Alert = apps.get_model("alerts", "Alert")
     Incident = apps.get_model("alerts", "Incident")
+    Node = apps.get_model("alerts", "Node")
     for alert in Alert.objects.only("pk", "source", "name", "labels").iterator():
         Alert.objects.filter(pk=alert.pk).update(
             subject=_subject(alert.source, alert.name, alert.labels)
@@ -39,7 +50,7 @@ def forward(apps, schema_editor):
         Incident.objects.filter(pk=incident.pk).update(
             subject=first.subject,
             instance=str(_instance(first.labels))[:255],
-            node_id=first.node_id,
+            node_id=_node_id(Node, first),
         )
 
 

@@ -1119,6 +1119,23 @@ class IncidentGroupingTests(TestCase):
         self.assertEqual((inc.subject, inc.instance), ("checker:cpu", "web-01"))
         self.assertEqual(inc.node_id, node.pk)
 
+    def test_alert_written_before_its_node_still_links_the_incident(self):
+        # Alert.node is stamped only at creation, so an alert older than its Node
+        # row stays unlinked; the incident must not inherit that gap.
+        alert = Alert.objects.create(
+            fingerprint="check:web-01:cpu",
+            source="cluster",
+            name="CPU Check Alert",
+            subject="checker:cpu",
+            severity="critical",
+            status="firing",
+            labels={"checker": "cpu", "instance_id": "web-01"},
+            started_at=timezone.now(),
+        )
+        node = Node.objects.create(instance_id="web-01", hostname="h")
+        self.orchestrator._create_or_attach_incident(alert, ProcessingResult())
+        self.assertEqual(Incident.objects.get().node_id, node.pk)
+
 
 class InstanceKeyFromLabelsTests(TestCase):
     """Tests for the shared, malformed-input-safe label -> instance key helper."""

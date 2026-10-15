@@ -543,7 +543,7 @@ class AlertOrchestrator:
             description=alert.description,
             subject=alert.subject,
             instance=incident_instance_key(alert)[:255],
-            node=alert.node,
+            node=alert.node or resolve_node(alert.labels),
         )
 
         alert.incident = incident
