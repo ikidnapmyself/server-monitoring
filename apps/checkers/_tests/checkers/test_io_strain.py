@@ -6,6 +6,7 @@ from unittest import mock
 
 from django.test import TestCase
 
+from apps.checkers._tests.checkers.test_describe_contract import RAW
 from apps.checkers.checkers.base import CheckStatus
 from apps.checkers.checkers.io_strain import IOStrainChecker, compute_io_stats
 
@@ -137,3 +138,34 @@ class IOStrainCheckerTests(TestCase):
         from apps.checkers.checkers import IOStrainChecker as Exported
 
         self.assertIs(CHECKER_REGISTRY["io_strain"], Exported)
+
+
+class IOStrainDescribeTests(TestCase):
+    def test_ok_names_the_busiest_disk(self):
+        metrics = {"busiest_disk": "sda", "busiest_util_percent": 12.0}
+        d = IOStrainChecker().describe(CheckStatus.OK, metrics)
+        self.assertEqual(d.headline, "Busiest disk sda at 12% utilization")
+        self.assertIsNone(d.action)
+
+    def test_critical_says_what_to_do(self):
+        metrics = {"busiest_disk": "sda", "busiest_util_percent": 94.0}
+        d = IOStrainChecker().describe(CheckStatus.CRITICAL, metrics)
+        self.assertEqual(d.headline, "sda busy 94% of the time")
+        self.assertIn("iotop", d.action.text)
+
+    def test_real_output_reads_in_words(self):
+        with (
+            mock.patch.object(sys, "platform", "linux"),
+            mock.patch("apps.checkers.checkers.io_strain.time.sleep"),
+            mock.patch(
+                "apps.checkers.checkers.io_strain.time.perf_counter", side_effect=[0.0, 1.0]
+            ),
+            mock.patch(
+                "apps.checkers.checkers.io_strain.psutil.disk_io_counters",
+                side_effect=[{"sdb": _c(busy_time=0)}, {"sdb": _c(busy_time=850)}],
+            ),
+        ):
+            result = IOStrainChecker().check()
+        d = IOStrainChecker().describe(result.status, result.metrics, result.message)
+        self.assertEqual(d.headline, "sdb busy 85% of the time")
+        self.assertIsNone(RAW.search(d.headline))

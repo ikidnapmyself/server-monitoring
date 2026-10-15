@@ -16,6 +16,8 @@ class DiskLinuxChecker(BaseDiskAnalyzer):
     """Disk cleanup analysis on Linux."""
 
     name = "disk_linux"
+    label = "Reclaimable disk space on Linux"
+    problem = "Linux disk space to reclaim"
 
     scan_targets = [
         "/var/cache/apt/archives",

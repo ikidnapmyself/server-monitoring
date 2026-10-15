@@ -22,6 +22,8 @@ class DiskCommonChecker(BaseDiskAnalyzer):
     """Disk cleanup analysis on any Unix platform."""
 
     name = "disk_common"
+    label = "Reclaimable disk space"
+    problem = "Disk space to reclaim"
 
     scan_targets = ["/var/log", "~/.cache"]
     old_file_targets = ["/tmp", "/var/tmp"]

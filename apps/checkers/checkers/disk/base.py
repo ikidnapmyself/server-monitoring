@@ -3,6 +3,7 @@
 import os
 import sys
 from abc import abstractmethod
+from typing import Any
 
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
 from apps.checkers.checkers.disk.utils import (
@@ -10,6 +11,7 @@ from apps.checkers.checkers.disk.utils import (
     find_old_files,
     scan_directory,
 )
+from config.describing import Action, Description, format_size_mb
 
 
 class BaseDiskAnalyzer(BaseChecker):
@@ -109,3 +111,16 @@ class BaseDiskAnalyzer(BaseChecker):
         if large_files and self.large_files_advice:
             recs.append([self.large_files_advice])
         return recs
+
+    def describe_result(self, status: CheckStatus, metrics: dict[str, Any]) -> Description:
+        recommendations = metrics["recommendations"]
+        if recommendations:
+            step = recommendations[0][0].rstrip(":")
+        else:
+            step = "Review the largest paths in Details and remove what isn't needed."
+        return self._describe(
+            status,
+            f"{format_size_mb(metrics['total_recoverable_mb'])} could be reclaimed",
+            metrics,
+            action=Action(step),
+        )

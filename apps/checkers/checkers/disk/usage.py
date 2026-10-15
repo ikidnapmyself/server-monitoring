@@ -2,9 +2,12 @@
 Disk space checker.
 """
 
+from typing import Any
+
 import psutil
 
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
+from config.describing import Action, Description, format_percent, format_size_mb
 
 
 class DiskChecker(BaseChecker):
@@ -16,6 +19,8 @@ class DiskChecker(BaseChecker):
     """
 
     name = "disk"
+    label = "Disk space"
+    problem = "Disk filling up"
     warning_threshold = 80.0
     critical_threshold = 95.0
 
@@ -86,3 +91,18 @@ class DiskChecker(BaseChecker):
 
         except Exception as e:
             return self._error_result(str(e))
+
+    def describe_result(self, status: CheckStatus, metrics: dict[str, Any]) -> Description:
+        path = metrics["worst_path"]
+        percent = format_percent(metrics["worst_percent"])
+        free = format_size_mb(metrics["disks"][path]["free_gb"] * 1024)
+        if status is CheckStatus.OK:
+            return self._describe(status, f"Fullest disk {path} at {percent}, {free} free", metrics)
+        return self._describe(
+            status,
+            f"{path} is {percent} full, {free} free",
+            metrics,
+            action=Action(
+                f"Free space on {path}: clear old logs, caches and packages, or grow the volume."
+            ),
+        )

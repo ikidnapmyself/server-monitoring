@@ -5,6 +5,7 @@ from unittest import mock
 
 from django.test import TestCase
 
+from apps.checkers._tests.checkers.test_describe_contract import RAW
 from apps.checkers.checkers.base import CheckStatus
 from apps.checkers.checkers.disk_inodes import DiskInodesChecker
 
@@ -109,3 +110,29 @@ class DiskInodesCheckerTests(TestCase):
         from apps.checkers.checkers import DiskInodesChecker as Exported
 
         self.assertIs(CHECKER_REGISTRY["disk_inodes"], Exported)
+
+
+class DiskInodesDescribeTests(TestCase):
+    def test_ok_names_the_fullest_filesystem(self):
+        metrics = {"filesystems": {}, "worst_percent": 12.0, "worst_path": "/"}
+        d = DiskInodesChecker().describe(CheckStatus.OK, metrics)
+        self.assertEqual(d.headline, "Fullest filesystem / uses 12% of its inodes")
+        self.assertIsNone(d.action)
+
+    def test_warning_says_what_to_remove(self):
+        metrics = {"filesystems": {}, "worst_percent": 94.0, "worst_path": "/"}
+        d = DiskInodesChecker().describe(CheckStatus.WARNING, metrics)
+        self.assertEqual(d.headline, "/ uses 94% of its inodes")
+        self.assertIn("small files", d.action.text)
+
+    def test_no_inode_tracking_filesystem(self):
+        metrics = {"filesystems": {}, "worst_percent": 0.0, "worst_path": ""}
+        d = DiskInodesChecker().describe(CheckStatus.OK, metrics)
+        self.assertEqual(d.headline, "No filesystems track inodes")
+
+    def test_real_output_reads_in_words(self):
+        with _patch_statvfs({"/": svfs(f_files=1000, f_ffree=40)}):
+            result = DiskInodesChecker().check()
+        d = DiskInodesChecker().describe(result.status, result.metrics, result.message)
+        self.assertEqual(d.headline, "/ uses 96% of its inodes")
+        self.assertIsNone(RAW.search(d.headline))

@@ -12,10 +12,12 @@ See docs/plans/2026-08-07-thermal-io-checkers-design.md.
 import sys
 import time
 from dataclasses import dataclass
+from typing import Any
 
 import psutil
 
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
+from config.describing import Action, Description, format_percent
 
 
 @dataclass
@@ -72,6 +74,8 @@ class IOStrainChecker(BaseChecker):
     """Report the busiest disk's IO utilization (% busy time)."""
 
     name = "io_strain"
+    label = "Disk I/O"
+    problem = "Disk I/O saturated"
     warning_threshold = 80.0
     critical_threshold = 95.0
 
@@ -133,3 +137,15 @@ class IOStrainChecker(BaseChecker):
                 for d in stats
             ],
         }
+
+    def describe_result(self, status: CheckStatus, metrics: dict[str, Any]) -> Description:
+        disk = metrics["busiest_disk"]
+        percent = format_percent(metrics["busiest_util_percent"])
+        if status is CheckStatus.OK:
+            return self._describe(status, f"Busiest disk {disk} at {percent} utilization", metrics)
+        return self._describe(
+            status,
+            f"{disk} busy {percent} of the time",
+            metrics,
+            action=Action("Find what is reading or writing with iotop, then move or throttle it."),
+        )

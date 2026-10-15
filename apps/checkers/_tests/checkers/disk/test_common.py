@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
+from apps.checkers._tests.checkers.test_describe_contract import RAW
 from apps.checkers.checkers.base import CheckStatus
 
 
@@ -374,3 +375,22 @@ class DiskCommonCoverageGapTests(TestCase):
 
         self.assertEqual(result.status, CheckStatus.UNKNOWN)
         self.assertIn("unexpected", result.message)
+
+
+class DiskCommonDescribeTests(TestCase):
+    @patch("apps.checkers.checkers.disk.base.os.path.expanduser")
+    @patch("apps.checkers.checkers.disk.base.scan_directory")
+    @patch("apps.checkers.checkers.disk.base.find_old_files")
+    @patch("apps.checkers.checkers.disk.base.find_large_files")
+    def test_real_output_reads_in_words(self, mock_large, mock_old, mock_scan, mock_expanduser):
+        from apps.checkers.checkers.disk.common import DiskCommonChecker
+
+        mock_expanduser.side_effect = lambda p: p.replace("~", "/home/testuser")
+        mock_scan.return_value = [{"path": "/home/testuser/.cache/pip", "size_mb": 6144.0}]
+        mock_old.return_value = []
+        mock_large.return_value = []
+        result = DiskCommonChecker().check()
+        d = DiskCommonChecker().describe(result.status, result.metrics, result.message)
+        self.assertEqual(d.headline, "6.0 GB could be reclaimed")
+        self.assertEqual(d.action.text, "Clear pip cache")
+        self.assertIsNone(RAW.search(d.headline))
