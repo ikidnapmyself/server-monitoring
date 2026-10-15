@@ -64,16 +64,7 @@ def test_ok_results_carry_no_action():
     assert d.action is None
 
 
-PENDING = pytest.mark.xfail(strict=True, reason="checker describers land in tasks 3-5")
-
-
-@pytest.mark.parametrize(
-    "name,cls",
-    [
-        pytest.param(name, cls, marks=() if getattr(cls, "label", "") else PENDING)
-        for name, cls in sorted(CHECKER_REGISTRY.items())
-    ],
-)
+@pytest.mark.parametrize("name,cls", sorted(CHECKER_REGISTRY.items()))
 def test_every_checker_has_a_label_and_a_problem(name, cls):
     assert cls.label and cls.problem and cls.label != cls.problem
     assert not RAW.search(cls.label) and not RAW.search(cls.problem)
@@ -83,4 +74,4 @@ def test_every_checker_has_a_label_and_a_problem(name, cls):
 @pytest.mark.parametrize("status", list(CheckStatus))
 def test_every_checker_describes_empty_metrics_in_words(name, cls, status):
     d = cls().describe(status, {}, "")
-    assert d.headline and not RAW.search(d.headline)
+    assert d.headline[0].isalnum() and not RAW.search(d.headline)

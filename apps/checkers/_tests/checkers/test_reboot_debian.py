@@ -362,3 +362,53 @@ class RebootDebianAlertIntegrationTests(TestCase):
         self.assertIsNotNone(alert.ended_at)
         incident.refresh_from_db()
         self.assertEqual(incident.status, IncidentStatus.RESOLVED)
+
+
+class RebootDebianDescribeTests(TestCase):
+    def _checker(self):
+        from apps.checkers.checkers.reboot_debian import RebootDebianChecker
+
+        return RebootDebianChecker()
+
+    def test_ok_says_no_reboot(self):
+        from apps.checkers.checkers.base import CheckStatus
+
+        d = self._checker().describe(CheckStatus.OK, {"pending_package_count": 0})
+        self.assertEqual(d.headline, "No reboot required")
+        self.assertIsNone(d.action)
+
+    def test_warning_counts_the_packages(self):
+        from apps.checkers.checkers.base import CheckStatus
+
+        d = self._checker().describe(CheckStatus.WARNING, {"pending_package_count": 4})
+        self.assertEqual(d.headline, "Reboot required by 4 updated packages")
+        self.assertEqual(d.action.text, "Schedule a reboot in a maintenance window.")
+
+    def test_warning_with_one_package(self):
+        from apps.checkers.checkers.base import CheckStatus
+
+        d = self._checker().describe(CheckStatus.WARNING, {"pending_package_count": 1})
+        self.assertEqual(d.headline, "Reboot required by 1 updated package")
+
+    def test_warning_without_a_package_list(self):
+        from apps.checkers.checkers.base import CheckStatus
+
+        d = self._checker().describe(CheckStatus.WARNING, {"pending_package_count": 0})
+        self.assertEqual(d.headline, "Reboot required")
+
+    @patch("apps.checkers.checkers.reboot_debian.sys")
+    @patch("apps.checkers.checkers.reboot_debian._is_debian_family")
+    @patch("apps.checkers.checkers.reboot_debian._flag_present")
+    @patch("apps.checkers.checkers.reboot_debian._read_pkgs")
+    def test_real_output_reads_in_words(self, mock_pkgs, mock_flag, mock_distro, mock_sys):
+        from apps.checkers._tests.checkers.test_describe_contract import RAW
+
+        mock_sys.platform = "linux"
+        mock_distro.return_value = (True, "debian")
+        mock_flag.return_value = True
+        mock_pkgs.return_value = ["linux-image-6.1", "libc6"]
+        checker = self._checker()
+        result = checker.check()
+        d = checker.describe(result.status, result.metrics, result.message)
+        self.assertEqual(d.headline, "Reboot required by 2 updated packages")
+        self.assertIsNone(RAW.search(d.headline))

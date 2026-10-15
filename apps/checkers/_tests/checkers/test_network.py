@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
+from apps.checkers._tests.checkers.test_describe_contract import RAW
 from apps.checkers.checkers import CheckStatus, NetworkChecker
 
 
@@ -207,3 +208,39 @@ class PingTargetValidationTests(TestCase):
 
         self.assertFalse(success)
         self.assertIsNone(latency)
+
+
+class NetworkDescribeTests(TestCase):
+    def test_ok_when_every_host_answers(self):
+        hosts = {h: {"reachable": True} for h in ("a", "b", "c")}
+        d = NetworkChecker().describe(CheckStatus.OK, {"hosts": hosts, "total_hosts": 3})
+        self.assertEqual(d.headline, "All 3 hosts reachable")
+        self.assertIsNone(d.action)
+
+    def test_names_the_unreachable_hosts(self):
+        hosts = {
+            "8.8.8.8": {"reachable": False},
+            "1.1.1.1": {"reachable": False},
+            "9.9.9.9": {"reachable": True},
+        }
+        d = NetworkChecker().describe(CheckStatus.CRITICAL, {"hosts": hosts, "total_hosts": 3})
+        self.assertEqual(d.headline, "2 of 3 hosts unreachable: 8.8.8.8 and 1.1.1.1")
+        self.assertEqual(
+            d.action.text,
+            "Check the route and firewall between this machine and 8.8.8.8 and 1.1.1.1.",
+        )
+
+    def test_ok_with_a_host_down_still_names_it(self):
+        hosts = {f"10.0.0.{i}": {"reachable": i != 4} for i in range(1, 5)}
+        d = NetworkChecker().describe(CheckStatus.OK, {"hosts": hosts, "total_hosts": 4})
+        self.assertEqual(d.headline, "1 of 4 hosts unreachable: 10.0.0.4")
+        self.assertIsNone(d.action)
+
+    @patch("apps.checkers.checkers.network.shutil.which", return_value="/sbin/ping")
+    @patch("apps.checkers.checkers.network.subprocess.run")
+    def test_real_output_reads_in_words(self, mock_run, _which):
+        mock_run.side_effect = [MagicMock(returncode=0, stdout=""), MagicMock(returncode=1)]
+        result = NetworkChecker(hosts=["8.8.8.8", "1.1.1.1"]).check()
+        d = NetworkChecker().describe(result.status, result.metrics, result.message)
+        self.assertEqual(d.headline, "1 of 2 hosts unreachable: 1.1.1.1")
+        self.assertIsNone(RAW.search(d.headline))

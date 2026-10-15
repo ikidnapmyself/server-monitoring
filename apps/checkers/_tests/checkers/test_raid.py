@@ -1,7 +1,10 @@
 """Tests for the RAID /proc/mdstat parser."""
 
+from unittest.mock import patch
+
 from django.test import TestCase
 
+from apps.checkers._tests.checkers.test_describe_contract import RAW
 from apps.checkers.checkers import CHECKER_REGISTRY, RaidChecker
 from apps.checkers.checkers.base import CheckStatus
 from apps.checkers.checkers.raid import ArrayState, _parse_level, _read_mdstat, parse_mdstat
@@ -418,3 +421,49 @@ class ReadMdstatTests(TestCase):
 class RaidRegistryTests(TestCase):
     def test_registry_maps_raid_to_checker(self):
         self.assertIs(CHECKER_REGISTRY["raid"], RaidChecker)
+
+
+class RaidDescribeTests(TestCase):
+    def _metrics(self, count, degraded=(), rebuilding=()):
+        return {
+            "array_count": count,
+            "degraded_arrays": list(degraded),
+            "rebuilding_arrays": list(rebuilding),
+        }
+
+    def test_no_arrays(self):
+        d = RaidChecker().describe(CheckStatus.OK, self._metrics(0))
+        self.assertEqual(d.headline, "No software RAID arrays")
+
+    def test_healthy_arrays(self):
+        d = RaidChecker().describe(CheckStatus.OK, self._metrics(3))
+        self.assertEqual(d.headline, "3 RAID arrays healthy")
+        self.assertIsNone(d.action)
+
+    def test_one_healthy_array(self):
+        d = RaidChecker().describe(CheckStatus.OK, self._metrics(1))
+        self.assertEqual(d.headline, "1 RAID array healthy")
+
+    def test_critical_names_the_degraded_arrays(self):
+        d = RaidChecker().describe(CheckStatus.CRITICAL, self._metrics(2, degraded=["md0"]))
+        self.assertEqual(d.headline, "Degraded: md0")
+        self.assertEqual(
+            d.action.text, "Replace the failed disk in md0 and add it back with mdadm."
+        )
+
+    def test_warning_names_the_rebuilding_arrays(self):
+        d = RaidChecker().describe(CheckStatus.WARNING, self._metrics(2, rebuilding=["md1"]))
+        self.assertEqual(d.headline, "Rebuilding: md1")
+        self.assertEqual(
+            d.action.text, "Let md1 finish rebuilding and avoid heavy writes until it does."
+        )
+
+    def test_real_output_reads_in_words(self):
+        with (
+            patch("apps.checkers.checkers.raid.sys.platform", "linux"),
+            patch("apps.checkers.checkers.raid._read_mdstat", return_value=DEGRADED),
+        ):
+            result = RaidChecker().check()
+        d = RaidChecker().describe(result.status, result.metrics, result.message)
+        self.assertEqual(d.headline, "Degraded: md1")
+        self.assertIsNone(RAW.search(d.headline))

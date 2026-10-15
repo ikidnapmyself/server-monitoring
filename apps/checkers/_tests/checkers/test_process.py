@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import psutil
 from django.test import TestCase
 
+from apps.checkers._tests.checkers.test_describe_contract import RAW
 from apps.checkers.checkers import CheckStatus, ProcessChecker
 
 
@@ -142,3 +143,44 @@ class ProcessCheckerTests(TestCase):
 
         self.assertEqual(result.status, CheckStatus.UNKNOWN)
         self.assertIn("unexpected", result.message)
+
+
+class ProcessDescribeTests(TestCase):
+    def test_nothing_to_watch(self):
+        metrics = {"processes": {}, "running_count": 0, "total_count": 0}
+        d = ProcessChecker().describe(CheckStatus.OK, metrics)
+        self.assertEqual(d.headline, "No processes to watch")
+
+    def test_ok_when_every_process_runs(self):
+        metrics = {
+            "processes": {"nginx": {"running": True}, "redis": {"running": True}},
+            "total_count": 2,
+        }
+        d = ProcessChecker().describe(CheckStatus.OK, metrics)
+        self.assertEqual(d.headline, "All 2 watched processes running")
+        self.assertIsNone(d.action)
+
+    def test_names_the_stopped_processes(self):
+        metrics = {
+            "processes": {
+                "nginx": {"running": False},
+                "redis": {"running": False},
+                "cron": {"running": True},
+            },
+            "total_count": 3,
+        }
+        d = ProcessChecker().describe(CheckStatus.CRITICAL, metrics)
+        self.assertEqual(d.headline, "nginx and redis not running")
+        self.assertEqual(
+            d.action.text, "Start nginx and redis and read their logs for why they stopped."
+        )
+
+    @patch("apps.checkers.checkers.process.psutil.process_iter")
+    def test_real_output_reads_in_words(self, mock_process_iter):
+        mock_proc = MagicMock()
+        mock_proc.info = {"pid": 1, "name": "nginx", "status": "running"}
+        mock_process_iter.return_value = [mock_proc]
+        result = ProcessChecker(processes=["nginx", "redis"]).check()
+        d = ProcessChecker().describe(result.status, result.metrics, result.message)
+        self.assertEqual(d.headline, "redis not running")
+        self.assertIsNone(RAW.search(d.headline))
