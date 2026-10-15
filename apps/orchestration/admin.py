@@ -1,6 +1,7 @@
 """Admin configuration for orchestration models."""
 
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
 from django.db import models as db_models
 from django.urls import reverse
 from django.utils.html import format_html, format_html_join
@@ -109,8 +110,20 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
             count += 1
         self.message_user(request, f"{count} pipeline run(s) marked for retry.")
 
-    @object_action(label="Mark for Retry", description="Queue this pipeline for retry")
+    def get_change_actions(self, request, object_id, form_url):
+        if not self.has_change_permission(request):
+            return []
+        return super().get_change_actions(request, object_id, form_url)
+
+    @object_action(
+        label="Mark for Retry",
+        description="Queue this pipeline for retry",
+        methods=("POST",),
+        button_type="form",
+    )
     def mark_for_retry(self, request, obj):
+        if not self.has_change_permission(request, obj):
+            raise PermissionDenied
         if obj.status == PipelineStatus.FAILED:
             obj.mark_retrying()
             self.message_user(request, f"Pipeline '{obj.run_id}' marked for retry.")
@@ -121,8 +134,15 @@ class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
                 level="warning",
             )
 
-    @object_action(label="Mark Failed", description="Mark this pipeline as failed")
+    @object_action(
+        label="Mark Failed",
+        description="Mark this pipeline as failed",
+        methods=("POST",),
+        button_type="form",
+    )
     def mark_failed(self, request, obj):
+        if not self.has_change_permission(request, obj):
+            raise PermissionDenied
         if obj.status not in (PipelineStatus.FAILED, PipelineStatus.NOTIFIED):
             obj.mark_failed(
                 error_type="ManualOverride",

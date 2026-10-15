@@ -56,8 +56,8 @@ pipeline stage and not an alert producer.
 - **Reads need active staff, nothing more.** The console doesn't check the admin's
   model permissions for reads. A staff user without `orchestration.view_stageexecution`
   gets a 403 on the admin's stage page and still sees the same snapshot on the incident
-  page. That is the approved design. Action views, from PR 3 on, check the permissions
-  the admin checks.
+  page. That is the approved design. Action views check the permissions the admin
+  checks.
 - **Querystrings go through `filters.py`.** A filter object parses and validates every
   param. An invalid value falls back to the default and is named in a one-line notice.
   Only validated values reach a query or a URL, through `querystring()`.
@@ -79,6 +79,50 @@ pipeline stage and not an alert producer.
 - **A disclosure needs two ids.** htmx restores focus by the active element's own id,
   and for a `<details>` that element is the `<summary>`. Give the `<summary>` its own
   stable id.
+- **Incident actions are one POST-only view.** `IncidentActionView`
+  (`views/incident_action.py`) serves `incidents/<pk>/<action>/` and calls
+  `IncidentManager.transition`, which owns the status rules and locks the row. The view
+  holds no rule of its own. It checks active staff first, then `alerts.change_incident`.
+  The admin's own incident buttons sit behind `is_staff` alone, so the console is the
+  stricter surface. `IncidentPageView` (`views/incident.py`) is the one place that builds
+  the page context, so the page and the action response can't drift.
+- **An action's outcome is a `Notice`, not a Django message.** An htmx POST gets the
+  incident partial back with status 200 whether the action was applied or refused, with
+  the outcome passed in the context as `notice`. The messages framework is shared with
+  the admin, and a polled partial that rendered `messages` ate the admin's and leaked its
+  own. Only a plain POST uses it: it gets a 303 to the incident page, and
+  `templates/console/incident.html` renders `messages` outside the polled wrapper, so only
+  a full page load consumes them. A poll never carries a notice.
+- **The notice is marked `data-fresh`.** `console.js` focuses it after the swap, because
+  the clicked button is gone, and skips the one poll that finds it still fresh. That poll
+  is usually one that queued behind the POST and would replace the outcome the moment it
+  landed.
+- **A failed action says so and reloads.** htmx swaps nothing on a 4xx, a 5xx, a network
+  error or a timeout. For a non-GET request `console.js` shows the banner's
+  `data-action-text` and dispatches `console:refresh` on the polled element around the
+  target. A repeat is safe because `transition` refuses an action already applied. The
+  banner survives the reload it asked for and clears on the next successful load after it.
+  The reload obeys the usual pauses, so an open note holds it off and keeps what was typed.
+- **A non-GET request can't be the login's `next`.** `ConsoleView._refusal` sends an
+  anonymous GET or HEAD back to its own path. Anything else goes to `landing_path()`,
+  which defaults to the Overview. An action view overrides it with the page it acts on.
+- **Buttons come from the read model.** `IncidentDetail.actions` is filled from
+  `available_incident_actions` only when the view passes `can_act=True`. A user without
+  the permission gets no buttons and no container. A button can still be stale by the
+  time it's clicked. `transition` then refuses it, and the operator sees a warning.
+  Every action form disables every `.c-button` in `#incident` while its request runs. A
+  second click would otherwise abort the first request in the browser only, and the
+  server would run both.
+- **A transition announces.** It enqueues a `MANUAL` run that notifies real channels once
+  `process_inbox` drains. Never click an action button against a database with live
+  channels to try something out, and never drain the inbox in a test.
+- **A form in a polled region carries its own `{% csrf_token %}`.** Each poll renders a
+  freshly masked token for the same secret, so any of them stays valid until the secret
+  rotates at login. The form repeats `?all=1` as a hidden `all` field, because the POST
+  URL doesn't carry the page's querystring. Text an operator types lives in a `<details>`,
+  since an open one pauses the poll that would otherwise wipe it. The note's cap is
+  `IncidentPageView.summary_limit`, which the view enforces and the template prints as
+  `maxlength`.
 - **Printing.** `console.js` opens the top-level `<details>` under `[data-print-open]`
   on `beforeprint` and closes the ones it opened on `afterprint`. Raw JSON stays closed
   and hidden in print.

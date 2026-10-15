@@ -8,8 +8,25 @@
     if (!element.hasAttribute("data-poll")) {
       return;
     }
+    // A poll that queued behind an action runs the moment the action's response lands,
+    // and would replace its outcome before anyone read it. That one poll is skipped.
+    var fresh = element.querySelector("[data-fresh]");
+    if (fresh) {
+      fresh.removeAttribute("data-fresh");
+      event.preventDefault();
+      return;
+    }
     if (document.hidden || element.querySelector("details[open]")) {
       event.preventDefault();
+    }
+  });
+
+  // The button that was clicked is gone after an action's swap, so focus would fall to
+  // <body>. afterSwap fires before a queued poll can strip data-fresh.
+  document.addEventListener("htmx:afterSwap", function (event) {
+    var notice = (event.detail.target || document).querySelector("[data-fresh]");
+    if (notice) {
+      notice.focus();
     }
   });
 
@@ -57,17 +74,47 @@
     return;
   }
 
-  function showBanner() {
-    banner.hidden = false;
+  // The reload an action failure asks for must not clear the banner that explains it.
+  var keepBanner = false;
+
+  function reload(target) {
+    var polled = target && target.closest ? target.closest("[data-poll]") : null;
+    var elements = polled ? [polled] : document.querySelectorAll("[data-poll]");
+    Array.prototype.forEach.call(elements, function (element) {
+      var fresh = element.querySelector("[data-fresh]");
+      if (fresh) {
+        fresh.removeAttribute("data-fresh");
+      }
+      element.dispatchEvent(new CustomEvent("console:refresh"));
+    });
   }
 
-  document.addEventListener("htmx:responseError", showBanner);
-  document.addEventListener("htmx:sendError", showBanner);
-  document.addEventListener("htmx:timeout", showBanner);
+  // htmx swaps nothing on a 4xx, a 5xx, a network error or a timeout. For a poll the
+  // page is only stale. For an action nobody knows whether the server applied it, so the
+  // state is reloaded. A repeat is safe: the server refuses an action already applied.
+  function onFailure(event) {
+    var config = event.detail.requestConfig;
+    var action = Boolean(config) && config.verb !== "get";
+    banner.textContent = banner.getAttribute(action ? "data-action-text" : "data-refresh-text");
+    banner.hidden = false;
+    keepBanner = action;
+    if (action) {
+      reload(event.detail.target);
+    }
+  }
+
+  document.addEventListener("htmx:responseError", onFailure);
+  document.addEventListener("htmx:sendError", onFailure);
+  document.addEventListener("htmx:timeout", onFailure);
   // htmx fires afterOnLoad for a 4xx or 5xx too, right after responseError.
   document.addEventListener("htmx:afterOnLoad", function (event) {
-    if (event.detail.successful) {
-      banner.hidden = true;
+    if (!event.detail.successful) {
+      return;
     }
+    if (keepBanner) {
+      keepBanner = false;
+      return;
+    }
+    banner.hidden = true;
   });
 })();

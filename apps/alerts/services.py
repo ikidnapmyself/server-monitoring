@@ -621,6 +621,32 @@ def announce_incident_change(incident: Incident) -> None:
     )
 
 
+INCIDENT_ACTIONS = ("acknowledge", "resolve", "close")
+
+_ACTION_DONE = MappingProxyType(
+    {"acknowledge": "acknowledged", "resolve": "resolved", "close": "closed"}
+)
+
+
+def available_incident_actions(status: str) -> tuple[str, ...]:
+    """The operator actions an incident in ``status`` accepts, in display order."""
+    allowed = {
+        "acknowledge": status == IncidentStatus.OPEN,
+        "resolve": status not in (IncidentStatus.RESOLVED, IncidentStatus.CLOSED),
+        "close": status != IncidentStatus.CLOSED,
+    }
+    return tuple(action for action in INCIDENT_ACTIONS if allowed[action])
+
+
+@dataclass(frozen=True)
+class TransitionOutcome:
+    """What ``IncidentManager.transition`` decided, in words an operator can read."""
+
+    ok: bool
+    message: str
+    incident: Incident
+
+
 class IncidentManager:
     """
     Service for managing incidents.
@@ -644,13 +670,7 @@ class IncidentManager:
         """
         with transaction.atomic():
             incident = Incident.objects.get(pk=incident_id)
-            incident.acknowledge()
-
-            if acknowledged_by:
-                incident.metadata["acknowledged_by"] = acknowledged_by
-                incident.save(update_fields=["metadata"])
-
-            IncidentManager._announce(incident)
+            IncidentManager._acknowledge(incident, acknowledged_by)
 
         logger.info(f"Incident acknowledged: {incident.title}")
         return incident
@@ -670,13 +690,7 @@ class IncidentManager:
         """
         with transaction.atomic():
             incident = Incident.objects.get(pk=incident_id)
-            incident.resolve(summary=summary)
-
-            if resolved_by:
-                incident.metadata["resolved_by"] = resolved_by
-                incident.save(update_fields=["metadata"])
-
-            IncidentManager._announce(incident)
+            IncidentManager._resolve(incident, summary, resolved_by)
 
         logger.info(f"Incident resolved: {incident.title}")
         return incident
@@ -694,11 +708,71 @@ class IncidentManager:
         """
         with transaction.atomic():
             incident = Incident.objects.get(pk=incident_id)
-            incident.close()
-            IncidentManager._announce(incident)
+            IncidentManager._close(incident)
 
         logger.info(f"Incident closed: {incident.title}")
         return incident
+
+    @staticmethod
+    def transition(
+        incident_id: int, action: str, *, actor: str = "", summary: str = ""
+    ) -> TransitionOutcome:
+        """Apply one operator action if the incident's current status accepts it.
+
+        The row is locked before the status is read, and the write goes to that same
+        instance. Two submits of the same button can't both pass the check: the second
+        waits, then sees the first one's status and is refused without a write or a run.
+
+        Raises ``ValueError`` for an action outside ``INCIDENT_ACTIONS`` and
+        ``Incident.DoesNotExist`` for a missing incident.
+        """
+        if action not in INCIDENT_ACTIONS:
+            raise ValueError(f"Unknown incident action: {action!r}")
+
+        with transaction.atomic():
+            incident = Incident.objects.select_for_update().get(pk=incident_id)
+            status = incident.status
+            if action not in available_incident_actions(status):
+                if action == "acknowledge":
+                    message = f"Cannot acknowledge — status is '{status}'."
+                else:
+                    message = f"Already {status}."
+                return TransitionOutcome(ok=False, message=message, incident=incident)
+
+            if action == "acknowledge":
+                IncidentManager._acknowledge(incident, actor)
+            elif action == "resolve":
+                IncidentManager._resolve(incident, summary, actor)
+            else:
+                IncidentManager._close(incident)
+
+        done = _ACTION_DONE[action]
+        logger.info(f"Incident {done}: {incident.title}")
+        return TransitionOutcome(
+            ok=True, message=f"Incident '{incident.title}' {done}.", incident=incident
+        )
+
+    @staticmethod
+    def _acknowledge(incident: Incident, acknowledged_by: str) -> None:
+        """Write and announce. The caller holds the transaction and chose the row."""
+        incident.acknowledge()
+        if acknowledged_by:
+            incident.metadata["acknowledged_by"] = acknowledged_by
+            incident.save(update_fields=["metadata"])
+        IncidentManager._announce(incident)
+
+    @staticmethod
+    def _resolve(incident: Incident, summary: str, resolved_by: str) -> None:
+        incident.resolve(summary=summary)
+        if resolved_by:
+            incident.metadata["resolved_by"] = resolved_by
+            incident.save(update_fields=["metadata"])
+        IncidentManager._announce(incident)
+
+    @staticmethod
+    def _close(incident: Incident) -> None:
+        incident.close()
+        IncidentManager._announce(incident)
 
     @staticmethod
     def _announce(incident: Incident) -> None:

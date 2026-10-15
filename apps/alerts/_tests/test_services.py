@@ -2,16 +2,20 @@ import copy
 from typing import Any, cast
 from unittest import mock
 
-from django.test import TestCase
+from django.db import connection
+from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 
 from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
 from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus
 from apps.alerts.services import (
+    INCIDENT_ACTIONS,
     AlertOrchestrator,
     AlertQueryService,
     IncidentManager,
     ProcessingResult,
+    TransitionOutcome,
+    available_incident_actions,
 )
 
 
@@ -460,6 +464,167 @@ class IncidentManagerTests(TestCase):
         incident = IncidentManager.get_incident_with_alerts(self.incident.pk)
         self.assertEqual(incident.pk, self.incident.pk)
         self.assertEqual(incident.alerts.count(), 1)
+
+
+class IncidentTransitionTests(TestCase):
+    """The status rules both operator surfaces share."""
+
+    ALLOWED = {
+        IncidentStatus.OPEN: ("acknowledge", "resolve", "close"),
+        IncidentStatus.ACKNOWLEDGED: ("resolve", "close"),
+        IncidentStatus.RESOLVED: ("close",),
+        IncidentStatus.CLOSED: (),
+    }
+    REFUSALS = {
+        "acknowledge": "Cannot acknowledge — status is '{status}'.",
+        "resolve": "Already {status}.",
+        "close": "Already closed.",
+    }
+    DONE = {"acknowledge": "acknowledged", "resolve": "resolved", "close": "closed"}
+
+    def _incident(self, status=IncidentStatus.OPEN):
+        return Incident.objects.create(title="Disk full", severity="warning", status=status)
+
+    def _runs(self):
+        from apps.orchestration.models import PipelineRun
+
+        return PipelineRun.objects
+
+    def test_the_table_covers_every_status(self):
+        self.assertEqual(set(self.ALLOWED), set(IncidentStatus.values))
+        self.assertEqual(set(self.DONE), set(INCIDENT_ACTIONS))
+
+    def test_available_actions_for_every_status(self):
+        for status, expected in self.ALLOWED.items():
+            with self.subTest(status=status):
+                self.assertEqual(available_incident_actions(status), expected)
+
+    def test_every_status_against_every_action(self):
+        from apps.orchestration.models import PipelineOrigin, PipelineStatus
+
+        for status, allowed in self.ALLOWED.items():
+            for action in INCIDENT_ACTIONS:
+                with self.subTest(status=status, action=action):
+                    incident = self._incident(status)
+                    before = Incident.objects.values().get(pk=incident.pk)
+
+                    outcome = IncidentManager.transition(incident.pk, action, actor="ops")
+
+                    runs = self._runs().filter(incident=incident)
+                    after = Incident.objects.values().get(pk=incident.pk)
+                    self.assertIsInstance(outcome, TransitionOutcome)
+                    self.assertEqual(outcome.incident.pk, incident.pk)
+                    if action in allowed:
+                        self.assertTrue(outcome.ok)
+                        self.assertEqual(
+                            outcome.message, f"Incident 'Disk full' {self.DONE[action]}."
+                        )
+                        self.assertEqual(after["status"], self.DONE[action])
+                        self.assertEqual(outcome.incident.status, self.DONE[action])
+                        run = runs.get()
+                        self.assertEqual(run.origin, PipelineOrigin.MANUAL)
+                        self.assertEqual(run.status, PipelineStatus.PENDING)
+                    else:
+                        self.assertFalse(outcome.ok)
+                        self.assertEqual(
+                            outcome.message, self.REFUSALS[action].format(status=status)
+                        )
+                        self.assertEqual(after, before)
+                        self.assertEqual(outcome.incident.status, status)
+                        self.assertEqual(runs.count(), 0)
+
+    def test_second_identical_call_is_refused_and_enqueues_nothing(self):
+        for action in INCIDENT_ACTIONS:
+            with self.subTest(action=action):
+                incident = self._incident()
+
+                first = IncidentManager.transition(incident.pk, action)
+                second = IncidentManager.transition(incident.pk, action)
+
+                self.assertTrue(first.ok)
+                self.assertFalse(second.ok)
+                self.assertEqual(self._runs().filter(incident=incident).count(), 1)
+
+    def test_actor_and_summary_are_recorded(self):
+        acked = self._incident()
+        IncidentManager.transition(acked.pk, "acknowledge", actor="oncall")
+        acked.refresh_from_db()
+        self.assertEqual(acked.metadata["acknowledged_by"], "oncall")
+
+        resolved = self._incident()
+        IncidentManager.transition(resolved.pk, "resolve", actor="oncall", summary="Rotated logs")
+        resolved.refresh_from_db()
+        self.assertEqual(resolved.metadata["resolved_by"], "oncall")
+        self.assertEqual(resolved.summary, "Rotated logs")
+
+    def test_the_write_goes_to_the_locked_row_without_a_second_fetch(self):
+        for action in INCIDENT_ACTIONS:
+            with self.subTest(action=action):
+                incident = self._incident()
+                with mock.patch.object(
+                    Incident.objects, "get", side_effect=AssertionError("re-fetched")
+                ):
+                    outcome = IncidentManager.transition(incident.pk, action, actor="ops")
+
+                self.assertTrue(outcome.ok)
+                self.assertEqual(self._runs().filter(incident=incident).count(), 1)
+
+    def test_failed_enqueue_rolls_back_the_transition(self):
+        incident = self._incident()
+        with mock.patch(
+            "apps.orchestration.inbox.enqueue_incident_runs", side_effect=RuntimeError("db down")
+        ):
+            with self.assertRaises(RuntimeError):
+                IncidentManager.transition(incident.pk, "resolve", actor="ops")
+
+        incident.refresh_from_db()
+        self.assertEqual(incident.status, IncidentStatus.OPEN)
+        self.assertEqual(self._runs().count(), 0)
+
+    def test_unknown_action_raises_before_touching_the_row(self):
+        incident = self._incident()
+        with self.assertRaises(ValueError):
+            IncidentManager.transition(incident.pk, "reopen")
+        with self.assertRaises(ValueError):
+            IncidentManager.transition(999_999, "reopen")
+        incident.refresh_from_db()
+        self.assertEqual(incident.status, IncidentStatus.OPEN)
+        self.assertEqual(self._runs().count(), 0)
+
+    def test_missing_incident_raises(self):
+        with self.assertRaises(Incident.DoesNotExist):
+            IncidentManager.transition(999_999, "resolve")
+        self.assertEqual(self._runs().count(), 0)
+
+
+class IncidentTransitionLockTests(TransactionTestCase):
+    """Outside a ``TestCase``'s own transaction, so the atomic block is ``transition``'s.
+
+    Nothing after this class needs a routing lane from it, and it leaves none behind.
+    """
+
+    def test_decides_from_a_locked_row_inside_its_own_transaction(self):
+        incident = Incident.objects.create(title="Disk full", severity="warning")
+        real = Incident.objects.select_for_update
+        atomic_at_lock = []
+        locked = []
+
+        def spy(*args, **kwargs):
+            atomic_at_lock.append(connection.in_atomic_block)
+            queryset = real(*args, **kwargs)
+            queryset.get = mock.Mock(wraps=queryset.get)
+            locked.append(queryset)
+            return queryset
+
+        self.assertFalse(connection.in_atomic_block)
+        with mock.patch.object(Incident.objects, "select_for_update", side_effect=spy):
+            outcome = IncidentManager.transition(incident.pk, "acknowledge")
+
+        self.assertEqual(atomic_at_lock, [True])
+        (queryset,) = locked
+        queryset.get.assert_called_once_with(pk=incident.pk)
+        self.assertTrue(outcome.ok)
+        self.assertFalse(connection.in_atomic_block)
 
 
 class ProcessingResultTests(TestCase):

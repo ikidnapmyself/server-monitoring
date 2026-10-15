@@ -224,9 +224,18 @@ A reopen calls `Incident.reopen()` (status back to OPEN, `resolved_at`/`closed_a
 `summary` kept); the `refired` `AlertHistory` event surfaces it on the incident timeline. A
 future snooze is one more row in this table and nothing else.
 
-**Operator transitions go through `IncidentManager`** (`acknowledge` / `resolve` / `close`
-in `services.py`; the admin actions are thin wrappers). Each transitions the row
-synchronously and, in the same transaction, enqueues one `PENDING` run with
+**Operator transitions go through `IncidentManager.transition(incident_id, action, *,
+actor, summary)`** in `services.py`. It owns the status rules. The admin actions and any
+other operator surface are thin callers. `available_incident_actions(status)` is the
+table: acknowledge only from open, resolve from anything but resolved and closed, close
+from anything but closed. `transition` locks the row with `select_for_update()`, decides
+from that row, writes to that same instance, and returns a `TransitionOutcome` with `ok`, an operator-facing `message`
+and the `incident`. A refused action writes nothing and enqueues nothing, so a double
+submit announces once. SQLite ignores the lock. An unknown action raises `ValueError` and
+a missing incident raises `Incident.DoesNotExist`. Don't put a status rule in a surface,
+and don't call `acknowledge` / `resolve` / `close` from one: they apply whatever they are
+told. Each transitions the row synchronously and, in the same transaction, enqueues one
+`PENDING` run with
 `origin=manual` via `apps.orchestration.inbox.enqueue_incident_runs` — it *announces*.
 Nothing executes in-request; the next `process_inbox` drain delivers, and the headline
 (`derive_headline`) reads the incident's live status, so the message says `[RESOLVED]`.

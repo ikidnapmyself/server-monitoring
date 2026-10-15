@@ -246,7 +246,36 @@ def test_page_carries_the_hooks_console_js_binds_to(client, staff):
 
     polling = re.search(r"<div[^>]*\bhx-get=[^>]*>", body).group()
     assert re.search(r"\sdata-poll[\s>]", polling)
-    assert 'id="c-banner"' in body
+    banner = re.search(r'<p id="c-banner"[^>]*>', body).group()
+    assert re.search(r"\shidden[\s>]", banner)
+    assert 'data-refresh-text="Couldn\'t refresh. Showing the last data that loaded."' in banner
+    assert (
+        'data-action-text="That action may not have gone through. Reloading the current state."'
+        in banner
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("method", ["post", "put", "delete"])
+def test_anonymous_non_get_logs_in_to_the_overview_not_to_a_405(client, method):
+    url = reverse("console:overview")
+
+    plain = getattr(client, method)(f"{url}?x=1")
+    htmx = getattr(client, method)(f"{url}?x=1", **HTMX)
+
+    assert plain.status_code == 302
+    assert plain["Location"] == f"{reverse('admin:login')}?next={url}"
+    assert htmx.status_code == 204
+    assert htmx["HX-Redirect"] == f"{reverse('admin:login')}?next={url}"
+
+
+@pytest.mark.django_db
+def test_anonymous_head_keeps_its_own_path(client):
+    url = reverse("console:overview")
+
+    resp = client.head(f"{url}?x=1")
+
+    assert resp["Location"] == f"{reverse('admin:login')}?next={url}%3Fx%3D1"
 
 
 @pytest.mark.django_db

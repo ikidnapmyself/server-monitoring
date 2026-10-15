@@ -228,6 +228,53 @@ class TestPipelineRunObjectActions(TestCase):
         run.refresh_from_db()
         assert run.status == PipelineStatus.RETRYING
 
+    def test_a_get_never_changes_a_run(self):
+        for tool in ("mark_for_retry", "mark_failed"):
+            run = PipelineRun.objects.create(
+                trace_id=tool, run_id=tool, status=PipelineStatus.FAILED
+            )
+            before = run.updated_at
+            response = self.client.get(f"/admin/orchestration/pipelinerun/{run.pk}/actions/{tool}/")
+            assert response.status_code == 405
+            run.refresh_from_db()
+            assert run.status == PipelineStatus.FAILED
+            assert run.updated_at == before
+
+    def test_staff_without_change_permission_cannot_change_a_run(self):
+        User.objects.create_user("viewer", password="password", is_staff=True)
+        self.client.login(username="viewer", password="password")
+        for tool, status in (
+            ("mark_for_retry", PipelineStatus.FAILED),
+            ("mark_failed", PipelineStatus.PENDING),
+        ):
+            run = PipelineRun.objects.create(trace_id=tool, run_id=tool, status=status)
+            response = self.client.post(
+                f"/admin/orchestration/pipelinerun/{run.pk}/actions/{tool}/"
+            )
+            assert response.status_code == 403
+            run.refresh_from_db()
+            assert run.status == status
+
+    def test_buttons_are_csrf_protected_forms(self):
+        run = PipelineRun.objects.create(trace_id="t1", run_id="r1", status=PipelineStatus.FAILED)
+        content = self.client.get(
+            f"/admin/orchestration/pipelinerun/{run.pk}/change/"
+        ).content.decode()
+        action_url = f"/admin/orchestration/pipelinerun/{run.pk}/actions/mark_for_retry/"
+        assert f'<form method="post" action="{action_url}">' in content
+        assert f'href="{action_url}"' not in content
+
+    def test_view_only_staff_see_no_buttons(self):
+        from django.contrib.auth.models import Permission
+
+        viewer = User.objects.create_user("viewer", password="password", is_staff=True)
+        viewer.user_permissions.add(Permission.objects.get(codename="view_pipelinerun"))
+        self.client.login(username="viewer", password="password")
+        run = PipelineRun.objects.create(trace_id="t1", run_id="r1", status=PipelineStatus.FAILED)
+        response = self.client.get(f"/admin/orchestration/pipelinerun/{run.pk}/change/")
+        assert response.status_code == 200
+        assert "/actions/" not in response.content.decode()
+
     def test_mark_failed_button(self):
         run = PipelineRun.objects.create(
             trace_id="t1",
