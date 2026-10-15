@@ -11,6 +11,7 @@ This file is the **canonical, tool-agnostic** source of guidance for AI agents w
 - **App-local rules** — each app's `AGENTS.md` carries stage-specific contracts, module notes, and admin conventions:
   - `apps/alerts/AGENTS.md`
   - `apps/checkers/AGENTS.md`
+  - `apps/console/AGENTS.md`
   - `apps/intelligence/AGENTS.md`
   - `apps/notify/AGENTS.md`
   - `apps/orchestration/AGENTS.md`
@@ -155,6 +156,7 @@ Apps under `apps/` should follow this layout. A few legacy `views.py` modules �
 |-----|---------|------------|
 | `alerts` | Webhook ingestion (8 drivers), incident rollup, operator transitions. A **producer**, not a stage | Alert, Incident, AlertHistory |
 | `checkers` | Health checks (CPU, memory, disk, disk_macos, disk_linux, disk_common, disk_inodes, network, process, raid, disk_temp, cpu_temp, io_strain, listening_ports). Also a **producer of alert truth** about the machine it runs on, via `CheckAlertBridge` — see "Checkers as an alert producer" below | CheckRun |
+| `console` | Operator console at `/console/`. Server-rendered, staff only. A consumer: not a stage, not a producer | none |
 | `intelligence` | AI analysis via provider pattern | Uses StageExecution |
 | `notify` | Notification delivery (Email, Slack, PagerDuty, Generic) | NotificationChannel |
 | `orchestration` | Intake (`intake.enqueue_for`), inbox, pipeline state machine, retry logic | PipelineRun, StageExecution, PipelineDefinition |

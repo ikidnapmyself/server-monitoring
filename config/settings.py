@@ -60,11 +60,13 @@ INSTALLED_APPS = [
     "apps.intelligence.apps.IntelligenceConfig",
     "apps.notify.apps.NotifyConfig",
     "apps.orchestration.apps.OrchestrationConfig",
+    "apps.console.apps.ConsoleConfig",
     "config.apps.ConfigAppConfig",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "apps.console.middleware.ConsoleHeadersMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -151,6 +153,19 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
+
+# The shipped nginx configs serve /static/ as immutable for 30 days, so a production
+# asset needs a content hash in its name or a browser keeps the old copy after a deploy.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": (
+            "django.contrib.staticfiles.storage.StaticFilesStorage"
+            if DEBUG
+            else "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
+        ),
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

@@ -130,7 +130,7 @@ plugins = ["mypy_django_plugin.main"]
 exclude = ["bin/"]
 
 [tool.bandit]
-exclude_dirs = [".venv", "bin/tests", "apps/alerts/_tests", "apps/checkers/_tests", "apps/intelligence/_tests", "apps/notify/_tests", "apps/orchestration/_tests", "config/_tests"]
+exclude_dirs = [".venv", "bin/tests", "apps/alerts/_tests", "apps/checkers/_tests", "apps/console/_tests", "apps/intelligence/_tests", "apps/notify/_tests", "apps/orchestration/_tests", "config/_tests"]
 skips = [
     "B101",  # assert_used — test assertions
     "B110",  # try_except_pass — used in provider/checker fallbacks
