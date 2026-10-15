@@ -1368,7 +1368,7 @@ class RefireReopensIncidentTests(TestCase):
         """One situation, one open incident — and the alert points at it.
 
         While this alert's incident was resolved, a sibling with the same
-        (name, instance) opened its own. Reopening ours would mean two open
+        (subject, instance) opened its own. Reopening ours would mean two open
         incidents for one situation; leaving ours resolved would leave a FIRING
         alert under it. So the alert joins the sibling.
         """
