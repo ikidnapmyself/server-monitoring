@@ -108,7 +108,7 @@ class RebootDebianChecker(BaseChecker):
 
     def _skip(self, *, reason: str, distro_id: str) -> CheckResult:
         return self._make_result(
-            status=CheckStatus.OK,
+            status=CheckStatus.SKIPPED,
             message=f"Skipped: {reason}",
             metrics=self._metrics(distro_id=distro_id, reboot_required=False, packages=[]),
         )

@@ -162,7 +162,7 @@ class ListeningPortsCheckerTests(TestCase):
     def test_non_linux_skips_ok(self):
         self._start(mock.patch.object(sys, "platform", "darwin"))
         result = ListeningPortsChecker().check()
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("not Linux", result.message)
         self.assertEqual(result.metrics["listening_count"], 0)
 
@@ -175,7 +175,7 @@ class ListeningPortsCheckerTests(TestCase):
             )
         )
         result = ListeningPortsChecker().check()
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("cannot read listening ports", result.message)
 
     @override_settings(LISTENING_PORTS_ALLOWLIST=[22])

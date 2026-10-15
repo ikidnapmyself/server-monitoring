@@ -43,7 +43,7 @@ class BaseDiskAnalyzer(BaseChecker):
     def check(self) -> CheckResult:
         if not self._is_applicable():
             return self._make_result(
-                status=CheckStatus.OK,
+                status=CheckStatus.SKIPPED,
                 message="Skipped: not applicable for this platform",
                 metrics={"platform": sys.platform},
             )

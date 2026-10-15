@@ -28,7 +28,7 @@ class DiskInodesChecker(BaseChecker):
     def check(self) -> CheckResult:
         if not hasattr(os, "statvfs"):
             return self._make_result(
-                status=CheckStatus.OK,
+                status=CheckStatus.SKIPPED,
                 message="Skipped: statvfs unavailable",
                 metrics=self._empty_metrics(),
             )

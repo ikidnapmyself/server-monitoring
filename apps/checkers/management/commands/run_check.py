@@ -164,7 +164,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"  Error: {result.error}"))
 
         # Skip metrics block for skipped checks — the placeholder values are noise.
-        skipped = result.status == CheckStatus.OK and result.message.startswith("Skipped:")
+        skipped = result.status == CheckStatus.SKIPPED
 
         # Show key metrics — disk checkers get readable section headers,
         # subtotals, and trailers via the shared helper.

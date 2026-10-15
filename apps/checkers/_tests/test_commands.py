@@ -783,7 +783,7 @@ class RunCheckCommandTests(TestCase):
 
     def test_skipped_check_hides_metrics(self):
         mock_checker = self._make_checker(
-            status=CheckStatus.OK,
+            status=CheckStatus.SKIPPED,
             message="Skipped: not Linux",
             metrics={"platform": "darwin", "reboot_required": False},
         )
@@ -799,7 +799,7 @@ class RunCheckCommandTests(TestCase):
         import json as json_mod
 
         mock_checker = self._make_checker(
-            status=CheckStatus.OK,
+            status=CheckStatus.SKIPPED,
             message="Skipped: not Linux",
             metrics={"platform": "darwin", "reboot_required": False},
         )
