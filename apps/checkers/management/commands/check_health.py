@@ -242,7 +242,7 @@ class Command(BaseCommand):
         self.stdout.write("")
 
         for result in results:
-            if result.status == CheckStatus.OK:
+            if result.status in (CheckStatus.OK, CheckStatus.SKIPPED):
                 status_str = self.style.SUCCESS(f"[{result.status.value.upper()}]")
             elif result.status == CheckStatus.WARNING:
                 status_str = self.style.WARNING(f"[{result.status.value.upper()}]")
@@ -263,12 +263,14 @@ class Command(BaseCommand):
         self.stdout.write("-" * 60)
 
         ok_count = sum(1 for r in results if r.status == CheckStatus.OK)
+        skip_count = sum(1 for r in results if r.status == CheckStatus.SKIPPED)
         warn_count = sum(1 for r in results if r.status == CheckStatus.WARNING)
         crit_count = sum(1 for r in results if r.status == CheckStatus.CRITICAL)
         unknown_count = sum(1 for r in results if r.status == CheckStatus.UNKNOWN)
 
         summary = f"Total: {len(results)} | "
         summary += f"OK: {ok_count} | "
+        summary += f"Skipped: {skip_count} | "
         summary += f"Warning: {warn_count} | "
         summary += f"Critical: {crit_count}"
         if unknown_count:
@@ -302,6 +304,7 @@ class Command(BaseCommand):
             "summary": {
                 "total": len(results),
                 "ok": sum(1 for r in results if r.status == CheckStatus.OK),
+                "skipped": sum(1 for r in results if r.status == CheckStatus.SKIPPED),
                 "warning": sum(1 for r in results if r.status == CheckStatus.WARNING),
                 "critical": sum(1 for r in results if r.status == CheckStatus.CRITICAL),
                 "unknown": sum(1 for r in results if r.status == CheckStatus.UNKNOWN),

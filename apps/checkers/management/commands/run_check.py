@@ -147,7 +147,7 @@ class Command(BaseCommand):
     def _output_text(self, result):
         """Output result as formatted text."""
         # Status styling
-        if result.status == CheckStatus.OK:
+        if result.status in (CheckStatus.OK, CheckStatus.SKIPPED):
             status_style = self.style.SUCCESS
         elif result.status == CheckStatus.WARNING:
             status_style = self.style.WARNING
