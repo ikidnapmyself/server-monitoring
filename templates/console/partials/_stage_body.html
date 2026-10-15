@@ -1,0 +1,42 @@
+{% if body.kind == "check" %}
+<p class="c-muted">{{ body.run }} run, {{ body.passed }} passed, {{ body.failed }} failed</p>
+{% if body.lines %}
+<ul class="c-lines">
+  {% for line in body.lines %}
+  <li><span><span class="c-badge c-tone-{{ line.tone }}">{{ line.status|default:"unknown" }}</span></span><span><strong>{{ line.name }}</strong> {{ line.message }}</span></li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% elif body.kind == "analyze" %}
+{% if body.summary %}<p>{{ body.summary }}</p>{% endif %}
+{% if body.probable_cause %}<p><strong>Probable cause.</strong> {{ body.probable_cause }}</p>{% endif %}
+{% if body.actions %}
+<ul class="c-bullets">
+  {% for action in body.actions %}<li>{{ action }}</li>{% endfor %}
+</ul>
+{% endif %}
+{% if body.recommendations %}
+<ul class="c-lines">
+  {% for item in body.recommendations %}
+  <li><span><span class="c-badge c-tone-muted">{{ item.priority|default:"note" }}</span></span><span><strong>{{ item.title }}</strong> {{ item.description }}</span></li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% if body.confidence is not None or body.fallback_used %}
+<p class="c-muted">{% if body.confidence is not None %}{{ body.confidence }}% confidence. {% endif %}{% if body.fallback_used %}Fallback analysis, no AI provider answered.{% endif %}</p>
+{% endif %}
+{% elif body.kind == "notify" %}
+<p class="c-muted">{{ body.attempted }} attempted, {{ body.succeeded }} succeeded, {{ body.failed }} failed</p>
+{% if body.deliveries %}
+<ul class="c-lines">
+  {% for delivery in body.deliveries %}
+  <li><span><span class="c-badge c-tone-{{ delivery.tone }}">{{ delivery.status|default:"unknown" }}</span></span><span><strong>{{ delivery.provider }}</strong> {{ delivery.channel }}{% if delivery.provider_id %} <span class="c-muted">{{ delivery.provider_id }}</span>{% endif %}</span></li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endif %}
+{% if body.errors %}
+<ul class="c-bullets c-errors">
+  {% for error in body.errors %}<li>{{ error }}</li>{% endfor %}
+</ul>
+{% endif %}

@@ -234,3 +234,79 @@ class TimelineSeverityDetailTests(TestCase):
             details=["not", "a", "dict"],
         )
         assert entry["detail"] == "firing → resolved"
+
+
+class TimelineConsoleKeysTests(TestCase):
+    """Keys the console's incident page reads. Additive: the admin ignores them."""
+
+    def test_alert_history_entries_name_their_alert_and_event(self):
+        incident = Incident.objects.create(title="Keys")
+        alert = Alert.objects.create(
+            fingerprint="check:web-03:cpu",
+            source="cluster",
+            name="cpu high",
+            severity="critical",
+            incident=incident,
+            started_at=timezone.now(),
+        )
+        first = AlertHistory.objects.create(alert=alert, event="created", new_status="firing")
+        second = AlertHistory.objects.create(
+            alert=alert, event="refired", details={"severity_to": "warning"}
+        )
+
+        entries = build_incident_timeline(incident)
+
+        assert {e["history_pk"] for e in entries} == {first.pk, second.pk}
+        assert {e["event"]: e["severity_to"] for e in entries} == {
+            "created": None,
+            "refired": "warning",
+        }
+        for entry in entries:
+            assert entry["alert_pk"] == alert.pk
+            assert entry["alert_name"] == "cpu high"
+            assert "alert_severity" not in entry
+            assert entry["label"] == entry["event"]
+
+    def test_alert_history_does_not_query_per_row(self):
+        incident = Incident.objects.create(title="Many")
+        for index in range(3):
+            alert = Alert.objects.create(
+                fingerprint=f"fp-{index}",
+                source="cluster",
+                name=f"alert {index}",
+                incident=incident,
+                started_at=timezone.now(),
+            )
+            AlertHistory.objects.create(alert=alert, event="created")
+
+        with self.assertNumQueries(2):
+            build_incident_timeline(incident)
+
+    def test_pipeline_and_stage_entries_carry_pks_status_and_output(self):
+        incident = Incident.objects.create(title="Run keys")
+        run = PipelineRun.objects.create(
+            trace_id="t", run_id="r-keys", incident=incident, status="notified"
+        )
+        execution = StageExecution.objects.create(
+            pipeline_run=run,
+            stage="check",
+            status="succeeded",
+            started_at=timezone.now(),
+            duration_ms=850.0,
+            output_snapshot={"checks": [{"name": "cpu", "status": "ok"}]},
+        )
+
+        pipeline_entry, stage_entry = build_incident_timeline(incident)
+
+        assert pipeline_entry["kind"] == "pipeline"
+        assert pipeline_entry["run_pk"] == run.pk
+        assert pipeline_entry["status"] == "notified"
+        assert pipeline_entry["label"] == "run r-keys created"
+        assert stage_entry["kind"] == "stage"
+        assert stage_entry["stage"] == "check"
+        assert stage_entry["status"] == "succeeded"
+        assert stage_entry["execution_pk"] == execution.pk
+        assert stage_entry["run_pk"] == run.pk
+        assert stage_entry["duration_ms"] == 850.0
+        assert stage_entry["output_snapshot"] == {"checks": [{"name": "cpu", "status": "ok"}]}
+        assert stage_entry["label"] == "check succeeded"

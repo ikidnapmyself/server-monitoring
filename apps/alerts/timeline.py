@@ -21,6 +21,12 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
     - ``detail``: optional string with extra context (may be ``None``).
     - ``run_id``: present on ``stage``/``pipeline`` entries for correlation.
 
+    The console's incident page reads further keys, which the admin ignores:
+    ``history_pk``, ``alert_pk``, ``alert_name``, ``severity_to`` and ``event`` on
+    ``alert_history`` entries, ``run_pk`` and ``status`` on ``pipeline`` entries, and
+    ``stage``, ``status``, ``execution_pk``, ``run_pk``, ``duration_ms`` and
+    ``output_snapshot`` on ``stage`` entries.
+
     Entries whose event time is unknown are skipped. Specifically, a
     ``StageExecution`` with a null ``started_at`` (never started) has no place on
     a chronological timeline, so it is omitted.
@@ -28,7 +34,7 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
     entries: list[dict] = []
 
     # 1) AlertHistory events (hang off Alert, reached via alert__incident).
-    history = AlertHistory.objects.filter(alert__incident=incident)
+    history = AlertHistory.objects.filter(alert__incident=incident).select_related("alert")
     for h in history:
         parts = []
         if h.old_status or h.new_status:
@@ -46,6 +52,11 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
                 "kind": "alert_history",
                 "label": h.event,
                 "detail": detail,
+                "history_pk": h.pk,
+                "alert_pk": h.alert_id,
+                "alert_name": h.alert.name,
+                "severity_to": severity_to,
+                "event": h.event,
             }
         )
 
@@ -60,6 +71,8 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
                 "detail": run.notify_output_ref or None,
                 "run_id": run.run_id,
                 "trace_id": run.trace_id,
+                "run_pk": run.pk,
+                "status": run.status,
             }
         )
         for stage in run.stage_executions.all():
@@ -74,6 +87,12 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
                     "detail": stage.error_message or None,
                     "run_id": run.run_id,
                     "trace_id": run.trace_id,
+                    "run_pk": run.pk,
+                    "stage": stage.stage,
+                    "status": stage.status,
+                    "execution_pk": stage.pk,
+                    "duration_ms": stage.duration_ms,
+                    "output_snapshot": stage.output_snapshot,
                 }
             )
 

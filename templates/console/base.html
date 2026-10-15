@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"includeIndicatorStyles":false,"selfRequestsOnly":true,"refreshOnHistoryMiss":true,"timeout":10000}'>
+  <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"includeIndicatorStyles":false,"selfRequestsOnly":true,"refreshOnHistoryMiss":true,"historyCacheSize":0,"timeout":10000}'>
   <title>{% block title %}Console{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'console/console.css' %}">
   <script src="{% static 'console/vendor/htmx.min.js' %}" defer></script>
@@ -13,6 +13,7 @@
   <nav class="c-side" aria-label="Console">
     <p class="c-side__brand">Ops console</p>
     <a href="{% url 'console:overview' %}"{% if nav == "overview" %} aria-current="page"{% endif %}>Overview</a>
+    <a href="{% url 'console:incidents' %}"{% if nav == "incidents" %} aria-current="page"{% endif %}>Incidents</a>
     <div class="c-side__foot">
       <a href="{% url 'admin:index' %}">Admin</a>
       <form method="post" action="{% url 'admin:logout' %}">

@@ -35,7 +35,11 @@ pipeline stage and not an alert producer.
   history cache miss htmx ignores `HX-Redirect` and would swap the empty 204 of an
   expired session into `<body>`. With the key on, a miss is a full page reload.
   `timeout` is 10 seconds, so a hung request ends in `htmx:timeout` and shows the
-  banner.
+  banner. `historyCacheSize` is 0, so htmx keeps no page snapshots and Back is
+  always a full reload. A snapshot restore replaces `<body>`, which orphans the
+  `#c-banner` reference `console.js` holds, and it paints stale data with no server
+  round trip. The snapshot also put page HTML with the CSRF token in `sessionStorage`,
+  against the never-cache headers.
 - **Polling is paused in `console.js`, not in `hx-trigger`.** A `data-poll` element
   skips a poll while the tab is hidden and while it holds an open `<details>`. Polls
   are never paused for focus or for a text selection, because a page that stops
@@ -49,6 +53,35 @@ pipeline stage and not an alert producer.
 - **Colour lives in `static/console/console.css`** as tokens. Tone names match
   `config/admin_badges.py`.
 - **No dead ends.** Every page links onward. The sidebar lists only pages that exist.
+- **Reads need active staff, nothing more.** The console doesn't check the admin's
+  model permissions for reads. A staff user without `orchestration.view_stageexecution`
+  gets a 403 on the admin's stage page and still sees the same snapshot on the incident
+  page. That is the approved design. Action views, from PR 3 on, check the permissions
+  the admin checks.
+- **Querystrings go through `filters.py`.** A filter object parses and validates every
+  param. An invalid value falls back to the default and is named in a one-line notice.
+  Only validated values reach a query or a URL, through `querystring()`.
+- **A filtered list polls itself.** The partial's root is the polled element and swaps
+  with `outerHTML`, so its `hx-get` always carries the current filters. Chips and pager
+  links target that root with `hx-push-url="true"` and `hx-sync="#<root id>:replace"`.
+  Without `hx-sync`, a late response hits a detached node and the URL and the content
+  disagree.
+- **A missing record gets a console 404 page** with a link onward, returned with status
+  404, as `IncidentDetailView` does. Don't raise a bare `Http404` from a page view.
+- **Stage output is untrusted in shape.** `queries/incident.py` turns an
+  `output_snapshot` into `CheckBody`, `AnalyzeBody`, `NotifyBody` or `RawBody`. Every
+  builder must survive a list, a string, `None` and wrong-typed members without
+  raising, because a raise is a 500 on every poll. Raw JSON renders through
+  autoescaping only.
+- **The incident timeline is capped.** The page shows lifecycle entries plus the newest
+  `TIMELINE_LIMIT` others, and `?all=1` shows everything. Bodies are built only for
+  entries that survive the cut. The database read is not capped.
+- **A disclosure needs two ids.** htmx restores focus by the active element's own id,
+  and for a `<details>` that element is the `<summary>`. Give the `<summary>` its own
+  stable id.
+- **Printing.** `console.js` opens the top-level `<details>` under `[data-print-open]`
+  on `beforeprint` and closes the ones it opened on `afterprint`. Raw JSON stays closed
+  and hidden in print.
 
 ## No models
 

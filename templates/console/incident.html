@@ -1,0 +1,7 @@
+{% extends "console/base.html" %}
+{% block title %}{{ incident.title }} · Console{% endblock %}
+{% block content %}
+<div id="incident" data-poll hx-get="{{ incident.url }}" hx-trigger="every 30s, console:refresh" hx-swap="innerHTML">
+  {% include "console/partials/_incident.html" %}
+</div>
+{% endblock %}
