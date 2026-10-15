@@ -386,7 +386,7 @@ class RaidCheckerTests(TestCase):
 
         result = RaidChecker().check()
 
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("not Linux", result.message)
         self.assertEqual(result.metrics["array_count"], 0)
 
@@ -396,7 +396,7 @@ class RaidCheckerTests(TestCase):
 
         result = RaidChecker().check()
 
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("mdstat unavailable", result.message)
 
 

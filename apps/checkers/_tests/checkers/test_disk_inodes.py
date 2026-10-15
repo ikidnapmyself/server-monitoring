@@ -101,7 +101,7 @@ class DiskInodesCheckerTests(TestCase):
         fake_os = mock.Mock(spec=[])  # no statvfs attribute
         with mock.patch("apps.checkers.checkers.disk_inodes.os", fake_os):
             result = DiskInodesChecker().check()
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("statvfs unavailable", result.message)
 
     def test_registered_in_registry(self):

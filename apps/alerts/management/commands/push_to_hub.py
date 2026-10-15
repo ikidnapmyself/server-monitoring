@@ -367,7 +367,7 @@ class Command(BaseCommand):
     def _result_to_alert(self, result, instance_id: str, hostname: str) -> dict:
         """Convert a CheckResult to a cluster alert dict."""
         # Map check status to alert status/severity
-        if result.status == CheckStatus.OK:
+        if result.status in (CheckStatus.OK, CheckStatus.SKIPPED):
             status = "resolved"
             severity = "info"
         elif result.status == CheckStatus.WARNING:

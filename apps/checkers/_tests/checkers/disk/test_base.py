@@ -36,7 +36,7 @@ class BaseDiskAnalyzerTests(TestCase):
 
     def test_skips_when_not_applicable(self):
         result = _NonApplicableAnalyzer().check()
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("Skipped", result.message)
         self.assertIn("platform", result.metrics)
         self.assertNotIn("space_hogs", result.metrics)

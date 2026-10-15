@@ -1,0 +1,36 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"includeIndicatorStyles":false,"selfRequestsOnly":true,"refreshOnHistoryMiss":true,"historyCacheSize":0,"timeout":10000}'>
+  <title>{% block title %}Console{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'console/console.css' %}">
+  <script src="{% static 'console/vendor/htmx.min.js' %}" defer></script>
+  <script src="{% static 'console/console.js' %}" defer></script>
+</head>
+<body>
+  <header class="c-header">
+    <a class="c-header__brand" href="{% url 'console:overview' %}">{% include "console/partials/_octicon.html" with name="pulse" %}<span>Ops console</span></a>
+    <div class="c-header__links">
+      <a class="c-header__link" href="{% url 'admin:index' %}">Admin</a>
+      <form method="post" action="{% url 'admin:logout' %}">
+        {% csrf_token %}
+        <button class="c-header__link" type="submit">Sign out</button>
+      </form>
+    </div>
+  </header>
+  <nav class="c-unav" aria-label="Console">
+    <div class="c-unav__list">
+      <a class="c-unav__item" href="{% url 'console:overview' %}"{% if nav == "overview" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="pulse" %}<span>Overview</span></a>
+      <a class="c-unav__item" href="{% url 'console:incidents' %}"{% if nav == "incidents" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="issue-opened" %}<span>Incidents</span></a>
+    </div>
+  </nav>
+  <main class="c-main">
+    <p id="c-banner" class="c-flash c-tone-warning" role="status" hidden data-refresh-text="Couldn't refresh. Showing the last data that loaded." data-action-text="That action may not have gone through. Reloading the current state.">
+      Couldn't refresh. Showing the last data that loaded.
+    </p>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

@@ -43,7 +43,7 @@ legacy `IngestExecutor`.
   - Drivers should implement `validate()` and `parse()`.
 - `apps/alerts/services.py` — business logic (`AlertOrchestrator`, `IncidentManager`). `AlertOrchestrator` is **the** alert write path — see below.
 - `apps/alerts/models.py` — `Alert`, `Incident`, `AlertHistory`, `Node`. `Node` is the **registry of every machine that produces truth about itself**, keyed by `instance_id` and upserted (`Node.upsert`) on each accepted cluster push *and* on each local check run that records alerts here — so **the hub is a node in its own registry**. `last_source` distinguishes `cluster` (arrived by push) from `local` (registered by a local check run). Alert/incident grouping resolves the owning node from the `instance_id` label (see `incident_instance_key` / `resolve_node` in `services.py`), and hub-local checker alerts now carry that label like any node's.
-- `apps/alerts/timeline.py` — `build_incident_timeline(incident)`: a **pure** aggregator that merges `AlertHistory` + `StageExecution` + `PipelineRun` into one chronological list (with `trace_id`/`run_id`), rendered read-only + escaped as the "Merged chronological timeline" on the Incident admin. No models/queries with side effects.
+- `apps/alerts/timeline.py` — `build_incident_timeline(incident)`: a **pure** aggregator that merges `AlertHistory` + `StageExecution` + `PipelineRun` into one chronological list (with `trace_id`/`run_id`), rendered read-only + escaped as the "Merged chronological timeline" on the Incident admin. No models/queries with side effects. The console's incident page (`apps/console/queries/incident.py`) builds on the same dicts and reads these keys beyond the admin's `when`/`kind`/`label`/`detail`: `history_pk`, `alert_pk`, `alert_name`, `event`, `severity_to` on `alert_history`; `run_pk`, `status` on `pipeline`; `run_pk`, `stage`, `status`, `execution_pk`, `duration_ms`, `output_snapshot` on `stage`. Add keys freely; renaming or removing one breaks the console.
 - `apps/alerts/reevaluation.py` — **hub-side per-node severity re-evaluation (ingest-time)**. Nodes report raw metrics + a default severity; the hub recomputes severity against per-node policy in `Node.config` and overrides it. Called at the top of `AlertOrchestrator._process_alert` (covers create + update), so nodes stay unchanged. Fail-open: any missing/invalid input (or exception) passes the alert through unchanged. Two checker-types wired: numeric-threshold override for the 7 numeric checkers (`_score_numeric` + `PRIMARY_METRIC`) and a `listening_ports` **allowlist** evaluator (`_score_allowlist`, re-flagging the reported `listening` inventory against `Node.config["listening_ports"]["allowlist"]`; empty allowlist → exposed-only). Extend per checker-type by adding a pure scorer to `SCORERS` + an evaluator to `REEVALUATORS`. Overrides are audited in `annotations["severity_reevaluated"]`. The pure scorers in `SCORERS` are the shared, testable units reused by the config-change re-eval below. **Scorer contract: a scorer returns `Verdict | Skip`, never `None` and never a bare tuple.** A `Verdict` is a score the caller may act on (`severity`, `status`, `value`); a `Skip` carries one of the `SkipReason` values plus the context its sentence needs. **Every `Skip` is a passthrough at ingest.** `reevaluate_severity` acts on a `Verdict` and returns the alert unchanged for anything else. That is what keeps re-evaluation fail-open inside the webhook's atomic block: there is no reason value that can raise or resolve an alert the hub could not score. The reasons differ only where a human asked the question, and `describe_skip(skip, *, checker=…, instance_id=…)` turns one into an operator-facing sentence. The scorers cannot know the node, so the caller supplies both keywords, and a `SkipReason` added without a sentence raises there rather than printing a blank cell. `format_value` / `VALUE_PRECISION` round every printed metric value or threshold to one decimal, type-preserving, so an int threshold stays `80` and a float stays `80.0`. Print through it everywhere; the skip sentences, the confirm page, the command and the admin panel all quote the same numbers. See `docs/plans/2026-08-07-hub-node-severity-reeval-design.md`, `docs/plans/2026-08-09-listening-ports-allowlist-reeval-design.md` and `docs/plans/2026-09-06-reevaluation-surface-design.md`.
 - `apps/alerts/reeval_existing.py` — **hub-side re-evaluation of EXISTING alerts on config change**
   (operator-triggered, distinct from ingest-time above). Re-scores stored alert metrics through the
@@ -145,12 +145,20 @@ machine's key: `settings.INSTANCE_ID`, falling back to the hostname when unconfi
   checker-origin and keep the provided-or-generated fingerprint. `instance_id` must be
   a non-blank string (`ClusterDriver.validate`, `register_pushing_node`) so a blank id
   cannot mint identity or a `Node` row.
-- **The alert name is deliberately stable:** `f"{checker_name.upper()} Check Alert"`,
-  written identically by the bridge and by `push_to_hub._result_to_alert`. Incident
-  grouping matches on `alert.name` (`_find_open_incident`, `apps/alerts/services.py:517`),
-  so a name carrying live metrics — the old `f"{checker}: {message}"` — drifted every
-  tick and silently split one situation into a new incident per tick. Live text belongs in
+- **Incidents group on `(subject, instance)`, never on display text.** `Alert.subject` is
+  `checker:<name>` for checker alerts and `<source>:<name>` otherwise
+  (`apps.alerts.identity.alert_subject`), written on every alert write. An incident stamps
+  `subject`, `instance` and `node` when it is created, and `_find_open_incident` matches
+  the first two in one query. `Alert.name` is display text only. Live text belongs in
   `description`; metrics belong in labels/annotations.
+- **An incident's keys are fixed when it opens.** If a source renames an alert, the alert's
+  subject follows the new name but its open incident keeps the old one. A refire stays in
+  its own open incident while the keys still match, and otherwise joins or opens one under
+  the new subject. A rename is a new situation.
+- **Any source can claim a checker subject.** A `checker` label yields `checker:<name>`
+  whatever the source, so a webhook carrying `checker=cpu` and a node's `instance_id` joins
+  that node's checker incident. That is the same trust boundary as before, when sending
+  the name `CPU Check Alert` did it. Ingest auth is the defence, not the subject.
 
 **Self-registration.** `CheckAlertBridge` upserts the machine it just checked into the
 `Node` registry (`source="local"`) inside the same transaction, *before* writing alerts —
@@ -224,9 +232,18 @@ A reopen calls `Incident.reopen()` (status back to OPEN, `resolved_at`/`closed_a
 `summary` kept); the `refired` `AlertHistory` event surfaces it on the incident timeline. A
 future snooze is one more row in this table and nothing else.
 
-**Operator transitions go through `IncidentManager`** (`acknowledge` / `resolve` / `close`
-in `services.py`; the admin actions are thin wrappers). Each transitions the row
-synchronously and, in the same transaction, enqueues one `PENDING` run with
+**Operator transitions go through `IncidentManager.transition(incident_id, action, *,
+actor, summary)`** in `services.py`. It owns the status rules. The admin actions and any
+other operator surface are thin callers. `available_incident_actions(status)` is the
+table: acknowledge only from open, resolve from anything but resolved and closed, close
+from anything but closed. `transition` locks the row with `select_for_update()`, decides
+from that row, writes to that same instance, and returns a `TransitionOutcome` with `ok`, an operator-facing `message`
+and the `incident`. A refused action writes nothing and enqueues nothing, so a double
+submit announces once. SQLite ignores the lock. An unknown action raises `ValueError` and
+a missing incident raises `Incident.DoesNotExist`. Don't put a status rule in a surface,
+and don't call `acknowledge` / `resolve` / `close` from one: they apply whatever they are
+told. Each transitions the row synchronously and, in the same transaction, enqueues one
+`PENDING` run with
 `origin=manual` via `apps.orchestration.inbox.enqueue_incident_runs` — it *announces*.
 Nothing executes in-request; the next `process_inbox` drain delivers, and the headline
 (`derive_headline`) reads the incident's live status, so the message says `[RESOLVED]`.

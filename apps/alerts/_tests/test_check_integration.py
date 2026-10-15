@@ -419,6 +419,8 @@ class CheckAlertBridgeTests(TestCase):
         # so the bridge's fingerprint lookup won't find it but incident query will.
         incident = Incident.objects.create(
             title="Disk issue",
+            subject="checker:disk",
+            instance="test-server",
             severity="warning",
             status=IncidentStatus.OPEN,
         )
@@ -710,6 +712,8 @@ class CheckAlertBridgeTests(TestCase):
         # Create an open incident with a critical alert
         incident = Incident.objects.create(
             title="Critical issue",
+            subject="checker:cpu",
+            instance="test-server",
             severity="critical",
             status=IncidentStatus.OPEN,
         )
@@ -1090,3 +1094,12 @@ class BridgeSelfRegistrationTests(TestCase):
 
         self.assertEqual(Node.objects.get(instance_id="hub-1").hostname, "hub-host")
         self.assertEqual(Node.objects.count(), 1)
+
+
+class SkippedStatusTests(TestCase):
+    def test_skipped_maps_like_ok(self):
+        from apps.alerts.check_integration import STATUS_TO_ALERT_STATUS, STATUS_TO_SEVERITY
+        from apps.checkers.checkers.base import CheckStatus
+
+        self.assertEqual(STATUS_TO_ALERT_STATUS[CheckStatus.SKIPPED], "resolved")
+        self.assertEqual(STATUS_TO_SEVERITY[CheckStatus.SKIPPED], "info")

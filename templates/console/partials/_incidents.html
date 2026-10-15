@@ -1,0 +1,55 @@
+<div id="incidents" data-poll hx-get="{{ list.url }}" hx-trigger="every 30s, console:refresh" hx-swap="outerHTML">
+  {% if list.notice %}{% include "console/partials/_flash.html" with tone="warning" text=list.notice %}{% endif %}
+  <div class="c-toolbar">
+    {% for group in list.groups %}{% if group.name != "status" %}
+    <nav class="c-seg" aria-label="{{ group.label }}">
+      {% for chip in group.chips %}
+      <a id="chip-{{ group.name }}-{{ chip.key }}" href="{{ chip.url }}" hx-get="{{ chip.url }}" hx-target="#incidents" hx-swap="outerHTML" hx-push-url="true" hx-sync="#incidents:replace" title="{{ chip.label }}"{% if chip.active %} aria-current="true"{% endif %}>{{ chip.label }}</a>
+      {% endfor %}
+    </nav>
+    {% endif %}{% endfor %}
+  </div>
+  <div class="c-box">
+    <div class="c-box__header">
+      <h2 class="c-sr-only">{{ list.total }} incident{{ list.total|pluralize }}</h2>
+      {% for group in list.groups %}{% if group.name == "status" %}
+      <nav class="c-states" aria-label="{{ group.label }}">
+        {% for chip in group.chips %}
+        <a id="chip-{{ group.name }}-{{ chip.key }}" href="{{ chip.url }}" hx-get="{{ chip.url }}" hx-target="#incidents" hx-swap="outerHTML" hx-push-url="true" hx-sync="#incidents:replace"{% if chip.active %} aria-current="true"{% endif %}>{% if chip.key == "active" or chip.key == "open" %}{% include "console/partials/_octicon.html" with name="issue-opened" %}{% elif chip.key == "acknowledged" %}{% include "console/partials/_octicon.html" with name="eye" %}{% elif chip.key != "all" %}{% include "console/partials/_octicon.html" with name="issue-closed" %}{% endif %}<span>{{ chip.label }}</span><span class="c-counter">{{ chip.count }}</span></a>
+        {% endfor %}
+      </nav>
+      {% endif %}{% endfor %}
+    </div>
+    {% if list.rows %}
+    <ul class="c-box__list">
+      {% for row in list.rows %}{% include "console/partials/_incident_row.html" %}{% endfor %}
+    </ul>
+    {% elif list.empty == "none" %}
+    <div class="c-blankslate">
+      {% include "console/partials/_octicon.html" with name="issue-opened" %}
+      <h3 class="c-blankslate__heading">No incidents yet.</h3>
+      <p>Incidents appear here when alerts fire.</p>
+    </div>
+    {% elif list.empty == "none_active" %}
+    <div class="c-blankslate">
+      {% include "console/partials/_octicon.html" with name="check-circle" %}
+      <h3 class="c-blankslate__heading">No active incidents.</h3>
+      <p>Everything that fired has been resolved or closed.</p>
+    </div>
+    {% else %}
+    {% url 'console:incidents' as clear_url %}
+    <div class="c-blankslate">
+      {% include "console/partials/_octicon.html" with name="issue-opened" %}
+      <h3 class="c-blankslate__heading">No incidents match these filters.</h3>
+      <p><a id="filters-clear" href="{{ clear_url }}" hx-get="{{ clear_url }}" hx-target="#incidents" hx-swap="outerHTML" hx-push-url="true" hx-sync="#incidents:replace">Clear filters</a></p>
+    </div>
+    {% endif %}
+  </div>
+  {% if list.pages > 1 %}
+  <nav class="c-pagination" aria-label="Pages">
+    {% if list.prev_url %}<a id="page-prev" href="{{ list.prev_url }}" hx-get="{{ list.prev_url }}" hx-target="#incidents" hx-swap="outerHTML" hx-push-url="true" hx-sync="#incidents:replace">{% include "console/partials/_octicon.html" with name="chevron-right" cls="c-pagination__flip" %}Previous</a>{% else %}<span class="c-pagination__gap">{% include "console/partials/_octicon.html" with name="chevron-right" cls="c-pagination__flip" %}Previous</span>{% endif %}
+    <span class="c-pagination__gap">Page {{ list.page }} of {{ list.pages }}</span>
+    {% if list.next_url %}<a id="page-next" href="{{ list.next_url }}" hx-get="{{ list.next_url }}" hx-target="#incidents" hx-swap="outerHTML" hx-push-url="true" hx-sync="#incidents:replace">Next{% include "console/partials/_octicon.html" with name="chevron-right" %}</a>{% else %}<span class="c-pagination__gap">Next{% include "console/partials/_octicon.html" with name="chevron-right" %}</span>{% endif %}
+  </nav>
+  {% endif %}
+</div>

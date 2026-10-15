@@ -54,3 +54,57 @@ def test_staticfiles_dirs_includes_project_static():
     from django.conf import settings
 
     assert settings.BASE_DIR / "static" in settings.STATICFILES_DIRS
+
+
+MANIFEST_BACKEND = "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
+PLAIN_BACKEND = "django.contrib.staticfiles.storage.StaticFilesStorage"
+
+
+class TestStaticStorageBackend(SimpleTestCase):
+    """nginx serves /static/ as immutable for 30 days, so production names must be hashed."""
+
+    _base_env = {"DJANGO_SECRET_KEY": "test-secret", "DJANGO_ALLOWED_HOSTS": "localhost"}
+
+    def _backend(self, debug: str) -> str:
+        env = {**self._base_env, "DJANGO_DEBUG": debug}
+        with patch("config.env.load_dotenv"), patch.dict("os.environ", env, clear=True):
+            module = importlib.reload(__import__("config.settings", fromlist=["settings"]))
+        return module.STORAGES["staticfiles"]["BACKEND"]
+
+    def test_debug_off_hashes_static_names(self):
+        assert self._backend("0") == MANIFEST_BACKEND
+
+    def test_debug_on_serves_plain_names(self):
+        assert self._backend("1") == PLAIN_BACKEND
+
+    def test_debug_flag_ignores_case(self):
+        for value in ("TRUE", "Yes", "ON"):
+            with self.subTest(value=value):
+                assert self._backend(value) == PLAIN_BACKEND
+
+
+def test_suite_runs_on_plain_static_storage():
+    from django.conf import settings
+
+    assert settings.STORAGES["staticfiles"]["BACKEND"] == PLAIN_BACKEND
+
+
+def test_collectstatic_hashes_every_console_asset(tmp_path, settings):
+    from django.contrib.staticfiles.storage import staticfiles_storage
+    from django.core.management import call_command
+
+    settings.STATIC_ROOT = tmp_path
+    settings.STORAGES = {**settings.STORAGES, "staticfiles": {"BACKEND": MANIFEST_BACKEND}}
+
+    call_command("collectstatic", "--noinput", verbosity=0)
+
+    for name in (
+        "console/console.css",
+        "console/console.js",
+        "console/vendor/htmx.min.js",
+        "admin/css/ops.css",
+    ):
+        stored = staticfiles_storage.stored_name(name)
+        assert stored != name
+        assert (tmp_path / stored).is_file()
+        assert staticfiles_storage.url(name) == f"/static/{stored}"

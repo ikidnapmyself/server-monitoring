@@ -11,6 +11,7 @@ This file is the **canonical, tool-agnostic** source of guidance for AI agents w
 - **App-local rules** — each app's `AGENTS.md` carries stage-specific contracts, module notes, and admin conventions:
   - `apps/alerts/AGENTS.md`
   - `apps/checkers/AGENTS.md`
+  - `apps/console/AGENTS.md`
   - `apps/intelligence/AGENTS.md`
   - `apps/notify/AGENTS.md`
   - `apps/orchestration/AGENTS.md`
@@ -134,8 +135,8 @@ results are also a **source of alerts about this machine**, converted by `CheckA
 **This does not change the stage model.** Producing an alert is not a stage transition:
 the orchestrator still owns every transition, and neither path lets `apps.checkers` call a
 downstream app. Both producers share one identity — fingerprint
-`check:{instance_id}:{checker_name}` under `source: cluster`, with a stable alert name —
-so one condition on one machine is one row however it arrived. See
+`check:{instance_id}:{checker_name}` under `source: cluster`, and incidents group on
+`(subject, instance)`, so one condition on one machine is one row however it arrived. See
 `apps/alerts/AGENTS.md` → "Checker-alert identity".
 
 **Diagnostic I/O clarification:** stages may call external systems (HTTP APIs, monitoring vendors) when needed to produce their own stage output — e.g. `apps.checkers` fetching StatusCake/uptime data or recent PagerDuty incident history. These calls must be treated as **inputs only** (no cross-stage advancement, no direct notifications). Always enforce timeouts/retries and redact secrets.
@@ -155,6 +156,7 @@ Apps under `apps/` should follow this layout. A few legacy `views.py` modules �
 |-----|---------|------------|
 | `alerts` | Webhook ingestion (8 drivers), incident rollup, operator transitions. A **producer**, not a stage | Alert, Incident, AlertHistory |
 | `checkers` | Health checks (CPU, memory, disk, disk_macos, disk_linux, disk_common, disk_inodes, network, process, raid, disk_temp, cpu_temp, io_strain, listening_ports). Also a **producer of alert truth** about the machine it runs on, via `CheckAlertBridge` — see "Checkers as an alert producer" below | CheckRun |
+| `console` | Operator console at `/console/`. Server-rendered, staff only. A consumer: not a stage, not a producer | none |
 | `intelligence` | AI analysis via provider pattern | Uses StageExecution |
 | `notify` | Notification delivery (Email, Slack, PagerDuty, Generic) | NotificationChannel |
 | `orchestration` | Intake (`intake.enqueue_for`), inbox, pipeline state machine, retry logic | PipelineRun, StageExecution, PipelineDefinition |

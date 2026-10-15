@@ -54,6 +54,13 @@ class Alert(models.Model):
             "alone decide. See apps.alerts.context_keys."
         ),
     )
+    subject = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="What kind of problem this is, as a machine key. See apps.alerts.identity.",
+    )
     source = models.CharField(
         max_length=100,
         db_index=True,
@@ -196,6 +203,26 @@ class Incident(models.Model):
         default=AlertSeverity.WARNING,
         db_index=True,
     )
+    subject = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Subject of the alerts this incident groups. Grouping key with instance.",
+    )
+    instance = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Host the incident is about, from its alerts' labels. Grouping key with subject.",
+    )
+    node = models.ForeignKey(
+        "alerts.Node",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="incidents",
+        help_text="Registered node the incident is about, when its alerts name one.",
+    )
 
     # Details
     description = models.TextField(
@@ -250,6 +277,7 @@ class Incident(models.Model):
         indexes = [
             models.Index(fields=["status", "severity"]),
             models.Index(fields=["created_at"]),
+            models.Index(fields=["subject", "instance", "status"]),
         ]
 
     def __str__(self):

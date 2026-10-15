@@ -106,7 +106,7 @@ class IOStrainCheckerTests(TestCase):
     def test_non_linux_skips_ok(self):
         self._start(mock.patch.object(sys, "platform", "darwin"))
         result = IOStrainChecker().check()
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("not Linux", result.message)
         self.assertEqual(result.metrics["disk_count"], 0)
 
@@ -119,13 +119,13 @@ class IOStrainCheckerTests(TestCase):
             )
         )
         result = IOStrainChecker().check()
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("no disk IO counters", result.message)
 
     def test_no_busy_time_skips_ok(self):
         self._patch({"sda": _c(busy_time=None)}, {"sda": _c(busy_time=None)})
         result = IOStrainChecker().check()
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("no disk IO utilization data", result.message)
 
     def test_invalid_sample_interval_raises(self):

@@ -24,7 +24,7 @@ class DiskMacOSCheckerTests(TestCase):
         checker = self._get_checker_class()()
         result = checker.check()
 
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("skipped", result.message.lower())
         self.assertEqual(result.metrics.get("platform"), "linux")
 

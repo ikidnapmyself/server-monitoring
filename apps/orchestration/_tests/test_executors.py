@@ -244,7 +244,7 @@ class TestIngestExecutorSubjectOrderingIsTotal(TestCase):
     """Same name + same severity on two instances must not pick arbitrarily.
 
     A grouped alertmanager notification can carry one alertname at one severity
-    for several instances. Incident grouping is (name, instance)-scoped, so those
+    for several instances. Incident grouping is (subject, instance)-scoped, so those
     alerts belong to *different* incidents — without a total order the run's
     incident_id and title would swing with payload order.
     """

@@ -195,6 +195,49 @@ class CheckHealthCommandTests(TestCase):
         output = out.getvalue()
         self.assertIn("Warning: 1", output)
 
+    def _ok_and_skipped_registry(self):
+        return {
+            "cpu": self._make_checker(),
+            "raid": self._make_checker(
+                status=CheckStatus.SKIPPED, message="Skipped: not Linux", checker_name="raid"
+            ),
+        }
+
+    def test_skipped_count_in_summary(self):
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, self._ok_and_skipped_registry(), clear=True):
+            call_command("check_health", "--no-alert", stdout=out)
+        self.assertIn("OK: 1 | Skipped: 1 | ", out.getvalue())
+
+    def test_skipped_count_in_json(self):
+        import json as json_mod
+
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, self._ok_and_skipped_registry(), clear=True):
+            call_command("check_health", "--no-alert", "--json", stdout=out)
+        summary = json_mod.loads(out.getvalue())["summary"]
+        self.assertEqual(summary["ok"], 1)
+        self.assertEqual(summary["skipped"], 1)
+
+    def test_skipped_renders_with_the_ok_style(self):
+        out = StringIO()
+        with patch.dict(self.REGISTRY_PATH, self._ok_and_skipped_registry(), clear=True):
+            call_command("check_health", "--no-alert", force_color=True, stdout=out)
+        lines = out.getvalue().splitlines()
+        ok_line = next(line for line in lines if "[OK]" in line)
+        skipped_line = next(line for line in lines if "[SKIPPED]" in line)
+        self.assertEqual(ok_line.split("[OK]")[0], skipped_line.split("[SKIPPED]")[0])
+
+    def test_only_skipped_results_exit_zero(self):
+        from apps.checkers.management.commands.check_health import Command
+
+        results = [
+            CheckResult(status=CheckStatus.SKIPPED, message="Skipped: n/a", checker_name="raid")
+        ]
+        for fail_on_warning in (False, True):
+            options = {"fail_on_critical": False, "fail_on_warning": fail_on_warning}
+            self.assertEqual(Command()._determine_exit_code(results, options), 0)
+
     def test_warning_threshold_and_critical_threshold(self):
         mock_checker = self._make_checker()
         with patch.dict(self.REGISTRY_PATH, {"cpu": mock_checker}, clear=True):
@@ -783,7 +826,7 @@ class RunCheckCommandTests(TestCase):
 
     def test_skipped_check_hides_metrics(self):
         mock_checker = self._make_checker(
-            status=CheckStatus.OK,
+            status=CheckStatus.SKIPPED,
             message="Skipped: not Linux",
             metrics={"platform": "darwin", "reboot_required": False},
         )
@@ -799,7 +842,7 @@ class RunCheckCommandTests(TestCase):
         import json as json_mod
 
         mock_checker = self._make_checker(
-            status=CheckStatus.OK,
+            status=CheckStatus.SKIPPED,
             message="Skipped: not Linux",
             metrics={"platform": "darwin", "reboot_required": False},
         )
@@ -809,6 +852,19 @@ class RunCheckCommandTests(TestCase):
         data = json_mod.loads(out.getvalue())
         self.assertEqual(data["metrics"]["platform"], "darwin")
         self.assertEqual(data["metrics"]["reboot_required"], False)
+
+    def test_skipped_prints_with_the_ok_style(self):
+        def first_line(status):
+            out = StringIO()
+            checker = self._make_checker(status=status, message="Skipped: not Linux")
+            with patch.dict(self.REGISTRY_PATH, {"cpu": checker}, clear=True):
+                call_command("run_check", "cpu", force_color=True, stdout=out)
+            return next(line for line in out.getvalue().splitlines() if "] cpu" in line)
+
+        ok_line = first_line(CheckStatus.OK)
+        skipped_line = first_line(CheckStatus.SKIPPED)
+        self.assertIn("[SKIPPED] cpu", skipped_line)
+        self.assertEqual(ok_line.split("[OK]")[0], skipped_line.split("[SKIPPED]")[0])
 
     def test_memory_no_swap(self):
         mock_checker = self._make_checker(checker_name="memory")

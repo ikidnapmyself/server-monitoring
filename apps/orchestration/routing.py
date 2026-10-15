@@ -18,7 +18,7 @@ def subject_alert(alerts: Any) -> Any:
 
     The fingerprint key makes the order total: one grouped alertmanager
     notification can carry the same alertname at the same severity for two
-    instances, and those belong to different (name, instance) incidents — an
+    instances, and those belong to different (subject, instance) incidents — an
     arbitrary pick would swing incident_id and title.
     """
     from apps.alerts.services import severity_rank

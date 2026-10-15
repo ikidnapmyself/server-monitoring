@@ -340,7 +340,7 @@ class DiskCommonCoverageGapTests(TestCase):
         checker = self._get_checker_class()()
         result = checker.check()
 
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("skipped", result.message.lower())
 
     @patch("apps.checkers.checkers.disk.base.os.path.expanduser")

@@ -50,6 +50,7 @@ CHECK_STATUS_TONES = {
     "warning": "warning",
     "critical": "critical",
     "unknown": "muted",
+    "skipped": "muted",
 }
 
 STAGE_STATUS_TONES = {

@@ -19,6 +19,7 @@ class CheckStatus(Enum):
     WARNING = "warning"
     CRITICAL = "critical"
     UNKNOWN = "unknown"  # For errors or unreachable states
+    SKIPPED = "skipped"  # Not applicable on this machine; never raises an alert
 
 
 @dataclass

@@ -105,8 +105,8 @@ Two delivery modes, and when each applies:
 job: the health check already routes and notifies on its own.
 
 **One identity, both producers.** A checker-origin alert is fingerprinted
-`check:{instance_id}:{checker_name}` under `source: cluster`, with the stable name
-`"<CHECKER> Check Alert"`. `instance_id` (from `INSTANCE_ID`, hostname when unset) is
+`check:{instance_id}:{checker_name}` under `source: cluster`, and its incident groups on
+`(subject, instance)` with subject `checker:<name>`. `instance_id` (from `INSTANCE_ID`, hostname when unset) is
 used rather than the hostname because hostnames collide across stock installs and change
 on rename. Alert identity is the pair `(fingerprint, source)` and incident grouping
 matches on the alert *name*, so both producers — the local bridge and the pushed payload —
