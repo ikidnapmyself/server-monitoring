@@ -973,6 +973,38 @@ class AlertQueryServiceTests(TestCase):
         self.assertEqual(alert.history.count(), 1)
 
 
+class AlertSubjectWriteTests(TestCase):
+    def setUp(self):
+        self.orchestrator = AlertOrchestrator()
+
+    def _am(self, name="HighCPU", status="firing"):
+        return {
+            "version": "4",
+            "receiver": "webhook",
+            "status": status,
+            "alerts": [
+                {
+                    "status": status,
+                    "labels": {"alertname": name, "severity": "warning", "instance": "w1"},
+                    "annotations": {},
+                    "startsAt": "2024-01-08T10:00:00Z",
+                    "fingerprint": "fp-subject",
+                }
+            ],
+            "groupLabels": {},
+            "commonLabels": {},
+        }
+
+    def test_created_alert_carries_subject(self):
+        self.orchestrator.process_webhook(self._am(), driver="alertmanager")
+        self.assertEqual(Alert.objects.get().subject, "alertmanager:HighCPU")
+
+    def test_updated_alert_follows_a_renamed_source_alert(self):
+        self.orchestrator.process_webhook(self._am(), driver="alertmanager")
+        self.orchestrator.process_webhook(self._am(name="HighCPU2"), driver="alertmanager")
+        self.assertEqual(Alert.objects.get().subject, "alertmanager:HighCPU2")
+
+
 class IncidentGroupingTests(TestCase):
     """Incident grouping is scoped by (name, instance) — no cross-host merge."""
 

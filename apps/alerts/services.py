@@ -21,6 +21,7 @@ from apps.alerts.drivers import (
     detect_driver,
     get_driver,
 )
+from apps.alerts.identity import alert_subject
 from apps.alerts.materiality import is_material_change
 from apps.alerts.models import (
     Alert,
@@ -355,6 +356,7 @@ class AlertOrchestrator:
             fingerprint=parsed.fingerprint,
             source=source,
             name=parsed.name,
+            subject=alert_subject(source, parsed.name, parsed.labels),
             severity=parsed.severity,
             status=parsed.status,
             description=parsed.description,
@@ -423,6 +425,7 @@ class AlertOrchestrator:
 
         # Update fields
         alert.name = parsed.name
+        alert.subject = alert_subject(alert.source, parsed.name, parsed.labels)
         alert.severity = parsed.severity
         alert.description = parsed.description
         alert.labels = parsed.labels
