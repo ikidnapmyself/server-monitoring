@@ -77,6 +77,11 @@ class TestStaticStorageBackend(SimpleTestCase):
     def test_debug_on_serves_plain_names(self):
         assert self._backend("1") == PLAIN_BACKEND
 
+    def test_debug_flag_ignores_case(self):
+        for value in ("TRUE", "Yes", "ON"):
+            with self.subTest(value=value):
+                assert self._backend(value) == PLAIN_BACKEND
+
 
 def test_suite_runs_on_plain_static_storage():
     from django.conf import settings
