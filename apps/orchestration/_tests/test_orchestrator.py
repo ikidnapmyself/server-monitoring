@@ -1026,7 +1026,7 @@ def cluster_push(checkers, instance_id="web-03", severity="critical"):
     """A node push carrying one firing alert per checker.
 
     Each checker is a different alert name on the same host, so incident grouping
-    (name, instance) opens one incident per checker — the exact shape the fan-out
+    (subject, instance) opens one incident per checker — the exact shape the fan-out
     exists for.
     """
     return {

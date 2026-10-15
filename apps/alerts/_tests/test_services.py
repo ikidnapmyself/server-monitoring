@@ -7,7 +7,14 @@ from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 
 from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
-from apps.alerts.models import Alert, AlertHistory, AlertStatus, Incident, IncidentStatus
+from apps.alerts.models import (
+    Alert,
+    AlertHistory,
+    AlertStatus,
+    Incident,
+    IncidentStatus,
+    Node,
+)
 from apps.alerts.services import (
     INCIDENT_ACTIONS,
     AlertOrchestrator,
@@ -973,8 +980,40 @@ class AlertQueryServiceTests(TestCase):
         self.assertEqual(alert.history.count(), 1)
 
 
+class AlertSubjectWriteTests(TestCase):
+    def setUp(self):
+        self.orchestrator = AlertOrchestrator()
+
+    def _am(self, name="HighCPU", status="firing"):
+        return {
+            "version": "4",
+            "receiver": "webhook",
+            "status": status,
+            "alerts": [
+                {
+                    "status": status,
+                    "labels": {"alertname": name, "severity": "warning", "instance": "w1"},
+                    "annotations": {},
+                    "startsAt": "2024-01-08T10:00:00Z",
+                    "fingerprint": "fp-subject",
+                }
+            ],
+            "groupLabels": {},
+            "commonLabels": {},
+        }
+
+    def test_created_alert_carries_subject(self):
+        self.orchestrator.process_webhook(self._am(), driver="alertmanager")
+        self.assertEqual(Alert.objects.get().subject, "alertmanager:HighCPU")
+
+    def test_updated_alert_follows_a_renamed_source_alert(self):
+        self.orchestrator.process_webhook(self._am(), driver="alertmanager")
+        self.orchestrator.process_webhook(self._am(name="HighCPU2"), driver="alertmanager")
+        self.assertEqual(Alert.objects.get().subject, "alertmanager:HighCPU2")
+
+
 class IncidentGroupingTests(TestCase):
-    """Incident grouping is scoped by (name, instance) — no cross-host merge."""
+    """Incident grouping is scoped by (subject, instance) — no cross-host merge."""
 
     def setUp(self):
         self.orchestrator = AlertOrchestrator()
@@ -1028,11 +1067,92 @@ class IncidentGroupingTests(TestCase):
         inc = Incident.objects.get()
         self.assertEqual(inc.severity, "critical")
 
-    def test_no_instance_label_groups_by_name_only(self):
-        # Alerts with no instance/hostname label fall back to "" — grouped by name.
+    def test_no_instance_label_groups_by_subject_only(self):
+        # Alerts with no instance/hostname label fall back to "" — grouped by subject.
         self.orchestrator.process_webhook(self._am("g1", "", name="Generic"), driver="alertmanager")
         self.orchestrator.process_webhook(self._am("g2", "", name="Generic"), driver="alertmanager")
         self.assertEqual(Incident.objects.count(), 1)
+
+    def test_new_incident_carries_subject_and_instance(self):
+        self.orchestrator.process_webhook(self._am("fp1", "web-03"), driver="alertmanager")
+        inc = Incident.objects.get()
+        self.assertEqual((inc.subject, inc.instance), ("alertmanager:HighCPU", "web-03"))
+
+    def test_same_name_from_two_sources_do_not_merge(self):
+        self.orchestrator.process_webhook(self._am("fp1", "web-03"), driver="alertmanager")
+        Incident.objects.update(subject="grafana:HighCPU")
+        self.orchestrator.process_webhook(self._am("fp2", "web-03"), driver="alertmanager")
+        self.assertEqual(Incident.objects.count(), 2)
+
+    def test_grouping_ignores_display_name(self):
+        self.orchestrator.process_webhook(self._am("fp1", "web-03"), driver="alertmanager")
+        Alert.objects.update(name="renamed for display")
+        self.orchestrator.process_webhook(self._am("fp2", "web-03"), driver="alertmanager")
+        self.assertEqual(Incident.objects.count(), 1)
+
+    def test_grouping_is_one_query(self):
+        self.orchestrator.process_webhook(self._am("fp1", "web-03"), driver="alertmanager")
+        alert = Alert.objects.get()
+        with self.assertNumQueries(1):
+            self.orchestrator._find_open_incident(alert)
+
+    def test_checker_incident_carries_checker_subject_and_node(self):
+        payload = {
+            "source": "cluster",
+            "instance_id": "web-01",
+            "hostname": "ip-10-0-1-42",
+            "version": "1.0",
+            "alerts": [
+                {
+                    "name": "CPU Check Alert",
+                    "status": "firing",
+                    "severity": "critical",
+                    "started_at": "2026-03-29T12:00:00Z",
+                    "labels": {"checker": "cpu", "hostname": "ip-10-0-1-42"},
+                    "annotations": {"message": "CPU at 95.2%"},
+                }
+            ],
+        }
+        self.orchestrator.process_webhook(payload, driver="cluster")
+        inc = Incident.objects.get()
+        node = Node.objects.get(instance_id="web-01")
+        self.assertEqual((inc.subject, inc.instance), ("checker:cpu", "web-01"))
+        self.assertEqual(inc.node_id, node.pk)
+
+    def test_refire_stays_in_its_own_open_incident(self):
+        self.orchestrator.process_webhook(self._am("fp1", "web-03"), driver="alertmanager")
+        own = Incident.objects.get()
+        newer = Incident.objects.create(
+            title="dup", severity="warning", subject=own.subject, instance=own.instance
+        )
+        resolved = self._am("fp1", "web-03")
+        resolved["status"] = resolved["alerts"][0]["status"] = "resolved"
+        resolved["alerts"][0]["endsAt"] = "2024-01-08T11:00:00Z"
+        self.orchestrator.process_webhook(resolved, driver="alertmanager")
+        own.refresh_from_db()
+        if own.status != "open":
+            own.status = "acknowledged"
+            own.save(update_fields=["status"])
+        self.orchestrator.process_webhook(self._am("fp1", "web-03"), driver="alertmanager")
+        self.assertEqual(Alert.objects.get(fingerprint="fp1").incident_id, own.pk)
+        self.assertFalse(newer.alerts.exists())
+
+    def test_alert_written_before_its_node_still_links_the_incident(self):
+        # Alert.node is stamped only at creation, so an alert older than its Node
+        # row stays unlinked; the incident must not inherit that gap.
+        alert = Alert.objects.create(
+            fingerprint="check:web-01:cpu",
+            source="cluster",
+            name="CPU Check Alert",
+            subject="checker:cpu",
+            severity="critical",
+            status="firing",
+            labels={"checker": "cpu", "instance_id": "web-01"},
+            started_at=timezone.now(),
+        )
+        node = Node.objects.create(instance_id="web-01", hostname="h")
+        self.orchestrator._create_or_attach_incident(alert, ProcessingResult())
+        self.assertEqual(Incident.objects.get().node_id, node.pk)
 
 
 class InstanceKeyFromLabelsTests(TestCase):
@@ -1059,6 +1179,21 @@ class InstanceKeyFromLabelsTests(TestCase):
 
         self.assertEqual(instance_key_from_labels("pwned"), "")
         self.assertEqual(instance_key_from_labels(["not", "a", "dict"]), "")
+
+    def test_nested_label_value_falls_through_to_the_next_key(self):
+        from apps.alerts.services import instance_key_from_labels
+
+        self.assertEqual(instance_key_from_labels({"instance_id": {"x": 1}, "hostname": "h"}), "h")
+
+    def test_non_string_label_value_becomes_string(self):
+        from apps.alerts.services import instance_key_from_labels
+
+        self.assertEqual(instance_key_from_labels({"instance_id": 42}), "42")
+
+    def test_nested_label_value_is_treated_as_absent(self):
+        from apps.alerts.services import instance_key_from_labels
+
+        self.assertEqual(instance_key_from_labels({"hostname": {"nested": "x"}}), "")
 
     def test_incident_instance_key_delegates(self):
         from apps.alerts.services import incident_instance_key
@@ -1273,7 +1408,7 @@ class RefireReopensIncidentTests(TestCase):
         """One situation, one open incident — and the alert points at it.
 
         While this alert's incident was resolved, a sibling with the same
-        (name, instance) opened its own. Reopening ours would mean two open
+        (subject, instance) opened its own. Reopening ours would mean two open
         incidents for one situation; leaving ours resolved would leave a FIRING
         alert under it. So the alert joins the sibling.
         """

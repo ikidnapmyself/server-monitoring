@@ -18,6 +18,7 @@ class CheckStatus(models.TextChoices):
     WARNING = "warning", "Warning"
     CRITICAL = "critical", "Critical"
     UNKNOWN = "unknown", "Unknown"
+    SKIPPED = "skipped", "Skipped"
 
 
 class CheckRun(models.Model):

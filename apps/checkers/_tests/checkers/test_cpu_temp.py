@@ -71,7 +71,7 @@ class CPUTempCheckerTests(TestCase):
     def test_non_linux_skips_ok(self):
         self._start(mock.patch.object(sys, "platform", "darwin"))
         result = CPUTempChecker().check()
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("not Linux", result.message)
         self.assertEqual(result.metrics["sensor_count"], 0)
         self.assertIsNone(result.metrics["hottest_c"])
@@ -79,7 +79,7 @@ class CPUTempCheckerTests(TestCase):
     def test_no_sensors_skips_ok(self):
         self._patch_sensors({})
         result = CPUTempChecker().check()
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("no CPU temperature sensors", result.message)
 
     def test_registered_in_registry(self):

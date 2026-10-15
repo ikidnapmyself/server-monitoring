@@ -35,7 +35,7 @@ class RebootDebianCheckerPlatformTests(TestCase):
         mock_sys.platform = "darwin"
         result = self._get_checker().check()
 
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("not Linux", result.message)
         self.assertEqual(result.metrics["platform"], "darwin")
         self.assertEqual(result.metrics["reboot_required"], False)
@@ -47,7 +47,7 @@ class RebootDebianCheckerPlatformTests(TestCase):
         mock_sys.platform = "win32"
         result = self._get_checker().check()
 
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("not Linux", result.message)
         self.assertEqual(result.metrics["platform"], "win32")
 
@@ -60,7 +60,7 @@ class RebootDebianCheckerPlatformTests(TestCase):
         mock_distro.return_value = (False, "fedora")
         result = self._get_checker().check()
 
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("not Debian-family", result.message)
         self.assertIn("fedora", result.message)
         self.assertEqual(result.metrics["distro_id"], "fedora")
@@ -74,7 +74,7 @@ class RebootDebianCheckerPlatformTests(TestCase):
         mock_distro.return_value = (False, "")
         result = self._get_checker().check()
 
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("cannot determine distro", result.message)
         self.assertEqual(result.metrics["distro_id"], "")
 

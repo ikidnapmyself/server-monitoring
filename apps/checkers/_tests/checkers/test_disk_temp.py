@@ -60,7 +60,7 @@ class DiskTempCheckerTests(TestCase):
     def test_non_linux_skips_ok(self):
         self._start(mock.patch.object(sys, "platform", "darwin"))
         result = DiskTempChecker().check()
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("not Linux", result.message)
         self.assertEqual(result.metrics["disk_count"], 0)
         self.assertIsNone(result.metrics["hottest_c"])
@@ -68,13 +68,13 @@ class DiskTempCheckerTests(TestCase):
     def test_no_sensors_skips_ok(self):
         self._patch_sensors({})  # no chips at all
         result = DiskTempChecker().check()
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("no disk temperature sensors", result.message)
 
     def test_only_nonpositive_readings_skips_ok(self):
         self._patch_sensors({"drivetemp": [shwtemp("sda", 0.0, None, None)]})
         result = DiskTempChecker().check()
-        self.assertEqual(result.status, CheckStatus.OK)
+        self.assertEqual(result.status, CheckStatus.SKIPPED)
         self.assertIn("no disk temperature sensors", result.message)
 
     def test_registered_in_registry(self):

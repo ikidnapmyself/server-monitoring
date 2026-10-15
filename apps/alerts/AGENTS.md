@@ -145,12 +145,20 @@ machine's key: `settings.INSTANCE_ID`, falling back to the hostname when unconfi
   checker-origin and keep the provided-or-generated fingerprint. `instance_id` must be
   a non-blank string (`ClusterDriver.validate`, `register_pushing_node`) so a blank id
   cannot mint identity or a `Node` row.
-- **The alert name is deliberately stable:** `f"{checker_name.upper()} Check Alert"`,
-  written identically by the bridge and by `push_to_hub._result_to_alert`. Incident
-  grouping matches on `alert.name` (`_find_open_incident`, `apps/alerts/services.py:517`),
-  so a name carrying live metrics — the old `f"{checker}: {message}"` — drifted every
-  tick and silently split one situation into a new incident per tick. Live text belongs in
+- **Incidents group on `(subject, instance)`, never on display text.** `Alert.subject` is
+  `checker:<name>` for checker alerts and `<source>:<name>` otherwise
+  (`apps.alerts.identity.alert_subject`), written on every alert write. An incident stamps
+  `subject`, `instance` and `node` when it is created, and `_find_open_incident` matches
+  the first two in one query. `Alert.name` is display text only. Live text belongs in
   `description`; metrics belong in labels/annotations.
+- **An incident's keys are fixed when it opens.** If a source renames an alert, the alert's
+  subject follows the new name but its open incident keeps the old one. A refire stays in
+  its own open incident while the keys still match, and otherwise joins or opens one under
+  the new subject. A rename is a new situation.
+- **Any source can claim a checker subject.** A `checker` label yields `checker:<name>`
+  whatever the source, so a webhook carrying `checker=cpu` and a node's `instance_id` joins
+  that node's checker incident. That is the same trust boundary as before, when sending
+  the name `CPU Check Alert` did it. Ingest auth is the defence, not the subject.
 
 **Self-registration.** `CheckAlertBridge` upserts the machine it just checked into the
 `Node` registry (`source="local"`) inside the same transaction, *before* writing alerts —

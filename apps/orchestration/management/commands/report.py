@@ -28,9 +28,9 @@ class Command(BaseCommand):
         from apps.orchestration.models import PipelineDefinition, PipelineRun, PipelineStatus
 
         nodes = [
-            {"instance_id": n.instance_id, "incidents": n.incidents, "open": n.open_incidents}
+            {"instance_id": n.instance_id, "incidents": n.incident_count, "open": n.open_incidents}
             for n in Node.objects.annotate(
-                incidents=Count("alerts__incident", distinct=True),
+                incident_count=Count("alerts__incident", distinct=True),
                 open_incidents=Count(
                     "alerts__incident",
                     filter=Q(alerts__incident__status=IncidentStatus.OPEN),

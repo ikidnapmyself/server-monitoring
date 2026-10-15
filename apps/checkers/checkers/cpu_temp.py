@@ -41,7 +41,7 @@ class CPUTempChecker(BaseChecker):
 
     def _skip(self, reason: str) -> CheckResult:
         return self._make_result(
-            status=CheckStatus.OK,
+            status=CheckStatus.SKIPPED,
             message=f"Skipped: {reason}",
             metrics=self._metrics([], None),
         )

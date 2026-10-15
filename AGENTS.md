@@ -135,8 +135,8 @@ results are also a **source of alerts about this machine**, converted by `CheckA
 **This does not change the stage model.** Producing an alert is not a stage transition:
 the orchestrator still owns every transition, and neither path lets `apps.checkers` call a
 downstream app. Both producers share one identity — fingerprint
-`check:{instance_id}:{checker_name}` under `source: cluster`, with a stable alert name —
-so one condition on one machine is one row however it arrived. See
+`check:{instance_id}:{checker_name}` under `source: cluster`, and incidents group on
+`(subject, instance)`, so one condition on one machine is one row however it arrived. See
 `apps/alerts/AGENTS.md` → "Checker-alert identity".
 
 **Diagnostic I/O clarification:** stages may call external systems (HTTP APIs, monitoring vendors) when needed to produce their own stage output — e.g. `apps.checkers` fetching StatusCake/uptime data or recent PagerDuty incident history. These calls must be treated as **inputs only** (no cross-stage advancement, no direct notifications). Always enforce timeouts/retries and redact secrets.

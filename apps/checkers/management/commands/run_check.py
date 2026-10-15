@@ -147,7 +147,7 @@ class Command(BaseCommand):
     def _output_text(self, result):
         """Output result as formatted text."""
         # Status styling
-        if result.status == CheckStatus.OK:
+        if result.status in (CheckStatus.OK, CheckStatus.SKIPPED):
             status_style = self.style.SUCCESS
         elif result.status == CheckStatus.WARNING:
             status_style = self.style.WARNING
@@ -164,7 +164,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"  Error: {result.error}"))
 
         # Skip metrics block for skipped checks — the placeholder values are noise.
-        skipped = result.status == CheckStatus.OK and result.message.startswith("Skipped:")
+        skipped = result.status == CheckStatus.SKIPPED
 
         # Show key metrics — disk checkers get readable section headers,
         # subtotals, and trailers via the shared helper.

@@ -21,6 +21,7 @@ from apps.alerts.drivers import (
     detect_driver,
     get_driver,
 )
+from apps.alerts.identity import alert_subject
 from apps.alerts.materiality import is_material_change
 from apps.alerts.models import (
     Alert,
@@ -93,16 +94,22 @@ def instance_key_from_labels(labels: dict | None) -> str:
     datadog/checker: hostname), so fall back through them. Empty string when none
     is present. Guards against non-dict input (e.g. attacker-controlled webhook
     payloads where ``labels`` is a string) by treating anything non-dict as empty.
+    A scalar value is stringified, and a nested one (a dict or list) is skipped like
+    a missing key rather than rendered as a host name.
     """
     labels = labels if isinstance(labels, dict) else {}
-    return labels.get("instance_id") or labels.get("instance") or labels.get("hostname") or ""
+    for key in ("instance_id", "instance", "hostname"):
+        value = labels.get(key)
+        if value and isinstance(value, (str, int, float)):
+            return str(value)
+    return ""
 
 
 def incident_instance_key(alert) -> str:
     """Instance/host an alert belongs to, for incident grouping.
 
     Delegates to :func:`instance_key_from_labels`. Empty string when no instance
-    label is present (grouping then falls back to name-only).
+    label is present (grouping then falls back to subject-only).
     """
     return instance_key_from_labels(alert.labels)
 
@@ -355,6 +362,7 @@ class AlertOrchestrator:
             fingerprint=parsed.fingerprint,
             source=source,
             name=parsed.name,
+            subject=alert_subject(source, parsed.name, parsed.labels),
             severity=parsed.severity,
             status=parsed.status,
             description=parsed.description,
@@ -423,6 +431,7 @@ class AlertOrchestrator:
 
         # Update fields
         alert.name = parsed.name
+        alert.subject = alert_subject(alert.source, parsed.name, parsed.labels)
         alert.severity = parsed.severity
         alert.description = parsed.description
         alert.labels = parsed.labels
@@ -468,7 +477,7 @@ class AlertOrchestrator:
         # apps.alerts.incident_gate.follow_alert — not here. An alert row is
         # reused per fingerprint, so its FK may still point at a resolved
         # incident; the gate handles that. But a sibling alert with the same
-        # (name, instance) may have opened its own incident meanwhile — join it
+        # (subject, instance) may have opened its own incident meanwhile — join it
         # rather than reopening ours: one situation is one open incident, and
         # the alert must end up under it either way (it is what the downstream
         # run is enqueued against). This runs on every refire, and also on a
@@ -478,7 +487,13 @@ class AlertOrchestrator:
             IncidentStatus.RESOLVED,
             IncidentStatus.CLOSED,
         )
-        if alert.status == AlertStatus.FIRING and (refired or under_closed):
+        in_own_open = (
+            incident is not None
+            and not under_closed
+            and incident.subject == alert.subject
+            and incident.instance == incident_instance_key(alert)[:255]
+        )
+        if alert.status == AlertStatus.FIRING and (refired or under_closed) and not in_own_open:
             sibling = self._find_open_incident(alert)
             if sibling is not None:
                 self._attach_to_incident(alert, sibling, result)
@@ -520,10 +535,10 @@ class AlertOrchestrator:
     ) -> Incident:
         """Create a new incident or attach the alert to an existing one.
 
-        Grouping is scoped to (name, instance): an open incident already holding an
-        alert with the same name AND same instance (see ``incident_instance_key``).
-        This keeps per-host incidents distinct — two servers firing the same alert
-        are two incidents, not one.
+        Grouping is scoped to (subject, instance): an open incident about the same
+        subject on the same instance (see ``incident_instance_key``). This keeps
+        per-host incidents distinct — two servers firing the same alert are two
+        incidents, not one.
         """
         existing_incident = self._find_open_incident(alert)
 
@@ -535,6 +550,9 @@ class AlertOrchestrator:
             title=alert.name,
             severity=alert.severity,
             description=alert.description,
+            subject=alert.subject,
+            instance=incident_instance_key(alert)[:255],
+            node_id=alert.node_id or getattr(resolve_node(alert.labels), "pk", None),
         )
 
         alert.incident = incident
@@ -567,21 +585,12 @@ class AlertOrchestrator:
         return incident
 
     def _find_open_incident(self, alert) -> "Incident | None":
-        """Open incident already holding an alert with this (name, instance)."""
-        instance = incident_instance_key(alert)
-        candidates = (
-            Incident.objects.filter(
-                status__in=[IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED],
-                alerts__name=alert.name,
-            )
-            .distinct()
-            .prefetch_related("alerts")
-        )
-        for incident in candidates:
-            for existing in incident.alerts.all():
-                if existing.name == alert.name and incident_instance_key(existing) == instance:
-                    return incident
-        return None
+        """Open incident about the same subject on the same instance."""
+        return Incident.objects.filter(
+            status__in=[IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED],
+            subject=alert.subject,
+            instance=incident_instance_key(alert)[:255],
+        ).first()
 
     def _check_incident_resolution(self):
         """Check if any incidents should be auto-resolved."""

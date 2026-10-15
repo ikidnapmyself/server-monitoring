@@ -51,6 +51,7 @@ STATUS_TO_SEVERITY = {
     CheckStatus.WARNING: AlertSeverity.WARNING,
     CheckStatus.OK: AlertSeverity.INFO,
     CheckStatus.UNKNOWN: AlertSeverity.WARNING,
+    CheckStatus.SKIPPED: AlertSeverity.INFO,
 }
 
 # Mapping from CheckStatus to alert status (firing/resolved)
@@ -59,6 +60,7 @@ STATUS_TO_ALERT_STATUS = {
     CheckStatus.WARNING: "firing",
     CheckStatus.OK: "resolved",
     CheckStatus.UNKNOWN: "firing",
+    CheckStatus.SKIPPED: "resolved",
 }
 
 
