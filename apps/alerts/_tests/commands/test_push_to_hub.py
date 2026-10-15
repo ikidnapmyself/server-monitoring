@@ -735,6 +735,13 @@ class ResultToAlertIdentityTests(TestCase):
         )
         self.assertEqual(alert["description"], "CPU usage 91%")
 
+    def test_skipped_result_resolves_like_ok(self):
+        alert = Command()._result_to_alert(
+            self._result(status=CheckStatus.SKIPPED, message="Skipped: n/a"), "n1", "h1"
+        )
+        self.assertEqual(alert["status"], "resolved")
+        self.assertEqual(alert["severity"], "info")
+
     def test_both_producers_agree_on_identity(self):
         """The invariant: one condition on one machine is one Alert row."""
         result = self._result(status=CheckStatus.CRITICAL, message="CPU usage 99%")

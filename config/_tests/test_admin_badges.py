@@ -110,6 +110,10 @@ def test_tone_for_maps_a_known_value():
     assert tone_for(INCIDENT_STATUS_TONES, "acknowledged") == "warning"
 
 
+def test_skipped_check_renders_muted():
+    assert CHECK_STATUS_TONES["skipped"] == "muted"
+
+
 def test_tone_for_falls_back_to_muted():
     # An unmapped status renders grey rather than raising in a list column.
     assert tone_for(INCIDENT_STATUS_TONES, "wat") == "muted"

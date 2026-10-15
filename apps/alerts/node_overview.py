@@ -143,11 +143,13 @@ def render_severity_chips(node) -> str:
 # WARNING is far more often a real warning, and "unknown" is simply not recoverable
 # from what a hub holds about a peer. Excluding it by name rather than relying on
 # which key the dict comprehension writes last keeps that choice independent of the
-# order the forward map happens to be written in.
+# order the forward map happens to be written in. CheckStatus.SKIPPED is dropped for
+# the same reason: it shares AlertSeverity.INFO with OK, and a peer's info alert is
+# an OK reading, not a skip.
 SEVERITY_TO_CHECK_STATUS: dict[str, str] = {
     severity: status.value
     for status, severity in STATUS_TO_SEVERITY.items()
-    if status is not CheckStatus.UNKNOWN
+    if status not in (CheckStatus.UNKNOWN, CheckStatus.SKIPPED)
 }
 
 
