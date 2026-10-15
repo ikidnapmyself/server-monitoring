@@ -1119,6 +1119,24 @@ class IncidentGroupingTests(TestCase):
         self.assertEqual((inc.subject, inc.instance), ("checker:cpu", "web-01"))
         self.assertEqual(inc.node_id, node.pk)
 
+    def test_refire_stays_in_its_own_open_incident(self):
+        self.orchestrator.process_webhook(self._am("fp1", "web-03"), driver="alertmanager")
+        own = Incident.objects.get()
+        newer = Incident.objects.create(
+            title="dup", severity="warning", subject=own.subject, instance=own.instance
+        )
+        resolved = self._am("fp1", "web-03")
+        resolved["status"] = resolved["alerts"][0]["status"] = "resolved"
+        resolved["alerts"][0]["endsAt"] = "2024-01-08T11:00:00Z"
+        self.orchestrator.process_webhook(resolved, driver="alertmanager")
+        own.refresh_from_db()
+        if own.status != "open":
+            own.status = "acknowledged"
+            own.save(update_fields=["status"])
+        self.orchestrator.process_webhook(self._am("fp1", "web-03"), driver="alertmanager")
+        self.assertEqual(Alert.objects.get(fingerprint="fp1").incident_id, own.pk)
+        self.assertFalse(newer.alerts.exists())
+
     def test_alert_written_before_its_node_still_links_the_incident(self):
         # Alert.node is stamped only at creation, so an alert older than its Node
         # row stays unlinked; the incident must not inherit that gap.
@@ -1161,6 +1179,11 @@ class InstanceKeyFromLabelsTests(TestCase):
 
         self.assertEqual(instance_key_from_labels("pwned"), "")
         self.assertEqual(instance_key_from_labels(["not", "a", "dict"]), "")
+
+    def test_nested_label_value_falls_through_to_the_next_key(self):
+        from apps.alerts.services import instance_key_from_labels
+
+        self.assertEqual(instance_key_from_labels({"instance_id": {"x": 1}, "hostname": "h"}), "h")
 
     def test_non_string_label_value_becomes_string(self):
         from apps.alerts.services import instance_key_from_labels

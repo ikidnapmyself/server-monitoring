@@ -17,7 +17,11 @@ def _subject(source, name, labels):
 
 def _instance(labels):
     labels = labels if isinstance(labels, dict) else {}
-    return labels.get("instance_id") or labels.get("instance") or labels.get("hostname") or ""
+    for key in ("instance_id", "instance", "hostname"):
+        value = labels.get(key)
+        if value and isinstance(value, (str, int, float)):
+            return str(value)
+    return ""
 
 
 def _node_id(Node, alert):
@@ -49,7 +53,7 @@ def forward(apps, schema_editor):
             continue
         Incident.objects.filter(pk=incident.pk).update(
             subject=first.subject,
-            instance=str(_instance(first.labels))[:255],
+            instance=_instance(first.labels)[:255],
             node_id=_node_id(Node, first),
         )
 
@@ -58,7 +62,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("alerts", "0011_checker_alert_identity"),
-        ("orchestration", "0018_retire_hub_self_check"),
     ]
 
     operations = [

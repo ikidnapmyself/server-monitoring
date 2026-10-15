@@ -87,3 +87,24 @@ class SubjectBackfillTests(TestCase):
         forward(_Apps(), None)
         alert.refresh_from_db()
         self.assertEqual(alert.subject, "generic:X")
+
+    def test_nested_instance_label_falls_through_like_the_live_helper(self):
+        incident = Incident.objects.create(title="t", severity="warning")
+        _alert(labels={"instance": ["a", "b"], "hostname": "h1"}, incident=incident)
+        forward(_Apps(), None)
+        incident.refresh_from_db()
+        self.assertEqual(incident.instance, "h1")
+
+    def test_int_instance_label_is_stringified(self):
+        incident = Incident.objects.create(title="t", severity="warning")
+        _alert(labels={"instance_id": 42}, incident=incident)
+        forward(_Apps(), None)
+        incident.refresh_from_db()
+        self.assertEqual((incident.instance, incident.node_id), ("42", None))
+
+    def test_alert_without_node_or_instance_leaves_node_empty(self):
+        incident = Incident.objects.create(title="t", severity="warning")
+        _alert(labels={}, incident=incident)
+        forward(_Apps(), None)
+        incident.refresh_from_db()
+        self.assertEqual((incident.instance, incident.node_id), ("", None))
