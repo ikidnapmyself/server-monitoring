@@ -11,6 +11,7 @@ from config.admin_badges import TONES
 CSS = Path(settings.BASE_DIR) / "static" / "console" / "console.css"
 DARK_MARKER = "@media (prefers-color-scheme: dark)"
 MIN_CONTRAST = 4.5
+STATES = ("success", "attention", "danger", "done", "accent")
 
 
 def _tokens(theme: str) -> dict[str, str]:
@@ -31,13 +32,42 @@ def _contrast(fg: str, bg: str) -> float:
 
 
 PAIRS = [
-    ("--text", "--bg"),
-    ("--text", "--surface"),
-    ("--text-muted", "--bg"),
-    ("--text-muted", "--surface"),
-    ("--accent", "--bg"),
-    ("--accent", "--surface"),
-    *[(f"--tone-{tone}-fg", f"--tone-{tone}-bg") for tone in sorted(TONES)],
+    # Body text, muted text and links on the page, box headers and inset code.
+    *[
+        (fg, bg)
+        for fg in ("--fgColor-default", "--fgColor-muted", "--fgColor-accent")
+        for bg in ("--bgColor-default", "--bgColor-muted")
+    ],
+    ("--fgColor-default", "--bgColor-inset"),
+    # Labels, row icons and readiness links in each state colour.
+    *[
+        (f"--fgColor-{state}", bg)
+        for state in STATES
+        for bg in ("--bgColor-default", "--bgColor-muted")
+    ],
+    # A linked label on hover.
+    *[(f"--fgColor-{state}", f"--bgColor-{state}-muted") for state in STATES],
+    # Flash text on each tone's background.
+    *[("--fgColor-default", f"--bgColor-{state}-muted") for state in STATES],
+    ("--fgColor-default", "--bgColor-neutral-muted"),
+    # StateLabels, timeline lifecycle badges and the primary button.
+    *[("--fgColor-onEmphasis", f"--bgColor-{state}-emphasis") for state in STATES],
+    ("--fgColor-onEmphasis", "--bgColor-neutral-emphasis"),
+    ("--fgColor-onEmphasis", "--button-primary-bgColor-rest"),
+    ("--fgColor-onEmphasis", "--button-primary-bgColor-hover"),
+    ("--fgColor-onEmphasis", "--button-danger-bgColor-hover"),
+    ("--fgColor-default", "--button-default-bgColor-rest"),
+    ("--fgColor-default", "--button-default-bgColor-hover"),
+    ("--button-danger-fgColor-rest", "--button-default-bgColor-rest"),
+    ("--fgColor-muted", "--button-default-bgColor-rest"),
+    # Segmented control and underline nav.
+    ("--fgColor-default", "--controlTrack-bgColor-rest"),
+    ("--fgColor-default", "--controlTrack-bgColor-hover"),
+    ("--fgColor-default", "--controlKnob-bgColor-rest"),
+    ("--fgColor-muted", "--timelineBadge-bgColor"),
+    # The header.
+    ("--header-fgColor", "--header-bgColor"),
+    ("--header-fgColor-logo", "--header-bgColor"),
 ]
 
 
@@ -51,6 +81,13 @@ def test_text_pairs_meet_aa(theme, fg, bg):
 
 def test_both_themes_define_the_same_tokens():
     assert _tokens("light").keys() == _tokens("dark").keys()
+
+
+def test_every_colour_token_is_a_six_digit_hex():
+    light, dark = CSS.read_text().split(DARK_MARKER)
+    for block in (light.split("}")[0], dark.split("}")[0]):
+        declared = re.findall(r"(--[\w-]+)\s*:", block)
+        assert len(declared) == len(_tokens("light"))
 
 
 @pytest.mark.parametrize("tone", sorted(TONES))

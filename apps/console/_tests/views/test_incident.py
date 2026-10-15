@@ -37,6 +37,13 @@ def _tag(body, element_id):
     return re.search(rf'<[a-z]+\b[^>]*\sid="{re.escape(element_id)}"[^>]*>', body).group()
 
 
+def _nav(body, label):
+    """The opening tag of the underline nav tab named ``label``."""
+    return re.search(
+        rf'(<a class="c-unav__item" [^>]*>)(?:(?!</a>).)*<span>{label}</span></a>', body, re.S
+    ).group(1)
+
+
 def _busy(suffix=""):
     """An acknowledged incident with one alert, two history rows and a full run."""
     pipeline = PipelineDefinition.objects.create(
@@ -147,12 +154,12 @@ def test_a_missing_incident_is_a_console_404_that_links_onward(client, staff, pk
     assert "This incident doesn't exist." in body
     back = reverse("console:incidents")
     assert f'<a id="not-found-back" href="{back}">Back to incidents</a>' in body
-    assert f'<a href="{back}" aria-current="page">Incidents</a>' in body
+    assert _nav(body, "Incidents") == f'<a class="c-unav__item" href="{back}" aria-current="page">'
     assert "<title>Not found · Console</title>" in body
 
 
 @pytest.mark.django_db
-def test_staff_gets_the_full_page_with_incidents_current_in_the_sidebar(client, staff):
+def test_staff_gets_the_full_page_with_incidents_current_in_the_nav(client, staff):
     incident = Incident.objects.create(title="Disk full on web-1")
 
     resp = client.get(_url(incident))
@@ -161,7 +168,8 @@ def test_staff_gets_the_full_page_with_incidents_current_in_the_sidebar(client, 
     assert resp.status_code == 200
     assert resp.templates[0].name == "console/incident.html"
     assert "<title>Disk full on web-1 · Console</title>" in body
-    assert f'<a href="{reverse("console:incidents")}" aria-current="page">Incidents</a>' in body
+    current = f'<a class="c-unav__item" href="{reverse("console:incidents")}" aria-current="page">'
+    assert _nav(body, "Incidents") == current
     assert "script-src 'self'" in resp["Content-Security-Policy"]
     root = _tag(body, "incident")
     assert re.search(r"\sdata-poll[\s>]", root)
@@ -201,20 +209,27 @@ def test_the_header_describes_the_incident_and_links_onward(client, staff, heade
 
     body = client.get(_url(incident), **headers).content.decode()
 
-    assert '<h1 class="c-headline">Disk full</h1>' in body
-    assert '<span class="c-badge c-tone-critical">critical</span>' in body
-    assert '<span class="c-badge c-tone-warning">acknowledged</span>' in body
+    title = (
+        f'<h1 class="c-pagehead__title">Disk full <span class="c-pagehead__number">#{incident.pk}'
+    )
+    assert title in body
+    assert '<span class="c-label c-tone-critical">critical</span>' in body
+    assert re.search(
+        r'<span class="c-state c-status--acknowledged"><svg\b.*?</svg>Acknowledged</span>', body
+    )
     assert re.search(r'Started <time datetime="[^"]+" title="[^"]+">[^<]+</time>', body)
     assert re.search(r">\d+m?s so far<", body)
-    assert "web-1" in body
-    assert "1 alert<" in body
-    assert "pipeline pager" in body
-    assert "92% used" in body
-    assert "Logs rotated" in body
+    assert "<span>web-1</span>" in body
+    assert "<span>1 alert</span>" in body
+    assert "<span>pager</span>" in body
+    assert '<p class="c-prose">92% used</p>' in body
+    assert '<p class="c-prose">Logs rotated</p>' in body
     admin_url = reverse("admin:alerts_incident_change", args=[incident.pk])
-    assert f'<a id="incident-admin" href="{admin_url}">Edit raw</a>' in body
-    back = reverse("console:incidents")
-    assert f'<a id="incident-back" href="{back}">Back to incidents</a>' in body
+    admin = f'<a id="incident-admin" class="c-button c-button--sm" href="{admin_url}">Edit raw</a>'
+    assert admin in body
+    back = _tag(body, "incident-back")
+    assert f'href="{reverse("console:incidents")}"' in back
+    assert re.search(r'<a id="incident-back"[^>]*><svg\b.*?</svg>Back to incidents</a>', body)
 
 
 @pytest.mark.django_db
@@ -231,6 +246,10 @@ def test_a_finished_bare_incident_drops_the_optional_header_parts(client, staff)
     assert "so far" not in body
     assert "0 alerts" in body
     assert "pipeline " not in body
+    assert body.count('<span class="c-muted">None</span>') == 2
+    assert re.search(
+        r'<span class="c-host c-host--lg c-host--unknown">.*?</svg>Unknown host</span>', body
+    )
     assert "c-prose" not in body
 
 
@@ -242,10 +261,10 @@ def test_the_stage_strip_shows_each_stage_with_its_detail_and_runs(client, staff
     body = client.get(_url(incident), **headers).content.decode()
 
     check = reverse("admin:orchestration_stageexecution_change", args=[stages["check"].pk])
-    assert f'<a id="stage-check" class="c-badge c-tone-ok" href="{check}">ok</a>' in body
+    assert f'<a id="stage-check" class="c-label c-tone-ok" href="{check}">ok</a>' in body
     notify = reverse("admin:orchestration_stageexecution_change", args=[failed.pk])
     assert (
-        f'<a id="stage-notify" class="c-badge c-tone-critical" href="{notify}">failed</a>' in body
+        f'<a id="stage-notify" class="c-label c-tone-critical" href="{notify}">failed</a>' in body
     )
     assert "error: slack 500 (retryable=True)" in body
     assert "succeeded in 1/1 runs" in body
@@ -254,12 +273,12 @@ def test_the_stage_strip_shows_each_stage_with_its_detail_and_runs(client, staff
 
 
 @pytest.mark.django_db
-def test_a_stage_with_no_execution_is_a_plain_badge(client, staff):
+def test_a_stage_with_no_execution_is_a_plain_label(client, staff):
     incident = Incident.objects.create(title="Fresh")
 
     body = client.get(_url(incident)).content.decode()
 
-    assert body.count('<span class="c-badge c-tone-muted">never ran</span>') == 3
+    assert body.count('<span class="c-label c-tone-muted">never ran</span>') == 3
     assert 'id="stage-' not in body
 
 
@@ -270,7 +289,7 @@ def test_the_timeline_lists_every_entry_with_time_badge_and_title(client, staff,
 
     body = client.get(_url(incident), **headers).content.decode()
 
-    assert re.search(r'<ol class="c-card c-timeline" data-print-open>', body)
+    assert re.search(r'<ol class="c-timeline" data-print-open>', body)
     assert body.count('<li class="c-timeline__item">') == 10
     alert_url = reverse("admin:alerts_alert_change", args=[alert.pk])
     for row, event in zip(history, ("created", "refired"), strict=True):
@@ -286,15 +305,19 @@ def test_the_timeline_lists_every_entry_with_time_badge_and_title(client, staff,
     assert '<span id="entry-incident-created">Incident opened</span>' in body
     assert '<span id="entry-incident-acknowledged">Incident acknowledged</span>' in body
     for kind in ("incident", "alert", "run", "stage"):
-        assert re.search(rf'<span class="c-badge c-tone-[a-z]+">{kind}</span>', body)
+        assert re.search(rf'<span class="c-label c-tone-[a-z]+">{kind}</span>', body)
     assert "alert_history<" not in body
     assert re.search(
-        r'<time class="c-muted" datetime="[^"]+" title="[^"]+">'
+        r'<time class="c-entry__time" datetime="[^"]+" title="[^"]+">'
         r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d</time>",
         body,
     )
     assert "timeline-all" not in body and "timeline-recent" not in body
     assert "not shown" not in body
+    badges = re.findall(r'<span class="c-timeline__badge ([^"]+)">', body)
+    assert len(badges) == 10
+    assert badges.count("c-status--open") == badges.count("c-status--acknowledged") == 1
+    assert "c-tone-critical" in badges
 
 
 @pytest.mark.django_db
@@ -330,7 +353,7 @@ def test_each_stage_body_is_rendered(client, staff):
     body = client.get(_url(incident)).content.decode()
 
     assert "2 run, 1 passed, 1 failed" in body
-    assert '<span class="c-badge c-tone-warning">warning</span>' in body
+    assert '<span class="c-label c-tone-warning">warning</span>' in body
     assert "Memory usage: 80.6% (3.9/8.0 GB)" in body
     assert "disk timed out" in body
     assert "Memory is tight" in body
@@ -340,7 +363,7 @@ def test_each_stage_body_is_rendered(client, staff):
     assert "80% confidence" in body
     assert "Fallback analysis" in body
     assert "2 attempted, 1 succeeded, 1 failed" in body
-    assert '<span class="c-badge c-tone-ok">success</span>' in body
+    assert '<span class="c-label c-tone-ok">success</span>' in body
     assert "slack" in body and "#alerts" in body and "a970" in body
     assert "email: refused" in body
     assert "&quot;channels_attempted&quot;: 2" in body
@@ -366,7 +389,7 @@ def test_sparse_stage_bodies_leave_their_optional_parts_out(client, staff):
 
     body = client.get(_url(incident)).content.decode()
 
-    assert '<span class="c-badge c-tone-muted">unknown</span>' in body
+    assert '<span class="c-label c-tone-muted">unknown</span>' in body
     assert "Only this." in body
     assert "confidence" not in body.replace("&quot;confidence&quot;", "")
     assert "Fallback analysis" not in body
@@ -389,7 +412,7 @@ def test_hostile_strings_are_escaped_everywhere(client, staff, headers):
         f"92% used {ESCAPED}",
         f"Logs rotated {ESCAPED}",
         f"web-1 {ESCAPED}",
-        f"pipeline pager {ESCAPED}",
+        f"<span>pager {ESCAPED}</span>",
         f"Alert disk {ESCAPED} created",
         f"disk timed out {ESCAPED}",
         f"Memory is tight {ESCAPED}",
@@ -514,3 +537,24 @@ def test_any_other_all_value_is_off(client, staff, monkeypatch, query):
 
     assert "timeline-all" in body
     assert f'hx-get="{_url(incident)}"' in _tag(body, "incident")
+
+
+@pytest.mark.django_db
+def test_the_header_names_the_host_right_after_the_state(client, staff):
+    incident = Incident.objects.create(title="Disk full", severity="critical")
+    Alert.objects.create(
+        fingerprint="f",
+        name="disk",
+        source="cluster",
+        labels={"instance_id": "db-7"},
+        incident=incident,
+        started_at=timezone.now(),
+    )
+
+    body = client.get(_url(incident)).content.decode()
+
+    assert re.search(
+        r'c-state c-status--open">.*?Open</span>\s*<span class="c-host c-host--lg">.*?</svg>db-7</span>',
+        body,
+        re.S,
+    )

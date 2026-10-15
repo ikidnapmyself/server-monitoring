@@ -10,20 +10,24 @@
   <script src="{% static 'console/console.js' %}" defer></script>
 </head>
 <body>
-  <nav class="c-side" aria-label="Console">
-    <p class="c-side__brand">Ops console</p>
-    <a href="{% url 'console:overview' %}"{% if nav == "overview" %} aria-current="page"{% endif %}>Overview</a>
-    <a href="{% url 'console:incidents' %}"{% if nav == "incidents" %} aria-current="page"{% endif %}>Incidents</a>
-    <div class="c-side__foot">
-      <a href="{% url 'admin:index' %}">Admin</a>
+  <header class="c-header">
+    <a class="c-header__brand" href="{% url 'console:overview' %}">{% include "console/partials/_octicon.html" with name="pulse" %}<span>Ops console</span></a>
+    <div class="c-header__links">
+      <a class="c-header__link" href="{% url 'admin:index' %}">Admin</a>
       <form method="post" action="{% url 'admin:logout' %}">
         {% csrf_token %}
-        <button type="submit">Sign out</button>
+        <button class="c-header__link" type="submit">Sign out</button>
       </form>
+    </div>
+  </header>
+  <nav class="c-unav" aria-label="Console">
+    <div class="c-unav__list">
+      <a class="c-unav__item" href="{% url 'console:overview' %}"{% if nav == "overview" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="pulse" %}<span>Overview</span></a>
+      <a class="c-unav__item" href="{% url 'console:incidents' %}"{% if nav == "incidents" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="issue-opened" %}<span>Incidents</span></a>
     </div>
   </nav>
   <main class="c-main">
-    <p id="c-banner" class="c-banner c-tone-warning" role="status" hidden data-refresh-text="Couldn't refresh. Showing the last data that loaded." data-action-text="That action may not have gone through. Reloading the current state.">
+    <p id="c-banner" class="c-flash c-tone-warning" role="status" hidden data-refresh-text="Couldn't refresh. Showing the last data that loaded." data-action-text="That action may not have gone through. Reloading the current state.">
       Couldn't refresh. Showing the last data that loaded.
     </p>
     {% block content %}{% endblock %}

@@ -64,7 +64,10 @@ def _forms(body):
 
 
 def _notices(body):
-    return re.findall(r'<p\b[^>]*\sclass="c-notice c-tone-(\w+)"[^>]*>(.*?)</p>', body)
+    return re.findall(
+        r'<div\b[^>]*\sclass="c-flash c-tone-(\w+)"[^>]*><svg\b.*?</svg><span>(.*?)</span></div>',
+        body,
+    )
 
 
 def test_the_action_lives_under_the_incident():
@@ -249,7 +252,7 @@ def test_an_htmx_post_gets_the_partial_with_a_success_message(client, operator):
     assert 'role="status"' in notice and 'tabindex="-1"' in notice
     assert re.search(r"\sdata-fresh[\s>]", notice)
     assert body.lstrip().startswith(notice)
-    assert '<span class="c-badge c-tone-warning">acknowledged</span>' in body
+    assert '<span class="c-state c-status--acknowledged">' in body
     assert 'id="action-acknowledge"' not in body
     assert 'id="action-resolve"' in body
     assert "script-src 'self'" in resp["Content-Security-Policy"]
@@ -267,7 +270,7 @@ def test_a_plain_post_redirects_to_the_page_which_shows_the_message_once(client,
     assert _notices(client.get(_page(incident), **HTMX).content.decode()) == []
     body = client.get(_page(incident)).content.decode()
     assert _notices(body) == [("ok", "Incident &#x27;Disk full&#x27; resolved.")]
-    assert body.index('class="c-notice') < body.index('<div id="incident"')
+    assert body.index('<div class="c-flash') < body.index('<div id="incident"')
     assert "data-fresh" not in body and 'id="incident-notice"' not in body
     assert _notices(client.get(_page(incident)).content.decode()) == []
 
@@ -532,7 +535,7 @@ def test_every_form_posts_to_its_action_with_a_token_and_the_htmx_contract(clien
         assert 'hx-swap="innerHTML"' in opening
         assert 'hx-sync="#incident:replace"' in opening
         assert 'hx-disabled-elt="#incident .c-button"' in opening
-        assert 'class="c-button"' in re.search(r"<button\b[^>]*>", form).group()
+        assert re.search(r'class="c-button[ "]', re.search(r"<button\b[^>]*>", form).group())
         assert form.count('name="csrfmiddlewaretoken"') == 1
         assert form.count("<button") == 1
         assert 'name="all"' not in form

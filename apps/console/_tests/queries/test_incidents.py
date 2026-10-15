@@ -405,6 +405,39 @@ def test_chip_groups_carry_labels_keys_and_the_active_choice():
 
 
 @pytest.mark.django_db
+def test_status_chips_count_incidents_under_every_other_filter():
+    node = Node.objects.create(instance_id="web-1")
+    for status, count in (("open", 3), ("acknowledged", 2), ("resolved", 1), ("closed", 4)):
+        for index in range(count):
+            _alert(_incident(f"{status} {index}", "critical", status=status), node)
+    _incident("other severity", "info")
+    _incident("other node", "critical")
+
+    result = build_incident_list(
+        IncidentFilter(status="resolved", severity="critical", node=node.pk)
+    )
+
+    counts = {chip.key: chip.count for chip in _group(result, "status").chips}
+    assert counts == {
+        "active": 5,
+        "open": 3,
+        "acknowledged": 2,
+        "resolved": 1,
+        "closed": 4,
+        "all": 10,
+    }
+    assert {chip.count for chip in _group(result, "severity").chips} == {None}
+    assert {chip.count for chip in _group(result, "node").chips} == {None}
+
+
+@pytest.mark.django_db
+def test_status_counts_are_zero_on_an_empty_install():
+    result = build_incident_list(IncidentFilter())
+
+    assert {chip.count for chip in _group(result, "status").chips} == {0}
+
+
+@pytest.mark.django_db
 def test_the_node_group_lists_every_node_by_name(base):
     zeta = Node.objects.create(instance_id="n1", hostname="Zeta")
     alpha = Node.objects.create(instance_id="n2", hostname="alpha")
@@ -473,8 +506,8 @@ def test_the_query_count_does_not_grow_with_the_page(django_assert_num_queries, 
         for node in nodes:
             _alert(incident, node, key=node.instance_id)
 
-    # Node chips, count, page rows, node names for the page.
-    with django_assert_num_queries(4):
+    # Node chips, status counts, count, page rows, node names for the page.
+    with django_assert_num_queries(5):
         result = build_incident_list(IncidentFilter(node=nodes[0].pk, since="7d"))
 
     assert len(result.rows) == count
@@ -487,8 +520,8 @@ def test_an_empty_page_costs_the_any_incident_check_instead_of_the_row_queries(
 ):
     _incident("resolved", status="resolved")
 
-    # Node chips, count, any-incident check.
-    with django_assert_num_queries(3):
+    # Node chips, count, any-incident check, status counts.
+    with django_assert_num_queries(4):
         result = build_incident_list(IncidentFilter())
 
     assert result.empty == "none_active"

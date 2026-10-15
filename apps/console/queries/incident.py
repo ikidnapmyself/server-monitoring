@@ -12,10 +12,11 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.alerts.diagnosis import diagnose_incident
-from apps.alerts.models import Alert, Incident
+from apps.alerts.models import Incident
 from apps.alerts.services import available_incident_actions
 from apps.alerts.timeline import build_incident_timeline
 from apps.console.formatting import humanize_duration
+from apps.console.queries.hosts import incident_hosts
 from config.admin_badges import (
     CHECK_STATUS_TONES,
     DIAGNOSIS_TONES,
@@ -430,17 +431,6 @@ def _stages(incident: Incident) -> tuple[StageSummary, ...]:
     )
 
 
-def _nodes(pk: int) -> str:
-    seen = (
-        Alert.objects.filter(incident_id=pk, node__isnull=False)
-        .values_list("node__hostname", "node__instance_id")
-        .distinct()
-        .order_by()
-    )
-    names = [hostname or instance_id for hostname, instance_id in seen]
-    return ", ".join(sorted(names, key=str.casefold))
-
-
 def _actions(incident: Incident) -> tuple[IncidentAction, ...]:
     return tuple(
         IncidentAction(
@@ -482,7 +472,7 @@ def build_incident_detail(
         created_at=incident.created_at,
         duration=humanize_duration(elapsed.total_seconds()),
         ongoing=ended_at is None,
-        nodes=_nodes(incident.pk),
+        nodes=", ".join(incident_hosts([incident.pk]).get(incident.pk, ())),
         pipeline=incident.pipeline.name if incident.pipeline else "",
         alert_count=incident.alerts_total,
         admin_url=reverse("admin:alerts_incident_change", args=[incident.pk]),

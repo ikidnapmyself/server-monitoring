@@ -50,9 +50,24 @@ pipeline stage and not an alert producer.
   every poll. When a hidden tab becomes visible, `console.js` dispatches
   `console:refresh` on every `data-poll` element, so list that event in the element's
   `hx-trigger` next to the interval.
-- **Colour lives in `static/console/console.css`** as tokens. Tone names match
-  `config/admin_badges.py`.
-- **No dead ends.** Every page links onward. The sidebar lists only pages that exist.
+- **The look is GitHub Primer, written by hand.** `static/console/console.css` is one
+  file, grouped by component. Its custom properties carry Primer's functional token
+  names (`--fgColor-*`, `--bgColor-*`, `--borderColor-*`) with Primer's light and dark
+  values. Components are `c-` classes shaped after Primer: `c-box`, `c-label`, `c-state`,
+  `c-counter`, `c-button`, `c-seg`, `c-flash`, `c-blankslate`, `c-pagination`,
+  `c-timeline` and the issue-page `c-pagehead` and `c-sidebar`. Reuse one before writing
+  a new rule. Colour is only ever a token: no hex outside the two token blocks.
+- **Tones come from `config/admin_badges.py`.** A `c-tone-<tone>` class sets the text
+  colour and the `--tone-*` properties a component reads, so one tone class works on a
+  label, a flash or a timeline badge. Incident states use `c-status--<status>` instead,
+  because GitHub's colours for state differ from the tone table: open is green,
+  acknowledged attention, resolved and closed done purple. `_tests/test_css.py` checks
+  every text pair at AA in both themes and needs a rule per tone.
+- **Icons are Octicons** from the sprite `static/console/vendor/octicons.svg`. Render one
+  with `{% include "console/partials/_octicon.html" with name="..." %}`, never an inline
+  path. A name the sprite lacks fails `_tests/test_templates.py`.
+- **No dead ends.** Every page links onward. The underline nav under the header lists
+  only pages that exist.
 - **Reads need active staff, nothing more.** The console doesn't check the admin's
   model permissions for reads. A staff user without `orchestration.view_stageexecution`
   gets a 403 on the admin's stage page and still sees the same snapshot on the incident
@@ -135,8 +150,11 @@ deliberate exception to the repo's app layout rule.
 ## Frontend dependencies
 
 There is no npm and no build step. `static/console/vendor/` holds the only third-party
-frontend code, and `VENDOR.md` there records each file's version and SHA-256.
-`_tests/test_vendor.py` fails if a file changes or an unlisted file appears.
+frontend files: htmx, and the Octicons sprite. `VENDOR.md` there records each file's
+version, source and SHA-256. `_tests/test_vendor.py` fails if a file changes or an
+unlisted file appears, and if the sprite holds anything but `<svg>`, `<symbol>` and
+`<path>`. The sprite is data with no runtime behaviour. To add an icon, follow
+`VENDOR.md`.
 
 `.github/workflows/vendor-advisories.yml` reads the pinned version from `VENDOR.md` and
 queries OSV for the npm package `htmx.org` every week. OSV held no advisories for that
@@ -147,5 +165,5 @@ package, never against htmx itself.
 
 `static/console/console.js` has no automated test. Check a change to it in a browser.
 
-To upgrade htmx, follow the steps in `static/console/vendor/VENDOR.md`. Don't add a
-second vendored library without a design that names why first-party code won't do.
+To upgrade htmx, follow the steps in `static/console/vendor/VENDOR.md`. Don't add
+another vendored library without a design that names why first-party code won't do.

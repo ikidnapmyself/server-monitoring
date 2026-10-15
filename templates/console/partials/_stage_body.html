@@ -3,7 +3,7 @@
 {% if body.lines %}
 <ul class="c-lines">
   {% for line in body.lines %}
-  <li><span><span class="c-badge c-tone-{{ line.tone }}">{{ line.status|default:"unknown" }}</span></span><span><strong>{{ line.name }}</strong> {{ line.message }}</span></li>
+  <li><span><span class="c-label c-tone-{{ line.tone }}">{{ line.status|default:"unknown" }}</span></span><span><strong>{{ line.name }}</strong> {{ line.message }}</span></li>
   {% endfor %}
 </ul>
 {% endif %}
@@ -18,7 +18,7 @@
 {% if body.recommendations %}
 <ul class="c-lines">
   {% for item in body.recommendations %}
-  <li><span><span class="c-badge c-tone-muted">{{ item.priority|default:"note" }}</span></span><span><strong>{{ item.title }}</strong> {{ item.description }}</span></li>
+  <li><span><span class="c-label c-tone-muted">{{ item.priority|default:"note" }}</span></span><span><strong>{{ item.title }}</strong> {{ item.description }}</span></li>
   {% endfor %}
 </ul>
 {% endif %}
@@ -30,7 +30,7 @@
 {% if body.deliveries %}
 <ul class="c-lines">
   {% for delivery in body.deliveries %}
-  <li><span><span class="c-badge c-tone-{{ delivery.tone }}">{{ delivery.status|default:"unknown" }}</span></span><span><strong>{{ delivery.provider }}</strong> {{ delivery.channel }}{% if delivery.provider_id %} <span class="c-muted">{{ delivery.provider_id }}</span>{% endif %}</span></li>
+  <li><span><span class="c-label c-tone-{{ delivery.tone }}">{{ delivery.status|default:"unknown" }}</span></span><span><strong>{{ delivery.provider }}</strong> {{ delivery.channel }}{% if delivery.provider_id %} <span class="c-muted">{{ delivery.provider_id }}</span>{% endif %}</span></li>
   {% endfor %}
 </ul>
 {% endif %}

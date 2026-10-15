@@ -53,7 +53,8 @@ def test_open_incidents_sort_by_severity_then_oldest_first(django_assert_num_que
     _incident("resolved", "critical", status="resolved")
     _incident("closed", "critical", status="closed")
 
-    with django_assert_num_queries(1):
+    # Incident rows, then their hosts.
+    with django_assert_num_queries(2):
         rows = overview.open_incidents()
 
     assert [row.title for row in rows] == ["critical", "old warning", "new warning", "info"]
@@ -329,10 +330,46 @@ def test_build_overview_counts_the_incidents_past_the_cap(monkeypatch, django_as
         _incident(f"incident {index}")
     _incident("resolved", status="resolved")
 
-    # Counts, incident rows, firing alerts, nodes, sparkline.
-    with django_assert_num_queries(5):
+    # Counts, incident rows, their hosts, firing alerts, nodes, sparkline.
+    with django_assert_num_queries(6):
         result = overview.build_overview()
 
     assert len(result.incidents) == 2
     assert (result.open_total, result.open_hidden) == (5, 3)
     assert result.more_url == reverse("console:incidents")
+
+
+def test_hour_bars_scale_to_the_busiest_hour_and_keep_a_stub_for_empty_hours():
+    first = datetime(2026, 10, 14, 0, tzinfo=dt_timezone.utc)
+    spark = ((0.0, 0.0), (1.0, 4.0), (2.0, 1.0))
+
+    bars = overview.hour_bars(spark, first)
+
+    assert [(bar.count, bar.x, bar.height, bar.y) for bar in bars] == [
+        (0, 0, 1, 39),
+        (4, 10, 40, 0),
+        (1, 20, 10, 30),
+    ]
+    assert [bar.hour.hour for bar in bars] == [0, 1, 2]
+
+
+def test_hour_bars_for_an_empty_window_are_all_stubs():
+    first = datetime(2026, 10, 14, 0, tzinfo=dt_timezone.utc)
+
+    bars = overview.hour_bars(((0.0, 0.0), (1.0, 0.0)), first)
+
+    assert {bar.height for bar in bars} == {1}
+
+
+@pytest.mark.django_db
+def test_the_overview_knows_how_many_opened_and_when_its_window_starts(monkeypatch):
+    now = datetime(2026, 10, 14, 15, 40, tzinfo=dt_timezone.utc)
+    monkeypatch.setattr(overview.timezone, "now", lambda: now)
+    Incident.objects.create(title="a")
+    Incident.objects.create(title="b")
+
+    result = overview.build_overview()
+
+    assert result.opened_total == 2
+    assert result.spark_from == datetime(2026, 10, 13, 16, tzinfo=dt_timezone.utc)
+    assert len(result.bars) == overview.SPARK_HOURS
