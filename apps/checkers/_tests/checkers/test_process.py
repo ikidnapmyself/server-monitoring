@@ -160,6 +160,11 @@ class ProcessDescribeTests(TestCase):
         self.assertEqual(d.headline, "All 2 watched processes running")
         self.assertIsNone(d.action)
 
+    def test_ok_with_one_process_reads_singular(self):
+        metrics = {"processes": {"nginx": {"running": True}}, "total_count": 1}
+        d = ProcessChecker().describe(CheckStatus.OK, metrics)
+        self.assertEqual(d.headline, "1 watched process running")
+
     def test_names_the_stopped_processes(self):
         metrics = {
             "processes": {

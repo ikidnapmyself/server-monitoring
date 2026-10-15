@@ -184,7 +184,8 @@ class NetworkChecker(BaseChecker):
         total = metrics["total_hosts"]
         down = [host for host, info in metrics["hosts"].items() if not info["reachable"]]
         if not down:
-            return self._describe(status, f"All {total} hosts reachable", metrics)
+            headline = "1 host reachable" if total == 1 else f"All {total} hosts reachable"
+            return self._describe(status, headline, metrics)
         names = format_list(down)
         return self._describe(
             status,

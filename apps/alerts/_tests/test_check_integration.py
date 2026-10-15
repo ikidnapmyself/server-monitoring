@@ -40,12 +40,21 @@ class CheckAlertBridgeTests(TestCase):
 
         parsed = self.bridge.check_result_to_parsed_alert(result)
 
-        self.assertEqual(parsed.name, "CPU Check Alert")
+        self.assertEqual(parsed.name, "CPU usage")
         self.assertEqual(parsed.status, "firing")
         self.assertEqual(parsed.severity, "critical")
         self.assertEqual(parsed.labels["hostname"], "test-server")
         self.assertEqual(parsed.labels["checker"], "cpu")
         self.assertIn("CPU usage at 95%", parsed.description)
+
+    def test_unregistered_checker_is_named_from_its_key(self):
+        result = CheckResult(
+            status=CheckStatus.WARNING, message="pool degraded", checker_name="zfs_pool"
+        )
+
+        parsed = self.bridge.check_result_to_parsed_alert(result)
+
+        self.assertEqual(parsed.name, "Zfs pool")
 
     def test_check_result_to_parsed_alert_ok(self):
         """Test converting an OK check result to a parsed alert (resolved)."""
@@ -76,7 +85,7 @@ class CheckAlertBridgeTests(TestCase):
         self.assertEqual(Alert.objects.count(), 1)
 
         alert = Alert.objects.first()
-        self.assertEqual(alert.name, "MEMORY Check Alert")
+        self.assertEqual(alert.name, "Memory usage")
         self.assertEqual(alert.status, "firing")
         self.assertEqual(alert.source, "cluster")
 
@@ -179,6 +188,7 @@ class CheckAlertBridgeTests(TestCase):
         """Test running a check and creating an alert."""
 
         mock_checker_class = MagicMock()
+        mock_checker_class.label = "Test checker"
         mock_checker_class.return_value.run.return_value = CheckResult(
             status=CheckStatus.CRITICAL,
             message="Test critical",
@@ -466,6 +476,7 @@ class CheckAlertBridgeTests(TestCase):
 
     def _fake_checker(self, *, checker_name, status=CheckStatus.CRITICAL):
         checker_class = MagicMock()
+        checker_class.label = f"Fake {checker_name}"
         checker_class.return_value.run.return_value = CheckResult(
             status=status,
             message=f"{checker_name} says hi",
@@ -491,7 +502,7 @@ class CheckAlertBridgeTests(TestCase):
         self.assertEqual(result.alerts_created, 2)
         self.assertEqual(
             {a.name for a in result.alerts},
-            {"CPU Check Alert", "DISK Check Alert"},
+            {"Fake cpu", "Fake disk"},
         )
         self.assertTrue(all(a.pk is not None for a in result.alerts))
 
@@ -511,7 +522,7 @@ class CheckAlertBridgeTests(TestCase):
         self.assertEqual(second.alerts_updated, 1)
         self.assertEqual(third.alerts_resolved, 1)
         for batch in (first, second, third):
-            self.assertEqual([a.name for a in batch.alerts], ["CPU Check Alert"])
+            self.assertEqual([a.name for a in batch.alerts], ["Fake cpu"])
 
     def test_check_alert_result_alerts_defaults_to_empty_list(self):
         self.assertEqual(CheckAlertResult().alerts, [])
@@ -550,6 +561,7 @@ class CheckAlertBridgeTests(TestCase):
         seen = {}
 
         mock_first = MagicMock()
+        mock_first.label = "First"
         mock_first.return_value.run.return_value = CheckResult(
             status=CheckStatus.CRITICAL,
             message="first fired",

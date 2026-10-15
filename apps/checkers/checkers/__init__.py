@@ -36,10 +36,11 @@ __all__ = [
     "RaidChecker",
     "RebootDebianChecker",
     "CHECKER_REGISTRY",
+    "checker_label",
 ]
 
 # Registry of available checkers
-CHECKER_REGISTRY = {
+CHECKER_REGISTRY: dict[str, type[BaseChecker]] = {
     "cpu": CPUChecker,
     "cpu_temp": CPUTempChecker,
     "memory": MemoryChecker,
@@ -56,3 +57,10 @@ CHECKER_REGISTRY = {
     "raid": RaidChecker,
     "reboot_debian": RebootDebianChecker,
 }
+
+
+def checker_label(name: str) -> str:
+    checker = CHECKER_REGISTRY.get(name)
+    if checker is not None:
+        return checker.label
+    return name.replace("_", " ").capitalize()

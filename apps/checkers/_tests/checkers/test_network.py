@@ -217,6 +217,11 @@ class NetworkDescribeTests(TestCase):
         self.assertEqual(d.headline, "All 3 hosts reachable")
         self.assertIsNone(d.action)
 
+    def test_ok_with_one_host_reads_singular(self):
+        hosts = {"a": {"reachable": True}}
+        d = NetworkChecker().describe(CheckStatus.OK, {"hosts": hosts, "total_hosts": 1})
+        self.assertEqual(d.headline, "1 host reachable")
+
     def test_names_the_unreachable_hosts(self):
         hosts = {
             "8.8.8.8": {"reachable": False},

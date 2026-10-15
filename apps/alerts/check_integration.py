@@ -40,6 +40,7 @@ from apps.checkers.checkers import (
     CHECKER_REGISTRY,
     CheckResult,
     CheckStatus,
+    checker_label,
 )
 
 logger = logging.getLogger(__name__)
@@ -235,7 +236,7 @@ class CheckAlertBridge:
 
         return ParsedAlert(
             fingerprint=fingerprint,
-            name=f"{result.checker_name.upper()} Check Alert",
+            name=checker_label(result.checker_name),
             status=alert_status,
             severity=severity,
             description=description,

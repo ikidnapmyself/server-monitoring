@@ -128,7 +128,12 @@ class ProcessChecker(BaseChecker):
             return self._describe(status, "No processes to watch", metrics)
         stopped = [name for name, info in metrics["processes"].items() if not info["running"]]
         if not stopped:
-            return self._describe(status, f"All {total} watched processes running", metrics)
+            headline = (
+                "1 watched process running"
+                if total == 1
+                else f"All {total} watched processes running"
+            )
+            return self._describe(status, headline, metrics)
         names = format_list(stopped)
         return self._describe(
             status,

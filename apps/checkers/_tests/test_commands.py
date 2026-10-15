@@ -52,6 +52,7 @@ class CheckHealthCommandTests(TestCase):
     ):
         mock_checker = MagicMock()
         mock_checker.__doc__ = "Test checker description"
+        mock_checker.label = "Test checker"
         mock_checker.return_value.run.return_value = CheckResult(
             status=status,
             message=message,
