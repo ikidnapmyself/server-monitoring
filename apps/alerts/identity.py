@@ -55,3 +55,20 @@ def new_fingerprint_for(labels, fallback_instance_id: str, use_hostname: bool = 
     if not instance and use_hostname:
         instance = labels.get("hostname")
     return checker_fingerprint(instance or fallback_instance_id, checker)
+
+
+SUBJECT_MAX_LENGTH = 255
+
+
+def alert_subject(source: str, name: str, labels) -> str:
+    """What kind of problem an alert reports, as a machine key.
+
+    Incidents group on this and the instance, never on display text. A checker
+    alert is named by its checker. Anything else by its source and the name that
+    source gave it. Labels are untrusted webhook input and may not be a dict.
+    """
+    labels = labels if isinstance(labels, dict) else {}
+    checker = labels.get("checker")
+    if isinstance(checker, str) and checker:
+        return f"checker:{checker}"[:SUBJECT_MAX_LENGTH]
+    return f"{source}:{name}"[:SUBJECT_MAX_LENGTH]
