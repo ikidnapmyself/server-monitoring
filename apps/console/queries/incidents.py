@@ -97,11 +97,11 @@ def _group(
     name: str,
     label: str,
     choices: tuple[Choice, ...],
-    filter: IncidentFilter,
+    criteria: IncidentFilter,
     base: str,
     counts: dict[str, int] | None = None,
 ) -> ChipGroup:
-    current = getattr(filter, name)
+    current = getattr(criteria, name)
     return ChipGroup(
         name=name,
         label=label,
@@ -109,7 +109,7 @@ def _group(
             Chip(
                 key=key,
                 label=text,
-                url=base + filter.querystring(**{name: value}),
+                url=base + criteria.querystring(**{name: value}),
                 active=value == current,
                 count=None if counts is None else counts[key],
             )
@@ -118,17 +118,17 @@ def _group(
     )
 
 
-def _matching(filter: IncidentFilter, node_keys: tuple[str, ...] = ()):
+def _matching(criteria: IncidentFilter, node_keys: tuple[str, ...] = ()):
     incidents = Incident.objects.all()
-    statuses = filter.statuses()
+    statuses = criteria.statuses()
     if statuses:
         incidents = incidents.filter(status__in=statuses)
-    if filter.severity:
-        incidents = incidents.filter(severity=filter.severity)
-    cutoff = filter.cutoff(timezone.now())
+    if criteria.severity:
+        incidents = incidents.filter(severity=criteria.severity)
+    cutoff = criteria.cutoff(timezone.now())
     if cutoff:
         incidents = incidents.filter(created_at__gte=cutoff)
-    if filter.node is not None:
+    if criteria.node is not None:
         # Most checker alerts name their machine only in labels, so a node also matches
         # an unlinked alert whose instance label is one of the node's own names.
         named = (
@@ -140,16 +140,16 @@ def _matching(filter: IncidentFilter, node_keys: tuple[str, ...] = ()):
         incidents = incidents.filter(
             Exists(
                 Alert.objects.filter(incident=OuterRef("pk")).filter(
-                    Q(node_id=filter.node) | Q(node__isnull=True) & named
+                    Q(node_id=criteria.node) | Q(node__isnull=True) & named
                 )
             )
         )
     return incidents
 
 
-def _status_counts(filter: IncidentFilter, node_keys: tuple[str, ...]) -> dict[str, int]:
+def _status_counts(criteria: IncidentFilter, node_keys: tuple[str, ...]) -> dict[str, int]:
     """Incidents per status chip under every filter but the status itself. One query."""
-    found = _matching(replace(filter, status="all"), node_keys).aggregate(
+    found = _matching(replace(criteria, status="all"), node_keys).aggregate(
         **{status: Count("pk", filter=Q(status=status)) for status in IncidentStatus.values}
     )
     return {
@@ -183,49 +183,53 @@ def _rows(incidents, page: int) -> tuple[IncidentListRow, ...]:
     )
 
 
-def build_incident_list(filter: IncidentFilter) -> IncidentList:
+def build_incident_list(criteria: IncidentFilter) -> IncidentList:
     base = reverse("console:incidents")
     nodes = _nodes()
-    node_keys = next((keys for pk, _, keys in nodes if pk == filter.node), None)
-    if filter.node is not None and node_keys is None:
-        filter = filter.with_node_dropped()
+    node_keys = next((keys for pk, _, keys in nodes if pk == criteria.node), None)
+    if criteria.node is not None and node_keys is None:
+        criteria = criteria.with_node_dropped()
     node_keys = node_keys or ()
     node_choices: tuple[Choice, ...] = tuple((str(pk), name, pk) for pk, name, _ in nodes)
 
-    incidents = _matching(filter, node_keys)
+    incidents = _matching(criteria, node_keys)
     total = incidents.count()
     pages = max(1, -(-total // PAGE_SIZE))
-    page = min(filter.page, pages)
-    filter = replace(filter, page=page)
+    page = min(criteria.page, pages)
+    criteria = replace(criteria, page=page)
 
     if total:
         rows = _rows(incidents, page)
         empty = ""
     elif not Incident.objects.exists():
         rows, empty = (), "none"
-    elif replace(filter, dropped=()) == IncidentFilter():
+    elif replace(criteria, dropped=()) == IncidentFilter():
         rows, empty = (), "none_active"
     else:
         rows, empty = (), "no_match"
 
     groups = [
-        _group("status", "Status", STATUS_CHIPS, filter, base, _status_counts(filter, node_keys)),
-        _group("severity", "Severity", SEVERITY_CHIPS, filter, base),
+        _group(
+            "status", "Status", STATUS_CHIPS, criteria, base, _status_counts(criteria, node_keys)
+        ),
+        _group("severity", "Severity", SEVERITY_CHIPS, criteria, base),
     ]
     if node_choices:
         any_node: Choice = ("any", "Any node", None)
-        groups.append(_group("node", "Node", (any_node, *node_choices), filter, base))
-    groups.append(_group("since", "Since", SINCE_CHIPS, filter, base))
+        groups.append(_group("node", "Node", (any_node, *node_choices), criteria, base))
+    groups.append(_group("since", "Since", SINCE_CHIPS, criteria, base))
 
     return IncidentList(
         rows=rows,
         total=total,
         page=page,
         pages=pages,
-        prev_url=base + filter.querystring(page=page - 1) if page > 1 else "",
-        next_url=base + filter.querystring(page=page + 1) if page < pages else "",
+        prev_url=base + criteria.querystring(page=page - 1) if page > 1 else "",
+        next_url=base + criteria.querystring(page=page + 1) if page < pages else "",
         groups=tuple(groups),
-        notice=f"Ignored invalid filter: {', '.join(filter.dropped)}." if filter.dropped else "",
+        notice=(
+            f"Ignored invalid filter: {', '.join(criteria.dropped)}." if criteria.dropped else ""
+        ),
         empty=empty,
-        url=base + filter.querystring(),
+        url=base + criteria.querystring(),
     )
