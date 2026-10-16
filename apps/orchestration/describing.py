@@ -121,6 +121,9 @@ def describe_stage_diagnosis(entry: dict[str, Any]) -> Description:
     if entry["runs"]:
         described = replace(described, facts=(*described.facts, Fact("Runs", entry["runs"])))
     if entry["run_pk"] is not None:
+        # The sidebar that shows a diagnosis has no Details, so the run page holds the error.
+        if described.action == _OPEN_ERROR:
+            described = replace(described, action=None)
         described = or_action(described, run_link(entry["run_pk"]))
     return described
 

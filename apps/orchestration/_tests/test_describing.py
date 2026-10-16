@@ -263,6 +263,11 @@ def test_a_diagnosed_failure_keeps_its_fix_over_the_run_link():
     assert d.action.intent == "edit_route"
 
 
+def test_a_diagnosed_failure_with_no_fix_points_at_its_run():
+    entry = _diagnosis(status="failed", execution_status="failed", error_message="boom", run_pk=4)
+    assert describe_stage_diagnosis(entry).action == run_link(4)
+
+
 def test_a_retryable_diagnosed_failure_promises_nothing_and_records_the_flag():
     entry = _diagnosis(
         status="failed", execution_status="failed", error_message="boom", retryable=True

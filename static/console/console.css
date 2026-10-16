@@ -628,6 +628,8 @@ details[open] > .c-entry .c-entry__chevron { transform: rotate(90deg); }
 .c-stage__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
 .c-stage__name { color: var(--fgColor-default); font-weight: 600; }
 .c-stage__detail { grid-column: 2; color: var(--fgColor-muted); overflow-wrap: anywhere; }
+.c-stage__action { grid-column: 2; justify-self: start; margin-top: var(--space-1); }
+.c-stage__action > p { margin: 0; }
 
 /* Timeline */
 .c-timeline { margin: 0; padding: 0 0 0 var(--space-4); list-style: none; }

@@ -112,6 +112,7 @@
           <span class="c-stage__icon c-tone-{{ stage.outcome.tone }}">{% include "console/partials/_tone_icon.html" with tone=stage.outcome.tone %}</span>
           <span class="c-stage__head"><span class="c-stage__name">{{ stage.label }}</span></span>
           <span class="c-stage__detail">{{ stage.outcome.headline }}</span>
+          {% resolved stage.outcome.action as act %}{% if act %}<div class="c-stage__action">{% include "console/partials/_action.html" with act=act id="stage-"|add:stage.stage|add:"-action" %}</div>{% endif %}
         </li>
         {% endfor %}
       </ul>

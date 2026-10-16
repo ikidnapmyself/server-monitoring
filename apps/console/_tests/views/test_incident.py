@@ -600,6 +600,45 @@ def test_a_no_channel_failure_is_text_for_staff_without_the_permission(client, s
     assert "pipelinedefinition" not in body
 
 
+def _stage_item(body, stage):
+    item = body[body.index(f'<li id="stage-{stage}" class="c-stage">') :]
+    return item[: item.index("</li>")]
+
+
+@pytest.mark.django_db
+def test_a_failed_stage_shows_its_fix_in_the_sidebar(client):
+    client.force_login(get_user_model().objects.create_superuser("root", password="x"))
+    incident = _no_channel_incident()
+
+    item = _stage_item(client.get(_url(incident)).content.decode(), "notify")
+
+    route = reverse("admin:orchestration_pipelinedefinition_changelist")
+    assert (
+        f'<a id="stage-notify-action" class="c-button c-button--sm" href="{route}">'
+        "Give the route an active channel</a>"
+    ) in item
+    assert "c-details" not in item
+
+
+@pytest.mark.django_db
+@BOTH
+def test_a_sidebar_fix_is_text_without_the_permission(client, staff, headers):
+    incident = _no_channel_incident()
+
+    item = _stage_item(client.get(_url(incident), **headers).content.decode(), "notify")
+
+    assert '<p class="c-description__action">Give the route an active channel</p>' in item
+
+
+@pytest.mark.django_db
+def test_a_stage_that_hasnt_run_offers_no_action(client, staff):
+    incident = Incident.objects.create()
+
+    body = client.get(_url(incident)).content.decode()
+
+    assert "c-stage__action" not in body
+
+
 @pytest.mark.django_db
 def test_sparse_stage_bodies_leave_their_optional_parts_out(client, staff):
     incident = Incident.objects.create()
