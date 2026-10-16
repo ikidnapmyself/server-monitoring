@@ -7,6 +7,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.alerts.models import Alert, Node
+from apps.orchestration.describing import describe_run
 from apps.orchestration.dtos import (
     AnalyzeResult,
     CheckResult,
@@ -985,6 +986,11 @@ class DownstreamRunTests(TestCase):
         assert run.status == PipelineStatus.FAILED
         assert "no_route" in run.last_error_message
         assert run.last_error_retryable is False
+        described = describe_run(run)
+        assert described.headline == "Run failed: no route matches this incident"
+        assert ("Error", "no active pipeline matched this alert") in [
+            (f.label, f.value) for f in described.facts
+        ]
 
     @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_stage_with_retry")
     def test_downstream_run_never_ingests(self, mock_execute):

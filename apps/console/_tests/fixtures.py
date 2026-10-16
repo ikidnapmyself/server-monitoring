@@ -10,7 +10,7 @@ from apps.alerts.identity import local_instance_id
 from apps.alerts.models import Alert, AlertHistory, Incident, Node
 from apps.checkers.models import PreflightRun
 from apps.notify.models import NotificationChannel
-from apps.orchestration.errors import ROUTING_GAPS
+from apps.orchestration.errors import ROUTING_GAPS, StageExecutionError, routing_gap
 from apps.orchestration.inbox import DEFAULT_STALE_MINUTES
 from apps.orchestration.models import PipelineDefinition, PipelineRun, StageExecution
 from config.failures import FAILURE_KINDS
@@ -177,17 +177,23 @@ def _webhook_incident() -> Incident:
 def _gap_incident(code: str) -> Incident:
     incident = _incident(f"Routing gap {code.replace('_', ' ')}")
     _alert(incident, "Disk almost full")
-    message = f"{code}: {GAP_DETAILS[code]}"
-    run = _run(incident, status="failed", error=message)
+    # no_route fails before any stage runs, so only the run records it.
+    stage = "routing" if code == "no_route" else "notify"
+    gap = routing_gap(stage, code, GAP_DETAILS[code])
+    run = _run(incident, status="failed", error=str(gap))
     if code != "no_route":
-        _stage(run, "notify", status="failed", error_message=message, error_retryable=False)
+        _stage(run, stage, status="failed", error_message=gap.errors[0], error_retryable=False)
     return incident
 
 
 def _retryable_incident() -> Incident:
     incident = _incident("Retryable failure")
     _alert(incident, "Queue backed up")
-    run = _run(incident, status="failed", error="Connection reset by the analysis host")
+    run = _run(
+        incident,
+        status="failed",
+        error=str(StageExecutionError("analyze", ["Connection reset by the analysis host"])),
+    )
     _stage(
         run,
         "analyze",

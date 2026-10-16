@@ -557,12 +557,12 @@ class PipelineOrchestrator:
             result.total_duration_ms = duration_ms
             result.final_error = StageError(
                 error_type="StageExecutionError",
-                message=f"Stage {e.stage} failed: {'; '.join(e.errors)}",
+                message=str(e),
                 retryable=e.retryable,
             )
             pipeline_run.mark_failed(
                 error_type="StageExecutionError",
-                message=f"Stage {e.stage} failed: {'; '.join(e.errors)}",
+                message=str(e),
                 retryable=e.retryable,
             )
             emit_pipeline_completed(base_tags, duration_ms, "FAILED")

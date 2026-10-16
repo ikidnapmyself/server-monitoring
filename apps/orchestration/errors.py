@@ -7,7 +7,13 @@ could not import it at module level without a cycle.
 
 from __future__ import annotations
 
+import re
+
 ROUTING_GAPS = ("no_route", "no_channel", "no_driver")
+# What a run stores as its error when a stage fails, ahead of the stage's own errors.
+# Describers strip it with STAGE_FAILED_PREFIX, so the two change together.
+STAGE_FAILED = "Stage {stage} failed: "
+STAGE_FAILED_PREFIX = re.compile(r"Stage [a-z_]+ failed: ")
 
 
 class StageExecutionError(Exception):
@@ -17,7 +23,7 @@ class StageExecutionError(Exception):
         self.stage = stage
         self.errors = errors
         self.retryable = retryable
-        super().__init__(f"Stage {stage} failed: {'; '.join(errors)}")
+        super().__init__(STAGE_FAILED.format(stage=stage) + "; ".join(errors))
 
 
 def routing_gap(stage: str, code: str, detail: str) -> StageExecutionError:

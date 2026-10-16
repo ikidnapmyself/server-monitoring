@@ -34,6 +34,10 @@ def test_routing_gap_rejects_an_unknown_code():
     [
         ("no_route: no active pipeline matched this alert", "no_route"),
         ("no_channel: the matched lane names no active notification channel", "no_channel"),
+        ("Stage routing failed: no_route: no active pipeline matched this alert", "no_route"),
+        ("Stage notify failed: no_driver: 'x' is not a registered driver", "no_driver"),
+        ("Stage notify failed: Delivery failed: boom", ""),
+        ("Stage notify failed: ", ""),
         ("Check error: boom", ""),
         ("", ""),
     ],
@@ -145,6 +149,22 @@ def test_run_failed_on_a_routing_gap_names_its_fix():
     assert d.action.intent == "edit_route"
     assert d.tone == "critical"
     assert ("Error", "no active pipeline matched this alert") in facts(d)
+
+
+@pytest.mark.parametrize("code", ROUTING_GAPS)
+def test_run_failed_as_the_orchestrator_stores_it_names_its_fix(code):
+    message = str(routing_gap("notify", code, "the detail"))
+    d = describe_run_fields(run_id="r", trace_id="t", status="failed", error_message=message)
+    assert d.headline == f"Run failed: {REASONS[code].headline}"
+    assert d.action == REASONS[code].action
+    assert ("Error", "the detail") in facts(d)
+
+
+def test_run_failed_with_a_stage_prefix_and_no_code_keeps_the_message():
+    message = "Stage analyze failed: Analyze error: boom"
+    d = describe_run_fields(run_id="r", trace_id="t", status="failed", error_message=message)
+    assert d.headline == "Run failed"
+    assert ("Error", message) in facts(d)
 
 
 @pytest.mark.django_db

@@ -4,11 +4,12 @@ import re
 from dataclasses import dataclass, replace
 from typing import Any
 
+from apps.orchestration.errors import STAGE_FAILED_PREFIX
 from apps.orchestration.models import PipelineRun
 from config.describing import Action, Description, Fact, format_duration, or_action
 
 STAGE_NAMES = {"ingest": "Ingest", "check": "Diagnose", "analyze": "Analyze", "notify": "Notify"}
-_CODE = re.compile(r"^([a-z]+(?:_[a-z]+)+): ")
+_CODE = re.compile(r"([a-z]+(?:_[a-z]+)+): ")
 
 
 @dataclass(frozen=True)
@@ -37,8 +38,14 @@ _OPEN_ERROR = Action("Open the run's error in Details")
 _SKIP_PREFIX = "Skipped: "
 
 
+def _reason(message: str) -> re.Match[str] | None:
+    """The code leading a stage's error, or a run's error after its stage prefix."""
+    prefix = STAGE_FAILED_PREFIX.match(message)
+    return _CODE.match(message, prefix.end() if prefix else 0)
+
+
 def reason_code(message: str) -> str:
-    found = _CODE.match(message or "")
+    found = _reason(message or "")
     return found.group(1) if found else ""
 
 
@@ -47,10 +54,10 @@ def _stage_name(stage: str) -> str:
 
 
 def _failed(prefix: str, fallback: str, message: str, ids: tuple[Fact, ...] = ()) -> Description:
-    code = reason_code(message)
-    reason = REASONS.get(code)
-    if reason:
-        detail = message[len(code) + 2 :]
+    found = _reason(message)
+    reason = REASONS.get(found.group(1)) if found else None
+    if found and reason:
+        detail = message[found.end() :]
         return Description(
             f"{prefix}: {reason.headline}",
             "critical",
