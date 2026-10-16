@@ -9,7 +9,7 @@ from apps.orchestration.models import PipelineRun
 from config.describing import Action, Description, Fact, format_duration, or_action
 
 STAGE_NAMES = {"ingest": "Ingest", "check": "Diagnose", "analyze": "Analyze", "notify": "Notify"}
-_CODE = re.compile(r"([a-z]+(?:_[a-z]+)+): ")
+_CODE = re.compile(r"([a-z_]+): ")
 
 
 @dataclass(frozen=True)
