@@ -14,6 +14,7 @@ from django.utils import timezone
 from django.utils.html import format_html
 
 from config.admin_links import changelist_url
+from config.describing import Action, Description
 
 NODE_RECENT_MINUTES = 15
 
@@ -29,7 +30,8 @@ def prettify_json(data):
 def build_readiness():
     """Configuration-readiness signals for the dashboard.
 
-    Each entry: {key, label, status (ok|info|warn|error|neutral), detail, url}.
+    Each entry: {key, label, status (ok|info|warn|error|neutral), detail, url, gaps, counts}.
+    ``gaps`` lists (lane name, reason code) and is empty except on lane_channels.
     Pure read-aggregation; safe on empty tables.
     """
     from datetime import timedelta
@@ -76,6 +78,8 @@ def build_readiness():
             "status": c_status,
             "detail": detail,
             "url": reverse("admin:notify_notificationchannel_changelist"),
+            "gaps": [],
+            "counts": {"active": active, "total": total, "delivering": len(delivering)},
         }
     )
 
@@ -121,6 +125,8 @@ def build_readiness():
                 if l_status == "error"
                 else reverse("admin:orchestration_pipelinedefinition_changelist")
             ),
+            "gaps": undeliverable,
+            "counts": {"delivering": len(delivering)},
         }
     )
 
@@ -137,18 +143,21 @@ def build_readiness():
                 else "No active provider — analysis falls back to 'no AI'"
             ),
             "url": reverse("admin:intelligence_intelligenceprovider_changelist"),
+            "gaps": [],
+            "counts": {"active": p_active},
         }
     )
 
     # Preflight
     latest = PreflightRun.objects.order_by("-created_at").first()
     if latest is None:
-        pf_status, detail = "neutral", "Never run"
+        pf_status, detail, pf_counts = "neutral", "Never run", {}
     else:
         pf_status = (
             latest.overall_status if latest.overall_status in {"ok", "warn", "error"} else "neutral"
         )
         detail = f"{latest.passed} ok / {latest.warnings} warn / {latest.errors} error"
+        pf_counts = {"passed": latest.passed, "warnings": latest.warnings, "errors": latest.errors}
     out.append(
         {
             "key": "preflight",
@@ -156,6 +165,8 @@ def build_readiness():
             "status": pf_status,
             "detail": detail,
             "url": reverse("admin:checkers_preflightrun_changelist"),
+            "gaps": [],
+            "counts": pf_counts,
         }
     )
 
@@ -183,6 +194,8 @@ def build_readiness():
             "status": i_status,
             "detail": detail,
             "url": inbox_url,
+            "gaps": [],
+            "counts": {"pending": pending, "stuck": stuck},
         }
     )
 
@@ -229,10 +242,98 @@ def build_readiness():
             "status": n_status,
             "detail": detail,
             "url": reverse("admin:alerts_node_changelist"),
+            "gaps": [],
+            "counts": {"total": total_nodes, "recent": recent},
         }
     )
 
     return out
+
+
+_FIX_TONES = {"error": "critical", "warn": "warning"}
+
+
+def _plural(n: int, one: str, many: str) -> str:
+    return f"{n} {one if n == 1 else many}"
+
+
+def describe_readiness() -> tuple[Description, ...]:
+    """The readiness entries that need a fix, in panel order, each with its fix.
+
+    ok, info and neutral entries describe nothing: they ask nothing of the operator.
+    """
+    from apps.orchestration.describing import REASONS
+
+    out: list[Description] = []
+    for entry in build_readiness():
+        tone = _FIX_TONES.get(entry["status"])
+        if tone is None:
+            continue
+        key, counts = entry["key"], entry["counts"]
+        if key == "channels":
+            routes = _plural(counts["delivering"], "route", "routes")
+            out.append(
+                Description(
+                    f"No active channel, {routes} can't deliver",
+                    tone,
+                    action=Action("Activate a notification channel", intent="edit_channel"),
+                )
+            )
+        elif key == "lane_channels":
+            for name, code in entry["gaps"]:
+                reason = REASONS[code]
+                out.append(
+                    Description(
+                        f"Route {name} can't deliver: {reason.headline}",
+                        tone,
+                        action=reason.action,
+                    )
+                )
+        elif key == "provider":
+            out.append(
+                Description(
+                    "No AI provider is active, analysis is skipped",
+                    tone,
+                    action=Action("Activate an AI provider", intent="edit_provider"),
+                )
+            )
+        elif key == "preflight":
+            found = counts["errors"] if entry["status"] == "error" else counts["warnings"]
+            word = "error" if entry["status"] == "error" else "warning"
+            out.append(
+                Description(
+                    (
+                        f"Preflight found {_plural(found, word, word + 's')}"
+                        if found
+                        else "Preflight didn't pass"
+                    ),
+                    tone,
+                    action=Action("Open the preflight report", intent="view_preflight"),
+                )
+            )
+        elif key == "inbox":
+            if counts["stuck"]:
+                headline = f"{_plural(counts['stuck'], 'run is', 'runs are')} stuck"
+                action = Action("Open the stuck runs", "view_inbox", {"status": "processing"})
+            else:
+                waiting = _plural(counts["pending"], "run is", "runs are")
+                headline = f"{waiting} waiting to be processed"
+                action = Action("Open the waiting runs", "view_inbox", {"status": "pending"})
+            out.append(Description(headline, tone, action=action))
+        else:
+            silent = counts["total"] - counts["recent"]
+            out.append(
+                Description(
+                    (
+                        f"No node reported in the last {NODE_RECENT_MINUTES} minutes"
+                        if counts["recent"] == 0
+                        else f"{silent} of {counts['total']} nodes stopped reporting"
+                    ),
+                    tone,
+                    action=Action("Open the node list", intent="view_nodes"),
+                )
+            )
+    return tuple(out)
 
 
 def get_dashboard_context():

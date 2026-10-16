@@ -2,7 +2,7 @@ import pytest
 from django.test import override_settings
 from django.urls import reverse
 
-from config.dashboard import build_readiness, get_dashboard_context
+from config.dashboard import build_readiness, describe_readiness, get_dashboard_context
 
 
 def _by_key(readiness):
@@ -470,3 +470,302 @@ def test_an_undeliverable_lane_points_at_the_map_which_names_the_gap():
     entry = _by_key(build_readiness())["lane_channels"]
     assert entry["status"] == "error"
     assert entry["url"] == reverse("admin:netmap")
+
+
+# ---------------------------------------------------------------------------
+# counts and gaps: the numbers each entry computed, kept for describers
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_every_entry_carries_counts_and_gaps():
+    for entry in build_readiness():
+        assert isinstance(entry["counts"], dict)
+        assert isinstance(entry["gaps"], list)
+
+
+@pytest.mark.django_db
+@override_settings(INSTANCE_ID="hub-under-test")
+def test_counts_hold_the_numbers_behind_each_entry():
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.alerts.models import Node
+    from apps.checkers.models import PreflightRun
+    from apps.orchestration.models import PipelineRun, PipelineStatus
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    _channel("on")
+    _channel("off", is_active=False)
+    _lane("delivers", ["notify"])
+    PreflightRun.objects.create(overall_status="error", passed=4, warnings=1, errors=2)
+    PipelineRun.objects.create(trace_id="t", run_id="p1", status=PipelineStatus.PENDING)
+    run = PipelineRun.objects.create(trace_id="t", run_id="p2", status=PipelineStatus.PROCESSING)
+    PipelineRun.objects.filter(pk=run.pk).update(updated_at=timezone.now() - timedelta(hours=1))
+    Node.objects.create(instance_id="agent-1")
+    _stale(Node.objects.create(instance_id="agent-2"))
+
+    r = _by_key(build_readiness())
+    assert r["channels"]["counts"] == {"active": 1, "total": 2, "delivering": 1}
+    assert r["lane_channels"]["counts"] == {"delivering": 1}
+    assert r["lane_channels"]["gaps"] == [("delivers", "no_channel")]
+    assert r["channels"]["gaps"] == []
+    assert r["provider"]["counts"] == {"active": 0}
+    assert r["preflight"]["counts"] == {"passed": 4, "warnings": 1, "errors": 2}
+    assert r["inbox"]["counts"] == {"pending": 1, "stuck": 1}
+    assert r["nodes"]["counts"] == {"total": 2, "recent": 1}
+
+
+@pytest.mark.django_db
+def test_preflight_never_run_counts_nothing():
+    assert _by_key(build_readiness())["preflight"]["counts"] == {}
+
+
+# ---------------------------------------------------------------------------
+# describe_readiness: one Description per entry that needs a fix
+# ---------------------------------------------------------------------------
+
+
+def _green_install():
+    from apps.intelligence.models import IntelligenceProvider
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    _lane("delivers", ["notify"], channel=_channel())
+    IntelligenceProvider.objects.create(name="p", provider="anthropic", is_active=True)
+
+
+def _headlines(found):
+    return [d.headline for d in found]
+
+
+@pytest.mark.django_db
+@override_settings(INSTANCE_ID="hub-under-test")
+def test_an_all_green_install_describes_nothing():
+    from apps.alerts.models import Node
+    from apps.checkers.models import PreflightRun
+
+    _green_install()
+    PreflightRun.objects.create(overall_status="ok", passed=5)
+    Node.objects.create(instance_id="agent-1")
+
+    assert describe_readiness() == ()
+
+
+@pytest.mark.django_db
+@override_settings(INSTANCE_ID="hub-under-test")
+def test_info_and_neutral_entries_describe_nothing():
+    from apps.intelligence.models import IntelligenceProvider
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    _lane("records", ["analyze"])
+    IntelligenceProvider.objects.create(name="p", provider="anthropic", is_active=True)
+
+    statuses = {e["key"]: e["status"] for e in build_readiness()}
+    assert statuses["channels"] == "info"
+    assert statuses["preflight"] == "neutral"
+    assert describe_readiness() == ()
+
+
+@pytest.mark.django_db
+def test_no_channel_with_delivering_lanes_names_the_fix():
+    from apps.intelligence.models import IntelligenceProvider
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    IntelligenceProvider.objects.create(name="p", provider="anthropic", is_active=True)
+    _lane("catch-all", ["notify"])
+    _lane("paging", ["check", "notify"])
+
+    first = describe_readiness()[0]
+    assert first.headline == "No active channel, 2 routes can't deliver"
+    assert first.tone == "critical"
+    assert first.action.intent == "edit_channel"
+
+
+@pytest.mark.django_db
+def test_one_route_reads_singular():
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    _lane("catch-all", ["notify"])
+
+    assert describe_readiness()[0].headline == "No active channel, 1 route can't deliver"
+
+
+@pytest.mark.django_db
+def test_a_lane_gap_reads_from_the_shared_reasons():
+    from apps.intelligence.models import IntelligenceProvider
+    from apps.orchestration.describing import REASONS
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    IntelligenceProvider.objects.create(name="p", provider="anthropic", is_active=True)
+    _channel()
+    _lane("catch-all", ["notify"])
+
+    (gap,) = describe_readiness()
+    assert gap.headline == (
+        "Route catch-all can't deliver: the matched route has no active channel"
+    )
+    assert gap.tone == "critical"
+    assert gap.action == REASONS["no_channel"].action
+
+
+@pytest.mark.django_db
+def test_several_gaps_describe_one_each():
+    from apps.intelligence.models import IntelligenceProvider
+    from apps.notify.models import NotificationChannel
+    from apps.orchestration.describing import REASONS
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    IntelligenceProvider.objects.create(name="p", provider="anthropic", is_active=True)
+    ghost = NotificationChannel.objects.create(name="teams", driver="teams", is_active=True)
+    _lane("alpha", ["notify"], channel=ghost)
+    _lane("beta", ["notify"])
+
+    found = describe_readiness()
+    assert _headlines(found) == [
+        f"Route alpha can't deliver: {REASONS['no_driver'].headline}",
+        f"Route beta can't deliver: {REASONS['no_channel'].headline}",
+    ]
+    assert [d.action for d in found] == [REASONS["no_driver"].action, REASONS["no_channel"].action]
+
+
+@pytest.mark.django_db
+def test_no_provider_says_analysis_is_skipped():
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+
+    (found,) = describe_readiness()
+    assert found.headline == "No AI provider is active, analysis is skipped"
+    assert found.tone == "critical"
+    assert found.action.intent == "edit_provider"
+
+
+@pytest.mark.parametrize(
+    "status,counts,headline,tone",
+    [
+        ("error", {"errors": 2}, "Preflight found 2 errors", "critical"),
+        ("error", {"errors": 1}, "Preflight found 1 error", "critical"),
+        ("warn", {"warnings": 3}, "Preflight found 3 warnings", "warning"),
+        ("warn", {"warnings": 1}, "Preflight found 1 warning", "warning"),
+        ("error", {}, "Preflight didn't pass", "critical"),
+        ("warn", {}, "Preflight didn't pass", "warning"),
+    ],
+)
+@pytest.mark.django_db
+def test_preflight_counts_what_it_found(status, counts, headline, tone):
+    from apps.checkers.models import PreflightRun
+
+    _green_install()
+    PreflightRun.objects.create(overall_status=status, **counts)
+
+    (found,) = describe_readiness()
+    assert found.headline == headline
+    assert found.tone == tone
+    assert found.action.intent == "view_preflight"
+
+
+@pytest.mark.parametrize(
+    "pending,stuck,headline,status,tone",
+    [
+        (0, 3, "3 runs are stuck", "processing", "critical"),
+        (0, 1, "1 run is stuck", "processing", "critical"),
+        (4, 0, "4 runs are waiting to be processed", "pending", "warning"),
+        (1, 0, "1 run is waiting to be processed", "pending", "warning"),
+    ],
+)
+@pytest.mark.django_db
+def test_inbox_names_the_runs_and_filters_to_them(pending, stuck, headline, status, tone):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.orchestration.models import PipelineRun, PipelineStatus
+
+    _green_install()
+    for i in range(pending):
+        PipelineRun.objects.create(trace_id="t", run_id=f"p{i}", status=PipelineStatus.PENDING)
+    for i in range(stuck):
+        run = PipelineRun.objects.create(
+            trace_id="t", run_id=f"s{i}", status=PipelineStatus.PROCESSING
+        )
+        PipelineRun.objects.filter(pk=run.pk).update(updated_at=timezone.now() - timedelta(hours=1))
+
+    (found,) = describe_readiness()
+    assert found.headline == headline
+    assert found.tone == tone
+    assert found.action.intent == "view_inbox"
+    assert found.action.params == {"status": status}
+
+
+@pytest.mark.django_db
+@override_settings(INSTANCE_ID="hub-under-test")
+def test_some_silent_peers_are_counted():
+    from apps.alerts.models import Node
+
+    _green_install()
+    for i in range(3):
+        Node.objects.create(instance_id=f"agent-{i}")
+    _stale(Node.objects.create(instance_id="agent-x"))
+    _stale(Node.objects.create(instance_id="agent-y"))
+
+    (found,) = describe_readiness()
+    assert found.headline == "2 of 5 nodes stopped reporting"
+    assert found.tone == "warning"
+    assert found.action.intent == "view_nodes"
+
+
+@pytest.mark.django_db
+@override_settings(INSTANCE_ID="hub-under-test")
+def test_every_peer_silent_names_the_window():
+    from apps.alerts.models import Node
+    from config.dashboard import NODE_RECENT_MINUTES
+
+    _green_install()
+    _stale(Node.objects.create(instance_id="agent-a"))
+
+    (found,) = describe_readiness()
+    assert found.headline == f"No node reported in the last {NODE_RECENT_MINUTES} minutes"
+    assert found.action.intent == "view_nodes"
+
+
+@pytest.mark.django_db
+@override_settings(INSTANCE_ID="hub-under-test")
+def test_descriptions_follow_readiness_order_and_hold_no_tokens():
+    import re
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.alerts.models import Node
+    from apps.checkers.models import PreflightRun
+    from apps.orchestration.models import PipelineRun, PipelineStatus
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    _lane("catch-all", ["notify"])
+    PreflightRun.objects.create(overall_status="error", errors=2)
+    run = PipelineRun.objects.create(trace_id="t", run_id="s", status=PipelineStatus.PROCESSING)
+    PipelineRun.objects.filter(pk=run.pk).update(updated_at=timezone.now() - timedelta(hours=1))
+    _stale(Node.objects.create(instance_id="agent-a"))
+
+    found = describe_readiness()
+    assert [d.action.intent for d in found] == [
+        "edit_channel",
+        "edit_route",
+        "edit_provider",
+        "view_preflight",
+        "view_inbox",
+        "view_nodes",
+    ]
+    for d in found:
+        for text in (d.headline, d.detail, d.action.text):
+            assert not re.search(r"\b[a-z]+_[a-z_]+\b", text), text
+            assert "{" not in text
