@@ -22,7 +22,7 @@ from apps.alerts.models import (
 )
 from apps.console.queries.hosts import host_summary, incident_hosts
 from config.admin_badges import INCIDENT_STATUS_TONES, SEVERITY_TONES, tone_for
-from config.dashboard import NODE_RECENT_MINUTES, describe_readiness
+from config.dashboard import NODE_RECENT_MINUTES, keyed_readiness
 from config.describing import Action, Description
 
 OPEN_STATUSES = [IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED]
@@ -70,7 +70,7 @@ class Overview:
     nodes: tuple[NodeTile, ...]
     spark: tuple[tuple[float, float], ...]
     spark_from: datetime
-    readiness: tuple[Description, ...]
+    readiness: tuple[tuple[str, Description], ...]
     open_total: int
     more_url: str
 
@@ -252,7 +252,7 @@ def build_overview() -> Overview:
         nodes=node_tiles(),
         spark=incident_spark(now),
         spark_from=spark_start(now),
-        readiness=describe_readiness(),
+        readiness=keyed_readiness(),
         open_total=total,
         more_url=reverse("console:incidents"),
     )

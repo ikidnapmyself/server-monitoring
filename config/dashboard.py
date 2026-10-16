@@ -12,6 +12,7 @@ from django.db.models import Count, Q, Sum
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html
+from django.utils.text import slugify
 
 from config.admin_links import changelist_url
 from config.describing import Action, Description
@@ -257,10 +258,15 @@ def _plural(n: int, one: str, many: str) -> str:
     return f"{n} {one if n == 1 else many}"
 
 
-def _channels(entry: dict, tone: str, fired: set[str]) -> list[Description]:
+def _keyed(entry: dict, headline: str, tone: str, **fields) -> tuple[str, Description]:
+    return entry["key"], Description(headline, tone, **fields)
+
+
+def _channels(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Description]]:
     routes = _plural(entry["counts"]["delivering"], "route", "routes")
     return [
-        Description(
+        _keyed(
+            entry,
             f"No active channel, {routes} can't deliver",
             tone,
             action=Action("Activate a notification channel", intent="edit_channel"),
@@ -268,14 +274,17 @@ def _channels(entry: dict, tone: str, fired: set[str]) -> list[Description]:
     ]
 
 
-def _lane_channels(entry: dict, tone: str, fired: set[str]) -> list[Description]:
+def _lane_channels(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Description]]:
     from apps.orchestration.describing import REASONS
 
     return [
-        Description(
-            f"Route {name} can't deliver: {REASONS[code].headline}",
-            tone,
-            action=REASONS[code].action,
+        (
+            f"{entry['key']}-{slugify(name)}",
+            Description(
+                f"Route {name} can't deliver: {REASONS[code].headline}",
+                tone,
+                action=REASONS[code].action,
+            ),
         )
         for name, code in entry["gaps"]
         # With no active channel anywhere, the channels entry already said this.
@@ -283,9 +292,10 @@ def _lane_channels(entry: dict, tone: str, fired: set[str]) -> list[Description]
     ]
 
 
-def _provider(entry: dict, tone: str, fired: set[str]) -> list[Description]:
+def _provider(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Description]]:
     return [
-        Description(
+        _keyed(
+            entry,
             "No AI provider is active, analysis is skipped",
             tone,
             action=Action("Activate an AI provider", intent="edit_provider"),
@@ -293,11 +303,12 @@ def _provider(entry: dict, tone: str, fired: set[str]) -> list[Description]:
     ]
 
 
-def _preflight(entry: dict, tone: str, fired: set[str]) -> list[Description]:
+def _preflight(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Description]]:
     word = "error" if entry["status"] == "error" else "warning"
     found = entry["counts"][word + "s"]
     return [
-        Description(
+        _keyed(
+            entry,
             (
                 f"Preflight found {_plural(found, word, word + 's')}"
                 if found
@@ -309,7 +320,7 @@ def _preflight(entry: dict, tone: str, fired: set[str]) -> list[Description]:
     ]
 
 
-def _inbox(entry: dict, tone: str, fired: set[str]) -> list[Description]:
+def _inbox(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Description]]:
     counts = entry["counts"]
     if counts["stuck"]:
         headline = f"{_plural(counts['stuck'], 'run is', 'runs are')} stuck"
@@ -317,13 +328,14 @@ def _inbox(entry: dict, tone: str, fired: set[str]) -> list[Description]:
     else:
         headline = f"{_plural(counts['pending'], 'run is', 'runs are')} waiting to be processed"
         action = Action("Open the waiting runs", "view_inbox", {"status": "pending"})
-    return [Description(headline, tone, action=action)]
+    return [_keyed(entry, headline, tone, action=action)]
 
 
-def _nodes(entry: dict, tone: str, fired: set[str]) -> list[Description]:
+def _nodes(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Description]]:
     counts = entry["counts"]
     return [
-        Description(
+        _keyed(
+            entry,
             (
                 f"No node reported in the last {NODE_RECENT_MINUTES} minutes"
                 if counts["recent"] == 0
@@ -336,8 +348,8 @@ def _nodes(entry: dict, tone: str, fired: set[str]) -> list[Description]:
     ]
 
 
-def _generic(entry: dict, tone: str, fired: set[str]) -> list[Description]:
-    return [Description(f"{entry['label']} needs attention", tone)]
+def _generic(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Description]]:
+    return [_keyed(entry, f"{entry['label']} needs attention", tone)]
 
 
 _DESCRIBERS = {
@@ -350,10 +362,12 @@ _DESCRIBERS = {
 }
 
 
-def describe_readiness() -> tuple[Description, ...]:
+def keyed_readiness() -> tuple[tuple[str, Description], ...]:
     """The readiness entries that need a fix, in panel order, each with its fix.
 
-    ok, info and neutral entries describe nothing: they ask nothing of the operator.
+    Each comes with a key built from its entry, and from the lane for a per-lane gap, so
+    it names the same problem from one read to the next. ok, info and neutral entries
+    describe nothing: they ask nothing of the operator.
     """
     entries = [e for e in build_readiness() if e["status"] in _FIX_TONES]
     fired = {e["key"] for e in entries}
@@ -364,6 +378,10 @@ def describe_readiness() -> tuple[Description, ...]:
             entry, _FIX_TONES[entry["status"]], fired
         )
     )
+
+
+def describe_readiness() -> tuple[Description, ...]:
+    return tuple(d for _, d in keyed_readiness())
 
 
 def get_dashboard_context():

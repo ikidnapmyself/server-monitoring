@@ -295,8 +295,10 @@ def test_spark_has_one_point_per_hour_and_counts_into_the_right_bucket(
 
 @pytest.mark.django_db
 def test_readiness_is_what_the_dashboard_describer_says(monkeypatch):
-    found = (Description("Inbox is stuck", "critical", action=Action("Fix", "view_inbox")),)
-    monkeypatch.setattr(overview, "describe_readiness", lambda: found)
+    found = (
+        ("inbox", Description("Inbox is stuck", "critical", action=Action("Fix", "view_inbox"))),
+    )
+    monkeypatch.setattr(overview, "keyed_readiness", lambda: found)
 
     assert overview.build_overview().readiness == found
 
@@ -319,7 +321,7 @@ def test_build_overview_assembles_every_part():
 @pytest.mark.django_db
 def test_build_overview_counts_the_incidents_past_the_cap(monkeypatch, django_assert_num_queries):
     monkeypatch.setattr(overview, "INCIDENT_LIMIT", 2)
-    monkeypatch.setattr(overview, "describe_readiness", lambda: ())
+    monkeypatch.setattr(overview, "keyed_readiness", lambda: ())
     for index in range(5):
         _incident(f"incident {index}")
     _incident("resolved", status="resolved")

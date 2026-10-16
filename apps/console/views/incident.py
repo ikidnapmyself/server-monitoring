@@ -22,7 +22,7 @@ class IncidentPageView(ConsoleView):
 
     template_name = "console/incident.html"
     partial_template_name = "console/partials/_incident.html"
-    read_permission = "alerts.view_incident"
+    read_permissions = ("alerts.view_incident", "alerts.change_incident")
     summary_limit = 2000
 
     @property

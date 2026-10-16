@@ -33,9 +33,9 @@
       <h2 id="readiness-title" class="c-box__title">Readiness</h2>
     </div>
     <ul class="c-box__list">
-      {% for d in overview.readiness %}{% with n=forloop.counter0|stringformat:"s" %}
-      <li class="c-box__row">{% include "console/partials/_description.html" with id="readiness-"|add:n %}</li>
-      {% endwith %}{% empty %}
+      {% for key, d in overview.readiness %}
+      <li class="c-box__row">{% include "console/partials/_description.html" with id="readiness-"|add:key %}</li>
+      {% empty %}
       <li class="c-box__row c-ready">{% include "console/partials/_octicon.html" with name="check-circle" %}<span>System ready.</span></li>
       {% endfor %}
     </ul>

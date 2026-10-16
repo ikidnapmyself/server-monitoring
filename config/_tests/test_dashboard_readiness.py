@@ -2,7 +2,12 @@ import pytest
 from django.test import override_settings
 from django.urls import reverse
 
-from config.dashboard import build_readiness, describe_readiness, get_dashboard_context
+from config.dashboard import (
+    build_readiness,
+    describe_readiness,
+    get_dashboard_context,
+    keyed_readiness,
+)
 
 
 def _by_key(readiness):
@@ -756,6 +761,13 @@ def test_descriptions_follow_readiness_order_and_hold_no_tokens():
     PipelineRun.objects.filter(pk=run.pk).update(updated_at=timezone.now() - timedelta(hours=1))
     _stale(Node.objects.create(instance_id="agent-a"))
 
+    assert [key for key, _ in keyed_readiness()] == [
+        "channels",
+        "provider",
+        "preflight",
+        "inbox",
+        "nodes",
+    ]
     found = describe_readiness()
     assert [d.action.intent for d in found] == [
         "edit_channel",
@@ -828,3 +840,34 @@ def test_an_unknown_entry_gets_a_generic_description(monkeypatch):
     assert _headlines(found) == ["Backups needs attention", "Certificates needs attention"]
     assert [d.tone for d in found] == ["warning", "critical"]
     assert all(d.action is None for d in found)
+
+
+@pytest.mark.django_db
+def test_a_lane_gap_is_keyed_by_its_lane_as_a_valid_id():
+    from apps.intelligence.models import IntelligenceProvider
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    IntelligenceProvider.objects.create(name="p", provider="anthropic", is_active=True)
+    _channel()
+    _lane("Paging Lane/EU", ["notify"])
+    _lane("beta", ["notify"])
+
+    assert [key for key, _ in keyed_readiness()] == [
+        "lane_channels-paging-laneeu",
+        "lane_channels-beta",
+    ]
+
+
+def test_describe_readiness_is_the_keyed_descriptions_without_keys(monkeypatch):
+    from config import dashboard
+
+    monkeypatch.setattr(
+        dashboard,
+        "build_readiness",
+        lambda: [{"key": "certs", "label": "Certificates", "status": "error", "gaps": []}],
+    )
+
+    ((key, found),) = keyed_readiness()
+    assert key == "certs"
+    assert describe_readiness() == (found,)

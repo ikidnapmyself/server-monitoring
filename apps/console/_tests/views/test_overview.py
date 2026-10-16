@@ -226,13 +226,16 @@ def test_page_polls_itself_and_links_onward(client, staff):
 
 def _readiness(monkeypatch, headline="3 runs are stuck"):
     found = (
-        Description(
-            headline,
-            "critical",
-            action=Action("Open the stuck runs", "view_inbox", {"status": "processing"}),
+        (
+            "inbox",
+            Description(
+                headline,
+                "critical",
+                action=Action("Open the stuck runs", "view_inbox", {"status": "processing"}),
+            ),
         ),
     )
-    monkeypatch.setattr(overview_queries, "describe_readiness", lambda: found)
+    monkeypatch.setattr(overview_queries, "keyed_readiness", lambda: found)
 
 
 def _superuser(client):
@@ -247,7 +250,7 @@ def test_readiness_shows_the_describers_headline_and_fix_link_for_a_superuser(cl
     body = client.get(reverse("console:overview")).content.decode()
 
     assert "3 runs are stuck" in body
-    fix = re.search(r'<a id="readiness-0-action"[^>]*href="([^"]+)"[^>]*>([^<]+)</a>', body)
+    fix = re.search(r'<a id="readiness-inbox-action"[^>]*href="([^"]+)"[^>]*>([^<]+)</a>', body)
     inbox = reverse("admin:orchestration_inboxitem_changelist")
     assert fix.groups() == (f"{inbox}?status__exact=processing", "Open the stuck runs")
     assert "System ready." not in body
@@ -261,26 +264,39 @@ def test_readiness_fix_is_plain_text_for_staff_without_the_permission(client, st
 
     assert "3 runs are stuck" in body
     assert '<p class="c-description__action">Open the stuck runs</p>' in body
-    assert 'id="readiness-0-action"' not in body
+    assert 'id="readiness-inbox-action"' not in body
+
+
+def _keyed(*keys):
+    return tuple(
+        (
+            key,
+            Description(
+                f"{key} broke", "warning", action=Action("Open the node list", "view_nodes")
+            ),
+        )
+        for key in keys
+    )
 
 
 @pytest.mark.django_db
-def test_readiness_rows_are_numbered_in_order(client, monkeypatch):
+def test_readiness_ids_come_from_their_keys_and_survive_a_row_clearing(client, monkeypatch):
     _superuser(client)
-    found = tuple(
-        Description(f"problem {n}", "warning", action=Action("Open the node list", "view_nodes"))
-        for n in range(2)
-    )
-    monkeypatch.setattr(overview_queries, "describe_readiness", lambda: found)
+    found = _keyed("channels", "lane_channels-paging", "nodes")
+    monkeypatch.setattr(overview_queries, "keyed_readiness", lambda: found)
+    pattern = r'id="readiness-([^"]+)-action"[^>]*>[^<]*</a>'
 
-    body = client.get(reverse("console:overview")).content.decode()
+    before = client.get(reverse("console:overview")).content.decode()
+    monkeypatch.setattr(overview_queries, "keyed_readiness", lambda: found[::2])
+    after = client.get(reverse("console:overview")).content.decode()
 
-    assert re.findall(r'id="(readiness-\d+)-action"', body) == ["readiness-0", "readiness-1"]
+    assert re.findall(pattern, before) == ["channels", "lane_channels-paging", "nodes"]
+    assert re.findall(pattern, after) == ["channels", "nodes"]
 
 
 @pytest.mark.django_db
 def test_an_all_green_system_reads_as_ready(client, staff, monkeypatch):
-    monkeypatch.setattr(overview_queries, "describe_readiness", lambda: ())
+    monkeypatch.setattr(overview_queries, "keyed_readiness", lambda: ())
 
     body = client.get(reverse("console:overview")).content.decode()
 
@@ -426,7 +442,7 @@ def test_every_link_in_the_polled_region_has_a_unique_id(client, monkeypatch, he
     ids = re.findall(r'\sid="([^"]*)"', region)
     expected = (
         [f"incident-{incident.pk}" for incident in incidents[:2]]
-        + ["incidents-more", "readiness-0-action"]
+        + ["incidents-more", "readiness-inbox-action"]
         + [f"node-{node.pk}" for node in nodes]
     )
     assert len(links) == len(expected)

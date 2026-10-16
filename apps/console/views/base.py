@@ -11,7 +11,7 @@ from apps.console.middleware import CONSOLE_PATH_PREFIX
 
 
 class ConsoleView(TemplateView):
-    """Base for every console page. Active staff, plus ``read_permission`` when set.
+    """Base for every console page. Active staff, plus any one of ``read_permissions`` when set.
 
     One URL serves two sizes: the full page, and only ``partial_template_name``
     when htmx asks for a fragment. Subclasses must set both template names.
@@ -20,7 +20,7 @@ class ConsoleView(TemplateView):
 
     template_name: str
     partial_template_name: str
-    read_permission: str = ""
+    read_permissions: tuple[str, ...] = ()
 
     def dispatch(self, request, *args, **kwargs):
         return self._refusal(request) or super().dispatch(request, *args, **kwargs)
@@ -56,7 +56,7 @@ class ConsoleView(TemplateView):
             return response
         if not (request.user.is_active and request.user.is_staff):
             return HttpResponseForbidden("Staff access required.")
-        if self.read_permission and not request.user.has_perm(self.read_permission):
+        if self.read_permissions and not any(map(request.user.has_perm, self.read_permissions)):
             return HttpResponseForbidden("Permission to view incidents required.")
         return None
 
