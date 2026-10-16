@@ -3,7 +3,14 @@ from unittest.mock import MagicMock, patch
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from apps.alerts.check_integration import CheckAlertBridge, CheckAlertResult
+from apps.alerts.check_integration import (
+    CheckAlertBridge,
+    CheckAlertResult,
+    PipelineRunFailed,
+    can_rerun,
+    record_and_enqueue,
+    rerun_incident_checks,
+)
 from apps.alerts.models import (
     Alert,
     AlertHistory,
@@ -13,6 +20,7 @@ from apps.alerts.models import (
     Node,
 )
 from apps.checkers.checkers import CheckResult, CheckStatus
+from apps.orchestration.models import PipelineOrigin
 
 
 class CheckAlertBridgeTests(TestCase):
@@ -1113,3 +1121,138 @@ class SkippedStatusTests(TestCase):
 
         self.assertEqual(STATUS_TO_ALERT_STATUS[CheckStatus.SKIPPED], "resolved")
         self.assertEqual(STATUS_TO_SEVERITY[CheckStatus.SKIPPED], "info")
+
+
+ENQUEUE = "apps.orchestration.intake.enqueue_for"
+RUN_CHECKS = "apps.alerts.check_integration.CheckAlertBridge.run_checks_and_alert"
+
+
+@override_settings(INSTANCE_ID="this-box")
+class RecordAndEnqueueTests(TestCase):
+    def _results(self):
+        return [CheckResult(status=CheckStatus.CRITICAL, message="CPU at 99%", checker_name="cpu")]
+
+    def test_records_and_enqueues_with_the_sync_flag(self):
+        with patch(ENQUEUE) as enqueue:
+            result = record_and_enqueue(self._results(), trace_id="t-1", sync=True)
+
+        self.assertEqual(result.checks_run, 1)
+        self.assertTrue(Alert.objects.filter(fingerprint="check:this-box:cpu").exists())
+        enqueue.assert_called_once_with(
+            result,
+            trace_id="t-1",
+            origin=PipelineOrigin.CHECKER_GENERATED,
+            source=CheckAlertBridge.SOURCE_NAME,
+            no_notify=False,
+            sync=True,
+        )
+
+    def test_passes_no_notify_and_async_through(self):
+        with patch(ENQUEUE) as enqueue:
+            record_and_enqueue(self._results(), trace_id="t-1", sync=False, no_notify=True)
+
+        self.assertEqual(enqueue.call_args.kwargs["sync"], False)
+        self.assertEqual(enqueue.call_args.kwargs["no_notify"], True)
+
+    def test_a_failed_enqueue_takes_the_writes_back(self):
+        with patch(ENQUEUE, side_effect=RuntimeError("killed")):
+            with self.assertRaisesMessage(PipelineRunFailed, "killed"):
+                record_and_enqueue(self._results(), trace_id="t-1", sync=True)
+
+        self.assertFalse(Alert.objects.exists())
+        self.assertFalse(Incident.objects.exists())
+
+    def test_a_failed_recording_raises_as_itself(self):
+        with patch(
+            "apps.alerts.check_integration.CheckAlertBridge.process_check_results",
+            side_effect=RuntimeError("bridge"),
+        ):
+            with patch(ENQUEUE) as enqueue:
+                with self.assertRaisesMessage(RuntimeError, "bridge") as ctx:
+                    record_and_enqueue(self._results(), trace_id="t-1", sync=True)
+
+        self.assertNotIsInstance(ctx.exception, PipelineRunFailed)
+        enqueue.assert_not_called()
+
+
+@override_settings(INSTANCE_ID="this-box")
+class RerunIncidentChecksTests(TestCase):
+    def _incident(self, *checkers, instance="this-box"):
+        incident = Incident.objects.create(severity="critical", instance=instance)
+        for index, checker in enumerate(checkers):
+            labels = {"checker": checker} if checker else {"alertname": "room"}
+            Alert.objects.create(
+                fingerprint=f"fp-{index}",
+                source="cluster",
+                name="x",
+                labels=labels,
+                incident=incident,
+                started_at=timezone.now(),
+            )
+        return incident
+
+    def test_runs_only_the_incident_checkers_this_machine_has(self):
+        incident = self._incident("memory", "zfs_pool", None, "cpu", "memory")
+
+        with patch(RUN_CHECKS, return_value=CheckAlertResult()) as run, patch(ENQUEUE) as enqueue:
+            result = rerun_incident_checks(incident.pk)
+
+        run.assert_called_once_with(checker_names=["memory", "cpu"])
+        self.assertIs(enqueue.call_args.args[0], result)
+        self.assertEqual(enqueue.call_args.kwargs["sync"], False)
+        self.assertEqual(enqueue.call_args.kwargs["origin"], PipelineOrigin.CHECKER_GENERATED)
+
+    def test_ignores_labels_that_are_not_a_dict(self):
+        incident = self._incident("cpu")
+        Alert.objects.create(
+            fingerprint="odd",
+            source="x",
+            name="x",
+            labels=["checker"],
+            incident=incident,
+            started_at=timezone.now(),
+        )
+
+        with patch(RUN_CHECKS, return_value=CheckAlertResult()) as run, patch(ENQUEUE):
+            rerun_incident_checks(incident.pk)
+
+        run.assert_called_once_with(checker_names=["cpu"])
+
+    def test_refuses_another_machine(self):
+        incident = self._incident("cpu", instance="web-03")
+
+        with patch(RUN_CHECKS) as run, patch(ENQUEUE) as enqueue:
+            with self.assertRaises(ValueError):
+                rerun_incident_checks(incident.pk)
+
+        run.assert_not_called()
+        enqueue.assert_not_called()
+
+    def test_refuses_an_incident_with_no_local_checker(self):
+        incident = self._incident("zfs_pool", None)
+
+        with patch(RUN_CHECKS) as run, patch(ENQUEUE) as enqueue:
+            with self.assertRaises(ValueError):
+                rerun_incident_checks(incident.pk)
+
+        run.assert_not_called()
+        enqueue.assert_not_called()
+
+    def test_a_missing_incident_raises(self):
+        with patch(RUN_CHECKS) as run:
+            with self.assertRaises(Incident.DoesNotExist):
+                rerun_incident_checks(404)
+
+        run.assert_not_called()
+
+    def test_can_rerun_a_local_incident_with_a_local_checker(self):
+        self.assertTrue(can_rerun(self._incident("zfs_pool", "cpu")))
+
+    def test_cannot_rerun_another_machine(self):
+        self.assertFalse(can_rerun(self._incident("cpu", instance="web-03")))
+
+    def test_cannot_rerun_without_a_local_checker(self):
+        self.assertFalse(can_rerun(self._incident("zfs_pool", None)))
+
+    def test_cannot_rerun_without_alerts(self):
+        self.assertFalse(can_rerun(self._incident()))

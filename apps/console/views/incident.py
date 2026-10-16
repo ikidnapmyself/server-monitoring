@@ -6,6 +6,7 @@ from apps.console.queries.incident import build_incident_detail
 from apps.console.views.base import ConsoleView
 
 CHANGE_PERMISSION = "alerts.change_incident"
+RERUN_PERMISSION = "checkers.add_checkrun"
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,10 @@ class IncidentPageView(ConsoleView):
     @property
     def can_act(self) -> bool:
         return self.request.user.has_perm(CHANGE_PERMISSION)
+
+    @property
+    def can_rerun_checks(self) -> bool:
+        return self.request.user.has_perm(RERUN_PERMISSION)
 
     def not_found(self):
         # The whole page for htmx too. It doesn't swap a 404, it shows the banner.

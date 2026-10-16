@@ -22,6 +22,8 @@ Usage:
 
 import logging
 import socket
+import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -33,6 +35,7 @@ from apps.alerts.identity import checker_fingerprint, local_instance_id
 from apps.alerts.models import (
     Alert,
     AlertSeverity,
+    Incident,
     Node,
 )
 from apps.alerts.services import AlertOrchestrator, ProcessingResult
@@ -436,3 +439,97 @@ class CheckAlertBridge:
             result.merge(self.process_check_results([check_result], labels))
 
         return result
+
+
+class PipelineRunFailed(Exception):
+    """The alerts were recorded, then enqueueing or draining their runs failed."""
+
+
+def _record_and_enqueue(
+    record: Callable[[], CheckAlertResult], *, trace_id: str, sync: bool, no_notify: bool
+) -> CheckAlertResult:
+    from apps.orchestration.intake import enqueue_for
+    from apps.orchestration.models import PipelineOrigin
+
+    result = None
+    try:
+        # One transaction for the writes and the enqueue they justify: a crash
+        # between them leaves an incident durably written with no run, and the
+        # next tick reports the same condition at the same severity, so nothing
+        # is material and nothing is ever enqueued for it. A sync drain is
+        # registered with ``transaction.on_commit`` inside ``enqueue_for``, so it
+        # runs after this block rather than against uncommitted rows.
+        with transaction.atomic():
+            result = record()
+            enqueue_for(
+                result,
+                trace_id=trace_id,
+                origin=PipelineOrigin.CHECKER_GENERATED,
+                source=CheckAlertBridge.SOURCE_NAME,
+                no_notify=no_notify,
+                sync=sync,
+            )
+    except Exception as exc:
+        if result is None:
+            raise
+        raise PipelineRunFailed(str(exc)) from exc
+    return result
+
+
+def record_and_enqueue(
+    results: list[CheckResult], *, trace_id: str, sync: bool, no_notify: bool = False
+) -> CheckAlertResult:
+    """Record alerts for results already run, and enqueue the runs they earn.
+
+    Raises ``PipelineRunFailed`` when the recording succeeded and the enqueue or the
+    sync drain after it did not. Anything else raised comes from the recording.
+    """
+    bridge = CheckAlertBridge(trace_id=trace_id)
+    return _record_and_enqueue(
+        lambda: bridge.process_check_results(results),
+        trace_id=trace_id,
+        sync=sync,
+        no_notify=no_notify,
+    )
+
+
+def _local_checker_names(incident: Incident) -> list[str]:
+    """The incident's distinct ``checker`` labels this machine can run, oldest first."""
+    names: list[str] = []
+    for labels in incident.alerts.order_by("id").values_list("labels", flat=True):
+        name = labels.get("checker") if isinstance(labels, dict) else None
+        if name in CHECKER_REGISTRY and name not in names:
+            names.append(name)
+    return names
+
+
+def can_rerun(incident: Incident) -> bool:
+    """Whether ``rerun_incident_checks`` would run anything for this incident."""
+    return incident.instance == local_instance_id() and bool(_local_checker_names(incident))
+
+
+def rerun_incident_checks(incident_id: int) -> CheckAlertResult:
+    """Run the incident's checkers again here and enqueue what changed.
+
+    The runs are left for ``process_inbox``: an operator's click must not wait on
+    analysis and notification.
+
+    Raises:
+        Incident.DoesNotExist: No incident has this id.
+        ValueError: The incident is about another machine, or names no checker
+            this machine has.
+    """
+    incident = Incident.objects.get(pk=incident_id)
+    if incident.instance != local_instance_id():
+        raise ValueError("The incident is about another machine.")
+    names = _local_checker_names(incident)
+    if not names:
+        raise ValueError("The incident names no checker this machine has.")
+    trace_id = str(uuid.uuid4())
+    bridge = CheckAlertBridge(trace_id=trace_id)
+    return _record_and_enqueue(
+        lambda: bridge.run_checks_and_alert(checker_names=names),
+        trace_id=trace_id,
+        sync=False,
+        no_notify=False,
+    )

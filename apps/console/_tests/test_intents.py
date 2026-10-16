@@ -168,3 +168,13 @@ def test_tag_resolves_for_the_request_user(admin_user):
 @pytest.mark.django_db
 def test_tag_passes_over_no_action(admin_user):
     assert _render(admin_user, None) == "none"
+
+
+@pytest.mark.django_db
+def test_rerun_check_posts_to_the_incident_rerun(admin_user):
+    incident = Incident.objects.create(severity="critical")
+    action = Action("Run again", intent="rerun_check", params={"pk": incident.pk})
+    resolved = resolve_action(action, admin_user)
+    assert resolved == ResolvedAction(
+        "Run again", f"/console/incidents/{incident.pk}/rerun/", "post"
+    )
