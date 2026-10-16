@@ -11,7 +11,7 @@ from django.db.models import Count
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.alerts.describing import describe_incident
+from apps.alerts.describing import describe_incident, history_tone
 from apps.alerts.diagnosis import diagnose_incident
 from apps.alerts.models import Incident
 from apps.alerts.services import available_incident_actions
@@ -43,7 +43,6 @@ EXECUTION_TONES = {
     "notified": "ok",
 }
 DELIVERY_TONES = {"success": "ok", "failed": "critical"}
-HISTORY_TONES = {"resolved": "ok", "created": "info", "refired": "info"}
 ACTION_LABELS = {"acknowledge": "Acknowledge", "resolve": "Resolve", "close": "Close"}
 TIMELINE_LIMIT = 100
 LIFECYCLE = (
@@ -309,13 +308,6 @@ def stage_body(stage: str, snapshot: object) -> StageBody | None:
     if builder is None or not isinstance(snapshot, dict) or keys.isdisjoint(snapshot):
         return RawBody(raw=raw)
     return builder(snapshot, raw)
-
-
-def history_tone(event: str, severity_to: object) -> str:
-    """Tone from the severity the row itself moved to, never the alert's current one."""
-    if isinstance(severity_to, str) and severity_to in SEVERITY_TONES:
-        return SEVERITY_TONES[severity_to]
-    return tone_for(HISTORY_TONES, event)
 
 
 def execution_tone(status: str) -> str:

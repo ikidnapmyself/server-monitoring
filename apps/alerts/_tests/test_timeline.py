@@ -267,6 +267,33 @@ class TimelineConsoleKeysTests(TestCase):
             assert "alert_severity" not in entry
             assert entry["label"] == entry["event"]
 
+    def test_alert_history_entries_carry_raw_statuses_and_severities(self):
+        incident = Incident.objects.create()
+        alert = Alert.objects.create(
+            fingerprint="check:web-03:cpu",
+            source="cluster",
+            name="cpu high",
+            incident=incident,
+            started_at=timezone.now(),
+        )
+        AlertHistory.objects.create(
+            alert=alert,
+            event="reevaluated",
+            old_status="firing",
+            new_status="resolved",
+            details={"severity_from": "critical", "severity_to": "warning"},
+        )
+        AlertHistory.objects.create(alert=alert, event="created", details=["junk"])
+
+        entries = {e["event"]: e for e in build_incident_timeline(incident)}
+
+        moved = entries["reevaluated"]
+        assert (moved["old_status"], moved["new_status"]) == ("firing", "resolved")
+        assert (moved["severity_from"], moved["severity_to"]) == ("critical", "warning")
+        created = entries["created"]
+        assert (created["old_status"], created["new_status"]) == ("", "")
+        assert (created["severity_from"], created["severity_to"]) == (None, None)
+
     def test_alert_history_does_not_query_per_row(self):
         incident = Incident.objects.create()
         for index in range(3):

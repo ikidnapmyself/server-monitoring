@@ -14,6 +14,14 @@ from apps.checkers.checkers import CHECKER_REGISTRY, CheckStatus, checker_label
 from config.admin_badges import SEVERITY_TONES, tone_for
 from config.describing import Action, Description, Fact
 
+HISTORY_TONES = {"resolved": "ok", "created": "info", "refired": "info"}
+_HISTORY_HEADLINES = {
+    "created": "{} started firing",
+    "resolved": "{} cleared",
+    "refired": "{} fired again",
+}
+_QUIET_HISTORY_EVENTS = frozenset({"reevaluated", "updated"})
+
 _RANK: dict[str, int] = {
     AlertSeverity.CRITICAL: 0,
     AlertSeverity.WARNING: 1,
@@ -120,3 +128,49 @@ def describe_incidents(incidents: Iterable[Incident]) -> dict[int, Description]:
 
 def describe_incident(incident: Incident) -> Description:
     return describe_incidents([incident])[incident.pk]
+
+
+def history_tone(event: str, severity_to: object) -> str:
+    """Tone from the severity the row itself moved to, never the alert's current one."""
+    if isinstance(severity_to, str) and severity_to in SEVERITY_TONES:
+        return SEVERITY_TONES[severity_to]
+    return tone_for(HISTORY_TONES, event)
+
+
+def _text(value: object) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _movement(old: str, new: str) -> str:
+    if old and new and old != new:
+        return f"{old} to {new}"
+    return new or old
+
+
+def describe_history(
+    event: str,
+    *,
+    alert_headline: str,
+    old_status: str,
+    new_status: str,
+    severity_from: object,
+    severity_to: object,
+) -> Description:
+    sev_from, sev_to = _text(severity_from), _text(severity_to)
+    if event in _HISTORY_HEADLINES:
+        headline = _HISTORY_HEADLINES[event].format(alert_headline)
+    elif sev_from and sev_to and sev_from != sev_to:
+        headline = f"{alert_headline} moved from {sev_from} to {sev_to}"
+    elif event in _QUIET_HISTORY_EVENTS:
+        headline = f"{alert_headline} updated"
+    else:
+        headline = f"{alert_headline} changed"
+    facts = tuple(
+        Fact(label, value)
+        for label, value in (
+            ("Status", _movement(_text(old_status), _text(new_status))),
+            ("Severity", _movement(sev_from, sev_to)),
+        )
+        if value
+    )
+    return Description(headline=headline, tone=history_tone(event, severity_to), facts=facts)

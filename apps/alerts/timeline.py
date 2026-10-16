@@ -22,8 +22,8 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
     - ``run_id``: present on ``stage``/``pipeline`` entries for correlation.
 
     The console's incident page reads further keys, which the admin ignores:
-    ``history_pk``, ``alert_pk``, ``alert_name``, ``severity_to`` and ``event`` on
-    ``alert_history`` entries, ``run_pk`` and ``status`` on ``pipeline`` entries, and
+    ``history_pk``, ``alert_pk``, ``alert_name``, ``event``, ``old_status``,
+    ``new_status``, ``severity_from`` and ``severity_to`` on ``alert_history`` entries, ``run_pk`` and ``status`` on ``pipeline`` entries, and
     ``stage``, ``status``, ``execution_pk``, ``run_pk``, ``duration_ms`` and
     ``output_snapshot`` on ``stage`` entries.
 
@@ -57,6 +57,9 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
                 "alert_name": h.alert.name,
                 "severity_to": severity_to,
                 "event": h.event,
+                "old_status": h.old_status,
+                "new_status": h.new_status,
+                "severity_from": severity_from,
             }
         )
 
