@@ -362,3 +362,53 @@ class DiagnoseIncidentEvidenceOutranksConfigTests(TestCase):
         self.assertEqual(entry["status"], "skipped")
         self.assertIn("config", entry["detail"])
         self.assertIsNone(entry["runs"])
+
+
+class DiagnoseIncidentRawOutcomeTests(TestCase):
+    """Every entry carries the raw stage outcome, so a reader can describe it in words."""
+
+    def setUp(self):
+        self.incident = Incident.objects.create()
+        self.run = PipelineRun.objects.create(trace_id="t1", run_id="r1", incident=self.incident)
+
+    def _exec(self, stage, status, **kw):
+        return StageExecution.objects.create(
+            pipeline_run=self.run, stage=stage, status=status, **kw
+        )
+
+    def _raw(self, stage):
+        entry = {e["stage"]: e for e in diagnose_incident(self.incident)}[stage]
+        return entry["execution_status"], entry["error_message"], entry["retryable"]
+
+    def test_never_ran(self):
+        self.assertEqual(self._raw("analyze"), (None, "", False))
+
+    def test_skipped_by_config(self):
+        pipe = PipelineDefinition.objects.create(name="no-intel", stages=["check", "notify"])
+        self.incident.pipeline = pipe
+        self.incident.save(update_fields=["pipeline"])
+        self.assertEqual(
+            self._raw("analyze"), ("skipped", "Skipped: not in this route's stages", False)
+        )
+
+    def test_executed_skip(self):
+        self._exec(
+            "check", "skipped", error_message="Skipped: diagnostics inline", error_retryable=False
+        )
+        self.assertEqual(self._raw("check"), ("skipped", "Skipped: diagnostics inline", False))
+
+    def test_failed_retryable(self):
+        self._exec("analyze", "failed", error_message="provider 504", error_retryable=True)
+        self.assertEqual(self._raw("analyze"), ("failed", "provider 504", True))
+
+    def test_failed_not_retryable(self):
+        self._exec("notify", "failed", error_message="bad token", error_retryable=False)
+        self.assertEqual(self._raw("notify"), ("failed", "bad token", False))
+
+    def test_stalled(self):
+        self._exec("check", "running", error_retryable=False)
+        self.assertEqual(self._raw("check"), ("running", "", False))
+
+    def test_succeeded(self):
+        self._exec("notify", "succeeded", output_ref="ref://msg/1")
+        self.assertEqual(self._raw("notify"), ("succeeded", "", True))
