@@ -8,6 +8,7 @@ from apps.alerts.check_integration import (
     CheckAlertBridge,
     CheckAlertResult,
     PipelineRunFailed,
+    RerunRefused,
     can_rerun,
     incident_checker_names,
     record_and_enqueue,
@@ -1243,7 +1244,7 @@ class RerunIncidentChecksTests(TestCase):
         incident = self._incident("cpu", instance="web-03")
 
         with patch(RUN_CHECKS) as run, patch(ENQUEUE) as enqueue:
-            with self.assertRaises(ValueError):
+            with self.assertRaises(RerunRefused):
                 rerun_incident_checks(incident.pk)
 
         run.assert_not_called()
@@ -1253,7 +1254,7 @@ class RerunIncidentChecksTests(TestCase):
         incident = self._incident("zfs_pool", None)
 
         with patch(RUN_CHECKS) as run, patch(ENQUEUE) as enqueue:
-            with self.assertRaises(ValueError):
+            with self.assertRaises(RerunRefused):
                 rerun_incident_checks(incident.pk)
 
         run.assert_not_called()

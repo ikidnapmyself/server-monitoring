@@ -136,7 +136,9 @@ pipeline stage and not an alert producer.
   `checkers.add_checkrun` on top of the read permissions, and calls
   `apps.alerts.check_integration.rerun_incident_checks`, which owns the rules. It runs the
   incident's checkers only when the incident's node is this machine and names a checker
-  this machine has, and otherwise refuses with a warning notice. The button appears only
+  this machine has, and otherwise refuses with a warning notice. The view catches only
+  `RerunRefused` as a refusal. A `PipelineRunFailed` means the enqueue failed and rolled the
+  recording back, so its warning says nothing was recorded. The button appears only
   when `can_rerun(incident)` holds. The rerun records alerts and enqueues runs without
   draining them, so they notify real channels once `process_inbox` drains. Never drain
   the inbox in a test.

@@ -2,13 +2,14 @@ from django.contrib import messages
 from django.http import HttpResponseForbidden, HttpResponseRedirect
 from django.urls import reverse
 
-from apps.alerts.check_integration import rerun_incident_checks
+from apps.alerts.check_integration import PipelineRunFailed, RerunRefused, rerun_incident_checks
 from apps.alerts.models import Incident
 from apps.console.views.incident import IncidentPageView, Notice
 
 REFUSED = "This incident's checks can't run on this machine."
 RAN = "Checks ran again. The incident updates when the run finishes."
 UNCHANGED = "Checks ran again. Nothing changed."
+NOT_QUEUED = "Checks ran, but queueing the follow-up run failed, so nothing was recorded."
 
 
 class IncidentRerunView(IncidentPageView):
@@ -27,8 +28,10 @@ class IncidentRerunView(IncidentPageView):
             rerun = rerun_incident_checks(pk)
         except Incident.DoesNotExist:
             return self.not_found()
-        except ValueError:
+        except RerunRefused:
             notice = Notice(text=REFUSED, tone="warning")
+        except PipelineRunFailed:
+            notice = Notice(text=NOT_QUEUED, tone="warning")
         else:
             notice = Notice(text=RAN if rerun.runs else UNCHANGED, tone="ok")
         full = request.POST.get("all") == "1"

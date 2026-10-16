@@ -472,7 +472,16 @@ class ChecksRerun:
 
 
 class PipelineRunFailed(Exception):
-    """The alerts were recorded, then enqueueing or draining their runs failed."""
+    """The recording succeeded, then enqueueing or draining its runs failed.
+
+    An enqueue failure happens inside the recording's transaction, so it rolls the
+    recording back and nothing is kept. Only a sync drain runs after the commit, so
+    only its failure leaves the alerts and their runs recorded.
+    """
+
+
+class RerunRefused(ValueError):
+    """``rerun_incident_checks`` won't run this incident's checkers on this machine."""
 
 
 def _record_and_enqueue(
@@ -512,7 +521,8 @@ def record_and_enqueue(
     """Record alerts for results already run, and enqueue the runs they earn.
 
     Raises ``PipelineRunFailed`` when the recording succeeded and the enqueue or the
-    sync drain after it did not. Anything else raised comes from the recording.
+    sync drain after it did not. A failed enqueue rolls the recording back. Anything
+    else raised comes from the recording.
     """
     bridge = CheckAlertBridge(trace_id=trace_id)
     result, _ = _record_and_enqueue(
@@ -560,15 +570,17 @@ def rerun_incident_checks(incident_id: int) -> ChecksRerun:
 
     Raises:
         Incident.DoesNotExist: No incident has this id.
-        ValueError: The incident is about another machine, or names no checker
+        RerunRefused: The incident is about another machine, or names no checker
             this machine has.
+        PipelineRunFailed: Enqueueing the runs failed. The runs are never drained here,
+            so this always rolled the recording back.
     """
     incident = Incident.objects.get(pk=incident_id)
     if incident.instance != local_instance_id():
-        raise ValueError("The incident is about another machine.")
+        raise RerunRefused("The incident is about another machine.")
     names = incident_checker_names(incident.pk)
     if not names:
-        raise ValueError("The incident names no checker this machine has.")
+        raise RerunRefused("The incident names no checker this machine has.")
     trace_id = str(uuid.uuid4())
     bridge = CheckAlertBridge(trace_id=trace_id)
     # Run before the transaction opens: a checker can sample for seconds, and on SQLite

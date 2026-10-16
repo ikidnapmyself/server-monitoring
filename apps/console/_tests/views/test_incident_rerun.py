@@ -9,6 +9,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.alerts.models import Alert, Incident
+from apps.checkers.checkers import CheckResult, CheckStatus
 from apps.console._tests.views.test_incident_action import _notices
 from apps.orchestration.models import PipelineRun
 
@@ -18,6 +19,7 @@ ENQUEUE = "apps.orchestration.intake.enqueue_for"
 RUN_CHECKS = "apps.alerts.check_integration.CheckAlertBridge.run_checks"
 RAN = "Checks ran again. The incident updates when the run finishes."
 UNCHANGED = "Checks ran again. Nothing changed."
+NOT_QUEUED = "Checks ran, but queueing the follow-up run failed, so nothing was recorded."
 REFUSED = "This incident&#x27;s checks can&#x27;t run on this machine."
 
 pytestmark = pytest.mark.usefixtures("this_box")
@@ -158,6 +160,38 @@ def test_htmx_refusal_returns_a_warning_notice(client, operator, run_checks, inc
     assert resp.status_code == 200
     assert _notices(resp.content.decode()) == [("warning", REFUSED)]
     run_checks.assert_not_called()
+
+
+@pytest.mark.django_db
+@BOTH
+def test_a_failed_enqueue_says_nothing_was_recorded(client, operator, headers):
+    incident = _incident()
+    before = list(Alert.objects.values())
+    result = CheckResult(status=CheckStatus.CRITICAL, message="CPU at 99%", checker_name="cpu")
+
+    with (
+        mock.patch(RUN_CHECKS, return_value=([result], [])),
+        mock.patch(ENQUEUE, side_effect=RuntimeError("queue down")),
+    ):
+        resp = client.post(_url(incident), **headers)
+
+    body = resp.content.decode() if headers else client.get(_page(incident)).content.decode()
+    assert _notices(body) == [("warning", NOT_QUEUED)]
+    assert list(Alert.objects.values()) == before
+    assert list(Incident.objects.all()) == [incident]
+    assert not PipelineRun.objects.exists()
+
+
+@pytest.mark.django_db
+def test_a_recording_error_is_not_mistaken_for_a_refusal(client, operator, run_checks):
+    incident = _incident()
+
+    with mock.patch(
+        "apps.alerts.check_integration.CheckAlertBridge.process_check_results",
+        side_effect=ValueError("bad row"),
+    ):
+        with pytest.raises(ValueError, match="bad row"):
+            client.post(_url(incident), **HTMX)
 
 
 @pytest.mark.django_db
