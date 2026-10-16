@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.db import connection
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
 from apps.alerts.check_integration import (
@@ -1126,7 +1127,8 @@ class SkippedStatusTests(TestCase):
 
 
 ENQUEUE = "apps.orchestration.intake.enqueue_for"
-RUN_CHECKS = "apps.alerts.check_integration.CheckAlertBridge.run_checks_and_alert"
+RUN_CHECKS = "apps.alerts.check_integration.CheckAlertBridge.run_checks"
+RUN_CHECKER = "apps.alerts.check_integration.CheckAlertBridge._run_checker"
 
 
 @override_settings(INSTANCE_ID="this-box")
@@ -1196,14 +1198,12 @@ class RerunIncidentChecksTests(TestCase):
     def test_runs_only_the_incident_checkers_this_machine_has(self):
         incident = self._incident("memory", "zfs_pool", None, "cpu", "memory")
 
-        checks = CheckAlertResult()
-        with patch(RUN_CHECKS, return_value=checks) as run, patch(ENQUEUE) as enqueue:
+        with patch(RUN_CHECKS, return_value=([], [])) as run, patch(ENQUEUE) as enqueue:
             rerun = rerun_incident_checks(incident.pk)
 
-        run.assert_called_once_with(checker_names=["memory", "cpu"])
-        self.assertIs(rerun.checks, checks)
+        run.assert_called_once_with(["memory", "cpu"])
         self.assertIs(rerun.runs, enqueue.return_value)
-        self.assertIs(enqueue.call_args.args[0], checks)
+        self.assertIs(enqueue.call_args.args[0], rerun.checks)
         self.assertEqual(enqueue.call_args.kwargs["sync"], False)
         self.assertEqual(enqueue.call_args.kwargs["origin"], PipelineOrigin.CHECKER_GENERATED)
 
@@ -1218,10 +1218,26 @@ class RerunIncidentChecksTests(TestCase):
             started_at=timezone.now(),
         )
 
-        with patch(RUN_CHECKS, return_value=CheckAlertResult()) as run, patch(ENQUEUE):
+        with patch(RUN_CHECKS, return_value=([], [])) as run, patch(ENQUEUE):
             rerun_incident_checks(incident.pk)
 
-        run.assert_called_once_with(checker_names=["cpu"])
+        run.assert_called_once_with(["cpu"])
+
+    def test_records_what_ran_and_keeps_what_raised(self):
+        incident = self._incident("cpu", "memory")
+
+        def run_checker(name, kwargs=None):
+            if name == "memory":
+                raise RuntimeError("boom")
+            return CheckResult(status=CheckStatus.CRITICAL, message="CPU at 99%", checker_name=name)
+
+        with patch(RUN_CHECKER, side_effect=run_checker), patch(ENQUEUE) as enqueue:
+            rerun = rerun_incident_checks(incident.pk)
+
+        self.assertEqual(rerun.checks.checks_run, 1)
+        self.assertEqual(rerun.checks.errors, ["memory: boom"])
+        self.assertTrue(Alert.objects.filter(fingerprint="check:this-box:cpu").exists())
+        self.assertIs(enqueue.call_args.args[0], rerun.checks)
 
     def test_refuses_another_machine(self):
         incident = self._incident("cpu", instance="web-03")
@@ -1269,3 +1285,29 @@ class RerunIncidentChecksTests(TestCase):
 
     def test_cannot_rerun_without_alerts(self):
         self.assertFalse(can_rerun(self._incident()))
+
+
+@override_settings(INSTANCE_ID="this-box")
+class RerunOutsideTransactionTests(TransactionTestCase):
+    """TestCase wraps every test in a transaction, so this needs a real commit."""
+
+    def test_no_checker_runs_inside_a_transaction(self):
+        incident = Incident.objects.create(severity="critical", instance="this-box")
+        Alert.objects.create(
+            fingerprint="fp",
+            source="cluster",
+            name="x",
+            labels={"checker": "cpu"},
+            incident=incident,
+            started_at=timezone.now(),
+        )
+        seen = []
+
+        def run_checker(name, kwargs=None):
+            seen.append(connection.in_atomic_block)
+            return CheckResult(status=CheckStatus.OK, message="fine", checker_name=name)
+
+        with patch(RUN_CHECKER, side_effect=run_checker), patch(ENQUEUE):
+            rerun_incident_checks(incident.pk)
+
+        self.assertEqual(seen, [False])

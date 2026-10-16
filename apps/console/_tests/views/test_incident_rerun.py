@@ -8,7 +8,6 @@ from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.alerts.check_integration import CheckAlertResult
 from apps.alerts.models import Alert, Incident
 from apps.console._tests.views.test_incident_action import _notices
 from apps.orchestration.models import PipelineRun
@@ -16,7 +15,7 @@ from apps.orchestration.models import PipelineRun
 HTMX = {"HTTP_HX_REQUEST": "true"}
 BOTH = pytest.mark.parametrize("headers", [{}, HTMX], ids=["plain", "htmx"])
 ENQUEUE = "apps.orchestration.intake.enqueue_for"
-RUN_CHECKS = "apps.alerts.check_integration.CheckAlertBridge.run_checks_and_alert"
+RUN_CHECKS = "apps.alerts.check_integration.CheckAlertBridge.run_checks"
 RAN = "Checks ran again. The incident updates when the run finishes."
 UNCHANGED = "Checks ran again. Nothing changed."
 REFUSED = "This incident&#x27;s checks can&#x27;t run on this machine."
@@ -32,7 +31,7 @@ def this_box():
 
 @pytest.fixture
 def run_checks():
-    with mock.patch(RUN_CHECKS, return_value=CheckAlertResult()) as run:
+    with mock.patch(RUN_CHECKS, return_value=([], [])) as run:
         yield run
 
 
@@ -133,7 +132,7 @@ def test_htmx_rerun_that_changed_nothing_says_so(client, operator, run_checks):
     assert resp.status_code == 200
     assert resp.templates[0].name == "console/partials/_incident.html"
     assert _notices(body) == [("ok", UNCHANGED)]
-    run_checks.assert_called_once_with(checker_names=["cpu"])
+    run_checks.assert_called_once_with(["cpu"])
     assert list(resp.wsgi_request._messages) == []
     assert not PipelineRun.objects.exists()
 

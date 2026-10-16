@@ -426,22 +426,41 @@ class CheckAlertBridge:
 
         result = CheckAlertResult()
         for checker_name in checker_names:
-            try:
-                check_result = self._run_checker(
-                    checker_name, checker_configs.get(checker_name, {})
-                )
-            except Exception as e:
-                logger.exception(f"Error running checker {checker_name}")
-                result.errors.append(f"{checker_name}: {str(e)}")
+            check_results, errors = self.run_checks([checker_name], checker_configs)
+            result.errors.extend(errors)
+            if not check_results:
                 continue
 
             # Record as we go rather than batching at the end: each alert is
             # timestamped at its own checker's completion, and a later checker
             # that hangs or dies leaves the earlier ones already recorded.
             # Recording is the same step a caller with its own results takes.
-            result.merge(self.process_check_results([check_result], labels))
+            result.merge(self.process_check_results(check_results, labels))
 
         return result
+
+    def run_checks(
+        self,
+        checker_names: list[str],
+        checker_configs: dict[str, dict[str, Any]] | None = None,
+    ) -> tuple[list[CheckResult], list[str]]:
+        """Run these checkers and record nothing.
+
+        A checker that raises is logged and named in the returned errors, and the rest
+        still run. Pass the results to ``process_check_results`` to record them.
+        """
+        checker_configs = checker_configs or {}
+        results: list[CheckResult] = []
+        errors: list[str] = []
+        for checker_name in checker_names:
+            try:
+                results.append(
+                    self._run_checker(checker_name, checker_configs.get(checker_name, {}))
+                )
+            except Exception as e:
+                logger.exception(f"Error running checker {checker_name}")
+                errors.append(f"{checker_name}: {str(e)}")
+        return results, errors
 
 
 @dataclass
@@ -552,8 +571,17 @@ def rerun_incident_checks(incident_id: int) -> ChecksRerun:
         raise ValueError("The incident names no checker this machine has.")
     trace_id = str(uuid.uuid4())
     bridge = CheckAlertBridge(trace_id=trace_id)
+    # Run before the transaction opens: a checker can sample for seconds, and on SQLite
+    # an open write transaction locks the whole database for that long.
+    results, errors = bridge.run_checks(names)
+
+    def record() -> CheckAlertResult:
+        checks = CheckAlertResult(errors=errors)
+        checks.merge(bridge.process_check_results(results))
+        return checks
+
     checks, runs = _record_and_enqueue(
-        lambda: bridge.run_checks_and_alert(checker_names=names),
+        record,
         trace_id=trace_id,
         sync=False,
         no_notify=False,
