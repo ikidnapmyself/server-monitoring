@@ -125,7 +125,12 @@ class EmailNotifyDriver(BaseNotifyDriver):
                     pass
 
         except smtplib.SMTPAuthenticationError as e:
-            return self._handle_exception(e, "Email", "authenticate SMTP")
+            return {**self._handle_exception(e, "Email", "authenticate SMTP"), "failure": "auth"}
+        except (smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected) as e:
+            return {
+                **self._handle_exception(e, "Email", "reach SMTP"),
+                "failure": "provider_down",
+            }
         except smtplib.SMTPException as e:
             return self._handle_exception(e, "Email", "send SMTP")
         except Exception as e:

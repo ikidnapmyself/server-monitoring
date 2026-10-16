@@ -399,6 +399,28 @@ class EmailSendTests(SimpleTestCase):
 
         self.assertFalse(result["success"])
         self.assertIn("authenticate SMTP", result["error"])
+        self.assertEqual(result["failure"], "auth")
+
+    @patch("apps.notify.drivers.email.smtplib.SMTP")
+    def test_send_smtp_connect_error_means_provider_down(self, mock_smtp_cls):
+        mock_smtp_cls.side_effect = smtplib.SMTPConnectError(421, b"Service not available")
+        result = self._send_with_prepared(EmailNotifyDriver())
+
+        self.assertEqual(result["failure"], "provider_down")
+
+    @patch("apps.notify.drivers.email.smtplib.SMTP")
+    def test_send_smtp_disconnect_means_provider_down(self, mock_smtp_cls):
+        mock_server = self._mock_smtp()
+        mock_server.sendmail.side_effect = smtplib.SMTPServerDisconnected("gone")
+        mock_smtp_cls.return_value = mock_server
+        result = self._send_with_prepared(EmailNotifyDriver())
+
+        self.assertEqual(result["failure"], "provider_down")
+
+    def _send_with_prepared(self, d):
+        prepared = {"text": "body", "html": None, "incident": {}}
+        with patch.object(d, "_prepare_notification", return_value=prepared):
+            return d.send(_msg(), _base_config(to_addresses=["r@example.local"]))
 
     @patch("apps.notify.drivers.email.smtplib.SMTP")
     def test_send_smtp_exception(self, mock_smtp_cls):
