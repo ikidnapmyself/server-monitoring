@@ -246,6 +246,15 @@ class NetworkDescribeTests(TestCase):
         self.assertEqual(d.headline, "1 of 4 hosts unreachable: 10.0.0.4")
         self.assertIsNone(d.action)
 
+    def test_no_hosts_reads_as_nothing_to_check(self):
+        d = NetworkChecker().describe(CheckStatus.OK, {"hosts": {}, "total_hosts": 0})
+        self.assertEqual(d.headline, "No hosts to check")
+
+    def test_hosts_as_a_list_fall_back_to_the_message(self):
+        metrics = {"total_hosts": 2, "hosts": ["a", "b"]}
+        d = NetworkChecker().describe(CheckStatus.CRITICAL, metrics, "Hosts down")
+        self.assertEqual(d.headline, "Hosts down")
+
     @patch("apps.checkers.checkers.network.shutil.which", return_value="/sbin/ping")
     @patch("apps.checkers.checkers.network.subprocess.run")
     def test_real_output_reads_in_words(self, mock_run, _which):

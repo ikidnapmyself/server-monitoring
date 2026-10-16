@@ -69,6 +69,8 @@ def format_duration(seconds: float) -> str:
 
 
 def format_list(items: Iterable[str], limit: int = 3) -> str:
+    if isinstance(items, str):
+        raise TypeError("format_list takes a list of names, not a string")
     items = list(items)
     if len(items) > limit:
         return f"{', '.join(items[:limit])} and {len(items) - limit} more"

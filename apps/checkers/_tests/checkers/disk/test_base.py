@@ -272,3 +272,8 @@ class BaseDiskAnalyzerDescribeTests(TestCase):
         self.assertEqual(
             d.action.text, "Review the largest paths in Details and remove what isn't needed."
         )
+
+    def test_flat_recommendations_fall_back_to_the_message(self):
+        metrics = {"total_recoverable_mb": 6000.0, "recommendations": ["Clear pip cache:"]}
+        d = _StubAnalyzer().describe(CheckStatus.WARNING, metrics, "Disk hogs found")
+        self.assertEqual(d.headline, "Disk hogs found")

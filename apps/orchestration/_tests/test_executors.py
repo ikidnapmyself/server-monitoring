@@ -63,7 +63,7 @@ class _FakeProcessingResult:
     material_alerts: list = field(default_factory=list)
 
 
-def _mock_alert(*, name, severity, fingerprint, pk=1, incident_id=None, title=None):
+def _mock_alert(*, name, severity, fingerprint, pk=1, incident_id=None, incident=None):
     """A duck-typed stand-in for an Alert row (``name`` needs explicit assignment)."""
     alert = MagicMock()
     alert.id = pk
@@ -71,10 +71,7 @@ def _mock_alert(*, name, severity, fingerprint, pk=1, incident_id=None, title=No
     alert.severity = severity
     alert.fingerprint = fingerprint
     alert.incident_id = incident_id
-    if title is None:
-        alert.incident = None
-    else:
-        alert.incident.title = title
+    alert.incident = incident
     return alert
 
 
@@ -92,7 +89,7 @@ class TestIngestExecutorSuccess(TestCase):
                     fingerprint="fp-123",
                     pk=7,
                     incident_id=42,
-                    title="Disk full on web-01",
+                    incident=MagicMock(),
                 )
             ]
         )

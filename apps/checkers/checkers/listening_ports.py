@@ -177,10 +177,22 @@ class ListeningPortsChecker(BaseChecker):
         }
 
     def describe_result(self, status: CheckStatus, metrics: dict[str, Any]) -> Description:
+        if status is CheckStatus.OK:
+            count = metrics["listening_count"]
+            ports = "port" if count == 1 else "ports"
+            return self._describe(status, f"{count} {ports} listening, all expected", metrics)
+        # Hub-side re-evaluation rescores status against the node's allowlist without
+        # touching metrics, so a firing result can carry no node-flagged ports.
         unexpected = sorted(set(metrics["unexpected_ports"]))
         if not unexpected:
-            count = metrics["listening_count"]
-            return self._describe(status, f"{count} ports listening, all expected", metrics)
+            return self._describe(
+                status,
+                "Ports open outside this node's allowlist",
+                metrics,
+                action=Action(
+                    "Close the ports this node shouldn't expose, or add them to its port allowlist."
+                ),
+            )
         ports = format_list(str(port) for port in unexpected)
         them = "them" if len(unexpected) > 1 else "it"
         return self._describe(

@@ -372,6 +372,7 @@ class PushToHubTests(TestCase):
         alert = payload["alerts"][0]
         self.assertEqual(alert["status"], "firing")
         self.assertEqual(alert["severity"], "warning")
+        self.assertEqual(alert["check_status"], "unknown")
 
     @staticmethod
     def _ok_response(status=202, body=b"ok"):

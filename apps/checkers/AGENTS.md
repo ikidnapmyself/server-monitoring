@@ -38,9 +38,9 @@ the two. See `apps/orchestration/AGENTS.md`.
 Every checker describes its own result, so no consumer decodes `metrics`.
 
 - **`label`** names what the checker looks at (`"CPU usage"`). **`problem`** names what's wrong when it fires (`"High CPU usage"`). Both are required. Checker alerts take `label` as their name, and an incident leads with its checker's `problem`.
-- **`describe_result(status, metrics)`** returns a `Description` built with `self._describe(...)`, or `None` to fall back. Read only the metrics the checker itself writes.
+- **`describe_result(status, metrics)`** returns a `Description` built with `self._describe(...)`, or `None` to fall back. Read only the metrics the checker itself writes. Branch on `status` before metrics: hub-side re-evaluation can change an alert's status without touching its metrics, so the headline must not contradict the status. Names in metrics (paths, process names, hosts) come from the node and pass through as sent.
 - **`describe(status, metrics, message)`** is the entry point. Don't override it. `SKIPPED` reads as "`<label>` not checked: `<reason>`" and `UNKNOWN` as "`<label>` could not be checked", whatever `describe_result` does. Otherwise `describe_result` wins.
-- **Fallback rule.** Metrics come from nodes on older versions too. A `KeyError`, `TypeError`, `ValueError`, `IndexError` or `ZeroDivisionError` in `describe_result`, or a `None` return, falls back to the node's own message, then to "`<label>`: `<status>`". Actions attach only to `WARNING`, `CRITICAL` and `UNKNOWN`.
+- **Fallback rule.** Metrics come from nodes on older versions too. An `AttributeError`, `KeyError`, `TypeError`, `ValueError`, `IndexError` or `ZeroDivisionError` in `describe_result`, or a `None` return, falls back to the node's own message, then to "`<label>`: `<status>`". Actions attach only to `WARNING`, `CRITICAL` and `UNKNOWN`.
 - **Guard tests** in `apps/checkers/_tests/checkers/test_describe_contract.py` run over `CHECKER_REGISTRY`: every checker has a `label` and a `problem`, and every checker describes empty metrics at every status in words that match no `RAW` pattern (a UUID, a `snake_case` token or a `{`). A new checker passes them before it merges.
 - `checker_label(name)` gives a registered checker's `label`, or the humanized key for one the hub doesn't know.
 

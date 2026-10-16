@@ -222,7 +222,7 @@ class BaseChecker(ABC):
             found = self.describe_result(status, metrics)
         # Metrics come from nodes on older versions too, so a missing or odd key falls
         # back to the node's own message instead of failing the page.
-        except (KeyError, TypeError, ValueError, IndexError, ZeroDivisionError):
+        except (AttributeError, KeyError, TypeError, ValueError, IndexError, ZeroDivisionError):
             found = None
         if found is not None:
             return found

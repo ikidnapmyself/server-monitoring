@@ -400,4 +400,5 @@ class Command(BaseCommand):
                 "message": result.message,
             },
             "metrics": result.metrics,
+            "check_status": result.status.value,
         }

@@ -9,8 +9,10 @@ from apps.alerts.describing import (
     describe_incident,
     describe_incidents,
 )
+from apps.alerts.drivers.cluster import ClusterDriver
+from apps.alerts.management.commands.push_to_hub import Command, build_cluster_payload
 from apps.alerts.models import Alert, Incident, IncidentStatus, Node
-from apps.checkers.checkers import CheckStatus
+from apps.checkers.checkers import CheckResult, CheckStatus
 from config.describing import Action, Fact
 
 pytestmark = pytest.mark.django_db
@@ -137,7 +139,57 @@ class TestDescribeAlert:
         assert d.headline == "Unnamed alert"
 
 
+class TestReevaluatedListeningPorts:
+    def test_firing_alert_without_node_flagged_ports_names_the_allowlist(self):
+        alert = _alert(
+            severity="warning",
+            labels={"checker": "listening_ports", "instance_id": "i-1"},
+            raw_payload={
+                "status": "firing",
+                "metrics": {"listening_count": 4, "unexpected_ports": []},
+            },
+        )
+        d = describe_alert(alert)
+        assert d.headline == "Ports open outside this node's allowlist"
+        assert d.tone == "warning"
+
+    def test_resolved_alert_with_node_flagged_ports_reads_all_expected(self):
+        alert = _alert(
+            status="resolved",
+            severity="info",
+            labels={"checker": "listening_ports", "instance_id": "i-1"},
+            raw_payload={
+                "status": "firing",
+                "metrics": {"listening_count": 4, "unexpected_ports": [8080]},
+            },
+        )
+        d = describe_alert(alert)
+        assert d.headline == "4 ports listening, all expected"
+        assert "8080" not in d.headline
+        assert d.tone == "ok"
+
+
 class TestCheckStatusOf:
+    def test_node_pushed_unknown(self):
+        alert = _alert(raw_payload={"status": "firing", "check_status": "unknown"})
+        assert check_status_of(alert) is CheckStatus.UNKNOWN
+
+    def test_pushed_unknown_survives_the_cluster_driver(self):
+        result = CheckResult(
+            status=CheckStatus.UNKNOWN, message="boom", metrics={}, checker_name="cpu"
+        )
+        payload = build_cluster_payload(
+            "i-1", "web-01", [Command()._result_to_alert(result, "i-1", "web-01")]
+        )
+        parsed = ClusterDriver().parse(payload).alerts[0]
+        alert = _alert(
+            labels=parsed.labels,
+            severity=parsed.severity,
+            raw_payload=parsed.raw_payload,
+            description=parsed.description,
+        )
+        assert describe_alert(alert).headline == "CPU usage could not be checked"
+
     def test_firing_warning(self):
         assert check_status_of(_alert(severity="warning")) is CheckStatus.WARNING
 
@@ -212,6 +264,11 @@ class TestDescribeIncident:
         d = describe_incident(incident)
         assert d.headline == "HighLatency on db-1"
         assert d.detail == "p99 above 2s"
+
+    def test_empty_subject_and_instance_give_no_facts(self):
+        incident = _incident(subject="", instance="")
+        labels = [f.label for f in describe_incident(incident).facts]
+        assert "Subject" not in labels and "Instance" not in labels
 
     def test_unregistered_checker_incident_uses_its_label(self):
         incident = _incident(subject="checker:zfs_pool")

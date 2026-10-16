@@ -182,6 +182,8 @@ class NetworkChecker(BaseChecker):
 
     def describe_result(self, status: CheckStatus, metrics: dict[str, Any]) -> Description:
         total = metrics["total_hosts"]
+        if not total:
+            return self._describe(status, "No hosts to check", metrics)
         down = [host for host, info in metrics["hosts"].items() if not info["reachable"]]
         if not down:
             headline = "1 host reachable" if total == 1 else f"All {total} hosts reachable"

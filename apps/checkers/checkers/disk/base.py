@@ -115,6 +115,8 @@ class BaseDiskAnalyzer(BaseChecker):
     def describe_result(self, status: CheckStatus, metrics: dict[str, Any]) -> Description:
         recommendations = metrics["recommendations"]
         if recommendations:
+            if not isinstance(recommendations[0], list):
+                raise TypeError("recommendations must be a list of lists")
             step = recommendations[0][0].rstrip(":")
         else:
             step = "Review the largest paths in Details and remove what isn't needed."

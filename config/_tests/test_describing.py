@@ -99,3 +99,8 @@ def test_format_list(items, expected):
 def test_facts_from_keeps_scalars_and_skips_nested_values():
     facts = facts_from({"cpu_percent": 94.2, "per_cpu": [1, 2], "ok": True, "gone": None})
     assert facts == (Fact("Cpu percent", "94.2"), Fact("Ok", "True"))
+
+
+def test_format_list_refuses_a_bare_string():
+    with pytest.raises(TypeError):
+        format_list("md0")

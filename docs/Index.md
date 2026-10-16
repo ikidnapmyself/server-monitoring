@@ -144,10 +144,11 @@ Groups related firing alerts and tracks lifecycle.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `title` | CharField | Incident title |
+| `subject` | CharField | Subject of the alerts it groups, grouping key with `instance` |
+| `instance` | CharField | Host the incident is about, from its alerts' labels |
+| `node` | ForeignKey (nullable) | Registered Node the incident is about |
 | `status` | CharField (choices, indexed) | "open", "acknowledged", "resolved", "closed" |
 | `severity` | CharField (choices, indexed) | "critical", "warning", "info" |
-| `description` | TextField | Incident description |
 | `summary` | TextField | Summary and resolution steps |
 | `created_at` | DateTimeField (auto_now_add, indexed) | Creation time |
 | `updated_at` | DateTimeField (auto_now) | Last update time |

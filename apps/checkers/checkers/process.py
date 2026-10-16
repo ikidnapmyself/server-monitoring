@@ -135,9 +135,10 @@ class ProcessChecker(BaseChecker):
             )
             return self._describe(status, headline, metrics)
         names = format_list(stopped)
+        logs = "their logs for why they" if len(stopped) > 1 else "its logs for why it"
         return self._describe(
             status,
             f"{names} not running",
             metrics,
-            action=Action(f"Start {names} and read their logs for why they stopped."),
+            action=Action(f"Start {names} and read {logs} stopped."),
         )

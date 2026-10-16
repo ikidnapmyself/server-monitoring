@@ -458,6 +458,18 @@ class RaidDescribeTests(TestCase):
             d.action.text, "Let md1 finish rebuilding and avoid heavy writes until it does."
         )
 
+    def test_array_names_as_a_string_fall_back_to_the_message(self):
+        metrics = {**self._metrics(1), "degraded_arrays": "md0"}
+        d = RaidChecker().describe(CheckStatus.CRITICAL, metrics, "md0 degraded")
+        self.assertEqual(d.headline, "md0 degraded")
+
+    def test_warning_with_several_rebuilding_arrays_reads_plural(self):
+        d = RaidChecker().describe(CheckStatus.WARNING, self._metrics(2, rebuilding=["md0", "md1"]))
+        self.assertEqual(
+            d.action.text,
+            "Let md0 and md1 finish rebuilding and avoid heavy writes until they do.",
+        )
+
     def test_real_output_reads_in_words(self):
         with (
             patch("apps.checkers.checkers.raid.sys.platform", "linux"),

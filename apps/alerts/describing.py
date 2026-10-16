@@ -1,8 +1,8 @@
 """Alerts and incidents in words, rendered on read from their stored keys.
 
 A checker alert is described by the hub's own checker class from the metrics it carried,
-so a node can't put words in the hub's mouth. Webhook alerts keep the name and text their
-source gave, which is already written for people.
+so the sentence is the hub's. The names inside it (paths, process names, hosts) come from
+the node and pass through as sent. Webhook alerts keep the name and text their source gave.
 """
 
 from collections import defaultdict
@@ -31,7 +31,9 @@ def _checker_name(alert: Alert) -> str:
 
 
 def check_status_of(alert: Alert) -> CheckStatus:
-    if _dict(alert.raw_payload).get("status") == CheckStatus.UNKNOWN.value:
+    payload = _dict(alert.raw_payload)
+    unknown = CheckStatus.UNKNOWN.value
+    if payload.get("check_status") == unknown or payload.get("status") == unknown:
         return CheckStatus.UNKNOWN
     if alert.status == AlertStatus.RESOLVED:
         return CheckStatus.OK
@@ -81,10 +83,10 @@ def _lead(alerts: list[Alert]) -> Alert | None:
 def _describe(incident: Incident, alerts: list[Alert], node: Node | None) -> Description:
     host = (node.hostname or node.instance_id) if node is not None else incident.instance
     tone = "ok" if incident.is_resolved else tone_for(SEVERITY_TONES, incident.severity)
-    facts = (
-        Fact("Incident", f"#{incident.pk}", copy=True),
-        Fact("Subject", incident.subject),
-        Fact("Instance", incident.instance),
+    facts = (Fact("Incident", f"#{incident.pk}", copy=True),) + tuple(
+        Fact(label, value)
+        for label, value in (("Subject", incident.subject), ("Instance", incident.instance))
+        if value
     )
     lead = _lead(alerts)
     if lead is None:

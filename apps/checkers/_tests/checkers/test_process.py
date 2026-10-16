@@ -180,6 +180,19 @@ class ProcessDescribeTests(TestCase):
             d.action.text, "Start nginx and redis and read their logs for why they stopped."
         )
 
+    def test_one_stopped_process_reads_singular(self):
+        metrics = {
+            "processes": {"nginx": {"running": False}, "cron": {"running": True}},
+            "total_count": 2,
+        }
+        d = ProcessChecker().describe(CheckStatus.CRITICAL, metrics)
+        self.assertEqual(d.action.text, "Start nginx and read its logs for why it stopped.")
+
+    def test_processes_as_a_list_fall_back_to_the_message(self):
+        metrics = {"processes": ["nginx"], "total_count": 1}
+        d = ProcessChecker().describe(CheckStatus.CRITICAL, metrics, "nginx down")
+        self.assertEqual(d.headline, "nginx down")
+
     @patch("apps.checkers.checkers.process.psutil.process_iter")
     def test_real_output_reads_in_words(self, mock_process_iter):
         mock_proc = MagicMock()

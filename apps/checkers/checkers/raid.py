@@ -250,13 +250,15 @@ class RaidChecker(BaseChecker):
                 action=Action(f"Replace the failed disk in {names} and add it back with mdadm."),
             )
         if status is CheckStatus.WARNING:
-            names = format_list(metrics["rebuilding_arrays"])
+            rebuilding = metrics["rebuilding_arrays"]
+            names = format_list(rebuilding)
+            does = "they do" if len(rebuilding) > 1 else "it does"
             return self._describe(
                 status,
                 f"Rebuilding: {names}",
                 metrics,
                 action=Action(
-                    f"Let {names} finish rebuilding and avoid heavy writes until it does."
+                    f"Let {names} finish rebuilding and avoid heavy writes until {does}."
                 ),
             )
         count = metrics["array_count"]

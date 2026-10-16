@@ -225,6 +225,27 @@ class ListeningPortsDescribeTests(TestCase):
         self.assertEqual(d.headline, "Unexpected ports open: 8080")
         self.assertEqual(d.action.text, "Close 8080, or add it to this node's port allowlist.")
 
+    def test_ok_with_one_port_reads_singular(self):
+        metrics = {"listening_count": 1, "unexpected_ports": []}
+        d = ListeningPortsChecker().describe(CheckStatus.OK, metrics)
+        self.assertEqual(d.headline, "1 port listening, all expected")
+
+    def test_ok_never_calls_node_flagged_ports_unexpected(self):
+        metrics = {"listening_count": 5, "unexpected_ports": [8080]}
+        d = ListeningPortsChecker().describe(CheckStatus.OK, metrics)
+        self.assertEqual(d.headline, "5 ports listening, all expected")
+        self.assertIsNone(d.action)
+
+    def test_firing_without_node_flagged_ports_points_at_the_allowlist(self):
+        for status in (CheckStatus.WARNING, CheckStatus.CRITICAL):
+            metrics = {"listening_count": 5, "unexpected_ports": []}
+            d = ListeningPortsChecker().describe(status, metrics)
+            self.assertEqual(d.headline, "Ports open outside this node's allowlist")
+            self.assertEqual(
+                d.action.text,
+                "Close the ports this node shouldn't expose, or add them to its port allowlist.",
+            )
+
     @override_settings(LISTENING_PORTS_ALLOWLIST=[22])
     def test_real_output_reads_in_words(self):
         with (

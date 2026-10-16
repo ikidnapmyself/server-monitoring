@@ -1700,10 +1700,10 @@ class TestDetectIncidentTypeWithAlerts(SimpleTestCase):
         assert result == "memory"
 
     def test_incident_without_alerts_attribute(self):
-        """Incident without alerts attribute uses only title/desc."""
+        """Incident without alerts attribute uses only its subject."""
         provider = LocalRecommendationProvider()
 
-        incident = MagicMock(spec=["title", "description"])
+        incident = MagicMock(spec=["subject"])
         incident.subject = "General Alert"
 
         result = provider._detect_incident_type(incident)
