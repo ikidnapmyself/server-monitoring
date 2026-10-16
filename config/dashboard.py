@@ -257,83 +257,113 @@ def _plural(n: int, one: str, many: str) -> str:
     return f"{n} {one if n == 1 else many}"
 
 
+def _channels(entry: dict, tone: str, fired: set[str]) -> list[Description]:
+    routes = _plural(entry["counts"]["delivering"], "route", "routes")
+    return [
+        Description(
+            f"No active channel, {routes} can't deliver",
+            tone,
+            action=Action("Activate a notification channel", intent="edit_channel"),
+        )
+    ]
+
+
+def _lane_channels(entry: dict, tone: str, fired: set[str]) -> list[Description]:
+    from apps.orchestration.describing import REASONS
+
+    return [
+        Description(
+            f"Route {name} can't deliver: {REASONS[code].headline}",
+            tone,
+            action=REASONS[code].action,
+        )
+        for name, code in entry["gaps"]
+        # With no active channel anywhere, the channels entry already said this.
+        if not (code == "no_channel" and "channels" in fired)
+    ]
+
+
+def _provider(entry: dict, tone: str, fired: set[str]) -> list[Description]:
+    return [
+        Description(
+            "No AI provider is active, analysis is skipped",
+            tone,
+            action=Action("Activate an AI provider", intent="edit_provider"),
+        )
+    ]
+
+
+def _preflight(entry: dict, tone: str, fired: set[str]) -> list[Description]:
+    word = "error" if entry["status"] == "error" else "warning"
+    found = entry["counts"][word + "s"]
+    return [
+        Description(
+            (
+                f"Preflight found {_plural(found, word, word + 's')}"
+                if found
+                else "Preflight didn't pass"
+            ),
+            tone,
+            action=Action("Open the preflight report", intent="view_preflight"),
+        )
+    ]
+
+
+def _inbox(entry: dict, tone: str, fired: set[str]) -> list[Description]:
+    counts = entry["counts"]
+    if counts["stuck"]:
+        headline = f"{_plural(counts['stuck'], 'run is', 'runs are')} stuck"
+        action = Action("Open the stuck runs", "view_inbox", {"status": "processing"})
+    else:
+        headline = f"{_plural(counts['pending'], 'run is', 'runs are')} waiting to be processed"
+        action = Action("Open the waiting runs", "view_inbox", {"status": "pending"})
+    return [Description(headline, tone, action=action)]
+
+
+def _nodes(entry: dict, tone: str, fired: set[str]) -> list[Description]:
+    counts = entry["counts"]
+    return [
+        Description(
+            (
+                f"No node reported in the last {NODE_RECENT_MINUTES} minutes"
+                if counts["recent"] == 0
+                else f"{counts['total'] - counts['recent']} of {counts['total']} nodes"
+                " stopped reporting"
+            ),
+            tone,
+            action=Action("Open the node list", intent="view_nodes"),
+        )
+    ]
+
+
+def _generic(entry: dict, tone: str, fired: set[str]) -> list[Description]:
+    return [Description(f"{entry['label']} needs attention", tone)]
+
+
+_DESCRIBERS = {
+    "channels": _channels,
+    "lane_channels": _lane_channels,
+    "provider": _provider,
+    "preflight": _preflight,
+    "inbox": _inbox,
+    "nodes": _nodes,
+}
+
+
 def describe_readiness() -> tuple[Description, ...]:
     """The readiness entries that need a fix, in panel order, each with its fix.
 
     ok, info and neutral entries describe nothing: they ask nothing of the operator.
     """
-    from apps.orchestration.describing import REASONS
-
-    out: list[Description] = []
-    for entry in build_readiness():
-        tone = _FIX_TONES.get(entry["status"])
-        if tone is None:
-            continue
-        key, counts = entry["key"], entry["counts"]
-        if key == "channels":
-            routes = _plural(counts["delivering"], "route", "routes")
-            out.append(
-                Description(
-                    f"No active channel, {routes} can't deliver",
-                    tone,
-                    action=Action("Activate a notification channel", intent="edit_channel"),
-                )
-            )
-        elif key == "lane_channels":
-            for name, code in entry["gaps"]:
-                reason = REASONS[code]
-                out.append(
-                    Description(
-                        f"Route {name} can't deliver: {reason.headline}",
-                        tone,
-                        action=reason.action,
-                    )
-                )
-        elif key == "provider":
-            out.append(
-                Description(
-                    "No AI provider is active, analysis is skipped",
-                    tone,
-                    action=Action("Activate an AI provider", intent="edit_provider"),
-                )
-            )
-        elif key == "preflight":
-            found = counts["errors"] if entry["status"] == "error" else counts["warnings"]
-            word = "error" if entry["status"] == "error" else "warning"
-            out.append(
-                Description(
-                    (
-                        f"Preflight found {_plural(found, word, word + 's')}"
-                        if found
-                        else "Preflight didn't pass"
-                    ),
-                    tone,
-                    action=Action("Open the preflight report", intent="view_preflight"),
-                )
-            )
-        elif key == "inbox":
-            if counts["stuck"]:
-                headline = f"{_plural(counts['stuck'], 'run is', 'runs are')} stuck"
-                action = Action("Open the stuck runs", "view_inbox", {"status": "processing"})
-            else:
-                waiting = _plural(counts["pending"], "run is", "runs are")
-                headline = f"{waiting} waiting to be processed"
-                action = Action("Open the waiting runs", "view_inbox", {"status": "pending"})
-            out.append(Description(headline, tone, action=action))
-        else:
-            silent = counts["total"] - counts["recent"]
-            out.append(
-                Description(
-                    (
-                        f"No node reported in the last {NODE_RECENT_MINUTES} minutes"
-                        if counts["recent"] == 0
-                        else f"{silent} of {counts['total']} nodes stopped reporting"
-                    ),
-                    tone,
-                    action=Action("Open the node list", intent="view_nodes"),
-                )
-            )
-    return tuple(out)
+    entries = [e for e in build_readiness() if e["status"] in _FIX_TONES]
+    fired = {e["key"] for e in entries}
+    return tuple(
+        found
+        for entry in entries
+        for found in _DESCRIBERS.get(entry["key"], _generic)(
+            entry, _FIX_TONES[entry["status"]], fired
+        )
+    )
 
 
 def get_dashboard_context():

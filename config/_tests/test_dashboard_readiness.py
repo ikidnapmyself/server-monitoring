@@ -759,7 +759,6 @@ def test_descriptions_follow_readiness_order_and_hold_no_tokens():
     found = describe_readiness()
     assert [d.action.intent for d in found] == [
         "edit_channel",
-        "edit_route",
         "edit_provider",
         "view_preflight",
         "view_inbox",
@@ -769,3 +768,63 @@ def test_descriptions_follow_readiness_order_and_hold_no_tokens():
         for text in (d.headline, d.detail, d.action.text):
             assert not re.search(r"\b[a-z]+_[a-z_]+\b", text), text
             assert "{" not in text
+
+
+@pytest.mark.django_db
+def test_no_channel_at_all_is_said_once_not_per_lane():
+    from apps.intelligence.models import IntelligenceProvider
+    from apps.orchestration.testing import clear_lanes
+
+    clear_lanes()
+    IntelligenceProvider.objects.create(name="p", provider="anthropic", is_active=True)
+    _lane("alpha", ["notify"])
+    _lane("beta", ["notify"])
+
+    assert _headlines(describe_readiness()) == ["No active channel, 2 routes can't deliver"]
+
+
+@pytest.mark.django_db
+def test_a_driver_gap_is_kept_when_the_channel_entry_fired(monkeypatch):
+    from apps.orchestration.describing import REASONS
+    from config import dashboard
+
+    entries = [
+        {
+            "key": "channels",
+            "label": "Notification channels",
+            "status": "error",
+            "gaps": [],
+            "counts": {"active": 0, "total": 0, "delivering": 2},
+        },
+        {
+            "key": "lane_channels",
+            "label": "Lane delivery",
+            "status": "error",
+            "gaps": [("alpha", "no_driver"), ("beta", "no_channel")],
+            "counts": {"delivering": 2},
+        },
+    ]
+    monkeypatch.setattr(dashboard, "build_readiness", lambda: entries)
+
+    assert _headlines(describe_readiness()) == [
+        "No active channel, 2 routes can't deliver",
+        f"Route alpha can't deliver: {REASONS['no_driver'].headline}",
+    ]
+
+
+def test_an_unknown_entry_gets_a_generic_description(monkeypatch):
+    from config import dashboard
+
+    monkeypatch.setattr(
+        dashboard,
+        "build_readiness",
+        lambda: [
+            {"key": "backups", "label": "Backups", "status": "warn", "gaps": [], "counts": {}},
+            {"key": "certs", "label": "Certificates", "status": "error", "gaps": [], "counts": {}},
+        ],
+    )
+
+    found = describe_readiness()
+    assert _headlines(found) == ["Backups needs attention", "Certificates needs attention"]
+    assert [d.tone for d in found] == ["warning", "critical"]
+    assert all(d.action is None for d in found)
