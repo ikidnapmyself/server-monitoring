@@ -158,7 +158,7 @@ class FactsFromAlertTests(TestCase):
         from apps.alerts.models import Incident
         from apps.orchestration.routing import facts_from_alert
 
-        incident = Incident.objects.create(title="High CPU", severity="critical")
+        incident = Incident.objects.create(severity="critical")
         alert = self._alert(severity="warning", incident=incident)
         self.assertEqual(facts_from_alert(alert, "incoming_webhook")["severity"], "warning")
 
@@ -269,7 +269,7 @@ class RouteIncidentTests(TestCase):
 
         from apps.alerts.models import Alert, Incident
 
-        incident = Incident.objects.create(title="x", severity=severity)
+        incident = Incident.objects.create(severity=severity)
         Alert.objects.create(
             fingerprint=f"fp-{source}",
             source=source,

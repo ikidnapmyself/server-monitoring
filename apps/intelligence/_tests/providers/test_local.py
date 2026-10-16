@@ -1751,8 +1751,6 @@ class TestIntegration(TestCase):
         from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
 
         incident = Incident.objects.create(
-            title="Memory Alert: High RAM Usage",
-            description="Memory usage has exceeded 85% threshold",
             subject="checker:memory",
             status=IncidentStatus.OPEN,
             severity=AlertSeverity.WARNING,

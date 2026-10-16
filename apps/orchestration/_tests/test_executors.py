@@ -195,13 +195,13 @@ class TestIngestExecutorSubjectSelection(TestCase):
         """A newer, more severe alert outside this push must not become the subject."""
         from apps.alerts.models import Incident
 
-        pushed_incident = Incident.objects.create(title="Pushed", severity="warning")
+        pushed_incident = Incident.objects.create(severity="warning")
         pushed = self._alert(
             name="cpu", severity="warning", fingerprint="fp-pushed", incident=pushed_incident
         )
         # Created afterwards → newer received_at, same source, higher severity,
         # but it is NOT part of this push.
-        other_incident = Incident.objects.create(title="Other node", severity="critical")
+        other_incident = Incident.objects.create(severity="critical")
         self._alert(
             name="disk", severity="critical", fingerprint="fp-other", incident=other_incident
         )
@@ -950,7 +950,7 @@ class TestCheckExecutorTakesTheIncidentAsItsSubject(TestCase):
     """
 
     def setUp(self):
-        self.incident = Incident.objects.create(title="cpu on web-03")
+        self.incident = Incident.objects.create()
 
     def _alert(self, *, fingerprint, labels):
         return Alert.objects.create(
@@ -1018,7 +1018,7 @@ class TestCheckExecutorTakesTheIncidentAsItsSubject(TestCase):
         assert names == []
 
     def test_another_incidents_alerts_are_not_in_scope(self):
-        other = Incident.objects.create(title="disk elsewhere")
+        other = Incident.objects.create()
         self._alert(fingerprint="check:web-03:cpu", labels={"checker": "cpu"})
         Alert.objects.create(
             fingerprint="check:web-09:disk",
@@ -1218,7 +1218,7 @@ class TestAnalyzeExecutorRecommendations(TestCase):
     def test_recommendations_with_incident(self):
         from apps.alerts.models import Incident
 
-        incident = Incident.objects.create(title="Test", severity="critical")
+        incident = Incident.objects.create(severity="critical")
         rec = {"title": "Fix it", "priority": "high"}
 
         mock_provider = MagicMock()
@@ -1746,7 +1746,7 @@ class TestNotifyExecutorDownstreamHeadline(TestCase):
 
         from apps.alerts.models import Alert, Incident
 
-        incident = Incident.objects.create(title=title, severity=severity, status=status)
+        incident = Incident.objects.create(severity=severity, status=status)
         Alert.objects.create(
             fingerprint="fp-d",
             source="cluster",
@@ -1858,7 +1858,7 @@ class TestNotifyExecutorRoutingGaps(TestCase):
         lane = PipelineDefinition.objects.create(
             name="lane", match=[], stages=["notify"], priority=1, channel=channel
         )
-        incident = Incident.objects.create(title="Disk", severity="critical", pipeline=lane)
+        incident = Incident.objects.create(severity="critical", pipeline=lane)
         Alert.objects.create(
             fingerprint="fp-nc",
             source="cluster",

@@ -19,10 +19,10 @@ class ReportCommandTests(TestCase):
         pipeline = PipelineDefinition.objects.create(name="report-lane", match=[], priority=1)
         # open incident from web-03, routed via report-lane
         inc_open = Incident.objects.create(
-            title="cpu", severity="critical", status=IncidentStatus.OPEN, pipeline=pipeline
+            severity="critical", status=IncidentStatus.OPEN, pipeline=pipeline
         )
         inc_closed = Incident.objects.create(
-            title="disk", severity="warning", status=IncidentStatus.RESOLVED, pipeline=pipeline
+            severity="warning", status=IncidentStatus.RESOLVED, pipeline=pipeline
         )
         for i, inc in enumerate((inc_open, inc_closed)):
             Alert.objects.create(

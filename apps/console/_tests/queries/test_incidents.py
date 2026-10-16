@@ -22,7 +22,7 @@ def base():
 
 
 def _incident(title, severity="warning", status="open", age_hours=0.0, created_at=None):
-    incident = Incident.objects.create(title=title, subject=title, severity=severity, status=status)
+    incident = Incident.objects.create(subject=title, severity=severity, status=status)
     Incident.objects.filter(pk=incident.pk).update(
         created_at=created_at or timezone.now() - timedelta(hours=age_hours)
     )
@@ -105,9 +105,7 @@ def test_a_row_carries_tones_count_and_the_admin_link():
 
 @pytest.mark.django_db
 def test_a_row_is_titled_by_the_incident_describer():
-    incident = Incident.objects.create(
-        title="stale", subject="HighLatency", instance="db-1", severity="critical"
-    )
+    incident = Incident.objects.create(subject="HighLatency", instance="db-1", severity="critical")
     _alert(incident, key="HighLatency")
 
     (row,) = build_incident_list(ALL).rows

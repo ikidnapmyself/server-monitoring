@@ -184,12 +184,6 @@ class Incident(models.Model):
     from detection to resolution.
     """
 
-    # Identification
-    title = models.CharField(
-        max_length=255,
-        help_text="Title of the incident.",
-    )
-
     # Status tracking
     status = models.CharField(
         max_length=20,
@@ -225,11 +219,6 @@ class Incident(models.Model):
     )
 
     # Details
-    description = models.TextField(
-        blank=True,
-        default="",
-        help_text="Description of the incident.",
-    )
     summary = models.TextField(
         blank=True,
         default="",

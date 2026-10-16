@@ -76,8 +76,8 @@ class TestBulkActions(TestCase):
         self.client.login(username="admin", password="password")
 
     def test_acknowledge_selected_incidents(self):
-        i1 = Incident.objects.create(title="Inc1", severity="critical", status=IncidentStatus.OPEN)
-        i2 = Incident.objects.create(title="Inc2", severity="warning", status=IncidentStatus.OPEN)
+        i1 = Incident.objects.create(severity="critical", status=IncidentStatus.OPEN)
+        i2 = Incident.objects.create(severity="warning", status=IncidentStatus.OPEN)
         response = self.client.post(
             "/admin/alerts/incident/",
             {"action": "acknowledge_selected", "_selected_action": [i1.pk, i2.pk]},
@@ -91,7 +91,7 @@ class TestBulkActions(TestCase):
         assert _manual_runs(i2).count() == 1
 
     def test_resolve_selected_incidents(self):
-        i1 = Incident.objects.create(title="Inc1", severity="critical", status=IncidentStatus.OPEN)
+        i1 = Incident.objects.create(severity="critical", status=IncidentStatus.OPEN)
         response = self.client.post(
             "/admin/alerts/incident/",
             {"action": "resolve_selected", "_selected_action": [i1.pk]},
@@ -143,7 +143,6 @@ class TestPerObjectActions(TestCase):
 
     def test_acknowledge_button_works(self):
         incident = Incident.objects.create(
-            title="Test",
             severity="critical",
             status=IncidentStatus.OPEN,
         )
@@ -157,7 +156,6 @@ class TestPerObjectActions(TestCase):
 
     def test_resolve_button_works(self):
         incident = Incident.objects.create(
-            title="Test",
             severity="critical",
             status=IncidentStatus.OPEN,
         )
@@ -172,7 +170,7 @@ class TestPerObjectActions(TestCase):
     def test_a_get_never_transitions_an_incident(self):
         """A link, a redirect or a prefetch must not be able to change an incident."""
         for tool in ("acknowledge_incident", "resolve_incident", "close_incident"):
-            incident = Incident.objects.create(title=tool, status=IncidentStatus.OPEN)
+            incident = Incident.objects.create(status=IncidentStatus.OPEN)
             response = self.client.get(f"/admin/alerts/incident/{incident.pk}/actions/{tool}/")
             assert response.status_code == 405
             incident.refresh_from_db()
@@ -183,7 +181,7 @@ class TestPerObjectActions(TestCase):
         User.objects.create_user("viewer", password="password", is_staff=True)
         self.client.login(username="viewer", password="password")
         for tool in ("acknowledge_incident", "resolve_incident", "close_incident"):
-            incident = Incident.objects.create(title=tool, status=IncidentStatus.OPEN)
+            incident = Incident.objects.create(status=IncidentStatus.OPEN)
             response = self.client.post(f"/admin/alerts/incident/{incident.pk}/actions/{tool}/")
             assert response.status_code == 403
             incident.refresh_from_db()
@@ -191,7 +189,7 @@ class TestPerObjectActions(TestCase):
             assert _manual_runs(incident).count() == 0
 
     def test_buttons_are_csrf_protected_forms(self):
-        incident = Incident.objects.create(title="Test", status=IncidentStatus.OPEN)
+        incident = Incident.objects.create(status=IncidentStatus.OPEN)
         content = self.client.get(f"/admin/alerts/incident/{incident.pk}/change/").content.decode()
         action_url = f"/admin/alerts/incident/{incident.pk}/actions/resolve_incident/"
         assert f'<form method="post" action="{action_url}">' in content
@@ -203,14 +201,13 @@ class TestPerObjectActions(TestCase):
         viewer = User.objects.create_user("viewer", password="password", is_staff=True)
         viewer.user_permissions.add(Permission.objects.get(codename="view_incident"))
         self.client.login(username="viewer", password="password")
-        incident = Incident.objects.create(title="Test", status=IncidentStatus.OPEN)
+        incident = Incident.objects.create(status=IncidentStatus.OPEN)
         response = self.client.get(f"/admin/alerts/incident/{incident.pk}/change/")
         assert response.status_code == 200
         assert "/actions/" not in response.content.decode()
 
     def test_close_button_works(self):
         incident = Incident.objects.create(
-            title="Test",
             severity="critical",
             status=IncidentStatus.RESOLVED,
         )
@@ -234,7 +231,7 @@ class TestIncidentActionMessages(TestCase):
         self.client.login(username="admin", password="password")
 
     def _click(self, status, action):
-        incident = Incident.objects.create(title="Disk full", severity="critical", status=status)
+        incident = Incident.objects.create(severity="critical", status=status)
         response = self.client.post(
             f"/admin/alerts/incident/{incident.pk}/actions/{action}/", follow=True
         )
@@ -276,7 +273,7 @@ class TestIncidentActionMessages(TestCase):
 
     def _bulk(self, action):
         incidents = [
-            Incident.objects.create(title=status, severity="warning", status=status)
+            Incident.objects.create(severity="warning", status=status)
             for status in IncidentStatus.values
         ]
         response = self.client.post(
@@ -285,7 +282,10 @@ class TestIncidentActionMessages(TestCase):
             follow=True,
         )
         (message,) = list(response.context["messages"])
-        return {i.title: Incident.objects.get(pk=i.pk) for i in incidents}, message.message
+        return {
+            status: Incident.objects.get(pk=i.pk)
+            for status, i in zip(IncidentStatus.values, incidents)
+        }, message.message
 
     def test_bulk_acknowledge_counts_only_the_open_ones(self):
         by_status, text = self._bulk("acknowledge_selected")
@@ -342,7 +342,7 @@ class TestJourneyPanel(TestCase):
         from apps.orchestration.models import PipelineDefinition
 
         pipeline = PipelineDefinition.objects.create(name="admin-lane", match=[], priority=7)
-        incident = Incident.objects.create(title="High CPU", severity="critical", pipeline=pipeline)
+        incident = Incident.objects.create(severity="critical", pipeline=pipeline)
         run = PipelineRun.objects.create(
             trace_id="tr-1", run_id="run-1", status=PipelineStatus.NOTIFIED, incident=incident
         )
@@ -356,13 +356,13 @@ class TestJourneyPanel(TestCase):
         assert "ingest" in body
 
     def test_incident_journey_shows_inbox_when_no_run(self):
-        incident = Incident.objects.create(title="unprocessed", severity="warning")
+        incident = Incident.objects.create(severity="warning")
         resp = self.client.get(f"/admin/alerts/incident/{incident.id}/change/")
         assert resp.status_code == 200
         assert "inbox — not processed" in resp.content.decode()
 
     def test_incident_journey_run_with_no_stages(self):
-        incident = Incident.objects.create(title="x", severity="warning")
+        incident = Incident.objects.create(severity="warning")
         PipelineRun.objects.create(
             trace_id="t2", run_id="run-2", status=PipelineStatus.PENDING, incident=incident
         )
@@ -371,7 +371,7 @@ class TestJourneyPanel(TestCase):
         assert "(no stages)" in resp.content.decode()
 
     def test_alert_journey_links_incident_and_shows_trace(self):
-        incident = Incident.objects.create(title="inc", severity="critical")
+        incident = Incident.objects.create(severity="critical")
         alert = Alert.objects.create(
             fingerprint="fp",
             source="cluster",
@@ -424,7 +424,7 @@ class TestIncidentJourneyTimeline(TestCase):
         from apps.orchestration.models import StageExecution
 
         base = timezone.now()
-        incident = Incident.objects.create(title="Inc", severity="critical")
+        incident = Incident.objects.create(severity="critical")
         alert = Alert.objects.create(
             fingerprint="fp",
             source="cluster",
@@ -458,7 +458,7 @@ class TestIncidentJourneyTimeline(TestCase):
     def test_journey_timeline_empty_incident(self):
         from django.utils.safestring import SafeString
 
-        incident = Incident.objects.create(title="Empty", severity="info")
+        incident = Incident.objects.create(severity="info")
         html = self._admin().journey_timeline(incident)
         assert isinstance(html, SafeString)
         assert "No timeline events yet." in html
@@ -523,7 +523,7 @@ class IncidentDiagnosisDisplayTests(TestCase):
         from apps.alerts.admin import IncidentAdmin
         from apps.alerts.models import Incident
 
-        incident = Incident.objects.create(title="D")
+        incident = Incident.objects.create()
         admin = IncidentAdmin(Incident, AdminSite())
         html = str(admin.diagnosis_display(incident))
         for label in ("checkers", "intelligence", "notify"):
@@ -539,7 +539,7 @@ class IncidentDiagnosisDisplayTests(TestCase):
         from apps.alerts.models import Incident
         from apps.orchestration.models import PipelineRun
 
-        incident = Incident.objects.create(title="D-legacy")
+        incident = Incident.objects.create()
         PipelineRun.objects.create(
             trace_id="t",
             run_id="r-legacy",
@@ -557,7 +557,7 @@ class IncidentDiagnosisDisplayTests(TestCase):
         from apps.alerts.models import Incident
         from apps.orchestration.models import PipelineRun, StageExecution
 
-        incident = Incident.objects.create(title="D2")
+        incident = Incident.objects.create()
         run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
         StageExecution.objects.create(
             pipeline_run=run,
@@ -656,8 +656,6 @@ class IncidentHeadlineAdminTests(TestCase):
     def setUp(self):
         self.client.login(username="admin", password="password")
         self.incident = Incident.objects.create(
-            title="stale title",
-            description="stale description",
             severity="critical",
             subject="HighLatency",
             instance="db-1",
@@ -723,7 +721,7 @@ class IncidentAdminHostColumnTests(TestCase):
         return IncidentAdmin(Incident, AdminSite())
 
     def _incident(self, **alert_kwargs):
-        incident = Incident.objects.create(title="cpu: CPU usage", severity="warning")
+        incident = Incident.objects.create(severity="warning")
         Alert.objects.create(
             incident=incident,
             name="cpu",
@@ -750,7 +748,7 @@ class IncidentAdminHostColumnTests(TestCase):
         self.assertEqual(self._admin().host(incident), "10.0.0.7")
 
     def test_host_is_dash_without_alerts(self):
-        incident = Incident.objects.create(title="orphan", severity="info")
+        incident = Incident.objects.create(severity="info")
         self.assertEqual(self._admin().host(incident), "—")
 
     def test_host_is_dash_when_nothing_identifies_the_machine(self):
@@ -758,7 +756,7 @@ class IncidentAdminHostColumnTests(TestCase):
         self.assertEqual(self._admin().host(incident), "—")
 
     def test_host_lists_every_machine_when_alerts_disagree(self):
-        incident = Incident.objects.create(title="multi", severity="warning")
+        incident = Incident.objects.create(severity="warning")
         for i, instance in enumerate(["10.0.0.7", "10.0.0.8", "10.0.0.7"]):
             Alert.objects.create(
                 incident=incident,
@@ -806,7 +804,7 @@ class IncidentPanelLinkTests(TestCase):
         self.pipeline = PipelineDefinition.objects.create(
             name="admin-lane", match=[], priority=7, stages=["check", "analyze", "notify"]
         )
-        self.incident = Incident.objects.create(title="High CPU", pipeline=self.pipeline)
+        self.incident = Incident.objects.create(pipeline=self.pipeline)
 
     def _run(self, **kw):
         return PipelineRun.objects.create(
@@ -848,7 +846,7 @@ class IncidentPanelLinkTests(TestCase):
         assert "process_inbox" not in html
 
     def test_journey_is_dash_for_an_unrouted_incident(self):
-        unrouted = Incident.objects.create(title="no lane")
+        unrouted = Incident.objects.create()
         html = str(self.admin.journey_display(unrouted))
         assert "pipelinedefinition" not in html
 
@@ -869,7 +867,7 @@ class IncidentCountLinkTests(TestCase):
         from apps.alerts.admin import IncidentAdmin
 
         self.admin = IncidentAdmin(Incident, AdminSite())
-        self.incident = Incident.objects.create(title="High CPU")
+        self.incident = Incident.objects.create()
         self.client.login(username="counter", password="password")
 
     def _alert(self, fingerprint, status):
@@ -1008,7 +1006,7 @@ class IncidentFiringCountToneTests(TestCase):
 
         from apps.alerts.admin import IncidentAdmin
 
-        incident = Incident.objects.create(title="High CPU")
+        incident = Incident.objects.create()
         Alert.objects.create(
             fingerprint="f",
             source="cluster",
@@ -1065,7 +1063,7 @@ class IncidentDiagnosisToneTests(TestCase):
         assert "ops-tint--critical" in html
 
     def test_the_run_rollup_is_a_muted_parenthetical(self):
-        incident = Incident.objects.create(title="rollup")
+        incident = Incident.objects.create()
         run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
         run.stage_executions.create(stage="check", status="succeeded", attempt=1)
         html = str(self.admin.diagnosis_display(incident))
@@ -1073,7 +1071,7 @@ class IncidentDiagnosisToneTests(TestCase):
         assert "succeeded in 1/1 runs" in html
 
     def test_the_strip_hardcodes_no_colour_and_carries_its_layout_classes(self):
-        incident = Incident.objects.create(title="layout")
+        incident = Incident.objects.create()
         html = str(self.admin.diagnosis_display(incident))
         assert "#" not in html
         assert "ops-diag" in html
@@ -1087,7 +1085,7 @@ class IncidentJourneyToneTests(TestCase):
         from apps.alerts.admin import IncidentAdmin
 
         self.admin = IncidentAdmin(Incident, AdminSite())
-        self.incident = Incident.objects.create(title="J")
+        self.incident = Incident.objects.create()
 
     def test_an_undrained_incident_reads_critical(self):
         html = str(self.admin.journey_display(self.incident))

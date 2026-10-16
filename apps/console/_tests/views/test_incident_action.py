@@ -44,7 +44,6 @@ def operator(client):
 
 
 def _incident(status="open", **fields):
-    fields.setdefault("title", "Disk full")
     return Incident.objects.create(severity="critical", status=status, **fields)
 
 

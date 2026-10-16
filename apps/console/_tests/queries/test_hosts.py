@@ -18,7 +18,7 @@ def _alert(incident, fingerprint, **fields):
 
 @pytest.mark.django_db
 def test_a_linked_node_names_the_host_by_hostname_then_instance_id():
-    incident = Incident.objects.create(title="Disk full")
+    incident = Incident.objects.create()
     _alert(incident, "a", node=Node.objects.create(instance_id="i-1", hostname="web-1"))
     _alert(incident, "b", node=Node.objects.create(instance_id="i-2", hostname=""))
 
@@ -27,7 +27,7 @@ def test_a_linked_node_names_the_host_by_hostname_then_instance_id():
 
 @pytest.mark.django_db
 def test_without_a_node_the_host_comes_from_the_labels():
-    incident = Incident.objects.create(title="Disk full")
+    incident = Incident.objects.create()
     _alert(incident, "a", labels={"instance_id": "db-1"})
     _alert(incident, "b", labels={"instance": "Cache-1:9100"})
     _alert(incident, "c", labels={"hostname": "app-1"})
@@ -37,20 +37,20 @@ def test_without_a_node_the_host_comes_from_the_labels():
 
 @pytest.mark.django_db
 def test_hosts_are_deduplicated_and_unknown_or_hostile_labels_are_skipped():
-    incident = Incident.objects.create(title="Disk full")
+    incident = Incident.objects.create()
     _alert(incident, "a", labels={"hostname": "web-1"})
     _alert(incident, "b", labels={"hostname": "web-1"})
     _alert(incident, "c", labels={"hostname": {"nested": "x"}})
     _alert(incident, "d", labels=["not", "a", "dict"])
     _alert(incident, "e")
-    empty = Incident.objects.create(title="No alerts")
+    empty = Incident.objects.create()
 
     assert incident_hosts([incident.pk, empty.pk]) == {incident.pk: ("web-1",)}
 
 
 @pytest.mark.django_db
 def test_hosts_cost_one_query(django_assert_num_queries):
-    incidents = [Incident.objects.create(title=str(n)) for n in range(5)]
+    incidents = [Incident.objects.create() for n in range(5)]
     for incident in incidents:
         _alert(incident, f"f{incident.pk}", labels={"hostname": f"h{incident.pk}"})
 

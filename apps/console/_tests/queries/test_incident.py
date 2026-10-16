@@ -91,7 +91,7 @@ NOTIFY_SNAPSHOT = {
 
 
 def _incident(created_at=T0, **fields):
-    incident = Incident.objects.create(**{"title": "Disk full", **fields})
+    incident = Incident.objects.create(**fields)
     Incident.objects.filter(pk=incident.pk).update(created_at=created_at)
     incident.refresh_from_db()
     return incident
@@ -152,12 +152,10 @@ def test_a_missing_incident_is_none():
 def test_header_fields_describe_the_incident():
     pipeline = PipelineDefinition.objects.create(name="pager", stages=["check", "notify"])
     incident = _incident(
-        title="stale title",
         subject="DiskFull",
         instance="web-1",
         severity="critical",
         status="acknowledged",
-        description="stale description",
         summary="Logs rotated",
         pipeline=pipeline,
     )

@@ -108,8 +108,6 @@ class TestIncidentAnalysis(TestCase):
         from apps.alerts.models import Alert, AlertSeverity, Incident, IncidentStatus
 
         incident = Incident.objects.create(
-            title="Test Memory Incident",
-            description="Memory usage high",
             subject="MemoryHigh",
             instance="web-01",
             status=IncidentStatus.OPEN,

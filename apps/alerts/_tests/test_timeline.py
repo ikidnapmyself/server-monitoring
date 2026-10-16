@@ -21,12 +21,12 @@ class BuildIncidentTimelineTests(TestCase):
         )
 
     def test_empty_incident_returns_empty_list(self):
-        incident = Incident.objects.create(title="Empty")
+        incident = Incident.objects.create()
         assert build_incident_timeline(incident) == []
 
     def test_merges_all_three_sources_chronologically(self):
         base = timezone.now()
-        incident = Incident.objects.create(title="Merged")
+        incident = Incident.objects.create()
         alert = self._make_alert(incident, started_at=base)
 
         # AlertHistory at base + 10s
@@ -98,7 +98,7 @@ class BuildIncidentTimelineTests(TestCase):
         assert "firing" in (hist_entry["detail"] or "")
 
     def test_stage_with_null_started_at_is_skipped(self):
-        incident = Incident.objects.create(title="NullStage")
+        incident = Incident.objects.create()
         run = PipelineRun.objects.create(trace_id="t", run_id="r-null", incident=incident)
         StageExecution.objects.create(
             pipeline_run=run, stage="ingest", status="pending", started_at=None
@@ -116,7 +116,7 @@ class BuildIncidentTimelineTests(TestCase):
 
     def test_is_pure_no_db_writes(self):
         base = timezone.now()
-        incident = Incident.objects.create(title="Pure")
+        incident = Incident.objects.create()
         alert = self._make_alert(incident, started_at=base)
         AlertHistory.objects.create(alert=alert, event="created")
         run = PipelineRun.objects.create(trace_id="t", run_id="r-pure", incident=incident)
@@ -160,9 +160,9 @@ class BuildIncidentTimelineQueryAndCorrelationTests(TestCase):
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
 
-        inc1 = Incident.objects.create(title="One run")
+        inc1 = Incident.objects.create()
         self._make_runs(inc1, 1)
-        inc4 = Incident.objects.create(title="Four runs")
+        inc4 = Incident.objects.create()
         self._make_runs(inc4, 4)
 
         with CaptureQueriesContext(connection) as ctx1:
@@ -174,7 +174,7 @@ class BuildIncidentTimelineQueryAndCorrelationTests(TestCase):
         assert len(ctx1.captured_queries) == len(ctx4.captured_queries)
 
     def test_trace_id_present_on_pipeline_and_stage_entries(self):
-        incident = Incident.objects.create(title="Trace")
+        incident = Incident.objects.create()
         run = PipelineRun.objects.create(trace_id="trace-99", run_id="run-99", incident=incident)
         StageExecution.objects.create(
             pipeline_run=run, stage="ingest", status="succeeded", started_at=timezone.now()
@@ -189,7 +189,7 @@ class TimelineSeverityDetailTests(TestCase):
     """A ``reevaluated`` row rendered as a bare word said nothing about what changed."""
 
     def _history(self, **fields):
-        incident = Incident.objects.create(title="Reeval")
+        incident = Incident.objects.create()
         alert = Alert.objects.create(
             fingerprint="check:web-03:cpu",
             source="cluster",
@@ -240,7 +240,7 @@ class TimelineConsoleKeysTests(TestCase):
     """Keys the console's incident page reads. Additive: the admin ignores them."""
 
     def test_alert_history_entries_name_their_alert_and_event(self):
-        incident = Incident.objects.create(title="Keys")
+        incident = Incident.objects.create()
         alert = Alert.objects.create(
             fingerprint="check:web-03:cpu",
             source="cluster",
@@ -268,7 +268,7 @@ class TimelineConsoleKeysTests(TestCase):
             assert entry["label"] == entry["event"]
 
     def test_alert_history_does_not_query_per_row(self):
-        incident = Incident.objects.create(title="Many")
+        incident = Incident.objects.create()
         for index in range(3):
             alert = Alert.objects.create(
                 fingerprint=f"fp-{index}",
@@ -283,7 +283,7 @@ class TimelineConsoleKeysTests(TestCase):
             build_incident_timeline(incident)
 
     def test_pipeline_and_stage_entries_carry_pks_status_and_output(self):
-        incident = Incident.objects.create(title="Run keys")
+        incident = Incident.objects.create()
         run = PipelineRun.objects.create(
             trace_id="t", run_id="r-keys", incident=incident, status="notified"
         )

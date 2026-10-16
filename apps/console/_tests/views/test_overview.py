@@ -198,7 +198,7 @@ def test_page_shows_incidents_nodes_and_the_sparkline(client, staff):
 )
 def test_the_headline_flash_takes_the_tone_of_what_is_open(client, staff, severities, tone):
     for severity in severities:
-        Incident.objects.create(title=severity, severity=severity)
+        Incident.objects.create(severity=severity)
 
     body = client.get(reverse("console:overview")).content.decode()
 
@@ -301,8 +301,8 @@ def test_anonymous_head_keeps_its_own_path(client):
 def test_rendered_overview_is_clean(client, staff, monkeypatch, label, headers):
     monkeypatch.setattr(overview_queries, "INCIDENT_LIMIT", 1)
     _readiness(monkeypatch, "3 stuck")
-    Incident.objects.create(title="Disk full on web-1", severity="critical")
-    Incident.objects.create(title="Swap low on web-1", severity="warning")
+    Incident.objects.create(severity="critical")
+    Incident.objects.create(severity="warning")
     Node.objects.create(instance_id="web-1", hostname="web-1")
 
     body = client.get(reverse("console:overview"), **headers).content.decode()
@@ -332,9 +332,7 @@ def _polled_region(body):
 def test_every_link_in_the_polled_region_has_a_unique_id(client, staff, monkeypatch, headers):
     monkeypatch.setattr(overview_queries, "INCIDENT_LIMIT", 2)
     _readiness(monkeypatch, "3 stuck")
-    incidents = [
-        Incident.objects.create(title=f"incident {index}", severity="warning") for index in range(3)
-    ]
+    incidents = [Incident.objects.create(severity="warning") for index in range(3)]
     nodes = [Node.objects.create(instance_id=f"web-{index}") for index in range(2)]
 
     body = client.get(reverse("console:overview"), **headers).content.decode()
@@ -380,8 +378,8 @@ def test_node_name_is_escaped(client, staff, field):
 def test_incidents_past_the_cap_link_to_the_incident_list(client, staff, monkeypatch):
     monkeypatch.setattr(overview_queries, "INCIDENT_LIMIT", 2)
     for index in range(5):
-        Incident.objects.create(title=f"incident {index}", severity="warning")
-    Incident.objects.create(title="done", severity="warning", status="resolved")
+        Incident.objects.create(severity="warning")
+    Incident.objects.create(severity="warning", status="resolved")
 
     body = client.get(reverse("console:overview")).content.decode()
 
@@ -397,8 +395,8 @@ def test_incidents_past_the_cap_link_to_the_incident_list(client, staff, monkeyp
 @pytest.mark.django_db
 def test_one_incident_past_the_cap_reads_in_the_singular(client, staff, monkeypatch):
     monkeypatch.setattr(overview_queries, "INCIDENT_LIMIT", 1)
-    Incident.objects.create(title="a", severity="warning")
-    Incident.objects.create(title="b", severity="warning")
+    Incident.objects.create(severity="warning")
+    Incident.objects.create(severity="warning")
 
     body = client.get(reverse("console:overview")).content.decode()
 
@@ -407,7 +405,7 @@ def test_one_incident_past_the_cap_reads_in_the_singular(client, staff, monkeypa
 
 @pytest.mark.django_db
 def test_incidents_within_the_cap_show_no_more_row(client, staff):
-    Incident.objects.create(title="only", severity="warning")
+    Incident.objects.create(severity="warning")
 
     body = client.get(reverse("console:overview")).content.decode()
 
@@ -439,7 +437,7 @@ def test_a_quiet_day_shows_an_empty_state_instead_of_a_chart(client, staff):
 
 @pytest.mark.django_db
 def test_a_busy_day_shows_one_bar_per_hour_with_its_count(client, staff):
-    Incident.objects.create(title="Disk full")
+    Incident.objects.create()
 
     body = client.get(reverse("console:overview")).content.decode()
 
@@ -450,7 +448,7 @@ def test_a_busy_day_shows_one_bar_per_hour_with_its_count(client, staff):
 
 @pytest.mark.django_db
 def test_open_incident_rows_name_their_host(client, staff):
-    incident = Incident.objects.create(title="Disk full", severity="critical")
+    incident = Incident.objects.create(severity="critical")
     Alert.objects.create(
         fingerprint="f",
         name="disk",

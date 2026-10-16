@@ -96,7 +96,7 @@ class IdentityHeaderTests(TestCase):
 
 class SeverityChipTests(TestCase):
     def _incident(self, node, severity, status=IncidentStatus.OPEN):
-        incident = Incident.objects.create(title="disk full", severity=severity, status=status)
+        incident = Incident.objects.create(severity=severity, status=status)
         Alert.objects.create(
             fingerprint=f"f-{incident.pk}",
             source="cluster",
@@ -419,7 +419,7 @@ class CheckerStateTests(TestCase):
 
 class RecentIncidentTests(TestCase):
     def _incident(self, node, title, severity=AlertSeverity.WARNING, created_at=None):
-        incident = Incident.objects.create(title=title, severity=severity)
+        incident = Incident.objects.create(severity=severity)
         if created_at is not None:
             # created_at is auto_now_add, and two rows written in the same test can
             # land on the same timestamp, so ordering is stamped explicitly here.

@@ -52,7 +52,7 @@ def test_forwards_leaves_node_null_when_no_alert_has_node():
 
     from apps.alerts.models import Alert, Incident
 
-    incident = Incident.objects.create(title="x", severity="warning")
+    incident = Incident.objects.create(severity="warning")
     Alert.objects.create(
         fingerprint="fp-nonode",
         source="grafana",
@@ -79,7 +79,7 @@ def test_forwards_copies_node_from_incident_alert():
     from apps.alerts.models import Alert, Incident, Node
 
     node = Node.objects.create(instance_id="agent-42")
-    incident = Incident.objects.create(title="y", severity="critical")
+    incident = Incident.objects.create(severity="critical")
     Alert.objects.create(
         fingerprint="fp-withnode",
         source="grafana",

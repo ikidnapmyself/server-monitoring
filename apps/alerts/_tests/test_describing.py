@@ -53,7 +53,7 @@ def _cpu(incident=None, **fields):
 
 
 def _incident(**fields):
-    defaults = {"title": "t", "severity": "critical", "subject": "checker:cpu", "instance": "i-1"}
+    defaults = {"severity": "critical", "subject": "checker:cpu", "instance": "i-1"}
     defaults.update(fields)
     return Incident.objects.create(**defaults)
 

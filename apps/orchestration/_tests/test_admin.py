@@ -57,15 +57,9 @@ class TestDashboardContext(TestCase):
     def _create_dashboard_data(cls):
         """Create sample data for dashboard tests."""
         # Active incidents
-        Incident.objects.create(
-            title="CPU High", severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN
-        )
-        Incident.objects.create(
-            title="Disk Low", severity=AlertSeverity.WARNING, status=IncidentStatus.OPEN
-        )
-        Incident.objects.create(
-            title="Old", severity=AlertSeverity.INFO, status=IncidentStatus.CLOSED
-        )
+        Incident.objects.create(severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN)
+        Incident.objects.create(severity=AlertSeverity.WARNING, status=IncidentStatus.OPEN)
+        Incident.objects.create(severity=AlertSeverity.INFO, status=IncidentStatus.CLOSED)
 
         # Pipeline runs (within 24h)
         now = timezone.now()
@@ -142,7 +136,6 @@ class TestPipelineTracing(TestCase):
     def setUpTestData(cls):
         cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
         cls.incident = Incident.objects.create(
-            title="Test Incident",
             severity=AlertSeverity.CRITICAL,
             status=IncidentStatus.OPEN,
         )
@@ -660,7 +653,7 @@ class TestPipelineRunCrossLinks(TestCase):
         from django.utils.safestring import SafeString
 
         incident = Incident.objects.create(
-            title="I", severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN
+            severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN
         )
         run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
         result = self._admin().incident_link(run)
@@ -689,7 +682,7 @@ class TestPipelineRunChangePageRendersCrossLinks(TestCase):
 
         node = Node.objects.create(instance_id="web-30", hostname="web-30")
         incident = Incident.objects.create(
-            title="I", severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN
+            severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN
         )
         run = PipelineRun.objects.create(trace_id="t", run_id="r", node=node, incident=incident)
         url = reverse("admin:orchestration_pipelinerun_change", args=[run.pk])

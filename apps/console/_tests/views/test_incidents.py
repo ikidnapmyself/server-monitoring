@@ -147,10 +147,10 @@ def test_the_polled_element_requests_the_current_filters(client, staff, url, hea
 
 @pytest.mark.django_db
 def test_rows_show_state_title_label_nodes_count_and_age(client, staff, url):
-    incident = Incident.objects.create(title="stale", instance="web-1", severity="critical")
+    incident = Incident.objects.create(instance="web-1", severity="critical")
     for name, key in [("web-1", "Swap low"), ("web-2", "Disk full")]:
         _alert(incident, Node.objects.create(instance_id=name, hostname=name), key=key)
-    lonely = Incident.objects.create(title="Swap low", severity="warning", status="acknowledged")
+    lonely = Incident.objects.create(severity="warning", status="acknowledged")
 
     body = client.get(url).content.decode()
 
@@ -176,7 +176,7 @@ def test_rows_show_state_title_label_nodes_count_and_age(client, staff, url):
 
 @pytest.mark.django_db
 def test_a_single_alert_and_a_single_incident_read_in_the_singular(client, staff, url):
-    incident = Incident.objects.create(title="one", severity="info")
+    incident = Incident.objects.create(severity="info")
     _alert(incident, None)
 
     body = client.get(url).content.decode()
@@ -210,7 +210,7 @@ def test_each_filter_narrows_the_rows(client, staff, url, query, expected):
 @pytest.mark.django_db
 def test_the_node_filter_narrows_the_rows(client, staff, url):
     node = Node.objects.create(instance_id="web-1", hostname="web-1")
-    _alert(Incident.objects.create(title="on the node", severity="critical"), node, "on the node")
+    _alert(Incident.objects.create(severity="critical"), node, "on the node")
     named_incident("elsewhere", severity="critical")
 
     body = client.get(f"{url}?node={node.pk}").content.decode()
@@ -261,9 +261,9 @@ def test_chips_are_links_that_also_swap_the_list_in_place(client, staff, url):
 
 @pytest.mark.django_db
 def test_the_box_header_counts_each_status_under_the_other_filters(client, staff, url):
-    Incident.objects.create(title="a", severity="critical")
-    Incident.objects.create(title="b", severity="critical", status="resolved")
-    Incident.objects.create(title="c", severity="info", status="resolved")
+    Incident.objects.create(severity="critical")
+    Incident.objects.create(severity="critical", status="resolved")
+    Incident.objects.create(severity="info", status="resolved")
 
     body = client.get(f"{url}?severity=critical").content.decode()
 
@@ -327,7 +327,7 @@ def test_an_install_with_no_incidents_says_so(client, staff, url):
 
 @pytest.mark.django_db
 def test_filters_that_match_nothing_offer_a_way_to_clear_them(client, staff, url):
-    Incident.objects.create(title="open crit", severity="critical")
+    Incident.objects.create(severity="critical")
 
     body = client.get(f"{url}?severity=info").content.decode()
 
@@ -343,7 +343,7 @@ def test_filters_that_match_nothing_offer_a_way_to_clear_them(client, staff, url
 
 @pytest.mark.django_db
 def test_default_filters_with_only_finished_incidents_say_none_are_active(client, staff, url):
-    Incident.objects.create(title="done", severity="critical", status="resolved")
+    Incident.objects.create(severity="critical", status="resolved")
 
     body = client.get(url).content.decode()
 
@@ -357,7 +357,7 @@ def test_default_filters_with_only_finished_incidents_say_none_are_active(client
 def test_pager_links_keep_the_filters(client, staff, url, monkeypatch):
     monkeypatch.setattr(incident_queries, "PAGE_SIZE", 1)
     for index in range(3):
-        Incident.objects.create(title=f"incident {index}", severity="critical")
+        Incident.objects.create(severity="critical")
 
     body = client.get(f"{url}?severity=critical&page=2").content.decode()
 
@@ -379,7 +379,7 @@ def test_pager_links_keep_the_filters(client, staff, url, monkeypatch):
 def test_the_first_and_last_pages_link_one_way_only(client, staff, url, monkeypatch):
     monkeypatch.setattr(incident_queries, "PAGE_SIZE", 1)
     for index in range(2):
-        Incident.objects.create(title=f"incident {index}", severity="critical")
+        Incident.objects.create(severity="critical")
 
     first = client.get(url).content.decode()
     last = client.get(f"{url}?page=2").content.decode()
@@ -390,7 +390,7 @@ def test_the_first_and_last_pages_link_one_way_only(client, staff, url, monkeypa
 
 @pytest.mark.django_db
 def test_a_single_page_shows_no_pager(client, staff, url):
-    Incident.objects.create(title="only", severity="critical")
+    Incident.objects.create(severity="critical")
 
     body = client.get(url).content.decode()
 
@@ -429,7 +429,7 @@ def _busy_list(monkeypatch, suffix=""):
     node = Node.objects.create(instance_id="web-1", hostname=f"web{suffix}")
     created = []
     for index in range(5):
-        incident = Incident.objects.create(title=f"disk {index}{suffix}", severity="critical")
+        incident = Incident.objects.create(severity="critical")
         _alert(incident, node, key=f"disk {index}{suffix}")
         created.append(incident)
     return node, created
@@ -452,7 +452,7 @@ def test_rendered_list_is_clean(client, staff, url, monkeypatch, label, headers)
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
 @pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
 def test_rendered_empty_list_is_clean(client, staff, url, label, headers):
-    Incident.objects.create(title="open crit", severity="critical")
+    Incident.objects.create(severity="critical")
 
     body = client.get(f"{url}?severity=info", **headers).content.decode()
 
@@ -514,7 +514,7 @@ def _labelled(incident, key, **labels):
 
 @pytest.mark.django_db
 def test_a_row_names_the_host_from_alert_labels_when_no_node_is_linked(client, staff, url):
-    incident = Incident.objects.create(title="Disk full", severity="critical")
+    incident = Incident.objects.create(severity="critical")
     _labelled(incident, "a", hostname="db-7")
 
     body = client.get(url).content.decode()
@@ -529,11 +529,11 @@ def test_the_node_filter_matches_alerts_that_name_the_node_only_in_labels(
 ):
     node = Node.objects.create(instance_id="i-db7", hostname="db-7")
     name = "i-db7" if label != "hostname" else "db-7"
-    mine = Incident.objects.create(title="Mine")
+    mine = Incident.objects.create()
     _labelled(mine, "a", **{label: name})
-    theirs = Incident.objects.create(title="Theirs")
+    theirs = Incident.objects.create()
     _labelled(theirs, "a", hostname="web-1")
-    linked = Incident.objects.create(title="Linked")
+    linked = Incident.objects.create()
     _alert(linked, node)
 
     body = client.get(f"{url}?node={node.pk}").content.decode()
@@ -547,7 +547,7 @@ def test_the_node_filter_matches_alerts_that_name_the_node_only_in_labels(
 def test_a_label_naming_the_node_does_not_override_a_link_to_another_node(client, staff, url):
     node = Node.objects.create(instance_id="db-7", hostname="db-7")
     other = Node.objects.create(instance_id="web-1", hostname="web-1")
-    incident = Incident.objects.create(title="Elsewhere")
+    incident = Incident.objects.create()
     Alert.objects.create(
         fingerprint="x",
         name="x",

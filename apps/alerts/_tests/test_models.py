@@ -66,27 +66,27 @@ class IncidentModelTests(TestCase):
     """Tests for Incident model."""
 
     def test_acknowledge_method(self):
-        incident = Incident.objects.create(title="Test")
+        incident = Incident.objects.create()
         incident.acknowledge()
 
         self.assertEqual(incident.status, IncidentStatus.ACKNOWLEDGED)
 
     def test_resolve_method(self):
-        incident = Incident.objects.create(title="Test")
+        incident = Incident.objects.create()
         incident.resolve(summary="Fixed")
 
         self.assertEqual(incident.status, IncidentStatus.RESOLVED)
         self.assertEqual(incident.summary, "Fixed")
 
     def test_is_open(self):
-        incident = Incident.objects.create(title="Test", status=IncidentStatus.OPEN)
+        incident = Incident.objects.create(status=IncidentStatus.OPEN)
         self.assertTrue(incident.is_open)
 
         incident.status = IncidentStatus.RESOLVED
         self.assertFalse(incident.is_open)
 
     def test_str_names_the_incident_by_number_and_status(self):
-        incident = Incident.objects.create(title="Disk full", status=IncidentStatus.OPEN)
+        incident = Incident.objects.create(status=IncidentStatus.OPEN)
         self.assertEqual(str(incident), f"Incident #{incident.pk} [open]")
 
 
@@ -94,7 +94,7 @@ class IncidentReopenTests(TestCase):
     """reopen() is the inverse of resolve()/close(), for an alert that fired again."""
 
     def _incident(self, status):
-        return Incident.objects.create(title="t", severity="critical", status=status)
+        return Incident.objects.create(severity="critical", status=status)
 
     def test_reopen_from_resolved_clears_resolved_at(self):
         incident = self._incident(IncidentStatus.OPEN)

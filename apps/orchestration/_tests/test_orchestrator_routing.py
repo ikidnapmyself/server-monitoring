@@ -101,7 +101,7 @@ def drain_children(trace_id, parent_run_id):
 
 class StageSelectionFromStagesListTests(TestCase):
     def setUp(self):
-        self.incident = Incident.objects.create(title="High CPU", severity="critical")
+        self.incident = Incident.objects.create(severity="critical")
         self.alert = Alert.objects.create(
             fingerprint="fp-cluster",
             source="cluster",
@@ -290,7 +290,7 @@ class DownstreamStagesHelperTests(TestCase):
         )
 
     def _incident_alert(self, source="cluster"):
-        incident = Incident.objects.create(title="x", severity="critical")
+        incident = Incident.objects.create(severity="critical")
         return self._alert(source=source, incident=incident), incident
 
     def _downstream(self, alert_id, origin="incoming_webhook"):
@@ -391,7 +391,7 @@ class DownstreamStagesHelperTests(TestCase):
         Here the older alert carries ``env=prod`` and the subject alert carries
         ``env=staging``; the merge would have picked the decoy lane.
         """
-        incident = Incident.objects.create(title="x", severity="critical")
+        incident = Incident.objects.create(severity="critical")
         self._alert(
             source="grafana", labels={"env": "prod", "hostname": "web-01"}, incident=incident
         )
@@ -462,7 +462,7 @@ class ResumeRoutesOnTheSnapshotAlertTests(TestCase):
     """A resumed run re-routes from the alert_id stored in the INGEST snapshot."""
 
     def setUp(self):
-        self.incident = Incident.objects.create(title="High CPU", severity="critical")
+        self.incident = Incident.objects.create(severity="critical")
         self.alert = Alert.objects.create(
             fingerprint="fp-resume",
             source="cluster",
@@ -524,7 +524,7 @@ class LegacySnapshotResumeTests(TestCase):
     """
 
     def setUp(self):
-        self.incident = Incident.objects.create(title="High CPU", severity="critical")
+        self.incident = Incident.objects.create(severity="critical")
         self.warning = Alert.objects.create(
             fingerprint="fp-warn",
             source="cluster",
@@ -610,7 +610,7 @@ class LegacySnapshotResumeTests(TestCase):
         assert self.executed == []
 
     def test_incident_with_no_alerts_yields_no_subject(self):
-        empty = Incident.objects.create(title="ghost", severity="info")
+        empty = Incident.objects.create(severity="info")
         assert PipelineOrchestrator()._incident_subject_alert_id(empty.id) is None
 
 
@@ -623,7 +623,7 @@ class SeededDefaultLanesTests(TestCase):
     """
 
     def _alert(self, source, labels=None):
-        incident = Incident.objects.create(title="x", severity="critical")
+        incident = Incident.objects.create(severity="critical")
         return Alert.objects.create(
             fingerprint=f"fp-seed-{source}",
             source=source,
@@ -719,7 +719,7 @@ class SeededResolvedLaneTests(TestCase):
         enable_delivery(PipelineDefinition, channel)
 
     def _alert(self, status, source="cluster", severity="critical"):
-        incident = Incident.objects.create(title="x", severity=severity)
+        incident = Incident.objects.create(severity=severity)
         return Alert.objects.create(
             fingerprint=f"fp-resolved-{status}",
             source=source,
@@ -774,7 +774,7 @@ class NoRouteFailsTheRunTests(TestCase):
         # Reproduce the operator state this failure exists for: the seeded
         # catch-all has been deleted, so some traffic has no lane at all.
         clear_lanes()
-        self.incident = Incident.objects.create(title="High CPU", severity="critical")
+        self.incident = Incident.objects.create(severity="critical")
         self.alert = Alert.objects.create(
             fingerprint="fp-noroute",
             source="grafana",
@@ -932,7 +932,7 @@ class CheckerGeneratedIncidentRunRoutingTests(TestCase):
     """
 
     def setUp(self):
-        self.incident = Incident.objects.create(title="Disk 95%", severity="critical")
+        self.incident = Incident.objects.create(severity="critical")
         self.alert = Alert.objects.create(
             fingerprint="fp-hub-disk",
             source="cluster",
@@ -1097,7 +1097,7 @@ class CheckerGeneratedNotifiesThroughItsLaneChannelTests(TestCase):
             stages=["notify"],
             channel=self.lane_channel,
         )
-        self.incident = Incident.objects.create(title="Disk 95%", severity="critical")
+        self.incident = Incident.objects.create(severity="critical")
         self.alert = Alert.objects.create(
             fingerprint="fp-hub-chan",
             source="cluster",
@@ -1211,7 +1211,7 @@ class NoIncidentsIsNotAnOrchestrationFlagTests(TestCase):
     """
 
     def setUp(self):
-        self.incident = Incident.objects.create(title="Disk 95%", severity="critical")
+        self.incident = Incident.objects.create(severity="critical")
         self.alert = Alert.objects.create(
             fingerprint="fp-diag",
             source="cluster",
@@ -1294,7 +1294,7 @@ class NoNotifyScopesTheRunTests(TestCase):
     """
 
     def setUp(self):
-        self.incident = Incident.objects.create(title="Disk 95%", severity="critical")
+        self.incident = Incident.objects.create(severity="critical")
         self.alert = Alert.objects.create(
             fingerprint="fp-look",
             source="cluster",
@@ -1391,7 +1391,7 @@ class NoNotifyLeavesWebhookTrafficAloneTests(TestCase):
     """Ordinary inbound traffic carries no such flag and notifies exactly as before."""
 
     def setUp(self):
-        self.incident = Incident.objects.create(title="High CPU", severity="critical")
+        self.incident = Incident.objects.create(severity="critical")
         self.alert = Alert.objects.create(
             fingerprint="fp-webhook-nn",
             source="grafana",

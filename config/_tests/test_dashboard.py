@@ -66,9 +66,7 @@ class TestGetDashboardContext(TestCase):
         from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
         from apps.orchestration.models import PipelineRun, PipelineStatus
 
-        Incident.objects.create(
-            title="Test", severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN
-        )
+        Incident.objects.create(severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN)
         PipelineRun.objects.create(
             trace_id="t1",
             run_id="r1",

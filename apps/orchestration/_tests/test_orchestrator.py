@@ -55,7 +55,7 @@ def make_subject_incident(fingerprint="fp-subject"):
     """
     from apps.alerts.models import Incident
 
-    incident = Incident.objects.create(title="cpu", severity="critical")
+    incident = Incident.objects.create(severity="critical")
     alert = make_subject_alert(fingerprint)
     alert.incident = incident
     alert.save(update_fields=["incident"])
@@ -916,7 +916,7 @@ class DownstreamRunTests(TestCase):
     def _incident_with_alert(self, severity="critical", status="firing"):
         from apps.alerts.models import Incident
 
-        incident = Incident.objects.create(title="Disk full", severity=severity)
+        incident = Incident.objects.create(severity=severity)
         Alert.objects.create(
             fingerprint=f"fp-{incident.id}",
             source="cluster",
@@ -1110,7 +1110,7 @@ class FanOutTests(TestCase):
         assert children.count() == 1
         from apps.alerts.models import Incident
 
-        moved = Incident.objects.get(title__contains="cpu")
+        moved = Incident.objects.get(subject="checker:cpu")
         assert children.first().inbound_payload["downstream_incident_id"] == moved.id
 
     def test_healthy_push_still_produces_its_parent_run(self):

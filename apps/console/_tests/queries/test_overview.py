@@ -11,7 +11,7 @@ from config.dashboard import NODE_RECENT_MINUTES
 
 
 def _incident(title, severity="warning", status="open", age_hours=0, created_at=None):
-    incident = Incident.objects.create(title=title, subject=title, severity=severity, status=status)
+    incident = Incident.objects.create(subject=title, severity=severity, status=status)
     Incident.objects.filter(pk=incident.pk).update(
         created_at=created_at or timezone.now() - timedelta(hours=age_hours)
     )
@@ -371,8 +371,8 @@ def test_hour_bars_for_an_empty_window_are_all_stubs():
 def test_the_overview_knows_how_many_opened_and_when_its_window_starts(monkeypatch):
     now = datetime(2026, 10, 14, 15, 40, tzinfo=dt_timezone.utc)
     monkeypatch.setattr(overview.timezone, "now", lambda: now)
-    Incident.objects.create(title="a")
-    Incident.objects.create(title="b")
+    Incident.objects.create()
+    Incident.objects.create()
 
     result = overview.build_overview()
 

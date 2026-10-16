@@ -547,9 +547,7 @@ class AlertOrchestrator:
 
         # Create new incident
         incident = Incident.objects.create(
-            title=alert.name,
             severity=alert.severity,
-            description=alert.description,
             subject=alert.subject,
             instance=incident_instance_key(alert)[:255],
             node_id=alert.node_id or getattr(resolve_node(alert.labels), "pk", None),
