@@ -1,0 +1,10 @@
+<details id="{{ id }}" class="c-details" data-details>
+  <summary id="{{ id }}-summary">Details</summary>
+  <dl class="c-facts">
+    {% for fact in facts %}<div><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd>{% if fact.copy %}<button id="{{ id }}-copy-{{ forloop.counter }}" type="button" class="c-copy" data-copy="{{ fact.value }}" aria-label="Copy {{ fact.label }}">Copy</button>{% endif %}</div>{% endfor %}
+  </dl>
+  {% if raw %}<details id="{{ id }}-raw" class="c-entry__raw">
+    <summary id="{{ id }}-raw-summary">Raw JSON</summary>
+    <pre id="{{ id }}-json" class="c-raw">{{ raw }}</pre>
+  </details>{% endif %}
+</details>

@@ -748,6 +748,31 @@ summary.c-entry:hover .c-entry__title { color: var(--fgColor-accent); }
   font: 12px/1.45 var(--fontStack-mono);
 }
 
+/* Description: a describer's headline, detail, action and Details */
+.c-description { display: grid; gap: var(--space-2); justify-items: start; min-width: 0; overflow-wrap: anywhere; }
+.c-description__headline { display: flex; align-items: flex-start; gap: var(--space-2); color: var(--fgColor-default); font-weight: 600; }
+.c-description__headline > .octicon { flex-shrink: 0; margin-top: 2px; color: var(--tone-fg); }
+.c-description__detail { color: var(--fgColor-muted); }
+.c-description__action { color: var(--fgColor-default); }
+.c-details { justify-self: stretch; font-size: 12px; }
+.c-details > summary { color: var(--fgColor-muted); cursor: pointer; }
+.c-details > summary:hover { color: var(--fgColor-accent); }
+.c-facts { display: grid; gap: var(--space-1); margin: var(--space-2) 0 0; }
+.c-facts > div { display: grid; grid-template-columns: 14ch minmax(0, 1fr) auto; gap: var(--space-3); align-items: baseline; }
+.c-facts dt { color: var(--fgColor-muted); }
+.c-facts dd { margin: 0; color: var(--fgColor-default); font-family: var(--fontStack-mono); overflow-wrap: anywhere; }
+.c-copy {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--button-default-borderColor-rest);
+  border-radius: var(--radius);
+  background: var(--button-default-bgColor-rest);
+  color: var(--fgColor-default);
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
+}
+.c-copy:hover { background: var(--button-default-bgColor-hover); }
+
 /* Responsive */
 @media (max-width: 1011px) {
   .c-columns { grid-template-columns: minmax(0, 1fr); }
@@ -777,7 +802,7 @@ summary.c-entry:hover .c-entry__title { color: var(--fgColor-accent); }
 @media print {
   .c-header, .c-unav, .c-flash, .c-toolbar, .c-crumb, .c-pagehead__actions, .c-button, form,
   .c-note, .c-sidebar__item--actions, .c-entry__foot, .c-entry__chevron,
-  .c-timeline__note > a { display: none !important; }
+  .c-timeline__note > a, .c-copy, .c-details .c-entry__raw { display: none !important; }
   .c-main { max-width: none; padding: 0; }
   .c-layout { grid-template-columns: minmax(0, 1fr); }
   .c-sidebar { order: -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
