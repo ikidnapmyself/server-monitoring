@@ -22,13 +22,6 @@ ESCAPED = "&lt;img src=x onerror=alert(1)&gt;"
 BOTH = pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
 
 
-@pytest.fixture
-def staff(client):
-    user = get_user_model().objects.create_user("op", password="x", is_staff=True)
-    client.force_login(user)
-    return user
-
-
 def _url(incident):
     return reverse("console:incident", args=[incident.pk])
 

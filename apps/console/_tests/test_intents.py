@@ -1,0 +1,170 @@
+import re
+from pathlib import Path
+
+import pytest
+from django.conf import settings
+from django.contrib.auth.models import Permission
+from django.template import Context, Template
+from django.test import RequestFactory
+
+from apps.alerts.models import Incident
+from apps.console.intents import INTENTS, Intent, ResolvedAction, resolve_action
+from config.describing import Action
+
+INTENT = re.compile(r"""intent=["']([a-z_]+)["']|Action\(\s*[^,()]+,\s*["']([a-z_]+)["']""")
+NAMED = re.compile(r"""^_[A-Z_]+ = ["']([a-z_]+)["']$""", re.MULTILINE)
+
+
+def emitted_intents() -> set[str]:
+    root = Path(settings.BASE_DIR).resolve()
+    found = set()
+    for folder in ("apps", "config"):
+        for path in (root / folder).rglob("*.py"):
+            if "_tests" in path.parts:
+                continue
+            source = path.read_text()
+            for match in INTENT.finditer(source):
+                found.add(match.group(1) or match.group(2))
+            if "Action(" in source:
+                found.update(NAMED.findall(source))
+    return found
+
+
+def test_the_scan_sees_the_emitted_intents():
+    assert {"open_url", "edit_channel", "edit_route", "view_inbox", "view_nodes"} <= (
+        emitted_intents()
+    )
+
+
+def test_every_emitted_intent_is_known():
+    assert emitted_intents() <= set(INTENTS)
+
+
+@pytest.mark.django_db
+def test_unknown_intent_is_text(staff):
+    assert resolve_action(Action("Do it", intent="nope"), staff) == ResolvedAction("Do it")
+
+
+@pytest.mark.django_db
+def test_no_intent_is_text(staff):
+    assert resolve_action(Action("Just words"), staff) == ResolvedAction("Just words")
+
+
+@pytest.mark.django_db
+def test_missing_permission_is_text(staff):
+    resolved = resolve_action(Action("Fix", intent="edit_channel"), staff)
+    assert (resolved.url, resolved.method) == ("", "")
+
+
+@pytest.mark.django_db
+def test_permitted_link(admin_user):
+    resolved = resolve_action(Action("Fix", intent="edit_channel"), admin_user)
+    assert resolved == ResolvedAction("Fix", "/admin/notify/notificationchannel/", "get")
+
+
+@pytest.mark.django_db
+def test_named_channel_is_searched(admin_user):
+    action = Action("Fix", intent="edit_channel", params={"name": "ops & on-call"})
+    resolved = resolve_action(action, admin_user)
+    assert resolved.url == "/admin/notify/notificationchannel/?q=ops+%26+on-call"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("intent", ["acknowledge", "resolve", "close"])
+def test_post_intent(admin_user, intent):
+    incident = Incident.objects.create(severity="critical")
+    resolved = resolve_action(Action("Act", intent=intent, params={"pk": incident.pk}), admin_user)
+    assert resolved.method == "post"
+    assert resolved.url == f"/console/incidents/{incident.pk}/{intent}/"
+
+
+@pytest.mark.django_db
+def test_open_url_needs_no_permission(staff):
+    action = Action("Open the runbook", intent="open_url", params={"url": "https://x.test/rb"})
+    assert resolve_action(action, staff) == ResolvedAction(
+        "Open the runbook", "https://x.test/rb", "get"
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("url", ["javascript:alert(1)", "//evil.test", "data:text/html,x"])
+def test_open_url_rejects_non_http(staff, url):
+    action = Action("Open", intent="open_url", params={"url": url})
+    assert resolve_action(action, staff) == ResolvedAction("Open")
+
+
+@pytest.mark.django_db
+def test_missing_param_is_text(admin_user):
+    assert resolve_action(Action("Node", intent="view_node"), admin_user) == ResolvedAction("Node")
+
+
+@pytest.mark.django_db
+def test_unreversible_is_text(admin_user, monkeypatch):
+    from django.urls import reverse
+
+    monkeypatch.setitem(
+        INTENTS, "gone", Intent(lambda p: reverse("console:no-such-page"), "get", "")
+    )
+    assert resolve_action(Action("Gone", intent="gone"), admin_user) == ResolvedAction("Gone")
+
+
+@pytest.mark.django_db
+def test_query_params_are_encoded(admin_user):
+    action = Action("Inbox", intent="view_inbox", params={"status": "a&b"})
+    resolved = resolve_action(action, admin_user)
+    assert resolved.url == "/admin/orchestration/inboxitem/?status__exact=a%26b"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("intent", "params", "url"),
+    [
+        ("edit_route", {}, "/admin/orchestration/pipelinedefinition/"),
+        ("edit_provider", {}, "/admin/intelligence/intelligenceprovider/"),
+        ("view_preflight", {}, "/admin/checkers/preflightrun/"),
+        ("view_inbox", {}, "/admin/orchestration/inboxitem/"),
+        ("view_nodes", {}, "/admin/alerts/node/"),
+        ("view_node", {"pk": 7}, "/admin/alerts/node/7/change/"),
+        ("view_run", {"pk": 7}, "/admin/orchestration/pipelinerun/7/change/"),
+        ("view_alert", {"pk": 7}, "/admin/alerts/alert/7/change/"),
+    ],
+)
+def test_config_intents_point_at_the_admin(admin_user, intent, params, url):
+    resolved = resolve_action(Action("Go", intent=intent, params=params), admin_user)
+    assert resolved == ResolvedAction("Go", url, "get")
+
+
+@pytest.mark.django_db
+def test_every_permission_exists():
+    for name, intent in INTENTS.items():
+        if not intent.permission:
+            continue
+        app_label, codename = intent.permission.split(".")
+        assert Permission.objects.filter(
+            content_type__app_label=app_label, codename=codename
+        ).exists(), name
+
+
+def test_every_method_is_get_or_post():
+    assert {intent.method for intent in INTENTS.values()} <= {"get", "post"}
+
+
+def _render(user, action):
+    request = RequestFactory().get("/console/")
+    request.user = user
+    template = Template(
+        "{% load console %}{% resolved action as r %}{% if r %}{{ r.method }}|{{ r.url }}"
+        "{% else %}none{% endif %}"
+    )
+    return template.render(Context({"request": request, "action": action}))
+
+
+@pytest.mark.django_db
+def test_tag_resolves_for_the_request_user(admin_user):
+    rendered = _render(admin_user, Action("Fix", intent="edit_route"))
+    assert rendered == "get|/admin/orchestration/pipelinedefinition/"
+
+
+@pytest.mark.django_db
+def test_tag_passes_over_no_action(admin_user):
+    assert _render(admin_user, None) == "none"

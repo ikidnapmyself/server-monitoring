@@ -21,13 +21,6 @@ def url():
     return reverse("console:incidents")
 
 
-@pytest.fixture
-def staff(client):
-    user = get_user_model().objects.create_user("op", password="x", is_staff=True)
-    client.force_login(user)
-    return user
-
-
 def _alert(incident, node, key="a"):
     return Alert.objects.create(
         fingerprint=f"{incident.pk}:{key}",

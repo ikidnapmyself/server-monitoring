@@ -17,13 +17,6 @@ from apps.console.views.overview import OverviewView
 HTMX = {"HTTP_HX_REQUEST": "true"}
 
 
-@pytest.fixture
-def staff(client):
-    user = get_user_model().objects.create_user("op", password="x", is_staff=True)
-    client.force_login(user)
-    return user
-
-
 @pytest.mark.django_db
 def test_anonymous_is_sent_to_the_admin_login(client):
     resp = client.get(reverse("console:overview"))
