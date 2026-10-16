@@ -19,3 +19,8 @@ def staff(client):
     )
     client.force_login(user)
     return user
+
+
+@pytest.fixture
+def superuser():
+    return get_user_model().objects.create_superuser("root", password="x")
