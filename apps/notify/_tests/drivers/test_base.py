@@ -500,6 +500,14 @@ class TestHandleHttpError(SimpleTestCase):
         assert "500" in result["error"]
         assert "TestService" in result["error"]
 
+    def test_handle_http_error_reports_status_code(self):
+        err = urllib.error.HTTPError(
+            url="http://example.com", code=401, msg="Unauthorized", hdrs=MagicMock(), fp=None
+        )
+        result = DummyDriver()._handle_http_error(err, "TestService")
+
+        assert result["status_code"] == 401
+
 
 class TestHandleUrlError(SimpleTestCase):
     """Tests for _handle_url_error."""
@@ -513,6 +521,24 @@ class TestHandleUrlError(SimpleTestCase):
         assert result["success"] is False
         assert "Connection refused" in result["error"]
         assert "TestService" in result["error"]
+
+    def test_timeout_reason_is_a_timeout(self):
+        err = urllib.error.URLError(reason=TimeoutError("timed out"))
+        result = DummyDriver()._handle_url_error(err, "TestService")
+
+        assert result["failure"] == "timeout"
+
+    def test_refused_reason_means_provider_down(self):
+        err = urllib.error.URLError(reason=ConnectionRefusedError("refused"))
+        result = DummyDriver()._handle_url_error(err, "TestService")
+
+        assert result["failure"] == "provider_down"
+
+    def test_text_reason_is_unknown(self):
+        err = urllib.error.URLError(reason="Name or service not known")
+        result = DummyDriver()._handle_url_error(err, "TestService")
+
+        assert result["failure"] == "unknown"
 
 
 class TestHandleException(SimpleTestCase):
@@ -528,3 +554,8 @@ class TestHandleException(SimpleTestCase):
         assert "timeout" in result["error"]
         assert "TestService" in result["error"]
         assert "send notification to" in result["error"]
+
+    def test_bare_timeout_is_a_timeout(self):
+        result = DummyDriver()._handle_exception(TimeoutError("read timed out"), "T", "send")
+
+        assert result["failure"] == "timeout"

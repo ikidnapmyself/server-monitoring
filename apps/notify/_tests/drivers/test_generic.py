@@ -299,6 +299,7 @@ class GenericSendTests(SimpleTestCase):
         self.assertFalse(result["success"])
         self.assertIn("400", result["error"])
         self.assertIn("Bad Request: invalid payload", result["error"])
+        self.assertEqual(result["status_code"], 400)
 
     @patch("apps.notify.drivers.generic.safe_urlopen")
     def test_send_http_error_no_fp(self, mock_urlopen):

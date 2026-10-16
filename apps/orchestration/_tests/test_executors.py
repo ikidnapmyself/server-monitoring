@@ -1566,6 +1566,18 @@ class TestNotifyExecutorFailureKind(TestCase):
 
         assert self._delivery(driver_cls)["failure"] == "rejected"
 
+    def test_failed_result_naming_a_failure_kind_keeps_it(self):
+        driver_cls, driver_inst = _mock_driver_cls()
+        driver_inst.send.return_value = {"success": False, "failure": "timeout"}
+
+        assert self._delivery(driver_cls)["failure"] == "timeout"
+
+    def test_failed_result_naming_an_unknown_kind_falls_back(self):
+        driver_cls, driver_inst = _mock_driver_cls()
+        driver_inst.send.return_value = {"success": False, "failure": "gremlins"}
+
+        assert self._delivery(driver_cls)["failure"] == "rejected"
+
     def test_success_has_no_failure(self):
         driver_cls, _ = _mock_driver_cls()
 

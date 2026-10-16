@@ -262,6 +262,7 @@ class PagerDutySendTests(SimpleTestCase):
         self.assertFalse(result["success"])
         self.assertIn("400", result["error"])
         self.assertIn("Invalid routing key", result["error"])
+        self.assertEqual(result["status_code"], 400)
 
     @patch("apps.notify.drivers.pagerduty.safe_urlopen")
     def test_send_http_error_with_non_json_body(self, mock_urlopen):

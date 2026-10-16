@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from apps.notify.templating import NotificationTemplatingService, render_template
+from config.failures import classify_failure
 
 logger = logging.getLogger(__name__)
 
@@ -197,14 +198,27 @@ class BaseNotifyDriver(ABC):
         """Handle HTTP errors consistently across drivers."""
         error_body = e.read().decode("utf-8") if e.fp else str(e)
         logger.error(f"{service_name} HTTP error {e.code}: {error_body}")
-        return {"success": False, "error": f"{service_name} API error ({e.code}): {error_body}"}
+        return {
+            "success": False,
+            "error": f"{service_name} API error ({e.code}): {error_body}",
+            "status_code": e.code,
+        }
 
     def _handle_url_error(self, e: urllib.error.URLError, service_name: str) -> dict[str, Any]:
         """Handle URL errors consistently across drivers."""
         logger.error(f"{service_name} URL error: {e.reason}")
-        return {"success": False, "error": f"Failed to connect to {service_name}: {e.reason}"}
+        reason = e.reason if isinstance(e.reason, BaseException) else e
+        return {
+            "success": False,
+            "error": f"Failed to connect to {service_name}: {e.reason}",
+            "failure": classify_failure(reason),
+        }
 
     def _handle_exception(self, e: Exception, service_name: str, action: str) -> dict[str, Any]:
         """Handle general exceptions consistently across drivers."""
         logger.exception(f"Failed to {action} {service_name}: {e}")
-        return {"success": False, "error": f"Failed to {action} {service_name}: {e}"}
+        return {
+            "success": False,
+            "error": f"Failed to {action} {service_name}: {e}",
+            "failure": classify_failure(e),
+        }

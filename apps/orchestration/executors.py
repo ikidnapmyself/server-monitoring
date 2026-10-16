@@ -28,7 +28,7 @@ from apps.orchestration.formatters import (
     format_intelligence_summary,
 )
 from apps.orchestration.models import PipelineStage
-from config.failures import classify_failure
+from config.failures import FAILURE_KINDS, classify_failure
 
 logger = logging.getLogger(__name__)
 
@@ -656,12 +656,16 @@ class NotifyExecutor(BaseExecutor):
                 success = bool(
                     send_result.get("success") or (send_result.get("status") == "success")
                 )
-                code = send_result.get("status_code")
-                failure = (
-                    ""
-                    if success
-                    else (classify_failure(_Status(code)) if isinstance(code, int) else "rejected")
-                )
+                failure = ""
+                if not success:
+                    reported = send_result.get("failure")
+                    code = send_result.get("status_code")
+                    if reported in FAILURE_KINDS:
+                        failure = reported
+                    elif isinstance(code, int):
+                        failure = classify_failure(_Status(code))
+                    else:
+                        failure = "rejected"
                 delivery = {
                     "driver": selected_label or provider_name,
                     "provider": provider_name,
