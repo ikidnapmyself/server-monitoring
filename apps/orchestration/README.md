@@ -373,9 +373,10 @@ result = PipelineOrchestrator().execute_run(run)
 
 When `ORCHESTRATION_INTELLIGENCE_FALLBACK_ENABLED=1` (default), if the AI analysis stage fails, the pipeline will:
 
-1. Continue to the notify stage
-2. Send a notification with "AI analysis unavailable"
-3. Record `intelligence_fallback_used=True` in the pipeline run
+1. Record the failure in the analyze result: `fallback_used=True`, `failure` (one of `config.failures.FAILURE_KINDS`) and `error_detail`. The summary, cause and actions stay empty and `confidence` stays `None`. No made-up analysis is stored.
+2. Continue to the notify stage
+3. Send the check-based notification with the note "AI analysis unavailable; showing check-based summary."
+4. Record `intelligence_fallback_used=True` in the pipeline run
 
 This ensures critical alerts are still communicated even when AI is down.
 

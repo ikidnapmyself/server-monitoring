@@ -13,6 +13,16 @@ Responsibilities:
 Output contract (to orchestrator):
 - `{ deliveries: [...], provider_ids, notify_output_ref }`
 
+**A delivery says why it failed.** Each delivery dict carries `failure`, empty on success
+and otherwise one of `config.failures.FAILURE_KINDS`. A driver reports what it knows in
+its result: `status_code` for an HTTP error, or `failure` when it can name the kind, as
+email does for an SMTP auth error. The base class's `_handle_*` helpers fill these in.
+`NotifyExecutor` takes a reported `failure` first, then classifies `status_code`, and
+falls back to `rejected`. Every driver declares a display `label` ("Email", "Slack").
+`describe_delivery` and `describe_notify` in `apps/notify/describing.py` read the stored
+deliveries and use that label in the headline, such as "Not sent to #ops: Slack is rate
+limiting this hub", with the HTTP status and error in Details.
+
 **Content sourcing (Phase 2 contract).** A notification's **title and severity come
 from the alert/check data** — the orchestrator's `NotifyExecutor` derives them via
 `apps.orchestration.formatters.derive_headline(ingest, check)` (severity from the
@@ -50,6 +60,7 @@ driver absent from `DRIVER_REGISTRY` fails the same way as `no_driver`.
 ## Key modules
 
 - `apps/notify/drivers/` — notification drivers/backends
+- `apps/notify/describing.py` — `describe_delivery`, `describe_notify`
 - `apps/notify/models.py` — notification channel configuration models
 - `apps/notify/urls.py` — URL routing
 - `apps/notify/management/commands/test_notify.py` — interactive test notification wizard

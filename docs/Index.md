@@ -527,7 +527,7 @@ BaseProvider (ABC)
 - Shared base for all LLM-backed providers
 - Builds prompt from incident context (title, description, severity, alerts, metadata)
 - Parses JSON response (including markdown-wrapped JSON) into `Recommendation` objects
-- Returns fallback recommendation on API error
+- Lets API errors propagate. The analyze executor classifies them through `config/failures.py`
 - Subclasses only implement `_call_api(prompt) -> str`
 
 #### LocalRecommendationProvider
@@ -827,7 +827,7 @@ All results share: `errors: list[str]`, `duration_ms: float`, `has_errors` prope
 
 **CheckResult**: `checks` (list), `checks_run`, `checks_passed`, `checks_failed`, `checker_output_ref`
 
-**AnalyzeResult**: `summary`, `probable_cause`, `actions`, `recommendations`, `confidence`, `fallback_used`, `ai_output_ref`
+**AnalyzeResult**: `summary`, `probable_cause`, `actions`, `recommendations`, `confidence` (`None` until a provider reports one), `fallback_used`, `failure`, `error_detail`, `ai_output_ref`
 
 **NotifyResult**: `deliveries` (list), `provider_ids`, `messages`, `channels_attempted`, `channels_succeeded`, `channels_failed`, `notify_output_ref`
 

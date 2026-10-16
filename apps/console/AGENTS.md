@@ -96,6 +96,27 @@ pipeline stage and not an alert producer.
   analysis and delivery comes from the owning app's describer, and the read model builds
   no admin URL. Navigation is an `Action` intent (`view_run`, `view_alert`), added only
   when the description has no action of its own, so a link never hides a fix.
+- **`intents.py` is the only place that builds an admin URL.** `INTENTS` maps each
+  `Action.intent` to a URL builder, a method and a permission. `resolve_action` turns an
+  `Action` into a link, a POST button, or plain text when the intent is unknown, the user
+  lacks its permission or the URL can't be built. Config intents such as `edit_route`,
+  `edit_channel` and `edit_provider` point at the admin until their domain gets a console
+  page, and then only their entry here changes. `admin_url()` covers the chrome's index,
+  login and logout links. No template or query reverses an `admin:` name or writes
+  `/admin/`, and `_tests/test_intents.py` scans for both. Templates resolve an action with
+  `{% load console %}{% resolved action as act %}` and render it through
+  `partials/_action.html`.
+- **A `Description` renders through `partials/_description.html`.** It prints the
+  headline with its tone icon, the detail, the resolved action and the facts. Pass a
+  stable `id`, because the action and the Details derive theirs from it. Don't lay out a
+  description by hand in another template.
+- **Identifiers live in Details.** `partials/_details.html` is a `<details data-details>`
+  that holds the facts, copy buttons and raw JSON. Run ids, trace ids, error text and
+  codes go there as facts, never in a headline or a detail.
+  `_tests/test_guard.py` renders every page against `build_world()` from
+  `_tests/fixtures.py`, a world with every routing gap and failure kind, and fails if any
+  text outside `data-details` holds a UUID, a `snake_case` token, a `{` or a reason code.
+  A new outcome or reason code needs a case in `build_world()`.
 - **The incident timeline is capped.** The page shows lifecycle entries plus the newest
   `TIMELINE_LIMIT` others, and `?all=1` shows everything. Bodies are built only for
   entries that survive the cut. The database read is not capped.
@@ -110,6 +131,15 @@ pipeline stage and not an alert producer.
   The admin's own incident buttons sit behind `is_staff` alone, so the console is the
   stricter surface. `IncidentPageView` (`views/incident.py`) is the one place that builds
   the page context, so the page and the action response can't drift.
+- **Rerunning checks is its own POST-only view.** `IncidentRerunView`
+  (`views/incident_rerun.py`) serves `incidents/<pk>/rerun/`, needs
+  `checkers.add_checkrun` on top of the read permissions, and calls
+  `apps.alerts.check_integration.rerun_incident_checks`, which owns the rules. It runs the
+  incident's checkers only when the incident's node is this machine and names a checker
+  this machine has, and otherwise refuses with a warning notice. The button appears only
+  when `can_rerun(incident)` holds. The rerun records alerts and enqueues runs without
+  draining them, so they notify real channels once `process_inbox` drains. Never drain
+  the inbox in a test.
 - **An action's outcome is a `Notice`, not a Django message.** An htmx POST gets the
   incident partial back with status 200 whether the action was applied or refused, with
   the outcome passed in the context as `notice`. The messages framework is shared with
