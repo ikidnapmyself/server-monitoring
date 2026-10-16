@@ -113,6 +113,7 @@ legacy `IngestExecutor`.
   open**: an unknown checker, unparseable annotations or a raising builder all return
   `""`, which degrades to severity/status-only gating — over-notifying, never silencing.
   Add a checker by adding a pure builder to `KEY_BUILDERS`.
+- `apps/alerts/describing.py`: `describe_alert(alert)`, `describe_incident(incident)` and `describe_incidents(incidents)`, which return `config.describing.Description`. A checker alert is described by the hub's checker class from its `raw_payload` metrics, or by the node's own text when the hub doesn't know the checker. Any other alert reads its name and description. An incident leads with its worst firing alert, or its newest alert once nothing fires, and reads "`<problem>` on `<host>`". **The incident has no stored title or description.** Read its headline through the describer. `describe_incidents` runs a fixed number of queries, so use it for lists. Checker alerts are named by their checker's `label` (`checker_label`), and the name is display only.
 - `apps/alerts/metrics.py` — `parse_metrics(annotations)`, shared by `reevaluation` and
   `context_keys` so "read a node's metrics back" means one thing.
 - `apps/alerts/urls.py` — URL routing for this app
