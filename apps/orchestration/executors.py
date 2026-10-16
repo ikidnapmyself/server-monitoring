@@ -32,6 +32,13 @@ from config.failures import classify_failure
 
 logger = logging.getLogger(__name__)
 
+
+class _Status(Exception):
+    def __init__(self, status_code: int) -> None:
+        super().__init__(status_code)
+        self.status_code = status_code
+
+
 # Template keys that must never be accepted from untrusted pipeline payloads.
 # Stripping these before NotifySelector.resolve() ensures drivers cannot pick
 # up attacker-supplied Jinja2 source when config falls back to payload_config.
@@ -641,12 +648,19 @@ class NotifyExecutor(BaseExecutor):
                     "status": "failed",
                     "provider_id": "",
                     "response": {"error": str(e)},
+                    "failure": classify_failure(e),
                 }
                 result.deliveries.append(delivery)
             else:
                 # Normalize success flag
                 success = bool(
                     send_result.get("success") or (send_result.get("status") == "success")
+                )
+                code = send_result.get("status_code")
+                failure = (
+                    ""
+                    if success
+                    else (classify_failure(_Status(code)) if isinstance(code, int) else "rejected")
                 )
                 delivery = {
                     "driver": selected_label or provider_name,
@@ -656,6 +670,7 @@ class NotifyExecutor(BaseExecutor):
                     "provider_id": send_result.get("message_id", "")
                     or send_result.get("provider_id", ""),
                     "response": send_result,
+                    "failure": failure,
                 }
                 result.deliveries.append(delivery)
                 if success:

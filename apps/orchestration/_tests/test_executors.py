@@ -1534,6 +1534,44 @@ class TestNotifyExecutorDriverFailures(TestCase):
         assert result.deliveries[0]["status"] == "failed"
 
 
+class _Forbidden(Exception):
+    status_code = 403
+
+
+class TestNotifyExecutorFailureKind(TestCase):
+    def _delivery(self, driver_cls):
+        with patch(
+            "apps.notify.services.NotifySelector.resolve",
+            return_value=_resolve_return(driver_cls),
+        ):
+            result = NotifyExecutor().execute(
+                _ctx(payload={"notify_driver": "slack"}, previous_results={"analyze": {}})
+            )
+        return result.deliveries[0]
+
+    def test_send_raising_with_status_is_classified(self):
+        driver_cls, driver_inst = _mock_driver_cls()
+        driver_inst.send.side_effect = _Forbidden("forbidden")
+
+        assert self._delivery(driver_cls)["failure"] == "auth"
+
+    def test_failed_result_with_status_code_is_classified(self):
+        driver_cls, driver_inst = _mock_driver_cls()
+        driver_inst.send.return_value = {"success": False, "status_code": 429}
+
+        assert self._delivery(driver_cls)["failure"] == "rate_limit"
+
+    def test_failed_result_without_status_code_is_rejected(self):
+        driver_cls, _ = _mock_driver_cls(success=False)
+
+        assert self._delivery(driver_cls)["failure"] == "rejected"
+
+    def test_success_has_no_failure(self):
+        driver_cls, _ = _mock_driver_cls()
+
+        assert self._delivery(driver_cls)["failure"] == ""
+
+
 class TestNotifyExecutorTemplateRendering(TestCase):
     def test_template_from_channel_config(self):
         driver_cls, _ = _mock_driver_cls()
