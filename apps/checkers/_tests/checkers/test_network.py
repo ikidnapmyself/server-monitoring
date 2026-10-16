@@ -235,6 +235,11 @@ class NetworkDescribeTests(TestCase):
             "Check the route and firewall between this machine and 8.8.8.8 and 1.1.1.1.",
         )
 
+    def test_a_lone_host_down_reads_singular(self):
+        hosts = {"8.8.8.8": {"reachable": False}}
+        d = NetworkChecker().describe(CheckStatus.CRITICAL, {"hosts": hosts, "total_hosts": 1})
+        self.assertEqual(d.headline, "1 host unreachable: 8.8.8.8")
+
     def test_ok_with_a_host_down_still_names_it(self):
         hosts = {f"10.0.0.{i}": {"reachable": i != 4} for i in range(1, 5)}
         d = NetworkChecker().describe(CheckStatus.OK, {"hosts": hosts, "total_hosts": 4})

@@ -34,6 +34,7 @@ from apps.orchestration.models import (
     StageExecution,
     StageStatus,
 )
+from config.describing import Description
 
 
 def _ctx(payload=None, incident_id=None, previous_results=None, source="test"):
@@ -96,11 +97,18 @@ class TestIngestExecutorSuccess(TestCase):
             ]
         )
 
-        with patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch):
+        headline = Description(headline="Disk full on web-01", tone="critical")
+        with (
+            patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch),
+            patch(
+                "apps.orchestration.executors.describe_incident", return_value=headline
+            ) as describe,
+        ):
             result = IngestExecutor().execute(
                 _ctx(payload={"driver": "generic", "payload": {"key": "val"}})
             )
 
+        describe.assert_called_once_with(mock_orch.process_webhook.return_value.alerts[0].incident)
         assert isinstance(result, IngestResult)
         assert result.alerts_created == 1
         assert result.incidents_created == 1
@@ -116,27 +124,22 @@ class TestIngestExecutorSuccess(TestCase):
         # whole dict must survive serialization — not just carry the right keys.
         assert json.loads(json.dumps(result.to_dict()))["incident_title"] == "Disk full on web-01"
 
-    def test_incident_without_title_leaves_incident_title_empty(self):
-        """When the incident has no title, incident_title stays the default empty string."""
+    def test_alert_without_incident_leaves_incident_title_empty(self):
         mock_orch = MagicMock()
         mock_orch.process_webhook.return_value = _FakeProcessingResult(
-            alerts=[
-                _mock_alert(
-                    name="disk",
-                    severity="critical",
-                    fingerprint="fp-123",
-                    incident_id=42,
-                    title="",
-                )
-            ]
+            alerts=[_mock_alert(name="disk", severity="critical", fingerprint="fp-123")]
         )
 
-        with patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch):
+        with (
+            patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch),
+            patch("apps.orchestration.executors.describe_incident") as describe,
+        ):
             result = IngestExecutor().execute(
                 _ctx(payload={"driver": "generic", "payload": {"key": "val"}})
             )
 
-        assert result.incident_id == 42
+        describe.assert_not_called()
+        assert result.incident_id is None
         assert result.incident_title == ""
 
     def test_invalid_payload_not_dict(self):
@@ -207,7 +210,7 @@ class TestIngestExecutorSubjectSelection(TestCase):
 
         assert result.alert_id == pushed.id
         assert result.incident_id == pushed_incident.id
-        assert result.incident_title == "Pushed"
+        assert result.incident_title == "cpu"
         assert result.alert_fingerprint == "fp-pushed"
         assert result.severity == "warning"
 
@@ -1793,6 +1796,7 @@ class TestNotifyExecutorDownstreamHeadline(TestCase):
 
         assert facts["status"] == "acknowledged"
         assert facts["severity"] == "critical"
+        assert facts["incident_title"] == "DISK Check Alert"
 
     def test_an_ingest_snapshot_still_wins_when_present(self):
         """The push-run path is unchanged: a real snapshot is authoritative."""

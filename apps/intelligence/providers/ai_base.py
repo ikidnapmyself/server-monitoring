@@ -10,6 +10,7 @@ import logging
 from abc import abstractmethod
 from typing import Any
 
+from apps.alerts.describing import describe_incident
 from apps.intelligence.providers.base import (
     BaseProvider,
     Recommendation,
@@ -97,10 +98,10 @@ class BaseAIProvider(BaseProvider):
     # ------------------------------------------------------------------
 
     def _build_prompt(self, incident: Any) -> str:
-        parts = [
-            f"Incident Title: {incident.title}",
-            f"Incident Description: {incident.description}",
-        ]
+        described = describe_incident(incident)
+        parts = [f"Incident: {described.headline}"]
+        if described.detail:
+            parts.append(f"Detail: {described.detail}")
 
         if hasattr(incident, "severity"):
             parts.append(f"Severity: {incident.severity}")

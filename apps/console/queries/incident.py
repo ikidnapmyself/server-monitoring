@@ -11,6 +11,7 @@ from django.db.models import Count
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.alerts.describing import describe_incident
 from apps.alerts.diagnosis import diagnose_incident
 from apps.alerts.models import Incident
 from apps.alerts.services import available_incident_actions
@@ -460,14 +461,15 @@ def build_incident_detail(
     over = max(0, recorded - TIMELINE_LIMIT)
     recent_url = reverse("console:incident", args=[incident.pk])
     full_url = f"{recent_url}?all=1"
+    described = describe_incident(incident)
     return IncidentDetail(
         pk=incident.pk,
-        title=incident.title,
+        title=described.headline,
         severity=incident.severity,
         severity_tone=tone_for(SEVERITY_TONES, incident.severity),
         status=incident.status,
         status_tone=tone_for(INCIDENT_STATUS_TONES, incident.status),
-        description=incident.description,
+        description=described.detail,
         summary=incident.summary,
         created_at=incident.created_at,
         duration=format_duration(elapsed.total_seconds()),

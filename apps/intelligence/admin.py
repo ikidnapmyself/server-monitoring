@@ -57,7 +57,7 @@ class AnalysisRunAdmin(admin.ModelAdmin):
         "created_at",
     ]
     list_filter = ["status", "provider", "fallback_used", "created_at"]
-    search_fields = ["trace_id", "pipeline_run_id", "incident__title", "summary"]
+    search_fields = ["trace_id", "pipeline_run_id", "incident__subject", "summary"]
     formfield_overrides = {db_models.JSONField: {"widget": JSONEditorWidget}}
     readonly_fields = [
         "trace_id",

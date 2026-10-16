@@ -103,14 +103,25 @@ class TestIncidentAnalysis(TestCase):
     @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
     def test_analyze_incident_by_id(self, mock_get_provider):
         """Test analyzing a specific incident."""
-        from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
+        from django.utils import timezone
 
-        # Create test incident
+        from apps.alerts.models import Alert, AlertSeverity, Incident, IncidentStatus
+
         incident = Incident.objects.create(
             title="Test Memory Incident",
             description="Memory usage high",
+            subject="MemoryHigh",
+            instance="web-01",
             status=IncidentStatus.OPEN,
             severity=AlertSeverity.WARNING,
+        )
+        Alert.objects.create(
+            name="MemoryHigh",
+            fingerprint="fp-mem",
+            source="grafana",
+            severity=AlertSeverity.WARNING,
+            started_at=timezone.now(),
+            incident=incident,
         )
 
         mock_provider = MagicMock()
@@ -130,7 +141,7 @@ class TestIncidentAnalysis(TestCase):
 
         output = out.getvalue()
         assert "Analyzing incident" in output
-        assert "Test Memory Incident" in output
+        assert "Analyzing incident: MemoryHigh on web-01" in output
         mock_provider.run.assert_called_once()
 
         # Cleanup

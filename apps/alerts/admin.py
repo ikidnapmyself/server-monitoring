@@ -12,6 +12,7 @@ from django.utils.html import format_html, format_html_join
 from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
 
+from apps.alerts.describing import describe_incident
 from apps.alerts.diagnosis import diagnose_incident
 from apps.alerts.forms import ADD_SECTION_FIELD, NodePolicyForm
 from apps.alerts.models import (
@@ -263,7 +264,7 @@ class AlertAdmin(DjangoObjectActions, admin.ModelAdmin):
             return format_html(
                 '<a href="/admin/alerts/incident/{}/change/">{}</a>',
                 obj.incident.id,
-                obj.incident.title[:30],
+                describe_incident(obj.incident).headline[:30],
             )
         return "-"
 
@@ -289,7 +290,7 @@ class AlertAdmin(DjangoObjectActions, admin.ModelAdmin):
                 '<a href="/admin/alerts/incident/{}/change/">{}</a> '
                 "(see its Journey for the full chain)</div>",
                 obj.incident_id,
-                obj.incident.title[:40],
+                describe_incident(obj.incident).headline[:40],
             )
         else:
             body = format_html(
@@ -376,7 +377,7 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
     """Admin for Incident model."""
 
     list_display = [
-        "title",
+        "headline",
         "host",
         "severity_badge",
         "status_badge",
@@ -387,13 +388,14 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
     ]
     list_filter = ["status", "severity", "alerts__node"]
     search_fields = [
-        "title",
-        "description",
+        "subject",
+        "instance",
         "summary",
         "alerts__node__instance_id",
         "alerts__node__hostname",
     ]
     readonly_fields = [
+        "headline",
         "created_at",
         "updated_at",
         "acknowledged_at",
@@ -424,13 +426,13 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         (
             None,
             {
-                "fields": ["title", "severity", "status"],
+                "fields": ["headline", "severity", "status"],
             },
         ),
         (
             "Details",
             {
-                "fields": ["description", "summary"],
+                "fields": ["summary"],
             },
         ),
         (
@@ -531,6 +533,10 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
         if not self.has_change_permission(request, obj):
             raise PermissionDenied
         self._transition_and_report(request, obj, "close")
+
+    @admin.display(description="Incident")
+    def headline(self, obj):
+        return describe_incident(obj).headline
 
     @admin.display(description="Host")
     def host(self, obj):

@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from apps.alerts.models import Alert, Incident, Node
 from apps.console._tests.test_templates import FORBIDDEN
+from apps.console._tests.views.test_incident import named_incident
 from apps.console.queries import overview as overview_queries
 from apps.console.views.overview import OverviewView
 
@@ -176,7 +177,7 @@ def test_empty_install_reads_as_calm(client, staff):
 
 @pytest.mark.django_db
 def test_page_shows_incidents_nodes_and_the_sparkline(client, staff):
-    incident = Incident.objects.create(title="Disk full on web-1", severity="critical")
+    incident = named_incident("Disk full on web-1", severity="critical")
     node = Node.objects.create(instance_id="web-1", hostname="web-1")
 
     body = client.get(reverse("console:overview")).content.decode()
@@ -356,7 +357,7 @@ MARKUP = "<img src=x onerror=alert(1)>"
 
 @pytest.mark.django_db
 def test_incident_title_is_escaped(client, staff):
-    Incident.objects.create(title=f"disk {MARKUP}", severity="critical")
+    named_incident(f"disk {MARKUP}", severity="critical")
 
     body = client.get(reverse("console:overview")).content.decode()
 
@@ -415,9 +416,9 @@ def test_incidents_within_the_cap_show_no_more_row(client, staff):
 
 @pytest.mark.django_db
 def test_the_more_link_opens_a_list_of_only_open_incidents(client, staff):
-    Incident.objects.create(title="still open", severity="warning")
-    Incident.objects.create(title="acked", severity="warning", status="acknowledged")
-    Incident.objects.create(title="long gone", severity="warning", status="closed")
+    named_incident("still open", severity="warning")
+    named_incident("acked", severity="warning", status="acknowledged")
+    named_incident("long gone", severity="warning", status="closed")
 
     resp = client.get(overview_queries.build_overview().more_url)
 

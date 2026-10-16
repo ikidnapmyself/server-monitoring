@@ -353,7 +353,7 @@ class LocalRecommendationProvider(BaseProvider):
 
     def _detect_incident_type(self, incident: Any) -> str:
         """
-        Detect the type of incident based on its title, description, and alerts.
+        Detect the type of incident based on its subject and alerts.
 
         Args:
             incident: Incident object.
@@ -361,8 +361,7 @@ class LocalRecommendationProvider(BaseProvider):
         Returns:
             Incident type: 'memory', 'disk', 'cpu', or 'unknown'.
         """
-        # Check title and description
-        text = f"{incident.title} {incident.description}".lower()
+        text = f"{incident.subject}".lower()
 
         # Also check associated alerts
         if hasattr(incident, "alerts"):

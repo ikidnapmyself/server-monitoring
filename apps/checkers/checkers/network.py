@@ -187,9 +187,10 @@ class NetworkChecker(BaseChecker):
             headline = "1 host reachable" if total == 1 else f"All {total} hosts reachable"
             return self._describe(status, headline, metrics)
         names = format_list(down)
+        counted = "1 host" if total == 1 else f"{len(down)} of {total} hosts"
         return self._describe(
             status,
-            f"{len(down)} of {total} hosts unreachable: {names}",
+            f"{counted} unreachable: {names}",
             metrics,
             action=Action(f"Check the route and firewall between this machine and {names}."),
         )

@@ -17,6 +17,7 @@ from django.utils.html import format_html_join
 from django.utils.timesince import timesince
 
 from apps.alerts.check_integration import STATUS_TO_SEVERITY
+from apps.alerts.describing import describe_incidents
 from apps.alerts.identity import local_hostname, local_instance_id
 from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
 from apps.alerts.reevaluation import PRIMARY_METRIC
@@ -346,12 +347,13 @@ def build_incident_rows(node, limit: int = 10) -> list[IncidentRow]:
     ``distinct()`` because an incident this node raised six alerts on must appear
     once, not six times.
     """
-    incidents = (
+    incidents = list(
         Incident.objects.filter(alerts__node=node).distinct().order_by("-created_at")[:limit]
     )
+    described = describe_incidents(incidents)
     return [
         IncidentRow(
-            title=incident.title,
+            title=described[incident.pk].headline,
             severity=incident.severity,
             status=incident.status,
             tone=tone_for(SEVERITY_TONES, incident.severity),

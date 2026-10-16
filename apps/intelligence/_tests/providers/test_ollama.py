@@ -114,8 +114,7 @@ class TestOllamaAnalyze(SimpleTestCase):
         provider = OllamaRecommendationProvider()
         incident = MagicMock()
         incident.id = 1
-        incident.title = "Test"
-        incident.description = "Test"
+        incident.subject = "Test"
         del incident.severity
         del incident.status
         del incident.alerts
@@ -134,8 +133,7 @@ class TestOllamaAnalyze(SimpleTestCase):
         provider = OllamaRecommendationProvider()
         incident = MagicMock()
         incident.id = 2
-        incident.title = "Test"
-        incident.description = "Test"
+        incident.subject = "Test"
         del incident.severity
         del incident.status
         del incident.alerts

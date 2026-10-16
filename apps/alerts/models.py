@@ -281,7 +281,7 @@ class Incident(models.Model):
         ]
 
     def __str__(self):
-        return f"[{self.status}] {self.title}"
+        return f"Incident #{self.pk} [{self.status}]"
 
     @property
     def is_open(self) -> bool:

@@ -11,11 +11,17 @@ from config.dashboard import NODE_RECENT_MINUTES
 
 
 def _incident(title, severity="warning", status="open", age_hours=0, created_at=None):
-    incident = Incident.objects.create(title=title, severity=severity, status=status)
+    incident = Incident.objects.create(title=title, subject=title, severity=severity, status=status)
     Incident.objects.filter(pk=incident.pk).update(
         created_at=created_at or timezone.now() - timedelta(hours=age_hours)
     )
     return incident
+
+
+def _subjects(rows):
+    """Which incidents the rows hold, named by subject since titles are described on read."""
+    found = Incident.objects.in_bulk([row.pk for row in rows])
+    return [found[row.pk].subject for row in rows]
 
 
 def _alert(node, severity="warning", status="firing", incident=None, key="a"):
@@ -53,11 +59,11 @@ def test_open_incidents_sort_by_severity_then_oldest_first(django_assert_num_que
     _incident("resolved", "critical", status="resolved")
     _incident("closed", "critical", status="closed")
 
-    # Incident rows, then their hosts.
-    with django_assert_num_queries(2):
+    # Incident rows, their hosts, then their alerts for the describer.
+    with django_assert_num_queries(3):
         rows = overview.open_incidents()
 
-    assert [row.title for row in rows] == ["critical", "old warning", "new warning", "info"]
+    assert _subjects(rows) == ["critical", "old warning", "new warning", "info"]
 
 
 @pytest.mark.django_db
@@ -78,9 +84,9 @@ def test_incident_row_carries_tones_count_and_a_link():
     assert row.alert_count == 2
     assert row.url == reverse("console:incident", args=[incident.pk])
     assert (row.pk, other_row.pk) == (incident.pk, other.pk)
-    assert (other_row.title, other_row.alert_count) == ("swap low", 1)
+    assert (other_row.title, other_row.alert_count) == ("c", 1)
     assert other_row.url == reverse("console:incident", args=[other.pk])
-    assert (quiet_row.title, quiet_row.alert_count) == ("quiet", 0)
+    assert (quiet_row.title, quiet_row.alert_count) == (f"Incident #{quiet_row.pk}", 0)
 
 
 @pytest.mark.django_db
@@ -92,7 +98,7 @@ def test_open_incidents_cap_keeps_the_highest_ranked_rows(monkeypatch):
 
     rows = overview.open_incidents()
 
-    assert [row.title for row in rows] == ["critical", "old warning"]
+    assert _subjects(rows) == ["critical", "old warning"]
 
 
 @pytest.mark.django_db
@@ -315,7 +321,7 @@ def test_build_overview_assembles_every_part():
     result = overview.build_overview()
 
     assert result.headline == "1 open incident, 1 critical."
-    assert [row.title for row in result.incidents] == ["disk full"]
+    assert _subjects(result.incidents) == ["disk full"]
     assert [tile.name for tile in result.nodes] == ["n1"]
     assert len(result.spark) == overview.SPARK_HOURS
     assert isinstance(result.attention, tuple)
@@ -330,8 +336,8 @@ def test_build_overview_counts_the_incidents_past_the_cap(monkeypatch, django_as
         _incident(f"incident {index}")
     _incident("resolved", status="resolved")
 
-    # Counts, incident rows, their hosts, firing alerts, nodes, sparkline.
-    with django_assert_num_queries(6):
+    # Counts, incident rows, their hosts, their alerts, firing alerts, nodes, sparkline.
+    with django_assert_num_queries(7):
         result = overview.build_overview()
 
     assert len(result.incidents) == 2

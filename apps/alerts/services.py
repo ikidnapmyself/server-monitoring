@@ -559,7 +559,9 @@ class AlertOrchestrator:
         alert.save(update_fields=["incident"])
 
         result.incidents_created += 1
-        logger.info(f"Created incident: {incident.title}")
+        logger.info(
+            "Created incident #%s (%s on %s)", incident.pk, incident.subject, incident.instance
+        )
 
         return incident
 
@@ -603,7 +605,12 @@ class AlertOrchestrator:
             firing_count = incident.alerts.filter(status=AlertStatus.FIRING).count()
             if firing_count == 0 and incident.alerts.exists():
                 incident.resolve(summary="All alerts resolved automatically")
-                logger.info(f"Auto-resolved incident: {incident.title}")
+                logger.info(
+                    "Auto-resolved incident #%s (%s on %s)",
+                    incident.pk,
+                    incident.subject,
+                    incident.instance,
+                )
 
     def _severity_rank(self, severity: str) -> int:
         """Return numeric rank for severity comparison."""
@@ -681,7 +688,9 @@ class IncidentManager:
             incident = Incident.objects.get(pk=incident_id)
             IncidentManager._acknowledge(incident, acknowledged_by)
 
-        logger.info(f"Incident acknowledged: {incident.title}")
+        logger.info(
+            "Incident #%s acknowledged (%s on %s)", incident.pk, incident.subject, incident.instance
+        )
         return incident
 
     @staticmethod
@@ -701,7 +710,9 @@ class IncidentManager:
             incident = Incident.objects.get(pk=incident_id)
             IncidentManager._resolve(incident, summary, resolved_by)
 
-        logger.info(f"Incident resolved: {incident.title}")
+        logger.info(
+            "Incident #%s resolved (%s on %s)", incident.pk, incident.subject, incident.instance
+        )
         return incident
 
     @staticmethod
@@ -719,7 +730,9 @@ class IncidentManager:
             incident = Incident.objects.get(pk=incident_id)
             IncidentManager._close(incident)
 
-        logger.info(f"Incident closed: {incident.title}")
+        logger.info(
+            "Incident #%s closed (%s on %s)", incident.pk, incident.subject, incident.instance
+        )
         return incident
 
     @staticmethod
@@ -756,9 +769,11 @@ class IncidentManager:
                 IncidentManager._close(incident)
 
         done = _ACTION_DONE[action]
-        logger.info(f"Incident {done}: {incident.title}")
+        logger.info(
+            "Incident #%s %s (%s on %s)", incident.pk, done, incident.subject, incident.instance
+        )
         return TransitionOutcome(
-            ok=True, message=f"Incident '{incident.title}' {done}.", incident=incident
+            ok=True, message=f"Incident #{incident.pk} {done}.", incident=incident
         )
 
     @staticmethod

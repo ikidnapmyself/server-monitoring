@@ -305,8 +305,7 @@ class TestLocalRecommendationProvider(SimpleTestCase):
         provider = LocalRecommendationProvider()
 
         incident = MagicMock()
-        incident.title = "High Memory Usage Alert"
-        incident.description = "Memory usage exceeded 90%"
+        incident.subject = "High Memory Usage Alert"
         incident.alerts = MagicMock()
         incident.alerts.all.return_value = []
 
@@ -318,8 +317,7 @@ class TestLocalRecommendationProvider(SimpleTestCase):
         provider = LocalRecommendationProvider()
 
         incident = MagicMock()
-        incident.title = "Disk Space Low"
-        incident.description = "Storage running out on /var"
+        incident.subject = "Disk Space Low"
         incident.alerts = MagicMock()
         incident.alerts.all.return_value = []
 
@@ -331,8 +329,7 @@ class TestLocalRecommendationProvider(SimpleTestCase):
         provider = LocalRecommendationProvider()
 
         incident = MagicMock()
-        incident.title = "High CPU Load"
-        incident.description = "CPU usage at 95%"
+        incident.subject = "High CPU Load"
         incident.alerts = MagicMock()
         incident.alerts.all.return_value = []
 
@@ -344,8 +341,7 @@ class TestLocalRecommendationProvider(SimpleTestCase):
         provider = LocalRecommendationProvider()
 
         incident = MagicMock()
-        incident.title = "General Alert"
-        incident.description = "Something happened"
+        incident.subject = "General Alert"
         incident.alerts = MagicMock()
         incident.alerts.all.return_value = []
 
@@ -417,7 +413,7 @@ class TestLocalRecommendationProvider(SimpleTestCase):
         """analysis_type='memory' bypasses incident detection even if incident provided."""
         provider = LocalRecommendationProvider()
         incident = MagicMock()
-        incident.title = "Disk Space Alert"
+        incident.subject = "Disk Space Alert"
 
         with patch.object(provider, "_get_memory_recommendations") as mock_mem:
             with patch.object(provider, "_detect_incident_type") as mock_detect:
@@ -439,8 +435,7 @@ class TestLocalRecommendationProvider(SimpleTestCase):
         """analyze(incident) with unknown type falls back to _general_recommendations."""
         provider = LocalRecommendationProvider()
         incident = MagicMock()
-        incident.title = "Random Alert"
-        incident.description = "Something unrelated happened"
+        incident.subject = "Random Alert"
         incident.alerts = MagicMock()
         incident.alerts.all.return_value = []
 
@@ -1192,8 +1187,7 @@ class TestAnalyzeIncidentRouting(SimpleTestCase):
         """Memory incident routes to _analyze_memory_incident."""
         provider = LocalRecommendationProvider()
         incident = MagicMock()
-        incident.title = "High Memory Usage"
-        incident.description = "OOM detected"
+        incident.subject = "High Memory Usage"
         incident.alerts = MagicMock()
         incident.alerts.all.return_value = []
 
@@ -1205,8 +1199,7 @@ class TestAnalyzeIncidentRouting(SimpleTestCase):
         """CPU incident routes to _analyze_cpu_incident."""
         provider = LocalRecommendationProvider()
         incident = MagicMock()
-        incident.title = "High CPU Load"
-        incident.description = "Processor at 100%"
+        incident.subject = "High CPU Load"
         incident.alerts = MagicMock()
         incident.alerts.all.return_value = []
 
@@ -1218,8 +1211,7 @@ class TestAnalyzeIncidentRouting(SimpleTestCase):
         """Disk incident routes to _analyze_disk_incident."""
         provider = LocalRecommendationProvider()
         incident = MagicMock()
-        incident.title = "Disk Space Low"
-        incident.description = "Filesystem running out"
+        incident.subject = "Disk Space Low"
         incident.alerts = MagicMock()
         incident.alerts.all.return_value = []
 
@@ -1700,8 +1692,7 @@ class TestDetectIncidentTypeWithAlerts(SimpleTestCase):
         alert.description = "Memory is high"
 
         incident = MagicMock()
-        incident.title = "General Alert"
-        incident.description = "Something happened"
+        incident.subject = "General Alert"
         incident.alerts = MagicMock()
         incident.alerts.all.return_value = [alert]
 
@@ -1713,8 +1704,7 @@ class TestDetectIncidentTypeWithAlerts(SimpleTestCase):
         provider = LocalRecommendationProvider()
 
         incident = MagicMock(spec=["title", "description"])
-        incident.title = "General Alert"
-        incident.description = "Something happened"
+        incident.subject = "General Alert"
 
         result = provider._detect_incident_type(incident)
         assert result == "unknown"
@@ -1763,6 +1753,7 @@ class TestIntegration(TestCase):
         incident = Incident.objects.create(
             title="Memory Alert: High RAM Usage",
             description="Memory usage has exceeded 85% threshold",
+            subject="checker:memory",
             status=IncidentStatus.OPEN,
             severity=AlertSeverity.WARNING,
         )

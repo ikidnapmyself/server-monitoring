@@ -49,6 +49,19 @@ class TestAdminQueryOptimization(TestCase):
         response = self.client.get("/admin/intelligence/analysisrun/")
         assert response.status_code == 200
 
+    def test_analysis_run_search_matches_the_incident_subject(self):
+        from apps.intelligence.models import AnalysisRun
+
+        incident = Incident.objects.create(subject="checker:disk", severity="warning")
+        run = AnalysisRun.objects.create(trace_id="t-1", provider="local", incident=incident)
+        other = AnalysisRun.objects.create(trace_id="t-2", provider="local")
+
+        response = self.client.get("/admin/intelligence/analysisrun/", {"q": "checker:disk"})
+
+        body = response.content.decode()
+        assert f"/admin/intelligence/analysisrun/{run.pk}/change/" in body
+        assert f"/admin/intelligence/analysisrun/{other.pk}/change/" not in body
+
     def test_check_run_list_loads(self):
         response = self.client.get("/admin/checkers/checkrun/")
         assert response.status_code == 200
@@ -231,14 +244,14 @@ class TestIncidentActionMessages(TestCase):
 
     def test_accepted_actions_report_success(self):
         cases = [
-            (IncidentStatus.OPEN, "acknowledge_incident", "Incident 'Disk full' acknowledged."),
-            (IncidentStatus.ACKNOWLEDGED, "resolve_incident", "Incident 'Disk full' resolved."),
-            (IncidentStatus.RESOLVED, "close_incident", "Incident 'Disk full' closed."),
+            (IncidentStatus.OPEN, "acknowledge_incident", "acknowledged"),
+            (IncidentStatus.ACKNOWLEDGED, "resolve_incident", "resolved"),
+            (IncidentStatus.RESOLVED, "close_incident", "closed"),
         ]
         for status, action, text in cases:
             with self.subTest(action=action):
                 incident, message = self._click(status, action)
-                assert message.message == text
+                assert message.message == f"Incident #{incident.pk} {text}."
                 assert message.level_tag == "info"
                 assert _manual_runs(incident).count() == 1
 
@@ -631,6 +644,65 @@ class AlertAdminHostColumnTests(TestCase):
         self.assertIn("host", AlertAdmin.list_display)
         self.assertNotIn("node", AlertAdmin.list_display)
         self.assertIn("node", AlertAdmin.list_filter)
+
+
+class IncidentHeadlineAdminTests(TestCase):
+    """Incident names in the admin come from the describer, not stored columns."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
+
+    def setUp(self):
+        self.client.login(username="admin", password="password")
+        self.incident = Incident.objects.create(
+            title="stale title",
+            description="stale description",
+            severity="critical",
+            subject="HighLatency",
+            instance="db-1",
+        )
+        self.alert = Alert.objects.create(
+            name="HighLatency",
+            fingerprint="fp-hl",
+            source="grafana",
+            severity="critical",
+            description="p99 over 2s",
+            started_at=timezone.now(),
+            incident=self.incident,
+        )
+
+    def test_incident_changelist_shows_the_headline(self):
+        from apps.alerts.admin import IncidentAdmin
+
+        self.assertEqual(IncidentAdmin.list_display[0], "headline")
+        html = self.client.get("/admin/alerts/incident/").content.decode()
+        self.assertIn("HighLatency on db-1", html)
+        self.assertNotIn("stale title", html)
+
+    def test_incident_search_matches_subject_and_instance(self):
+        for term in ("HighLatency", "db-1"):
+            with self.subTest(term=term):
+                html = self.client.get("/admin/alerts/incident/", {"q": term}).content.decode()
+                self.assertIn(f"/admin/alerts/incident/{self.incident.pk}/change/", html)
+
+    def test_change_form_shows_the_headline_read_only_without_stored_text(self):
+        html = self.client.get(
+            f"/admin/alerts/incident/{self.incident.pk}/change/"
+        ).content.decode()
+        self.assertIn("HighLatency on db-1", html)
+        self.assertNotIn('name="title"', html)
+        self.assertNotIn('name="description"', html)
+        self.assertNotIn("stale description", html)
+
+    def test_alert_columns_name_the_incident_by_its_headline(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from apps.alerts.admin import AlertAdmin
+
+        admin = AlertAdmin(Alert, AdminSite())
+        self.assertIn(">HighLatency on db-1</a>", admin.incident_link(self.alert))
+        self.assertIn(">HighLatency on db-1</a>", admin.journey_display(self.alert))
 
 
 class IncidentAdminHostColumnTests(TestCase):

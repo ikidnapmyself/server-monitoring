@@ -10,6 +10,7 @@ from django.db.models.functions import TruncHour
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.alerts.describing import describe_incidents
 from apps.alerts.identity import local_instance_id
 from apps.alerts.models import (
     Alert,
@@ -147,16 +148,17 @@ def open_counts() -> tuple[int, int]:
 
 
 def open_incidents() -> tuple[IncidentRow, ...]:
-    incidents = (
+    incidents = list(
         Incident.objects.filter(status__in=OPEN_STATUSES)
         .annotate(rank=SEVERITY_RANK, alerts_total=Count("alerts"))
         .order_by("rank", "created_at")[:INCIDENT_LIMIT]
     )
     hosts = incident_hosts(incident.pk for incident in incidents)
+    described = describe_incidents(incidents)
     return tuple(
         IncidentRow(
             pk=incident.pk,
-            title=incident.title,
+            title=described[incident.pk].headline,
             severity=incident.severity,
             severity_tone=tone_for(SEVERITY_TONES, incident.severity),
             status=incident.status,

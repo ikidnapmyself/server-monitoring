@@ -524,7 +524,7 @@ class IncidentTransitionTests(TestCase):
                     if action in allowed:
                         self.assertTrue(outcome.ok)
                         self.assertEqual(
-                            outcome.message, f"Incident 'Disk full' {self.DONE[action]}."
+                            outcome.message, f"Incident #{incident.pk} {self.DONE[action]}."
                         )
                         self.assertEqual(after["status"], self.DONE[action])
                         self.assertEqual(outcome.incident.status, self.DONE[action])

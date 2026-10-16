@@ -58,6 +58,7 @@ class TraceCommandTests(TestCase):
         self.assertTrue(data["handled"])
         self.assertEqual(data["runs"][0]["run_id"], "run-1")
         self.assertEqual(data["pipeline"]["name"], "trace-lane")
+        self.assertEqual(data["incident"]["title"], "cpu")
 
     def test_unhandled_alert_shows_inbox(self):
         alert, _ = self._chain(handled=False)

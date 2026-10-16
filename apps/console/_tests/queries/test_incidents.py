@@ -22,7 +22,7 @@ def base():
 
 
 def _incident(title, severity="warning", status="open", age_hours=0.0, created_at=None):
-    incident = Incident.objects.create(title=title, severity=severity, status=status)
+    incident = Incident.objects.create(title=title, subject=title, severity=severity, status=status)
     Incident.objects.filter(pk=incident.pk).update(
         created_at=created_at or timezone.now() - timedelta(hours=age_hours)
     )
@@ -42,8 +42,14 @@ def _alert(incident, node=None, key="a"):
     )
 
 
+def _subjects(rows):
+    """Which incidents a page holds, named by subject since titles are described on read."""
+    found = Incident.objects.in_bulk([row.pk for row in rows])
+    return [found[row.pk].subject for row in rows]
+
+
 def _titles(result):
-    return [row.title for row in result.rows]
+    return _subjects(result.rows)
 
 
 def _group(result, name):
@@ -86,7 +92,7 @@ def test_a_row_carries_tones_count_and_the_admin_link():
 
     row, quiet_row = build_incident_list(ALL).rows
 
-    assert (row.pk, row.title) == (incident.pk, "disk full")
+    assert row.pk == incident.pk
     assert (row.severity, row.severity_tone) == ("critical", "critical")
     assert (row.status, row.status_tone) == ("acknowledged", "warning")
     assert row.alert_count == 2
@@ -95,6 +101,18 @@ def test_a_row_carries_tones_count_and_the_admin_link():
     assert row.nodes == ""
     assert (quiet_row.pk, quiet_row.alert_count) == (quiet.pk, 0)
     assert (quiet_row.severity_tone, quiet_row.status_tone) == ("info", "muted")
+
+
+@pytest.mark.django_db
+def test_a_row_is_titled_by_the_incident_describer():
+    incident = Incident.objects.create(
+        title="stale", subject="HighLatency", instance="db-1", severity="critical"
+    )
+    _alert(incident, key="HighLatency")
+
+    (row,) = build_incident_list(ALL).rows
+
+    assert row.title == "HighLatency on db-1"
 
 
 @pytest.mark.django_db
@@ -113,7 +131,7 @@ def test_nodes_reads_as_the_first_name_plus_a_count_of_the_rest():
 
     rows = build_incident_list(ALL).rows
 
-    assert [(row.title, row.nodes) for row in rows] == [
+    assert list(zip(_subjects(rows), [row.nodes for row in rows], strict=True)) == [
         ("three nodes", "alpha-id +2"),
         ("one node", "zeta"),
         ("no node", ""),
@@ -206,9 +224,8 @@ def test_the_node_filter_narrows_the_rows_and_keeps_the_alert_count():
 
     result = build_incident_list(IncidentFilter(node=web.pk))
 
-    assert [(row.title, row.alert_count, row.nodes) for row in result.rows] == [
-        ("shared", 4, "db-1 +1")
-    ]
+    (row,) = result.rows
+    assert (_subjects([row])[0], row.alert_count, row.nodes) == ("shared", 4, "db-1 +1")
     assert result.total == 1
     assert _titles(build_incident_list(IncidentFilter(node=db.pk))) == ["shared", "db only"]
 
@@ -506,8 +523,8 @@ def test_the_query_count_does_not_grow_with_the_page(django_assert_num_queries, 
         for node in nodes:
             _alert(incident, node, key=node.instance_id)
 
-    # Node chips, status counts, count, page rows, node names for the page.
-    with django_assert_num_queries(5):
+    # Node chips, status counts, count, page rows, node names, alerts to describe the page.
+    with django_assert_num_queries(6):
         result = build_incident_list(IncidentFilter(node=nodes[0].pk, since="7d"))
 
     assert len(result.rows) == count

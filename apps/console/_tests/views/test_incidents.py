@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from apps.alerts.models import Alert, Incident, Node
 from apps.console._tests.test_templates import FORBIDDEN
+from apps.console._tests.views.test_incident import named_incident
 from apps.console.queries import incidents as incident_queries
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
@@ -146,9 +147,9 @@ def test_the_polled_element_requests_the_current_filters(client, staff, url, hea
 
 @pytest.mark.django_db
 def test_rows_show_state_title_label_nodes_count_and_age(client, staff, url):
-    incident = Incident.objects.create(title="Disk full on web-1", severity="critical")
-    for index, name in enumerate(["web-1", "web-2"]):
-        _alert(incident, Node.objects.create(instance_id=name, hostname=name), key=str(index))
+    incident = Incident.objects.create(title="stale", instance="web-1", severity="critical")
+    for name, key in [("web-1", "Swap low"), ("web-2", "Disk full")]:
+        _alert(incident, Node.objects.create(instance_id=name, hostname=name), key=key)
     lonely = Incident.objects.create(title="Swap low", severity="warning", status="acknowledged")
 
     body = client.get(url).content.decode()
@@ -196,9 +197,9 @@ def test_a_single_alert_and_a_single_incident_read_in_the_singular(client, staff
     ],
 )
 def test_each_filter_narrows_the_rows(client, staff, url, query, expected):
-    Incident.objects.create(title="open crit", severity="critical")
-    Incident.objects.create(title="acked warn", severity="warning", status="acknowledged")
-    Incident.objects.create(title="resolved info", severity="info", status="resolved")
+    named_incident("open crit", severity="critical")
+    named_incident("acked warn", severity="warning", status="acknowledged")
+    named_incident("resolved info", severity="info", status="resolved")
 
     body = client.get(f"{url}{query}").content.decode()
 
@@ -209,8 +210,8 @@ def test_each_filter_narrows_the_rows(client, staff, url, query, expected):
 @pytest.mark.django_db
 def test_the_node_filter_narrows_the_rows(client, staff, url):
     node = Node.objects.create(instance_id="web-1", hostname="web-1")
-    _alert(Incident.objects.create(title="on the node", severity="critical"), node)
-    Incident.objects.create(title="elsewhere", severity="critical")
+    _alert(Incident.objects.create(title="on the node", severity="critical"), node, "on the node")
+    named_incident("elsewhere", severity="critical")
 
     body = client.get(f"{url}?node={node.pk}").content.decode()
 
@@ -222,9 +223,9 @@ def test_the_node_filter_narrows_the_rows(client, staff, url):
 
 @pytest.mark.django_db
 def test_the_since_filter_narrows_the_rows(client, staff, url):
-    old = Incident.objects.create(title="last month", severity="critical")
+    old = named_incident("last month", severity="critical")
     Incident.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=20))
-    Incident.objects.create(title="today", severity="critical")
+    named_incident("today", severity="critical")
 
     body = client.get(f"{url}?since=7d").content.decode()
 
@@ -293,7 +294,7 @@ def test_the_node_chips_are_left_out_when_no_node_exists(client, staff, url):
 
 @pytest.mark.django_db
 def test_invalid_filters_are_named_in_a_notice(client, staff, url):
-    Incident.objects.create(title="still listed", severity="critical")
+    named_incident("still listed", severity="critical")
 
     body = client.get(f"{url}?status=bogus&node=999&page=x").content.decode()
 
@@ -429,7 +430,7 @@ def _busy_list(monkeypatch, suffix=""):
     created = []
     for index in range(5):
         incident = Incident.objects.create(title=f"disk {index}{suffix}", severity="critical")
-        _alert(incident, node)
+        _alert(incident, node, key=f"disk {index}{suffix}")
         created.append(incident)
     return node, created
 

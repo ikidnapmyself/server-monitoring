@@ -576,7 +576,7 @@ class NodeChangeFormTests(TestCase):
         Alert.objects.create(
             incident=incident,
             node=node,
-            name="cpu",
+            name="<img src=x onerror=1>",
             fingerprint="cpu-hostile-title",
             source="cluster",
             severity="critical",
@@ -610,7 +610,7 @@ class NodeIncidentsColumnTests(TestCase):
             Alert.objects.create(
                 incident=incident,
                 node=node,
-                name="cpu",
+                name=title,
                 fingerprint=f"{node.instance_id}-{incident.id}-{i}",
                 source="cluster",
                 severity=severity,

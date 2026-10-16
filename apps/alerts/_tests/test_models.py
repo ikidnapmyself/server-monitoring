@@ -85,6 +85,10 @@ class IncidentModelTests(TestCase):
         incident.status = IncidentStatus.RESOLVED
         self.assertFalse(incident.is_open)
 
+    def test_str_names_the_incident_by_number_and_status(self):
+        incident = Incident.objects.create(title="Disk full", status=IncidentStatus.OPEN)
+        self.assertEqual(str(incident), f"Incident #{incident.pk} [open]")
+
 
 class IncidentReopenTests(TestCase):
     """reopen() is the inverse of resolve()/close(), for an alert that fired again."""
