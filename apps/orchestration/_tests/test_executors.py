@@ -1227,7 +1227,18 @@ class TestAnalyzeExecutorRecommendations(TestCase):
             result = executor.execute(_ctx(payload={}, incident_id=incident.id))
 
         assert result.recommendations == [{"title": "Fix it", "priority": "high"}]
-        assert result.confidence == 0.8
+
+    def test_analyze_success_has_no_invented_confidence(self):
+        rec = MagicMock()
+        rec.to_dict.return_value = {"title": "Fix it"}
+        rec.title = "Fix it"
+        rec.description = "Restart the worker"
+
+        result = self._execute_with_recs([rec])
+
+        assert result.summary == "Fix it"
+        assert result.confidence is None
+        assert result.failure == ""
 
 
 class TestAnalyzeExecutorErrorHandling(SimpleTestCase):
@@ -1242,7 +1253,30 @@ class TestAnalyzeExecutorErrorHandling(SimpleTestCase):
             result = executor.execute(_ctx(payload={}))
 
         assert result.fallback_used is True
-        assert result.summary == "AI analysis unavailable"
+        assert result.failure == "unknown"
+        assert result.error_detail == "provider down"
+        assert result.summary == ""
+        assert result.errors == []
+
+    def test_analyze_failure_records_kind_and_no_confidence(self):
+        class _AuthError(Exception):
+            status_code = 401
+
+        mock_provider = MagicMock()
+        mock_provider.name = "claude"
+        mock_provider.run.side_effect = _AuthError("401 Unauthorized: invalid x-api-key")
+
+        with patch("apps.intelligence.providers.get_active_provider", return_value=mock_provider):
+            result = AnalyzeExecutor().execute(_ctx(payload={}))
+
+        assert result.fallback_used is True
+        assert result.failure == "auth"
+        assert "401" in result.error_detail
+        assert result.confidence is None
+        assert result.recommendations == []
+        assert result.summary == ""
+        assert result.probable_cause == ""
+        assert result.actions == []
         assert result.errors == []
 
     def test_error_with_fallback_disabled(self):

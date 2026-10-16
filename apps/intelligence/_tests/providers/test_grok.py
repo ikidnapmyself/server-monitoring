@@ -148,7 +148,7 @@ class TestGrokAnalyze(SimpleTestCase):
         assert recommendations[0].incident_id == 1
 
     @patch.object(GrokRecommendationProvider, "_call_api")
-    def test_analyze_api_error_returns_fallback(self, mock_call_api):
+    def test_analyze_api_error_raises(self, mock_call_api):
         mock_call_api.side_effect = Exception("xAI API Error")
 
         provider = GrokRecommendationProvider(api_key="test-key")
@@ -160,11 +160,8 @@ class TestGrokAnalyze(SimpleTestCase):
         del incident.alerts
         del incident.metadata
 
-        recommendations = provider.analyze(incident)
-
-        assert len(recommendations) == 1
-        assert recommendations[0].type == RecommendationType.GENERAL
-        assert "xAI API Error" in recommendations[0].description
+        with self.assertRaisesMessage(Exception, "xAI API Error"):
+            provider.analyze(incident)
 
     def test_analyze_none_incident(self):
         provider = GrokRecommendationProvider(api_key="test-key")

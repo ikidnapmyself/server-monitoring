@@ -28,6 +28,7 @@ from apps.orchestration.formatters import (
     format_intelligence_summary,
 )
 from apps.orchestration.models import PipelineStage
+from config.failures import classify_failure
 
 logger = logging.getLogger(__name__)
 
@@ -354,7 +355,6 @@ class AnalyzeExecutor(BaseExecutor):
                 result.actions = [
                     getattr(r, "action", "") for r in recommendations if hasattr(r, "action")
                 ]
-                result.confidence = 0.8  # Default confidence
 
             # Generate output reference
             result.ai_output_ref = f"intelligence:{ctx.trace_id}:{ctx.run_id}:analyze"
@@ -367,11 +367,12 @@ class AnalyzeExecutor(BaseExecutor):
             # Apply fallback if enabled
             if self.fallback_enabled:
                 result.fallback_used = True
-                result.summary = "AI analysis unavailable"
-                result.probable_cause = "Unable to determine - AI provider error"
-                result.actions = ["Manual investigation required"]
-                result.confidence = 0.0
-                result.errors = []  # Clear errors since we're using fallback
+                result.failure = classify_failure(e)
+                result.error_detail = str(e)
+                result.summary = ""
+                result.probable_cause = ""
+                result.actions = []
+                result.errors = []
                 logger.info(
                     f"Using fallback analysis due to error: {error_msg}",
                     extra={"trace_id": ctx.trace_id},

@@ -325,7 +325,7 @@ class TestAnalyzeIncident(SimpleTestCase):
 
     @patch.object(OpenAIRecommendationProvider, "_call_api")
     def test_analyze_incident_api_error(self, mock_call_api):
-        """Test graceful handling of API errors."""
+        """An API error propagates so the run is recorded as failed."""
         mock_call_api.side_effect = Exception("API Error")
 
         provider = OpenAIRecommendationProvider(api_key="test-key")
@@ -338,12 +338,8 @@ class TestAnalyzeIncident(SimpleTestCase):
         del incident.alerts
         del incident.metadata
 
-        recommendations = provider.analyze(incident)
-
-        assert len(recommendations) == 1
-        assert recommendations[0].type == RecommendationType.GENERAL
-        assert "API Error" in recommendations[0].description
-        assert recommendations[0].incident_id == 456
+        with self.assertRaisesMessage(Exception, "API Error"):
+            provider.analyze(incident)
 
     def test_analyze_without_incident(self):
         """Test analyze returns empty list without incident."""
@@ -764,48 +760,6 @@ class TestParseResponseEdgeCases(SimpleTestCase):
 
         # Should have 2 valid recommendations (middle one skipped due to no description)
         assert len(recommendations) == 2
-
-
-class TestFallbackRecommendation(SimpleTestCase):
-    """Tests for fallback recommendation generation."""
-
-    def test_fallback_with_incident_id(self):
-        """Test fallback recommendation includes incident_id."""
-        provider = OpenAIRecommendationProvider(api_key="test-key")
-
-        incident = MagicMock()
-        incident.id = 789
-
-        recs = provider._get_fallback_recommendation(incident, "Connection timeout")
-
-        assert len(recs) == 1
-        assert recs[0].incident_id == 789
-        assert "Connection timeout" in recs[0].description
-
-    def test_fallback_without_incident_id(self):
-        """Test fallback recommendation when incident has no id attribute."""
-        provider = OpenAIRecommendationProvider(api_key="test-key")
-
-        incident = MagicMock(spec=[])  # No attributes
-
-        recs = provider._get_fallback_recommendation(incident, "Error message")
-
-        assert len(recs) == 1
-        assert recs[0].incident_id is None
-        assert recs[0].type == RecommendationType.GENERAL
-        assert recs[0].priority == RecommendationPriority.MEDIUM
-
-    def test_fallback_includes_suggested_actions(self):
-        """Test fallback recommendation includes helpful actions."""
-        provider = OpenAIRecommendationProvider(api_key="test-key")
-
-        incident = MagicMock()
-        incident.id = 1
-
-        recs = provider._get_fallback_recommendation(incident, "API Error")
-
-        assert len(recs[0].actions) >= 2
-        assert any("manual" in action.lower() for action in recs[0].actions)
 
 
 class TestCallOpenAIEdgeCases(SimpleTestCase):

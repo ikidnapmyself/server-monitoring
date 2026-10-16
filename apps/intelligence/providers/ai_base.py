@@ -1,7 +1,7 @@
 """
 Base class for all LLM-backed intelligence providers.
 
-Extracts shared prompt building, response parsing, and fallback logic
+Extracts shared prompt building and response parsing
 from the OpenAI provider so all AI providers share the same behavior.
 """
 
@@ -25,7 +25,7 @@ class BaseAIProvider(BaseProvider):
     """Base class for all LLM-backed intelligence providers.
 
     Subclasses only need to implement ``_call_api`` — the actual SDK call.
-    Prompt construction, JSON response parsing, and fallback handling are shared.
+    Prompt construction and JSON response parsing are shared. API errors propagate.
     """
 
     # Subclasses override these
@@ -75,14 +75,8 @@ class BaseAIProvider(BaseProvider):
     ) -> list[Recommendation]:
         if incident is None:
             return []
-
-        prompt = self._build_prompt(incident)
-        try:
-            response = self._call_api(prompt)
-            return self._parse_response(response, incident_id=getattr(incident, "id", None))
-        except Exception as e:
-            logger.error("%s API error: %s", self.name, e)
-            return self._get_fallback_recommendation(incident, str(e))
+        response = self._call_api(self._build_prompt(incident))
+        return self._parse_response(response, incident_id=getattr(incident, "id", None))
 
     # ------------------------------------------------------------------
     # Subclass hook
@@ -200,25 +194,3 @@ class BaseAIProvider(BaseProvider):
             actions=actions if isinstance(actions, list) else [actions],
             incident_id=incident_id,
         )
-
-    def _get_fallback_recommendation(
-        self, incident: Any, error_message: str
-    ) -> list[Recommendation]:
-        return [
-            Recommendation(
-                type=RecommendationType.GENERAL,
-                priority=RecommendationPriority.MEDIUM,
-                title="AI Analysis Unavailable",
-                description=(
-                    f"Unable to generate AI analysis for this incident. "
-                    f"Error: {error_message}. "
-                    f"Please review the incident manually or try again later."
-                ),
-                actions=[
-                    "Review incident details manually",
-                    "Check AI provider API configuration",
-                    "Consider using the local provider as fallback",
-                ],
-                incident_id=incident.id if hasattr(incident, "id") else None,
-            )
-        ]
