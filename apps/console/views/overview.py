@@ -5,6 +5,7 @@ from apps.console.views.base import ConsoleView
 class OverviewView(ConsoleView):
     template_name = "console/overview.html"
     partial_template_name = "console/partials/_overview.html"
+    read_permission = "alerts.view_incident"
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

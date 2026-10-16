@@ -45,7 +45,7 @@ pipeline stage and not an alert producer.
   are never paused for focus or for a text selection, because a page that stops
   updating without saying so is worse than a lost selection. Every focusable element
   in a polled region needs a stable unique `id` built from its record, such as
-  `incident-<pk>`, `node-<pk>` or `readiness-<key>`. After a swap htmx puts focus
+  `incident-<pk>`, `node-<pk>` or `readiness-<n>`. After a swap htmx puts focus
   back on the element with the same `id`. An element without one loses focus on
   every poll. When a hidden tab becomes visible, `console.js` dispatches
   `console:refresh` on every `data-poll` element, so list that event in the element's
@@ -68,11 +68,13 @@ pipeline stage and not an alert producer.
   path. A name the sprite lacks fails `_tests/test_templates.py`.
 - **No dead ends.** Every page links onward. The underline nav under the header lists
   only pages that exist.
-- **Reads need active staff, nothing more.** The console doesn't check the admin's
-  model permissions for reads. A staff user without `orchestration.view_stageexecution`
-  gets a 403 on the admin's stage page and still sees the same snapshot on the incident
-  page. That is the approved design. Action views check the permissions the admin
-  checks.
+- **Reads use the admin's view permissions.** A view sets `read_permission` and
+  `ConsoleView._refusal` checks it after the anonymous and staff checks, with a 403
+  "Permission to view incidents required." The Overview, the incident list and the
+  incident page all set `alerts.view_incident`, and the action and rerun views inherit
+  it from `IncidentPageView`. Action views add their own change or add permission on
+  top. A link the page shows still goes through an intent, so it appears only for a
+  user who holds that intent's permission.
 - **Querystrings go through `filters.py`.** A filter object parses and validates every
   param. An invalid value falls back to the default and is named in a one-line notice.
   Only validated values reach a query or a URL, through `querystring()`.
@@ -101,7 +103,8 @@ pipeline stage and not an alert producer.
 - **Incident actions are one POST-only view.** `IncidentActionView`
   (`views/incident_action.py`) serves `incidents/<pk>/<action>/` and calls
   `IncidentManager.transition`, which owns the status rules and locks the row. The view
-  holds no rule of its own. It checks active staff first, then `alerts.change_incident`.
+  holds no rule of its own. It checks active staff first, then `alerts.view_incident`,
+  then `alerts.change_incident`.
   The admin's own incident buttons sit behind `is_staff` alone, so the console is the
   stricter surface. `IncidentPageView` (`views/incident.py`) is the one place that builds
   the page context, so the page and the action response can't drift.

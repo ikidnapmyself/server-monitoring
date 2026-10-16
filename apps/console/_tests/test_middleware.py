@@ -8,13 +8,6 @@ from apps.console.middleware import CSP
 HTMX = {"HTTP_HX_REQUEST": "true"}
 
 
-@pytest.fixture
-def staff(client):
-    user = get_user_model().objects.create_user("op", password="x", is_staff=True)
-    client.force_login(user)
-    return user
-
-
 @pytest.mark.django_db
 def test_staff_page_carries_the_strict_csp(client, staff):
     resp = client.get(reverse("console:overview"))

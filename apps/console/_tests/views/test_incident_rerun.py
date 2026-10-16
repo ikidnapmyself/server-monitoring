@@ -38,6 +38,9 @@ def run_checks():
 
 def _operator(name="op", *, can_rerun=True):
     user = get_user_model().objects.create_user(name, password="x", is_staff=True)
+    user.user_permissions.add(
+        Permission.objects.get(content_type__app_label="alerts", codename="view_incident")
+    )
     if can_rerun:
         user.user_permissions.add(
             Permission.objects.get(content_type__app_label="checkers", codename="add_checkrun")
