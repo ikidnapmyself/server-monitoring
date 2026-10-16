@@ -58,6 +58,10 @@ def _runbook(alert: Alert) -> Action | None:
     return None
 
 
+def alert_link(alert_pk: int) -> Action:
+    return Action("Open the alert", intent="view_alert", params={"pk": alert_pk})
+
+
 def describe_alert(alert: Alert) -> Description:
     name = _checker_name(alert)
     checker = CHECKER_REGISTRY.get(name)

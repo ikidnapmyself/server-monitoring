@@ -4,6 +4,7 @@ import pytest
 from django.utils import timezone
 
 from apps.alerts.describing import (
+    alert_link,
     check_status_of,
     describe_alert,
     describe_history,
@@ -390,3 +391,7 @@ class TestDescribeHistory:
 )
 def test_history_tone(event, severity_to, tone):
     assert history_tone(event, severity_to) == tone
+
+
+def test_alert_link_opens_the_alert():
+    assert alert_link(3) == Action("Open the alert", intent="view_alert", params={"pk": 3})

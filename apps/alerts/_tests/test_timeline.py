@@ -337,3 +337,32 @@ class TimelineConsoleKeysTests(TestCase):
         assert stage_entry["duration_ms"] == 850.0
         assert stage_entry["output_snapshot"] == {"checks": [{"name": "cpu", "status": "ok"}]}
         assert stage_entry["label"] == "check succeeded"
+
+    def test_pipeline_and_stage_entries_carry_their_raw_errors(self):
+        incident = Incident.objects.create()
+        run = PipelineRun.objects.create(
+            trace_id="t",
+            run_id="r-err",
+            incident=incident,
+            status="failed",
+            last_error_message="no_route: x",
+        )
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage="notify",
+            status="failed",
+            started_at=timezone.now(),
+            error_message="slack 500",
+            error_retryable=False,
+        )
+        quiet = PipelineRun.objects.create(trace_id="t2", run_id="r-ok", incident=incident)
+        StageExecution.objects.create(
+            pipeline_run=quiet, stage="check", status="succeeded", started_at=timezone.now()
+        )
+
+        failed_run, failed_stage, quiet_run, quiet_stage = build_incident_timeline(incident)
+
+        assert failed_run["error_message"] == "no_route: x"
+        assert (failed_stage["error_message"], failed_stage["retryable"]) == ("slack 500", False)
+        assert quiet_run["error_message"] == ""
+        assert (quiet_stage["error_message"], quiet_stage["retryable"]) == ("", True)

@@ -6,7 +6,7 @@ nothing upstream imports ``apps.console``.
 """
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from config.admin_badges import TONES
@@ -39,6 +39,13 @@ class Description:
             raise ValueError(f"unknown tone: {self.tone!r}")
         if not self.headline:
             raise ValueError("a description needs a headline")
+
+
+def or_action(d: Description, action: Action) -> Description:
+    """``d`` with ``action`` only when it has none: a navigation link never hides a fix."""
+    if d.action is not None:
+        return d
+    return replace(d, action=action)
 
 
 def format_percent(value: float) -> str:

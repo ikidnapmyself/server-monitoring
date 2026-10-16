@@ -23,9 +23,10 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
 
     The console's incident page reads further keys, which the admin ignores:
     ``history_pk``, ``alert_pk``, ``alert_name``, ``event``, ``old_status``,
-    ``new_status``, ``severity_from`` and ``severity_to`` on ``alert_history`` entries, ``run_pk`` and ``status`` on ``pipeline`` entries, and
-    ``stage``, ``status``, ``execution_pk``, ``run_pk``, ``duration_ms`` and
-    ``output_snapshot`` on ``stage`` entries.
+    ``new_status``, ``severity_from`` and ``severity_to`` on ``alert_history`` entries,
+    ``run_pk``, ``status`` and ``error_message`` on ``pipeline`` entries, and ``stage``,
+    ``status``, ``execution_pk``, ``run_pk``, ``duration_ms``, ``output_snapshot``,
+    ``error_message`` and ``retryable`` on ``stage`` entries.
 
     Entries whose event time is unknown are skipped. Specifically, a
     ``StageExecution`` with a null ``started_at`` (never started) has no place on
@@ -76,6 +77,7 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
                 "trace_id": run.trace_id,
                 "run_pk": run.pk,
                 "status": run.status,
+                "error_message": run.last_error_message or "",
             }
         )
         for stage in run.stage_executions.all():
@@ -96,6 +98,8 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
                     "execution_pk": stage.pk,
                     "duration_ms": stage.duration_ms,
                     "output_snapshot": stage.output_snapshot,
+                    "error_message": stage.error_message or "",
+                    "retryable": bool(stage.error_retryable),
                 }
             )
 

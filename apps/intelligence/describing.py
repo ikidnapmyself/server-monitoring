@@ -49,6 +49,13 @@ def _confidence(value: object) -> str:
     return format_percent(max(0, min(1, value)) * 100)
 
 
+def analysis_failed(snapshot: Any) -> bool:
+    """Whether the provider gave no real answer, so its summary and advice aren't its own."""
+    if not isinstance(snapshot, dict):
+        return False
+    return snapshot.get("fallback_used") is True or bool(snapshot.get("failure"))
+
+
 def describe_analysis(snapshot: Any) -> Description:
     if not isinstance(snapshot, dict):
         snapshot = {}
@@ -57,7 +64,7 @@ def describe_analysis(snapshot: Any) -> Description:
     provider = _text(model_info.get("provider")) if isinstance(model_info, dict) else ""
     facts = (Fact("Provider", provider),) if provider else ()
 
-    if snapshot.get("fallback_used") is True or snapshot.get("failure"):
+    if analysis_failed(snapshot):
         headline, action = FAILURES.get(failure, FAILURES["unknown"])
         error = _text(snapshot.get("error_detail"))
         if error:

@@ -2,9 +2,18 @@ import re
 
 import pytest
 
-from apps.orchestration.describing import REASONS, describe_run, describe_stage_outcome, reason_code
+from apps.orchestration.describing import (
+    REASONS,
+    describe_run,
+    describe_run_fields,
+    describe_stage_diagnosis,
+    describe_stage_outcome,
+    reason_code,
+    run_link,
+)
 from apps.orchestration.errors import ROUTING_GAPS, routing_gap
 from apps.orchestration.models import PipelineRun
+from config.describing import Action
 
 
 def facts(d):
@@ -161,3 +170,100 @@ def test_reason_wording_is_plain(code):
     d = describe_stage_outcome("notify", "failed", f"{code}: x", retryable=False)
     for text in (d.headline, d.detail, d.action.text):
         assert not _UUID.search(text) and not _SNAKE.search(text) and "{" not in text
+
+
+def test_a_finished_stage_says_how_long_it_took():
+    d = describe_stage_outcome("check", "succeeded", "", retryable=False, duration_ms=2400.0)
+    assert d.headline == "Diagnose finished in 2s"
+
+
+@pytest.mark.parametrize("duration_ms", [None, 0, 0.0])
+def test_a_stage_without_a_duration_says_nothing_of_time(duration_ms):
+    d = describe_stage_outcome("check", "succeeded", "", retryable=False, duration_ms=duration_ms)
+    assert d.headline == "Diagnose finished"
+
+
+def test_only_a_finished_stage_reads_its_duration():
+    d = describe_stage_outcome("notify", "failed", "boom", retryable=False, duration_ms=2400.0)
+    assert d.headline == "Notify failed"
+
+
+def test_run_link_opens_the_run():
+    assert run_link(7) == Action("Open the run", intent="view_run", params={"pk": 7})
+
+
+def _diagnosis(**fields):
+    return {
+        "stage": "check",
+        "status": "never_ran",
+        "runs": None,
+        "run_pk": None,
+        "execution_status": None,
+        "error_message": "",
+        "retryable": False,
+        **fields,
+    }
+
+
+@pytest.mark.parametrize(
+    "status, headline, tone",
+    [
+        ("never_ran", "Diagnose hasn't run yet", "muted"),
+        ("empty", "Diagnose finished with nothing to report", "warning"),
+        ("stalled", "Diagnose stalled", "warning"),
+    ],
+)
+def test_diagnosis_states_the_stage_describer_doesnt_know(status, headline, tone):
+    d = describe_stage_diagnosis(_diagnosis(status=status))
+    assert (d.headline, d.tone, d.action, d.facts) == (headline, tone, None, ())
+
+
+def test_a_diagnosis_that_ran_reads_like_its_execution():
+    entry = _diagnosis(
+        status="ok", execution_status="succeeded", run_pk=4, runs="succeeded in 1/2 runs"
+    )
+    d = describe_stage_diagnosis(entry)
+    assert (d.headline, d.tone) == ("Diagnose finished", "ok")
+    assert d.action == run_link(4)
+    assert facts(d) == [("Runs", "succeeded in 1/2 runs")]
+
+
+def test_a_diagnosed_failure_keeps_its_fix_over_the_run_link():
+    entry = _diagnosis(
+        stage="notify",
+        status="failed",
+        execution_status="failed",
+        error_message="no_channel: x",
+        run_pk=4,
+    )
+    d = describe_stage_diagnosis(entry)
+    assert d.action.intent == "edit_route"
+
+
+def test_a_retryable_diagnosed_failure_says_so():
+    entry = _diagnosis(
+        status="failed", execution_status="failed", error_message="boom", retryable=True
+    )
+    assert describe_stage_diagnosis(entry).headline == "Diagnose failed and will be retried"
+
+
+def test_a_config_skip_reads_through_the_stage_describer():
+    entry = _diagnosis(
+        stage="analyze",
+        status="skipped",
+        execution_status="skipped",
+        error_message="Skipped: not in this route's stages",
+    )
+    d = describe_stage_diagnosis(entry)
+    assert (d.headline, d.detail, d.action) == (
+        "Analyze skipped",
+        "not in this route's stages",
+        None,
+    )
+
+
+def test_run_fields_read_like_the_run():
+    d = describe_run_fields(run_id="r", trace_id="t", status="failed", error_message="no_route: x")
+    assert d == describe_run(
+        PipelineRun(run_id="r", trace_id="t", status="failed", last_error_message="no_route: x")
+    )

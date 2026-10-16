@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from apps.intelligence.describing import FAILURES, describe_analysis
+from apps.intelligence.describing import FAILURES, analysis_failed, describe_analysis
 from config.failures import FAILURE_KINDS
 
 
@@ -163,3 +163,19 @@ def test_nothing_to_add_wording_is_plain():
     d = describe_analysis(None)
     for text in (d.headline, d.detail):
         assert not _UUID.search(text) and not _SNAKE.search(text) and "{" not in text
+
+
+@pytest.mark.parametrize(
+    "snapshot, failed",
+    [
+        ({"fallback_used": True}, True),
+        ({"failure": "auth"}, True),
+        ({"fallback_used": False, "failure": ""}, False),
+        ({"fallback_used": "yes"}, False),
+        ({}, False),
+        (None, False),
+        (["fallback_used"], False),
+    ],
+)
+def test_analysis_failed(snapshot, failed):
+    assert analysis_failed(snapshot) is failed
