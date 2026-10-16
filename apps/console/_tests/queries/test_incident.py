@@ -9,7 +9,7 @@ from django.db import connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
-from apps.alerts.describing import describe_alert, describe_incident
+from apps.alerts.describing import alert_name, describe_incident
 from apps.alerts.models import Alert, AlertHistory, Incident, Node
 from apps.alerts.services import INCIDENT_ACTIONS
 from apps.checkers.checkers import CheckStatus
@@ -345,7 +345,7 @@ def test_alert_history_entries_use_the_alert_describer_and_link_the_alert():
 
 
 @pytest.mark.django_db
-def test_a_checker_alert_history_entry_names_the_check_as_its_describer_does():
+def test_a_checker_history_headline_holds_when_the_alerts_metrics_change():
     incident = _incident(instance="web-1")
     alert = Alert.objects.create(
         fingerprint="check:web-1:cpu",
@@ -358,11 +358,14 @@ def test_a_checker_alert_history_entry_names_the_check_as_its_describer_does():
         started_at=T0,
     )
     row = _history(alert, "created", T0)
+    entry_id = f"entry-alert_history-{row.pk}"
 
-    entry = _entry(build_incident_detail(incident.pk), f"entry-alert_history-{row.pk}")
+    before = _entry(build_incident_detail(incident.pk), entry_id).what.headline
+    Alert.objects.filter(pk=alert.pk).update(raw_payload={"metrics": {"cpu_percent": 12.0}})
+    after = _entry(build_incident_detail(incident.pk), entry_id).what.headline
 
-    assert entry.what.headline == f"{describe_alert(alert).headline} started firing"
-    assert "cpu" not in entry.what.headline.split()[:1]
+    assert before == after == f"{alert_name(alert)} started firing"
+    assert "97" not in before
 
 
 @pytest.mark.django_db

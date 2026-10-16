@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from apps.alerts.describing import (
     alert_link,
+    alert_name,
     check_status_of,
     describe_alert,
     describe_history,
@@ -15,7 +16,7 @@ from apps.alerts.describing import (
 from apps.alerts.drivers.cluster import ClusterDriver
 from apps.alerts.management.commands.push_to_hub import Command, build_cluster_payload
 from apps.alerts.models import Alert, Incident, IncidentStatus, Node
-from apps.checkers.checkers import CheckResult, CheckStatus
+from apps.checkers.checkers import CHECKER_REGISTRY, CheckResult, CheckStatus
 from config.describing import Action, Fact
 
 pytestmark = pytest.mark.django_db
@@ -395,3 +396,25 @@ def test_history_tone(event, severity_to, tone):
 
 def test_alert_link_opens_the_alert():
     assert alert_link(3) == Action("Open the alert", intent="view_alert", params={"pk": 3})
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "labels, name, expected",
+    [
+        ({"checker": "cpu"}, "cpu", CHECKER_REGISTRY["cpu"].problem),
+        ({"checker": "zfs_pool"}, "zfs", "Zfs pool"),
+        ({}, "DiskFull", "DiskFull"),
+        ({}, "", "Unnamed alert"),
+    ],
+)
+def test_alert_name_ignores_the_values_an_alert_carried(labels, name, expected):
+    alert = Alert(
+        fingerprint="f",
+        name=name,
+        labels=labels,
+        raw_payload={"metrics": {"cpu_percent": 97.0}},
+        description="CPU at 97%",
+    )
+
+    assert alert_name(alert) == expected

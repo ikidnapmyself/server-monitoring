@@ -75,8 +75,8 @@ def describe_stage_outcome(
 ) -> Description:
     name = _stage_name(stage)
     if status == "failed":
-        fallback = f"{name} failed and will be retried" if retryable else f"{name} failed"
-        return _failed(_PREFIX.get(stage, f"{name} failed"), fallback, error_message)
+        retry = (Fact("Retryable", "yes" if retryable else "no"),)
+        return _failed(_PREFIX.get(stage, f"{name} failed"), f"{name} failed", error_message, retry)
     if status == "skipped":
         detail = error_message.removeprefix(_SKIP_PREFIX)
         return Description(f"{name} skipped", "muted", detail=detail)

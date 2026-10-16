@@ -345,7 +345,7 @@ def test_the_stage_strip_shows_each_stage_outcome(client, staff, headers):
     for stage, label, tone, headline in [
         ("check", "Diagnose", "ok", "Diagnose finished"),
         ("analyze", "Analyze", "ok", "Analyze finished"),
-        ("notify", "Notify", "critical", "Notify failed and will be retried"),
+        ("notify", "Notify", "critical", "Notify failed"),
     ]:
         item = body[body.index(f'<li id="stage-{stage}" class="c-stage">') :]
         item = item[: item.index("</li>")]
@@ -383,7 +383,9 @@ def test_the_timeline_entries_use_the_describer_wording(client, staff, headers):
     assert "<dt>Status</dt><dd>firing</dd>" in body
     assert '<span class="c-entry__title">Run finished, notified</span>' in body
     assert f'id="entry-pipeline-{run.pk}-what-details-copy-1"' in body
-    assert '<span class="c-entry__title">Notify failed and will be retried</span>' in body
+    assert '<span class="c-entry__title">Notify failed</span>' in body
+    assert "will be retried" not in body
+    assert "<dt>Retryable</dt><dd>yes</dd>" in body
     assert "<dt>Error</dt><dd>slack 500</dd>" in body
     assert "Open the run&#x27;s error in Details" in body
     assert '<span id="entry-incident-created">Incident opened</span>' in body

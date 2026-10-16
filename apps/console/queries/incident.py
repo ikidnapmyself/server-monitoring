@@ -11,7 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.alerts.check_integration import can_rerun
-from apps.alerts.describing import alert_link, describe_alert, describe_history, describe_incident
+from apps.alerts.describing import alert_link, alert_name, describe_history, describe_incident
 from apps.alerts.diagnosis import diagnose_incident
 from apps.alerts.models import Incident
 from apps.alerts.services import available_incident_actions
@@ -310,8 +310,8 @@ _ENTRY_BUILDERS = {
 }
 
 
-def _alert_headlines(incident: Incident) -> dict[int, str]:
-    return {alert.pk: describe_alert(alert).headline for alert in incident.alerts.all()}
+def _alert_names(incident: Incident) -> dict[int, str]:
+    return {alert.pk: alert_name(alert) for alert in incident.alerts.all()}
 
 
 def _timeline(incident: Incident, full: bool) -> tuple[tuple[TimelineEntry, ...], int]:
@@ -325,7 +325,7 @@ def _timeline(incident: Incident, full: bool) -> tuple[tuple[TimelineEntry, ...]
     recorded = len(events)
     if not full:
         events = events[-TIMELINE_LIMIT:]
-    headlines = _alert_headlines(incident)
+    headlines = _alert_names(incident)
     entries = _lifecycle_entries(incident)
     entries.extend(_ENTRY_BUILDERS[event["kind"]](event, headlines) for event in events)
     # The sort is stable, so a lifecycle entry leads anything else at the same instant.

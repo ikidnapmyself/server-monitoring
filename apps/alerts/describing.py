@@ -62,6 +62,15 @@ def alert_link(alert_pk: int) -> Action:
     return Action("Open the alert", intent="view_alert", params={"pk": alert_pk})
 
 
+def alert_name(alert: Alert) -> str:
+    """What an alert is about, without the values it last carried."""
+    name = _checker_name(alert)
+    if name:
+        checker = CHECKER_REGISTRY.get(name)
+        return (checker.problem if checker else "") or checker_label(name)
+    return alert.name or "Unnamed alert"
+
+
 def describe_alert(alert: Alert) -> Description:
     name = _checker_name(alert)
     checker = CHECKER_REGISTRY.get(name)

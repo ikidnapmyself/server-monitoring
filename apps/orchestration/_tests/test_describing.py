@@ -62,15 +62,15 @@ def test_known_reason_on_a_stage_without_a_prefix_names_the_stage():
 
 def test_unknown_failure_keeps_the_message_in_details():
     d = describe_stage_outcome("check", "failed", "Check error: boom", retryable=True)
-    assert d.headline == "Diagnose failed and will be retried"
-    assert ("Error", "Check error: boom") in facts(d)
+    assert d.headline == "Diagnose failed"
+    assert facts(d) == [("Error", "Check error: boom"), ("Retryable", "yes")]
     assert d.action.text == "Open the run's error in Details"
 
 
 def test_unretryable_failure_without_a_message_has_no_error_fact():
     d = describe_stage_outcome("analyze", "failed", "", retryable=False)
     assert d.headline == "Analyze failed"
-    assert d.facts == ()
+    assert facts(d) == [("Retryable", "no")]
 
 
 @pytest.mark.parametrize(
@@ -240,11 +240,24 @@ def test_a_diagnosed_failure_keeps_its_fix_over_the_run_link():
     assert d.action.intent == "edit_route"
 
 
-def test_a_retryable_diagnosed_failure_says_so():
+def test_a_retryable_diagnosed_failure_promises_nothing_and_records_the_flag():
     entry = _diagnosis(
         status="failed", execution_status="failed", error_message="boom", retryable=True
     )
-    assert describe_stage_diagnosis(entry).headline == "Diagnose failed and will be retried"
+    d = describe_stage_diagnosis(entry)
+    assert d.headline == "Diagnose failed"
+    assert ("Retryable", "yes") in facts(d)
+
+
+@pytest.mark.parametrize("status", ["succeeded", "skipped", "running", "pending"])
+def test_only_a_failure_carries_the_retryable_fact(status):
+    d = describe_stage_outcome("check", status, "", retryable=True)
+    assert "Retryable" not in [f.label for f in d.facts]
+
+
+def test_a_known_reason_records_the_retryable_flag():
+    d = describe_stage_outcome("notify", "failed", "no_channel: x", retryable=False)
+    assert facts(d) == [("Error", "x"), ("Retryable", "no")]
 
 
 def test_a_config_skip_reads_through_the_stage_describer():
