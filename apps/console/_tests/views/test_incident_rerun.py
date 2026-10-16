@@ -14,8 +14,10 @@ from apps.orchestration.models import PipelineRun
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
 BOTH = pytest.mark.parametrize("headers", [{}, HTMX], ids=["plain", "htmx"])
+ENQUEUE = "apps.orchestration.intake.enqueue_for"
 RUN_CHECKS = "apps.alerts.check_integration.CheckAlertBridge.run_checks_and_alert"
 RAN = "Checks ran again. The incident updates when the run finishes."
+UNCHANGED = "Checks ran again. Nothing changed."
 REFUSED = "This incident&#x27;s checks can&#x27;t run on this machine."
 
 pytestmark = pytest.mark.usefixtures("this_box")
@@ -118,7 +120,7 @@ def test_a_missing_incident_is_the_console_404_page(client, operator, run_checks
 
 
 @pytest.mark.django_db
-def test_htmx_success_returns_the_incident_with_an_ok_notice(client, operator, run_checks):
+def test_htmx_rerun_that_changed_nothing_says_so(client, operator, run_checks):
     incident = _incident()
 
     resp = client.post(_url(incident), **HTMX)
@@ -126,10 +128,21 @@ def test_htmx_success_returns_the_incident_with_an_ok_notice(client, operator, r
     body = resp.content.decode()
     assert resp.status_code == 200
     assert resp.templates[0].name == "console/partials/_incident.html"
-    assert _notices(body) == [("ok", RAN)]
+    assert _notices(body) == [("ok", UNCHANGED)]
     run_checks.assert_called_once_with(checker_names=["cpu"])
     assert list(resp.wsgi_request._messages) == []
     assert not PipelineRun.objects.exists()
+
+
+@pytest.mark.django_db
+def test_htmx_rerun_that_enqueued_a_run_says_it_will_update(client, operator, run_checks):
+    incident = _incident()
+
+    with mock.patch(ENQUEUE, return_value=[mock.sentinel.run]):
+        resp = client.post(_url(incident), **HTMX)
+
+    assert resp.status_code == 200
+    assert _notices(resp.content.decode()) == [("ok", RAN)]
 
 
 @pytest.mark.django_db
@@ -155,7 +168,7 @@ def test_plain_post_redirects_with_a_message(client, operator, run_checks, data,
 
     assert resp.status_code == 303
     assert resp["Location"] == f"{_page(incident)}{suffix}"
-    assert _notices(client.get(_page(incident)).content.decode()) == [("ok", RAN)]
+    assert _notices(client.get(_page(incident)).content.decode()) == [("ok", UNCHANGED)]
 
 
 @pytest.mark.django_db

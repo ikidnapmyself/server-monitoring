@@ -152,8 +152,9 @@ nothing for a lane to control there. Read it via `PipelineDefinition.routable_st
 
 **CHECK takes the incident as its subject.** For an incident run the diagnose stage
 derives its checkers from the distinct `checker` labels on that incident's alerts,
-filtered to the local `CHECKER_REGISTRY` (`executors._incident_checker_names`). An
-incident that names no checkers runs none. It used to sweep the whole registry, which
+filtered to the local `CHECKER_REGISTRY`
+(`apps.alerts.check_integration.incident_checker_names`, shared with the console's
+rerun). An incident that names no checkers runs none. It used to sweep the whole registry, which
 made a lane merely listing `check` re-diagnose the entire machine on every incident.
 
 **`checker_names=None` means "every checker"; `checker_names=[]` means "none".** This is

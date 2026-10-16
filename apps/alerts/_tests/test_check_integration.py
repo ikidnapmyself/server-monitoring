@@ -8,6 +8,7 @@ from apps.alerts.check_integration import (
     CheckAlertResult,
     PipelineRunFailed,
     can_rerun,
+    incident_checker_names,
     record_and_enqueue,
     rerun_incident_checks,
 )
@@ -20,6 +21,7 @@ from apps.alerts.models import (
     Node,
 )
 from apps.checkers.checkers import CheckResult, CheckStatus
+from apps.orchestration.executors import CheckExecutor
 from apps.orchestration.models import PipelineOrigin
 
 
@@ -1194,11 +1196,14 @@ class RerunIncidentChecksTests(TestCase):
     def test_runs_only_the_incident_checkers_this_machine_has(self):
         incident = self._incident("memory", "zfs_pool", None, "cpu", "memory")
 
-        with patch(RUN_CHECKS, return_value=CheckAlertResult()) as run, patch(ENQUEUE) as enqueue:
-            result = rerun_incident_checks(incident.pk)
+        checks = CheckAlertResult()
+        with patch(RUN_CHECKS, return_value=checks) as run, patch(ENQUEUE) as enqueue:
+            rerun = rerun_incident_checks(incident.pk)
 
         run.assert_called_once_with(checker_names=["memory", "cpu"])
-        self.assertIs(enqueue.call_args.args[0], result)
+        self.assertIs(rerun.checks, checks)
+        self.assertIs(rerun.runs, enqueue.return_value)
+        self.assertIs(enqueue.call_args.args[0], checks)
         self.assertEqual(enqueue.call_args.kwargs["sync"], False)
         self.assertEqual(enqueue.call_args.kwargs["origin"], PipelineOrigin.CHECKER_GENERATED)
 
@@ -1244,6 +1249,14 @@ class RerunIncidentChecksTests(TestCase):
                 rerun_incident_checks(404)
 
         run.assert_not_called()
+
+    def test_the_executor_asks_the_same_question(self):
+        incident = self._incident("memory", "zfs_pool", None, "cpu")
+
+        self.assertEqual(
+            CheckExecutor._incident_checker_names(incident.pk), incident_checker_names(incident.pk)
+        )
+        self.assertEqual(incident_checker_names(incident.pk), ["memory", "cpu"])
 
     def test_can_rerun_a_local_incident_with_a_local_checker(self):
         self.assertTrue(can_rerun(self._incident("zfs_pool", "cpu")))

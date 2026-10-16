@@ -25,7 +25,7 @@ import socket
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 from django.utils import timezone
@@ -45,6 +45,9 @@ from apps.checkers.checkers import (
     CheckStatus,
     checker_label,
 )
+
+if TYPE_CHECKING:
+    from apps.orchestration.models import PipelineRun
 
 logger = logging.getLogger(__name__)
 
@@ -441,13 +444,21 @@ class CheckAlertBridge:
         return result
 
 
+@dataclass
+class ChecksRerun:
+    """What rerunning an incident's checks recorded, and the runs it enqueued."""
+
+    checks: CheckAlertResult
+    runs: list["PipelineRun"]
+
+
 class PipelineRunFailed(Exception):
     """The alerts were recorded, then enqueueing or draining their runs failed."""
 
 
 def _record_and_enqueue(
     record: Callable[[], CheckAlertResult], *, trace_id: str, sync: bool, no_notify: bool
-) -> CheckAlertResult:
+) -> tuple[CheckAlertResult, list["PipelineRun"]]:
     from apps.orchestration.intake import enqueue_for
     from apps.orchestration.models import PipelineOrigin
 
@@ -461,7 +472,7 @@ def _record_and_enqueue(
         # runs after this block rather than against uncommitted rows.
         with transaction.atomic():
             result = record()
-            enqueue_for(
+            runs = enqueue_for(
                 result,
                 trace_id=trace_id,
                 origin=PipelineOrigin.CHECKER_GENERATED,
@@ -473,7 +484,7 @@ def _record_and_enqueue(
         if result is None:
             raise
         raise PipelineRunFailed(str(exc)) from exc
-    return result
+    return result, runs
 
 
 def record_and_enqueue(
@@ -485,18 +496,32 @@ def record_and_enqueue(
     sync drain after it did not. Anything else raised comes from the recording.
     """
     bridge = CheckAlertBridge(trace_id=trace_id)
-    return _record_and_enqueue(
+    result, _ = _record_and_enqueue(
         lambda: bridge.process_check_results(results),
         trace_id=trace_id,
         sync=sync,
         no_notify=no_notify,
     )
+    return result
 
 
-def _local_checker_names(incident: Incident) -> list[str]:
-    """The incident's distinct ``checker`` labels this machine can run, oldest first."""
+def incident_checker_names(incident_id: int) -> list[str]:
+    """The incident's distinct ``checker`` labels this machine can run, oldest first.
+
+    Filtered to the local registry on purpose. A node may report a checker this
+    machine does not have; that is the same situation as no label at all, since
+    there is nothing here that can run it. Passing the name through would make the
+    bridge record an error and the orchestrator retry a CHECK stage that can never
+    succeed. An empty list means "run none", never
+    "run every checker": see ``CheckAlertBridge.run_checks_and_alert``.
+    """
     names: list[str] = []
-    for labels in incident.alerts.order_by("id").values_list("labels", flat=True):
+    label_sets = (
+        Alert.objects.filter(incident_id=incident_id)
+        .order_by("id")
+        .values_list("labels", flat=True)
+    )
+    for labels in label_sets:
         name = labels.get("checker") if isinstance(labels, dict) else None
         if name in CHECKER_REGISTRY and name not in names:
             names.append(name)
@@ -505,10 +530,10 @@ def _local_checker_names(incident: Incident) -> list[str]:
 
 def can_rerun(incident: Incident) -> bool:
     """Whether ``rerun_incident_checks`` would run anything for this incident."""
-    return incident.instance == local_instance_id() and bool(_local_checker_names(incident))
+    return incident.instance == local_instance_id() and bool(incident_checker_names(incident.pk))
 
 
-def rerun_incident_checks(incident_id: int) -> CheckAlertResult:
+def rerun_incident_checks(incident_id: int) -> ChecksRerun:
     """Run the incident's checkers again here and enqueue what changed.
 
     The runs are left for ``process_inbox``: an operator's click must not wait on
@@ -522,14 +547,15 @@ def rerun_incident_checks(incident_id: int) -> CheckAlertResult:
     incident = Incident.objects.get(pk=incident_id)
     if incident.instance != local_instance_id():
         raise ValueError("The incident is about another machine.")
-    names = _local_checker_names(incident)
+    names = incident_checker_names(incident.pk)
     if not names:
         raise ValueError("The incident names no checker this machine has.")
     trace_id = str(uuid.uuid4())
     bridge = CheckAlertBridge(trace_id=trace_id)
-    return _record_and_enqueue(
+    checks, runs = _record_and_enqueue(
         lambda: bridge.run_checks_and_alert(checker_names=names),
         trace_id=trace_id,
         sync=False,
         no_notify=False,
     )
+    return ChecksRerun(checks=checks, runs=runs)

@@ -136,33 +136,10 @@ class CheckExecutor(BaseExecutor):
 
     @staticmethod
     def _incident_checker_names(incident_id: int) -> list[str]:
-        """The distinct ``checker`` labels on an incident's alerts, oldest first.
+        """The local checkers an incident names. ``apps.alerts`` owns the rule."""
+        from apps.alerts.check_integration import incident_checker_names
 
-        Kept here rather than beside ``subject_alert`` in routing: those helpers
-        live there because two entry stages must share one definition of "which
-        alert represents this batch". This has one consumer — the stage whose scope
-        it is — and it answers a diagnosis question, not a routing one.
-
-        Filtered to the local registry on purpose. A node may report a checker this
-        hub does not have; that is the same situation as no label at all, since
-        there is nothing here that can run it. Passing the name through would make
-        the bridge record an error and the orchestrator retry a stage that can
-        never succeed.
-        """
-        from apps.alerts.models import Alert
-        from apps.checkers.checkers import CHECKER_REGISTRY
-
-        names: list[str] = []
-        label_sets = (
-            Alert.objects.filter(incident_id=incident_id)
-            .order_by("id")
-            .values_list("labels", flat=True)
-        )
-        for labels in label_sets:
-            name = (labels or {}).get("checker")
-            if name and name in CHECKER_REGISTRY and name not in names:
-                names.append(name)
-        return names
+        return incident_checker_names(incident_id)
 
     def execute(self, ctx: StageContext) -> CheckResult:
         """Execute checker diagnostics."""
