@@ -4,6 +4,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 from django.test import RequestFactory
 from django.urls import reverse
 from django.utils import timezone
@@ -13,6 +14,7 @@ from apps.console._tests.test_templates import FORBIDDEN
 from apps.console._tests.views.test_incident import named_incident
 from apps.console.queries import overview as overview_queries
 from apps.console.views.overview import OverviewView
+from config.describing import Action, Description
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
 
@@ -178,7 +180,7 @@ def test_page_shows_incidents_nodes_and_the_sparkline(client, staff):
     assert "1 open incident, 1 critical." in body
     assert "Disk full on web-1" in body
     assert reverse("console:incident", args=[incident.pk]) in body
-    assert reverse("admin:alerts_node_change", args=[node.pk]) in body
+    assert f'id="node-{node.pk}"' not in body
     assert "c-tone-critical" in body
     assert "<svg" in body
 
@@ -222,32 +224,120 @@ def test_page_polls_itself_and_links_onward(client, staff):
     assert reverse("admin:logout") in body
 
 
-def _readiness(monkeypatch, detail):
-    monkeypatch.setattr(
-        overview_queries,
-        "build_readiness",
-        lambda: [{"key": "x", "label": "Inbox", "status": "warn", "detail": detail, "url": "/x/"}],
+def _readiness(monkeypatch, headline="3 runs are stuck"):
+    found = (
+        Description(
+            headline,
+            "critical",
+            action=Action("Open the stuck runs", "view_inbox", {"status": "processing"}),
+        ),
     )
+    monkeypatch.setattr(overview_queries, "describe_readiness", lambda: found)
+
+
+def _superuser(client):
+    client.force_login(get_user_model().objects.create_superuser("root", password="x"))
 
 
 @pytest.mark.django_db
-def test_readiness_problems_are_listed(client, staff, monkeypatch):
-    _readiness(monkeypatch, "3 stuck")
+def test_readiness_shows_the_describers_headline_and_fix_link_for_a_superuser(client, monkeypatch):
+    _superuser(client)
+    _readiness(monkeypatch)
 
     body = client.get(reverse("console:overview")).content.decode()
 
-    assert "Inbox" in body and "3 stuck" in body
+    assert "3 runs are stuck" in body
+    fix = re.search(r'<a id="readiness-0-action"[^>]*href="([^"]+)"[^>]*>([^<]+)</a>', body)
+    inbox = reverse("admin:orchestration_inboxitem_changelist")
+    assert fix.groups() == (f"{inbox}?status__exact=processing", "Open the stuck runs")
     assert "System ready." not in body
 
 
 @pytest.mark.django_db
-def test_readiness_detail_is_escaped(client, staff, monkeypatch):
+def test_readiness_fix_is_plain_text_for_staff_without_the_permission(client, staff, monkeypatch):
+    _readiness(monkeypatch)
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert "3 runs are stuck" in body
+    assert '<p class="c-description__action">Open the stuck runs</p>' in body
+    assert 'id="readiness-0-action"' not in body
+
+
+@pytest.mark.django_db
+def test_readiness_rows_are_numbered_in_order(client, monkeypatch):
+    _superuser(client)
+    found = tuple(
+        Description(f"problem {n}", "warning", action=Action("Open the node list", "view_nodes"))
+        for n in range(2)
+    )
+    monkeypatch.setattr(overview_queries, "describe_readiness", lambda: found)
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert re.findall(r'id="(readiness-\d+)-action"', body) == ["readiness-0", "readiness-1"]
+
+
+@pytest.mark.django_db
+def test_an_all_green_system_reads_as_ready(client, staff, monkeypatch):
+    monkeypatch.setattr(overview_queries, "describe_readiness", lambda: ())
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert "System ready." in body
+    assert "c-description" not in body
+
+
+@pytest.mark.django_db
+def test_readiness_headline_is_escaped(client, staff, monkeypatch):
     _readiness(monkeypatch, "<b>web-1</b> stuck")
 
     body = client.get(reverse("console:overview")).content.decode()
 
     assert "&lt;b&gt;web-1&lt;/b&gt; stuck" in body
     assert "<b>web-1</b>" not in body
+
+
+@pytest.mark.django_db
+def test_a_node_tile_links_to_the_node_for_a_user_who_can_view_nodes(client, staff):
+    staff.user_permissions.add(
+        Permission.objects.get(content_type__app_label="alerts", codename="view_node")
+    )
+    node = Node.objects.create(instance_id="web-1", hostname="web-1")
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    href = reverse("admin:alerts_node_change", args=[node.pk])
+    assert f'<a id="node-{node.pk}" class="c-box c-tile" href="{href}">' in body
+
+
+@pytest.mark.django_db
+def test_a_node_tile_is_not_a_link_for_a_user_who_cannot_view_nodes(client, staff):
+    node = Node.objects.create(instance_id="web-1", hostname="web-1")
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert '<div class="c-box c-tile">' in body
+    assert f'id="node-{node.pk}"' not in body
+    assert reverse("admin:alerts_node_change", args=[node.pk]) not in body
+    assert "web-1" in body and "seen " in body
+
+
+@pytest.mark.django_db
+def test_an_open_incident_row_shows_its_detail_on_one_line(client, staff):
+    incident = Incident.objects.create(severity="critical")
+    Alert.objects.create(
+        fingerprint="d",
+        name="Disk full",
+        description="Root is at 97%",
+        source="grafana",
+        incident=incident,
+        started_at=timezone.now(),
+    )
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert '<div class="c-row__detail" title="Root is at 97%">Root is at 97%</div>' in body
 
 
 @pytest.mark.django_db
@@ -293,7 +383,7 @@ def test_anonymous_head_keeps_its_own_path(client):
 @pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
 def test_rendered_overview_is_clean(client, staff, monkeypatch, label, headers):
     monkeypatch.setattr(overview_queries, "INCIDENT_LIMIT", 1)
-    _readiness(monkeypatch, "3 stuck")
+    _readiness(monkeypatch)
     Incident.objects.create(severity="critical")
     Incident.objects.create(severity="warning")
     Node.objects.create(instance_id="web-1", hostname="web-1")
@@ -322,9 +412,10 @@ def _polled_region(body):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
-def test_every_link_in_the_polled_region_has_a_unique_id(client, staff, monkeypatch, headers):
+def test_every_link_in_the_polled_region_has_a_unique_id(client, monkeypatch, headers):
+    _superuser(client)
     monkeypatch.setattr(overview_queries, "INCIDENT_LIMIT", 2)
-    _readiness(monkeypatch, "3 stuck")
+    _readiness(monkeypatch)
     incidents = [Incident.objects.create(severity="warning") for index in range(3)]
     nodes = [Node.objects.create(instance_id=f"web-{index}") for index in range(2)]
 
@@ -335,7 +426,7 @@ def test_every_link_in_the_polled_region_has_a_unique_id(client, staff, monkeypa
     ids = re.findall(r'\sid="([^"]*)"', region)
     expected = (
         [f"incident-{incident.pk}" for incident in incidents[:2]]
-        + ["incidents-more", "readiness-x"]
+        + ["incidents-more", "readiness-0-action"]
         + [f"node-{node.pk}" for node in nodes]
     )
     assert len(links) == len(expected)

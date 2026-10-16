@@ -1,4 +1,4 @@
-{% load static %}<!doctype html>
+{% load static console %}<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -13,8 +13,8 @@
   <header class="c-header">
     <a class="c-header__brand" href="{% url 'console:overview' %}">{% include "console/partials/_octicon.html" with name="pulse" %}<span>Ops console</span></a>
     <div class="c-header__links">
-      <a class="c-header__link" href="{% url 'admin:index' %}">Admin</a>
-      <form method="post" action="{% url 'admin:logout' %}">
+      <a class="c-header__link" href="{% admin_url 'index' %}">Admin</a>
+      <form method="post" action="{% admin_url 'logout' %}">
         {% csrf_token %}
         <button class="c-header__link" type="submit">Sign out</button>
       </form>

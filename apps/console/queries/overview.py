@@ -22,12 +22,12 @@ from apps.alerts.models import (
 )
 from apps.console.queries.hosts import host_summary, incident_hosts
 from config.admin_badges import INCIDENT_STATUS_TONES, SEVERITY_TONES, tone_for
-from config.dashboard import NODE_RECENT_MINUTES, build_readiness
+from config.dashboard import NODE_RECENT_MINUTES, describe_readiness
+from config.describing import Action, Description
 
 OPEN_STATUSES = [IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED]
 INCIDENT_LIMIT = 20
 SPARK_HOURS = 24
-ATTENTION_TONES = {"warn": "warning", "error": "critical"}
 
 SEVERITY_RANK = Case(
     When(severity=AlertSeverity.CRITICAL, then=Value(0)),
@@ -41,6 +41,7 @@ SEVERITY_RANK = Case(
 class IncidentRow:
     pk: int
     title: str
+    detail: str
     severity: str
     severity_tone: str
     status: str
@@ -59,16 +60,7 @@ class NodeTile:
     label: str
     firing: int
     last_seen: datetime
-    url: str
-
-
-@dataclass(frozen=True)
-class AttentionItem:
-    key: str
-    label: str
-    detail: str
-    tone: str
-    url: str
+    action: Action
 
 
 @dataclass(frozen=True)
@@ -78,7 +70,7 @@ class Overview:
     nodes: tuple[NodeTile, ...]
     spark: tuple[tuple[float, float], ...]
     spark_from: datetime
-    attention: tuple[AttentionItem, ...]
+    readiness: tuple[Description, ...]
     open_total: int
     more_url: str
 
@@ -159,6 +151,7 @@ def open_incidents() -> tuple[IncidentRow, ...]:
         IncidentRow(
             pk=incident.pk,
             title=described[incident.pk].headline,
+            detail=described[incident.pk].detail,
             severity=incident.severity,
             severity_tone=tone_for(SEVERITY_TONES, incident.severity),
             status=incident.status,
@@ -220,7 +213,7 @@ def node_tiles() -> tuple[NodeTile, ...]:
                 label=label,
                 firing=firing[node.pk],
                 last_seen=node.last_seen,
-                url=reverse("admin:alerts_node_change", args=[node.pk]),
+                action=Action("Open the node", intent="view_node", params={"pk": node.pk}),
             )
         )
     return tuple(sorted(tiles, key=lambda tile: tile.name.casefold()))
@@ -250,20 +243,6 @@ def incident_spark(now: datetime | None = None) -> tuple[tuple[float, float], ..
     )
 
 
-def attention() -> tuple[AttentionItem, ...]:
-    return tuple(
-        AttentionItem(
-            key=entry["key"],
-            label=entry["label"],
-            detail=entry["detail"],
-            tone=ATTENTION_TONES[entry["status"]],
-            url=entry["url"],
-        )
-        for entry in build_readiness()
-        if entry["status"] in ATTENTION_TONES
-    )
-
-
 def build_overview() -> Overview:
     total, critical = open_counts()
     now = timezone.now()
@@ -273,7 +252,7 @@ def build_overview() -> Overview:
         nodes=node_tiles(),
         spark=incident_spark(now),
         spark_from=spark_start(now),
-        attention=attention(),
+        readiness=describe_readiness(),
         open_total=total,
         more_url=reverse("console:incidents"),
     )

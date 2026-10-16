@@ -42,6 +42,7 @@ SINCE_CHIPS: tuple[Choice, ...] = (
 class IncidentListRow:
     pk: int
     title: str
+    detail: str
     severity: str
     severity_tone: str
     status: str
@@ -172,6 +173,7 @@ def _rows(incidents, page: int) -> tuple[IncidentListRow, ...]:
         IncidentListRow(
             pk=incident.pk,
             title=described[incident.pk].headline,
+            detail=described[incident.pk].detail,
             severity=incident.severity,
             severity_tone=tone_for(SEVERITY_TONES, incident.severity),
             status=incident.status,

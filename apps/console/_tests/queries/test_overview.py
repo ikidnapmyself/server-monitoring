@@ -5,9 +5,11 @@ import pytest
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.alerts.describing import describe_incident
 from apps.alerts.models import Alert, Incident, Node
 from apps.console.queries import overview
 from config.dashboard import NODE_RECENT_MINUTES
+from config.describing import Action, Description
 
 
 def _incident(title, severity="warning", status="open", age_hours=0, created_at=None):
@@ -87,6 +89,7 @@ def test_incident_row_carries_tones_count_and_a_link():
     assert (other_row.title, other_row.alert_count) == ("c", 1)
     assert other_row.url == reverse("console:incident", args=[other.pk])
     assert (quiet_row.title, quiet_row.alert_count) == (f"Incident #{quiet_row.pk}", 0)
+    assert (other_row.detail, quiet_row.detail) == (describe_incident(other).detail, "")
 
 
 @pytest.mark.django_db
@@ -134,7 +137,7 @@ def test_node_tile_takes_the_worst_firing_tone(alerts, tone, firing):
     assert (tile.name, tile.tone, tile.firing) == ("web-1", tone, firing)
     assert tile.label == (f"{firing} firing" if firing else "healthy")
     assert tile.pk == node.pk
-    assert tile.url == reverse("admin:alerts_node_change", args=[node.pk])
+    assert tile.action == Action("Open the node", intent="view_node", params={"pk": node.pk})
     assert tile.last_seen == Node.objects.get(pk=node.pk).last_seen
 
 
@@ -237,10 +240,7 @@ def test_each_node_tile_counts_only_its_own_firing_alerts():
         ("mild", "info", 1),
         ("quiet", "ok", 0),
     ]
-    assert [tile.url for tile in tiles[:2]] == [
-        reverse("admin:alerts_node_change", args=[loud.pk]),
-        reverse("admin:alerts_node_change", args=[mild.pk]),
-    ]
+    assert [tile.action.params for tile in tiles[:2]] == [{"pk": loud.pk}, {"pk": mild.pk}]
 
 
 @pytest.mark.django_db
@@ -293,24 +293,12 @@ def test_spark_has_one_point_per_hour_and_counts_into_the_right_bucket(
     assert sum(y for _, y in points) == 5
 
 
-def test_attention_keeps_only_warn_and_error_and_maps_them_to_tones(monkeypatch):
-    monkeypatch.setattr(
-        overview,
-        "build_readiness",
-        lambda: [
-            {"key": "a", "label": "Channels", "status": "ok", "detail": "1 active", "url": "/a"},
-            {"key": "b", "label": "Inbox", "status": "warn", "detail": "3 stuck", "url": "/b"},
-            {"key": "c", "label": "Provider", "status": "error", "detail": "none", "url": "/c"},
-            {"key": "d", "label": "Nodes", "status": "info", "detail": "Standalone", "url": "/d"},
-        ],
-    )
+@pytest.mark.django_db
+def test_readiness_is_what_the_dashboard_describer_says(monkeypatch):
+    found = (Description("Inbox is stuck", "critical", action=Action("Fix", "view_inbox")),)
+    monkeypatch.setattr(overview, "describe_readiness", lambda: found)
 
-    items = overview.attention()
-
-    assert [(item.key, item.label, item.tone, item.detail, item.url) for item in items] == [
-        ("b", "Inbox", "warning", "3 stuck", "/b"),
-        ("c", "Provider", "critical", "none", "/c"),
-    ]
+    assert overview.build_overview().readiness == found
 
 
 @pytest.mark.django_db
@@ -324,14 +312,14 @@ def test_build_overview_assembles_every_part():
     assert _subjects(result.incidents) == ["disk full"]
     assert [tile.name for tile in result.nodes] == ["n1"]
     assert len(result.spark) == overview.SPARK_HOURS
-    assert isinstance(result.attention, tuple)
+    assert isinstance(result.readiness, tuple)
     assert (result.open_total, result.open_hidden) == (1, 0)
 
 
 @pytest.mark.django_db
 def test_build_overview_counts_the_incidents_past_the_cap(monkeypatch, django_assert_num_queries):
     monkeypatch.setattr(overview, "INCIDENT_LIMIT", 2)
-    monkeypatch.setattr(overview, "build_readiness", lambda: [])
+    monkeypatch.setattr(overview, "describe_readiness", lambda: ())
     for index in range(5):
         _incident(f"incident {index}")
     _incident("resolved", status="resolved")

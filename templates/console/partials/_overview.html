@@ -1,4 +1,4 @@
-{% if not overview.open_total %}
+{% load console %}{% if not overview.open_total %}
 <div class="c-flash c-flash--headline c-tone-ok">{% include "console/partials/_octicon.html" with name="check-circle" %}<h1>{{ overview.headline }}</h1></div>
 {% elif overview.incidents.0.severity_tone == "critical" %}
 <div class="c-flash c-flash--headline c-tone-critical">{% include "console/partials/_octicon.html" with name="alert" %}<h1>{{ overview.headline }}</h1></div>
@@ -33,12 +33,9 @@
       <h2 id="readiness-title" class="c-box__title">Readiness</h2>
     </div>
     <ul class="c-box__list">
-      {% for item in overview.attention %}
-      <li class="c-box__row c-readiness">
-        <span class="c-tone-{{ item.tone }}">{% include "console/partials/_octicon.html" with name="alert" %}</span>
-        <span class="c-readiness__text"><a id="readiness-{{ item.key }}" href="{{ item.url }}">{{ item.label }}</a> <span class="c-readiness__detail">{{ item.detail }}</span></span>
-      </li>
-      {% empty %}
+      {% for d in overview.readiness %}{% with n=forloop.counter0|stringformat:"s" %}
+      <li class="c-box__row">{% include "console/partials/_description.html" with id="readiness-"|add:n %}</li>
+      {% endwith %}{% empty %}
       <li class="c-box__row c-ready">{% include "console/partials/_octicon.html" with name="check-circle" %}<span>System ready.</span></li>
       {% endfor %}
     </ul>
@@ -49,12 +46,12 @@
   <h2 id="nodes-title" class="c-section-title">Nodes</h2>
   {% if overview.nodes %}
   <div class="c-grid">
-    {% for tile in overview.nodes %}
-    <a id="node-{{ tile.pk }}" class="c-box c-tile" href="{{ tile.url }}">
+    {% for tile in overview.nodes %}{% resolved tile.action as act %}
+    {% if act.url %}<a id="node-{{ tile.pk }}" class="c-box c-tile" href="{{ act.url }}">{% else %}<div class="c-box c-tile">{% endif %}
       <span class="c-tone-{{ tile.tone }}">{% include "console/partials/_octicon.html" with name="dot-fill" %}</span>
       <span class="c-tile__name">{{ tile.name }}</span>
-      <span class="c-tile__meta"><span class="c-label c-tone-{{ tile.tone }}">{{ tile.label }}</span><time datetime="{{ tile.last_seen|date:'c' }}" title="{{ tile.last_seen|date:'Y-m-d H:i:s T' }}">seen {{ tile.last_seen|timesince }} ago</time></span>
-    </a>
+      <span class="c-tile__meta"><span class="c-label c-tone-{{ tile.tone }}">{{ tile.label }}</span><span>seen {% include "console/partials/_time.html" with when=tile.last_seen %}</span></span>
+    {% if act.url %}</a>{% else %}</div>{% endif %}
     {% endfor %}
   </div>
   {% else %}

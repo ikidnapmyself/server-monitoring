@@ -6,6 +6,7 @@ from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.generic import TemplateView
 
+from apps.console.intents import admin_url
 from apps.console.middleware import CONSOLE_PATH_PREFIX
 
 
@@ -45,7 +46,7 @@ class ConsoleView(TemplateView):
 
     def _refusal(self, request):
         if not request.user.is_authenticated:
-            login_url = reverse("admin:login")
+            login_url = admin_url("login")
             if not self.is_htmx:
                 return redirect_to_login(self._return_path(request), login_url)
             # htmx would swap a followed redirect's login form into the page.

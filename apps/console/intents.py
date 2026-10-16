@@ -90,6 +90,11 @@ INTENTS: dict[str, Intent] = {
 }
 
 
+def admin_url(name: str) -> str:
+    """The admin's own pages the console chrome links to: index, login, logout."""
+    return reverse(f"admin:{name}")
+
+
 def resolve_action(action: Action, user) -> ResolvedAction:
     intent = INTENTS.get(action.intent)
     if intent is None or (intent.permission and not user.has_perm(intent.permission)):
