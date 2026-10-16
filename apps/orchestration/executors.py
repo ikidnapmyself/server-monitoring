@@ -28,8 +28,16 @@ from apps.orchestration.formatters import (
     format_intelligence_summary,
 )
 from apps.orchestration.models import PipelineStage
+from config.failures import FAILURE_KINDS, classify_failure
 
 logger = logging.getLogger(__name__)
+
+
+class _Status(Exception):
+    def __init__(self, status_code: int) -> None:
+        super().__init__(status_code)
+        self.status_code = status_code
+
 
 # Template keys that must never be accepted from untrusted pipeline payloads.
 # Stripping these before NotifySelector.resolve() ensures drivers cannot pick
@@ -128,33 +136,10 @@ class CheckExecutor(BaseExecutor):
 
     @staticmethod
     def _incident_checker_names(incident_id: int) -> list[str]:
-        """The distinct ``checker`` labels on an incident's alerts, oldest first.
+        """The local checkers an incident names. ``apps.alerts`` owns the rule."""
+        from apps.alerts.check_integration import incident_checker_names
 
-        Kept here rather than beside ``subject_alert`` in routing: those helpers
-        live there because two entry stages must share one definition of "which
-        alert represents this batch". This has one consumer — the stage whose scope
-        it is — and it answers a diagnosis question, not a routing one.
-
-        Filtered to the local registry on purpose. A node may report a checker this
-        hub does not have; that is the same situation as no label at all, since
-        there is nothing here that can run it. Passing the name through would make
-        the bridge record an error and the orchestrator retry a stage that can
-        never succeed.
-        """
-        from apps.alerts.models import Alert
-        from apps.checkers.checkers import CHECKER_REGISTRY
-
-        names: list[str] = []
-        label_sets = (
-            Alert.objects.filter(incident_id=incident_id)
-            .order_by("id")
-            .values_list("labels", flat=True)
-        )
-        for labels in label_sets:
-            name = (labels or {}).get("checker")
-            if name and name in CHECKER_REGISTRY and name not in names:
-                names.append(name)
-        return names
+        return incident_checker_names(incident_id)
 
     def execute(self, ctx: StageContext) -> CheckResult:
         """Execute checker diagnostics."""
@@ -354,7 +339,6 @@ class AnalyzeExecutor(BaseExecutor):
                 result.actions = [
                     getattr(r, "action", "") for r in recommendations if hasattr(r, "action")
                 ]
-                result.confidence = 0.8  # Default confidence
 
             # Generate output reference
             result.ai_output_ref = f"intelligence:{ctx.trace_id}:{ctx.run_id}:analyze"
@@ -367,11 +351,12 @@ class AnalyzeExecutor(BaseExecutor):
             # Apply fallback if enabled
             if self.fallback_enabled:
                 result.fallback_used = True
-                result.summary = "AI analysis unavailable"
-                result.probable_cause = "Unable to determine - AI provider error"
-                result.actions = ["Manual investigation required"]
-                result.confidence = 0.0
-                result.errors = []  # Clear errors since we're using fallback
+                result.failure = classify_failure(e)
+                result.error_detail = str(e)
+                result.summary = ""
+                result.probable_cause = ""
+                result.actions = []
+                result.errors = []
                 logger.info(
                     f"Using fallback analysis due to error: {error_msg}",
                     extra={"trace_id": ctx.trace_id},
@@ -640,6 +625,7 @@ class NotifyExecutor(BaseExecutor):
                     "status": "failed",
                     "provider_id": "",
                     "response": {"error": str(e)},
+                    "failure": classify_failure(e),
                 }
                 result.deliveries.append(delivery)
             else:
@@ -647,6 +633,16 @@ class NotifyExecutor(BaseExecutor):
                 success = bool(
                     send_result.get("success") or (send_result.get("status") == "success")
                 )
+                failure = ""
+                if not success:
+                    reported = send_result.get("failure")
+                    code = send_result.get("status_code")
+                    if reported in FAILURE_KINDS:
+                        failure = reported
+                    elif isinstance(code, int):
+                        failure = classify_failure(_Status(code))
+                    else:
+                        failure = "rejected"
                 delivery = {
                     "driver": selected_label or provider_name,
                     "provider": provider_name,
@@ -655,6 +651,7 @@ class NotifyExecutor(BaseExecutor):
                     "provider_id": send_result.get("message_id", "")
                     or send_result.get("provider_id", ""),
                     "response": send_result,
+                    "failure": failure,
                 }
                 result.deliveries.append(delivery)
                 if success:

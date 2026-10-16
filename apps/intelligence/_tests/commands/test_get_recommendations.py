@@ -645,3 +645,41 @@ class TestPathTraversalProtection(SimpleTestCase):
                 "--provider=local",
                 stdout=StringIO(),
             )
+
+
+class _AuthError(Exception):
+    status_code = 401
+
+
+class TestProviderFailure(TestCase):
+    """A provider that raises is a CommandError naming the failure kind, not a traceback."""
+
+    @pytest.mark.django_db
+    @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
+    def test_incident_analysis_provider_error(self, mock_get_provider):
+        from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
+
+        incident = Incident.objects.create(
+            status=IncidentStatus.OPEN, severity=AlertSeverity.WARNING
+        )
+        mock_get_provider.return_value.run.side_effect = _AuthError("invalid api key")
+
+        with pytest.raises(CommandError) as exc_info:
+            call_command(
+                "get_recommendations",
+                f"--incident-id={incident.id}",
+                "--provider=claude",
+                stdout=StringIO(),
+            )
+
+        message = str(exc_info.value)
+        assert "claude" in message
+        assert "(auth)" in message
+        assert "invalid api key" in message
+
+    @patch("apps.intelligence.management.commands.get_recommendations.get_provider")
+    def test_general_analysis_provider_error(self, mock_get_provider):
+        mock_get_provider.return_value.run.side_effect = TimeoutError("slow")
+
+        with pytest.raises(CommandError, match=r"\(timeout\): slow"):
+            call_command("get_recommendations", stdout=StringIO())

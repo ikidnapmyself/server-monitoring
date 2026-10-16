@@ -21,13 +21,6 @@ def url():
     return reverse("console:incidents")
 
 
-@pytest.fixture
-def staff(client):
-    user = get_user_model().objects.create_user("op", password="x", is_staff=True)
-    client.force_login(user)
-    return user
-
-
 def _alert(incident, node, key="a"):
     return Alert.objects.create(
         fingerprint=f"{incident.pk}:{key}",
@@ -561,3 +554,23 @@ def test_a_label_naming_the_node_does_not_override_a_link_to_another_node(client
     body = client.get(f"{url}?node={node.pk}").content.decode()
 
     assert f'id="incident-{incident.pk}"' not in body
+
+
+@pytest.mark.django_db
+def test_a_row_shows_the_describers_detail_escaped(client, staff, url):
+    incident = Incident.objects.create(severity="critical")
+    Alert.objects.create(
+        fingerprint="d",
+        name="Disk full",
+        description=f"Root {MARKUP}",
+        source="grafana",
+        incident=incident,
+        started_at=timezone.now(),
+    )
+    Incident.objects.create(severity="warning")
+
+    body = client.get(url).content.decode()
+
+    assert body.count('class="c-row__detail"') == 1
+    assert f'title="Root {ESCAPED}">Root {ESCAPED}</div>' in body
+    assert "<img" not in body

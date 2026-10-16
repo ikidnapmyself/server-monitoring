@@ -17,6 +17,7 @@ class EmailNotifyDriver(BaseNotifyDriver):
     """Driver for sending email notifications."""
 
     name = "email"
+    label = "Email"
 
     def validate_config(self, config: dict[str, Any]) -> bool:
         required_keys = {"smtp_host", "from_address"}
@@ -125,7 +126,12 @@ class EmailNotifyDriver(BaseNotifyDriver):
                     pass
 
         except smtplib.SMTPAuthenticationError as e:
-            return self._handle_exception(e, "Email", "authenticate SMTP")
+            return {**self._handle_exception(e, "Email", "authenticate SMTP"), "failure": "auth"}
+        except (smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected) as e:
+            return {
+                **self._handle_exception(e, "Email", "reach SMTP"),
+                "failure": "provider_down",
+            }
         except smtplib.SMTPException as e:
             return self._handle_exception(e, "Email", "send SMTP")
         except Exception as e:

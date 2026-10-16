@@ -45,9 +45,10 @@ pipeline stage and not an alert producer.
   are never paused for focus or for a text selection, because a page that stops
   updating without saying so is worse than a lost selection. Every focusable element
   in a polled region needs a stable unique `id` built from its record, such as
-  `incident-<pk>`, `node-<pk>` or `readiness-<key>`. After a swap htmx puts focus
-  back on the element with the same `id`. An element without one loses focus on
-  every poll. When a hidden tab becomes visible, `console.js` dispatches
+  `incident-<pk>`, `node-<pk>` or `readiness-<key>`. A readiness key comes from
+  `config.dashboard.keyed_readiness()`: the entry's key, plus the slugified lane name
+  for a per-lane gap. After a swap htmx puts focus back on the element with the same
+  `id`. An element without one loses focus on every poll. When a hidden tab becomes visible, `console.js` dispatches
   `console:refresh` on every `data-poll` element, so list that event in the element's
   `hx-trigger` next to the interval.
 - **The look is GitHub Primer, written by hand.** `static/console/console.css` is one
@@ -68,11 +69,14 @@ pipeline stage and not an alert producer.
   path. A name the sprite lacks fails `_tests/test_templates.py`.
 - **No dead ends.** Every page links onward. The underline nav under the header lists
   only pages that exist.
-- **Reads need active staff, nothing more.** The console doesn't check the admin's
-  model permissions for reads. A staff user without `orchestration.view_stageexecution`
-  gets a 403 on the admin's stage page and still sees the same snapshot on the incident
-  page. That is the approved design. Action views check the permissions the admin
-  checks.
+- **Reads use the admin's view permissions.** A view sets `read_permissions` and
+  `ConsoleView._refusal` checks them after the anonymous and staff checks: any one
+  suffices, as in `ModelAdmin.has_view_permission`, and none is a 403 "Permission to view
+  incidents required." The Overview, the incident list and the incident page all set
+  `alerts.view_incident` or `alerts.change_incident`, and the action and rerun views
+  inherit that from `IncidentPageView`. Action views add their own change or add
+  permission on top. A link the page shows still goes through an intent, so it appears
+  only for a user who holds that intent's permission.
 - **Querystrings go through `filters.py`.** A filter object parses and validates every
   param. An invalid value falls back to the default and is named in a one-line notice.
   Only validated values reach a query or a URL, through `querystring()`.
@@ -87,7 +91,32 @@ pipeline stage and not an alert producer.
   `output_snapshot` into `CheckBody`, `AnalyzeBody`, `NotifyBody` or `RawBody`. Every
   builder must survive a list, a string, `None` and wrong-typed members without
   raising, because a raise is a 500 on every poll. Raw JSON renders through
-  autoescaping only.
+  autoescaping only, inside an entry's Details.
+- **The incident page decodes nothing.** Every headline, stage outcome, check line,
+  analysis and delivery comes from the owning app's describer, and the read model builds
+  no admin URL. Navigation is an `Action` intent (`view_run`, `view_alert`), added only
+  when the description has no action of its own, so a link never hides a fix.
+- **`intents.py` is the only place that builds an admin URL.** `INTENTS` maps each
+  `Action.intent` to a URL builder, a method and a permission. `resolve_action` turns an
+  `Action` into a link, a POST button, or plain text when the intent is unknown, the user
+  lacks its permission or the URL can't be built. Config intents such as `edit_route`,
+  `edit_channel` and `edit_provider` point at the admin until their domain gets a console
+  page, and then only their entry here changes. `admin_url()` covers the chrome's index,
+  login and logout links. No template or query reverses an `admin:` name or writes
+  `/admin/`, and `_tests/test_intents.py` scans for both. Templates resolve an action with
+  `{% load console %}{% resolved action as act %}` and render it through
+  `partials/_action.html`.
+- **A `Description` renders through `partials/_description.html`.** It prints the
+  headline with its tone icon, the detail, the resolved action and the facts. Pass a
+  stable `id`, because the action and the Details derive theirs from it. Don't lay out a
+  description by hand in another template.
+- **Identifiers live in Details.** `partials/_details.html` is a `<details data-details>`
+  that holds the facts, copy buttons and raw JSON. Run ids, trace ids, error text and
+  codes go there as facts, never in a headline or a detail.
+  `_tests/test_guard.py` renders every page against `build_world()` from
+  `_tests/fixtures.py`, a world with every routing gap and failure kind, and fails if any
+  text outside `data-details` holds a UUID, a `snake_case` token, a `{` or a reason code.
+  A new outcome or reason code needs a case in `build_world()`.
 - **The incident timeline is capped.** The page shows lifecycle entries plus the newest
   `TIMELINE_LIMIT` others, and `?all=1` shows everything. Bodies are built only for
   entries that survive the cut. The database read is not capped.
@@ -97,10 +126,22 @@ pipeline stage and not an alert producer.
 - **Incident actions are one POST-only view.** `IncidentActionView`
   (`views/incident_action.py`) serves `incidents/<pk>/<action>/` and calls
   `IncidentManager.transition`, which owns the status rules and locks the row. The view
-  holds no rule of its own. It checks active staff first, then `alerts.change_incident`.
+  holds no rule of its own. It checks active staff first, then the page's read permissions,
+  then `alerts.change_incident`.
   The admin's own incident buttons sit behind `is_staff` alone, so the console is the
   stricter surface. `IncidentPageView` (`views/incident.py`) is the one place that builds
   the page context, so the page and the action response can't drift.
+- **Rerunning checks is its own POST-only view.** `IncidentRerunView`
+  (`views/incident_rerun.py`) serves `incidents/<pk>/rerun/`, needs
+  `checkers.add_checkrun` on top of the read permissions, and calls
+  `apps.alerts.check_integration.rerun_incident_checks`, which owns the rules. It runs the
+  incident's checkers only when the incident's node is this machine and names a checker
+  this machine has, and otherwise refuses with a warning notice. The view catches only
+  `RerunRefused` as a refusal. A `PipelineRunFailed` means the enqueue failed and rolled the
+  recording back, so its warning says nothing was recorded. The button appears only
+  when `can_rerun(incident)` holds. The rerun records alerts and enqueues runs without
+  draining them, so they notify real channels once `process_inbox` drains. Never drain
+  the inbox in a test.
 - **An action's outcome is a `Notice`, not a Django message.** An htmx POST gets the
   incident partial back with status 200 whether the action was applied or refused, with
   the outcome passed in the context as `notice`. The messages framework is shared with
@@ -121,9 +162,10 @@ pipeline stage and not an alert producer.
 - **A non-GET request can't be the login's `next`.** `ConsoleView._refusal` sends an
   anonymous GET or HEAD back to its own path. Anything else goes to `landing_path()`,
   which defaults to the Overview. An action view overrides it with the page it acts on.
-- **Buttons come from the read model.** `IncidentDetail.actions` is filled from
-  `available_incident_actions` only when the view passes `can_act=True`. A user without
-  the permission gets no buttons and no container. A button can still be stale by the
+- **Buttons come from the read model.** `IncidentDetail.do` holds the transitions from
+  `available_incident_actions` only when the view passes `can_act=True`, and the rerun
+  only when it passes `can_rerun=True` and `can_rerun(incident)` holds. A user without
+  the permission gets no buttons and no "Do this" box. A button can still be stale by the
   time it's clicked. `transition` then refuses it, and the operator sees a warning.
   Every action form disables every `.c-button` in `#incident` while its request runs. A
   second click would otherwise abort the first request in the browser only, and the

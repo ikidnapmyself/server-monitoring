@@ -267,6 +267,33 @@ class TimelineConsoleKeysTests(TestCase):
             assert "alert_severity" not in entry
             assert entry["label"] == entry["event"]
 
+    def test_alert_history_entries_carry_raw_statuses_and_severities(self):
+        incident = Incident.objects.create()
+        alert = Alert.objects.create(
+            fingerprint="check:web-03:cpu",
+            source="cluster",
+            name="cpu high",
+            incident=incident,
+            started_at=timezone.now(),
+        )
+        AlertHistory.objects.create(
+            alert=alert,
+            event="reevaluated",
+            old_status="firing",
+            new_status="resolved",
+            details={"severity_from": "critical", "severity_to": "warning"},
+        )
+        AlertHistory.objects.create(alert=alert, event="created", details=["junk"])
+
+        entries = {e["event"]: e for e in build_incident_timeline(incident)}
+
+        moved = entries["reevaluated"]
+        assert (moved["old_status"], moved["new_status"]) == ("firing", "resolved")
+        assert (moved["severity_from"], moved["severity_to"]) == ("critical", "warning")
+        created = entries["created"]
+        assert (created["old_status"], created["new_status"]) == ("", "")
+        assert (created["severity_from"], created["severity_to"]) == (None, None)
+
     def test_alert_history_does_not_query_per_row(self):
         incident = Incident.objects.create()
         for index in range(3):
@@ -310,3 +337,32 @@ class TimelineConsoleKeysTests(TestCase):
         assert stage_entry["duration_ms"] == 850.0
         assert stage_entry["output_snapshot"] == {"checks": [{"name": "cpu", "status": "ok"}]}
         assert stage_entry["label"] == "check succeeded"
+
+    def test_pipeline_and_stage_entries_carry_their_raw_errors(self):
+        incident = Incident.objects.create()
+        run = PipelineRun.objects.create(
+            trace_id="t",
+            run_id="r-err",
+            incident=incident,
+            status="failed",
+            last_error_message="no_route: x",
+        )
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage="notify",
+            status="failed",
+            started_at=timezone.now(),
+            error_message="slack 500",
+            error_retryable=False,
+        )
+        quiet = PipelineRun.objects.create(trace_id="t2", run_id="r-ok", incident=incident)
+        StageExecution.objects.create(
+            pipeline_run=quiet, stage="check", status="succeeded", started_at=timezone.now()
+        )
+
+        failed_run, failed_stage, quiet_run, quiet_stage = build_incident_timeline(incident)
+
+        assert failed_run["error_message"] == "no_route: x"
+        assert (failed_stage["error_message"], failed_stage["retryable"]) == ("slack 500", False)
+        assert quiet_run["error_message"] == ""
+        assert (quiet_stage["error_message"], quiet_stage["retryable"]) == ("", True)

@@ -1,3 +1,4 @@
+import inspect
 import json
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timedelta
@@ -5,27 +6,31 @@ from datetime import timezone as dt_timezone
 
 import pytest
 from django.db import connection
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
-from django.urls import reverse
 
+from apps.alerts.describing import alert_name, describe_incident
 from apps.alerts.models import Alert, AlertHistory, Incident, Node
 from apps.alerts.services import INCIDENT_ACTIONS
+from apps.checkers.checkers import CheckStatus
+from apps.checkers.describing import describe_check
 from apps.console.queries import incident as incident_queries
 from apps.console.queries.incident import (
     AnalyzeBody,
     CheckBody,
-    CheckLine,
-    Delivery,
-    IncidentAction,
     NotifyBody,
     RawBody,
     Recommendation,
     build_incident_detail,
     stage_body,
 )
+from apps.intelligence.describing import describe_analysis
+from apps.notify.describing import describe_notify
 from apps.orchestration.models import PipelineDefinition, PipelineRun, StageExecution
+from config.describing import Action, Description
 
 T0 = datetime(2026, 10, 14, 12, 0, tzinfo=dt_timezone.utc)
+QUERIES = 9
 
 CHECK_SNAPSHOT = {
     "alert_id": 15,
@@ -170,24 +175,32 @@ def test_header_fields_describe_the_incident():
     detail = build_incident_detail(incident.pk)
 
     assert detail.pk == incident.pk
-    assert detail.title == "DiskFull on web-1"
+    assert detail.what == describe_incident(incident)
+    assert (detail.what.headline, detail.what.detail) == ("DiskFull on web-1", "92% used")
     assert (detail.severity, detail.severity_tone) == ("critical", "critical")
     assert (detail.status, detail.status_tone) == ("acknowledged", "warning")
-    assert detail.description == "92% used"
     assert detail.summary == "Logs rotated"
     assert detail.created_at == T0
     assert detail.nodes == "Alpha, web-2"
     assert detail.pipeline == "pager"
     assert detail.alert_count == 4
-    assert detail.admin_url == reverse("admin:alerts_incident_change", args=[incident.pk])
     assert detail.url == f"/console/incidents/{incident.pk}/"
     assert detail.full_url == f"/console/incidents/{incident.pk}/?all=1"
     assert detail.recent_url == ""
     assert detail.hidden == 0
+    assert detail.do == ()
     assert isinstance(detail.stages, tuple)
     assert isinstance(detail.timeline, tuple)
     with pytest.raises(FrozenInstanceError):
-        detail.title = "x"
+        detail.what = None
+    for gone in ("title", "description", "admin_url", "actions"):
+        assert not hasattr(detail, gone)
+
+
+def test_the_read_model_builds_no_admin_url():
+    source = inspect.getsource(incident_queries)
+
+    assert "admin:" not in source
 
 
 @pytest.mark.django_db
@@ -246,33 +259,28 @@ def test_lifecycle_entries_come_from_the_incident_timestamps():
 
     detail = build_incident_detail(incident.pk)
 
-    assert [
-        (entry.id, entry.kind, entry.title, entry.tone, entry.when) for entry in detail.timeline
-    ] == [
-        ("entry-incident-created", "incident", "Incident opened", "critical", T0),
+    assert [(entry.id, entry.kind, entry.what, entry.when) for entry in detail.timeline] == [
+        ("entry-incident-created", "incident", Description("Incident opened", "critical"), T0),
         (
             "entry-incident-acknowledged",
             "incident",
-            "Incident acknowledged",
-            "warning",
+            Description("Incident acknowledged", "warning"),
             T0 + timedelta(minutes=1),
         ),
         (
             "entry-incident-resolved",
             "incident",
-            "Incident resolved",
-            "ok",
+            Description("Incident resolved", "ok"),
             T0 + timedelta(minutes=2),
         ),
         (
             "entry-incident-closed",
             "incident",
-            "Incident closed",
-            "muted",
+            Description("Incident closed", "muted"),
             T0 + timedelta(minutes=3),
         ),
     ]
-    assert all((entry.url, entry.detail, entry.body) == ("", "", None) for entry in detail.timeline)
+    assert all(entry.body is None for entry in detail.timeline)
 
 
 @pytest.mark.django_db
@@ -305,7 +313,7 @@ def test_entries_sort_by_time_with_lifecycle_first_on_a_tie():
 
 
 @pytest.mark.django_db
-def test_alert_history_entries_read_as_sentences_and_link_the_alert():
+def test_alert_history_entries_use_the_alert_describer_and_link_the_alert():
     incident = _incident()
     alert = _alert(incident, key="cpu high", severity="critical")
     created = _history(alert, "created", T0 + timedelta(seconds=1), new_status="firing")
@@ -319,99 +327,109 @@ def test_alert_history_entries_read_as_sentences_and_link_the_alert():
 
     detail = build_incident_detail(incident.pk)
 
+    link = Action("Open the alert", intent="view_alert", params={"pk": alert.pk})
     entry = _entry(detail, f"entry-alert_history-{created.pk}")
     assert entry.kind == "alert_history"
-    assert entry.title == "Alert cpu high created"
-    assert entry.detail == "— → firing"
-    assert entry.url == reverse("admin:alerts_alert_change", args=[alert.pk])
-    assert entry.tone == "info"
+    assert entry.what.headline == "cpu high started firing"
+    assert entry.what.tone == "info"
+    assert entry.what.action == link
+    assert [(f.label, f.value) for f in entry.what.facts] == [("Status", "firing")]
     assert entry.body is None
     entry = _entry(detail, f"entry-alert_history-{changed.pk}")
-    assert entry.title == "Alert cpu high severity changed"
-    assert entry.detail == "severity warning → critical"
-    assert entry.tone == "critical"
+    assert entry.what.headline == "cpu high moved from warning to critical"
+    assert entry.what.tone == "critical"
     entry = _entry(detail, f"entry-alert_history-{resolved.pk}")
-    assert entry.detail == ""
-    assert entry.tone == "ok"
-
-
-@pytest.mark.parametrize(
-    ("event", "severity_to", "tone"),
-    [
-        ("created", None, "info"),
-        ("refired", None, "info"),
-        ("resolved", None, "ok"),
-        ("updated", None, "muted"),
-        ("severity_changed", "critical", "critical"),
-        ("reevaluated", "warning", "warning"),
-        ("created", "critical", "critical"),
-        ("created", "bogus", "info"),
-        ("updated", ["critical"], "muted"),
-        ("resolved", {"a": 1}, "ok"),
-    ],
-)
-def test_alert_history_tones(event, severity_to, tone):
-    assert incident_queries.history_tone(event, severity_to) == tone
-
-
-@pytest.mark.parametrize(
-    ("status", "tone"),
-    [
-        ("succeeded", "ok"),
-        ("completed", "ok"),
-        ("notified", "ok"),
-        ("ingested", "info"),
-        ("checked", "info"),
-        ("analyzed", "info"),
-        ("failed", "critical"),
-        ("running", "info"),
-        ("pending", "info"),
-        ("retrying", "info"),
-        ("processing", "info"),
-        ("skipped", "muted"),
-        ("bogus", "muted"),
-    ],
-)
-def test_run_and_stage_tones(status, tone):
-    assert incident_queries.execution_tone(status) == tone
+    assert entry.what.headline == "cpu high cleared"
+    assert entry.what.tone == "ok"
+    assert entry.what.facts == ()
 
 
 @pytest.mark.django_db
-def test_run_and_stage_entries_read_as_sentences_and_link_the_admin():
+def test_a_checker_history_headline_holds_when_the_alerts_metrics_change():
+    incident = _incident(instance="web-1")
+    alert = Alert.objects.create(
+        fingerprint="check:web-1:cpu",
+        name="cpu",
+        severity="critical",
+        source="cluster",
+        labels={"checker": "cpu"},
+        raw_payload={"metrics": {"cpu_percent": 97.0}},
+        incident=incident,
+        started_at=T0,
+    )
+    row = _history(alert, "created", T0)
+    entry_id = f"entry-alert_history-{row.pk}"
+
+    before = _entry(build_incident_detail(incident.pk), entry_id).what.headline
+    Alert.objects.filter(pk=alert.pk).update(raw_payload={"metrics": {"cpu_percent": 12.0}})
+    after = _entry(build_incident_detail(incident.pk), entry_id).what.headline
+
+    assert before == after == f"{alert_name(alert)} started firing"
+    assert "97" not in before
+
+
+@pytest.mark.django_db
+def test_run_and_stage_entries_use_the_orchestration_describers():
     incident = _incident()
     run = _run(incident, T0 + timedelta(seconds=1), status="failed", run_id="run-9")
+    PipelineRun.objects.filter(pk=run.pk).update(last_error_message="no_route: nothing matched")
     check = _stage(
         run, "check", T0 + timedelta(seconds=2), duration_ms=850.0, output_snapshot=CHECK_SNAPSHOT
     )
     notify = _stage(
-        run, "notify", T0 + timedelta(seconds=3), status="failed", error_message="slack 500"
+        run,
+        "notify",
+        T0 + timedelta(seconds=3),
+        status="failed",
+        error_message="slack 500",
+        error_retryable=False,
     )
-    odd = _stage(run, "custom", T0 + timedelta(seconds=4), status="running")
+    routed = _stage(
+        run,
+        "notify",
+        T0 + timedelta(seconds=4),
+        status="failed",
+        attempt=2,
+        error_message="no_channel: the lane names no channel",
+    )
+    odd = _stage(run, "custom", T0 + timedelta(seconds=5), status="running")
 
     detail = build_incident_detail(incident.pk)
 
+    open_run = Action("Open the run", intent="view_run", params={"pk": run.pk})
     entry = _entry(detail, f"entry-pipeline-{run.pk}")
     assert entry.kind == "pipeline"
-    assert entry.title == "Pipeline run started"
-    assert entry.detail == "failed · run-9"
-    assert entry.tone == "critical"
-    assert entry.url == reverse("admin:orchestration_pipelinerun_change", args=[run.pk])
+    assert entry.what.headline == "Run failed: no route matches this incident"
+    assert entry.what.action.intent == "edit_route"
+    assert ("Run", "run-9") in [(f.label, f.value) for f in entry.what.facts]
     assert entry.body is None
     entry = _entry(detail, f"entry-stage-{check.pk}")
     assert entry.kind == "stage"
-    assert entry.title == "Diagnose succeeded in 850ms"
-    assert entry.detail == ""
-    assert entry.tone == "ok"
-    assert entry.url == reverse("admin:orchestration_stageexecution_change", args=[check.pk])
+    assert (entry.what.headline, entry.what.tone) == ("Diagnose finished in 850ms", "ok")
+    assert entry.what.action == open_run
     assert isinstance(entry.body, CheckBody)
     entry = _entry(detail, f"entry-stage-{notify.pk}")
-    assert entry.title == "Notify failed"
-    assert entry.detail == "slack 500"
-    assert entry.tone == "critical"
+    assert (entry.what.headline, entry.what.tone) == ("Notify failed", "critical")
+    assert ("Error", "slack 500") in [(f.label, f.value) for f in entry.what.facts]
+    assert entry.what.action.text == "Open the run's error in Details"
     assert entry.body is None
+    entry = _entry(detail, f"entry-stage-{routed.pk}")
+    assert entry.what.headline == "Not delivered: the matched route has no active channel"
+    assert entry.what.action.intent == "edit_route"
     entry = _entry(detail, f"entry-stage-{odd.pk}")
-    assert entry.title == "custom running"
-    assert entry.tone == "info"
+    assert (entry.what.headline, entry.what.tone) == ("Custom is running", "info")
+    assert entry.what.action == open_run
+
+
+@pytest.mark.django_db
+def test_a_quiet_run_links_itself():
+    incident = _incident()
+    run = _run(incident, T0)
+
+    entry = _entry(build_incident_detail(incident.pk), f"entry-pipeline-{run.pk}")
+
+    assert (entry.what.headline, entry.what.tone) == ("Run finished, notified", "ok")
+    assert entry.what.action == Action("Open the run", intent="view_run", params={"pk": run.pk})
 
 
 @pytest.mark.django_db
@@ -419,33 +437,25 @@ def test_stage_summaries_follow_the_diagnosis():
     pipeline = PipelineDefinition.objects.create(name="no-ai", stages=["check", "notify"])
     incident = _incident(pipeline=pipeline)
     run = _run(incident, T0)
-    check = _stage(run, "check", T0, output_snapshot=CHECK_SNAPSHOT)
+    _stage(run, "check", T0, output_snapshot=CHECK_SNAPSHOT)
 
     detail = build_incident_detail(incident.pk)
 
-    assert [
-        (s.stage, s.label, s.status, s.tone, s.detail, s.runs, s.url) for s in detail.stages
-    ] == [
-        (
-            "check",
-            "Diagnose",
-            "ok",
-            "ok",
-            "",
-            "succeeded in 1/1 runs",
-            reverse("admin:orchestration_stageexecution_change", args=[check.pk]),
-        ),
-        (
-            "analyze",
-            "Analyze",
-            "skipped",
-            "muted",
-            "config: analyze not in the pipeline's stages",
-            "",
-            "",
-        ),
-        ("notify", "Notify", "never ran", "muted", "", "succeeded in 0/1 runs", ""),
+    open_run = Action("Open the run", intent="view_run", params={"pk": run.pk})
+    assert [(s.stage, s.label) for s in detail.stages] == [
+        ("check", "Diagnose"),
+        ("analyze", "Analyze"),
+        ("notify", "Notify"),
     ]
+    check, analyze, notify = (s.outcome for s in detail.stages)
+    assert (check.headline, check.tone, check.action) == ("Diagnose finished", "ok", open_run)
+    assert [(f.label, f.value) for f in check.facts] == [("Runs", "succeeded in 1/1 runs")]
+    assert (analyze.headline, analyze.tone) == ("Analyze skipped", "muted")
+    assert analyze.detail == "not in this route's stages"
+    assert (analyze.action, analyze.facts) == (None, ())
+    assert (notify.headline, notify.tone) == ("Notify hasn't run yet", "muted")
+    assert [(f.label, f.value) for f in notify.facts] == [("Runs", "succeeded in 0/1 runs")]
+    assert notify.action is None
 
 
 @pytest.mark.django_db
@@ -453,69 +463,103 @@ def test_a_legacy_run_adds_the_ingest_summary():
     incident = _incident()
     run = PipelineRun.objects.create(trace_id="t", run_id="legacy", incident=incident)
     _stage(run, "ingest", T0, status="running")
-    _stage(run, "check", T0, status="failed", error_type="Boom", error_message="no disk")
+    _stage(
+        run,
+        "check",
+        T0,
+        status="failed",
+        error_type="Boom",
+        error_message="no_route: x",
+        error_retryable=False,
+    )
     _stage(run, "analyze", T0, status="succeeded")
 
     detail = build_incident_detail(incident.pk)
 
-    assert [(s.label, s.status, s.tone) for s in detail.stages] == [
-        ("Ingest", "stalled", "warning"),
-        ("Diagnose", "failed", "critical"),
-        ("Analyze", "empty", "warning"),
-        ("Notify", "never ran", "muted"),
+    assert [(s.label, s.outcome.headline, s.outcome.tone) for s in detail.stages] == [
+        ("Ingest", "Ingest stalled", "warning"),
+        ("Diagnose", "Diagnose failed: no route matches this incident", "critical"),
+        ("Analyze", "Analyze finished with nothing to report", "warning"),
+        ("Notify", "Notify hasn't run yet", "muted"),
     ]
-    assert detail.stages[1].detail == "Boom: no disk (retryable=True)"
+    assert detail.stages[1].outcome.action.intent == "edit_route"
 
 
-def test_a_check_snapshot_becomes_lines_and_counts():
-    body = stage_body("check", CHECK_SNAPSHOT)
+def test_a_check_snapshot_lists_problems_worst_first_and_counts_the_rest():
+    snapshot = {
+        "checks": [
+            {"name": "cpu", "status": "ok", "message": "fine", "metrics": {}},
+            {"name": "memory", "status": "warning", "message": "Memory high", "metrics": {}},
+            {"name": "raid", "status": "skipped", "message": "Skipped: no mdadm"},
+            {"name": "disk", "status": "critical", "message": "Disk full", "metrics": {}},
+            {"name": "network", "status": "unknown", "message": "ping failed"},
+            {"name": "process", "status": "ok", "message": "fine"},
+            {"name": "gpu", "status": "critical", "message": "GPU on fire\nfan stopped"},
+        ],
+        "checks_run": 7,
+        "errors": ["disk: timed out", 5, "net: refused"],
+    }
 
-    assert body == CheckBody(
-        lines=(
-            CheckLine("cpu", "ok", "ok", "CPU usage: 21.8% (avg of 5 samples)"),
-            CheckLine("memory", "warning", "warning", "Memory usage: 80.6% (3.9/8.0 GB)"),
-        ),
-        run=2,
-        passed=1,
-        failed=1,
-        errors=("disk: timed out",),
-        raw=_raw(CHECK_SNAPSHOT),
-    )
+    body = stage_body("check", snapshot)
+
     assert body.kind == "check"
-    assert '"checks_run": 2' in body.raw
-    assert body.raw.index('"alert_id"') < body.raw.index('"checks"')
+    assert [(d.headline, d.tone) for d in body.problems] == [
+        (describe_check("disk", CheckStatus.CRITICAL, {}, "Disk full").headline, "critical"),
+        ("GPU on fire", "critical"),
+        ("Network reachability could not be checked", "muted"),
+        (describe_check("memory", CheckStatus.WARNING, {}, "Memory high").headline, "warning"),
+    ]
+    gpu = body.problems[1]
+    assert gpu.detail == "GPU on fire\nfan stopped"
+    assert [(f.label, f.value) for f in gpu.facts] == [("Described by", "the node")]
+    assert (body.ok_count, body.skipped_count) == (2, 1)
+    assert body.errors.headline == "The checks hit 3 errors"
+    assert [f.value for f in body.errors.facts] == ["disk: timed out", "5", "net: refused"]
+    assert body.raw == _raw(snapshot)
 
 
-def test_an_analyze_snapshot_becomes_prose_and_recommendations():
-    body = stage_body("analyze", ANALYZE_SNAPSHOT)
+def test_a_check_snapshot_without_errors_has_none():
+    body = stage_body("check", {"checks": [], "errors": []})
+
+    assert (body.problems, body.ok_count, body.skipped_count, body.errors) == ((), 0, 0, None)
+
+
+def test_an_analyze_snapshot_becomes_its_outcome_and_recommendations():
+    snapshot = {**ANALYZE_SNAPSHOT, "fallback_used": False, "failure": ""}
+
+    body = stage_body("analyze", snapshot)
 
     assert body == AnalyzeBody(
-        summary="Memory is tight on web-1.",
-        probable_cause="A leak in the worker.",
+        outcome=describe_analysis(snapshot),
         actions=("Restart the worker",),
         recommendations=(Recommendation("Add swap", "medium", "The box has none."),),
-        confidence=80,
-        fallback_used=True,
-        errors=(),
-        raw=_raw(ANALYZE_SNAPSHOT),
+        raw=_raw(snapshot),
     )
+    assert body.outcome.headline == "Memory is tight on web-1."
     assert body.kind == "analyze"
 
 
-def test_a_notify_snapshot_becomes_deliveries_and_counts():
+@pytest.mark.parametrize(
+    "failure", [{"fallback_used": True}, {"fallback_used": False, "failure": "auth"}]
+)
+def test_a_failed_analysis_drops_its_recommendations_and_actions(failure):
+    snapshot = {**ANALYZE_SNAPSHOT, **failure}
+
+    body = stage_body("analyze", snapshot)
+
+    assert body.outcome == describe_analysis(snapshot)
+    assert body.outcome.tone == "warning"
+    assert (body.actions, body.recommendations) == ((), ())
+    assert not hasattr(body, "confidence")
+
+
+def test_a_notify_snapshot_becomes_described_deliveries():
     body = stage_body("notify", NOTIFY_SNAPSHOT)
 
     assert body == NotifyBody(
-        deliveries=(
-            Delivery("slack", "#alerts", "success", "ok", "a970"),
-            Delivery("email", "ops@example.com", "failed", "critical", ""),
-        ),
-        attempted=2,
-        succeeded=1,
-        failed=1,
-        errors=("email: refused",),
-        raw=_raw(NOTIFY_SNAPSHOT),
+        deliveries=describe_notify(NOTIFY_SNAPSHOT), raw=_raw(NOTIFY_SNAPSHOT)
     )
+    assert [d.tone for d in body.deliveries] == ["ok", "critical"]
     assert body.kind == "notify"
 
 
@@ -551,47 +595,25 @@ def test_a_malformed_check_snapshot_does_not_raise():
         "checks": [
             "cpu",
             None,
-            {"name": ["x"], "status": {"a": 1}, "message": None},
+            {"name": ["x"], "status": {"a": 1}, "message": None, "metrics": [1]},
             {"name": 7, "status": "bogus", "message": 1.5},
+            {"name": "cpu", "status": ["ok"], "metrics": "lots"},
+            {},
         ],
         "checks_run": "two",
-        "checks_passed": None,
-        "checks_failed": True,
         "errors": "boom",
     }
 
-    assert stage_body("check", snapshot) == CheckBody(
-        lines=(CheckLine("", "", "muted", ""), CheckLine("7", "bogus", "muted", "1.5")),
-        run=0,
-        passed=0,
-        failed=0,
-        errors=(),
-        raw=_raw(snapshot),
-    )
-    assert stage_body("check", {"checks": {"name": "cpu"}}).lines == ()
+    body = stage_body("check", snapshot)
 
-
-@pytest.mark.parametrize(
-    ("confidence", "expected"),
-    [
-        (0.8, 80),
-        (1, 100),
-        (0, 0),
-        (7.5, 100),
-        (-1, 0),
-        (1e308, 100),
-        (10**400, 100),
-        (-(10**400), 0),
-        (float("nan"), None),
-        (float("inf"), None),
-        (True, None),
-        ("0.8", None),
-        (None, None),
-        ([0.8], None),
-    ],
-)
-def test_confidence_is_a_clamped_percent_or_nothing(confidence, expected):
-    assert stage_body("analyze", {"confidence": confidence}).confidence == expected
+    assert [(d.headline, d.tone) for d in body.problems] == [
+        ("Unnamed check", "muted"),
+        ("1.5", "muted"),
+        ("CPU usage could not be checked", "muted"),
+        ("Unnamed check", "muted"),
+    ]
+    assert (body.ok_count, body.skipped_count, body.errors) == (0, 0, None)
+    assert stage_body("check", {"checks": {"name": "cpu"}}).problems == ()
 
 
 def test_a_malformed_analyze_snapshot_does_not_raise():
@@ -605,13 +627,9 @@ def test_a_malformed_analyze_snapshot_does_not_raise():
     }
 
     assert stage_body("analyze", snapshot) == AnalyzeBody(
-        summary="",
-        probable_cause="",
+        outcome=describe_analysis(snapshot),
         actions=("ok", "3"),
         recommendations=(Recommendation("", "2", ""),),
-        confidence=None,
-        fallback_used=False,
-        errors=("real",),
         raw=_raw(snapshot),
     )
     assert stage_body("analyze", {"actions": "restart", "recommendations": 5}).actions == ()
@@ -621,20 +639,15 @@ def test_a_malformed_notify_snapshot_does_not_raise():
     snapshot = {
         "deliveries": [None, "slack", {"provider": 1, "status": None, "provider_id": 42}],
         "channels_attempted": "1",
-        "channels_succeeded": 1.5,
-        "channels_failed": [],
         "errors": {"a": "b"},
     }
 
-    assert stage_body("notify", snapshot) == NotifyBody(
-        deliveries=(Delivery("1", "", "", "muted", "42"),),
-        attempted=0,
-        succeeded=0,
-        failed=0,
-        errors=(),
-        raw=_raw(snapshot),
+    body = stage_body("notify", snapshot)
+
+    assert [d.tone for d in body.deliveries] == ["critical"]
+    assert stage_body("notify", {"deliveries": "none"}).deliveries == (
+        Description("Nothing was sent", "muted"),
     )
-    assert stage_body("notify", {"deliveries": "none"}).deliveries == ()
 
 
 @pytest.mark.django_db
@@ -676,7 +689,7 @@ def test_the_query_count_does_not_grow_with_the_incident():
         detail = build_incident_detail(large.pk)
 
     assert len(detail.timeline) == 1 + 6 * 5
-    assert len(few) == len(many) == 8
+    assert len(few) == len(many) == QUERIES
 
 
 def test_raw_json_keeps_non_ascii_text_readable():
@@ -782,16 +795,16 @@ def test_the_cap_does_not_change_the_query_count(monkeypatch):
     with CaptureQueriesContext(connection) as full:
         build_incident_detail(incident.pk, full=True)
 
-    assert len(whole) == len(capped) == len(full) == 8
+    assert len(whole) == len(capped) == len(full) == QUERIES
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("status", ["open", "acknowledged", "resolved", "closed"])
-def test_no_actions_unless_the_caller_may_act(status):
+def test_nothing_to_do_unless_the_caller_may_act(status):
     incident = _incident(status=status)
 
-    assert build_incident_detail(incident.pk).actions == ()
-    assert build_incident_detail(incident.pk, can_act=False).actions == ()
+    assert build_incident_detail(incident.pk).do == ()
+    assert build_incident_detail(incident.pk, can_act=False).do == ()
 
 
 @pytest.mark.django_db
@@ -804,28 +817,56 @@ def test_no_actions_unless_the_caller_may_act(status):
         ("closed", ()),
     ],
 )
-def test_actions_follow_the_status_when_the_caller_may_act(status, keys):
+def test_transitions_follow_the_status_when_the_caller_may_act(status, keys):
     incident = _incident(status=status)
 
     detail = build_incident_detail(incident.pk, can_act=True)
 
-    assert tuple(action.key for action in detail.actions) == keys
-    assert detail.actions == tuple(
-        IncidentAction(
-            key=key,
-            label=key.capitalize(),
-            url=f"/console/incidents/{incident.pk}/{key}/",
-        )
-        for key in keys
+    assert detail.do == tuple(
+        Action(key.capitalize(), intent=key, params={"pk": incident.pk}) for key in keys
     )
 
 
 @pytest.mark.django_db
-def test_an_action_is_frozen():
-    (action,) = build_incident_detail(_incident(status="resolved").pk, can_act=True).actions
+@override_settings(INSTANCE_ID="this-box")
+@pytest.mark.parametrize(
+    ("instance", "checker", "can_rerun", "offered"),
+    [
+        ("this-box", "cpu", True, True),
+        ("this-box", "cpu", False, False),
+        ("other-box", "cpu", True, False),
+        ("this-box", "no_such_checker", True, False),
+    ],
+)
+def test_rerun_is_offered_only_for_a_local_incident_with_a_known_checker(
+    instance, checker, can_rerun, offered
+):
+    incident = _incident(instance=instance, status="closed")
+    Alert.objects.create(
+        fingerprint=f"check:{instance}:{checker}",
+        name=checker,
+        source="cluster",
+        labels={"checker": checker},
+        incident=incident,
+        started_at=T0,
+    )
 
-    with pytest.raises(FrozenInstanceError):
-        action.label = "x"
+    detail = build_incident_detail(incident.pk, can_act=True, can_rerun=can_rerun)
+
+    rerun = Action("Run the checks again", intent="rerun_check", params={"pk": incident.pk})
+    assert detail.do == ((rerun,) if offered else ())
+
+
+@pytest.mark.django_db
+@override_settings(INSTANCE_ID="this-box")
+def test_rerun_follows_the_transitions():
+    incident = _incident(instance="this-box", status="resolved")
+    _alert(incident, key="x")
+    Alert.objects.filter(incident=incident).update(labels={"checker": "cpu"})
+
+    detail = build_incident_detail(incident.pk, can_act=True, can_rerun=True)
+
+    assert [a.intent for a in detail.do] == ["close", "rerun_check"]
 
 
 @pytest.mark.django_db

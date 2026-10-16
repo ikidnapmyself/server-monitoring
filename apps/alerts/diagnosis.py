@@ -85,6 +85,9 @@ def diagnose_incident(incident) -> list[dict]:
     never_ran), ``detail`` (str|None), ``runs`` (str|None rollup), and
     ``execution_pk`` / ``run_pk`` naming the execution the status came from, so a
     surface can link the failure it reports rather than only describing it.
+    ``execution_status`` (that execution's ``StageStatus``, ``"skipped"`` for a config
+    skip, else None), ``error_message`` (str) and ``retryable`` (bool) carry the raw
+    outcome for a describer; ``detail`` stays the admin's preformatted string.
 
     INGEST appears only for an incident with a run from before "a run is an
     incident" — see ``_stage_order``.
@@ -106,6 +109,9 @@ def _diagnose_stage(incident, stage, runs, total) -> dict:
         "runs": None,
         "execution_pk": None,
         "run_pk": None,
+        "execution_status": None,
+        "error_message": "",
+        "retryable": False,
     }
 
     # Latest execution for this stage: newest run first, highest attempt within.
@@ -125,6 +131,8 @@ def _diagnose_stage(incident, stage, runs, total) -> dict:
     if latest is None and not _is_expected(incident, stage):
         entry["status"] = StageDiag.SKIPPED.value
         entry["detail"] = f"config: {stage.value} not in the pipeline's stages"
+        entry["execution_status"] = StageStatus.SKIPPED.value
+        entry["error_message"] = "Skipped: not in this route's stages"
         return entry
 
     if total:
@@ -135,6 +143,9 @@ def _diagnose_stage(incident, stage, runs, total) -> dict:
 
     entry["execution_pk"] = latest.pk
     entry["run_pk"] = latest.pipeline_run_id
+    entry["execution_status"] = latest.status
+    entry["error_message"] = latest.error_message or ""
+    entry["retryable"] = bool(latest.error_retryable)
     _classify_from_execution(entry, latest, stage)
     return entry
 

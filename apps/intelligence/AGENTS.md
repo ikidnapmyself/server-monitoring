@@ -11,15 +11,27 @@ Responsibilities:
 - Use a provider-architecture (`apps/intelligence/providers/`)
 
 Output contract (to orchestrator):
-- `{ summary, probable_cause, actions, confidence, ai_output_ref, model_info }`
+- `{ summary, probable_cause, actions, confidence, failure, error_detail, ai_output_ref, model_info }`
+
+**A failed analysis is a failure, not an answer.** A provider's `analyze` raises when its
+API call fails. It never returns a made-up recommendation. `AnalyzeExecutor` catches the
+error, and with the fallback on it sets `fallback_used`, `failure` from
+`config.failures.classify_failure` (`auth`, `rate_limit`, `timeout`, `provider_down`,
+`rejected`, `unknown`) and `error_detail` from the exception, and leaves the summary,
+cause and actions empty. `confidence` is `None` until a provider reports one. The
+executor sets no default. `describe_analysis` in `apps/intelligence/describing.py` turns
+the stored snapshot into a `Description`: a failure leads with its cause and fix and
+shows no confidence. A snapshot without a `failure` key predates this and its confidence
+was invented, so the describer hides it.
 
 ## Key modules
 
 - `apps/intelligence/providers/` — provider implementations and registry
-  - `ai_base.py` — `BaseAIProvider` shared by all LLM-backed providers
+  - `ai_base.py` — `BaseAIProvider` shared by all LLM-backed providers. API errors propagate
   - `local.py` — Local analysis provider (fallback/default)
   - `openai.py`, `claude.py`, `gemini.py`, `copilot.py`, `grok.py`, `ollama.py`, `mistral.py` — LLM providers
   - `__init__.py` — `PROVIDERS` registry, `get_provider()`, `get_active_provider()`
+- `apps/intelligence/describing.py` — `describe_analysis`, an analyze snapshot in words
 - `apps/intelligence/models.py` — `IntelligenceProvider` (DB-driven config), `AnalysisRun`
 - `apps/intelligence/management/commands/` — `get_recommendations`
 - `apps/intelligence/urls.py` — URL routing

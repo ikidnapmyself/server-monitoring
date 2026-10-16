@@ -24,6 +24,7 @@ class SlackNotifyDriver(BaseNotifyDriver):
     """
 
     name = "slack"
+    label = "Slack"
 
     def validate_config(self, config: dict[str, Any]) -> bool:
         if "webhook_url" not in config:

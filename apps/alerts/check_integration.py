@@ -22,8 +22,10 @@ Usage:
 
 import logging
 import socket
+import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 from django.utils import timezone
@@ -33,6 +35,7 @@ from apps.alerts.identity import checker_fingerprint, local_instance_id
 from apps.alerts.models import (
     Alert,
     AlertSeverity,
+    Incident,
     Node,
 )
 from apps.alerts.services import AlertOrchestrator, ProcessingResult
@@ -42,6 +45,9 @@ from apps.checkers.checkers import (
     CheckStatus,
     checker_label,
 )
+
+if TYPE_CHECKING:
+    from apps.orchestration.models import PipelineRun
 
 logger = logging.getLogger(__name__)
 
@@ -420,19 +426,176 @@ class CheckAlertBridge:
 
         result = CheckAlertResult()
         for checker_name in checker_names:
-            try:
-                check_result = self._run_checker(
-                    checker_name, checker_configs.get(checker_name, {})
-                )
-            except Exception as e:
-                logger.exception(f"Error running checker {checker_name}")
-                result.errors.append(f"{checker_name}: {str(e)}")
+            check_results, errors = self.run_checks([checker_name], checker_configs)
+            result.errors.extend(errors)
+            if not check_results:
                 continue
 
             # Record as we go rather than batching at the end: each alert is
             # timestamped at its own checker's completion, and a later checker
             # that hangs or dies leaves the earlier ones already recorded.
             # Recording is the same step a caller with its own results takes.
-            result.merge(self.process_check_results([check_result], labels))
+            result.merge(self.process_check_results(check_results, labels))
 
         return result
+
+    def run_checks(
+        self,
+        checker_names: list[str],
+        checker_configs: dict[str, dict[str, Any]] | None = None,
+    ) -> tuple[list[CheckResult], list[str]]:
+        """Run these checkers and record nothing.
+
+        A checker that raises is logged and named in the returned errors, and the rest
+        still run. Pass the results to ``process_check_results`` to record them.
+        """
+        checker_configs = checker_configs or {}
+        results: list[CheckResult] = []
+        errors: list[str] = []
+        for checker_name in checker_names:
+            try:
+                results.append(
+                    self._run_checker(checker_name, checker_configs.get(checker_name, {}))
+                )
+            except Exception as e:
+                logger.exception(f"Error running checker {checker_name}")
+                errors.append(f"{checker_name}: {str(e)}")
+        return results, errors
+
+
+@dataclass
+class ChecksRerun:
+    """What rerunning an incident's checks recorded, and the runs it enqueued."""
+
+    checks: CheckAlertResult
+    runs: list["PipelineRun"]
+
+
+class PipelineRunFailed(Exception):
+    """The recording succeeded, then enqueueing or draining its runs failed.
+
+    An enqueue failure happens inside the recording's transaction, so it rolls the
+    recording back and nothing is kept. Only a sync drain runs after the commit, so
+    only its failure leaves the alerts and their runs recorded.
+    """
+
+
+class RerunRefused(ValueError):
+    """``rerun_incident_checks`` won't run this incident's checkers on this machine."""
+
+
+def _record_and_enqueue(
+    record: Callable[[], CheckAlertResult], *, trace_id: str, sync: bool, no_notify: bool
+) -> tuple[CheckAlertResult, list["PipelineRun"]]:
+    from apps.orchestration.intake import enqueue_for
+    from apps.orchestration.models import PipelineOrigin
+
+    result = None
+    try:
+        # One transaction for the writes and the enqueue they justify: a crash
+        # between them leaves an incident durably written with no run, and the
+        # next tick reports the same condition at the same severity, so nothing
+        # is material and nothing is ever enqueued for it. A sync drain is
+        # registered with ``transaction.on_commit`` inside ``enqueue_for``, so it
+        # runs after this block rather than against uncommitted rows.
+        with transaction.atomic():
+            result = record()
+            runs = enqueue_for(
+                result,
+                trace_id=trace_id,
+                origin=PipelineOrigin.CHECKER_GENERATED,
+                source=CheckAlertBridge.SOURCE_NAME,
+                no_notify=no_notify,
+                sync=sync,
+            )
+    except Exception as exc:
+        if result is None:
+            raise
+        raise PipelineRunFailed(str(exc)) from exc
+    return result, runs
+
+
+def record_and_enqueue(
+    results: list[CheckResult], *, trace_id: str, sync: bool, no_notify: bool = False
+) -> CheckAlertResult:
+    """Record alerts for results already run, and enqueue the runs they earn.
+
+    Raises ``PipelineRunFailed`` when the recording succeeded and the enqueue or the
+    sync drain after it did not. A failed enqueue rolls the recording back. Anything
+    else raised comes from the recording.
+    """
+    bridge = CheckAlertBridge(trace_id=trace_id)
+    result, _ = _record_and_enqueue(
+        lambda: bridge.process_check_results(results),
+        trace_id=trace_id,
+        sync=sync,
+        no_notify=no_notify,
+    )
+    return result
+
+
+def incident_checker_names(incident_id: int) -> list[str]:
+    """The incident's distinct ``checker`` labels this machine can run, oldest first.
+
+    Filtered to the local registry on purpose. A node may report a checker this
+    machine does not have; that is the same situation as no label at all, since
+    there is nothing here that can run it. Passing the name through would make the
+    bridge record an error and the orchestrator retry a CHECK stage that can never
+    succeed. An empty list means "run none", never
+    "run every checker": see ``CheckAlertBridge.run_checks_and_alert``.
+    """
+    names: list[str] = []
+    label_sets = (
+        Alert.objects.filter(incident_id=incident_id)
+        .order_by("id")
+        .values_list("labels", flat=True)
+    )
+    for labels in label_sets:
+        name = labels.get("checker") if isinstance(labels, dict) else None
+        if name in CHECKER_REGISTRY and name not in names:
+            names.append(name)
+    return names
+
+
+def can_rerun(incident: Incident) -> bool:
+    """Whether ``rerun_incident_checks`` would run anything for this incident."""
+    return incident.instance == local_instance_id() and bool(incident_checker_names(incident.pk))
+
+
+def rerun_incident_checks(incident_id: int) -> ChecksRerun:
+    """Run the incident's checkers again here and enqueue what changed.
+
+    The runs are left for ``process_inbox``: an operator's click must not wait on
+    analysis and notification.
+
+    Raises:
+        Incident.DoesNotExist: No incident has this id.
+        RerunRefused: The incident is about another machine, or names no checker
+            this machine has.
+        PipelineRunFailed: Enqueueing the runs failed. The runs are never drained here,
+            so this always rolled the recording back.
+    """
+    incident = Incident.objects.get(pk=incident_id)
+    if incident.instance != local_instance_id():
+        raise RerunRefused("The incident is about another machine.")
+    names = incident_checker_names(incident.pk)
+    if not names:
+        raise RerunRefused("The incident names no checker this machine has.")
+    trace_id = str(uuid.uuid4())
+    bridge = CheckAlertBridge(trace_id=trace_id)
+    # Run before the transaction opens: a checker can sample for seconds, and on SQLite
+    # an open write transaction locks the whole database for that long.
+    results, errors = bridge.run_checks(names)
+
+    def record() -> CheckAlertResult:
+        checks = CheckAlertResult(errors=errors)
+        checks.merge(bridge.process_check_results(results))
+        return checks
+
+    checks, runs = _record_and_enqueue(
+        record,
+        trace_id=trace_id,
+        sync=False,
+        no_notify=False,
+    )
+    return ChecksRerun(checks=checks, runs=runs)

@@ -147,7 +147,9 @@ class AnalyzeResult:
     - summary: Human-readable summary of the incident
     - probable_cause: AI-determined probable cause
     - actions: Recommended actions to take
-    - confidence: Confidence score of the analysis
+    - confidence: Confidence score the provider reported, None when it reported none
+    - failure: Kind of failure from config.failures.FAILURE_KINDS, empty on success
+    - error_detail: The provider's error message when the analysis failed
     - ai_output_ref: Reference to stored AI output
     - model_info: Information about the model used
     """
@@ -156,10 +158,12 @@ class AnalyzeResult:
     probable_cause: str = ""
     actions: list[str] = field(default_factory=list)
     recommendations: list[dict[str, Any]] = field(default_factory=list)
-    confidence: float = 0.0
+    confidence: float | None = None
     ai_output_ref: str | None = None
     model_info: dict[str, Any] = field(default_factory=dict)
     fallback_used: bool = False
+    failure: str = ""
+    error_detail: str = ""
     errors: list[str] = field(default_factory=list)
     duration_ms: float = 0.0
 

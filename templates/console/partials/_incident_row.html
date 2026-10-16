@@ -3,6 +3,7 @@
   <div class="c-row__main">
     <a id="incident-{{ row.pk }}" href="{{ row.url }}">{{ row.title }}</a>
     <span class="c-label c-tone-{{ row.severity_tone }}">{{ row.severity }}</span>
-    <div class="c-row__meta"><span class="c-host{% if not row.nodes %} c-host--unknown{% endif %}">{% include "console/partials/_octicon.html" with name="server" %}{{ row.nodes|default:"Unknown host" }}</span> · #{{ row.pk }} opened <time datetime="{{ row.created_at|date:'c' }}" title="{{ row.created_at|date:'Y-m-d H:i:s T' }}">{{ row.created_at|timesince }} ago</time> · {{ row.alert_count }} alert{{ row.alert_count|pluralize }}</div>
+    {% if row.detail %}<div class="c-row__detail" title="{{ row.detail }}">{{ row.detail }}</div>{% endif %}
+    <div class="c-row__meta"><span class="c-host{% if not row.nodes %} c-host--unknown{% endif %}">{% include "console/partials/_octicon.html" with name="server" %}{{ row.nodes|default:"Unknown host" }}</span> · #{{ row.pk }} opened {% include "console/partials/_time.html" with when=row.created_at %} · {{ row.alert_count }} alert{{ row.alert_count|pluralize }}</div>
   </div>
 </li>

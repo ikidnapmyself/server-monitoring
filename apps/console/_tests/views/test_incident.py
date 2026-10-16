@@ -1,5 +1,6 @@
 import re
 from datetime import timedelta
+from html.parser import HTMLParser
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -22,13 +23,6 @@ ESCAPED = "&lt;img src=x onerror=alert(1)&gt;"
 BOTH = pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
 
 
-@pytest.fixture
-def staff(client):
-    user = get_user_model().objects.create_user("op", password="x", is_staff=True)
-    client.force_login(user)
-    return user
-
-
 def _url(incident):
     return reverse("console:incident", args=[incident.pk])
 
@@ -42,6 +36,33 @@ def _nav(body, label):
     return re.search(
         rf'(<a class="c-unav__item" [^>]*>)(?:(?!</a>).)*<span>{label}</span></a>', body, re.S
     ).group(1)
+
+
+class _FocusAudit(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.focusable = []
+        self.ids = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if "id" in attrs:
+            self.ids.append(attrs["id"])
+        hidden = tag == "input" and attrs.get("type") == "hidden"
+        if (
+            tag in ("button", "select", "textarea", "summary")
+            or (tag == "input" and not hidden)
+            or (tag == "a" and "href" in attrs)
+            or "tabindex" in attrs
+        ):
+            self.focusable.append((tag, attrs.get("id")))
+
+
+def focus_audit(html):
+    """Every focusable element as ``(tag, id)``, and every id, in document order."""
+    audit = _FocusAudit()
+    audit.feed(html)
+    return audit.focusable, audit.ids
 
 
 def named_incident(name, **fields):
@@ -232,19 +253,65 @@ def test_the_header_describes_the_incident_and_links_onward(client, staff, heade
     assert re.search(
         r'<span class="c-state c-status--acknowledged"><svg\b.*?</svg>Acknowledged</span>', body
     )
-    assert re.search(r'Started <time datetime="[^"]+" title="[^"]+">[^<]+</time>', body)
+    assert re.search(r'Started <time datetime="[^"]+" title="[^"]+">[^<]+ ago</time>', body)
     assert re.search(r">\d+m?s so far<", body)
     assert "<span>web-1</span>" in body
     assert "<span>1 alert</span>" in body
     assert "<span>pager</span>" in body
-    assert '<p class="c-prose">92% used</p>' in body
     assert '<p class="c-prose">Logs rotated</p>' in body
-    admin_url = reverse("admin:alerts_incident_change", args=[incident.pk])
-    admin = f'<a id="incident-admin" class="c-button c-button--sm" href="{admin_url}">Edit raw</a>'
-    assert admin in body
     back = _tag(body, "incident-back")
     assert f'href="{reverse("console:incidents")}"' in back
     assert re.search(r'<a id="incident-back"[^>]*><svg\b.*?</svg>Back to incidents</a>', body)
+
+
+@pytest.mark.django_db
+@BOTH
+def test_whats_wrong_renders_the_incident_description(client, staff, headers):
+    incident, *_ = _busy()
+
+    body = client.get(_url(incident), **headers).content.decode()
+
+    box = body[body.index("What's wrong") : body.index("</section>")]
+    assert '<div class="c-description c-tone-critical">' in box
+    assert "<span>disk on web-1</span>" in box
+    assert '<p class="c-description__detail">92% used</p>' in box
+    assert _tag(box, "incident-what-details").startswith("<details ")
+    assert "<dt>Fingerprint</dt><dd>check:web-1:disk</dd>" in box
+
+
+@pytest.mark.django_db
+@BOTH
+def test_the_page_has_no_edit_raw_and_no_open_in_admin(client, staff, headers):
+    incident, *_ = _busy()
+
+    body = client.get(_url(incident), **headers).content.decode()
+
+    assert "Edit raw" not in body
+    assert "Open in admin" not in body
+    assert "incident-admin" not in body
+
+
+@pytest.mark.django_db
+@BOTH
+def test_a_staff_user_without_admin_permissions_gets_no_admin_link(client, staff, headers):
+    incident, *_ = _busy()
+
+    body = client.get(_url(incident), **headers).content.decode()
+    region = body if headers else body[body.index('<div id="incident"') : body.index("</main>")]
+
+    assert 'href="/admin/' not in region
+    assert "Open the run" in region and "Open the alert" in region
+
+
+@pytest.mark.django_db
+def test_a_superuser_gets_navigation_links_into_the_admin(client):
+    client.force_login(get_user_model().objects.create_superuser("root", password="x"))
+    incident, alert, _, run, *_ = _busy()
+
+    body = client.get(_url(incident), **HTMX).content.decode()
+
+    assert f'href="{reverse("admin:alerts_alert_change", args=[alert.pk])}"' in body
+    assert f'href="{reverse("admin:orchestration_pipelinerun_change", args=[run.pk])}"' in body
 
 
 @pytest.mark.django_db
@@ -270,61 +337,64 @@ def test_a_finished_bare_incident_drops_the_optional_header_parts(client, staff)
 
 @pytest.mark.django_db
 @BOTH
-def test_the_stage_strip_shows_each_stage_with_its_detail_and_runs(client, staff, headers):
-    incident, _, _, _, stages, failed = _busy()
+def test_the_stage_strip_shows_each_stage_outcome(client, staff, headers):
+    incident, *_ = _busy()
 
     body = client.get(_url(incident), **headers).content.decode()
 
-    check = reverse("admin:orchestration_stageexecution_change", args=[stages["check"].pk])
-    assert f'<a id="stage-check" class="c-label c-tone-ok" href="{check}">ok</a>' in body
-    notify = reverse("admin:orchestration_stageexecution_change", args=[failed.pk])
-    assert (
-        f'<a id="stage-notify" class="c-label c-tone-critical" href="{notify}">failed</a>' in body
-    )
-    assert "error: slack 500 (retryable=True)" in body
-    assert "succeeded in 1/1 runs" in body
-    for label in ("Diagnose", "Analyze", "Notify"):
-        assert f'<span class="c-stage__name">{label}</span>' in body
+    for stage, label, tone, headline in [
+        ("check", "Diagnose", "ok", "Diagnose finished"),
+        ("analyze", "Analyze", "ok", "Analyze finished"),
+        ("notify", "Notify", "critical", "Notify failed"),
+    ]:
+        item = body[body.index(f'<li id="stage-{stage}" class="c-stage">') :]
+        item = item[: item.index("</li>")]
+        assert f'<span class="c-stage__icon c-tone-{tone}">' in item
+        assert f'<span class="c-stage__name">{label}</span>' in item
+        assert f'<span class="c-stage__detail">{headline}</span>' in item
+    assert "retryable=" not in body
 
 
 @pytest.mark.django_db
-def test_a_stage_with_no_execution_is_a_plain_label(client, staff):
+def test_a_stage_with_no_execution_says_it_hasnt_run(client, staff):
     incident = Incident.objects.create()
 
     body = client.get(_url(incident)).content.decode()
 
-    assert body.count('<span class="c-label c-tone-muted">never ran</span>') == 3
-    assert 'id="stage-' not in body
+    for label in ("Diagnose", "Analyze", "Notify"):
+        assert f'<span class="c-stage__detail">{label} hasn&#x27;t run yet</span>' in body
+    assert body.count('<span class="c-stage__icon c-tone-muted">') == 3
 
 
 @pytest.mark.django_db
 @BOTH
-def test_the_timeline_lists_every_entry_with_time_badge_and_title(client, staff, headers):
+def test_the_timeline_entries_use_the_describer_wording(client, staff, headers):
     incident, alert, history, run, stages, failed = _busy()
 
     body = client.get(_url(incident), **headers).content.decode()
 
     assert re.search(r'<ol class="c-timeline" data-print-open>', body)
     assert body.count('<li class="c-timeline__item">') == 10
-    alert_url = reverse("admin:alerts_alert_change", args=[alert.pk])
-    for row, event in zip(history, ("created", "refired"), strict=True):
-        link = f'<a id="entry-alert_history-{row.pk}" href="{alert_url}">Alert disk {event}</a>'
-        assert link in body
-    assert "— → firing" in body
-    run_url = reverse("admin:orchestration_pipelinerun_change", args=[run.pk])
-    assert f'<a id="entry-pipeline-{run.pk}" href="{run_url}">Pipeline run started</a>' in body
-    assert '<span class="c-muted">notified · run-1</span>' in body
-    failed_url = reverse("admin:orchestration_stageexecution_change", args=[failed.pk])
-    assert f'<a id="entry-stage-{failed.pk}" href="{failed_url}">Notify failed</a>' in body
-    assert "slack 500" in body
+    for row, headline in zip(history, ("disk started firing", "disk fired again"), strict=True):
+        entry = f"entry-alert_history-{row.pk}"
+        assert _tag(body, entry) == f'<details id="{entry}">'
+        assert _tag(body, f"{entry}-summary").startswith("<summary ")
+        assert f'<span class="c-entry__title">{headline}</span>' in body
+    assert "<dt>Status</dt><dd>firing</dd>" in body
+    assert '<span class="c-entry__title">Run finished, notified</span>' in body
+    assert f'id="entry-pipeline-{run.pk}-what-details-copy-1"' in body
+    assert '<span class="c-entry__title">Notify failed</span>' in body
+    assert "will be retried" not in body
+    assert "<dt>Retryable</dt><dd>yes</dd>" in body
+    assert "<dt>Error</dt><dd>slack 500</dd>" in body
+    assert "Open the run&#x27;s error in Details" in body
     assert '<span id="entry-incident-created">Incident opened</span>' in body
     assert '<span id="entry-incident-acknowledged">Incident acknowledged</span>' in body
     for kind in ("incident", "alert", "run", "stage"):
         assert re.search(rf'<span class="c-label c-tone-[a-z]+">{kind}</span>', body)
     assert "alert_history<" not in body
     assert re.search(
-        r'<time class="c-entry__time" datetime="[^"]+" title="[^"]+">'
-        r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d</time>",
+        r'<span class="c-entry__time"><time datetime="[^"]+" title="[^"]+">[^<]+ ago</time>',
         body,
     )
     assert "timeline-all" not in body and "timeline-recent" not in body
@@ -336,53 +406,237 @@ def test_the_timeline_lists_every_entry_with_time_badge_and_title(client, staff,
 
 
 @pytest.mark.django_db
+def test_entry_details_sit_directly_under_their_timeline_item(client, staff):
+    incident, *_ = _busy()
+
+    body = client.get(_url(incident), **HTMX).content.decode()
+
+    items = re.findall(
+        r'<li class="c-timeline__item">\s*<span class="c-timeline__badge.*?</li>', body, re.S
+    )
+    assert len(items) == 10
+    disclosures = [i for i in items if re.search(r"</span>\s*<details id=\"entry-", i)]
+    assert len(disclosures) == 8
+
+
+@pytest.mark.django_db
 @BOTH
-def test_an_entry_with_output_is_a_details_holding_its_body_and_raw_json(client, staff, headers):
+def test_an_entry_with_output_holds_its_body_and_raw_json_in_details(client, staff, headers):
     incident, _, _, _, stages, _ = _busy()
 
     body = client.get(_url(incident), **headers).content.decode()
 
     for name, title in [
-        ("check", "Diagnose succeeded in 850ms"),
-        ("analyze", "Analyze succeeded in 850ms"),
-        ("notify", "Notify succeeded in 850ms"),
-        ("ingest", "Ingest succeeded in 850ms"),
+        ("check", "Diagnose finished in 850ms"),
+        ("analyze", "Analyze finished in 850ms"),
+        ("notify", "Notify finished in 850ms"),
+        ("ingest", "Ingest finished in 850ms"),
     ]:
         entry = f"entry-stage-{stages[name].pk}"
         assert _tag(body, entry) == f'<details id="{entry}">'
         assert _tag(body, f"{entry}-summary").startswith("<summary ")
-        assert title in body
-        url = reverse("admin:orchestration_stageexecution_change", args=[stages[name].pk])
-        assert f'<a id="{entry}-link" href="{url}">Open in admin</a>' in body
-        assert _tag(body, f"{entry}-raw") == f'<details id="{entry}-raw" class="c-entry__raw">'
-        assert f'<summary id="{entry}-raw-summary">Raw JSON</summary>' in body
-        assert _tag(body, f"{entry}-json").startswith("<pre ")
-    assert body.count("<details") == 8
+        assert f'<span class="c-entry__title">{title}</span>' in body
+        details = f"{entry}-what-details"
+        assert _tag(body, details).startswith(f'<details id="{details}" class="c-details"')
+        raw = f"{details}-raw"
+        assert _tag(body, raw) == f'<details id="{raw}" class="c-entry__raw">'
+        assert f'<summary id="{raw}-summary">Raw JSON</summary>' in body
+        assert _tag(body, f"{details}-json").startswith("<pre ")
+        assert body.index(raw) > body.index(details)
     assert "<details open" not in body and " open>" not in body
 
 
 @pytest.mark.django_db
 def test_each_stage_body_is_rendered(client, staff):
-    incident, *_ = _busy()
+    incident, _, _, _, stages, _ = _busy()
 
     body = client.get(_url(incident)).content.decode()
 
-    assert "2 run, 1 passed, 1 failed" in body
-    assert '<span class="c-label c-tone-warning">warning</span>' in body
+    check = f"entry-stage-{stages['check'].pk}"
+    assert _tag(body, f"{check}-problem-1-details")
     assert "Memory usage: 80.6% (3.9/8.0 GB)" in body
-    assert "disk timed out" in body
-    assert "Memory is tight" in body
-    assert "A leak in the worker." in body
-    assert "Restart the worker" in body
-    assert "Add swap" in body and "The box has none." in body and "medium" in body
-    assert "80% confidence" in body
-    assert "Fallback analysis" in body
-    assert "2 attempted, 1 succeeded, 1 failed" in body
-    assert '<span class="c-label c-tone-ok">success</span>' in body
-    assert "slack" in body and "#alerts" in body and "a970" in body
-    assert "email: refused" in body
+    assert '<p class="c-muted">1 check passed</p>' in body
+    assert "The checks hit 1 error" in body and "disk timed out" in body
+    assert "AI analysis failed" in body
+    assert "Check the provider&#x27;s settings" in body
+    assert "Add swap" not in body.replace("&quot;Add swap&quot;", "")
+    assert "Sent to #alerts by Slack" in body
+    assert "Not sent to ops@example.com" in body
     assert "&quot;channels_attempted&quot;: 2" in body
     assert "&quot;alerts_created&quot;: 1" in body
+
+
+@pytest.mark.django_db
+def test_a_check_body_lists_problems_worst_first_and_counts_the_rest(client, staff):
+    incident = Incident.objects.create()
+    run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
+    execution = StageExecution.objects.create(
+        pipeline_run=run,
+        stage="check",
+        status="succeeded",
+        started_at=timezone.now(),
+        output_snapshot={
+            "checks": [
+                {"name": "cpu", "status": "ok", "message": "fine"},
+                {"name": "gpu", "status": "warning", "message": "GPU warm"},
+                {"name": "raid", "status": "skipped", "message": "Skipped: no mdadm"},
+                {"name": "fan", "status": "critical", "message": "Fan stopped"},
+                {"name": "psu", "status": "unknown", "message": "PSU unreadable"},
+                {"name": "memory", "status": "ok", "message": "fine"},
+                {"name": "disk", "status": "skipped", "message": "Skipped: none"},
+            ]
+        },
+    )
+
+    body = client.get(_url(incident)).content.decode()
+
+    entry = f"entry-stage-{execution.pk}"
+    order = [body.index(text) for text in ("Fan stopped", "PSU unreadable", "GPU warm")]
+    assert order == sorted(order)
+    assert f'id="{entry}-problem-3-details"' in body
+    assert f'id="{entry}-problem-4' not in body
+    assert '<p class="c-muted">2 checks passed, 2 skipped</p>' in body
+
+
+@pytest.mark.django_db
+def test_a_check_body_with_only_skips_counts_them_alone(client, staff):
+    incident = Incident.objects.create()
+    run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
+    StageExecution.objects.create(
+        pipeline_run=run,
+        stage="check",
+        status="succeeded",
+        started_at=timezone.now(),
+        output_snapshot={"checks": [{"name": "raid", "status": "skipped"}]},
+    )
+
+    body = client.get(_url(incident)).content.decode()
+
+    assert '<p class="c-muted">1 skipped</p>' in body
+    assert "passed" not in body
+
+
+@pytest.mark.django_db
+def test_a_failed_analysis_shows_no_confidence_anywhere(client, staff):
+    incident = Incident.objects.create()
+    run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
+    StageExecution.objects.create(
+        pipeline_run=run,
+        stage="analyze",
+        status="succeeded",
+        started_at=timezone.now(),
+        output_snapshot={
+            "summary": "Guessing.",
+            "confidence": 0.9,
+            "fallback_used": True,
+            "failure": "timeout",
+            "recommendations": [{"title": "Add swap"}],
+        },
+    )
+
+    body = client.get(_url(incident)).content.decode()
+
+    assert "AI analysis failed: the provider didn&#x27;t answer in time" in body
+    assert "confidence" not in body.lower().replace("&quot;confidence&quot;", "")
+    assert "Add swap" not in body.replace("&quot;Add swap&quot;", "")
+
+
+@pytest.mark.django_db
+def test_a_successful_analysis_lists_its_recommendations(client, staff):
+    incident = Incident.objects.create()
+    run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
+    StageExecution.objects.create(
+        pipeline_run=run,
+        stage="analyze",
+        status="succeeded",
+        started_at=timezone.now(),
+        output_snapshot={**ANALYZE_SNAPSHOT, "fallback_used": False, "failure": ""},
+    )
+
+    body = client.get(_url(incident)).content.decode()
+
+    assert "<span>Memory is tight on web-1.</span>" in body
+    assert "A leak in the worker." in body
+    assert "<li>Restart the worker</li>" in body
+    assert "<strong>Add swap</strong> The box has none." in body
+
+
+def _no_channel_incident():
+    incident = Incident.objects.create()
+    run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
+    StageExecution.objects.create(
+        pipeline_run=run,
+        stage="notify",
+        status="failed",
+        started_at=timezone.now(),
+        error_message="no_channel: the matched lane names no active notification channel",
+    )
+    return incident
+
+
+@pytest.mark.django_db
+def test_a_no_channel_failure_links_its_fix_for_a_superuser(client):
+    client.force_login(get_user_model().objects.create_superuser("root", password="x"))
+    incident = _no_channel_incident()
+
+    body = client.get(_url(incident)).content.decode()
+
+    route = reverse("admin:orchestration_pipelinedefinition_changelist")
+    assert re.search(
+        rf'<a id="entry-stage-\d+-what-action" class="c-button c-button--sm" href="{route}">'
+        r"Give the route an active channel</a>",
+        body,
+    )
+    assert "Not delivered: the matched route has no active channel" in body
+
+
+@pytest.mark.django_db
+def test_a_no_channel_failure_is_text_for_staff_without_the_permission(client, staff):
+    incident = _no_channel_incident()
+
+    body = client.get(_url(incident)).content.decode()
+
+    assert '<p class="c-description__action">Give the route an active channel</p>' in body
+    assert "pipelinedefinition" not in body
+
+
+def _stage_item(body, stage):
+    item = body[body.index(f'<li id="stage-{stage}" class="c-stage">') :]
+    return item[: item.index("</li>")]
+
+
+@pytest.mark.django_db
+def test_a_failed_stage_shows_its_fix_in_the_sidebar(client):
+    client.force_login(get_user_model().objects.create_superuser("root", password="x"))
+    incident = _no_channel_incident()
+
+    item = _stage_item(client.get(_url(incident)).content.decode(), "notify")
+
+    route = reverse("admin:orchestration_pipelinedefinition_changelist")
+    assert (
+        f'<a id="stage-notify-action" class="c-button c-button--sm" href="{route}">'
+        "Give the route an active channel</a>"
+    ) in item
+    assert "c-details" not in item
+
+
+@pytest.mark.django_db
+@BOTH
+def test_a_sidebar_fix_is_text_without_the_permission(client, staff, headers):
+    incident = _no_channel_incident()
+
+    item = _stage_item(client.get(_url(incident), **headers).content.decode(), "notify")
+
+    assert '<p class="c-description__action">Give the route an active channel</p>' in item
+
+
+@pytest.mark.django_db
+def test_a_stage_that_hasnt_run_offers_no_action(client, staff):
+    incident = Incident.objects.create()
+
+    body = client.get(_url(incident)).content.decode()
+
+    assert "c-stage__action" not in body
 
 
 @pytest.mark.django_db
@@ -404,14 +658,12 @@ def test_sparse_stage_bodies_leave_their_optional_parts_out(client, staff):
 
     body = client.get(_url(incident)).content.decode()
 
-    assert '<span class="c-label c-tone-muted">unknown</span>' in body
-    assert "Only this." in body
-    assert "confidence" not in body.replace("&quot;confidence&quot;", "")
-    assert "Fallback analysis" not in body
-    assert "Probable cause" not in body
-    assert "c-errors" not in body
-    assert "0 attempted, 0 succeeded, 0 failed" in body
-    assert "Succeeded in" not in body
+    assert "CPU usage could not be checked" in body
+    assert "<span>Only this.</span>" in body
+    assert "c-bullets" not in body and "c-lines" not in body
+    assert "Nothing was sent" in body
+    assert "passed" not in body and "skipped" not in body
+    assert "finished in" not in body
 
 
 @pytest.mark.django_db
@@ -428,7 +680,7 @@ def test_hostile_strings_are_escaped_everywhere(client, staff, headers):
         f"Logs rotated {ESCAPED}",
         f"web-1 {ESCAPED}",
         f"<span>pager {ESCAPED}</span>",
-        f"Alert disk {ESCAPED} created",
+        f"disk {ESCAPED} started firing",
         f"disk timed out {ESCAPED}",
         f"Memory is tight {ESCAPED}",
         f"slack 500 {ESCAPED}",
@@ -447,13 +699,34 @@ def test_every_focusable_element_in_the_polled_region_has_a_unique_id(client, st
     body = client.get(_url(incident), **headers).content.decode()
     region = body if headers else body[body.index('<div id="incident"') : body.index("</main>")]
 
-    focusable = re.findall(
-        r"<(?:a|summary|details|pre|button|input|select|textarea)\b[^>]*>", region
-    )
-    assert len(focusable) == 2 + 3 + 4 + 4 * 6
-    assert all(re.search(r'\sid="[^"]+"', tag) for tag in focusable)
-    ids = re.findall(r'\sid="([^"]*)"', region)
+    focusable, ids = focus_audit(region)
+    assert len(focusable) > 20
+    assert [tag for tag, element_id in focusable if not element_id] == []
     assert len(ids) == len(set(ids))
+
+
+@pytest.mark.django_db
+@BOTH
+def test_every_focusable_element_has_a_unique_id_for_an_operator_and_a_superuser(client, headers):
+    client.force_login(get_user_model().objects.create_superuser("root", password="x"))
+    incident, _, _, run, *_ = _busy()
+    StageExecution.objects.create(
+        pipeline_run=run,
+        stage="notify",
+        status="failed",
+        attempt=3,
+        started_at=timezone.now() + timedelta(seconds=20),
+        error_message="no_channel: x",
+    )
+    Incident.objects.filter(pk=incident.pk).update(status="open")
+
+    body = client.get(_url(incident), **headers).content.decode()
+    region = body if headers else body[body.index('<div id="incident"') : body.index("</main>")]
+
+    focusable, ids = focus_audit(region)
+    assert [tag for tag, element_id in focusable if not element_id] == []
+    assert len(ids) == len(set(ids))
+    assert {"action-acknowledge", "action-resolve", "action-close"} <= set(ids)
 
 
 @pytest.mark.django_db

@@ -4,15 +4,19 @@ import pytest
 from django.utils import timezone
 
 from apps.alerts.describing import (
+    alert_link,
+    alert_name,
     check_status_of,
     describe_alert,
+    describe_history,
     describe_incident,
     describe_incidents,
+    history_tone,
 )
 from apps.alerts.drivers.cluster import ClusterDriver
 from apps.alerts.management.commands.push_to_hub import Command, build_cluster_payload
 from apps.alerts.models import Alert, Incident, IncidentStatus, Node
-from apps.checkers.checkers import CheckResult, CheckStatus
+from apps.checkers.checkers import CHECKER_REGISTRY, CheckResult, CheckStatus
 from config.describing import Action, Fact
 
 pytestmark = pytest.mark.django_db
@@ -289,3 +293,128 @@ def test_describe_incidents_runs_a_fixed_number_of_queries(django_assert_num_que
     with django_assert_num_queries(2):
         described = describe_incidents(incidents)
     assert set(described) == {i.pk for i in incidents}
+
+
+def _history(event, old_status="", new_status="", severity_from=None, severity_to=None):
+    return describe_history(
+        event,
+        alert_headline="CPU usage",
+        old_status=old_status,
+        new_status=new_status,
+        severity_from=severity_from,
+        severity_to=severity_to,
+    )
+
+
+class TestDescribeHistory:
+    @pytest.mark.parametrize(
+        ("event", "severity_from", "severity_to", "headline"),
+        [
+            ("created", None, None, "CPU usage started firing"),
+            ("resolved", None, None, "CPU usage cleared"),
+            ("refired", None, None, "CPU usage fired again"),
+            ("reevaluated", "warning", "critical", "CPU usage moved from warning to critical"),
+            ("reevaluated", "warning", "warning", "CPU usage updated"),
+            ("reevaluated", None, "warning", "CPU usage updated"),
+            ("reevaluated", None, None, "CPU usage updated"),
+            ("updated", None, None, "CPU usage updated"),
+            ("updated", "info", "critical", "CPU usage moved from info to critical"),
+            ("severity_changed", "warning", "critical", "CPU usage moved from warning to critical"),
+            ("escalated", None, None, "CPU usage changed"),
+            ("resolved", "critical", "warning", "CPU usage cleared"),
+            ("created", "warning", "critical", "CPU usage started firing"),
+            ("refired", "warning", "critical", "CPU usage fired again"),
+            ("reevaluated", ["warning"], "critical", "CPU usage updated"),
+        ],
+    )
+    def test_headline(self, event, severity_from, severity_to, headline):
+        description = _history(event, severity_from=severity_from, severity_to=severity_to)
+        assert description.headline == headline
+        assert "→" not in description.headline
+        assert "—" not in description.headline
+
+    def test_tone_follows_the_severity_the_row_moved_to(self):
+        assert _history("reevaluated", severity_from="info", severity_to="critical").tone == (
+            "critical"
+        )
+        assert _history("resolved").tone == "ok"
+
+    def test_status_and_severity_changes_become_facts(self):
+        description = _history(
+            "reevaluated",
+            old_status="firing",
+            new_status="resolved",
+            severity_from="warning",
+            severity_to="critical",
+        )
+        assert description.facts == (
+            Fact("Status", "firing to resolved"),
+            Fact("Severity", "warning to critical"),
+        )
+
+    def test_one_sided_values_read_as_the_value_alone(self):
+        description = _history("created", new_status="firing", severity_to="warning")
+        assert description.facts == (Fact("Status", "firing"), Fact("Severity", "warning"))
+
+    def test_an_old_value_alone_reads_as_the_value(self):
+        description = _history("updated", old_status="firing", severity_from="warning")
+        assert description.facts == (Fact("Status", "firing"), Fact("Severity", "warning"))
+
+    def test_an_unchanged_value_reads_once(self):
+        description = _history(
+            "updated",
+            old_status="firing",
+            new_status="firing",
+            severity_from="warning",
+            severity_to="warning",
+        )
+        assert description.facts == (Fact("Status", "firing"), Fact("Severity", "warning"))
+
+    def test_nothing_present_means_no_facts(self):
+        assert _history("updated").facts == ()
+
+    def test_non_string_severities_are_left_out(self):
+        assert _history("reevaluated", severity_from={"a": 1}, severity_to=["x"]).facts == ()
+
+
+@pytest.mark.parametrize(
+    ("event", "severity_to", "tone"),
+    [
+        ("created", None, "info"),
+        ("refired", None, "info"),
+        ("resolved", None, "ok"),
+        ("updated", None, "muted"),
+        ("reevaluated", "warning", "warning"),
+        ("created", "critical", "critical"),
+        ("created", "bogus", "info"),
+        ("updated", ["critical"], "muted"),
+    ],
+)
+def test_history_tone(event, severity_to, tone):
+    assert history_tone(event, severity_to) == tone
+
+
+def test_alert_link_opens_the_alert():
+    assert alert_link(3) == Action("Open the alert", intent="view_alert", params={"pk": 3})
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "labels, name, expected",
+    [
+        ({"checker": "cpu"}, "cpu", CHECKER_REGISTRY["cpu"].problem),
+        ({"checker": "zfs_pool"}, "zfs", "Zfs pool"),
+        ({}, "DiskFull", "DiskFull"),
+        ({}, "", "Unnamed alert"),
+    ],
+)
+def test_alert_name_ignores_the_values_an_alert_carried(labels, name, expected):
+    alert = Alert(
+        fingerprint="f",
+        name=name,
+        labels=labels,
+        raw_payload={"metrics": {"cpu_percent": 97.0}},
+        description="CPU at 97%",
+    )
+
+    assert alert_name(alert) == expected

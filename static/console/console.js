@@ -52,6 +52,26 @@
     true
   );
 
+  // navigator.clipboard exists only in a secure context. Without it the button does nothing.
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest ? event.target.closest("[data-copy]") : null;
+    if (!button || !navigator.clipboard || button.hasAttribute("data-copied")) {
+      return;
+    }
+    navigator.clipboard.writeText(button.getAttribute("data-copy")).then(function () {
+      var text = button.textContent;
+      var label = button.getAttribute("aria-label");
+      button.setAttribute("data-copied", "");
+      button.textContent = "Copied";
+      button.setAttribute("aria-label", "Copied");
+      setTimeout(function () {
+        button.removeAttribute("data-copied");
+        button.textContent = text;
+        button.setAttribute("aria-label", label);
+      }, 2000);
+    }, function () {});
+  });
+
   // A print shows every stage's output but not its raw JSON, so only the list's own
   // details open. An open details also holds off the poll, which would otherwise
   // replace the elements remembered here.

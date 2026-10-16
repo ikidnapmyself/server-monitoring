@@ -18,7 +18,6 @@ import uuid
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
 
 from apps.checkers.checkers import CHECKER_REGISTRY, CheckStatus
 from apps.checkers.management.commands._metrics_format import write_metrics
@@ -146,8 +145,8 @@ class Command(BaseCommand):
 
         This is the synchronous local entrypoint: the operator on a single machine
         has no hub, no cron and nobody draining an inbox, so one command has to
-        carry the whole thing — CheckAlertBridge writes the alerts and incidents in
-        one transaction, and ``enqueue_for(..., sync=True)`` enqueues one run per
+        carry the whole thing. ``record_and_enqueue`` writes the alerts and incidents
+        and the runs they earn in one transaction, and ``sync=True`` enqueues one run per
         materially changed incident and drains those runs before we return. That is
         what makes the analysis (AnalyzeExecutor's LocalProvider needs no API key)
         actually happen on a laptop. ``--no-notify`` travels with the runs so the
@@ -165,37 +164,20 @@ class Command(BaseCommand):
         returned ``CheckAlertResult.errors`` — that is the route the missing-table
         case actually takes, so ignoring the return value would make this reporting
         dead code. The ``try`` still guards what happens outside the bridge: the
-        import, the constructor, and the orchestration that follows.
+        constructor, and the orchestration that follows.
         """
-        # Imported here: apps.checkers must not hard-depend on apps.alerts or
-        # apps.orchestration at import time.
-        from apps.alerts.check_integration import CheckAlertBridge
-        from apps.orchestration.intake import enqueue_for
-        from apps.orchestration.models import PipelineOrigin
+        # Imported here: apps.checkers must not hard-depend on apps.alerts at
+        # import time.
+        from apps.alerts.check_integration import PipelineRunFailed, record_and_enqueue
 
-        trace_id = str(uuid.uuid4())
-        result = None
         try:
-            # One transaction for the writes and the enqueue they justify: a crash
-            # between them leaves an incident durably written with no run, and the
-            # next tick reports the same condition at the same severity, so nothing
-            # is material and nothing is ever enqueued for it. The drain is
-            # registered with ``transaction.on_commit`` inside ``enqueue_for``, so
-            # it runs after this block rather than against uncommitted rows.
-            with transaction.atomic():
-                result = CheckAlertBridge(trace_id=trace_id).process_check_results(results)
-                enqueue_for(
-                    result,
-                    trace_id=trace_id,
-                    origin=PipelineOrigin.CHECKER_GENERATED,
-                    source=CheckAlertBridge.SOURCE_NAME,
-                    no_notify=no_notify,
-                    sync=True,
-                )
+            result = record_and_enqueue(
+                results, trace_id=str(uuid.uuid4()), sync=True, no_notify=no_notify
+            )
         except Exception as exc:  # noqa: BLE001 - a health check must still print
-            # Which half broke decides what to say: the bridge had not returned yet
-            # (recording), or it had (the enqueue or the drain that follows it).
-            stage = "Pipeline run" if result is not None else "Alert recording"
+            # Which half broke decides what to say: the recording, or the enqueue or
+            # the drain that follows it.
+            stage = "Pipeline run" if isinstance(exc, PipelineRunFailed) else "Alert recording"
             logger.exception("%s failed", stage)
             self.stderr.write(f"{stage} skipped: {exc}")
             return

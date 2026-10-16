@@ -1227,7 +1227,18 @@ class TestAnalyzeExecutorRecommendations(TestCase):
             result = executor.execute(_ctx(payload={}, incident_id=incident.id))
 
         assert result.recommendations == [{"title": "Fix it", "priority": "high"}]
-        assert result.confidence == 0.8
+
+    def test_analyze_success_has_no_invented_confidence(self):
+        rec = MagicMock()
+        rec.to_dict.return_value = {"title": "Fix it"}
+        rec.title = "Fix it"
+        rec.description = "Restart the worker"
+
+        result = self._execute_with_recs([rec])
+
+        assert result.summary == "Fix it"
+        assert result.confidence is None
+        assert result.failure == ""
 
 
 class TestAnalyzeExecutorErrorHandling(SimpleTestCase):
@@ -1242,7 +1253,30 @@ class TestAnalyzeExecutorErrorHandling(SimpleTestCase):
             result = executor.execute(_ctx(payload={}))
 
         assert result.fallback_used is True
-        assert result.summary == "AI analysis unavailable"
+        assert result.failure == "unknown"
+        assert result.error_detail == "provider down"
+        assert result.summary == ""
+        assert result.errors == []
+
+    def test_analyze_failure_records_kind_and_no_confidence(self):
+        class _AuthError(Exception):
+            status_code = 401
+
+        mock_provider = MagicMock()
+        mock_provider.name = "claude"
+        mock_provider.run.side_effect = _AuthError("401 Unauthorized: invalid x-api-key")
+
+        with patch("apps.intelligence.providers.get_active_provider", return_value=mock_provider):
+            result = AnalyzeExecutor().execute(_ctx(payload={}))
+
+        assert result.fallback_used is True
+        assert result.failure == "auth"
+        assert "401" in result.error_detail
+        assert result.confidence is None
+        assert result.recommendations == []
+        assert result.summary == ""
+        assert result.probable_cause == ""
+        assert result.actions == []
         assert result.errors == []
 
     def test_error_with_fallback_disabled(self):
@@ -1498,6 +1532,56 @@ class TestNotifyExecutorDriverFailures(TestCase):
         assert result.channels_failed == 1
         assert result.channels_succeeded == 0
         assert result.deliveries[0]["status"] == "failed"
+
+
+class _Forbidden(Exception):
+    status_code = 403
+
+
+class TestNotifyExecutorFailureKind(TestCase):
+    def _delivery(self, driver_cls):
+        with patch(
+            "apps.notify.services.NotifySelector.resolve",
+            return_value=_resolve_return(driver_cls),
+        ):
+            result = NotifyExecutor().execute(
+                _ctx(payload={"notify_driver": "slack"}, previous_results={"analyze": {}})
+            )
+        return result.deliveries[0]
+
+    def test_send_raising_with_status_is_classified(self):
+        driver_cls, driver_inst = _mock_driver_cls()
+        driver_inst.send.side_effect = _Forbidden("forbidden")
+
+        assert self._delivery(driver_cls)["failure"] == "auth"
+
+    def test_failed_result_with_status_code_is_classified(self):
+        driver_cls, driver_inst = _mock_driver_cls()
+        driver_inst.send.return_value = {"success": False, "status_code": 429}
+
+        assert self._delivery(driver_cls)["failure"] == "rate_limit"
+
+    def test_failed_result_without_status_code_is_rejected(self):
+        driver_cls, _ = _mock_driver_cls(success=False)
+
+        assert self._delivery(driver_cls)["failure"] == "rejected"
+
+    def test_failed_result_naming_a_failure_kind_keeps_it(self):
+        driver_cls, driver_inst = _mock_driver_cls()
+        driver_inst.send.return_value = {"success": False, "failure": "timeout"}
+
+        assert self._delivery(driver_cls)["failure"] == "timeout"
+
+    def test_failed_result_naming_an_unknown_kind_falls_back(self):
+        driver_cls, driver_inst = _mock_driver_cls()
+        driver_inst.send.return_value = {"success": False, "failure": "gremlins"}
+
+        assert self._delivery(driver_cls)["failure"] == "rejected"
+
+    def test_success_has_no_failure(self):
+        driver_cls, _ = _mock_driver_cls()
+
+        assert self._delivery(driver_cls)["failure"] == ""
 
 
 class TestNotifyExecutorTemplateRendering(TestCase):

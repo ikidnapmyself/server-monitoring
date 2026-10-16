@@ -40,6 +40,8 @@ Required tags/fields:
 - `apps/orchestration/inbox.py` — **single source of truth** for the enqueue/drain/reclaim logic: `enqueue_incident_runs(incident_ids, …)`, `drain_runs(runs, orchestrator=…)` (the scoped synchronous drain `sync=True` uses), `claim` (atomic PENDING→PROCESSING CAS), `drain`, `drain_run`, `reclaim_stuck(pks=…)`, and `DEFAULT_STALE_MINUTES`. Both the `process_inbox` command and the admin Inbox actions call these — never duplicate the claim.
 - `apps/orchestration/models.py` — `PipelineRun`, `StageExecution`. `PipelineRun.node` (FK → `alerts.Node`, the server the run concerns) and `PipelineRun.origin` (`incoming_webhook`/`checker_generated`/`manual`) power admin filtering by node+origin+status. `origin` is now passed by each producer into `enqueue_for`; `node` is passed only by `IncidentManager._announce`, so it is NULL on runs from the other producers — see "Known gaps" below. `InboxItem` is a proxy over `PipelineRun` filtered to PENDING/PROCESSING (the admin Inbox monitor, with age/`is_stuck` + drain/reclaim actions). See `docs/plans/2026-08-09-admin-hardening-design.md`.
 - `apps/orchestration/executors.py` / `dtos.py` — stage execution helpers and DTOs
+- `apps/orchestration/describing.py` — runs and stage outcomes in words: `describe_run`, `describe_stage_outcome`, `describe_stage_diagnosis`, the `REASONS` registry and `reason_code`
+- `apps/orchestration/errors.py` — `StageExecutionError`, `routing_gap`, `ROUTING_GAPS` and the `STAGE_FAILED` format
 - `apps/orchestration/urls.py` — URL routing
 
 ## Pipeline shape (routing spine)
@@ -152,8 +154,9 @@ nothing for a lane to control there. Read it via `PipelineDefinition.routable_st
 
 **CHECK takes the incident as its subject.** For an incident run the diagnose stage
 derives its checkers from the distinct `checker` labels on that incident's alerts,
-filtered to the local `CHECKER_REGISTRY` (`executors._incident_checker_names`). An
-incident that names no checkers runs none. It used to sweep the whole registry, which
+filtered to the local `CHECKER_REGISTRY`
+(`apps.alerts.check_integration.incident_checker_names`, shared with the console's
+rerun). An incident that names no checkers runs none. It used to sweep the whole registry, which
 made a lane merely listing `check` re-diagnose the entire machine on every incident.
 
 **`checker_names=None` means "every checker"; `checker_names=[]` means "none".** This is
@@ -214,6 +217,21 @@ the `no_driver` message carries the registered driver names because that is what
 the code into a fix. `StageExecutionError` lives in `errors.py`, not `orchestrator.py`,
 because `orchestrator` imports `executors` — an executor could not otherwise import it at
 module level. `orchestrator.py` re-exports it for existing importers.
+
+**Every routing gap has a reason.** `ROUTING_GAPS` in `errors.py` names the closed set,
+and `routing_gap` raises `ValueError` on any other code. `REASONS` in
+`apps/orchestration/describing.py` maps each code to a headline and the `Action` that
+fixes it, and `_tests/test_describing.py` fails if a gap has no reason. Add a gap to both
+or to neither. `reason_code(message)` reads the code back off a stored error, and returns
+`None` unless that code is in `REASONS`, so a checker name such as `disk_linux` is never a code.
+`describe_stage_outcome` and `describe_run` use it to lead with the reason and its fix,
+and put the rest of the error in Details. A stage failure with no known code reads as
+"<Stage> failed" and points at the error in Details.
+
+**The stage-failed prefix is a format, not prose.** A run stores a failed stage's error as
+`STAGE_FAILED` (`"Stage {stage} failed: "`) followed by the stage's own errors, and
+`STAGE_FAILED_PREFIX` is the regex that strips it so `reason_code` finds the code behind
+it. Change the two together.
 
 `no_route` is attributed to `routing` rather than to a stage — it is raised before any
 stage runs, from the run's incident's subject alert.

@@ -114,6 +114,24 @@ def test_a_row_is_titled_by_the_incident_describer():
 
 
 @pytest.mark.django_db
+def test_a_row_carries_the_describers_detail_or_nothing():
+    described = Incident.objects.create(severity="critical")
+    Alert.objects.create(
+        fingerprint="d",
+        name="Disk full",
+        description="Root is at 97%",
+        source="grafana",
+        incident=described,
+        started_at=timezone.now(),
+    )
+    bare = Incident.objects.create(severity="warning")
+
+    rows = {row.pk: row.detail for row in build_incident_list(ALL).rows}
+
+    assert rows == {described.pk: "Root is at 97%", bare.pk: ""}
+
+
+@pytest.mark.django_db
 def test_nodes_reads_as_the_first_name_plus_a_count_of_the_rest():
     zeta = Node.objects.create(instance_id="n1", hostname="zeta")
     beta = Node.objects.create(instance_id="n2", hostname="Beta")

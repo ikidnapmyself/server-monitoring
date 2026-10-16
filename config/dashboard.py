@@ -12,8 +12,10 @@ from django.db.models import Count, Q, Sum
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html
+from django.utils.text import slugify
 
 from config.admin_links import changelist_url
+from config.describing import Action, Description
 
 NODE_RECENT_MINUTES = 15
 
@@ -29,7 +31,8 @@ def prettify_json(data):
 def build_readiness():
     """Configuration-readiness signals for the dashboard.
 
-    Each entry: {key, label, status (ok|info|warn|error|neutral), detail, url}.
+    Each entry: {key, label, status (ok|info|warn|error|neutral), detail, url, gaps, counts}.
+    ``gaps`` lists (lane name, reason code) and is empty except on lane_channels.
     Pure read-aggregation; safe on empty tables.
     """
     from datetime import timedelta
@@ -76,6 +79,8 @@ def build_readiness():
             "status": c_status,
             "detail": detail,
             "url": reverse("admin:notify_notificationchannel_changelist"),
+            "gaps": [],
+            "counts": {"active": active, "total": total, "delivering": len(delivering)},
         }
     )
 
@@ -121,6 +126,8 @@ def build_readiness():
                 if l_status == "error"
                 else reverse("admin:orchestration_pipelinedefinition_changelist")
             ),
+            "gaps": undeliverable,
+            "counts": {"delivering": len(delivering)},
         }
     )
 
@@ -137,18 +144,21 @@ def build_readiness():
                 else "No active provider — analysis falls back to 'no AI'"
             ),
             "url": reverse("admin:intelligence_intelligenceprovider_changelist"),
+            "gaps": [],
+            "counts": {"active": p_active},
         }
     )
 
     # Preflight
     latest = PreflightRun.objects.order_by("-created_at").first()
     if latest is None:
-        pf_status, detail = "neutral", "Never run"
+        pf_status, detail, pf_counts = "neutral", "Never run", {}
     else:
         pf_status = (
             latest.overall_status if latest.overall_status in {"ok", "warn", "error"} else "neutral"
         )
         detail = f"{latest.passed} ok / {latest.warnings} warn / {latest.errors} error"
+        pf_counts = {"passed": latest.passed, "warnings": latest.warnings, "errors": latest.errors}
     out.append(
         {
             "key": "preflight",
@@ -156,6 +166,8 @@ def build_readiness():
             "status": pf_status,
             "detail": detail,
             "url": reverse("admin:checkers_preflightrun_changelist"),
+            "gaps": [],
+            "counts": pf_counts,
         }
     )
 
@@ -183,6 +195,8 @@ def build_readiness():
             "status": i_status,
             "detail": detail,
             "url": inbox_url,
+            "gaps": [],
+            "counts": {"pending": pending, "stuck": stuck},
         }
     )
 
@@ -229,10 +243,141 @@ def build_readiness():
             "status": n_status,
             "detail": detail,
             "url": reverse("admin:alerts_node_changelist"),
+            "gaps": [],
+            "counts": {"total": total_nodes, "recent": recent},
         }
     )
 
     return out
+
+
+_FIX_TONES = {"error": "critical", "warn": "warning"}
+
+
+def _plural(n: int, one: str, many: str) -> str:
+    return f"{n} {one if n == 1 else many}"
+
+
+def _keyed(entry: dict, headline: str, tone: str, **fields) -> tuple[str, Description]:
+    return entry["key"], Description(headline, tone, **fields)
+
+
+def _channels(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Description]]:
+    routes = _plural(entry["counts"]["delivering"], "route", "routes")
+    return [
+        _keyed(
+            entry,
+            f"No active channel, {routes} can't deliver",
+            tone,
+            action=Action("Activate a notification channel", intent="edit_channel"),
+        )
+    ]
+
+
+def _lane_channels(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Description]]:
+    from apps.orchestration.describing import REASONS
+
+    return [
+        (
+            f"{entry['key']}-{slugify(name)}",
+            Description(
+                f"Route {name} can't deliver: {REASONS[code].headline}",
+                tone,
+                action=REASONS[code].action,
+            ),
+        )
+        for name, code in entry["gaps"]
+        # With no active channel anywhere, the channels entry already said this.
+        if not (code == "no_channel" and "channels" in fired)
+    ]
+
+
+def _provider(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Description]]:
+    return [
+        _keyed(
+            entry,
+            "No AI provider is active, analysis is skipped",
+            tone,
+            action=Action("Activate an AI provider", intent="edit_provider"),
+        )
+    ]
+
+
+def _preflight(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Description]]:
+    word = "error" if entry["status"] == "error" else "warning"
+    found = entry["counts"][word + "s"]
+    return [
+        _keyed(
+            entry,
+            (
+                f"Preflight found {_plural(found, word, word + 's')}"
+                if found
+                else "Preflight didn't pass"
+            ),
+            tone,
+            action=Action("Open the preflight report", intent="view_preflight"),
+        )
+    ]
+
+
+def _inbox(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Description]]:
+    counts = entry["counts"]
+    if counts["stuck"]:
+        headline = f"{_plural(counts['stuck'], 'run is', 'runs are')} stuck"
+        action = Action("Open the stuck runs", "view_inbox", {"status": "processing"})
+    else:
+        headline = f"{_plural(counts['pending'], 'run is', 'runs are')} waiting to be processed"
+        action = Action("Open the waiting runs", "view_inbox", {"status": "pending"})
+    return [_keyed(entry, headline, tone, action=action)]
+
+
+def _nodes(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Description]]:
+    counts = entry["counts"]
+    return [
+        _keyed(
+            entry,
+            (
+                f"No node reported in the last {NODE_RECENT_MINUTES} minutes"
+                if counts["recent"] == 0
+                else f"{counts['total'] - counts['recent']} of {counts['total']} nodes"
+                " stopped reporting"
+            ),
+            tone,
+            action=Action("Open the node list", intent="view_nodes"),
+        )
+    ]
+
+
+def _generic(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Description]]:
+    return [_keyed(entry, f"{entry['label']} needs attention", tone)]
+
+
+_DESCRIBERS = {
+    "channels": _channels,
+    "lane_channels": _lane_channels,
+    "provider": _provider,
+    "preflight": _preflight,
+    "inbox": _inbox,
+    "nodes": _nodes,
+}
+
+
+def keyed_readiness() -> tuple[tuple[str, Description], ...]:
+    """The readiness entries that need a fix, in panel order, each with its fix.
+
+    Each comes with a key built from its entry, and from the lane for a per-lane gap, so
+    it names the same problem from one read to the next. ok, info and neutral entries
+    describe nothing: they ask nothing of the operator.
+    """
+    entries = [e for e in build_readiness() if e["status"] in _FIX_TONES]
+    fired = {e["key"] for e in entries}
+    return tuple(
+        found
+        for entry in entries
+        for found in _DESCRIBERS.get(entry["key"], _generic)(
+            entry, _FIX_TONES[entry["status"]], fired
+        )
+    )
 
 
 def get_dashboard_context():

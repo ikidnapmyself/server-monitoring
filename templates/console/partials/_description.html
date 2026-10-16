@@ -1,0 +1,6 @@
+{% load console %}{% resolved d.action as act %}<div class="c-description c-tone-{{ d.tone }}">
+  {% if not headless %}<p class="c-description__headline">{% include "console/partials/_tone_icon.html" with tone=d.tone %}<span>{{ d.headline }}</span></p>{% endif %}
+  {% if d.detail %}<p class="c-description__detail">{{ d.detail }}</p>{% endif %}
+  {% if act %}{% include "console/partials/_action.html" with act=act id=id|add:"-action" %}{% endif %}
+  {% if d.facts or raw %}{% include "console/partials/_details.html" with facts=d.facts id=id|add:"-details" %}{% endif %}
+</div>

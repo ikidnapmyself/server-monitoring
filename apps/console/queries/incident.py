@@ -1,7 +1,6 @@
 """Read model for one incident. Returns dataclasses, never querysets."""
 
 import json
-import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -11,40 +10,29 @@ from django.db.models import Count
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.alerts.describing import describe_incident
+from apps.alerts.check_integration import can_rerun
+from apps.alerts.describing import alert_link, alert_name, describe_history, describe_incident
 from apps.alerts.diagnosis import diagnose_incident
 from apps.alerts.models import Incident
 from apps.alerts.services import available_incident_actions
 from apps.alerts.timeline import build_incident_timeline
+from apps.checkers.checkers import CheckStatus
+from apps.checkers.describing import check_status, describe_check, describe_check_errors
 from apps.console.queries.hosts import incident_hosts
-from config.admin_badges import (
-    CHECK_STATUS_TONES,
-    DIAGNOSIS_TONES,
-    INCIDENT_STATUS_TONES,
-    SEVERITY_TONES,
-    STAGE_STATUS_TONES,
-    tone_for,
+from apps.intelligence.describing import analysis_failed, describe_analysis
+from apps.notify.describing import describe_notify
+from apps.orchestration.describing import (
+    STAGE_NAMES,
+    describe_run_fields,
+    describe_stage_diagnosis,
+    describe_stage_outcome,
+    run_link,
 )
-from config.describing import format_duration
+from config.admin_badges import INCIDENT_STATUS_TONES, SEVERITY_TONES, tone_for
+from config.describing import Action, Description, format_duration, or_action
 
-STAGE_LABELS = {"ingest": "Ingest", "check": "Diagnose", "analyze": "Analyze", "notify": "Notify"}
-SUMMARY_TONES = {**DIAGNOSIS_TONES, "never_ran": "muted"}
-# One table for stage and run statuses. A run between stages must not read as finished.
-EXECUTION_TONES = {
-    **STAGE_STATUS_TONES,
-    "pending": "info",
-    "running": "info",
-    "retrying": "info",
-    "processing": "info",
-    "ingested": "info",
-    "checked": "info",
-    "analyzed": "info",
-    "completed": "ok",
-    "notified": "ok",
-}
-DELIVERY_TONES = {"success": "ok", "failed": "critical"}
-HISTORY_TONES = {"resolved": "ok", "created": "info", "refired": "info"}
 ACTION_LABELS = {"acknowledge": "Acknowledge", "resolve": "Resolve", "close": "Close"}
+RERUN = "Run the checks again"
 TIMELINE_LIMIT = 100
 LIFECYCLE = (
     ("created", "created_at", "Incident opened", "open"),
@@ -52,24 +40,17 @@ LIFECYCLE = (
     ("resolved", "resolved_at", "Incident resolved", "resolved"),
     ("closed", "closed_at", "Incident closed", "closed"),
 )
-
-
-@dataclass(frozen=True)
-class CheckLine:
-    name: str
-    status: str
-    tone: str
-    message: str
+# Worst first. OK and skipped results are counted, not listed.
+PROBLEM_ORDER = (CheckStatus.CRITICAL, CheckStatus.UNKNOWN, CheckStatus.WARNING)
 
 
 @dataclass(frozen=True)
 class CheckBody:
     kind: ClassVar[str] = "check"
-    lines: tuple[CheckLine, ...]
-    run: int
-    passed: int
-    failed: int
-    errors: tuple[str, ...]
+    problems: tuple[Description, ...]
+    ok_count: int
+    skipped_count: int
+    errors: Description | None
     raw: str
 
 
@@ -83,33 +64,16 @@ class Recommendation:
 @dataclass(frozen=True)
 class AnalyzeBody:
     kind: ClassVar[str] = "analyze"
-    summary: str
-    probable_cause: str
+    outcome: Description
     actions: tuple[str, ...]
     recommendations: tuple[Recommendation, ...]
-    confidence: int | None
-    fallback_used: bool
-    errors: tuple[str, ...]
     raw: str
-
-
-@dataclass(frozen=True)
-class Delivery:
-    provider: str
-    channel: str
-    status: str
-    tone: str
-    provider_id: str
 
 
 @dataclass(frozen=True)
 class NotifyBody:
     kind: ClassVar[str] = "notify"
-    deliveries: tuple[Delivery, ...]
-    attempted: int
-    succeeded: int
-    failed: int
-    errors: tuple[str, ...]
+    deliveries: tuple[Description, ...]
     raw: str
 
 
@@ -126,11 +90,7 @@ StageBody = CheckBody | AnalyzeBody | NotifyBody | RawBody
 class StageSummary:
     stage: str
     label: str
-    status: str
-    tone: str
-    detail: str
-    runs: str
-    url: str
+    outcome: Description
 
 
 @dataclass(frozen=True)
@@ -138,29 +98,19 @@ class TimelineEntry:
     id: str
     when: datetime
     kind: str
-    tone: str
-    title: str
-    detail: str
-    url: str
+    what: Description
     body: StageBody | None
-
-
-@dataclass(frozen=True)
-class IncidentAction:
-    key: str
-    label: str
-    url: str
 
 
 @dataclass(frozen=True)
 class IncidentDetail:
     pk: int
-    title: str
+    what: Description
+    do: tuple[Action, ...]
     severity: str
     severity_tone: str
     status: str
     status_tone: str
-    description: str
     summary: str
     created_at: datetime
     duration: str
@@ -168,7 +118,6 @@ class IncidentDetail:
     nodes: str
     pipeline: str
     alert_count: int
-    admin_url: str
     url: str
     full_url: str
     recent_url: str
@@ -176,7 +125,6 @@ class IncidentDetail:
     stages: tuple[StageSummary, ...]
     timeline: tuple[TimelineEntry, ...]
     full: bool
-    actions: tuple[IncidentAction, ...]
 
 
 def _text(value: object) -> str:
@@ -185,10 +133,6 @@ def _text(value: object) -> str:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return str(value)
     return ""
-
-
-def _count(value: object) -> int:
-    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 def _texts(value: object) -> tuple[str, ...]:
@@ -203,72 +147,51 @@ def _dicts(value: object) -> tuple[dict[str, Any], ...]:
     return tuple(item for item in value if isinstance(item, dict))
 
 
-def _percent(value: object) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    # isfinite raises OverflowError on an int too large for a float.
-    if isinstance(value, float) and not math.isfinite(value):
-        return None
-    return round(max(0, min(1, value)) * 100)
-
-
 def _check_body(snapshot: dict[str, Any], raw: str) -> CheckBody:
-    return CheckBody(
-        lines=tuple(
-            CheckLine(
-                name=_text(check.get("name")),
-                status=_text(check.get("status")),
-                tone=tone_for(CHECK_STATUS_TONES, _text(check.get("status"))),
-                message=_text(check.get("message")),
+    found: dict[CheckStatus, list[Description]] = {status: [] for status in CheckStatus}
+    for check in _dicts(snapshot.get("checks")):
+        status = check_status(check.get("status"))
+        metrics = check.get("metrics")
+        found[status].append(
+            describe_check(
+                _text(check.get("name")),
+                status,
+                metrics if isinstance(metrics, dict) else {},
+                _text(check.get("message")),
             )
-            for check in _dicts(snapshot.get("checks"))
-        ),
-        run=_count(snapshot.get("checks_run")),
-        passed=_count(snapshot.get("checks_passed")),
-        failed=_count(snapshot.get("checks_failed")),
-        errors=_texts(snapshot.get("errors")),
+        )
+    return CheckBody(
+        problems=tuple(d for status in PROBLEM_ORDER for d in found[status]),
+        ok_count=len(found[CheckStatus.OK]),
+        skipped_count=len(found[CheckStatus.SKIPPED]),
+        errors=describe_check_errors(_texts(snapshot.get("errors"))),
         raw=raw,
     )
 
 
 def _analyze_body(snapshot: dict[str, Any], raw: str) -> AnalyzeBody:
+    failed = analysis_failed(snapshot)
     return AnalyzeBody(
-        summary=_text(snapshot.get("summary")),
-        probable_cause=_text(snapshot.get("probable_cause")),
-        actions=_texts(snapshot.get("actions")),
-        recommendations=tuple(
-            Recommendation(
-                title=_text(item.get("title")),
-                priority=_text(item.get("priority")),
-                description=_text(item.get("description")),
+        outcome=describe_analysis(snapshot),
+        actions=() if failed else _texts(snapshot.get("actions")),
+        recommendations=(
+            ()
+            if failed
+            else tuple(
+                Recommendation(
+                    title=_text(item.get("title")),
+                    priority=_text(item.get("priority")),
+                    description=_text(item.get("description")),
+                )
+                for item in _dicts(snapshot.get("recommendations"))
             )
-            for item in _dicts(snapshot.get("recommendations"))
         ),
-        confidence=_percent(snapshot.get("confidence")),
-        fallback_used=snapshot.get("fallback_used") is True,
-        errors=_texts(snapshot.get("errors")),
         raw=raw,
     )
 
 
 def _notify_body(snapshot: dict[str, Any], raw: str) -> NotifyBody:
-    return NotifyBody(
-        deliveries=tuple(
-            Delivery(
-                provider=_text(item.get("provider")),
-                channel=_text(item.get("channel")),
-                status=_text(item.get("status")),
-                tone=tone_for(DELIVERY_TONES, _text(item.get("status"))),
-                provider_id=_text(item.get("provider_id")),
-            )
-            for item in _dicts(snapshot.get("deliveries"))
-        ),
-        attempted=_count(snapshot.get("channels_attempted")),
-        succeeded=_count(snapshot.get("channels_succeeded")),
-        failed=_count(snapshot.get("channels_failed")),
-        errors=_texts(snapshot.get("errors")),
-        raw=raw,
-    )
+    return NotifyBody(deliveries=describe_notify(snapshot), raw=raw)
 
 
 _BODY_BUILDERS: dict[str, tuple[frozenset[str], Callable[[dict[str, Any], str], StageBody]]] = {
@@ -285,6 +208,7 @@ _BODY_BUILDERS: dict[str, tuple[frozenset[str], Callable[[dict[str, Any], str], 
                 "recommendations",
                 "confidence",
                 "fallback_used",
+                "failure",
             }
         ),
         _analyze_body,
@@ -311,21 +235,6 @@ def stage_body(stage: str, snapshot: object) -> StageBody | None:
     return builder(snapshot, raw)
 
 
-def history_tone(event: str, severity_to: object) -> str:
-    """Tone from the severity the row itself moved to, never the alert's current one."""
-    if isinstance(severity_to, str) and severity_to in SEVERITY_TONES:
-        return SEVERITY_TONES[severity_to]
-    return tone_for(HISTORY_TONES, event)
-
-
-def execution_tone(status: str) -> str:
-    return tone_for(EXECUTION_TONES, status)
-
-
-def _words(value: str) -> str:
-    return value.replace("_", " ")
-
-
 def _lifecycle_entries(incident: Incident) -> list[TimelineEntry]:
     entries = []
     for name, field, title, status in LIFECYCLE:
@@ -336,54 +245,60 @@ def _lifecycle_entries(incident: Incident) -> list[TimelineEntry]:
                     id=f"entry-incident-{name}",
                     when=when,
                     kind="incident",
-                    tone=tone_for(INCIDENT_STATUS_TONES, status),
-                    title=title,
-                    detail="",
-                    url="",
+                    what=Description(title, tone_for(INCIDENT_STATUS_TONES, status)),
                     body=None,
                 )
             )
     return entries
 
 
-def _history_entry(event: dict[str, Any]) -> TimelineEntry:
+def _history_entry(event: dict[str, Any], headlines: dict[int, str]) -> TimelineEntry:
+    what = describe_history(
+        event["event"],
+        alert_headline=headlines.get(event["alert_pk"]) or event["alert_name"] or "An alert",
+        old_status=event["old_status"],
+        new_status=event["new_status"],
+        severity_from=event["severity_from"],
+        severity_to=event["severity_to"],
+    )
     return TimelineEntry(
         id=f"entry-alert_history-{event['history_pk']}",
         when=event["when"],
         kind="alert_history",
-        tone=history_tone(event["event"], event["severity_to"]),
-        title=f"Alert {event['alert_name']} {_words(event['event'])}",
-        detail=event["detail"] or "",
-        url=reverse("admin:alerts_alert_change", args=[event["alert_pk"]]),
+        what=or_action(what, alert_link(event["alert_pk"])),
         body=None,
     )
 
 
-def _pipeline_entry(event: dict[str, Any]) -> TimelineEntry:
+def _pipeline_entry(event: dict[str, Any], headlines: dict[int, str]) -> TimelineEntry:
+    what = describe_run_fields(
+        run_id=event["run_id"],
+        trace_id=event["trace_id"],
+        status=event["status"],
+        error_message=event["error_message"],
+    )
     return TimelineEntry(
         id=f"entry-pipeline-{event['run_pk']}",
         when=event["when"],
         kind="pipeline",
-        tone=execution_tone(event["status"]),
-        title="Pipeline run started",
-        detail=f"{event['status']} · {event['run_id']}",
-        url=reverse("admin:orchestration_pipelinerun_change", args=[event["run_pk"]]),
+        what=or_action(what, run_link(event["run_pk"])),
         body=None,
     )
 
 
-def _stage_entry(event: dict[str, Any]) -> TimelineEntry:
-    title = f"{STAGE_LABELS.get(event['stage'], event['stage'])} {event['status']}"
-    if event["duration_ms"]:
-        title += f" in {format_duration(event['duration_ms'] / 1000)}"
+def _stage_entry(event: dict[str, Any], headlines: dict[int, str]) -> TimelineEntry:
+    what = describe_stage_outcome(
+        event["stage"],
+        event["status"],
+        event["error_message"],
+        retryable=event["retryable"],
+        duration_ms=event["duration_ms"],
+    )
     return TimelineEntry(
         id=f"entry-stage-{event['execution_pk']}",
         when=event["when"],
         kind="stage",
-        tone=execution_tone(event["status"]),
-        title=title,
-        detail=event["detail"] or "",
-        url=reverse("admin:orchestration_stageexecution_change", args=[event["execution_pk"]]),
+        what=or_action(what, run_link(event["run_pk"])),
         body=stage_body(event["stage"], event["output_snapshot"]),
     )
 
@@ -393,6 +308,10 @@ _ENTRY_BUILDERS = {
     "pipeline": _pipeline_entry,
     "stage": _stage_entry,
 }
+
+
+def _alert_names(incident: Incident) -> dict[int, str]:
+    return {alert.pk: alert_name(alert) for alert in incident.alerts.all()}
 
 
 def _timeline(incident: Incident, full: bool) -> tuple[tuple[TimelineEntry, ...], int]:
@@ -406,8 +325,9 @@ def _timeline(incident: Incident, full: bool) -> tuple[tuple[TimelineEntry, ...]
     recorded = len(events)
     if not full:
         events = events[-TIMELINE_LIMIT:]
+    headlines = _alert_names(incident)
     entries = _lifecycle_entries(incident)
-    entries.extend(_ENTRY_BUILDERS[event["kind"]](event) for event in events)
+    entries.extend(_ENTRY_BUILDERS[event["kind"]](event, headlines) for event in events)
     # The sort is stable, so a lifecycle entry leads anything else at the same instant.
     entries.sort(key=lambda entry: entry.when)
     return tuple(entries), recorded
@@ -417,36 +337,28 @@ def _stages(incident: Incident) -> tuple[StageSummary, ...]:
     return tuple(
         StageSummary(
             stage=entry["stage"],
-            label=STAGE_LABELS.get(entry["stage"], entry["stage"]),
-            status=_words(entry["status"]),
-            tone=tone_for(SUMMARY_TONES, entry["status"]),
-            detail=entry["detail"] or "",
-            runs=entry["runs"] or "",
-            url=(
-                reverse("admin:orchestration_stageexecution_change", args=[entry["execution_pk"]])
-                if entry["execution_pk"] is not None
-                else ""
-            ),
+            label=STAGE_NAMES.get(entry["stage"], entry["stage"]),
+            outcome=describe_stage_diagnosis(entry),
         )
         for entry in diagnose_incident(incident)
     )
 
 
-def _actions(incident: Incident) -> tuple[IncidentAction, ...]:
-    return tuple(
-        IncidentAction(
-            key=key,
-            label=ACTION_LABELS[key],
-            url=reverse("console:incident-action", args=[incident.pk, key]),
-        )
-        for key in available_incident_actions(incident.status)
-    )
+def _do(incident: Incident, *, can_act: bool, can_rerun_checks: bool) -> tuple[Action, ...]:
+    params = {"pk": incident.pk}
+    actions = [
+        Action(ACTION_LABELS[key], intent=key, params=params)
+        for key in (available_incident_actions(incident.status) if can_act else ())
+    ]
+    if can_rerun_checks and can_rerun(incident):
+        actions.append(Action(RERUN, intent="rerun_check", params=params))
+    return tuple(actions)
 
 
 def build_incident_detail(
-    pk: int, *, full: bool = False, can_act: bool = False
+    pk: int, *, full: bool = False, can_act: bool = False, can_rerun: bool = False
 ) -> IncidentDetail | None:
-    """One incident for its page. ``actions`` is empty unless the caller may act."""
+    """One incident for its page. ``do`` holds only what the caller may do."""
     incident = (
         Incident.objects.select_related("pipeline")
         .annotate(alerts_total=Count("alerts"))
@@ -461,15 +373,14 @@ def build_incident_detail(
     over = max(0, recorded - TIMELINE_LIMIT)
     recent_url = reverse("console:incident", args=[incident.pk])
     full_url = f"{recent_url}?all=1"
-    described = describe_incident(incident)
     return IncidentDetail(
         pk=incident.pk,
-        title=described.headline,
+        what=describe_incident(incident),
+        do=_do(incident, can_act=can_act, can_rerun_checks=can_rerun),
         severity=incident.severity,
         severity_tone=tone_for(SEVERITY_TONES, incident.severity),
         status=incident.status,
         status_tone=tone_for(INCIDENT_STATUS_TONES, incident.status),
-        description=described.detail,
         summary=incident.summary,
         created_at=incident.created_at,
         duration=format_duration(elapsed.total_seconds()),
@@ -477,7 +388,6 @@ def build_incident_detail(
         nodes=", ".join(incident_hosts([incident.pk]).get(incident.pk, ())),
         pipeline=incident.pipeline.name if incident.pipeline else "",
         alert_count=incident.alerts_total,
-        admin_url=reverse("admin:alerts_incident_change", args=[incident.pk]),
         url=full_url if full else recent_url,
         full_url=full_url,
         recent_url=recent_url if full and over else "",
@@ -485,5 +395,4 @@ def build_incident_detail(
         stages=_stages(incident),
         timeline=timeline,
         full=full,
-        actions=_actions(incident) if can_act else (),
     )

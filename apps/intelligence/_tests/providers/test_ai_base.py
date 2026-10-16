@@ -40,3 +40,21 @@ def test_prompt_leads_with_the_real_incident_headline():
     prompt = _Provider()._build_prompt(incident)
 
     assert prompt.startswith("Incident: High CPU usage on web-01\nDetail: CPU at 94%")
+
+
+class _ProviderError(Exception):
+    status_code = 401
+
+
+class _FailingProvider(BaseAIProvider):
+    name = "failing"
+
+    def _call_api(self, prompt: str) -> str:
+        raise _ProviderError("401 Unauthorized")
+
+
+def test_analyze_raises_the_provider_error():
+    incident = Incident.objects.create(severity="critical", subject="checker:cpu")
+
+    with pytest.raises(_ProviderError, match="401"):
+        _FailingProvider().analyze(incident)

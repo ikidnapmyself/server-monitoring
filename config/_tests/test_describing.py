@@ -9,6 +9,7 @@ from config.describing import (
     format_list,
     format_percent,
     format_size_mb,
+    or_action,
 )
 
 
@@ -104,3 +105,16 @@ def test_facts_from_keeps_scalars_and_skips_nested_values():
 def test_format_list_refuses_a_bare_string():
     with pytest.raises(TypeError):
         format_list("md0")
+
+
+def test_or_action_fills_an_empty_action():
+    link = Action("Open the run", intent="view_run", params={"pk": 1})
+
+    assert or_action(Description("Ran", "ok"), link).action == link
+
+
+def test_or_action_never_hides_a_fix():
+    fix = Action("Add a route", intent="edit_route")
+    d = Description("Failed", "critical", action=fix)
+
+    assert or_action(d, Action("Open the run", intent="view_run")) is d

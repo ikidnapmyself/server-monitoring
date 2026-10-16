@@ -19,6 +19,7 @@ class GenericNotifyDriver(BaseNotifyDriver):
     """Generic driver for custom notification integrations."""
 
     name = "generic"
+    label = "Generic webhook"
 
     def validate_config(self, config: dict[str, Any]) -> bool:
         # Allow empty/default config to mean "notifications disabled" (no-op)
@@ -119,7 +120,11 @@ class GenericNotifyDriver(BaseNotifyDriver):
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8") if e.fp else str(e)
             logger.error(f"Generic HTTP error {e.code}: {error_body}")
-            return {"success": False, "error": f"HTTP error ({e.code}): {error_body}"}
+            return {
+                "success": False,
+                "error": f"HTTP error ({e.code}): {error_body}",
+                "status_code": e.code,
+            }
         except urllib.error.URLError as e:
             return self._handle_url_error(e, "Generic")
         except Exception as e:
