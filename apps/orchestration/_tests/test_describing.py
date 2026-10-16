@@ -36,10 +36,13 @@ def test_routing_gap_rejects_an_unknown_code():
         ("no_channel: the matched lane names no active notification channel", "no_channel"),
         ("Stage routing failed: no_route: no active pipeline matched this alert", "no_route"),
         ("Stage notify failed: no_driver: 'x' is not a registered driver", "no_driver"),
-        ("Stage notify failed: Delivery failed: boom", ""),
-        ("Stage notify failed: ", ""),
-        ("Check error: boom", ""),
-        ("", ""),
+        ("Stage notify failed: Delivery failed: boom", None),
+        ("Stage notify failed: ", None),
+        ("Check error: boom", None),
+        ("disk_linux: df failed", None),
+        ("Stage check failed: disk_linux: df failed", None),
+        ("", None),
+        (None, None),
     ],
 )
 def test_reason_code(message, code):

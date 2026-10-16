@@ -44,9 +44,9 @@ def _reason(message: str) -> re.Match[str] | None:
     return _CODE.match(message, prefix.end() if prefix else 0)
 
 
-def reason_code(message: str) -> str:
+def reason_code(message: str) -> str | None:
     found = _reason(message or "")
-    return found.group(1) if found else ""
+    return found.group(1) if found and found.group(1) in REASONS else None
 
 
 def _stage_name(stage: str) -> str:

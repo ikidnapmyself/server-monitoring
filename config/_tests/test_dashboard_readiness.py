@@ -4,7 +4,6 @@ from django.urls import reverse
 
 from config.dashboard import (
     build_readiness,
-    describe_readiness,
     get_dashboard_context,
     keyed_readiness,
 )
@@ -529,7 +528,7 @@ def test_preflight_never_run_counts_nothing():
 
 
 # ---------------------------------------------------------------------------
-# describe_readiness: one Description per entry that needs a fix
+# keyed_readiness: one Description per entry that needs a fix
 # ---------------------------------------------------------------------------
 
 
@@ -540,6 +539,10 @@ def _green_install():
     clear_lanes()
     _lane("delivers", ["notify"], channel=_channel())
     IntelligenceProvider.objects.create(name="p", provider="anthropic", is_active=True)
+
+
+def _described():
+    return tuple(d for _, d in keyed_readiness())
 
 
 def _headlines(found):
@@ -556,7 +559,7 @@ def test_an_all_green_install_describes_nothing():
     PreflightRun.objects.create(overall_status="ok", passed=5)
     Node.objects.create(instance_id="agent-1")
 
-    assert describe_readiness() == ()
+    assert _described() == ()
 
 
 @pytest.mark.django_db
@@ -572,7 +575,7 @@ def test_info_and_neutral_entries_describe_nothing():
     statuses = {e["key"]: e["status"] for e in build_readiness()}
     assert statuses["channels"] == "info"
     assert statuses["preflight"] == "neutral"
-    assert describe_readiness() == ()
+    assert _described() == ()
 
 
 @pytest.mark.django_db
@@ -585,7 +588,7 @@ def test_no_channel_with_delivering_lanes_names_the_fix():
     _lane("catch-all", ["notify"])
     _lane("paging", ["check", "notify"])
 
-    first = describe_readiness()[0]
+    first = _described()[0]
     assert first.headline == "No active channel, 2 routes can't deliver"
     assert first.tone == "critical"
     assert first.action.intent == "edit_channel"
@@ -598,7 +601,7 @@ def test_one_route_reads_singular():
     clear_lanes()
     _lane("catch-all", ["notify"])
 
-    assert describe_readiness()[0].headline == "No active channel, 1 route can't deliver"
+    assert _described()[0].headline == "No active channel, 1 route can't deliver"
 
 
 @pytest.mark.django_db
@@ -612,7 +615,7 @@ def test_a_lane_gap_reads_from_the_shared_reasons():
     _channel()
     _lane("catch-all", ["notify"])
 
-    (gap,) = describe_readiness()
+    (gap,) = _described()
     assert gap.headline == (
         "Route catch-all can't deliver: the matched route has no active channel"
     )
@@ -633,7 +636,7 @@ def test_several_gaps_describe_one_each():
     _lane("alpha", ["notify"], channel=ghost)
     _lane("beta", ["notify"])
 
-    found = describe_readiness()
+    found = _described()
     assert _headlines(found) == [
         f"Route alpha can't deliver: {REASONS['no_driver'].headline}",
         f"Route beta can't deliver: {REASONS['no_channel'].headline}",
@@ -647,7 +650,7 @@ def test_no_provider_says_analysis_is_skipped():
 
     clear_lanes()
 
-    (found,) = describe_readiness()
+    (found,) = _described()
     assert found.headline == "No AI provider is active, analysis is skipped"
     assert found.tone == "critical"
     assert found.action.intent == "edit_provider"
@@ -671,7 +674,7 @@ def test_preflight_counts_what_it_found(status, counts, headline, tone):
     _green_install()
     PreflightRun.objects.create(overall_status=status, **counts)
 
-    (found,) = describe_readiness()
+    (found,) = _described()
     assert found.headline == headline
     assert found.tone == tone
     assert found.action.intent == "view_preflight"
@@ -703,7 +706,7 @@ def test_inbox_names_the_runs_and_filters_to_them(pending, stuck, headline, stat
         )
         PipelineRun.objects.filter(pk=run.pk).update(updated_at=timezone.now() - timedelta(hours=1))
 
-    (found,) = describe_readiness()
+    (found,) = _described()
     assert found.headline == headline
     assert found.tone == tone
     assert found.action.intent == "view_inbox"
@@ -721,7 +724,7 @@ def test_some_silent_peers_are_counted():
     _stale(Node.objects.create(instance_id="agent-x"))
     _stale(Node.objects.create(instance_id="agent-y"))
 
-    (found,) = describe_readiness()
+    (found,) = _described()
     assert found.headline == "2 of 5 nodes stopped reporting"
     assert found.tone == "warning"
     assert found.action.intent == "view_nodes"
@@ -736,7 +739,7 @@ def test_every_peer_silent_names_the_window():
     _green_install()
     _stale(Node.objects.create(instance_id="agent-a"))
 
-    (found,) = describe_readiness()
+    (found,) = _described()
     assert found.headline == f"No node reported in the last {NODE_RECENT_MINUTES} minutes"
     assert found.action.intent == "view_nodes"
 
@@ -768,7 +771,7 @@ def test_descriptions_follow_readiness_order_and_hold_no_tokens():
         "inbox",
         "nodes",
     ]
-    found = describe_readiness()
+    found = _described()
     assert [d.action.intent for d in found] == [
         "edit_channel",
         "edit_provider",
@@ -792,7 +795,7 @@ def test_no_channel_at_all_is_said_once_not_per_lane():
     _lane("alpha", ["notify"])
     _lane("beta", ["notify"])
 
-    assert _headlines(describe_readiness()) == ["No active channel, 2 routes can't deliver"]
+    assert _headlines(_described()) == ["No active channel, 2 routes can't deliver"]
 
 
 @pytest.mark.django_db
@@ -818,7 +821,7 @@ def test_a_driver_gap_is_kept_when_the_channel_entry_fired(monkeypatch):
     ]
     monkeypatch.setattr(dashboard, "build_readiness", lambda: entries)
 
-    assert _headlines(describe_readiness()) == [
+    assert _headlines(_described()) == [
         "No active channel, 2 routes can't deliver",
         f"Route alpha can't deliver: {REASONS['no_driver'].headline}",
     ]
@@ -836,7 +839,7 @@ def test_an_unknown_entry_gets_a_generic_description(monkeypatch):
         ],
     )
 
-    found = describe_readiness()
+    found = _described()
     assert _headlines(found) == ["Backups needs attention", "Certificates needs attention"]
     assert [d.tone for d in found] == ["warning", "critical"]
     assert all(d.action is None for d in found)
@@ -859,7 +862,7 @@ def test_a_lane_gap_is_keyed_by_its_lane_as_a_valid_id():
     ]
 
 
-def test_describe_readiness_is_the_keyed_descriptions_without_keys(monkeypatch):
+def test_an_entry_is_keyed_by_its_own_key(monkeypatch):
     from config import dashboard
 
     monkeypatch.setattr(
@@ -870,4 +873,4 @@ def test_describe_readiness_is_the_keyed_descriptions_without_keys(monkeypatch):
 
     ((key, found),) = keyed_readiness()
     assert key == "certs"
-    assert describe_readiness() == (found,)
+    assert found.headline == "Certificates needs attention"

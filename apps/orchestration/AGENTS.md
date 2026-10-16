@@ -222,7 +222,8 @@ module level. `orchestrator.py` re-exports it for existing importers.
 and `routing_gap` raises `ValueError` on any other code. `REASONS` in
 `apps/orchestration/describing.py` maps each code to a headline and the `Action` that
 fixes it, and `_tests/test_describing.py` fails if a gap has no reason. Add a gap to both
-or to neither. `reason_code(message)` reads the code back off a stored error.
+or to neither. `reason_code(message)` reads the code back off a stored error, and returns
+`None` unless that code is in `REASONS`, so a checker name such as `disk_linux` is never a code.
 `describe_stage_outcome` and `describe_run` use it to lead with the reason and its fix,
 and put the rest of the error in Details. A stage failure with no known code reads as
 "<Stage> failed" and points at the error in Details.

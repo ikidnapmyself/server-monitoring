@@ -380,10 +380,6 @@ def keyed_readiness() -> tuple[tuple[str, Description], ...]:
     )
 
 
-def describe_readiness() -> tuple[Description, ...]:
-    return tuple(d for _, d in keyed_readiness())
-
-
 def get_dashboard_context():
     """Build template context dict for the admin dashboard."""
     from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
