@@ -380,6 +380,8 @@ When `ORCHESTRATION_INTELLIGENCE_FALLBACK_ENABLED=1` (default), if the AI analys
 
 This ensures critical alerts are still communicated even when AI is down.
 
+With `ORCHESTRATION_INTELLIGENCE_FALLBACK_ENABLED=0`, an AI API error fails the analyze stage as retryable. Providers raise instead of returning a placeholder recommendation, so a bad API key or a provider outage stops the run before notify.
+
 ## Models
 
 ### PipelineRun

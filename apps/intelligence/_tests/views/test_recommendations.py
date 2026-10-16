@@ -222,8 +222,7 @@ class TestRecommendationsPostView(TestCase):
     @patch("apps.intelligence.views.recommendations.get_provider")
     def test_post_recommendations_unexpected_error(self, mock_get_provider):
         """POST with unexpected error returns 500."""
-        mock_provider = mock_get_provider.return_value
-        mock_provider.run.side_effect = RuntimeError("boom")
+        mock_get_provider.side_effect = RuntimeError("boom")
 
         client = Client()
         response = client.post(
@@ -255,8 +254,7 @@ class TestRecommendationsGetEdgeCases(TestCase):
     @patch("apps.intelligence.views.recommendations.get_provider")
     def test_get_recommendations_unexpected_error(self, mock_get_provider):
         """GET with unexpected error returns 500."""
-        mock_provider = mock_get_provider.return_value
-        mock_provider.run.side_effect = RuntimeError("boom")
+        mock_get_provider.side_effect = RuntimeError("boom")
 
         client = Client()
         response = client.get("/intelligence/recommendations/")
@@ -264,3 +262,54 @@ class TestRecommendationsGetEdgeCases(TestCase):
         assert response.status_code == 500
         data = response.json()
         assert "Error generating recommendations" in data["error"]
+
+
+class _AuthError(Exception):
+    status_code = 401
+
+
+@pytest.mark.django_db
+@override_settings(API_KEY_AUTH_ENABLED=False)
+class TestRecommendationsProviderFailure(TestCase):
+    """A provider that raises while analysing is a 502 naming the failure kind."""
+
+    @patch("apps.intelligence.views.recommendations.get_provider")
+    def test_get_provider_failure_is_502(self, mock_get_provider):
+        mock_get_provider.return_value.run.side_effect = _AuthError("invalid api key")
+
+        response = Client().get("/intelligence/recommendations/?provider=claude")
+
+        assert response.status_code == 502
+        data = response.json()
+        assert data["failure"] == "auth"
+        assert "invalid api key" in data["error"]
+        assert "claude" in data["error"]
+
+    @patch("apps.intelligence.views.recommendations.get_provider")
+    def test_get_provider_failure_with_incident_is_502(self, mock_get_provider):
+        from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
+
+        incident = Incident.objects.create(
+            status=IncidentStatus.OPEN, severity=AlertSeverity.WARNING
+        )
+        mock_get_provider.return_value.run.side_effect = TimeoutError("slow")
+
+        response = Client().get(f"/intelligence/recommendations/?incident_id={incident.id}")
+
+        assert response.status_code == 502
+        assert response.json()["failure"] == "timeout"
+
+    @patch("apps.intelligence.views.recommendations.get_provider")
+    def test_post_provider_failure_is_502(self, mock_get_provider):
+        mock_get_provider.return_value.run.side_effect = _AuthError("invalid api key")
+
+        response = Client().post(
+            "/intelligence/recommendations/",
+            data=json.dumps({"provider": "openai"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 502
+        data = response.json()
+        assert data["failure"] == "auth"
+        assert "invalid api key" in data["error"]

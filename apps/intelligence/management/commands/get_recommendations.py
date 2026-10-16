@@ -17,6 +17,7 @@ from django.core.management.base import BaseCommand, CommandError
 from apps.alerts.describing import describe_incident
 from apps.intelligence.providers import get_provider, list_providers
 from apps.intelligence.utils.spinner import SpinnerProgress
+from config.failures import classify_failure
 from config.security import PathNotAllowedError, resolve_safe_path
 
 
@@ -153,14 +154,14 @@ class Command(BaseCommand):
                 incident = Incident.objects.get(id=options["incident_id"])
                 headline = describe_incident(incident).headline
                 self.stdout.write(self.style.SUCCESS(f"Analyzing incident: {headline}"))
-                recommendations = provider.run(incident=incident)
+                recommendations = self._run(provider, options, incident=incident)
             except Incident.DoesNotExist:
                 self.stderr.write(self.style.ERROR(f"Incident {options['incident_id']} not found"))
                 return
 
         # Memory-specific analysis
         elif options["memory"]:
-            recommendations = provider.run(analysis_type="memory")
+            recommendations = self._run(provider, options, analysis_type="memory")
 
         # Disk-specific analysis
         elif options["disk"]:
@@ -170,7 +171,7 @@ class Command(BaseCommand):
                     disk_path = resolve_safe_path(disk_path)
                 except PathNotAllowedError as e:
                     raise CommandError(str(e))
-            recommendations = provider.run(analysis_type="disk", path=disk_path)
+            recommendations = self._run(provider, options, analysis_type="disk", path=disk_path)
 
         # All recommendations
         elif options["all"]:
@@ -180,12 +181,14 @@ class Command(BaseCommand):
                     disk_path = resolve_safe_path(disk_path)
                 except PathNotAllowedError as e:
                     raise CommandError(str(e))
-            recommendations.extend(provider.run(analysis_type="memory"))
-            recommendations.extend(provider.run(analysis_type="disk", path=disk_path))
+            recommendations.extend(self._run(provider, options, analysis_type="memory"))
+            recommendations.extend(
+                self._run(provider, options, analysis_type="disk", path=disk_path)
+            )
 
         # General recommendations based on current state
         else:
-            recommendations = provider.run()
+            recommendations = self._run(provider, options)
 
         # Output
         if options["json"]:
@@ -197,6 +200,14 @@ class Command(BaseCommand):
             self.stdout.write(json.dumps(output, indent=2))
         else:
             self._print_recommendations(recommendations)
+
+    def _run(self, provider, options, **kwargs):
+        try:
+            return provider.run(**kwargs)
+        except Exception as e:
+            raise CommandError(
+                f"Provider {options['provider']} failed ({classify_failure(e)}): {e}"
+            ) from e
 
     def _print_recommendations(self, recommendations):
         """Print recommendations in a human-readable format."""
