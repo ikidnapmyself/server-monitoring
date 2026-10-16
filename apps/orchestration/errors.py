@@ -7,6 +7,8 @@ could not import it at module level without a cycle.
 
 from __future__ import annotations
 
+ROUTING_GAPS = ("no_route", "no_channel", "no_driver")
+
 
 class StageExecutionError(Exception):
     """Exception raised when a stage fails execution."""
@@ -30,4 +32,6 @@ def routing_gap(stage: str, code: str, detail: str) -> StageExecutionError:
 
     ``code`` leads the message because operators and log searches key on it.
     """
+    if code not in ROUTING_GAPS:
+        raise ValueError(f"unknown routing gap: {code!r}")
     return StageExecutionError(stage=stage, errors=[f"{code}: {detail}"], retryable=False)
