@@ -19,6 +19,7 @@ class GenericNotifyDriver(BaseNotifyDriver):
     """Generic driver for custom notification integrations."""
 
     name = "generic"
+    label = "Generic webhook"
 
     def validate_config(self, config: dict[str, Any]) -> bool:
         # Allow empty/default config to mean "notifications disabled" (no-op)

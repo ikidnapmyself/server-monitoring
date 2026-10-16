@@ -17,6 +17,7 @@ class EmailNotifyDriver(BaseNotifyDriver):
     """Driver for sending email notifications."""
 
     name = "email"
+    label = "Email"
 
     def validate_config(self, config: dict[str, Any]) -> bool:
         required_keys = {"smtp_host", "from_address"}

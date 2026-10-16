@@ -6,6 +6,7 @@ raises on a shape it doesn't expect.
 
 from typing import Any
 
+from apps.notify.drivers import DRIVER_REGISTRY
 from config.describing import Action, Description, Fact
 
 _EDIT_CHANNEL = "edit_channel"
@@ -38,7 +39,9 @@ def _text(value: object) -> str:
 
 
 def _driver_label(provider: str) -> str:
-    # Drivers declare no display name, so the registry key is all there is.
+    driver = DRIVER_REGISTRY.get(provider)
+    if driver is not None and driver.label:
+        return driver.label
     return provider.replace("_", " ").capitalize()
 
 

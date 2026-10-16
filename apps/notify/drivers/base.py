@@ -49,6 +49,7 @@ class BaseNotifyDriver(ABC):
     """Abstract base class for notification delivery drivers."""
 
     name: str = "base"
+    label: str = ""
 
     _templating_service = NotificationTemplatingService()
 

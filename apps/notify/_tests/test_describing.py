@@ -3,6 +3,7 @@ import re
 import pytest
 
 from apps.notify.describing import FAILURES, describe_delivery, describe_notify
+from apps.notify.drivers import DRIVER_REGISTRY
 from config.failures import FAILURE_KINDS
 
 
@@ -47,6 +48,21 @@ def test_provider_id_that_is_not_text_is_dropped():
 
 def test_numeric_provider_id_is_kept():
     assert facts(describe_delivery(_delivery(provider_id=42))) == [("Message ID", "42")]
+
+
+def test_every_registered_driver_declares_a_label():
+    for key, driver in DRIVER_REGISTRY.items():
+        assert driver.label, key
+
+
+def test_registered_driver_reads_its_label():
+    d = describe_delivery(_delivery(provider="pagerduty"))
+    assert d.headline == "Sent to #ops by PagerDuty"
+
+
+def test_registered_driver_without_a_label_is_capitalised(monkeypatch):
+    monkeypatch.setattr(DRIVER_REGISTRY["slack"], "label", "")
+    assert describe_delivery(_delivery()).headline == "Sent to #ops by Slack"
 
 
 def test_unknown_provider_key_is_capitalised():

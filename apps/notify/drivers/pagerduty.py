@@ -19,6 +19,7 @@ class PagerDutyNotifyDriver(BaseNotifyDriver):
     """Driver for sending PagerDuty notifications via Events API v2."""
 
     name = "pagerduty"
+    label = "PagerDuty"
 
     EVENTS_API_URL = "https://events.pagerduty.com/v2/enqueue"
 
