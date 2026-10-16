@@ -37,7 +37,9 @@ class IncidentPageView(ConsoleView):
         return render(self.request, "console/not_found.html", {"nav": "incidents"}, status=404)
 
     def render_incident(self, pk: int, *, full: bool, notice: Notice | None = None):
-        incident = build_incident_detail(pk, full=full, can_act=self.can_act)
+        incident = build_incident_detail(
+            pk, full=full, can_act=self.can_act, can_rerun=self.can_rerun_checks
+        )
         if incident is None:
             return self.not_found()
         return self.render_to_response(

@@ -1,3 +1,4 @@
+import re
 from unittest import mock
 
 import pytest
@@ -179,3 +180,51 @@ def test_plain_refusal_redirects_with_a_warning(client, operator, run_checks):
 
     assert resp.status_code == 303
     assert _notices(client.get(_page(incident)).content.decode()) == [("warning", REFUSED)]
+
+
+@pytest.mark.django_db
+@BOTH
+def test_a_local_incident_with_a_known_checker_offers_the_rerun(client, operator, headers):
+    incident = _incident()
+
+    body = client.get(_page(incident), **headers).content.decode()
+
+    button = re.search(r'<button id="action-rerun_check"[^>]*>Run the checks again</button>', body)
+    assert button
+    form = body[: body.index('id="action-rerun_check"')]
+    form = form[form.rindex("<form") :]
+    assert f'hx-post="{_url(incident)}"' in form
+    assert 'hx-target="#incident"' in form
+    assert form.count('name="csrfmiddlewaretoken"') == 1
+
+
+@pytest.mark.django_db
+@BOTH
+def test_all_rides_along_on_the_rerun_form(client, operator, headers):
+    incident = _incident()
+
+    body = client.get(f"{_page(incident)}?all=1", **headers).content.decode()
+
+    form = body[body.index(f'hx-post="{_url(incident)}"') :]
+    form = form[: form.index("</form>")]
+    assert '<input type="hidden" name="all" value="1">' in form
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "incident_fields", [{"instance": "web-03"}, {"checker": "zfs_pool"}], ids=["remote", "unknown"]
+)
+def test_an_incident_this_machine_cant_check_offers_no_rerun(client, operator, incident_fields):
+    body = client.get(_page(_incident(**incident_fields))).content.decode()
+
+    assert "action-rerun_check" not in body
+    assert "Run the checks again" not in body
+
+
+@pytest.mark.django_db
+def test_staff_without_the_permission_sees_no_rerun(client):
+    client.force_login(_operator(can_rerun=False))
+
+    body = client.get(_page(_incident())).content.decode()
+
+    assert "action-rerun_check" not in body

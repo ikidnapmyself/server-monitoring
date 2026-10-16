@@ -87,7 +87,11 @@ pipeline stage and not an alert producer.
   `output_snapshot` into `CheckBody`, `AnalyzeBody`, `NotifyBody` or `RawBody`. Every
   builder must survive a list, a string, `None` and wrong-typed members without
   raising, because a raise is a 500 on every poll. Raw JSON renders through
-  autoescaping only.
+  autoescaping only, inside an entry's Details.
+- **The incident page decodes nothing.** Every headline, stage outcome, check line,
+  analysis and delivery comes from the owning app's describer, and the read model builds
+  no admin URL. Navigation is an `Action` intent (`view_run`, `view_alert`), added only
+  when the description has no action of its own, so a link never hides a fix.
 - **The incident timeline is capped.** The page shows lifecycle entries plus the newest
   `TIMELINE_LIMIT` others, and `?all=1` shows everything. Bodies are built only for
   entries that survive the cut. The database read is not capped.
@@ -121,9 +125,10 @@ pipeline stage and not an alert producer.
 - **A non-GET request can't be the login's `next`.** `ConsoleView._refusal` sends an
   anonymous GET or HEAD back to its own path. Anything else goes to `landing_path()`,
   which defaults to the Overview. An action view overrides it with the page it acts on.
-- **Buttons come from the read model.** `IncidentDetail.actions` is filled from
-  `available_incident_actions` only when the view passes `can_act=True`. A user without
-  the permission gets no buttons and no container. A button can still be stale by the
+- **Buttons come from the read model.** `IncidentDetail.do` holds the transitions from
+  `available_incident_actions` only when the view passes `can_act=True`, and the rerun
+  only when it passes `can_rerun=True` and `can_rerun(incident)` holds. A user without
+  the permission gets no buttons and no "Do this" box. A button can still be stale by the
   time it's clicked. `transition` then refuses it, and the operator sees a warning.
   Every action form disables every `.c-button` in `#incident` while its request runs. A
   second click would otherwise abort the first request in the browser only, and the

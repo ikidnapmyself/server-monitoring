@@ -9,7 +9,7 @@ from django.urls import reverse
 
 from apps.alerts.models import Incident, Node
 from apps.console._tests.test_templates import FORBIDDEN
-from apps.console._tests.views.test_incident import named_incident
+from apps.console._tests.views.test_incident import focus_audit, named_incident
 from apps.console.views.incident import IncidentPageView
 from apps.orchestration.models import PipelineOrigin, PipelineRun, PipelineStatus, StageExecution
 
@@ -510,10 +510,14 @@ def test_buttons_follow_the_status(client, operator, status, headers):
     if "resolve" in AVAILABLE[status]:
         assert body.index('id="resolve-note"') > body.index('id="action-close"')
     assert ('id="resolve-note"' in body) is ("resolve" in AVAILABLE[status])
-    assert ('class="c-actions"' in body) is bool(AVAILABLE[status])
-    for action in AVAILABLE[status]:
+    assert ("Do this" in body) is bool(AVAILABLE[status])
+    if AVAILABLE[status]:
+        assert body.index("What's wrong") < body.index("Do this")
+    for index, action in enumerate(AVAILABLE[status]):
         button = _tag(body, f"action-{action}")
         assert 'type="submit"' in button
+        assert ("c-button--danger" in button) is (action == "close")
+        assert ("c-button--primary" in button) is (index == 0 and action != "close")
         assert f">{LABELS[action]}</button>" in body[body.index(button) :]
 
 
@@ -576,8 +580,8 @@ def test_staff_without_the_permission_sees_no_buttons_and_no_container(client, h
     body = resp.content.decode()
     region = body if headers else body[body.index('<div id="incident"') : body.index("</main>")]
     assert resp.status_code == 200
-    assert "c-actions" not in region
-    assert "<form" not in region and "<button" not in region
+    assert "Do this" not in region and "c-do" not in region
+    assert "<form" not in region and 'id="action-' not in region
     assert "csrfmiddlewaretoken" not in region
     assert "resolve-note" not in region
 
@@ -590,12 +594,11 @@ def test_every_focusable_element_with_buttons_has_a_unique_id(client, operator, 
     body = client.get(_page(incident), **headers).content.decode()
     region = body if headers else body[body.index('<div id="incident"') : body.index("</main>")]
 
-    tags = re.findall(r"<(?:a|summary|details|pre|button|input|select|textarea)\b[^>]*>", region)
-    focusable = [tag for tag in tags if 'type="hidden"' not in tag]
-    assert len(tags) - len(focusable) == 4
-    assert len(focusable) == 2 + 4 + 3
-    assert all(re.search(r'\sid="[^"]+"', tag) for tag in focusable)
-    ids = re.findall(r'\sid="([^"]*)"', region)
+    focusable, ids = focus_audit(region)
+    assert {"action-acknowledge", "action-resolve", "action-close", "resolve-note-summary"} <= {
+        element_id for _, element_id in focusable
+    }
+    assert [tag for tag, element_id in focusable if not element_id] == []
     assert len(ids) == len(set(ids))
 
 

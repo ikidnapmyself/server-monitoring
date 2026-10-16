@@ -1,5 +1,5 @@
 {% extends "console/base.html" %}
-{% block title %}{{ incident.title }} · Console{% endblock %}
+{% block title %}{{ incident.what.headline }} · Console{% endblock %}
 {% block content %}
 {% for message in messages %}
 {% if message.level_tag == "success" %}{% include "console/partials/_flash.html" with tone="ok" text=message %}

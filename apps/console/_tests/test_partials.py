@@ -8,6 +8,7 @@ from django.template.loader import render_to_string
 from django.test import RequestFactory
 from django.utils import timezone
 
+from apps.console.intents import ResolvedAction
 from config.describing import Action, Description, Fact
 
 
@@ -153,3 +154,33 @@ def test_time_renders_relative_with_exact_title():
     assert f'datetime="{when.isoformat()}"' in html
     assert 'title="' in html
     assert "5\xa0minutes ago</time>" in html
+
+
+def test_headless_leaves_the_headline_to_its_container(viewer):
+    html = _render(viewer, Description("Disk", "warning", detail="92% used"), headless=True)
+
+    assert "c-description__headline" not in html
+    assert "Disk" not in html
+    assert '<p class="c-description__detail">92% used</p>' in html
+
+
+def test_raw_without_facts_still_gets_details(viewer):
+    html = _render(viewer, Description("Ran", "ok"), raw='{"a": 1}')
+
+    assert '<details id="disk-details" class="c-details" data-details>' in html
+    assert "<dl" not in html
+    assert '<details id="disk-details-raw" class="c-entry__raw">' in html
+
+
+def test_an_action_takes_an_extra_class(operator):
+    request = RequestFactory().get("/console/")
+    request.user = operator
+    act = ResolvedAction("Close", "/console/incidents/7/close/", "post")
+
+    html = render_to_string(
+        "console/partials/_action.html",
+        {"act": act, "id": "action-close", "cls": "c-button--danger"},
+        request=request,
+    )
+
+    assert 'class="c-button c-button--sm c-button--danger"' in html
