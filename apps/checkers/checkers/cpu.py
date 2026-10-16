@@ -2,9 +2,12 @@
 CPU usage checker with multi-sample averaging.
 """
 
+from typing import Any
+
 import psutil
 
-from apps.checkers.checkers.base import BaseChecker, CheckResult
+from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
+from config.describing import Action, Description, format_percent
 
 
 class CPUChecker(BaseChecker):
@@ -18,6 +21,8 @@ class CPUChecker(BaseChecker):
     """
 
     name = "cpu"
+    label = "CPU usage"
+    problem = "High CPU usage"
     warning_threshold = 70.0
     critical_threshold = 90.0
 
@@ -82,3 +87,19 @@ class CPUChecker(BaseChecker):
         status = self._determine_status(cpu_percent)
         message = f"CPU usage: {cpu_percent:.1f}% (avg of {self.samples} samples, busiest core)"
         return self._make_result(status=status, message=message, metrics=metrics)
+
+    def describe_result(self, status: CheckStatus, metrics: dict[str, Any]) -> Description:
+        percent = format_percent(metrics["cpu_percent"])
+        if status is CheckStatus.OK:
+            cores = metrics.get("cpu_count")
+            headline = f"CPU at {percent} across {cores} cores" if cores else f"CPU at {percent}"
+            return self._describe(status, headline, metrics)
+        return self._describe(
+            status,
+            f"CPU at {percent}",
+            metrics,
+            action=Action(
+                "Find the busiest processes with top, sorted by CPU, "
+                "and stop or limit the runaway one."
+            ),
+        )

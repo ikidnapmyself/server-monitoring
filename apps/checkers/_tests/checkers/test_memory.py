@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
+from apps.checkers._tests.checkers.test_describe_contract import RAW
 from apps.checkers.checkers import CheckStatus, MemoryChecker
 
 
@@ -57,3 +58,30 @@ class MemoryCheckerTests(TestCase):
 
         self.assertEqual(result.status, CheckStatus.UNKNOWN)
         self.assertIn("memory read failed", result.message)
+
+
+class MemoryDescribeTests(TestCase):
+    METRICS = {"memory_percent": 41.0, "memory_available_gb": 9.4, "memory_total_gb": 16.0}
+
+    def test_ok_states_free_of_total(self):
+        d = MemoryChecker().describe(CheckStatus.OK, self.METRICS)
+        self.assertEqual(d.headline, "Memory at 41%, 9.4 GB free of 16.0 GB")
+        self.assertIsNone(d.action)
+
+    def test_warning_says_what_to_do(self):
+        d = MemoryChecker().describe(CheckStatus.WARNING, self.METRICS)
+        self.assertEqual(d.headline, "Memory at 41%, 9.4 GB free of 16.0 GB")
+        self.assertIn("top", d.action.text)
+
+    @patch("apps.checkers.checkers.memory.psutil")
+    def test_real_output_reads_in_words(self, mock_psutil):
+        mock_mem = MagicMock()
+        mock_mem.percent = 95.0
+        mock_mem.total = 16 * 1024**3
+        mock_mem.used = 15.2 * 1024**3
+        mock_mem.available = 0.8 * 1024**3
+        mock_psutil.virtual_memory.return_value = mock_mem
+        result = MemoryChecker().check()
+        d = MemoryChecker().describe(result.status, result.metrics, result.message)
+        self.assertEqual(d.headline, "Memory at 95%, 819 MB free of 16.0 GB")
+        self.assertIsNone(RAW.search(d.headline))

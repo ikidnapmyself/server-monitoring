@@ -12,6 +12,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any
 
+from apps.alerts.describing import describe_incident
 from apps.orchestration.dtos import (
     AnalyzeResult,
     CheckResult,
@@ -100,8 +101,8 @@ class IngestExecutor(BaseExecutor):
                 # lazy fetch of subject.incident entirely; binding the result
                 # also keeps it to one access and lets mypy narrow the Optional.
                 incident = subject.incident if subject.incident_id else None
-                if incident is not None and incident.title:
-                    result.incident_title = incident.title
+                if incident is not None:
+                    result.incident_title = describe_incident(incident).headline
 
             # Every material incident, not just the subject: the orchestrator
             # enqueues one downstream run per entry here.
@@ -431,7 +432,7 @@ class NotifyExecutor(BaseExecutor):
         subject = incident.alerts.order_by("-received_at").first()
         return {
             "severity": incident.severity,
-            "incident_title": incident.title,
+            "incident_title": describe_incident(incident).headline,
             "status": incident.status,
             "source": subject.source if subject is not None else "monitoring",
         }

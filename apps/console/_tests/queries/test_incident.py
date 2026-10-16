@@ -91,7 +91,7 @@ NOTIFY_SNAPSHOT = {
 
 
 def _incident(created_at=T0, **fields):
-    incident = Incident.objects.create(**{"title": "Disk full", **fields})
+    incident = Incident.objects.create(**fields)
     Incident.objects.filter(pk=incident.pk).update(created_at=created_at)
     incident.refresh_from_db()
     return incident
@@ -152,10 +152,10 @@ def test_a_missing_incident_is_none():
 def test_header_fields_describe_the_incident():
     pipeline = PipelineDefinition.objects.create(name="pager", stages=["check", "notify"])
     incident = _incident(
-        title="Disk full on web-1",
+        subject="DiskFull",
+        instance="web-1",
         severity="critical",
         status="acknowledged",
-        description="92% used",
         summary="Logs rotated",
         pipeline=pipeline,
     )
@@ -164,12 +164,13 @@ def test_header_fields_describe_the_incident():
     _alert(incident, web2, key="a")
     _alert(incident, web2, key="b")
     _alert(incident, bare, key="c")
-    _alert(incident, None, key="d")
+    lead = _alert(incident, None, key="DiskFull", severity="critical")
+    Alert.objects.filter(pk=lead.pk).update(description="92% used")
 
     detail = build_incident_detail(incident.pk)
 
     assert detail.pk == incident.pk
-    assert detail.title == "Disk full on web-1"
+    assert detail.title == "DiskFull on web-1"
     assert (detail.severity, detail.severity_tone) == ("critical", "critical")
     assert (detail.status, detail.status_tone) == ("acknowledged", "warning")
     assert detail.description == "92% used"
@@ -675,7 +676,7 @@ def test_the_query_count_does_not_grow_with_the_incident():
         detail = build_incident_detail(large.pk)
 
     assert len(detail.timeline) == 1 + 6 * 5
-    assert len(few) == len(many) == 7
+    assert len(few) == len(many) == 8
 
 
 def test_raw_json_keeps_non_ascii_text_readable():
@@ -781,7 +782,7 @@ def test_the_cap_does_not_change_the_query_count(monkeypatch):
     with CaptureQueriesContext(connection) as full:
         build_incident_detail(incident.pk, full=True)
 
-    assert len(whole) == len(capped) == len(full) == 7
+    assert len(whole) == len(capped) == len(full) == 8
 
 
 @pytest.mark.django_db

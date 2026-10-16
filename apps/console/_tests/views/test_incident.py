@@ -44,16 +44,29 @@ def _nav(body, label):
     ).group(1)
 
 
+def named_incident(name, **fields):
+    """An incident whose one webhook alert gives it ``name`` as its described headline."""
+    incident = Incident.objects.create(**fields)
+    Alert.objects.create(
+        fingerprint=f"named:{incident.pk}",
+        name=name,
+        severity=incident.severity,
+        source="grafana",
+        incident=incident,
+        started_at=timezone.now(),
+    )
+    return incident
+
+
 def _busy(suffix=""):
     """An acknowledged incident with one alert, two history rows and a full run."""
     pipeline = PipelineDefinition.objects.create(
         name=f"pager{suffix}", stages=["check", "analyze", "notify"]
     )
     incident = Incident.objects.create(
-        title=f"Disk full{suffix}",
         severity="critical",
         status="acknowledged",
-        description=f"92% used{suffix}",
+        instance=f"web-1{suffix}",
         summary=f"Logs rotated{suffix}",
         acknowledged_at=timezone.now(),
         pipeline=pipeline,
@@ -62,6 +75,7 @@ def _busy(suffix=""):
     alert = Alert.objects.create(
         fingerprint="check:web-1:disk",
         name=f"disk{suffix}",
+        description=f"92% used{suffix}",
         severity="critical",
         source="cluster",
         node=node,
@@ -132,7 +146,7 @@ def test_anonymous_htmx_request_is_told_to_do_a_full_redirect(client):
 @pytest.mark.django_db
 def test_non_staff_is_refused(client):
     client.force_login(get_user_model().objects.create_user("visitor", password="x"))
-    incident = Incident.objects.create(title="secret")
+    incident = Incident.objects.create()
 
     resp = client.get(_url(incident))
 
@@ -160,7 +174,7 @@ def test_a_missing_incident_is_a_console_404_that_links_onward(client, staff, pk
 
 @pytest.mark.django_db
 def test_staff_gets_the_full_page_with_incidents_current_in_the_nav(client, staff):
-    incident = Incident.objects.create(title="Disk full on web-1")
+    incident = named_incident("Disk full on web-1")
 
     resp = client.get(_url(incident))
 
@@ -180,7 +194,7 @@ def test_staff_gets_the_full_page_with_incidents_current_in_the_nav(client, staf
 
 @pytest.mark.django_db
 def test_htmx_request_gets_only_the_partial(client, staff):
-    incident = Incident.objects.create(title="Disk full on web-1")
+    incident = named_incident("Disk full on web-1")
 
     resp = client.get(_url(incident), **HTMX)
 
@@ -195,7 +209,7 @@ def test_htmx_request_gets_only_the_partial(client, staff):
 @pytest.mark.django_db
 @pytest.mark.parametrize("header", ["HTTP_HX_HISTORY_RESTORE_REQUEST", "HTTP_HX_BOOSTED"])
 def test_htmx_request_that_swaps_the_body_gets_the_full_page(client, staff, header):
-    incident = Incident.objects.create(title="Disk full on web-1")
+    incident = Incident.objects.create()
 
     resp = client.get(_url(incident), **HTMX, **{header: "true"})
 
@@ -210,7 +224,8 @@ def test_the_header_describes_the_incident_and_links_onward(client, staff, heade
     body = client.get(_url(incident), **headers).content.decode()
 
     title = (
-        f'<h1 class="c-pagehead__title">Disk full <span class="c-pagehead__number">#{incident.pk}'
+        '<h1 class="c-pagehead__title">disk on web-1 '
+        f'<span class="c-pagehead__number">#{incident.pk}'
     )
     assert title in body
     assert '<span class="c-label c-tone-critical">critical</span>' in body
@@ -235,7 +250,7 @@ def test_the_header_describes_the_incident_and_links_onward(client, staff, heade
 @pytest.mark.django_db
 def test_a_finished_bare_incident_drops_the_optional_header_parts(client, staff):
     now = timezone.now()
-    incident = Incident.objects.create(title="Done", status="resolved", resolved_at=now)
+    incident = Incident.objects.create(status="resolved", resolved_at=now)
     Incident.objects.filter(pk=incident.pk).update(
         created_at=now - timedelta(minutes=4, seconds=12)
     )
@@ -274,7 +289,7 @@ def test_the_stage_strip_shows_each_stage_with_its_detail_and_runs(client, staff
 
 @pytest.mark.django_db
 def test_a_stage_with_no_execution_is_a_plain_label(client, staff):
-    incident = Incident.objects.create(title="Fresh")
+    incident = Incident.objects.create()
 
     body = client.get(_url(incident)).content.decode()
 
@@ -372,7 +387,7 @@ def test_each_stage_body_is_rendered(client, staff):
 
 @pytest.mark.django_db
 def test_sparse_stage_bodies_leave_their_optional_parts_out(client, staff):
-    incident = Incident.objects.create(title="Sparse")
+    incident = Incident.objects.create()
     run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
     for name, snapshot in [
         ("check", {"checks_run": 0, "checks": [{"name": "cpu"}]}),
@@ -408,7 +423,7 @@ def test_hostile_strings_are_escaped_everywhere(client, staff, headers):
 
     assert "<img" not in body
     for text in (
-        f"Disk full {ESCAPED}",
+        f"disk {ESCAPED} on web-1 {ESCAPED}",
         f"92% used {ESCAPED}",
         f"Logs rotated {ESCAPED}",
         f"web-1 {ESCAPED}",
@@ -421,7 +436,7 @@ def test_hostile_strings_are_escaped_everywhere(client, staff, headers):
     ):
         assert text in body, text
     if not headers:
-        assert f"<title>Disk full {ESCAPED} · Console</title>" in body
+        assert f"<title>disk {ESCAPED} on web-1 {ESCAPED} · Console</title>" in body
 
 
 @pytest.mark.django_db
@@ -455,7 +470,7 @@ def test_the_rendered_page_is_clean(client, staff, label, headers):
 
 @pytest.mark.django_db
 def test_overview_and_list_rows_link_to_the_console_page(client, staff):
-    incident = Incident.objects.create(title="Disk full on web-1", severity="critical")
+    incident = named_incident("Disk full on web-1", severity="critical")
 
     for page in ("console:overview", "console:incidents"):
         body = client.get(reverse(page)).content.decode()
@@ -467,7 +482,7 @@ def test_overview_and_list_rows_link_to_the_console_page(client, staff):
 
 def _long_incident(monkeypatch):
     monkeypatch.setattr(incident_queries, "TIMELINE_LIMIT", 2)
-    incident = Incident.objects.create(title="Long")
+    incident = Incident.objects.create()
     run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
     for index in range(5):
         StageExecution.objects.create(
@@ -541,7 +556,7 @@ def test_any_other_all_value_is_off(client, staff, monkeypatch, query):
 
 @pytest.mark.django_db
 def test_the_header_names_the_host_right_after_the_state(client, staff):
-    incident = Incident.objects.create(title="Disk full", severity="critical")
+    incident = Incident.objects.create(severity="critical")
     Alert.objects.create(
         fingerprint="f",
         name="disk",

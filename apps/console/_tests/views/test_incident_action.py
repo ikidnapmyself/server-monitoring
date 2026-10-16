@@ -9,6 +9,7 @@ from django.urls import reverse
 
 from apps.alerts.models import Incident, Node
 from apps.console._tests.test_templates import FORBIDDEN
+from apps.console._tests.views.test_incident import named_incident
 from apps.console.views.incident import IncidentPageView
 from apps.orchestration.models import PipelineOrigin, PipelineRun, PipelineStatus, StageExecution
 
@@ -43,7 +44,6 @@ def operator(client):
 
 
 def _incident(status="open", **fields):
-    fields.setdefault("title", "Disk full")
     return Incident.objects.create(severity="critical", status=status, **fields)
 
 
@@ -247,7 +247,7 @@ def test_an_htmx_post_gets_the_partial_with_a_success_message(client, operator):
     assert resp.status_code == 200
     assert resp.templates[0].name == "console/partials/_incident.html"
     assert "<html" not in body and 'id="incident"' not in body
-    assert _notices(body) == [("ok", "Incident &#x27;Disk full&#x27; acknowledged.")]
+    assert _notices(body) == [("ok", f"Incident #{incident.pk} acknowledged.")]
     notice = _tag(body, "incident-notice")
     assert 'role="status"' in notice and 'tabindex="-1"' in notice
     assert re.search(r"\sdata-fresh[\s>]", notice)
@@ -269,7 +269,7 @@ def test_a_plain_post_redirects_to_the_page_which_shows_the_message_once(client,
     assert resp["Location"] == _page(incident)
     assert _notices(client.get(_page(incident), **HTMX).content.decode()) == []
     body = client.get(_page(incident)).content.decode()
-    assert _notices(body) == [("ok", "Incident &#x27;Disk full&#x27; resolved.")]
+    assert _notices(body) == [("ok", f"Incident #{incident.pk} resolved.")]
     assert body.index('<div class="c-flash') < body.index('<div id="incident"')
     assert "data-fresh" not in body and 'id="incident-notice"' not in body
     assert _notices(client.get(_page(incident)).content.decode()) == []
@@ -452,7 +452,7 @@ def test_a_blank_note_keeps_the_existing_summary(client, operator):
 
 @pytest.mark.django_db
 def test_a_hostile_note_and_title_are_stored_verbatim_and_rendered_escaped(client, operator):
-    incident = _incident(title=f"Disk {MARKUP}")
+    incident = named_incident(f"Disk {MARKUP}", severity="critical", status="open")
 
     body = client.post(_url(incident, "resolve"), {"summary": MARKUP}, **HTMX).content.decode()
 
@@ -460,7 +460,8 @@ def test_a_hostile_note_and_title_are_stored_verbatim_and_rendered_escaped(clien
     assert MARKUP not in body
     assert 'id="incident-notice"' in body
     assert f'<p class="c-prose">{ESCAPED}</p>' in body
-    assert _notices(body) == [("ok", f"Incident &#x27;Disk {ESCAPED}&#x27; resolved.")]
+    assert f"Disk {ESCAPED}" in body
+    assert _notices(body) == [("ok", f"Incident #{incident.pk} resolved.")]
 
 
 @pytest.mark.django_db

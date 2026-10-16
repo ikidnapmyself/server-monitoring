@@ -372,6 +372,7 @@ class PushToHubTests(TestCase):
         alert = payload["alerts"][0]
         self.assertEqual(alert["status"], "firing")
         self.assertEqual(alert["severity"], "warning")
+        self.assertEqual(alert["check_status"], "unknown")
 
     @staticmethod
     def _ok_response(status=202, body=b"ok"):
@@ -714,12 +715,17 @@ class ResultToAlertIdentityTests(TestCase):
         self.assertEqual(alert["fingerprint"], "check:node-a:cpu")
 
     def test_pushed_alert_name_matches_the_bridge_name(self):
-        """Name is the bridge's stable form, not the live message."""
+        """Name is the checker's label, not the live message."""
         alert = Command()._result_to_alert(self._result(), "node-a", "host-a")
-        self.assertEqual(alert["name"], "CPU Check Alert")
+        self.assertEqual(alert["name"], "CPU usage")
+
+    def test_unregistered_checker_is_named_from_its_key(self):
+        result = CheckResult(status=CheckStatus.WARNING, message="x", checker_name="zfs_pool")
+        alert = Command()._result_to_alert(result, "node-a", "host-a")
+        self.assertEqual(alert["name"], "Zfs pool")
 
     def test_name_is_stable_across_message_changes(self):
-        """Incident grouping matches on name, so it must not drift per tick."""
+        """The name is the label, so it does not drift with the live message."""
         first = Command()._result_to_alert(
             self._result(message="CPU usage 91%"), "node-a", "host-a"
         )

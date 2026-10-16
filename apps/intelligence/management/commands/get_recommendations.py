@@ -14,6 +14,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 
+from apps.alerts.describing import describe_incident
 from apps.intelligence.providers import get_provider, list_providers
 from apps.intelligence.utils.spinner import SpinnerProgress
 from config.security import PathNotAllowedError, resolve_safe_path
@@ -150,7 +151,8 @@ class Command(BaseCommand):
 
             try:
                 incident = Incident.objects.get(id=options["incident_id"])
-                self.stdout.write(self.style.SUCCESS(f"Analyzing incident: {incident.title}"))
+                headline = describe_incident(incident).headline
+                self.stdout.write(self.style.SUCCESS(f"Analyzing incident: {headline}"))
                 recommendations = provider.run(incident=incident)
             except Incident.DoesNotExist:
                 self.stderr.write(self.style.ERROR(f"Incident {options['incident_id']} not found"))

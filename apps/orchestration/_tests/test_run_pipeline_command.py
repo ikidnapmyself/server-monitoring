@@ -42,6 +42,7 @@ def make_checker(
     """A checker class whose instances return one fixed result."""
     mock_checker = MagicMock()
     mock_checker.__doc__ = "Test checker description"
+    mock_checker.label = "Test checker"
     mock_checker.return_value.run.return_value = CheckResult(
         status=status,
         message=message,

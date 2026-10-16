@@ -112,8 +112,7 @@ class TestMistralAnalyze(SimpleTestCase):
         provider = MistralRecommendationProvider(api_key="test-key")
         incident = MagicMock()
         incident.id = 1
-        incident.title = "Test"
-        incident.description = "Test"
+        incident.subject = "Test"
         del incident.severity
         del incident.status
         del incident.alerts
@@ -132,8 +131,7 @@ class TestMistralAnalyze(SimpleTestCase):
         provider = MistralRecommendationProvider(api_key="test-key")
         incident = MagicMock()
         incident.id = 2
-        incident.title = "Test"
-        incident.description = "Test"
+        incident.subject = "Test"
         del incident.severity
         del incident.status
         del incident.alerts

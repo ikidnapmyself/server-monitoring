@@ -7,6 +7,7 @@ from django.db.models import Count, Exists, OuterRef, Q
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.alerts.describing import describe_incidents
 from apps.alerts.models import Alert, AlertSeverity, Incident, IncidentStatus, Node
 from apps.console.filters import STATUS_CHOICES, IncidentFilter
 from apps.console.queries.hosts import host_summary, incident_hosts
@@ -166,10 +167,11 @@ def _rows(incidents, page: int) -> tuple[IncidentListRow, ...]:
         )[start : start + PAGE_SIZE]
     )
     hosts = incident_hosts(incident.pk for incident in found)
+    described = describe_incidents(found)
     return tuple(
         IncidentListRow(
             pk=incident.pk,
-            title=incident.title,
+            title=described[incident.pk].headline,
             severity=incident.severity,
             severity_tone=tone_for(SEVERITY_TONES, incident.severity),
             status=incident.status,

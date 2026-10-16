@@ -103,7 +103,7 @@ class ReevaluateNodeAlertsCommandTests(TestCase):
 
     def test_the_preview_prints_how_many_runs_applying_would_create(self):
         node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
-        incident = Incident.objects.create(title="t", severity="critical", status="open")
+        incident = Incident.objects.create(severity="critical", status="open")
         alert = self._firing_cpu_alert(node)
         alert.incident = incident
         alert.save()
@@ -127,7 +127,7 @@ class ReevaluateNodeAlertsCommandTests(TestCase):
 
     def test_dry_run_writes_nothing_and_enqueues_nothing(self):
         node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
-        incident = Incident.objects.create(title="t", severity="critical", status="open")
+        incident = Incident.objects.create(severity="critical", status="open")
         alert = self._firing_cpu_alert(node)
         alert.incident = incident
         alert.save()

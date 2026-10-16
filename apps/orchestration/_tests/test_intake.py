@@ -32,7 +32,7 @@ def _alert(fingerprint, incident=None, severity="critical"):
 
 @pytest.mark.django_db
 def test_enqueues_one_pending_run_per_material_incident():
-    incident = Incident.objects.create(title="cpu", severity="critical")
+    incident = Incident.objects.create(severity="critical")
     alert = _alert("check:n1:cpu", incident=incident)
 
     runs = enqueue_for(_Result([alert]), trace_id="t1", origin=PipelineOrigin.INCOMING_WEBHOOK)
@@ -47,7 +47,7 @@ def test_enqueues_one_pending_run_per_material_incident():
 @pytest.mark.django_db
 def test_two_alerts_of_one_incident_enqueue_one_run():
     """One situation is one unit of work, however many alerts carried it."""
-    incident = Incident.objects.create(title="cpu", severity="critical")
+    incident = Incident.objects.create(severity="critical")
     alerts = [_alert("check:n1:cpu", incident=incident), _alert("check:n1:load", incident=incident)]
 
     runs = enqueue_for(_Result(alerts), trace_id="t1", origin=PipelineOrigin.CHECKER_GENERATED)
@@ -79,7 +79,7 @@ def test_sync_leaves_nothing_pending(django_capture_on_commit_callbacks):
     and execute runs the enclosing transaction has not committed; the test
     transaction never commits, so the callbacks are executed here.
     """
-    incident = Incident.objects.create(title="cpu", severity="critical")
+    incident = Incident.objects.create(severity="critical")
     alert = _alert("check:n1:cpu", incident=incident)
 
     with patch("apps.orchestration.inbox.PipelineOrchestrator.execute_run") as mock_exec:
@@ -96,7 +96,7 @@ def test_sync_leaves_nothing_pending(django_capture_on_commit_callbacks):
 @pytest.mark.django_db
 def test_without_sync_the_runs_are_left_pending():
     """The hub case: process_inbox will take them."""
-    incident = Incident.objects.create(title="cpu", severity="critical")
+    incident = Incident.objects.create(severity="critical")
     alert = _alert("check:n1:cpu", incident=incident)
 
     with patch("apps.orchestration.inbox.PipelineOrchestrator.execute_run") as mock_exec:
@@ -110,7 +110,7 @@ def test_without_sync_the_runs_are_left_pending():
 @pytest.mark.django_db
 def test_sync_uses_the_orchestrator_it_is_given(django_capture_on_commit_callbacks):
     """A synchronous caller's retry/backoff settings must reach the runs."""
-    incident = Incident.objects.create(title="cpu", severity="critical")
+    incident = Incident.objects.create(severity="critical")
     alert = _alert("check:n1:cpu", incident=incident)
     executed = []
 
@@ -135,7 +135,7 @@ def test_sync_uses_the_orchestrator_it_is_given(django_capture_on_commit_callbac
 @pytest.mark.django_db
 def test_optional_fields_travel_to_the_enqueued_run():
     """source/environment/max_retries/no_notify are recorded on the run."""
-    incident = Incident.objects.create(title="cpu", severity="critical")
+    incident = Incident.objects.create(severity="critical")
     alert = _alert("check:n1:cpu", incident=incident)
 
     runs = enqueue_for(
@@ -178,7 +178,7 @@ def test_the_sync_drain_waits_for_the_producer_to_commit(django_capture_on_commi
     those rows are invisible to every other process, so the claim protects
     nothing and the work is done against a state that may still vanish.
     """
-    incident = Incident.objects.create(title="cpu", severity="critical")
+    incident = Incident.objects.create(severity="critical")
     alert = _alert("check:n1:cpu", incident=incident)
     executed = []
 

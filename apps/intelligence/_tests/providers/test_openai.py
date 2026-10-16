@@ -10,6 +10,7 @@ from apps.intelligence.providers import (
     RecommendationType,
 )
 from apps.intelligence.providers.openai import OpenAIRecommendationProvider
+from config.describing import Description
 
 
 class TestOpenAIProviderInitialization(SimpleTestCase):
@@ -74,12 +75,11 @@ class TestBuildPrompt(SimpleTestCase):
     """Tests for prompt building."""
 
     def test_build_prompt_basic(self):
-        """Test building prompt with basic incident data."""
+        """The prompt names the incident by its described headline."""
         provider = OpenAIRecommendationProvider(api_key="test-key")
 
         incident = MagicMock()
-        incident.title = "High Memory Usage"
-        incident.description = "Memory usage exceeded 90%"
+        incident.subject = "High Memory Usage"
         del incident.severity
         del incident.status
         del incident.alerts
@@ -87,16 +87,36 @@ class TestBuildPrompt(SimpleTestCase):
 
         prompt = provider._build_prompt(incident)
 
-        assert "High Memory Usage" in prompt
-        assert "Memory usage exceeded 90%" in prompt
+        assert prompt.splitlines() == ["Incident: High Memory Usage"]
+
+    def test_build_prompt_carries_the_described_detail(self):
+        provider = OpenAIRecommendationProvider(api_key="test-key")
+        incident = MagicMock()
+        del incident.severity
+        del incident.status
+        del incident.alerts
+        del incident.metadata
+
+        with patch(
+            "apps.intelligence.providers.ai_base.describe_incident",
+            return_value=Description(
+                headline="High memory usage on web-01", tone="critical", detail="Memory at 93%"
+            ),
+        ) as describe:
+            prompt = provider._build_prompt(incident)
+
+        describe.assert_called_once_with(incident)
+        assert prompt.splitlines() == [
+            "Incident: High memory usage on web-01",
+            "Detail: Memory at 93%",
+        ]
 
     def test_build_prompt_with_severity_and_status(self):
         """Test building prompt with severity and status."""
         provider = OpenAIRecommendationProvider(api_key="test-key")
 
         incident = MagicMock()
-        incident.title = "Disk Full"
-        incident.description = "Disk usage at 95%"
+        incident.subject = "Disk Full"
         incident.severity = "critical"
         incident.status = "open"
         del incident.alerts
@@ -121,8 +141,7 @@ class TestBuildPrompt(SimpleTestCase):
         alert2.description = "Swap usage increasing"
 
         incident = MagicMock()
-        incident.title = "Memory Incident"
-        incident.description = "Multiple memory alerts"
+        incident.subject = "Memory Incident"
         incident.alerts.all.return_value = [alert1, alert2]
         del incident.severity
         del incident.status
@@ -139,8 +158,7 @@ class TestBuildPrompt(SimpleTestCase):
         provider = OpenAIRecommendationProvider(api_key="test-key")
 
         incident = MagicMock()
-        incident.title = "Test Incident"
-        incident.description = "Test description"
+        incident.subject = "Test Incident"
         incident.metadata = {"host": "server01", "path": "/var/log"}
         del incident.severity
         del incident.status
@@ -293,8 +311,7 @@ class TestAnalyzeIncident(SimpleTestCase):
 
         incident = MagicMock()
         incident.id = 123
-        incident.title = "Test Incident"
-        incident.description = "Test description"
+        incident.subject = "Test Incident"
         del incident.severity
         del incident.status
         del incident.alerts
@@ -315,8 +332,7 @@ class TestAnalyzeIncident(SimpleTestCase):
 
         incident = MagicMock()
         incident.id = 456
-        incident.title = "Test"
-        incident.description = "Test"
+        incident.subject = "Test"
         del incident.severity
         del incident.status
         del incident.alerts
@@ -550,8 +566,7 @@ class TestBuildPromptEdgeCases(SimpleTestCase):
             alerts.append(alert)
 
         incident = MagicMock()
-        incident.title = "Test"
-        incident.description = "Test"
+        incident.subject = "Test"
         incident.alerts.all.return_value = alerts
         del incident.severity
         del incident.status
@@ -574,8 +589,7 @@ class TestBuildPromptEdgeCases(SimpleTestCase):
         alert.description = "Alert description"
 
         incident = MagicMock()
-        incident.title = "Full Incident"
-        incident.description = "Full description"
+        incident.subject = "Full Incident"
         incident.severity = "critical"
         incident.status = "open"
         incident.alerts.all.return_value = [alert]
@@ -583,8 +597,7 @@ class TestBuildPromptEdgeCases(SimpleTestCase):
 
         prompt = provider._build_prompt(incident)
 
-        assert "Incident Title: Full Incident" in prompt
-        assert "Incident Description: Full description" in prompt
+        assert "Incident: Full Incident" in prompt
         assert "Severity: critical" in prompt
         assert "Status: open" in prompt
         assert "Associated Alerts:" in prompt
@@ -600,8 +613,7 @@ class TestBuildPromptEdgeCases(SimpleTestCase):
         del alert.description
 
         incident = MagicMock()
-        incident.title = "Test"
-        incident.description = "Test"
+        incident.subject = "Test"
         incident.alerts.all.return_value = [alert]
         del incident.severity
         del incident.status
@@ -616,8 +628,7 @@ class TestBuildPromptEdgeCases(SimpleTestCase):
         provider = OpenAIRecommendationProvider(api_key="test-key")
 
         incident = MagicMock()
-        incident.title = "Test"
-        incident.description = "Test"
+        incident.subject = "Test"
         incident.alerts.all.return_value = []
         del incident.severity
         del incident.status
@@ -874,8 +885,7 @@ class TestAnalyzeEdgeCases(SimpleTestCase):
 
         incident = MagicMock()
         incident.id = 100
-        incident.title = "Complex Incident"
-        incident.description = "Multiple issues"
+        incident.subject = "Complex Incident"
         del incident.severity
         del incident.status
         del incident.alerts
@@ -895,8 +905,7 @@ class TestAnalyzeEdgeCases(SimpleTestCase):
 
         incident = MagicMock()
         incident.id = 1
-        incident.title = "Memory Alert"
-        incident.description = "High memory usage on server01"
+        incident.subject = "Memory Alert"
         del incident.severity
         del incident.status
         del incident.alerts
@@ -906,5 +915,4 @@ class TestAnalyzeEdgeCases(SimpleTestCase):
 
         # Check the prompt passed to _call_api
         call_args = mock_call_api.call_args[0][0]
-        assert "Memory Alert" in call_args
-        assert "High memory usage on server01" in call_args
+        assert "Incident: Memory Alert" in call_args

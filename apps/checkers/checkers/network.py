@@ -8,8 +8,10 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
+from config.describing import Action, Description, format_list
 
 _HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
@@ -38,6 +40,8 @@ class NetworkChecker(BaseChecker):
     """
 
     name = "network"
+    label = "Network reachability"
+    problem = "Hosts unreachable"
     warning_threshold = 70.0  # Minimum % of hosts that must be reachable for OK
     critical_threshold = (
         50.0  # Minimum % of hosts that must be reachable for WARNING (below this = CRITICAL)
@@ -175,3 +179,20 @@ class NetworkChecker(BaseChecker):
 
         except Exception as e:
             return self._error_result(str(e))
+
+    def describe_result(self, status: CheckStatus, metrics: dict[str, Any]) -> Description:
+        total = metrics["total_hosts"]
+        if not total:
+            return self._describe(status, "No hosts to check", metrics)
+        down = [host for host, info in metrics["hosts"].items() if not info["reachable"]]
+        if not down:
+            headline = "1 host reachable" if total == 1 else f"All {total} hosts reachable"
+            return self._describe(status, headline, metrics)
+        names = format_list(down)
+        counted = "1 host" if total == 1 else f"{len(down)} of {total} hosts"
+        return self._describe(
+            status,
+            f"{counted} unreachable: {names}",
+            metrics,
+            action=Action(f"Check the route and firewall between this machine and {names}."),
+        )

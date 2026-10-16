@@ -21,6 +21,8 @@ class DiskMacOSChecker(BaseDiskAnalyzer):
     """Disk cleanup analysis on macOS."""
 
     name = "disk_macos"
+    label = "Reclaimable disk space on macOS"
+    problem = "macOS disk space to reclaim"
 
     scan_targets = [
         "~/Library/Caches",

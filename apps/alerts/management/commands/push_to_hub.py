@@ -23,7 +23,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from apps.alerts.identity import checker_fingerprint
-from apps.checkers.checkers import CHECKER_REGISTRY
+from apps.checkers.checkers import CHECKER_REGISTRY, checker_label
 from apps.checkers.checkers.base import CheckStatus
 from config.security.http import safe_urlopen
 from config.security.url_validation import URLNotAllowedError
@@ -382,12 +382,10 @@ class Command(BaseCommand):
 
         now = datetime.now(timezone.utc).isoformat()
 
-        # Identity stays in lockstep with CheckAlertBridge: both producers write
-        # the same (fingerprint, source) pair, so the name must match too or one
-        # condition on one machine splits into separate Alert rows / incidents.
+        # Identity is the fingerprint and subject, so the name is display only.
         return {
             "fingerprint": checker_fingerprint(instance_id, result.checker_name),
-            "name": f"{result.checker_name.upper()} Check Alert",
+            "name": checker_label(result.checker_name),
             "status": status,
             "severity": severity,
             "started_at": now,
@@ -402,4 +400,5 @@ class Command(BaseCommand):
                 "message": result.message,
             },
             "metrics": result.metrics,
+            "check_status": result.status.value,
         }

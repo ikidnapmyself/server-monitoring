@@ -330,6 +330,7 @@ remain.
     - Dev tooling: `uv sync --extra dev`
     - Django commands: `uv run python manage.py <command>`
 13. **Environment variables.** Copy `.env.sample` to `.env` for local development. Main settings live in `config/settings.py`.
+14. **Describe on read, never store display text.** `config/describing.py` holds `Description`, `Action`, `Fact` and the formatters (`format_percent`, `format_size_mb`, `format_duration`, `format_list`). Each app describes its own output when it's read: checkers through `BaseChecker.describe`, alerts and incidents through `apps/alerts/describing.py`. Consumers render a `Description` and never decode raw rows. No model stores a title or headline. Wording a describer writes never contains a UUID, a `snake_case` token or a `{`. Text a source sent passes through as sent: a webhook alert's name and description, and the names a node reports (paths, process names, hosts).
 
 ---
 

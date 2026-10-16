@@ -6,6 +6,7 @@ from unittest import mock
 
 from django.test import TestCase
 
+from apps.checkers._tests.checkers.test_describe_contract import RAW
 from apps.checkers.checkers.base import CheckStatus
 from apps.checkers.checkers.cpu_temp import CPUTempChecker
 
@@ -87,3 +88,36 @@ class CPUTempCheckerTests(TestCase):
         from apps.checkers.checkers import CPUTempChecker as Exported
 
         self.assertIs(CHECKER_REGISTRY["cpu_temp"], Exported)
+
+
+class CPUTempDescribeTests(TestCase):
+    def test_ok_names_the_hottest_sensor(self):
+        metrics = {"hottest_c": 52.4, "hottest_sensor": "Package id 0"}
+        d = CPUTempChecker().describe(CheckStatus.OK, metrics)
+        self.assertEqual(d.headline, "Hottest sensor Package id 0 at 52°C")
+        self.assertIsNone(d.action)
+
+    def test_critical_says_what_to_do(self):
+        metrics = {"hottest_c": 93.0, "hottest_sensor": "Core 1"}
+        d = CPUTempChecker().describe(CheckStatus.CRITICAL, metrics)
+        self.assertEqual(d.headline, "Hottest sensor Core 1 at 93°C")
+        self.assertIn("fans", d.action.text)
+
+    def test_no_reading_falls_back_to_the_message(self):
+        metrics = {"hottest_c": None, "hottest_sensor": None}
+        d = CPUTempChecker().describe(CheckStatus.OK, metrics, "No sensors")
+        self.assertEqual(d.headline, "No sensors")
+
+    def test_real_output_reads_in_words(self):
+        with (
+            mock.patch.object(sys, "platform", "linux"),
+            mock.patch(
+                "apps.checkers.checkers._sensors.psutil.sensors_temperatures",
+                return_value={"coretemp": [shwtemp("Core 1", 82.0, None, None)]},
+                create=True,
+            ),
+        ):
+            result = CPUTempChecker().check()
+        d = CPUTempChecker().describe(result.status, result.metrics, result.message)
+        self.assertEqual(d.headline, "Hottest sensor Core 1 at 82°C")
+        self.assertIsNone(RAW.search(d.headline))

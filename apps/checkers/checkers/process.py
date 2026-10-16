@@ -2,9 +2,12 @@
 Process/service status checker.
 """
 
+from typing import Any
+
 import psutil
 
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
+from config.describing import Action, Description, format_list
 
 
 class ProcessChecker(BaseChecker):
@@ -17,6 +20,8 @@ class ProcessChecker(BaseChecker):
     """
 
     name = "process"
+    label = "Watched processes"
+    problem = "Processes not running"
     warning_threshold = 100.0  # All processes must be running for OK
     critical_threshold = 50.0  # At least 50% must be running to avoid CRITICAL
 
@@ -116,3 +121,24 @@ class ProcessChecker(BaseChecker):
 
         except Exception as e:
             return self._error_result(str(e))
+
+    def describe_result(self, status: CheckStatus, metrics: dict[str, Any]) -> Description:
+        total = metrics["total_count"]
+        if not total:
+            return self._describe(status, "No processes to watch", metrics)
+        stopped = [name for name, info in metrics["processes"].items() if not info["running"]]
+        if not stopped:
+            headline = (
+                "1 watched process running"
+                if total == 1
+                else f"All {total} watched processes running"
+            )
+            return self._describe(status, headline, metrics)
+        names = format_list(stopped)
+        logs = "their logs for why they" if len(stopped) > 1 else "its logs for why it"
+        return self._describe(
+            status,
+            f"{names} not running",
+            metrics,
+            action=Action(f"Start {names} and read {logs} stopped."),
+        )

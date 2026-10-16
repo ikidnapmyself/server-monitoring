@@ -248,3 +248,32 @@ class MultiTargetSortTests(TestCase):
         sizes = [item["size_mb"] for item in result.metrics["space_hogs"]]
         self.assertEqual(sizes, sorted(sizes, reverse=True))
         self.assertEqual(sizes[0], 500.0)
+
+
+class BaseDiskAnalyzerDescribeTests(TestCase):
+    def test_ok_states_what_could_be_reclaimed(self):
+        metrics = {"total_recoverable_mb": 1228.8, "recommendations": []}
+        d = _StubAnalyzer().describe(CheckStatus.OK, metrics)
+        self.assertEqual(d.headline, "1.2 GB could be reclaimed")
+        self.assertIsNone(d.action)
+
+    def test_action_is_the_first_recommendation_title(self):
+        metrics = {
+            "total_recoverable_mb": 6000.0,
+            "recommendations": [["Clear pip cache:", "pip cache purge"], ["old advice"]],
+        }
+        d = _StubAnalyzer().describe(CheckStatus.WARNING, metrics)
+        self.assertEqual(d.headline, "5.9 GB could be reclaimed")
+        self.assertEqual(d.action.text, "Clear pip cache")
+
+    def test_without_recommendations_points_at_details(self):
+        metrics = {"total_recoverable_mb": 30000.0, "recommendations": []}
+        d = _StubAnalyzer().describe(CheckStatus.CRITICAL, metrics)
+        self.assertEqual(
+            d.action.text, "Review the largest paths in Details and remove what isn't needed."
+        )
+
+    def test_flat_recommendations_fall_back_to_the_message(self):
+        metrics = {"total_recoverable_mb": 6000.0, "recommendations": ["Clear pip cache:"]}
+        d = _StubAnalyzer().describe(CheckStatus.WARNING, metrics, "Disk hogs found")
+        self.assertEqual(d.headline, "Disk hogs found")

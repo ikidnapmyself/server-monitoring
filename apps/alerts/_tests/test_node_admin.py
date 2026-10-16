@@ -178,7 +178,7 @@ class NodeReevaluateActionTests(ReevaluateActionMixin, TestCase):
             instance_id="web-03",
             config={"cpu": {"warning_threshold": 99, "critical_threshold": 99}},
         )
-        incident = Incident.objects.create(title="t", severity="critical", status="open")
+        incident = Incident.objects.create(severity="critical", status="open")
         alert = self._firing_cpu_alert(node)
         alert.incident = incident
         alert.save()
@@ -194,7 +194,7 @@ class NodeReevaluateActionTests(ReevaluateActionMixin, TestCase):
                 "memory": {"warning_threshold": 99, "critical_threshold": 99},
             },
         )
-        incident = Incident.objects.create(title="t", severity="critical", status="open")
+        incident = Incident.objects.create(severity="critical", status="open")
         for alert in [self._firing_cpu_alert(node), self._firing_memory_alert(node)]:
             alert.incident = incident
             alert.save()
@@ -507,7 +507,7 @@ class NodeChangeFormTests(TestCase):
 
     def test_the_overview_paints_with_tone_classes_not_inline_hexes(self):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
-        incident = Incident.objects.create(title="cpu high", severity="critical", status="open")
+        incident = Incident.objects.create(severity="critical", status="open")
         Alert.objects.create(
             incident=incident,
             node=node,
@@ -553,7 +553,7 @@ class NodeChangeFormTests(TestCase):
         # A hostname arrives over a webhook, so it must be autoescaped. The chips
         # are SafeString from format_html and must still render as markup.
         node = Node.objects.create(instance_id="web-03", hostname="<script>alert(1)</script>")
-        incident = Incident.objects.create(title="cpu high", severity="critical", status="open")
+        incident = Incident.objects.create(severity="critical", status="open")
         Alert.objects.create(
             incident=incident,
             node=node,
@@ -570,13 +570,11 @@ class NodeChangeFormTests(TestCase):
 
     def test_an_incident_title_from_a_webhook_is_escaped(self):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
-        incident = Incident.objects.create(
-            title="<img src=x onerror=1>", severity="critical", status="open"
-        )
+        incident = Incident.objects.create(severity="critical", status="open")
         Alert.objects.create(
             incident=incident,
             node=node,
-            name="cpu",
+            name="<img src=x onerror=1>",
             fingerprint="cpu-hostile-title",
             source="cluster",
             severity="critical",
@@ -605,12 +603,12 @@ class NodeIncidentsColumnTests(TestCase):
         return Node.objects.create(instance_id=instance_id, hostname=hostname)
 
     def _incident(self, node, *, severity="critical", status="open", alerts=1, title="cpu"):
-        incident = Incident.objects.create(title=title, severity=severity, status=status)
+        incident = Incident.objects.create(severity=severity, status=status)
         for i in range(alerts):
             Alert.objects.create(
                 incident=incident,
                 node=node,
-                name="cpu",
+                name=title,
                 fingerprint=f"{node.instance_id}-{incident.id}-{i}",
                 source="cluster",
                 severity=severity,

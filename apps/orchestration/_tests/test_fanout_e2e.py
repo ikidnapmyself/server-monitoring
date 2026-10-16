@@ -174,7 +174,7 @@ class FanOutAcceptanceTests(TestCase):
         result = self.push([checker_alert("cpu", severity="critical"), checker_alert("disk")])
 
         child = self.children(result).get()
-        assert child.incident_id == Incident.objects.get(title__contains="cpu").id
+        assert child.incident_id == Incident.objects.get(subject="checker:cpu").id
 
     # 4 ---------------------------------------------------------------------
     def test_a_resolve_notifies_without_analysing(self):

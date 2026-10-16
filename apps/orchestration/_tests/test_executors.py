@@ -34,6 +34,7 @@ from apps.orchestration.models import (
     StageExecution,
     StageStatus,
 )
+from config.describing import Description
 
 
 def _ctx(payload=None, incident_id=None, previous_results=None, source="test"):
@@ -62,7 +63,7 @@ class _FakeProcessingResult:
     material_alerts: list = field(default_factory=list)
 
 
-def _mock_alert(*, name, severity, fingerprint, pk=1, incident_id=None, title=None):
+def _mock_alert(*, name, severity, fingerprint, pk=1, incident_id=None, incident=None):
     """A duck-typed stand-in for an Alert row (``name`` needs explicit assignment)."""
     alert = MagicMock()
     alert.id = pk
@@ -70,10 +71,7 @@ def _mock_alert(*, name, severity, fingerprint, pk=1, incident_id=None, title=No
     alert.severity = severity
     alert.fingerprint = fingerprint
     alert.incident_id = incident_id
-    if title is None:
-        alert.incident = None
-    else:
-        alert.incident.title = title
+    alert.incident = incident
     return alert
 
 
@@ -91,16 +89,23 @@ class TestIngestExecutorSuccess(TestCase):
                     fingerprint="fp-123",
                     pk=7,
                     incident_id=42,
-                    title="Disk full on web-01",
+                    incident=MagicMock(),
                 )
             ]
         )
 
-        with patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch):
+        headline = Description(headline="Disk full on web-01", tone="critical")
+        with (
+            patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch),
+            patch(
+                "apps.orchestration.executors.describe_incident", return_value=headline
+            ) as describe,
+        ):
             result = IngestExecutor().execute(
                 _ctx(payload={"driver": "generic", "payload": {"key": "val"}})
             )
 
+        describe.assert_called_once_with(mock_orch.process_webhook.return_value.alerts[0].incident)
         assert isinstance(result, IngestResult)
         assert result.alerts_created == 1
         assert result.incidents_created == 1
@@ -116,27 +121,22 @@ class TestIngestExecutorSuccess(TestCase):
         # whole dict must survive serialization — not just carry the right keys.
         assert json.loads(json.dumps(result.to_dict()))["incident_title"] == "Disk full on web-01"
 
-    def test_incident_without_title_leaves_incident_title_empty(self):
-        """When the incident has no title, incident_title stays the default empty string."""
+    def test_alert_without_incident_leaves_incident_title_empty(self):
         mock_orch = MagicMock()
         mock_orch.process_webhook.return_value = _FakeProcessingResult(
-            alerts=[
-                _mock_alert(
-                    name="disk",
-                    severity="critical",
-                    fingerprint="fp-123",
-                    incident_id=42,
-                    title="",
-                )
-            ]
+            alerts=[_mock_alert(name="disk", severity="critical", fingerprint="fp-123")]
         )
 
-        with patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch):
+        with (
+            patch("apps.alerts.services.AlertOrchestrator", return_value=mock_orch),
+            patch("apps.orchestration.executors.describe_incident") as describe,
+        ):
             result = IngestExecutor().execute(
                 _ctx(payload={"driver": "generic", "payload": {"key": "val"}})
             )
 
-        assert result.incident_id == 42
+        describe.assert_not_called()
+        assert result.incident_id is None
         assert result.incident_title == ""
 
     def test_invalid_payload_not_dict(self):
@@ -192,13 +192,13 @@ class TestIngestExecutorSubjectSelection(TestCase):
         """A newer, more severe alert outside this push must not become the subject."""
         from apps.alerts.models import Incident
 
-        pushed_incident = Incident.objects.create(title="Pushed", severity="warning")
+        pushed_incident = Incident.objects.create(severity="warning")
         pushed = self._alert(
             name="cpu", severity="warning", fingerprint="fp-pushed", incident=pushed_incident
         )
         # Created afterwards → newer received_at, same source, higher severity,
         # but it is NOT part of this push.
-        other_incident = Incident.objects.create(title="Other node", severity="critical")
+        other_incident = Incident.objects.create(severity="critical")
         self._alert(
             name="disk", severity="critical", fingerprint="fp-other", incident=other_incident
         )
@@ -207,7 +207,7 @@ class TestIngestExecutorSubjectSelection(TestCase):
 
         assert result.alert_id == pushed.id
         assert result.incident_id == pushed_incident.id
-        assert result.incident_title == "Pushed"
+        assert result.incident_title == "cpu"
         assert result.alert_fingerprint == "fp-pushed"
         assert result.severity == "warning"
 
@@ -947,7 +947,7 @@ class TestCheckExecutorTakesTheIncidentAsItsSubject(TestCase):
     """
 
     def setUp(self):
-        self.incident = Incident.objects.create(title="cpu on web-03")
+        self.incident = Incident.objects.create()
 
     def _alert(self, *, fingerprint, labels):
         return Alert.objects.create(
@@ -1015,7 +1015,7 @@ class TestCheckExecutorTakesTheIncidentAsItsSubject(TestCase):
         assert names == []
 
     def test_another_incidents_alerts_are_not_in_scope(self):
-        other = Incident.objects.create(title="disk elsewhere")
+        other = Incident.objects.create()
         self._alert(fingerprint="check:web-03:cpu", labels={"checker": "cpu"})
         Alert.objects.create(
             fingerprint="check:web-09:disk",
@@ -1215,7 +1215,7 @@ class TestAnalyzeExecutorRecommendations(TestCase):
     def test_recommendations_with_incident(self):
         from apps.alerts.models import Incident
 
-        incident = Incident.objects.create(title="Test", severity="critical")
+        incident = Incident.objects.create(severity="critical")
         rec = {"title": "Fix it", "priority": "high"}
 
         mock_provider = MagicMock()
@@ -1743,7 +1743,7 @@ class TestNotifyExecutorDownstreamHeadline(TestCase):
 
         from apps.alerts.models import Alert, Incident
 
-        incident = Incident.objects.create(title=title, severity=severity, status=status)
+        incident = Incident.objects.create(severity=severity, status=status)
         Alert.objects.create(
             fingerprint="fp-d",
             source="cluster",
@@ -1793,6 +1793,7 @@ class TestNotifyExecutorDownstreamHeadline(TestCase):
 
         assert facts["status"] == "acknowledged"
         assert facts["severity"] == "critical"
+        assert facts["incident_title"] == "DISK Check Alert"
 
     def test_an_ingest_snapshot_still_wins_when_present(self):
         """The push-run path is unchanged: a real snapshot is authoritative."""
@@ -1854,7 +1855,7 @@ class TestNotifyExecutorRoutingGaps(TestCase):
         lane = PipelineDefinition.objects.create(
             name="lane", match=[], stages=["notify"], priority=1, channel=channel
         )
-        incident = Incident.objects.create(title="Disk", severity="critical", pipeline=lane)
+        incident = Incident.objects.create(severity="critical", pipeline=lane)
         Alert.objects.create(
             fingerprint="fp-nc",
             source="cluster",

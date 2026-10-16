@@ -8,9 +8,11 @@ See docs/plans/2026-08-07-thermal-io-checkers-design.md.
 """
 
 import sys
+from typing import Any
 
 from apps.checkers.checkers._sensors import TempReading, read_temps
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
+from config.describing import Action, Description
 
 CPU_CHIPS = {"coretemp", "k10temp", "zenpower", "cpu_thermal"}
 
@@ -19,6 +21,8 @@ class CPUTempChecker(BaseChecker):
     """Report the hottest CPU package/core temperature (°C)."""
 
     name = "cpu_temp"
+    label = "CPU temperature"
+    problem = "CPU running hot"
     warning_threshold = 80.0
     critical_threshold = 90.0
 
@@ -63,3 +67,12 @@ class CPUTempChecker(BaseChecker):
                 for r in readings
             ],
         }
+
+    def describe_result(self, status: CheckStatus, metrics: dict[str, Any]) -> Description:
+        degrees = round(metrics["hottest_c"])
+        return self._describe(
+            status,
+            f"Hottest sensor {metrics['hottest_sensor']} at {degrees}°C",
+            metrics,
+            action=Action("Check the fans and airflow, and clean dust from the heatsink."),
+        )

@@ -9,6 +9,8 @@ import json
 
 from django.core.management.base import BaseCommand, CommandError
 
+from apps.alerts.describing import describe_incident
+
 
 class Command(BaseCommand):
     help = "Trace an alert's journey (by Alert id or trace_id)."
@@ -57,7 +59,11 @@ class Command(BaseCommand):
             ),
             "trace_id": trace_id,
             "incident": (
-                {"id": incident.id, "title": incident.title, "status": incident.status}
+                {
+                    "id": incident.id,
+                    "title": describe_incident(incident).headline,
+                    "status": incident.status,
+                }
                 if incident
                 else None
             ),

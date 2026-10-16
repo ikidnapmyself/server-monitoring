@@ -9,6 +9,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from config.admin_badges import CHECK_STATUS_TONES
+from config.describing import Action, Description, facts_from
+
 logger = logging.getLogger(__name__)
 
 
@@ -69,6 +72,8 @@ class BaseChecker(ABC):
     warning_threshold: float = 70.0
     critical_threshold: float = 90.0
     enabled: bool = True
+    label: str = ""
+    problem: str = ""
 
     def __init__(
         self,
@@ -197,4 +202,49 @@ class BaseChecker(ABC):
             status=CheckStatus.UNKNOWN,
             message=f"Check failed: {error}",
             error=error,
+        )
+
+    def describe(
+        self, status: CheckStatus, metrics: dict[str, Any], message: str = ""
+    ) -> Description:
+        if status is CheckStatus.SKIPPED:
+            reason = message.removeprefix("Skipped:").strip() or "not applicable here"
+            return self._describe(status, f"{self.label} not checked: {reason}", metrics)
+        if status is CheckStatus.UNKNOWN:
+            return self._describe(
+                status,
+                f"{self.label} could not be checked",
+                metrics,
+                detail=message,
+                action=Action("Run this check by hand on the host to see the error."),
+            )
+        try:
+            found = self.describe_result(status, metrics)
+        # Metrics come from nodes on older versions too, so a missing or odd key falls
+        # back to the node's own message instead of failing the page.
+        except (AttributeError, KeyError, TypeError, ValueError, IndexError, ZeroDivisionError):
+            found = None
+        if found is not None:
+            return found
+        return self._describe(status, message or f"{self.label}: {status.value}", metrics)
+
+    def describe_result(self, status: CheckStatus, metrics: dict[str, Any]) -> Description | None:
+        return None
+
+    def _describe(
+        self,
+        status: CheckStatus,
+        headline: str,
+        metrics: dict[str, Any],
+        *,
+        detail: str = "",
+        action: Action | None = None,
+    ) -> Description:
+        acts = status in (CheckStatus.WARNING, CheckStatus.CRITICAL, CheckStatus.UNKNOWN)
+        return Description(
+            headline=headline,
+            tone=CHECK_STATUS_TONES[status.value],
+            detail=detail,
+            action=action if acts else None,
+            facts=facts_from(metrics),
         )

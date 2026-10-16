@@ -20,11 +20,13 @@ Command line is intentionally not captured (it can carry secrets).
 
 import sys
 from dataclasses import dataclass
+from typing import Any
 
 import psutil
 from django.conf import settings
 
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
+from config.describing import Action, Description, format_list
 
 
 @dataclass
@@ -112,6 +114,8 @@ class ListeningPortsChecker(BaseChecker):
     """Audit the host's listening ports against an allowlist."""
 
     name = "listening_ports"
+    label = "Listening ports"
+    problem = "Unexpected open ports"
 
     def check(self) -> CheckResult:
         if sys.platform != "linux":
@@ -171,3 +175,29 @@ class ListeningPortsChecker(BaseChecker):
                 for p in ports
             ],
         }
+
+    def describe_result(self, status: CheckStatus, metrics: dict[str, Any]) -> Description:
+        if status is CheckStatus.OK:
+            count = metrics["listening_count"]
+            ports = "port" if count == 1 else "ports"
+            return self._describe(status, f"{count} {ports} listening, all expected", metrics)
+        # Hub-side re-evaluation rescores status against the node's allowlist without
+        # touching metrics, so a firing result can carry no node-flagged ports.
+        unexpected = sorted(set(metrics["unexpected_ports"]))
+        if not unexpected:
+            return self._describe(
+                status,
+                "Ports open outside this node's allowlist",
+                metrics,
+                action=Action(
+                    "Close the ports this node shouldn't expose, or add them to its port allowlist."
+                ),
+            )
+        ports = format_list(str(port) for port in unexpected)
+        them = "them" if len(unexpected) > 1 else "it"
+        return self._describe(
+            status,
+            f"Unexpected ports open: {ports}",
+            metrics,
+            action=Action(f"Close {ports}, or add {them} to this node's port allowlist."),
+        )

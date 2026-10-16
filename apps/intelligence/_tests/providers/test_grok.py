@@ -135,8 +135,7 @@ class TestGrokAnalyze(SimpleTestCase):
         provider = GrokRecommendationProvider(api_key="test-key")
         incident = MagicMock()
         incident.id = 1
-        incident.title = "Test"
-        incident.description = "Test"
+        incident.subject = "Test"
         del incident.severity
         del incident.status
         del incident.alerts
@@ -155,8 +154,7 @@ class TestGrokAnalyze(SimpleTestCase):
         provider = GrokRecommendationProvider(api_key="test-key")
         incident = MagicMock()
         incident.id = 2
-        incident.title = "Test"
-        incident.description = "Test"
+        incident.subject = "Test"
         del incident.severity
         del incident.status
         del incident.alerts

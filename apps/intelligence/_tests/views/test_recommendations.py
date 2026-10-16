@@ -49,7 +49,6 @@ class TestRecommendationsGetView(TestCase):
         from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
 
         incident = Incident.objects.create(
-            title="Test Incident",
             status=IncidentStatus.OPEN,
             severity=AlertSeverity.WARNING,
         )
@@ -105,7 +104,6 @@ class TestRecommendationsPostView(TestCase):
         from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
 
         incident = Incident.objects.create(
-            title="Test Incident",
             status=IncidentStatus.OPEN,
             severity=AlertSeverity.WARNING,
         )

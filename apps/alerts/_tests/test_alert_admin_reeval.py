@@ -164,7 +164,7 @@ class AlertReevaluateActionTests(TestCase):
             instance_id="web-03",
             config={"cpu": {"warning_threshold": 10, "critical_threshold": 20}},
         )
-        incident = Incident.objects.create(title="cpu", severity="info", status="open")
+        incident = Incident.objects.create(severity="info", status="open")
         alert = self._alert(
             severity="info",
             status="resolved",

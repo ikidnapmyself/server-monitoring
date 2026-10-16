@@ -149,9 +149,7 @@ def test_the_dashboard_badges_are_the_shared_badge(client):
 
     get_user_model().objects.create_superuser("admin8", "a8@b.co", "x")
     client.login(username="admin8", password="x")
-    Incident.objects.create(
-        title="disk full", severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN
-    )
+    Incident.objects.create(severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN)
     CheckRun.objects.create(
         checker_name="disk", hostname="h", status=CheckStatus.CRITICAL, message="m"
     )

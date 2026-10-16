@@ -10,14 +10,18 @@ See docs/plans/2026-08-07-thermal-io-checkers-design.md (sibling checkers).
 """
 
 import os
+from typing import Any
 
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
+from config.describing import Action, Description, format_percent
 
 
 class DiskInodesChecker(BaseChecker):
     """Check inode usage per filesystem; worst path drives the status."""
 
     name = "disk_inodes"
+    label = "Inode usage"
+    problem = "Running out of inodes"
     warning_threshold = 80.0
     critical_threshold = 95.0
 
@@ -98,3 +102,22 @@ class DiskInodesChecker(BaseChecker):
 
     def _empty_metrics(self) -> dict:
         return {"filesystems": {}, "worst_percent": 0.0, "worst_path": ""}
+
+    def describe_result(self, status: CheckStatus, metrics: dict[str, Any]) -> Description:
+        path = metrics["worst_path"]
+        if not path:
+            return self._describe(status, "No filesystems track inodes", metrics)
+        percent = format_percent(metrics["worst_percent"])
+        if status is CheckStatus.OK:
+            return self._describe(
+                status, f"Fullest filesystem {path} uses {percent} of its inodes", metrics
+            )
+        return self._describe(
+            status,
+            f"{path} uses {percent} of its inodes",
+            metrics,
+            action=Action(
+                f"Find directories under {path} holding many small files "
+                "and remove what isn't needed."
+            ),
+        )

@@ -18,8 +18,10 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
+from config.describing import Action, Description, format_list
 
 MDSTAT = Path("/proc/mdstat")
 
@@ -178,6 +180,8 @@ class RaidChecker(BaseChecker):
     """
 
     name = "raid"
+    label = "RAID arrays"
+    problem = "RAID array degraded"
 
     def check(self) -> CheckResult:
         if sys.platform != "linux":
@@ -235,3 +239,30 @@ class RaidChecker(BaseChecker):
             "rebuilding_arrays": [a.name for a in arrays if a.rebuilding],
             "scrubbing_arrays": [a.name for a in arrays if a.scrubbing],
         }
+
+    def describe_result(self, status: CheckStatus, metrics: dict[str, Any]) -> Description:
+        if status is CheckStatus.CRITICAL:
+            names = format_list(metrics["degraded_arrays"])
+            return self._describe(
+                status,
+                f"Degraded: {names}",
+                metrics,
+                action=Action(f"Replace the failed disk in {names} and add it back with mdadm."),
+            )
+        if status is CheckStatus.WARNING:
+            rebuilding = metrics["rebuilding_arrays"]
+            names = format_list(rebuilding)
+            does = "they do" if len(rebuilding) > 1 else "it does"
+            return self._describe(
+                status,
+                f"Rebuilding: {names}",
+                metrics,
+                action=Action(
+                    f"Let {names} finish rebuilding and avoid heavy writes until {does}."
+                ),
+            )
+        count = metrics["array_count"]
+        if not count:
+            return self._describe(status, "No software RAID arrays", metrics)
+        arrays = "RAID arrays" if count > 1 else "RAID array"
+        return self._describe(status, f"{count} {arrays} healthy", metrics)

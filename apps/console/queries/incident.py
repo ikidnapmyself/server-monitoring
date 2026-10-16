@@ -11,11 +11,11 @@ from django.db.models import Count
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.alerts.describing import describe_incident
 from apps.alerts.diagnosis import diagnose_incident
 from apps.alerts.models import Incident
 from apps.alerts.services import available_incident_actions
 from apps.alerts.timeline import build_incident_timeline
-from apps.console.formatting import humanize_duration
 from apps.console.queries.hosts import incident_hosts
 from config.admin_badges import (
     CHECK_STATUS_TONES,
@@ -25,6 +25,7 @@ from config.admin_badges import (
     STAGE_STATUS_TONES,
     tone_for,
 )
+from config.describing import format_duration
 
 STAGE_LABELS = {"ingest": "Ingest", "check": "Diagnose", "analyze": "Analyze", "notify": "Notify"}
 SUMMARY_TONES = {**DIAGNOSIS_TONES, "never_ran": "muted"}
@@ -374,7 +375,7 @@ def _pipeline_entry(event: dict[str, Any]) -> TimelineEntry:
 def _stage_entry(event: dict[str, Any]) -> TimelineEntry:
     title = f"{STAGE_LABELS.get(event['stage'], event['stage'])} {event['status']}"
     if event["duration_ms"]:
-        title += f" in {humanize_duration(event['duration_ms'] / 1000)}"
+        title += f" in {format_duration(event['duration_ms'] / 1000)}"
     return TimelineEntry(
         id=f"entry-stage-{event['execution_pk']}",
         when=event["when"],
@@ -460,17 +461,18 @@ def build_incident_detail(
     over = max(0, recorded - TIMELINE_LIMIT)
     recent_url = reverse("console:incident", args=[incident.pk])
     full_url = f"{recent_url}?all=1"
+    described = describe_incident(incident)
     return IncidentDetail(
         pk=incident.pk,
-        title=incident.title,
+        title=described.headline,
         severity=incident.severity,
         severity_tone=tone_for(SEVERITY_TONES, incident.severity),
         status=incident.status,
         status_tone=tone_for(INCIDENT_STATUS_TONES, incident.status),
-        description=incident.description,
+        description=described.detail,
         summary=incident.summary,
         created_at=incident.created_at,
-        duration=humanize_duration(elapsed.total_seconds()),
+        duration=format_duration(elapsed.total_seconds()),
         ongoing=ended_at is None,
         nodes=", ".join(incident_hosts([incident.pk]).get(incident.pk, ())),
         pipeline=incident.pipeline.name if incident.pipeline else "",

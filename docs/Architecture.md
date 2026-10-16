@@ -118,6 +118,10 @@ node's; the old record-only `hub-self-check` lane is retired (deactivated, not d
 migration `0018`) so the hub can page about itself. See
 [Deployment → Routing](Deployment.md).
 
+### Describers
+
+Nothing stores display text. Each app describes its own output when it's read, as a `Description` from `config/describing.py`: a headline, a tone, an optional detail and action, and facts. Checkers describe their results through `BaseChecker.describe`, using each checker's `label` and `problem`. `apps/alerts/describing.py` describes alerts and incidents, so an incident's headline ("High CPU usage on web-1") comes from its lead alert and node, not from a column. The console, the admin and notifications render these descriptions and never decode raw rows.
+
 ### Stage Configuration
 
 Stage behavior is controlled through routing pipelines and Django Admin — not environment variables:

@@ -6,6 +6,7 @@ from django.db import connection
 from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 
+from apps.alerts.describing import describe_incident
 from apps.alerts.drivers.base import BaseAlertDriver, ParsedAlert, ParsedPayload
 from apps.alerts.models import (
     Alert,
@@ -114,7 +115,7 @@ class AlertOrchestratorTests(TestCase):
         self.assertEqual(Incident.objects.count(), 1)
 
         incident = Incident.objects.first()
-        self.assertEqual(incident.title, "TestAlert")
+        self.assertEqual(describe_incident(incident).headline, "TestAlert")
         self.assertEqual(incident.alerts.count(), 1)
 
     def test_process_updates_existing_alert(self):
@@ -332,7 +333,6 @@ class IncidentManagerTests(TestCase):
 
     def setUp(self):
         self.incident = Incident.objects.create(
-            title="Test Incident",
             severity="warning",
         )
 
@@ -443,18 +443,14 @@ class IncidentManagerTests(TestCase):
         self.assertEqual(incident.metadata["notes"][1]["text"], "second")
 
     def test_get_open_incidents(self):
-        Incident.objects.create(title="Open", severity="warning", status=IncidentStatus.OPEN)
-        Incident.objects.create(
-            title="Acked", severity="warning", status=IncidentStatus.ACKNOWLEDGED
-        )
-        Incident.objects.create(title="Closed", severity="warning", status=IncidentStatus.CLOSED)
+        opened = Incident.objects.create(severity="warning", status=IncidentStatus.OPEN)
+        acked = Incident.objects.create(severity="warning", status=IncidentStatus.ACKNOWLEDGED)
+        closed = Incident.objects.create(severity="warning", status=IncidentStatus.CLOSED)
 
-        open_incidents = IncidentManager.get_open_incidents()
-        # setUp creates one OPEN incident + the two above (Open, Acked)
-        titles = set(open_incidents.values_list("title", flat=True))
-        self.assertIn("Open", titles)
-        self.assertIn("Acked", titles)
-        self.assertNotIn("Closed", titles)
+        ids = set(IncidentManager.get_open_incidents().values_list("pk", flat=True))
+        self.assertIn(opened.pk, ids)
+        self.assertIn(acked.pk, ids)
+        self.assertNotIn(closed.pk, ids)
 
     def test_get_incident_with_alerts(self):
         alert = Alert.objects.create(
@@ -490,7 +486,7 @@ class IncidentTransitionTests(TestCase):
     DONE = {"acknowledge": "acknowledged", "resolve": "resolved", "close": "closed"}
 
     def _incident(self, status=IncidentStatus.OPEN):
-        return Incident.objects.create(title="Disk full", severity="warning", status=status)
+        return Incident.objects.create(severity="warning", status=status)
 
     def _runs(self):
         from apps.orchestration.models import PipelineRun
@@ -524,7 +520,7 @@ class IncidentTransitionTests(TestCase):
                     if action in allowed:
                         self.assertTrue(outcome.ok)
                         self.assertEqual(
-                            outcome.message, f"Incident 'Disk full' {self.DONE[action]}."
+                            outcome.message, f"Incident #{incident.pk} {self.DONE[action]}."
                         )
                         self.assertEqual(after["status"], self.DONE[action])
                         self.assertEqual(outcome.incident.status, self.DONE[action])
@@ -611,7 +607,7 @@ class IncidentTransitionLockTests(TransactionTestCase):
     """
 
     def test_decides_from_a_locked_row_inside_its_own_transaction(self):
-        incident = Incident.objects.create(title="Disk full", severity="warning")
+        incident = Incident.objects.create(severity="warning")
         real = Incident.objects.select_for_update
         atomic_at_lock = []
         locked = []
@@ -1123,7 +1119,7 @@ class IncidentGroupingTests(TestCase):
         self.orchestrator.process_webhook(self._am("fp1", "web-03"), driver="alertmanager")
         own = Incident.objects.get()
         newer = Incident.objects.create(
-            title="dup", severity="warning", subject=own.subject, instance=own.instance
+            severity="warning", subject=own.subject, instance=own.instance
         )
         resolved = self._am("fp1", "web-03")
         resolved["status"] = resolved["alerts"][0]["status"] = "resolved"

@@ -133,7 +133,7 @@ class ReevalExistingTests(TestCase):
         a = self._alert(node, "cpu", 95.2)
         a.node = None
         a.save(update_fields=["node"])
-        inc = Incident.objects.create(title="t", severity="critical", status="open")
+        inc = Incident.objects.create(severity="critical", status="open")
         inc.alerts.add(a)
         apply_node_alert_reeval(node)
         a.refresh_from_db()
@@ -219,7 +219,7 @@ class ReevalExistingTests(TestCase):
     def test_incident_auto_resolves_when_last_alert_resolves(self):
         node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
         a = self._alert(node, "cpu", 95.2)
-        inc = Incident.objects.create(title="t", severity="critical", status="open")
+        inc = Incident.objects.create(severity="critical", status="open")
         inc.alerts.add(a)
         apply_node_alert_reeval(node)
         inc.refresh_from_db()
@@ -231,7 +231,7 @@ class ReevalExistingTests(TestCase):
         node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
         self._alert(node, "cpu", 95.2)  # -> resolved (drives resolved_count > 0)
         still_firing = self._alert(node, "memory", 50, metric="memory_percent")  # stays firing
-        inc = Incident.objects.create(title="t", severity="critical", status="open")
+        inc = Incident.objects.create(severity="critical", status="open")
         inc.alerts.add(still_firing)
         apply_node_alert_reeval(node)
         inc.refresh_from_db()
@@ -259,7 +259,7 @@ class ReevalExistingTests(TestCase):
         other = self._alert(
             node, "memory", 10, severity="info", status="resolved", metric="memory_percent"
         )
-        inc = Incident.objects.create(title="stale", severity="info", status="open")
+        inc = Incident.objects.create(severity="info", status="open")
         inc.alerts.add(other)
 
         report = apply_node_alert_reeval(node)
@@ -530,7 +530,7 @@ class UnregisteredNodeScopeTests(TestCase):
             labels={"checker": "cpu", "instance_id": "web-99"},
             annotations={"metrics": json.dumps({"cpu_percent": 95.0})},
         )
-        self.incident = Incident.objects.create(title="t", severity="critical", status="open")
+        self.incident = Incident.objects.create(severity="critical", status="open")
         self.incident.alerts.add(self.alert)
 
     def test_preview_reports_only_skips_and_names_the_unregistered_node(self):
@@ -579,7 +579,7 @@ class ReevalAnnounceTests(TestCase):
         )
 
     def _incident(self):
-        return Incident.objects.create(title="t", severity="critical", status="open")
+        return Incident.objects.create(severity="critical", status="open")
 
     def test_a_resolving_apply_enqueues_one_run_for_the_incident(self):
         node = self._node({"cpu": {"warning_threshold": 99, "critical_threshold": 99}})
@@ -767,7 +767,7 @@ class ReevalIncidentLifecycleTests(TestCase):
         )
 
     def _incident(self, status):
-        return Incident.objects.create(title="t", severity="critical", status=status)
+        return Incident.objects.create(severity="critical", status=status)
 
     def test_a_refire_reopens_its_resolved_incident(self):
         node = self._node()
@@ -798,7 +798,6 @@ class ReevalIncidentLifecycleTests(TestCase):
         node = self._node()
         terminal = self._incident(IncidentStatus.RESOLVED)
         sibling = Incident.objects.create(
-            title="t",
             severity="critical",
             status=IncidentStatus.OPEN,
             subject="checker:cpu",
@@ -893,9 +892,9 @@ class ReevalSweepAnnounceTests(TestCase):
 
     def test_an_incident_swept_without_a_change_of_its_own_still_gets_a_run(self):
         node = self._node()
-        changed = Incident.objects.create(title="changed", severity="critical", status="open")
+        changed = Incident.objects.create(severity="critical", status="open")
         self._alert(node, "cpu", incident=changed)
-        stale = Incident.objects.create(title="stale", severity="info", status="open")
+        stale = Incident.objects.create(severity="info", status="open")
         self._alert(node, "memory", status="resolved", severity="info", incident=stale)
 
         report = apply_node_alert_reeval(node)
@@ -907,9 +906,9 @@ class ReevalSweepAnnounceTests(TestCase):
 
     def test_the_applied_run_count_equals_the_runs_created(self):
         node = self._node()
-        changed = Incident.objects.create(title="changed", severity="critical", status="open")
+        changed = Incident.objects.create(severity="critical", status="open")
         self._alert(node, "cpu", incident=changed)
-        stale = Incident.objects.create(title="stale", severity="info", status="open")
+        stale = Incident.objects.create(severity="info", status="open")
         self._alert(node, "memory", status="resolved", severity="info", incident=stale)
 
         report = apply_node_alert_reeval(node)
@@ -919,7 +918,7 @@ class ReevalSweepAnnounceTests(TestCase):
 
     def test_an_incident_both_changed_and_swept_gets_exactly_one_run(self):
         node = self._node()
-        incident = Incident.objects.create(title="t", severity="critical", status="open")
+        incident = Incident.objects.create(severity="critical", status="open")
         self._alert(node, "cpu", incident=incident)
 
         report = apply_node_alert_reeval(node)

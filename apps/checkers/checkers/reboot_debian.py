@@ -10,8 +10,10 @@ See docs/plans/2026-05-05-reboot-debian-checker-design.md for the rationale.
 
 import sys
 from pathlib import Path
+from typing import Any
 
 from apps.checkers.checkers.base import BaseChecker, CheckResult, CheckStatus
+from config.describing import Action, Description
 
 REBOOT_FLAG = Path("/var/run/reboot-required")
 PKGS_FILE = Path("/var/run/reboot-required.pkgs")
@@ -70,6 +72,8 @@ class RebootDebianChecker(BaseChecker):
     """Report WARNING when a Debian-family host has a pending reboot."""
 
     name = "reboot_debian"
+    label = "Pending reboot"
+    problem = "Reboot required"
 
     def check(self) -> CheckResult:
         if sys.platform != "linux":
@@ -127,3 +131,16 @@ class RebootDebianChecker(BaseChecker):
             "pending_packages": packages,
             "pending_package_count": len(packages),
         }
+
+    def describe_result(self, status: CheckStatus, metrics: dict[str, Any]) -> Description:
+        count = metrics["pending_package_count"]
+        if status is CheckStatus.OK:
+            return self._describe(status, "No reboot required", metrics)
+        if count:
+            packages = "packages" if count > 1 else "package"
+            headline = f"Reboot required by {count} updated {packages}"
+        else:
+            headline = "Reboot required"
+        return self._describe(
+            status, headline, metrics, action=Action("Schedule a reboot in a maintenance window.")
+        )

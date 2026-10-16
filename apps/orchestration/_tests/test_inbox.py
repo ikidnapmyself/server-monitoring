@@ -122,8 +122,8 @@ def test_enqueue_incident_runs_one_pending_run_per_incident_with_given_trace_and
     from apps.alerts.models import Incident
     from apps.orchestration.models import PipelineOrigin
 
-    a = Incident.objects.create(title="a", severity="critical")
-    b = Incident.objects.create(title="b", severity="warning")
+    a = Incident.objects.create(severity="critical")
+    b = Incident.objects.create(severity="warning")
 
     runs = inbox.enqueue_incident_runs(
         [a.id, b.id], trace_id="t-1", origin=PipelineOrigin.MANUAL, source="admin"
@@ -217,7 +217,7 @@ def test_enqueue_incident_runs_guard_writes_nothing_at_all():
     from apps.alerts.models import Incident
     from apps.orchestration.models import PipelineOrigin
 
-    good = Incident.objects.create(title="good", severity="critical")
+    good = Incident.objects.create(severity="critical")
 
     with pytest.raises(ValueError):
         inbox.enqueue_incident_runs([good.id, 0], trace_id="t", origin=PipelineOrigin.MANUAL)

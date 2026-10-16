@@ -46,7 +46,7 @@ class SubjectBackfillTests(TestCase):
 
     def test_incident_takes_its_oldest_alerts_keys(self):
         node = Node.objects.create(instance_id="n1", hostname="h1")
-        incident = Incident.objects.create(title="t", severity="warning")
+        incident = Incident.objects.create(severity="warning")
         _alert(
             fingerprint="a",
             labels={"checker": "cpu", "instance_id": "n1"},
@@ -63,21 +63,21 @@ class SubjectBackfillTests(TestCase):
 
     def test_unlinked_alert_resolves_its_node_from_the_instance_label(self):
         node = Node.objects.create(instance_id="n1", hostname="h1")
-        incident = Incident.objects.create(title="t", severity="warning")
+        incident = Incident.objects.create(severity="warning")
         _alert(labels={"checker": "cpu", "instance_id": "n1"}, incident=incident)
         forward(_Apps(), None)
         incident.refresh_from_db()
         self.assertEqual(incident.node_id, node.pk)
 
     def test_unknown_instance_leaves_node_empty(self):
-        incident = Incident.objects.create(title="t", severity="warning")
+        incident = Incident.objects.create(severity="warning")
         _alert(labels={"checker": "cpu", "instance_id": "ghost"}, incident=incident)
         forward(_Apps(), None)
         incident.refresh_from_db()
         self.assertIsNone(incident.node_id)
 
     def test_incident_without_alerts_is_left_blank(self):
-        incident = Incident.objects.create(title="t", severity="warning")
+        incident = Incident.objects.create(severity="warning")
         forward(_Apps(), None)
         incident.refresh_from_db()
         self.assertEqual((incident.subject, incident.instance), ("", ""))
@@ -89,21 +89,21 @@ class SubjectBackfillTests(TestCase):
         self.assertEqual(alert.subject, "generic:X")
 
     def test_nested_instance_label_falls_through_like_the_live_helper(self):
-        incident = Incident.objects.create(title="t", severity="warning")
+        incident = Incident.objects.create(severity="warning")
         _alert(labels={"instance": ["a", "b"], "hostname": "h1"}, incident=incident)
         forward(_Apps(), None)
         incident.refresh_from_db()
         self.assertEqual(incident.instance, "h1")
 
     def test_int_instance_label_is_stringified(self):
-        incident = Incident.objects.create(title="t", severity="warning")
+        incident = Incident.objects.create(severity="warning")
         _alert(labels={"instance_id": 42}, incident=incident)
         forward(_Apps(), None)
         incident.refresh_from_db()
         self.assertEqual((incident.instance, incident.node_id), ("42", None))
 
     def test_alert_without_node_or_instance_leaves_node_empty(self):
-        incident = Incident.objects.create(title="t", severity="warning")
+        incident = Incident.objects.create(severity="warning")
         _alert(labels={}, incident=incident)
         forward(_Apps(), None)
         incident.refresh_from_db()

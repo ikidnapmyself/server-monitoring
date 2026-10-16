@@ -14,12 +14,12 @@ class DiagnoseIncidentExpectedStagesTests(TestCase):
     def test_returns_the_produced_stages_in_order(self):
         # INGEST is history and this incident has no legacy run — see
         # DiagnoseIncidentIngestIsHistoryTests.
-        incident = Incident.objects.create(title="Empty")
+        incident = Incident.objects.create()
         stages = [e["stage"] for e in diagnose_incident(incident)]
         self.assertEqual(stages, ["check", "analyze", "notify"])
 
     def test_no_runs_no_pipeline_all_never_ran(self):
-        incident = Incident.objects.create(title="No runs")
+        incident = Incident.objects.create()
         self.assertEqual(
             self._statuses(incident),
             {
@@ -34,7 +34,7 @@ class DiagnoseIncidentExpectedStagesTests(TestCase):
             name="no-intel",
             stages=["check", "notify"],
         )
-        incident = Incident.objects.create(title="Routed", pipeline=pipe)
+        incident = Incident.objects.create(pipeline=pipe)
         entries = {e["stage"]: e for e in diagnose_incident(incident)}
         self.assertEqual(entries["analyze"]["status"], "skipped")
         self.assertIn("config", entries["analyze"]["detail"])
@@ -46,7 +46,7 @@ class DiagnoseIncidentExpectedStagesTests(TestCase):
 class DiagnoseIncidentStatusTests(TestCase):
     def setUp(self):
         # No pipeline => all four stages expected (un-routed fallback).
-        self.incident = Incident.objects.create(title="Statuses")
+        self.incident = Incident.objects.create()
         self.run = PipelineRun.objects.create(trace_id="t1", run_id="r1", incident=self.incident)
 
     def _exec(self, stage, status, **kw):
@@ -112,7 +112,7 @@ class DiagnoseIncidentAggregationTests(TestCase):
         return {e["stage"]: e for e in diagnose_incident(incident)}[stage]
 
     def test_latest_run_wins_and_rollup_counts(self):
-        incident = Incident.objects.create(title="Multi")
+        incident = Incident.objects.create()
         # Older run: notify succeeded. Newer run: notify failed.
         old = PipelineRun.objects.create(trace_id="t1", run_id="r1", incident=incident)
         StageExecution.objects.create(
@@ -132,7 +132,7 @@ class DiagnoseIncidentAggregationTests(TestCase):
         self.assertEqual(entry["runs"], "succeeded in 1/2 runs")
 
     def test_highest_attempt_within_latest_run_wins(self):
-        incident = Incident.objects.create(title="Retry")
+        incident = Incident.objects.create()
         run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
         StageExecution.objects.create(
             pipeline_run=run,
@@ -155,7 +155,7 @@ class DiagnoseIncidentAggregationTests(TestCase):
     def test_ingest_succeeded_without_output_is_empty(self):
         # ingest has no PipelineRun output-ref attr (run_ref_attr is None),
         # so emptiness rests solely on the execution's own snapshot/output_ref.
-        incident = Incident.objects.create(title="IngestEmpty")
+        incident = Incident.objects.create()
         run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
         StageExecution.objects.create(pipeline_run=run, stage="ingest", status="succeeded")
         self.assertEqual(self._entry(incident, "ingest")["status"], "empty")
@@ -163,7 +163,7 @@ class DiagnoseIncidentAggregationTests(TestCase):
     def test_unknown_status_falls_back_to_never_ran(self):
         # A status outside the known vocabulary matches no classify branch and
         # leaves the default never_ran verdict untouched (defensive fall-through).
-        incident = Incident.objects.create(title="Unknown")
+        incident = Incident.objects.create()
         run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
         StageExecution.objects.create(pipeline_run=run, stage="notify", status="cancelled")
         self.assertEqual(self._entry(incident, "notify")["status"], "never_ran")
@@ -180,14 +180,14 @@ class DiagnoseIncidentJunkPipelineTests(TestCase):
         orchestrator (which normalises) would never run it.
         """
         pipe = PipelineDefinition.objects.create(name="junk-lane", stages="notify")
-        incident = Incident.objects.create(title="Junk", pipeline=pipe)
+        incident = Incident.objects.create(pipeline=pipe)
         entries = {e["stage"]: e for e in diagnose_incident(incident)}
         self.assertEqual(entries["notify"]["status"], "skipped")
         self.assertEqual(entries["check"]["status"], "skipped")
 
     def test_unknown_stage_in_list_is_ignored(self):
         pipe = PipelineDefinition.objects.create(name="part-junk", stages=["sparkle", "notify"])
-        incident = Incident.objects.create(title="Part junk", pipeline=pipe)
+        incident = Incident.objects.create(pipeline=pipe)
         entries = {e["stage"]: e for e in diagnose_incident(incident)}
         self.assertEqual(entries["notify"]["status"], "never_ran")  # expected, not yet run
         self.assertEqual(entries["analyze"]["status"], "skipped")
@@ -208,11 +208,11 @@ class DiagnoseIncidentIngestIsHistoryTests(TestCase):
         return {e["stage"]: e for e in diagnose_incident(incident)}
 
     def test_incident_with_no_runs_does_not_report_ingest(self):
-        incident = Incident.objects.create(title="Fresh")
+        incident = Incident.objects.create()
         self.assertEqual(self._stages(incident), ["check", "analyze", "notify"])
 
     def test_incident_with_only_incident_runs_does_not_report_ingest(self):
-        incident = Incident.objects.create(title="New model")
+        incident = Incident.objects.create()
         PipelineRun.objects.create(
             trace_id="t",
             run_id="r",
@@ -222,7 +222,7 @@ class DiagnoseIncidentIngestIsHistoryTests(TestCase):
         self.assertEqual(self._stages(incident), ["check", "analyze", "notify"])
 
     def test_incident_with_a_legacy_run_still_reports_ingest(self):
-        incident = Incident.objects.create(title="Legacy")
+        incident = Incident.objects.create()
         legacy = PipelineRun.objects.create(
             trace_id="t",
             run_id="legacy",
@@ -238,7 +238,7 @@ class DiagnoseIncidentIngestIsHistoryTests(TestCase):
         self.assertEqual(entries["ingest"]["runs"], "succeeded in 1/1 runs")
 
     def test_a_legacy_run_alongside_incident_runs_still_reports_ingest(self):
-        incident = Incident.objects.create(title="Mixed")
+        incident = Incident.objects.create()
         legacy = PipelineRun.objects.create(
             trace_id="t",
             run_id="legacy",
@@ -261,7 +261,7 @@ class DiagnoseIncidentIngestIsHistoryTests(TestCase):
     def test_the_other_stages_are_unaffected_by_the_ingest_rule(self):
         """Dropping INGEST changes nothing about check/analyze/notify."""
         pipe = PipelineDefinition.objects.create(name="no-intel-2", stages=["check", "notify"])
-        incident = Incident.objects.create(title="Routed new", pipeline=pipe)
+        incident = Incident.objects.create(pipeline=pipe)
         run = PipelineRun.objects.create(
             trace_id="t",
             run_id="r",
@@ -286,7 +286,7 @@ class DiagnoseIncidentExecutionLinkTests(TestCase):
     """
 
     def setUp(self):
-        self.incident = Incident.objects.create(title="Links")
+        self.incident = Incident.objects.create()
         self.run = PipelineRun.objects.create(trace_id="t1", run_id="r1", incident=self.incident)
 
     def _entry(self, stage):
@@ -335,7 +335,7 @@ class DiagnoseIncidentEvidenceOutranksConfigTests(TestCase):
 
     def setUp(self):
         self.pipe = PipelineDefinition.objects.create(name="retired-lane", stages=[])
-        self.incident = Incident.objects.create(title="Routed late", pipeline=self.pipe)
+        self.incident = Incident.objects.create(pipeline=self.pipe)
         self.run = PipelineRun.objects.create(trace_id="t1", run_id="r1", incident=self.incident)
 
     def _entry(self, stage):

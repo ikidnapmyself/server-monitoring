@@ -7,6 +7,7 @@ from unittest import mock
 import psutil
 from django.test import TestCase, override_settings
 
+from apps.checkers._tests.checkers.test_describe_contract import RAW
 from apps.checkers.checkers.base import CheckStatus
 from apps.checkers.checkers.listening_ports import (
     ListeningPort,
@@ -201,3 +202,61 @@ class ListeningPortsCheckerTests(TestCase):
         from apps.checkers.checkers import ListeningPortsChecker as Exported
 
         self.assertIs(CHECKER_REGISTRY["listening_ports"], Exported)
+
+
+class ListeningPortsDescribeTests(TestCase):
+    def test_ok_counts_the_listening_ports(self):
+        metrics = {"listening_count": 12, "unexpected_ports": []}
+        d = ListeningPortsChecker().describe(CheckStatus.OK, metrics)
+        self.assertEqual(d.headline, "12 ports listening, all expected")
+        self.assertIsNone(d.action)
+
+    def test_names_the_unexpected_ports_once_each(self):
+        metrics = {"listening_count": 14, "unexpected_ports": [9000, 8080, 9000]}
+        d = ListeningPortsChecker().describe(CheckStatus.WARNING, metrics)
+        self.assertEqual(d.headline, "Unexpected ports open: 8080 and 9000")
+        self.assertEqual(
+            d.action.text, "Close 8080 and 9000, or add them to this node's port allowlist."
+        )
+
+    def test_a_single_port_reads_as_it(self):
+        metrics = {"listening_count": 3, "unexpected_ports": [8080]}
+        d = ListeningPortsChecker().describe(CheckStatus.WARNING, metrics)
+        self.assertEqual(d.headline, "Unexpected ports open: 8080")
+        self.assertEqual(d.action.text, "Close 8080, or add it to this node's port allowlist.")
+
+    def test_ok_with_one_port_reads_singular(self):
+        metrics = {"listening_count": 1, "unexpected_ports": []}
+        d = ListeningPortsChecker().describe(CheckStatus.OK, metrics)
+        self.assertEqual(d.headline, "1 port listening, all expected")
+
+    def test_ok_never_calls_node_flagged_ports_unexpected(self):
+        metrics = {"listening_count": 5, "unexpected_ports": [8080]}
+        d = ListeningPortsChecker().describe(CheckStatus.OK, metrics)
+        self.assertEqual(d.headline, "5 ports listening, all expected")
+        self.assertIsNone(d.action)
+
+    def test_firing_without_node_flagged_ports_points_at_the_allowlist(self):
+        for status in (CheckStatus.WARNING, CheckStatus.CRITICAL):
+            metrics = {"listening_count": 5, "unexpected_ports": []}
+            d = ListeningPortsChecker().describe(status, metrics)
+            self.assertEqual(d.headline, "Ports open outside this node's allowlist")
+            self.assertEqual(
+                d.action.text,
+                "Close the ports this node shouldn't expose, or add them to its port allowlist.",
+            )
+
+    @override_settings(LISTENING_PORTS_ALLOWLIST=[22])
+    def test_real_output_reads_in_words(self):
+        with (
+            mock.patch.object(sys, "platform", "linux"),
+            mock.patch(
+                "apps.checkers.checkers.listening_ports.psutil.net_connections",
+                return_value=[_conn("0.0.0.0", 22), _conn("0.0.0.0", 8080)],
+            ),
+            mock.patch("apps.checkers.checkers.listening_ports.psutil.Process"),
+        ):
+            result = ListeningPortsChecker().check()
+        d = ListeningPortsChecker().describe(result.status, result.metrics, result.message)
+        self.assertEqual(d.headline, "Unexpected ports open: 8080")
+        self.assertIsNone(RAW.search(d.headline))

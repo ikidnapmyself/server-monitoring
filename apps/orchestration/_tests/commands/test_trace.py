@@ -15,7 +15,7 @@ class TraceCommandTests(TestCase):
         pipeline = None
         if with_pipeline:
             pipeline = PipelineDefinition.objects.create(name="trace-lane", match=[], priority=3)
-        incident = Incident.objects.create(title="High CPU", severity="critical", pipeline=pipeline)
+        incident = Incident.objects.create(severity="critical", pipeline=pipeline)
         alert = Alert.objects.create(
             fingerprint="fp",
             source="cluster",
@@ -58,6 +58,7 @@ class TraceCommandTests(TestCase):
         self.assertTrue(data["handled"])
         self.assertEqual(data["runs"][0]["run_id"], "run-1")
         self.assertEqual(data["pipeline"]["name"], "trace-lane")
+        self.assertEqual(data["incident"]["title"], "cpu")
 
     def test_unhandled_alert_shows_inbox(self):
         alert, _ = self._chain(handled=False)
@@ -74,7 +75,7 @@ class TraceCommandTests(TestCase):
 
     def test_alert_without_trace_uses_incident_runs(self):
         # Alert has no trace_id → runs are found via the incident, and trace shows "—".
-        incident = Incident.objects.create(title="x", severity="warning")
+        incident = Incident.objects.create(severity="warning")
         alert = Alert.objects.create(
             fingerprint="fp0",
             source="cluster",
