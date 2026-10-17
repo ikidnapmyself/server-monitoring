@@ -8,7 +8,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.alerts.models import Alert, AlertHistory, Incident, Node
-from apps.console._tests.queries.test_incident import (
+from apps.console._tests.queries.test_stages import (
     ANALYZE_SNAPSHOT,
     CHECK_SNAPSHOT,
     NOTIFY_SNAPSHOT,
