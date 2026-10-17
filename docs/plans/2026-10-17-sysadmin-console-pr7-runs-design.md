@@ -66,7 +66,7 @@ finished run, so `NOTIFIED`, `ANALYZED`, `CHECKED`, `SKIPPED` and `FAILED` don't
 ### `/console/inbox/`
 
 The runs still waiting: `PENDING` and `PROCESSING`, oldest first, each with its age. A run in
-`PROCESSING` past `STALL_TIMEOUT_MINUTES` is marked stuck.
+`PROCESSING` past `DEFAULT_STALE_MINUTES` is marked stuck.
 
 - **Drain now** on a `PENDING` row calls `inbox.drain_run(run_id)`. It executes in the
   request, the way the admin's drain does, so it's one run per click.
