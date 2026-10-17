@@ -14,6 +14,7 @@ from apps.orchestration.dtos import (
     IngestResult,
     NotifyResult,
 )
+from apps.orchestration.executors import AnalyzeExecutor, NotifyExecutor
 from apps.orchestration.inbox import drain_run
 from apps.orchestration.models import (
     PipelineDefinition,
@@ -421,6 +422,91 @@ class SkipCompletedStagesTests(TestCase):
         assert result.stages_completed == []
         assert mock_execute.call_count == 0
         assert StageExecution.objects.filter(pipeline_run=pipeline_run).count() == 1
+
+
+class StageAttemptNumberingTests(TestCase):
+    """A stage numbers its attempts after the ones the run already stored."""
+
+    def _run(self):
+        from apps.orchestration.models import PipelineRun
+
+        return PipelineRun.objects.create(trace_id="t-num", run_id="r-num")
+
+    def _execute(self, run):
+        with patch.object(
+            NotifyExecutor, "execute", return_value=NotifyResult(channels_succeeded=1)
+        ):
+            PipelineOrchestrator(max_retries=1)._execute_stage_with_retry(
+                pipeline_run=run,
+                stage=PipelineStage.NOTIFY,
+                payload={},
+                previous_results={},
+                incident_id=None,
+            )
+
+    def test_a_fresh_stage_writes_attempt_one(self):
+        run = self._run()
+
+        self._execute(run)
+
+        assert list(run.stage_executions.values_list("attempt", "status")) == [
+            (1, StageStatus.SUCCEEDED)
+        ]
+
+    def test_a_stage_with_stored_attempts_writes_the_next_one(self):
+        run = self._run()
+        StageExecution.objects.create(
+            pipeline_run=run, stage=PipelineStage.NOTIFY, attempt=2, status=StageStatus.FAILED
+        )
+
+        self._execute(run)
+
+        execution = run.stage_executions.get(status=StageStatus.SUCCEEDED)
+        assert (execution.attempt, execution.idempotency_key) == (3, "r-num:notify:3")
+
+    def test_a_resumed_run_reruns_its_failed_stage_through_the_real_loop(self):
+        from apps.orchestration.models import PipelineRun
+
+        incident, _alert = make_subject_incident()
+        PipelineDefinition.objects.create(
+            name="analyze-notify", match=[], stages=["analyze", "notify"], priority=1
+        )
+        run = PipelineRun.objects.create(
+            trace_id="t-resume",
+            run_id="r-resume",
+            source="cluster",
+            status=PipelineStatus.FAILED,
+            inbound_payload={"downstream_incident_id": incident.id},
+        )
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage=PipelineStage.ANALYZE,
+            attempt=1,
+            status=StageStatus.SUCCEEDED,
+            output_snapshot={"summary": "already analysed"},
+        )
+        StageExecution.objects.create(
+            pipeline_run=run, stage=PipelineStage.NOTIFY, attempt=1, status=StageStatus.FAILED
+        )
+
+        with (
+            patch.object(AnalyzeExecutor, "execute") as analyze,
+            patch.object(
+                NotifyExecutor, "execute", return_value=NotifyResult(channels_succeeded=1)
+            ) as notify,
+        ):
+            result = PipelineOrchestrator(max_retries=1).resume_pipeline(
+                run_id="r-resume", payload={}
+            )
+
+        assert result.status == "COMPLETED"
+        analyze.assert_not_called()
+        notify.assert_called_once()
+        assert list(
+            run.stage_executions.filter(stage=PipelineStage.NOTIFY)
+            .order_by("attempt")
+            .values_list("attempt", "status")
+        ) == [(1, StageStatus.FAILED), (2, StageStatus.SUCCEEDED)]
 
 
 class AnalyzeFallbackContinuesTests(TestCase):

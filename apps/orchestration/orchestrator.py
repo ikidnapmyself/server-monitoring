@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Max
 
 if TYPE_CHECKING:
     from apps.alerts.models import Node
@@ -766,8 +767,17 @@ class PipelineOrchestrator:
         """
         last_error: Exception | None = None
         last_result = None
+        # A requeued or resumed run re-runs a stage that already holds failed attempts,
+        # and (run, stage, attempt) is unique.
+        done = (
+            StageExecution.objects.filter(pipeline_run=pipeline_run, stage=stage).aggregate(
+                last=Max("attempt")
+            )["last"]
+            or 0
+        )
 
-        for attempt in range(1, self.max_retries + 1):
+        for tries in range(1, self.max_retries + 1):
+            attempt = done + tries
             # Create stage execution record
             stage_execution = StageExecution.objects.create(
                 pipeline_run=pipeline_run,
@@ -845,12 +855,12 @@ class PipelineOrchestrator:
                 )
 
                 # Check if retryable
-                if not e.retryable or attempt >= self.max_retries:
+                if not e.retryable or tries >= self.max_retries:
                     raise
 
                 # Emit retrying and backoff
                 emit_stage_retrying(tags)
-                backoff_time = self.backoff_factor**attempt
+                backoff_time = self.backoff_factor**tries
                 time.sleep(backoff_time)
 
             except Exception as e:
@@ -869,11 +879,11 @@ class PipelineOrchestrator:
                     duration_ms=0,
                 )
 
-                if attempt >= self.max_retries:
+                if tries >= self.max_retries:
                     raise
 
                 emit_stage_retrying(tags)
-                backoff_time = self.backoff_factor**attempt
+                backoff_time = self.backoff_factor**tries
                 time.sleep(backoff_time)
 
         # Should not reach here, but raise last error if we do

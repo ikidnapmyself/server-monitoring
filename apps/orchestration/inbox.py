@@ -3,8 +3,9 @@
 The "inbox" is the set of PENDING/PROCESSING ``PipelineRun`` records left by durable
 ingest. These pure, importable functions claim and execute those runs. They are the
 single source of truth for the claim/drain/reclaim logic shared by the
-``process_inbox`` management command and the admin Inbox monitor actions. It is
-also where every downstream incident run is recorded (``enqueue_incident_runs``).
+``process_inbox`` management command and the console's run and inbox pages, and for
+the operator's requeue and abandon. It is also where every downstream incident run is
+recorded (``enqueue_incident_runs``).
 
 The claim is atomic (PENDING -> PROCESSING) so overlapping drains never
 double-process, and a crashed drain's PROCESSING runs are reclaimed after the
@@ -17,6 +18,7 @@ from collections.abc import Iterable
 from datetime import timedelta
 
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from apps.orchestration.models import PipelineRun, PipelineStatus
@@ -29,6 +31,9 @@ logger = logging.getLogger(__name__)
 # ``reclaim_stuck``, ``InboxItem.is_stuck``, and the ``process_inbox --stale-minutes``
 # default so the literal is not triplicated.
 DEFAULT_STALE_MINUTES = 15
+
+ABANDON_STATUSES = (PipelineStatus.PENDING, PipelineStatus.PROCESSING, PipelineStatus.RETRYING)
+ABANDON_MESSAGE = "Marked failed by an operator"
 
 
 def reclaim_stuck(
@@ -62,22 +67,77 @@ def _execute(run: PipelineRun) -> None:
     PipelineOrchestrator().execute_run(run)
 
 
-def drain(limit: int = 50) -> int:
-    """Claim and execute up to ``limit`` PENDING runs (oldest first). Return count."""
+def pending_pks(limit: int) -> list[int]:
+    """The pks of up to ``limit`` PENDING runs, oldest first."""
     # Fetch PKs only (not full rows) so we never load the potentially large
     # ``inbound_payload`` JSON for runs a concurrent drain claims out from under us.
-    pending_pks = list(
+    return list(
         PipelineRun.objects.filter(status=PipelineStatus.PENDING)
         .order_by("created_at")
         .values_list("pk", flat=True)[:limit]
     )
+
+
+def drain(limit: int = 50) -> int:
+    """Claim and execute up to ``limit`` PENDING runs (oldest first). Return count."""
     processed = 0
-    for pk in pending_pks:
+    for pk in pending_pks(limit):
         if not claim(pk):
             continue  # a concurrent drain claimed it first
         _execute(PipelineRun(pk=pk))  # refresh_from_db loads the claimed row once
         processed += 1
     return processed
+
+
+def drain_each(pks: Iterable[int]) -> tuple[int, int]:
+    """Claim and execute each run on its own. Return how many ran and how many raised.
+
+    One run that raises is logged and counted, and the rest still run. A run already
+    claimed, or gone, is neither.
+    """
+    ran = failed = 0
+    for pk in pks:
+        try:
+            if claim(pk):
+                _execute(PipelineRun(pk=pk))
+                ran += 1
+        except Exception:  # noqa: BLE001
+            logger.exception("Drain failed for run pk=%s", pk)
+            failed += 1
+    return ran, failed
+
+
+def requeue(pk: int) -> bool:
+    """Put a failed run back in the queue. True iff this call moved it.
+
+    The next drain claims it and ``execute_run`` skips every stage that already succeeded,
+    so it keeps its ``run_id`` and ``trace_id`` and re-runs only what failed. ``update``
+    skips ``auto_now``, and ``reclaim_stuck`` reads ``updated_at``, so it is set here.
+    """
+    return (
+        PipelineRun.objects.filter(pk=pk, status=PipelineStatus.FAILED).update(
+            status=PipelineStatus.PENDING,
+            total_attempts=F("total_attempts") + 1,
+            updated_at=timezone.now(),
+        )
+        == 1
+    )
+
+
+def abandon(pk: int) -> bool:
+    """Fail a queued, claimed or retrying run that should never run. True iff this call did."""
+    now = timezone.now()
+    return (
+        PipelineRun.objects.filter(pk=pk, status__in=ABANDON_STATUSES).update(
+            status=PipelineStatus.FAILED,
+            last_error_type="ManualOverride",
+            last_error_message=ABANDON_MESSAGE,
+            last_error_retryable=False,
+            completed_at=now,
+            updated_at=now,
+        )
+        == 1
+    )
 
 
 def drain_run(run_id: str) -> int:

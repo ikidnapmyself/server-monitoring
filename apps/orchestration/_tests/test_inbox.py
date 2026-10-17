@@ -6,8 +6,18 @@ from unittest.mock import patch
 import pytest
 from django.utils import timezone
 
+from apps.alerts.models import Alert, Incident
 from apps.orchestration import inbox
-from apps.orchestration.models import PipelineRun, PipelineStatus
+from apps.orchestration.dtos import NotifyResult
+from apps.orchestration.executors import AnalyzeExecutor, CheckExecutor, NotifyExecutor
+from apps.orchestration.models import (
+    PipelineDefinition,
+    PipelineRun,
+    PipelineStatus,
+    StageExecution,
+    StageStatus,
+)
+from apps.orchestration.testing import clear_lanes
 
 
 def _run(run_id, status=PipelineStatus.PENDING):
@@ -242,3 +252,149 @@ def test_a_legacy_ingest_run_still_drains_without_an_incident():
     with patch("apps.orchestration.inbox.PipelineOrchestrator.execute_run") as mock_exec:
         assert inbox.drain_runs([legacy]) == 1
     assert [call.args[0].run_id for call in mock_exec.call_args_list] == ["legacy"]
+
+
+@pytest.mark.django_db
+def test_requeue_wins_once_and_bumps_attempts():
+    run = _run("failed", status=PipelineStatus.FAILED)
+    stale = timezone.now() - timedelta(hours=2)
+    PipelineRun.objects.filter(pk=run.pk).update(updated_at=stale)
+
+    assert inbox.requeue(run.pk) is True
+    assert inbox.requeue(run.pk) is False
+
+    run.refresh_from_db()
+    assert run.status == PipelineStatus.PENDING
+    assert run.total_attempts == 2
+    assert run.updated_at > stale + timedelta(hours=1)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status", [s for s in PipelineStatus if s != PipelineStatus.FAILED])
+def test_requeue_refuses_a_run_that_is_not_failed(status):
+    run = _run("other", status=status)
+
+    assert inbox.requeue(run.pk) is False
+    assert inbox.requeue(999_999) is False
+
+    run.refresh_from_db()
+    assert (run.status, run.total_attempts) == (status, 1)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status", inbox.ABANDON_STATUSES)
+def test_abandon_fails_an_open_run_once_and_writes_the_error(status):
+    run = _run("open", status=status)
+
+    assert inbox.abandon(run.pk) is True
+    assert inbox.abandon(run.pk) is False
+
+    run.refresh_from_db()
+    assert run.status == PipelineStatus.FAILED
+    assert run.last_error_type == "ManualOverride"
+    assert run.last_error_message == "Marked failed by an operator"
+    assert run.last_error_retryable is False
+    assert run.completed_at is not None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status", [s for s in PipelineStatus if s not in inbox.ABANDON_STATUSES])
+def test_abandon_refuses_a_finished_run(status):
+    run = _run("finished", status=status)
+
+    assert inbox.abandon(run.pk) is False
+
+    run.refresh_from_db()
+    assert run.status == status
+    assert run.last_error_type == ""
+
+
+@pytest.mark.django_db
+def test_drain_each_counts_runs_that_ran_and_runs_that_raised():
+    ok = _run("ok")
+    boom = _run("boom")
+    busy = _run("busy", status=PipelineStatus.PROCESSING)
+
+    def execute(run):
+        if run.run_id == "boom":
+            raise RuntimeError("boom")
+
+    with patch(
+        "apps.orchestration.inbox.PipelineOrchestrator.execute_run", side_effect=execute
+    ) as mock_exec:
+        assert inbox.drain_each([ok.pk, boom.pk, busy.pk, 999_999]) == (1, 1)
+
+    assert [call.args[0].run_id for call in mock_exec.call_args_list] == ["ok", "boom"]
+
+
+@pytest.mark.django_db
+def test_pending_pks_are_the_oldest_pending_first():
+    newer = _run("newer")
+    older = _run("older")
+    _run("busy", status=PipelineStatus.PROCESSING)
+    PipelineRun.objects.filter(pk=older.pk).update(
+        created_at=timezone.now() - timedelta(minutes=10)
+    )
+
+    assert inbox.pending_pks(10) == [older.pk, newer.pk]
+    assert inbox.pending_pks(1) == [older.pk]
+
+
+@pytest.mark.django_db
+def test_a_requeued_run_that_failed_at_notify_reruns_only_notify():
+    clear_lanes()
+    PipelineDefinition.objects.create(name="all", stages=["check", "analyze", "notify"])
+    incident = Incident.objects.create(severity="critical", subject="disk", instance="web-1")
+    Alert.objects.create(
+        incident=incident,
+        fingerprint="fp",
+        name="disk",
+        severity="critical",
+        status="firing",
+        source="cluster",
+        started_at=timezone.now(),
+    )
+    run = PipelineRun.objects.create(
+        trace_id="t-requeue",
+        run_id="r-requeue",
+        status=PipelineStatus.FAILED,
+        incident=incident,
+        inbound_payload={"downstream_incident_id": incident.pk},
+    )
+    for stage in ("check", "analyze"):
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage=stage,
+            attempt=1,
+            status=StageStatus.SUCCEEDED,
+            output_snapshot={"summary": stage},
+        )
+    for attempt in (1, 2, 3):
+        StageExecution.objects.create(
+            pipeline_run=run, stage="notify", attempt=attempt, status=StageStatus.FAILED
+        )
+
+    assert inbox.requeue(run.pk)
+    with (
+        patch.object(CheckExecutor, "execute") as check,
+        patch.object(AnalyzeExecutor, "execute") as analyze,
+        patch.object(
+            NotifyExecutor, "execute", return_value=NotifyResult(channels_succeeded=1)
+        ) as notify,
+    ):
+        assert inbox.drain_run("r-requeue") == 1
+
+    run.refresh_from_db()
+    assert (run.status, run.run_id, run.trace_id) == (
+        PipelineStatus.NOTIFIED,
+        "r-requeue",
+        "t-requeue",
+    )
+    check.assert_not_called()
+    analyze.assert_not_called()
+    notify.assert_called_once()
+    assert list(
+        run.stage_executions.filter(stage="notify")
+        .order_by("attempt")
+        .values_list("attempt", "status")
+    ) == [(1, "failed"), (2, "failed"), (3, "failed"), (4, "succeeded")]
