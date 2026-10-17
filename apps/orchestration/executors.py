@@ -21,13 +21,8 @@ from apps.orchestration.dtos import (
     StageContext,
 )
 from apps.orchestration.errors import StageExecutionError, routing_gap
-from apps.orchestration.formatters import (
-    build_notification_body,
-    format_check_summary,
-    format_ingest_summary,
-    format_intelligence_summary,
-)
 from apps.orchestration.models import PipelineStage
+from apps.orchestration.notification import build_notification
 from config.failures import FAILURE_KINDS, classify_failure
 
 logger = logging.getLogger(__name__)
@@ -403,25 +398,6 @@ class NotifyExecutor(BaseExecutor):
         channel = pipeline.routed_channel()
         return channel.name if channel else None
 
-    @staticmethod
-    def _headline_facts(incident: "Any | None") -> dict[str, Any]:
-        """Ingest-shaped headline facts, read from the incident itself.
-
-        The incident is the unit of work for a downstream run, so its severity and
-        title are what the message is about. Shaped like an ingest snapshot so
-        ``derive_headline`` stays pure and has one input format.
-        """
-        if incident is None:
-            return {}
-
-        subject = incident.alerts.order_by("-received_at").first()
-        return {
-            "severity": incident.severity,
-            "incident_title": describe_incident(incident).headline,
-            "status": incident.status,
-            "source": subject.source if subject is not None else "monitoring",
-        }
-
     def execute(self, ctx: StageContext) -> NotifyResult:
         """Execute notification dispatch."""
         start_time = time.perf_counter()
@@ -440,28 +416,9 @@ class NotifyExecutor(BaseExecutor):
             # (for example, Slack channel name).
             requested_channel = payload.get("notify_channel")
 
-            # Title and severity are AUTHORITATIVE from alert/check data — never
-            # from AI. Intelligence recommendations only ENRICH the body below.
-            from apps.orchestration.formatters import derive_headline
-
-            # One fetch, two consumers: the headline below and _route_incident later.
+            # One fetch, two consumers: the message below and _route_incident later.
             incident = self._load_incident(ctx.incident_id)
-
-            ingest_prev = previous.get("ingest") or {}
-            check_prev = previous.get("check") or {}
-            if not ingest_prev:
-                # A downstream run never runs INGEST — its incident was ingested by
-                # the parent push — so there is no snapshot to read the headline
-                # from. Without this every fan-out notification went out as
-                # "[INFO] monitoring: incident": routed correctly, saying nothing.
-                ingest_prev = self._headline_facts(incident)
-            title, severity, lead = derive_headline(ingest_prev, check_prev)
-            message_body = lead
-
-            # Intelligence ENRICHES the body only — it never sets severity/title.
-            intelligence = previous.get("analyze", {}) or {}
-            if intelligence.get("fallback_used"):
-                message_body += "\n\n_AI analysis unavailable; showing check-based summary._"
+            notification = build_notification(incident, previous, ctx.trace_id)
 
             # Phase A routing: resolve the pipeline that matches this incident,
             # stamp it on the incident (for the notify target + journey view), and
@@ -497,7 +454,7 @@ class NotifyExecutor(BaseExecutor):
                 config,
                 selected_label,
                 driver_cls,
-                channel_obj,
+                _channel_obj,
                 final_channel,
             ) = NotifySelector.resolve(requested, payload_config, requested_channel)
 
@@ -524,75 +481,18 @@ class NotifyExecutor(BaseExecutor):
                     f"(available: {', '.join(sorted(DRIVER_REGISTRY))})",
                 )
 
-            # Build NotificationMessage using the base dataclass fields. Put
-            # idempotency info into tags and the intelligence/check output into context.
-            # Build human-readable summaries for previous stages. ingest_prev
-            # and check_prev were already resolved above for derive_headline().
-            ingest_md = format_ingest_summary(ingest_prev)
-            check_md = format_check_summary(check_prev)
-
-            intelligence_prev = intelligence or {}
-            intel_md = format_intelligence_summary(intelligence_prev)
-
-            # Attempt to render a configured notification template. Template
-            # can come from channel config (selected channel_obj) or payload
-            # payload.notify_config.template. If present, render it with a
-            # rich context; otherwise fall back to building md_body as before.
-            from apps.notify.templating import render_template
-
-            template_spec = None
-            # Only DB-sourced channel config may supply a template. Untrusted
-            # pipeline payload templates are rejected to prevent SSTI — see
-            # docs/plans/2026-04-15-ssti-notify-template-design.md.
-            if channel_obj and (channel_obj.config or {}).get("template"):
-                template_spec = (channel_obj.config or {}).get("template")
-                logger.debug("NotifyExecutor: using channel_obj.config.template=%r", template_spec)
-
-            # Build the rendering context
-            render_ctx = {
-                "title": title,
-                "severity": severity,
-                "ingest": ingest_prev,
-                "check": check_prev,
-                "intelligence": intelligence_prev,
-                "recommendations": (
-                    intelligence_prev.get("recommendations")
-                    if isinstance(intelligence_prev, dict)
-                    else []
-                ),
-                "incident_id": ctx.incident_id,
-                "source": ctx.source,
-                "environment": ctx.environment,
-            }
-
-            if template_spec:
-                try:
-                    md_body = render_template(template_spec, render_ctx) or ""
-                    logger.debug("NotifyExecutor: rendered template_spec len=%d", len(md_body))
-                except Exception:
-                    logger.exception("Error rendering notification template")
-                    md_body = build_notification_body(message_body, ingest_md, check_md, intel_md)
-            else:
-                md_body = build_notification_body(message_body, ingest_md, check_md, intel_md)
-
+            # The driver renders the channel's template from this message.
             message = NotificationMessage(
-                title=title,
-                message=md_body,
-                severity=severity,
+                title=notification.title,
+                message=notification.body,
+                severity=notification.severity,
                 channel=channel,
                 tags={
                     "trace_id": ctx.trace_id,
                     "run_id": ctx.run_id,
                     "idempotency_key": idempotency_key,
                 },
-                context={
-                    "incident_id": ctx.incident_id,
-                    "source": ctx.source,
-                    "environment": ctx.environment,
-                    "ingest": ingest_md,
-                    "check": check_md,
-                    "intelligence": intel_md,
-                },
+                context=notification.context,
             )
 
             # Store prepared message payload as a plain dict to avoid coupling DTOs
@@ -685,8 +585,8 @@ class NotifyExecutor(BaseExecutor):
                     "run_id": ctx.run_id,
                     "provider": provider_name,
                     "channel": channel,
-                    "title": title,
-                    "severity": severity,
+                    "title": notification.title,
+                    "severity": notification.severity,
                     "idempotency_key": idempotency_key,
                 },
             )
