@@ -14,7 +14,7 @@ from apps.alerts.describing import (
     describe_reeval,
     describe_reeval_report,
 )
-from apps.alerts.models import Alert
+from apps.alerts.models import Alert, Incident
 from apps.alerts.reeval_existing import ReevalScope, preview_reeval, scope_digest
 from apps.console.queries.hosts import alert_host
 from config.admin_badges import (
@@ -67,8 +67,7 @@ class AlertDetail:
     url: str
 
 
-def _incident(alert: Alert) -> IncidentCard | None:
-    incident = alert.incident
+def incident_card(incident: Incident | None) -> IncidentCard | None:
     if incident is None:
         return None
     return IncidentCard(
@@ -148,7 +147,7 @@ def build_alert_detail(pk: int, *, can_reeval: bool = False) -> AlertDetail | No
         started_at=alert.started_at,
         last_seen=alert.updated_at,
         ended_at=alert.ended_at,
-        incident=_incident(alert),
+        incident=incident_card(alert.incident),
         history=history,
         hidden=hidden,
         reeval=describe_reeval(alert),

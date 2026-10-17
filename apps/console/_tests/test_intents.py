@@ -193,6 +193,13 @@ def test_rerun_check_posts_to_the_incident_rerun(admin_user):
     )
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize("intent", ["retry_run", "abandon_run"])
+def test_run_actions_are_text_until_the_run_action_route_exists(admin_user, intent):
+    action = Action("Go", intent=intent, params={"pk": 7})
+    assert resolve_action(action, admin_user) == ResolvedAction("Go")
+
+
 ADMIN_IN_PYTHON = re.compile(r"""reverse\(\s*f?["']admin:""")
 ADMIN_IN_TEMPLATE = re.compile(r"""/admin/|\{%\s*url\s+["']admin:""")
 

@@ -45,6 +45,10 @@ def _incident_action(action: str) -> Callable[[dict[str, Any]], str]:
     return lambda params: reverse("console:incident-action", args=[params["pk"], action])
 
 
+def _run_action(action: str) -> Callable[[dict[str, Any]], str]:
+    return lambda params: reverse("console:run-action", args=[params["pk"], action])
+
+
 def _external(params: dict[str, Any]) -> str:
     url = str(params["url"])
     if urlsplit(url).scheme not in ("http", "https"):
@@ -88,6 +92,8 @@ INTENTS: dict[str, Intent] = {
     "resolve": Intent(_incident_action("resolve"), "post", "alerts.change_incident"),
     "close": Intent(_incident_action("close"), "post", "alerts.change_incident"),
     "rerun_check": Intent(_record("console:incident-rerun"), "post", "checkers.add_checkrun"),
+    "retry_run": Intent(_run_action("retry"), "post", "orchestration.change_pipelinerun"),
+    "abandon_run": Intent(_run_action("abandon"), "post", "orchestration.change_pipelinerun"),
 }
 
 
