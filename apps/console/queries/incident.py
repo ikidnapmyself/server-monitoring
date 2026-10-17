@@ -17,7 +17,7 @@ from apps.alerts.models import Incident
 from apps.alerts.services import available_incident_actions
 from apps.alerts.timeline import build_incident_timeline
 from apps.checkers.checkers import CheckStatus
-from apps.checkers.describing import check_status, describe_check, describe_check_errors
+from apps.checkers.describing import PROBLEM_ORDER, describe_check_errors, describe_checks
 from apps.console.queries.hosts import incident_hosts
 from apps.intelligence.describing import analysis_failed, describe_analysis
 from apps.notify.describing import describe_notify
@@ -40,8 +40,6 @@ LIFECYCLE = (
     ("resolved", "resolved_at", "Incident resolved", "resolved"),
     ("closed", "closed_at", "Incident closed", "closed"),
 )
-# Worst first. OK and skipped results are counted, not listed.
-PROBLEM_ORDER = (CheckStatus.CRITICAL, CheckStatus.UNKNOWN, CheckStatus.WARNING)
 
 
 @dataclass(frozen=True)
@@ -148,18 +146,7 @@ def _dicts(value: object) -> tuple[dict[str, Any], ...]:
 
 
 def _check_body(snapshot: dict[str, Any], raw: str) -> CheckBody:
-    found: dict[CheckStatus, list[Description]] = {status: [] for status in CheckStatus}
-    for check in _dicts(snapshot.get("checks")):
-        status = check_status(check.get("status"))
-        metrics = check.get("metrics")
-        found[status].append(
-            describe_check(
-                _text(check.get("name")),
-                status,
-                metrics if isinstance(metrics, dict) else {},
-                _text(check.get("message")),
-            )
-        )
+    found = describe_checks(snapshot)
     return CheckBody(
         problems=tuple(d for status in PROBLEM_ORDER for d in found[status]),
         ok_count=len(found[CheckStatus.OK]),

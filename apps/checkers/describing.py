@@ -11,6 +11,16 @@ from apps.checkers.checkers import CHECKER_REGISTRY, CheckStatus, checker_label
 from config.admin_badges import CHECK_STATUS_TONES
 from config.describing import Description, Fact
 
+PROBLEM_ORDER = (CheckStatus.CRITICAL, CheckStatus.UNKNOWN, CheckStatus.WARNING)
+
+
+def _text(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    return ""
+
 
 def check_status(value: object) -> CheckStatus:
     """The status a result stored. Anything unrecognised reads as UNKNOWN."""
@@ -34,6 +44,32 @@ def describe_check(
         detail=text if text != first else "",
         facts=(Fact("Described by", "the node"),),
     )
+
+
+def describe_checks(snapshot: Any) -> dict[CheckStatus, list[Description]]:
+    """Every result a diagnose snapshot stored, described and grouped by status."""
+    found: dict[CheckStatus, list[Description]] = {status: [] for status in CheckStatus}
+    checks = snapshot.get("checks") if isinstance(snapshot, dict) else None
+    for check in checks if isinstance(checks, list) else ():
+        if not isinstance(check, dict):
+            continue
+        status = check_status(check.get("status"))
+        metrics = check.get("metrics")
+        found[status].append(
+            describe_check(
+                _text(check.get("name")),
+                status,
+                metrics if isinstance(metrics, dict) else {},
+                _text(check.get("message")),
+            )
+        )
+    return found
+
+
+def describe_findings(snapshot: Any) -> tuple[Description, ...]:
+    """The problems a diagnose snapshot found, worst first."""
+    found = describe_checks(snapshot)
+    return tuple(d for status in PROBLEM_ORDER for d in found[status])
 
 
 def describe_check_errors(errors: tuple[str, ...]) -> Description | None:
