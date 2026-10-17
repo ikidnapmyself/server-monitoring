@@ -1,11 +1,13 @@
+from django.contrib import admin
+from django.contrib.auth import get_user_model
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from apps.alerts.models import (
     Alert,
-    AlertSeverity,
-    AlertStatus,
+    AlertHistory,
     Incident,
     IncidentStatus,
     Node,
@@ -100,23 +102,6 @@ class TestBulkActions(TestCase):
         i1.refresh_from_db()
         assert i1.status == IncidentStatus.RESOLVED
         assert _manual_runs(i1).count() == 1
-
-    def test_resolve_selected_alerts(self):
-        a1 = Alert.objects.create(
-            fingerprint="fp-1",
-            source="test",
-            name="Alert1",
-            severity=AlertSeverity.WARNING,
-            status=AlertStatus.FIRING,
-            started_at=timezone.now(),
-        )
-        response = self.client.post(
-            "/admin/alerts/alert/",
-            {"action": "resolve_selected", "_selected_action": [a1.pk]},
-        )
-        assert response.status_code == 302
-        a1.refresh_from_db()
-        assert a1.status == AlertStatus.RESOLVED
 
     def test_mark_pipelines_for_retry(self):
         run = PipelineRun.objects.create(
@@ -303,33 +288,6 @@ class TestIncidentActionMessages(TestCase):
         assert by_status["closed"].status == IncidentStatus.CLOSED
 
 
-class TestJsonPrettyDisplay(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
-
-    def setUp(self):
-        self.client.login(username="admin", password="password")
-
-    def test_alert_detail_shows_pretty_json(self):
-        from apps.alerts.models import Alert, AlertSeverity, AlertStatus
-
-        alert = Alert.objects.create(
-            fingerprint="fp-json",
-            source="test",
-            name="JsonTest",
-            severity=AlertSeverity.WARNING,
-            status=AlertStatus.FIRING,
-            labels={"env": "prod", "team": "ops"},
-            raw_payload={"alertname": "test", "nested": {"key": "val"}},
-            started_at=timezone.now(),
-        )
-        response = self.client.get(f"/admin/alerts/alert/{alert.pk}/change/")
-        assert response.status_code == 200
-        content = response.content.decode()
-        assert "<pre" in content
-
-
 class TestJourneyPanel(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -369,35 +327,6 @@ class TestJourneyPanel(TestCase):
         resp = self.client.get(f"/admin/alerts/incident/{incident.id}/change/")
         assert resp.status_code == 200
         assert "(no stages)" in resp.content.decode()
-
-    def test_alert_journey_links_incident_and_shows_trace(self):
-        incident = Incident.objects.create(severity="critical")
-        alert = Alert.objects.create(
-            fingerprint="fp",
-            source="cluster",
-            name="cpu",
-            severity="critical",
-            started_at=timezone.now(),
-            incident=incident,
-            trace_id="tr-9",
-        )
-        resp = self.client.get(f"/admin/alerts/alert/{alert.id}/change/")
-        assert resp.status_code == 200
-        body = resp.content.decode()
-        assert "tr-9" in body
-        assert f"/admin/alerts/incident/{incident.id}/change/" in body
-
-    def test_alert_journey_shows_inbox_when_no_incident(self):
-        alert = Alert.objects.create(
-            fingerprint="fp2",
-            source="grafana",
-            name="mem",
-            severity="warning",
-            started_at=timezone.now(),
-        )
-        resp = self.client.get(f"/admin/alerts/alert/{alert.id}/change/")
-        assert resp.status_code == 200
-        assert "not processed — inbox" in resp.content.decode()
 
 
 class TestIncidentJourneyTimeline(TestCase):
@@ -464,58 +393,6 @@ class TestIncidentJourneyTimeline(TestCase):
         assert "No timeline events yet." in html
 
 
-class TestAlertHistoryAdminReadability(TestCase):
-    """Task 6.3: AlertHistory admin readability defaults."""
-
-    def _admin(self):
-        from django.contrib.admin.sites import AdminSite
-
-        from apps.alerts.admin import AlertHistoryAdmin
-        from apps.alerts.models import AlertHistory
-
-        return AlertHistoryAdmin(AlertHistory, AdminSite())
-
-    def test_event_label_in_list_display_and_humanizes(self):
-        from apps.alerts.admin import AlertHistoryAdmin
-        from apps.alerts.models import AlertHistory
-
-        assert "event_label" in AlertHistoryAdmin.list_display
-        alert = Alert.objects.create(
-            fingerprint="fp",
-            source="cluster",
-            name="cpu",
-            severity="warning",
-            started_at=timezone.now(),
-        )
-        hist = AlertHistory.objects.create(alert=alert, event="status_changed")
-        assert self._admin().event_label(hist) == "Status Changed"
-
-    def test_details_pretty_escapes(self):
-        from django.utils.safestring import SafeString
-
-        from apps.alerts.models import AlertHistory
-
-        alert = Alert.objects.create(
-            fingerprint="fp",
-            source="cluster",
-            name="cpu",
-            severity="warning",
-            started_at=timezone.now(),
-        )
-        hist = AlertHistory.objects.create(alert=alert, event="created", details={"x": "<b>y</b>"})
-        html = self._admin().details_pretty(hist)
-        assert isinstance(html, SafeString)
-        assert "&lt;b&gt;y&lt;/b&gt;" in html
-        assert "<b>y</b>" not in html
-        assert "<pre>" in html
-
-    def test_list_filter_includes_event_and_created_at(self):
-        from apps.alerts.admin import AlertHistoryAdmin
-
-        assert "event" in AlertHistoryAdmin.list_filter
-        assert "created_at" in AlertHistoryAdmin.list_filter
-
-
 class IncidentDiagnosisDisplayTests(TestCase):
     def test_diagnosis_display_renders_stage_rows(self):
         from django.contrib.admin.sites import AdminSite
@@ -573,79 +450,6 @@ class IncidentDiagnosisDisplayTests(TestCase):
         self.assertIn("&lt;script&gt;", html)
 
 
-class AlertAdminHostColumnTests(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
-
-    def setUp(self):
-        self.client.login(username="admin", password="password")
-
-    def _admin(self):
-        from django.contrib.admin.sites import AdminSite
-
-        from apps.alerts.admin import AlertAdmin
-
-        return AlertAdmin(Alert, AdminSite())
-
-    def test_host_prefers_registered_node(self):
-        node = Node.objects.create(instance_id="node-a", hostname="web-01")
-        alert = Alert.objects.create(
-            name="cpu",
-            fingerprint="fp1",
-            source="cluster",
-            labels={"instance_id": "node-a"},
-            node=node,
-            started_at=timezone.now(),
-        )
-        self.assertEqual(self._admin().host(alert), "web-01")
-
-    def test_host_falls_back_to_labels_for_webhook_sources(self):
-        alert = Alert.objects.create(
-            name="cpu",
-            fingerprint="fp2",
-            source="grafana",
-            labels={"instance": "10.0.0.7"},
-            started_at=timezone.now(),
-        )
-        self.assertEqual(self._admin().host(alert), "10.0.0.7")
-
-    def test_host_is_dash_when_nothing_identifies_the_machine(self):
-        alert = Alert.objects.create(
-            name="cpu",
-            fingerprint="fp3",
-            source="grafana",
-            labels={},
-            started_at=timezone.now(),
-        )
-        self.assertEqual(self._admin().host(alert), "—")
-
-    def test_host_escapes_attacker_controlled_labels(self):
-        """``host`` returns a plain string on purpose; the admin does the escaping.
-
-        ``labels`` is attacker-influenced, so pin that a label value can never reach
-        the changelist as live markup — and that nobody "fixes" the plain-string
-        return with ``mark_safe`` later.
-        """
-        Alert.objects.create(
-            name="cpu",
-            fingerprint="fp4",
-            source="grafana",
-            labels={"instance": "<script>bad</script>"},
-            started_at=timezone.now(),
-        )
-        html = self.client.get("/admin/alerts/alert/").content.decode()
-        self.assertNotIn("<script>bad", html)
-        self.assertIn("&lt;script&gt;bad", html)
-
-    def test_host_replaces_node_in_list_display(self):
-        from apps.alerts.admin import AlertAdmin
-
-        self.assertIn("host", AlertAdmin.list_display)
-        self.assertNotIn("node", AlertAdmin.list_display)
-        self.assertIn("node", AlertAdmin.list_filter)
-
-
 class IncidentHeadlineAdminTests(TestCase):
     """Incident names in the admin come from the describer, not stored columns."""
 
@@ -692,15 +496,6 @@ class IncidentHeadlineAdminTests(TestCase):
         self.assertNotIn('name="title"', html)
         self.assertNotIn('name="description"', html)
         self.assertNotIn("stale description", html)
-
-    def test_alert_columns_name_the_incident_by_its_headline(self):
-        from django.contrib.admin.sites import AdminSite
-
-        from apps.alerts.admin import AlertAdmin
-
-        admin = AlertAdmin(Alert, AdminSite())
-        self.assertIn(">HighLatency on db-1</a>", admin.incident_link(self.alert))
-        self.assertIn(">HighLatency on db-1</a>", admin.journey_display(self.alert))
 
 
 class IncidentAdminHostColumnTests(TestCase):
@@ -923,47 +718,6 @@ class IncidentCountLinkTests(TestCase):
         assert self.admin.pipeline_runs_display(NoRuns()) == DASH
 
 
-class AlertBadgeToneTests(TestCase):
-    """The severity and status pills carry a tone class, never a hex."""
-
-    def _admin(self):
-        from django.contrib.admin.sites import AdminSite
-
-        from apps.alerts.admin import AlertAdmin
-
-        return AlertAdmin(Alert, AdminSite())
-
-    def test_each_severity_carries_its_tone(self):
-        for severity, tone in [
-            ("critical", "critical"),
-            ("warning", "warning"),
-            ("info", "info"),
-            ("chartreuse", "muted"),
-        ]:
-            html = str(self._admin().severity_badge(Alert(severity=severity)))
-            assert f"ops-badge--{tone}" in html
-            assert severity.upper() in html
-            assert "#" not in html
-
-    def test_each_status_carries_its_tone(self):
-        for status, tone in [
-            ("firing", "critical"),
-            ("resolved", "ok"),
-            ("pondering", "muted"),
-        ]:
-            html = str(self._admin().status_badge(Alert(status=status)))
-            assert f"ops-badge--{tone}" in html
-            assert status.upper() in html
-            assert "#" not in html
-
-    def test_an_alert_with_no_incident_reads_critical(self):
-        html = str(self._admin().journey_display(Alert(trace_id="tr-1")))
-        assert "ops-tint--critical" in html
-        assert "no incident; ingest not run" in html
-        assert "<b>not processed — inbox</b>" in html
-        assert "#" not in html
-
-
 class IncidentBadgeToneTests(TestCase):
     """The incident pills carry a tone class, never a hex."""
 
@@ -1111,3 +865,41 @@ class IncidentJourneyToneTests(TestCase):
         html = str(self.admin.journey_timeline(self.incident))
         assert "ops-tint--muted" in html
         assert "#" not in html
+
+
+class TestAlertAdminIsStock(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser("root", password="x")
+        self.client.force_login(self.user)
+        self.alert = Alert.objects.create(
+            fingerprint="fp",
+            name="a",
+            severity="warning",
+            status="firing",
+            source="cluster",
+            started_at=timezone.now(),
+        )
+
+    def test_alert_admin_is_read_only_with_no_actions(self):
+        model_admin = admin.site._registry[Alert]
+        request = RequestFactory().get("/")
+        request.user = self.user
+        assert not model_admin.has_add_permission(request)
+        assert not model_admin.has_change_permission(request, self.alert)
+        assert not model_admin.has_delete_permission(request, self.alert)
+        assert "resolve_selected" not in model_admin.get_actions(request)
+        assert "delete_selected" not in model_admin.get_actions(request)
+        assert not hasattr(model_admin, "change_actions")
+
+    def test_history_admin_is_read_only(self):
+        model_admin = admin.site._registry[AlertHistory]
+        request = RequestFactory().get("/")
+        request.user = self.user
+        assert not model_admin.has_add_permission(request)
+        assert not model_admin.has_change_permission(request)
+        assert not model_admin.has_delete_permission(request)
+        assert "delete_selected" not in model_admin.get_actions(request)
+
+    def test_change_page_still_opens_for_a_superuser(self):
+        url = reverse("admin:alerts_alert_change", args=[self.alert.pk])
+        assert self.client.get(url).status_code == 200

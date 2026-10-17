@@ -8,9 +8,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.alerts.describing import describe_incidents
-from apps.alerts.models import Alert, AlertSeverity, Incident, IncidentStatus, Node
-from apps.console.filters import STATUS_CHOICES, IncidentFilter
-from apps.console.queries.hosts import host_summary, incident_hosts
+from apps.alerts.models import Alert, AlertSeverity, Incident, IncidentStatus
+from apps.console.filters import STATUS_CHOICES, AlertFilter, IncidentFilter
+from apps.console.queries.hosts import host_summary, incident_hosts, node_choices, on_node
 from apps.console.queries.overview import SEVERITY_RANK
 from config.admin_badges import INCIDENT_STATUS_TONES, SEVERITY_TONES, tone_for
 
@@ -83,23 +83,11 @@ class IncidentList:
     url: str
 
 
-def _nodes() -> tuple[tuple[int, str, tuple[str, ...]], ...]:
-    """Every node as its pk, display name and the label values that name it."""
-    nodes = [
-        (pk, hostname or instance_id, tuple(key for key in (instance_id, hostname) if key))
-        for pk, hostname, instance_id in Node.objects.order_by().values_list(
-            "pk", "hostname", "instance_id"
-        )
-    ]
-    nodes.sort(key=lambda node: node[1].casefold())
-    return tuple(nodes)
-
-
-def _group(
+def chip_group(
     name: str,
     label: str,
     choices: tuple[Choice, ...],
-    criteria: IncidentFilter,
+    criteria: IncidentFilter | AlertFilter,
     base: str,
     counts: dict[str, int] | None = None,
 ) -> ChipGroup:
@@ -131,18 +119,11 @@ def _matching(criteria: IncidentFilter, node_keys: tuple[str, ...] = ()):
     if cutoff:
         incidents = incidents.filter(created_at__gte=cutoff)
     if criteria.node is not None:
-        # Most checker alerts name their machine only in labels, so a node also matches
-        # an unlinked alert whose instance label is one of the node's own names.
-        named = (
-            Q(labels__instance_id__in=node_keys)
-            | Q(labels__instance__in=node_keys)
-            | Q(labels__hostname__in=node_keys)
-        )
         # A subquery, not a join: a join would cut the alert count down to this node's alerts.
         incidents = incidents.filter(
             Exists(
                 Alert.objects.filter(incident=OuterRef("pk")).filter(
-                    Q(node_id=criteria.node) | Q(node__isnull=True) & named
+                    on_node(criteria.node, node_keys)
                 )
             )
         )
@@ -189,12 +170,12 @@ def _rows(incidents, page: int) -> tuple[IncidentListRow, ...]:
 
 def build_incident_list(criteria: IncidentFilter) -> IncidentList:
     base = reverse("console:incidents")
-    nodes = _nodes()
+    nodes = node_choices()
     node_keys = next((keys for pk, _, keys in nodes if pk == criteria.node), None)
     if criteria.node is not None and node_keys is None:
         criteria = criteria.with_node_dropped()
     node_keys = node_keys or ()
-    node_choices: tuple[Choice, ...] = tuple((str(pk), name, pk) for pk, name, _ in nodes)
+    node_chips: tuple[Choice, ...] = tuple((str(pk), name, pk) for pk, name, _ in nodes)
 
     incidents = _matching(criteria, node_keys)
     total = incidents.count()
@@ -213,15 +194,15 @@ def build_incident_list(criteria: IncidentFilter) -> IncidentList:
         rows, empty = (), "no_match"
 
     groups = [
-        _group(
+        chip_group(
             "status", "Status", STATUS_CHIPS, criteria, base, _status_counts(criteria, node_keys)
         ),
-        _group("severity", "Severity", SEVERITY_CHIPS, criteria, base),
+        chip_group("severity", "Severity", SEVERITY_CHIPS, criteria, base),
     ]
-    if node_choices:
+    if node_chips:
         any_node: Choice = ("any", "Any node", None)
-        groups.append(_group("node", "Node", (any_node, *node_choices), criteria, base))
-    groups.append(_group("since", "Since", SINCE_CHIPS, criteria, base))
+        groups.append(chip_group("node", "Node", (any_node, *node_chips), criteria, base))
+    groups.append(chip_group("since", "Since", SINCE_CHIPS, criteria, base))
 
     return IncidentList(
         rows=rows,

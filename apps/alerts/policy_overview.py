@@ -129,8 +129,7 @@ class PolicyRow:
     def applied(self) -> str:
         """When a re-evaluation last visibly changed something for this checker.
 
-        This tells a policy re-evaluation from an ingest resolve, not from a human
-        one: ``AlertAdmin.resolve_selected`` writes no history at all.
+        This tells a policy re-evaluation from an ingest resolve.
         """
         if self.last_applied is not None:
             return date_format(localtime(self.last_applied), "DATETIME_FORMAT")

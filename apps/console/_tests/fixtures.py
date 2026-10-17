@@ -1,5 +1,6 @@
 """A database holding one incident per case the console describes, for page-wide checks."""
 
+import json
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
@@ -163,6 +164,27 @@ def _checker_incident() -> Incident:
     return incident
 
 
+def _reeval_skip_incident() -> Incident:
+    """Re-evaluate skips whose sentences name a node and a metric, on a node with a UUID id."""
+    node = Node.objects.create(
+        instance_id=_uuid(),
+        hostname="db-1",
+        config={"memory": {"warning_threshold": 80, "critical_threshold": 90}},
+    )
+    Node.objects.filter(pk=node.pk).update(last_seen=timezone.now() - timedelta(hours=2))
+    incident = _incident("Database host", instance=node.instance_id, node=node)
+    for checker, metrics in (("cpu", {"cpu_percent": 97.1}), ("memory", {"swap_percent": 3.0})):
+        _alert(
+            incident,
+            checker,
+            source="cluster",
+            node=node,
+            labels={"checker": checker, "instance_id": node.instance_id},
+            annotations={"metrics": json.dumps(metrics)},
+        )
+    return incident
+
+
 def _webhook_incident() -> Incident:
     incident = _incident("High error rate")
     _alert(
@@ -292,6 +314,7 @@ def build_world() -> World:
     incidents = [
         _checker_incident(),
         _webhook_incident(),
+        _reeval_skip_incident(),
         *(_gap_incident(code) for code in ROUTING_GAPS),
         _retryable_incident(),
         _skipped_incident(),

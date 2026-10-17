@@ -6,6 +6,7 @@ severity, records history + a distinct audit annotation, and auto-resolves
 incidents. See docs/plans/2026-08-08-reeval-existing-alerts-design.md.
 """
 
+import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
@@ -33,6 +34,7 @@ from apps.alerts.services import (
     announce_incident_change,
     resolve_node,
 )
+from apps.checkers.checkers import checker_label
 from config.admin_links import admin_url
 
 logger = logging.getLogger(__name__)
@@ -140,6 +142,30 @@ class ReevalScope:
         return Alert.objects.filter(labels__instance_id=node.instance_id, status="firing")
 
 
+class StaleReeval(Exception):
+    """The alerts changed between the preview an operator confirmed and the apply."""
+
+
+def scope_digest(scope: ReevalScope) -> str:
+    """What the preview was computed from, as one value a confirm form can carry back.
+
+    The policy is part of it because apply re-scores against ``scope.node.config``, and
+    each incident's status because ``follow_alert`` reads it to decide who hears about it.
+    """
+    rows = scope.alerts.order_by("pk").values_list(
+        "pk", "status", "severity", "updated_at", "incident__status"
+    )
+    policy = json.dumps(scope.node.config, sort_keys=True) if scope.node else ""
+    text = "|".join(
+        [policy]
+        + [
+            f"{pk}:{status}:{severity}:{at.isoformat()}:{incident_status}"
+            for pk, status, severity, at, incident_status in rows
+        ]
+    )
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
 def _policy_for(config, checker: str):
     """This checker's slice of a node's config, or the config itself if it is not a mapping.
 
@@ -182,12 +208,9 @@ def preview_reeval(scope: ReevalScope) -> ReevalReport:
     """
     report = ReevalReport(node=scope.node)
     config = scope.node.config if scope.node else {}
+    node_name = (scope.node.hostname if scope.node else "") or "this node"
     for alert in scope.alerts:
-        labels = alert.labels or {}
-        checker = labels.get("checker", "")
-        # An unregistered node has no config to quote, so the label is the only name
-        # this alert's node has.
-        instance_id = scope.node.instance_id if scope.node else labels.get("instance_id", "")
+        checker = (alert.labels or {}).get("checker", "")
         outcome = _outcome_for(alert, config)
         if isinstance(outcome, Verdict):
             _, notify = follow_alert(
@@ -209,7 +232,7 @@ def preview_reeval(scope: ReevalScope) -> ReevalReport:
             AlertSkip(
                 alert=alert,
                 reason=outcome.reason,
-                sentence=describe_skip(outcome, checker=checker, instance_id=instance_id),
+                sentence=describe_skip(outcome, checker=checker_label(checker), node=node_name),
                 fix_url=(admin_url(scope.node) if outcome.reason in EDITOR_FIXABLE else None),
             )
         )
@@ -222,7 +245,7 @@ def preview_node_alert_reeval(node: Node) -> ReevalReport:
 
 
 @transaction.atomic
-def apply_reeval(scope: ReevalScope) -> ReevalReport:
+def apply_reeval(scope: ReevalScope, expected: str | None = None) -> ReevalReport:
     """Apply the re-score: update alerts, history, audit, incidents, then announce.
 
     Every incident the apply changed gets one inbox run, enqueued inside this
@@ -235,7 +258,15 @@ def apply_reeval(scope: ReevalScope) -> ReevalReport:
 
     Each applied change then runs the same incident lifecycle ingest runs, so a
     re-fired alert never ends up sitting under a resolved or closed incident.
+
+    With ``expected``, refuses with ``StaleReeval`` unless the scope still matches that digest.
     """
+    if expected is not None:
+        # On a database with row locks a second submit waits here, then sees the first
+        # one's writes. SQLite ignores the lock, and its busy error is the caller's to answer.
+        list(scope.alerts.select_for_update())
+        if scope_digest(scope) != expected:
+            raise StaleReeval
     report = preview_reeval(scope)
     node = scope.node
     if node is None:

@@ -72,9 +72,10 @@ pipeline stage and not an alert producer.
 - **Reads use the admin's view permissions.** A view sets `read_permissions` and
   `ConsoleView._refusal` checks them after the anonymous and staff checks: any one
   suffices, as in `ModelAdmin.has_view_permission`, and none is a 403 "Permission to view
-  incidents required." The Overview, the incident list and the incident page all set
+  this page required." The Overview, the incident list and the incident page all set
   `alerts.view_incident` or `alerts.change_incident`, and the action and rerun views
-  inherit that from `IncidentPageView`. Action views add their own change or add
+  inherit that from `IncidentPageView`. The alert list and the alert page set
+  `alerts.view_alert` or `alerts.change_alert`. Action views add their own change or add
   permission on top. A link the page shows still goes through an intent, so it appears
   only for a user who holds that intent's permission.
 - **Querystrings go through `filters.py`.** A filter object parses and validates every
@@ -85,6 +86,23 @@ pipeline stage and not an alert producer.
   links target that root with `hx-push-url="true"` and `hx-sync="#<root id>:replace"`.
   Without `hx-sync`, a late response hits a detached node and the URL and the content
   disagree.
+- **The alert pages are read-only evidence.** `/console/alerts/` filters on `AlertFilter`
+  (`q`, `status` firing by default, `severity`, `node`, `source`, `since`, `page`). `q`
+  searches name, fingerprint and trace ID, and also matches an alert whose incident has a
+  pipeline run with that trace ID. `/console/alerts/<pk>/` shows the alert, its
+  incident, its history and its re-evaluation facts. No page resolves an alert. A node
+  matches an alert linked by FK or an unlinked one whose `instance_id`, `instance` or
+  `hostname` label names it, through `on_node` in `queries/hosts.py`, which the incident
+  list shares.
+- **A confirm form carries a `scope_digest`.** `/console/alerts/<pk>/reevaluate/` previews
+  on GET and writes nothing. The form posts the digest taken before the preview. It covers
+  the node's policy and each alert's incident status as well as the alerts, and
+  `apply_reeval(scope, expected=digest)` raises `StaleReeval` when any of it changed. The
+  scope's rows are locked first, which serializes submits on databases that support row
+  locks. SQLite doesn't, so a concurrent submit there fails with a busy `OperationalError`.
+  The view answers both with a 409 and a fresh preview, so a double submit or a replay
+  writes nothing. The apply form carries `data-disable-on-submit`, which `console.js` reads
+  to disable its button on submit. Any later confirm page reuses this guard.
 - **A missing record gets a console 404 page** with a link onward, returned with status
   404, as `IncidentDetailView` does. Don't raise a bare `Http404` from a page view.
 - **Stage output is untrusted in shape.** `queries/incident.py` turns an

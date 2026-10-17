@@ -5,6 +5,7 @@ from unittest.mock import patch
 from django.contrib import admin
 from django.core.management import call_command
 from django.test import TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 
 from apps.alerts.admin import NodeAdmin
@@ -212,6 +213,12 @@ class CheckerStateTests(TestCase):
         self.assertEqual(rows[0].checker, "cpu")
         self.assertIn("93.5", rows[0].value)
         self.assertEqual(rows[0].status, "warning")
+
+    def test_a_peer_row_links_the_console_alert_page(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        alert = self._peer_alert(node, "cpu", AlertSeverity.WARNING)
+        rows = build_checker_rows(node)
+        self.assertEqual(rows[0].url, reverse("console:alert", args=[alert.pk]))
 
     def test_a_peer_at_info_reads_as_ok(self):
         # A passing health check is "ok" in the checker's own words. Reading

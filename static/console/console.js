@@ -89,6 +89,28 @@
     printOpened = [];
   });
 
+  // A plain form posts and navigates away, so hx-disabled-elt never sees it. A second
+  // click would race the first submit, and SQLite cannot make the loser wait.
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (!form.hasAttribute || !form.hasAttribute("data-disable-on-submit")) {
+      return;
+    }
+    form.querySelectorAll("button").forEach(function (button) {
+      button.disabled = true;
+    });
+  });
+
+  // The back button restores a page from the cache with its buttons still disabled.
+  window.addEventListener("pageshow", function (event) {
+    if (!event.persisted) {
+      return;
+    }
+    document.querySelectorAll("[data-disable-on-submit] button").forEach(function (button) {
+      button.disabled = false;
+    });
+  });
+
   var banner = document.getElementById("c-banner");
   if (!banner) {
     return;

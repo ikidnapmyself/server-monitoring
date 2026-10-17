@@ -1,19 +1,21 @@
-"""The Re-evaluation panel on AlertAdmin.
-
-The operator complaint this closes: "I can't see if a re-evaluation applied." Both
-writers stored their record as raw JSON inside the collapsed Metadata fieldset, which
-answers the question only for someone willing to read JSON.
-"""
+"""Re-evaluation in words: the records an alert carries and the preview of a re-score."""
 
 import json
 
-from django.contrib.auth import get_user_model
+import pytest
 from django.test import TestCase
-from django.urls import reverse
 from django.utils import timezone
 
-from apps.alerts.models import Alert
-from apps.alerts.reeval_display import NEVER, UNREADABLE, reeval_panel
+from apps.alerts.describing import (
+    REOPEN_WARNING,
+    UNREADABLE,
+    describe_reeval,
+    describe_reeval_applied,
+    describe_reeval_report,
+)
+from apps.alerts.models import Alert, Node
+from apps.alerts.reeval_existing import AlertChange, AlertSkip, ReevalReport
+from apps.alerts.reevaluation import SkipReason
 
 INGEST_RECORD = {
     "from": "critical",
@@ -53,16 +55,24 @@ def alert_with(**annotations) -> Alert:
     )
 
 
-class ReevalPanelTests(TestCase):
+def _values(alert) -> list[str]:
+    return [fact.value for fact in describe_reeval(alert)]
+
+
+def _text(alert) -> str:
+    return " ".join(f"{fact.label}: {fact.value}" for fact in describe_reeval(alert))
+
+
+class DescribeReevalTests(TestCase):
     def test_ingest_record_renders_change_value_and_policy(self):
-        panel = reeval_panel(alert_with(severity_reevaluated=INGEST_RECORD))
+        panel = _text(alert_with(severity_reevaluated=INGEST_RECORD))
         self.assertIn("At ingest", panel)
         self.assertIn("CRITICAL to WARNING", panel)
         self.assertIn("value 91.3", panel)
         self.assertIn("policy warning 90 / critical 99", panel)
 
     def test_config_change_record_is_labelled_as_the_operator_path(self):
-        panel = reeval_panel(alert_with(reevaluated_on_config_change=CONFIG_CHANGE_RECORD))
+        panel = _text(alert_with(reevaluated_on_config_change=CONFIG_CHANGE_RECORD))
         self.assertIn("On a policy change", panel)
         self.assertNotIn("At ingest", panel)
         self.assertIn("WARNING to INFO", panel)
@@ -72,71 +82,67 @@ class ReevalPanelTests(TestCase):
         self.assertIn("policy warning 80 / critical 95", panel)
 
     def test_both_records_render_distinguishably(self):
-        panel = reeval_panel(
+        facts = describe_reeval(
             alert_with(
                 severity_reevaluated=INGEST_RECORD,
                 reevaluated_on_config_change=CONFIG_CHANGE_RECORD,
             )
         )
-        self.assertIn("At ingest", panel)
-        self.assertIn("On a policy change", panel)
-        self.assertIn("CRITICAL to WARNING", panel)
-        self.assertIn("WARNING to INFO", panel)
-        self.assertLess(panel.index("At ingest"), panel.index("On a policy change"))
+        self.assertEqual([f.label for f in facts], ["At ingest", "On a policy change"])
+        self.assertIn("CRITICAL to WARNING", facts[0].value)
+        self.assertIn("WARNING to INFO", facts[1].value)
 
     def test_no_record_renders_never_re_evaluated(self):
-        self.assertEqual(reeval_panel(alert_with()), NEVER)
+        self.assertEqual(describe_reeval(alert_with()), ())
 
     def test_annotations_not_a_dict_renders_never_re_evaluated(self):
         alert = alert_with()
         alert.annotations = None
-        self.assertEqual(reeval_panel(alert), NEVER)
+        self.assertEqual(describe_reeval(alert), ())
 
     def test_malformed_json_renders_the_fallback(self):
         alert = alert_with()
         alert.annotations = {"severity_reevaluated": "not json at all"}
-        self.assertIn(UNREADABLE, reeval_panel(alert))
+        self.assertIn(UNREADABLE, _values(alert))
 
     def test_non_string_annotation_renders_the_fallback(self):
         alert = alert_with()
         alert.annotations = {"severity_reevaluated": {"from": "critical"}}
-        self.assertIn(UNREADABLE, reeval_panel(alert))
+        self.assertIn(UNREADABLE, _values(alert))
 
     def test_record_parsing_to_a_list_renders_the_fallback(self):
         alert = alert_with()
         alert.annotations = {"severity_reevaluated": "[]"}
-        self.assertIn(UNREADABLE, reeval_panel(alert))
+        self.assertIn(UNREADABLE, _values(alert))
 
     def test_record_parsing_to_a_number_renders_the_fallback(self):
         alert = alert_with()
         alert.annotations = {"severity_reevaluated": "3"}
-        self.assertIn(UNREADABLE, reeval_panel(alert))
+        self.assertIn(UNREADABLE, _values(alert))
 
     def test_empty_record_renders_the_fallback(self):
-        panel = reeval_panel(alert_with(severity_reevaluated={}))
+        panel = _text(alert_with(severity_reevaluated={}))
         self.assertIn(UNREADABLE, panel)
 
     def test_record_without_value_or_thresholds_renders_what_it_has(self):
-        panel = reeval_panel(alert_with(severity_reevaluated={"from": "critical", "to": "warning"}))
+        panel = _text(alert_with(severity_reevaluated={"from": "critical", "to": "warning"}))
         self.assertIn("CRITICAL to WARNING.", panel)
         self.assertNotIn("value", panel)
         self.assertNotIn("policy", panel)
 
     def test_record_without_a_severity_change_still_renders_its_date(self):
-        panel = reeval_panel(
-            alert_with(reevaluated_on_config_change={"at": "2026-08-04T09:15:00+00:00"})
-        )
+        panel = _text(alert_with(reevaluated_on_config_change={"at": "2026-08-04T09:15:00+00:00"}))
         self.assertIn("on 4 Aug 2026.", panel)
 
     def test_unparseable_timestamp_is_dropped_not_raised(self):
-        panel = reeval_panel(
+        panel = _text(
             alert_with(reevaluated_on_config_change=dict(CONFIG_CHANGE_RECORD, at="last Tuesday"))
         )
         self.assertIn("WARNING to INFO", panel)
         self.assertNotIn(" on ", panel)
 
     def test_impossible_timestamp_is_dropped_not_raised(self):
-        panel = reeval_panel(
+        panel = _text(
             alert_with(
                 reevaluated_on_config_change=dict(CONFIG_CHANGE_RECORD, at="2026-13-45T99:00:00")
             )
@@ -145,26 +151,24 @@ class ReevalPanelTests(TestCase):
         self.assertNotIn(" on ", panel)
 
     def test_naive_timestamp_renders_without_conversion(self):
-        panel = reeval_panel(
+        panel = _text(
             alert_with(reevaluated_on_config_change=dict(CONFIG_CHANGE_RECORD, at="2026-08-04"))
         )
         self.assertIn("4 Aug 2026", panel)
 
     def test_thresholds_of_the_wrong_shape_drop_the_policy_clause(self):
-        panel = reeval_panel(
-            alert_with(severity_reevaluated=dict(INGEST_RECORD, thresholds="90/99"))
-        )
+        panel = _text(alert_with(severity_reevaluated=dict(INGEST_RECORD, thresholds="90/99")))
         self.assertIn("CRITICAL to WARNING", panel)
         self.assertNotIn("policy", panel)
 
     def test_thresholds_holding_neither_thresholds_nor_allowlist_drop_the_clause(self):
-        panel = reeval_panel(
+        panel = _text(
             alert_with(severity_reevaluated=dict(INGEST_RECORD, thresholds={"enabled": True}))
         )
         self.assertNotIn("policy", panel)
 
     def test_listening_ports_renders_its_allowlist_not_thresholds(self):
-        panel = reeval_panel(
+        panel = _text(
             alert_with(
                 severity_reevaluated={
                     "from": "warning",
@@ -179,7 +183,7 @@ class ReevalPanelTests(TestCase):
         self.assertNotIn("warning 90", panel)
 
     def test_empty_allowlist_says_so(self):
-        panel = reeval_panel(
+        panel = _text(
             alert_with(
                 severity_reevaluated=dict(INGEST_RECORD, thresholds={"allowlist": []}),
             )
@@ -187,7 +191,7 @@ class ReevalPanelTests(TestCase):
         self.assertIn("policy allows no ports", panel)
 
     def test_values_render_at_the_confirm_page_precision(self):
-        panel = reeval_panel(
+        panel = _text(
             alert_with(
                 severity_reevaluated=dict(
                     INGEST_RECORD,
@@ -200,38 +204,82 @@ class ReevalPanelTests(TestCase):
         self.assertIn("warning 80.0", panel)
         self.assertNotIn("41.199", panel)
 
-    def test_policy_values_from_config_are_escaped(self):
-        panel = reeval_panel(
+    def test_policy_values_from_config_pass_through_as_sent(self):
+        panel = _text(
             alert_with(
                 severity_reevaluated=dict(
                     INGEST_RECORD, thresholds={"allowlist": ["<script>alert(1)</script>"]}
                 )
             )
         )
-        self.assertNotIn("<script>", panel)
-        self.assertIn("&lt;script&gt;", panel)
+        self.assertIn("policy allows ports <script>alert(1)</script>", panel)
 
 
-class AlertChangePageTests(TestCase):
-    def setUp(self):
-        get_user_model().objects.create_superuser(
-            username="ops", email="ops@example.com", password="pw"
-        )
-        self.client.login(username="ops", password="pw")
+def _change(**fields):
+    fields = {
+        "alert": Alert(),
+        "old_severity": "critical",
+        "old_status": "firing",
+        "new_severity": "warning",
+        "new_status": "firing",
+        "value": 72.04,
+        **fields,
+    }
+    return AlertChange(**fields)
 
-    def test_change_page_renders_the_panel(self):
-        alert = alert_with(severity_reevaluated=INGEST_RECORD)
-        response = self.client.get(reverse("admin:alerts_alert_change", args=[alert.pk]))
-        self.assertEqual(response.status_code, 200)
-        body = response.content.decode()
-        self.assertIn("Re-evaluation", body)
-        self.assertIn("CRITICAL to WARNING", body)
-        self.assertIn("policy warning 90 / critical 99", body)
 
-    def test_change_page_opens_on_an_unreadable_record(self):
-        alert = alert_with()
-        alert.annotations = {"severity_reevaluated": "not json at all"}
-        alert.save()
-        response = self.client.get(reverse("admin:alerts_alert_change", args=[alert.pk]))
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(UNREADABLE, response.content.decode())
+def test_report_words_each_change():
+    report = ReevalReport(
+        node=None,
+        changes=[
+            _change(),
+            _change(new_status="resolved", new_severity="info"),
+            _change(old_status="resolved", new_severity="critical", notify=False),
+        ],
+    )
+    rows = describe_reeval_report(report)
+    assert [r.headline for r in rows] == [
+        "Would move this alert from critical to warning",
+        "Would resolve this alert",
+        "Would reopen this alert at critical",
+    ]
+    assert rows[0].detail == "Its stored value is 72.0."
+    assert rows[2].detail.endswith("Its incident is acknowledged, so nobody is notified.")
+    assert [r.tone for r in rows] == ["warning", "ok", "critical"]
+
+
+@pytest.mark.django_db
+def test_report_offers_the_node_only_for_a_skip_an_editor_can_fix():
+    node = Node.objects.create(instance_id="i-1", hostname="web")
+    report = ReevalReport(
+        node=node,
+        skips=[
+            AlertSkip(alert=None, reason=SkipReason.NO_POLICY, sentence="No policy."),
+            AlertSkip(alert=None, reason=SkipReason.NO_SCORER, sentence="No scorer."),
+        ],
+    )
+    fixable, unfixable = describe_reeval_report(report)
+    assert fixable.action.intent == "view_node" and fixable.action.params == {"pk": node.pk}
+    assert unfixable.action is None and unfixable.tone == "info"
+
+
+def test_a_skip_on_an_unregistered_node_offers_nothing():
+    report = ReevalReport(
+        node=None,
+        skips=[AlertSkip(alert=None, reason=SkipReason.NO_POLICY, sentence="No policy.")],
+    )
+    (row,) = describe_reeval_report(report)
+    assert row.action is None and row.headline == "No policy."
+
+
+def test_applied_counts_what_changed():
+    report = ReevalReport(node=None, changes=[_change(new_status="resolved")])
+    assert describe_reeval_applied(report).startswith("Resolved 1, changed severity on 0.")
+
+
+def test_applied_names_the_runs_it_queued():
+    assert describe_reeval_applied(ReevalReport(node=None)).endswith("Queued 0 pipeline runs.")
+
+
+def test_reopen_warning_has_no_identifiers():
+    assert "{" not in REOPEN_WARNING and "_" not in REOPEN_WARNING

@@ -8,7 +8,7 @@ from django.contrib import admin
 
 # These render a preview on GET and write only on a confirmed POST, after checking
 # the change permission themselves.
-PREVIEW_ON_GET = {("alert", "reevaluate"), ("node", "reevaluate_open_alerts")}
+PREVIEW_ON_GET = {("node", "reevaluate_open_alerts")}
 
 
 def _object_actions():

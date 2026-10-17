@@ -5,7 +5,7 @@ from django.urls import reverse
 from apps.alerts.models import Incident
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
-REFUSAL = "Permission to view incidents required."
+REFUSAL = "Permission to view this page required."
 
 
 def _pages():

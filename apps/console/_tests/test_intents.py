@@ -127,10 +127,22 @@ def test_query_params_are_encoded(admin_user):
         ("view_nodes", {}, "/admin/alerts/node/"),
         ("view_node", {"pk": 7}, "/admin/alerts/node/7/change/"),
         ("view_run", {"pk": 7}, "/admin/orchestration/pipelinerun/7/change/"),
-        ("view_alert", {"pk": 7}, "/admin/alerts/alert/7/change/"),
     ],
 )
 def test_config_intents_point_at_the_admin(admin_user, intent, params, url):
+    resolved = resolve_action(Action("Go", intent=intent, params=params), admin_user)
+    assert resolved == ResolvedAction("Go", url, "get")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("intent", "params", "url"),
+    [
+        ("view_alert", {"pk": 7}, "/console/alerts/7/"),
+        ("reevaluate_alert", {"pk": 7}, "/console/alerts/7/reevaluate/"),
+    ],
+)
+def test_alert_intents_point_at_the_console(admin_user, intent, params, url):
     resolved = resolve_action(Action("Go", intent=intent, params=params), admin_user)
     assert resolved == ResolvedAction("Go", url, "get")
 

@@ -1,7 +1,5 @@
 """Admin configuration for alerts models."""
 
-import json
-
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q
@@ -37,7 +35,6 @@ from apps.alerts.node_policy import (
     sections_for,
     spec_for,
 )
-from apps.alerts.reeval_display import reeval_panel
 from apps.alerts.reeval_existing import (
     ReevalScope,
     apply_reeval,
@@ -47,7 +44,6 @@ from apps.alerts.services import IncidentManager, instance_key_from_labels
 from apps.alerts.timeline import build_incident_timeline
 from apps.orchestration.models import InboxItem, PipelineRun
 from config.admin_badges import (
-    ALERT_STATUS_TONES,
     DIAGNOSIS_TONES,
     INCIDENT_STATUS_TONES,
     SEVERITY_TONES,
@@ -92,18 +88,6 @@ class AlertInline(admin.TabularInline):
         return False
 
 
-class AlertHistoryInline(admin.TabularInline):
-    """Inline display of alert history events."""
-
-    model = AlertHistory
-    extra = 0
-    readonly_fields = ["event", "old_status", "new_status", "details", "created_at"]
-    can_delete = False
-
-    def has_add_permission(self, request, obj=None):
-        return False
-
-
 class PipelineRunInline(admin.TabularInline):
     """Inline display of pipeline runs for an incident."""
 
@@ -125,251 +109,23 @@ class PipelineRunInline(admin.TabularInline):
         return False
 
 
-def alert_reeval_intro(alert, node) -> str:
-    """The confirm page's opening sentence for a single-alert re-evaluation.
-
-    A scope with no node has no policy to apply, so the sentence has to name the
-    missing node rather than promise a re-score the apply will refuse to make.
-    """
-    if node is not None:
-        return (
-            "Re-evaluate this alert against the current hub-side policy for node "
-            f"{node.instance_id}."
-        )
-    instance_id = (alert.labels or {}).get("instance_id")
-    if instance_id:
-        return (
-            f"This alert's instance_id label names {instance_id}, which is not registered "
-            "on this hub. There is no policy to score it against, so nothing here will change."
-        )
-    return (
-        "This alert carries no instance_id label, so no node's policy can score it. "
-        "Nothing here will change."
-    )
-
-
 @admin.register(Alert)
-class AlertAdmin(DjangoObjectActions, admin.ModelAdmin):
-    """Admin for Alert model.
+class AlertAdmin(admin.ModelAdmin):
+    """Read-only. Operators read alerts in the console, and nobody resolves one by hand."""
 
-    Inherits DjangoObjectActions for the per-alert Re-evaluate button. It defines no
-    ``change_form_template`` of its own, so the mixin's template (which fills
-    object-tools-items with the change_actions buttons) applies; overriding it with a
-    template that does not extend ``django_object_actions/change_form.html`` would
-    silently drop the button while leaving its URL registered.
-    """
+    list_display = ["name", "severity", "status", "source", "node", "incident", "received_at"]
+    list_filter = ["status", "severity", "source"]
+    search_fields = ["name", "fingerprint", "trace_id"]
+    list_select_related = ["node", "incident"]
 
-    change_actions = ["reevaluate"]
+    def has_add_permission(self, request):
+        return False
 
-    list_display = [
-        "name",
-        "severity_badge",
-        "status_badge",
-        "source",
-        "host",
-        "incident_link",
-        "started_at",
-        "received_at",
-    ]
-    list_filter = ["status", "severity", "source", "node"]
-    search_fields = [
-        "name",
-        "fingerprint",
-        "description",
-        "trace_id",
-        "incident__pipeline_runs__trace_id",
-    ]
-    readonly_fields = [
-        "fingerprint",
-        "received_at",
-        "updated_at",
-        "journey_display",
-        "reeval_display",
-        "pretty_labels",
-        "pretty_annotations",
-        "pretty_raw_payload",
-    ]
-    date_hierarchy = "received_at"
-    inlines = [AlertHistoryInline]
-    actions = ["resolve_selected"]
+    def has_change_permission(self, request, obj=None):
+        return False
 
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related("incident", "node")
-
-    fieldsets = [
-        (
-            "Identification",
-            {
-                "fields": ["name", "fingerprint", "source", "node", "incident"],
-            },
-        ),
-        (
-            "Status",
-            {
-                "fields": ["severity", "status", "description"],
-            },
-        ),
-        (
-            "Journey",
-            {
-                "fields": ["journey_display"],
-                "description": "trace_id → incident → pipeline run.",
-            },
-        ),
-        (
-            "Re-evaluation",
-            {
-                "fields": ["reeval_display"],
-                "description": "Whether hub-side node policy re-scored this alert, and how.",
-            },
-        ),
-        (
-            "Metadata",
-            {
-                "fields": ["pretty_labels", "pretty_annotations"],
-                "classes": ["collapse"],
-            },
-        ),
-        (
-            "Raw Payload",
-            {
-                "fields": ["pretty_raw_payload"],
-                "classes": ["collapse"],
-            },
-        ),
-        (
-            "Timestamps",
-            {
-                "fields": ["started_at", "ended_at", "received_at", "updated_at"],
-            },
-        ),
-    ]
-
-    @admin.action(description="Resolve selected alerts")
-    def resolve_selected(self, request, queryset):
-        updated = queryset.update(status=AlertStatus.RESOLVED)
-        self.message_user(request, f"{updated} alert(s) resolved.")
-
-    @admin.display(description="Severity")
-    def severity_badge(self, obj):
-        return badge(obj.severity.upper(), tone_for(SEVERITY_TONES, obj.severity))
-
-    @admin.display(description="Status")
-    def status_badge(self, obj):
-        return badge(obj.status.upper(), tone_for(ALERT_STATUS_TONES, obj.status))
-
-    @admin.display(description="Incident")
-    def incident_link(self, obj):
-        if obj.incident:
-            return format_html(
-                '<a href="/admin/alerts/incident/{}/change/">{}</a>',
-                obj.incident.id,
-                describe_incident(obj.incident).headline[:30],
-            )
-        return "-"
-
-    @admin.display(description="Host")
-    def host(self, obj):
-        """Machine this alert concerns, for every source — not just cluster pushes.
-
-        ``node`` is only linked for registered cluster nodes, so fall through to the
-        shared label lookup that also defines incident grouping. Returns a plain
-        string deliberately: it carries no markup, and the admin escapes any
-        attacker-supplied label value for us.
-        """
-        if obj.node_id:
-            return node_label(obj.node)
-        return instance_key_from_labels(obj.labels) or "—"
-
-    @admin.display(description="Journey")
-    def journey_display(self, obj):
-        trace = format_html("<div><b>trace_id:</b> {}</div>", obj.trace_id or "—")
-        if obj.incident_id:
-            body = format_html(
-                "<div><b>Incident:</b> "
-                '<a href="/admin/alerts/incident/{}/change/">{}</a> '
-                "(see its Journey for the full chain)</div>",
-                obj.incident_id,
-                describe_incident(obj.incident).headline[:40],
-            )
-        else:
-            body = format_html(
-                "<div>{}</div>",
-                tinted(
-                    format_html("<b>{}</b> (no incident; ingest not run)", "not processed — inbox"),
-                    "critical",
-                ),
-            )
-        return format_html("{}{}", trace, body)
-
-    @admin.display(description="Re-evaluation")
-    def reeval_display(self, obj):
-        return reeval_panel(obj)
-
-    @admin.display(description="Labels")
-    def pretty_labels(self, obj):
-        return prettify_json(obj.labels)
-
-    @admin.display(description="Annotations")
-    def pretty_annotations(self, obj):
-        return prettify_json(obj.annotations)
-
-    @admin.display(description="Raw Payload")
-    def pretty_raw_payload(self, obj):
-        return prettify_json(obj.raw_payload)
-
-    @object_action(
-        label="Re-evaluate",
-        description="Re-score this alert against its node's current policy",
-    )
-    def reevaluate(self, request, obj):
-        """Preview (then, on POST confirm) re-evaluate this one alert.
-
-        Unlike the node action there is no "nothing to do" early return: a
-        single-alert scope always produces exactly one row, a change or a skip
-        carrying the sentence saying why. The operator clicked on this alert and
-        is owed an answer about it.
-
-        The scope deliberately does not filter on status, so a resolved alert
-        whose stored metrics still breach the current policy comes back as a
-        re-open. The confirm page warns about that before anything is written.
-        """
-        # django_object_actions gates the URL behind admin_view (is_staff only);
-        # enforce model change permission before any mutation.
-        if not self.has_change_permission(request, obj):
-            raise PermissionDenied
-        scope = ReevalScope.for_alert(obj)
-        report = preview_reeval(scope)
-        if report.changes and request.method == "POST" and request.POST.get("confirm"):
-            applied = apply_reeval(scope)
-            self.message_user(
-                request,
-                f"Resolved {applied.resolved_count}; changed severity on "
-                f"{applied.severity_changed_count}. Enqueued {applied.run_count} "
-                "pipeline run(s).",
-            )
-            return
-        return TemplateResponse(
-            request,
-            "admin/alerts/node/reevaluate_confirm.html",
-            {
-                **self.admin_site.each_context(request),
-                "report": report,
-                "title": "Confirm re-evaluation",
-                "opts": self.model._meta,
-                "intro": alert_reeval_intro(obj, report.node),
-                "parent_url": reverse(
-                    "admin:alerts_alert_changelist", current_app=self.admin_site.name
-                ),
-                "parent_label": "Alerts",
-                "subject_label": obj.name,
-                "back_url": reverse(
-                    "admin:alerts_alert_change",
-                    args=[obj.pk],
-                    current_app=self.admin_site.name,
-                ),
-            },
-        )
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(Incident)
@@ -742,44 +498,21 @@ class IncidentAdmin(DjangoObjectActions, admin.ModelAdmin):
 
 @admin.register(AlertHistory)
 class AlertHistoryAdmin(admin.ModelAdmin):
-    """Admin for AlertHistory model."""
+    """Read-only audit rows, written by the code that changes an alert."""
 
-    list_display = [
-        "alert",
-        "event_label",
-        "old_status",
-        "new_status",
-        "created_at",
-    ]
-    list_filter = ["event", "created_at"]
-    search_fields = ["alert__name", "event"]
-    readonly_fields = [
-        "alert",
-        "event",
-        "old_status",
-        "new_status",
-        "details_pretty",
-        "created_at",
-    ]
-    date_hierarchy = "created_at"
+    list_display = ["alert", "event", "old_status", "new_status", "created_at"]
+    list_filter = ["event"]
+    search_fields = ["alert__name"]
+    list_select_related = ["alert"]
 
     def has_add_permission(self, request):
-        """Disable adding history manually - they are created programmatically."""
         return False
 
     def has_change_permission(self, request, obj=None):
-        """Disable editing history - they are audit records."""
         return False
 
-    @admin.display(description="Event", ordering="event")
-    def event_label(self, obj):
-        """Human-friendly event name (e.g. ``status_changed`` → ``Status Changed``)."""
-        return obj.event.replace("_", " ").replace("-", " ").title()
-
-    @admin.display(description="Details")
-    def details_pretty(self, obj):
-        """Pretty-printed JSON details, HTML-escaped inside a <pre> block."""
-        return format_html("<pre>{}</pre>", json.dumps(obj.details, indent=2, default=str))
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(Node)
