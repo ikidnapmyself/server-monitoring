@@ -110,6 +110,7 @@ def _pipeline_entry(event: dict[str, Any], headlines: dict[int, str]) -> Timelin
         trace_id=event["trace_id"],
         status=event["status"],
         error_message=event["error_message"],
+        finished=event["finished"],
     )
     return TimelineEntry(
         id=f"entry-pipeline-{event['run_pk']}",

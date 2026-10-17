@@ -356,6 +356,25 @@ def test_a_quiet_run_links_itself():
 
 
 @pytest.mark.django_db
+def test_a_run_that_stopped_before_notify_reads_finished_only_once_completed():
+    incident = _incident()
+    done = _run(incident, T0, status="checked", run_id="run-done")
+    PipelineRun.objects.filter(pk=done.pk).update(completed_at=T0)
+    going = _run(incident, T0, status="checked", run_id="run-going")
+
+    detail = build_incident_detail(incident.pk)
+
+    finished = _entry(detail, f"entry-pipeline-{done.pk}").what
+    assert (finished.headline, finished.tone) == (
+        "Run finished, diagnosed, nothing to notify",
+        "ok",
+    )
+    assert _entry(detail, f"entry-pipeline-{going.pk}").what.headline == (
+        "Run in progress, diagnose done"
+    )
+
+
+@pytest.mark.django_db
 def test_stage_summaries_follow_the_diagnosis():
     pipeline = PipelineDefinition.objects.create(name="no-ai", stages=["check", "notify"])
     incident = _incident(pipeline=pipeline)

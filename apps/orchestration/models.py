@@ -242,9 +242,12 @@ class PipelineRun(models.Model):
         """
         self.current_stage = stage
         self.started_at = timezone.now()
+        self.completed_at = None
         if self.status == PipelineStatus.PENDING:
             self.status = PipelineStatus.PENDING  # Will transition after first stage completes
-        self.save(update_fields=["current_stage", "started_at", "status", "updated_at"])
+        self.save(
+            update_fields=["current_stage", "started_at", "completed_at", "status", "updated_at"]
+        )
 
     def advance_to(self, status: str, stage: str | None = None):
         """Advance pipeline to the next status and optionally update current_stage."""

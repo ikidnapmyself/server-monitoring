@@ -24,8 +24,8 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
     The console's incident page reads further keys, which the admin ignores:
     ``history_pk``, ``alert_pk``, ``alert_name``, ``event``, ``old_status``,
     ``new_status``, ``severity_from`` and ``severity_to`` on ``alert_history`` entries,
-    ``run_pk``, ``status`` and ``error_message`` on ``pipeline`` entries, and ``stage``,
-    ``status``, ``execution_pk``, ``run_pk``, ``duration_ms``, ``output_snapshot``,
+    ``run_pk``, ``status``, ``error_message`` and ``finished`` on ``pipeline`` entries, and
+    ``stage``, ``status``, ``execution_pk``, ``run_pk``, ``duration_ms``, ``output_snapshot``,
     ``error_message`` and ``retryable`` on ``stage`` entries.
 
     Entries whose event time is unknown are skipped. Specifically, a
@@ -78,6 +78,7 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
                 "run_pk": run.pk,
                 "status": run.status,
                 "error_message": run.last_error_message or "",
+                "finished": run.completed_at is not None,
             }
         )
         for stage in run.stage_executions.all():

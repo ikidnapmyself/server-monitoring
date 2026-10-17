@@ -48,6 +48,13 @@ class PipelineRunModelTests(TestCase):
         assert run.current_stage == PipelineStage.INGEST
         assert run.started_at is not None
 
+    def test_mark_started_reopens_a_run_that_failed(self):
+        run = PipelineRun.objects.create(trace_id=str(uuid.uuid4()), run_id=str(uuid.uuid4()))
+        run.mark_failed("StageExecutionError", "boom")
+        run.mark_started(None)
+        run.refresh_from_db()
+        assert run.completed_at is None
+
     def test_advance_to(self):
         """Test advancing pipeline status."""
         run = PipelineRun.objects.create(
