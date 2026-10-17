@@ -6,7 +6,7 @@ import pytest
 from django.http import QueryDict
 
 from apps.alerts.models import AlertSeverity, IncidentStatus
-from apps.console.filters import IncidentFilter
+from apps.console.filters import AlertFilter, IncidentFilter
 
 NOW = datetime(2026, 10, 14, 12, 0, tzinfo=dt_timezone.utc)
 
@@ -230,3 +230,48 @@ def test_with_node_dropped_keeps_dropped_in_field_order():
     current = IncidentFilter(node=9, dropped=("status", "severity", "since", "page"))
 
     assert current.with_node_dropped().dropped == ("status", "severity", "node", "since", "page")
+
+
+def _alert_filter(**params):
+    query = QueryDict(mutable=True)
+    query.update(params)
+    return AlertFilter.parse(query)
+
+
+def test_alert_filter_defaults_to_firing():
+    assert _alert_filter() == AlertFilter(status="firing")
+    assert AlertFilter().statuses() == ("firing",)
+    assert AlertFilter(status="all").statuses() == ()
+
+
+def test_alert_filter_keeps_valid_values_and_drops_the_rest():
+    criteria = _alert_filter(
+        status="resolved", severity="bogus", node="3", source="grafana", since="7d", page="x"
+    )
+    assert criteria == AlertFilter(
+        status="resolved", node=3, source="grafana", since="7d", dropped=("severity", "page")
+    )
+
+
+def test_alert_filter_search_is_trimmed_capped_and_cleaned():
+    criteria = _alert_filter(q="  cpu\x00 " + "x" * 300)
+    assert criteria.q.startswith("cpu ")
+    assert len(criteria.q) == 255
+    assert "\x00" not in criteria.q
+
+
+def test_alert_filter_querystring_resets_the_page_and_skips_defaults():
+    criteria = AlertFilter(q="cpu", page=3)
+    assert criteria.querystring(page=4) == "?q=cpu&page=4"
+    assert criteria.querystring(status="all") == "?q=cpu&status=all"
+    assert AlertFilter().querystring() == ""
+
+
+def test_alert_filter_without_drops_named_fields():
+    criteria = AlertFilter(node=9, source="x").without("node", "source")
+    assert criteria == AlertFilter(dropped=("node", "source"))
+
+
+def test_alert_filter_kept_lists_what_the_search_form_must_carry():
+    criteria = AlertFilter(q="cpu", status="all", node=2, page=5)
+    assert criteria.kept() == (("status", "all"), ("node", "2"))
