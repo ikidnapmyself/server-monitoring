@@ -6,6 +6,7 @@ severity, records history + a distinct audit annotation, and auto-resolves
 incidents. See docs/plans/2026-08-08-reeval-existing-alerts-design.md.
 """
 
+import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
@@ -141,6 +142,19 @@ class ReevalScope:
         return Alert.objects.filter(labels__instance_id=node.instance_id, status="firing")
 
 
+class StaleReeval(Exception):
+    """The alerts changed between the preview an operator confirmed and the apply."""
+
+
+def scope_digest(scope: ReevalScope) -> str:
+    """What the scope's alerts looked like, as one value a confirm form can carry back."""
+    rows = scope.alerts.order_by("pk").values_list("pk", "status", "severity", "updated_at")
+    text = "|".join(
+        f"{pk}:{status}:{severity}:{at.isoformat()}" for pk, status, severity, at in rows
+    )
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
 def _policy_for(config, checker: str):
     """This checker's slice of a node's config, or the config itself if it is not a mapping.
 
@@ -225,7 +239,7 @@ def preview_node_alert_reeval(node: Node) -> ReevalReport:
 
 
 @transaction.atomic
-def apply_reeval(scope: ReevalScope) -> ReevalReport:
+def apply_reeval(scope: ReevalScope, expected: str | None = None) -> ReevalReport:
     """Apply the re-score: update alerts, history, audit, incidents, then announce.
 
     Every incident the apply changed gets one inbox run, enqueued inside this
@@ -238,7 +252,14 @@ def apply_reeval(scope: ReevalScope) -> ReevalReport:
 
     Each applied change then runs the same incident lifecycle ingest runs, so a
     re-fired alert never ends up sitting under a resolved or closed incident.
+
+    With ``expected``, refuses with ``StaleReeval`` unless the scope still matches that digest.
     """
+    if expected is not None:
+        # Lock first: a second submit waits here, then sees the first one's writes.
+        list(scope.alerts.select_for_update())
+        if scope_digest(scope) != expected:
+            raise StaleReeval
     report = preview_reeval(scope)
     node = scope.node
     if node is None:
