@@ -23,19 +23,17 @@ falls back to `rejected`. Every driver declares a display `label` ("Email", "Sla
 deliveries and use that label in the headline, such as "Not sent to #ops: Slack is rate
 limiting this hub", with the HTTP status and error in Details.
 
-**Content sourcing (Phase 2 contract).** A notification's **title and severity come
-from the alert/check data** — the orchestrator's `NotifyExecutor` derives them via
-`apps.orchestration.formatters.derive_headline(ingest, check)` (severity from the
-firing alert on the ingest result; title from `describe_incident(incident).headline`). **A downstream
-fan-out run has no ingest snapshot** — its incident was ingested by the parent push —
-so `NotifyExecutor._headline_facts()` reads severity and title off the incident itself
-and hands `derive_headline` the same shape. Without that, every fan-out notification
-went out as `[INFO] monitoring: incident`: correctly routed, saying nothing. **Intelligence
-(local rule-based or hosted AI) only *enriches the body*** with recommendations — it
-never sets severity/title and never suppresses a notification. Consequence: a
-checkers-only node with **no paid AI configured still sends a useful, correctly-severe
-alert**. Do not reintroduce AI-derived titles/severity or "no recommendations" as the
-headline.
+**Content sourcing.** `NotifyExecutor` builds every message with
+`apps.orchestration.notification.build_notification(incident, previous, trace_id)`. The
+title and severity come from the incident: `[<SEVERITY>] <describe_incident headline>`, or
+the status (`[RESOLVED]`, `[ACKNOWLEDGED]`, `[CLOSED]`) once it is settled. The body and the
+message context come from `describe_incident`, `describe_findings` (the diagnose snapshot) and
+`describe_analysis` (the analyze snapshot), each flattened to
+`{headline, detail, tone, action}` with facts and intents left behind. **Intelligence never
+sets the title or severity** and never suppresses a notification. A failed analysis says so in
+the body, so a checkers-only node with no AI still sends a useful, correctly-severe alert.
+`CONSOLE_URL` adds a link to the incident's console page. Messages carry the trace ID in the
+footer and no other identifier. Notify stays dumb: it renders what it was handed.
 
 **Channel selection (`NotifySelector.resolve`).** Priority: a named `provider_arg`
 matching an active `NotificationChannel` wins; otherwise the argument is treated as a
@@ -128,35 +126,34 @@ Driver default file naming (search order):
 2. `<driver>_payload.j2`
 3. `<driver>.j2`
 
-Templates receive the following top-level context:
-- `title`, `message`, `severity`, `channel`, `tags`, `context`
-- `incident` — structured dict with metrics and summaries (see below)
-- Convenience aliases: `intelligence`, `recommendations`, `incident_id`, `source`
+Templates receive one context, built by `NotificationTemplatingService.build_template_context()`
+from the message:
+- `title`, `message`, `severity`, `channel`, `tags`, `trace_id`, `generated_at`
+- `incident` and `analysis` (a description or None) and `findings` (a list of descriptions),
+  each `{headline, detail, tone, action}`
+- `console_url`, empty when `CONSOLE_URL` is unset
 
-`incident` contains (selected keys):
-- `cpu_count`, `ram_total_human`, `disk_total_human`
-- `ingest`, `check`, `intelligence` (stage summaries)
-- `recommendations` (structured) and `recommendations_pretty` (human-readable)
-- `incident_id`, `source`, `environment`, `generated_at`
+A message that didn't come from a pipeline run (`/notify/send/`, `test_notify`, PagerDuty
+acknowledge/resolve) has no descriptions, so every template falls back to `title` and
+`message`. Don't reintroduce raw stage summaries, host metrics read with psutil, or dumps of
+`tags` and `context` into a template.
 
-Example (short) `slack_text.j2` fragment:
+Example `email_text.j2`-style fragment:
 
 ```
-*{{ title }}* — `{{ severity | upper }}`
-
-{{ intelligence.summary or (recommendations[0].description if recommendations else message) }}
-
-Incident: `{{ incident_id }}` | Source: `{{ source }}`
+{{ title }}
+{% if incident and incident.action %}Do this: {{ incident.action }}{% endif %}
+{% for f in findings %}- {{ f.headline }}
+{% endfor %}
 ```
 
 ## Base driver helpers and conventions (added)
 
 To avoid duplication across drivers, use the `BaseNotifyDriver` helpers:
 
-- `_compose_incident_details(message, config)` — builds the `incident` dict with metrics and summaries.
-- `_template_context(message, incident)` — builds the context passed to templates.
+- `_template_context(message)` — builds the context passed to templates.
 - `_render_message_templates(message, config)` — finds and renders the text/html template for the driver (config first, then driver-default files). This method enforces template presence and raises when none is found.
-- `_prepare_notification(message, config)` — high-level helper that returns a dict: `{ "incident", "text", "html", "payload_obj", "payload_raw" }`.
+- `_prepare_notification(message, config)` — high-level helper that returns a dict: `{ "text", "html", "payload_obj", "payload_raw" }`.
 
 Guidelines for drivers:
 - Call `prepared = self._prepare_notification(message, config)` near the start of `send()`.

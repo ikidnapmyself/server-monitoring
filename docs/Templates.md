@@ -48,109 +48,77 @@ If a string matches an existing file in `apps/notify/templates/`, it is treated 
 
 ## Available Templates
 
+Each built-in template renders a pipeline notification from the describers' output, and falls
+back to `title` and `message` for a message that didn't come from a pipeline run, such as one
+sent through `/notify/send/` or `test_notify`. The trace ID is the only identifier a message
+shows, in its footer.
+
 ### email_html.j2
 
-HTML email with severity-colored left border and badge. Escapes all user content with `| e` for XSS safety.
+HTML email with a severity-colored left border and badge. Escapes every value with `| e`.
 
-**Sections:** Title with color-coded severity badge, incident ID, source/timestamp, message body, intelligence summary, probable cause, recommended actions, recommendations (up to 10), tags, context, ingest summary, check summary.
+**Sections:** title and severity, the incident's detail and `Do this:` action, failing checks,
+the AI analysis outcome with its action, a link to the console, and the trace footer.
 
 **Severity colors:** critical = red, warning = yellow, info = teal, success = green.
 
 ### email_text.j2
 
-Plain-text email fallback. Same sections as the HTML template in a readable text format. Uses `| upper` for severity, `| default()` for safe recommendation access.
+Plain-text email: title, severity, the message body and the trace footer.
 
 ### slack_text.j2
 
-Slack Block Kit JSON payload. Includes a `sanitize` macro that escapes backticks, converts `**bold**` to Slack's `*bold*` syntax, strips carriage returns, and truncates long content.
-
-**Body selection logic:** Prefers `intelligence.summary` or `intelligence.probable_cause` over raw `message` when intelligence data is available.
-
-**Recommendations:** Capped at 5, rendered as bullet points with bold titles.
+Slack Block Kit JSON: a title block with the severity, the message body and a context block
+with the trace ID. Escapes `<`, `>` and `&`, which Slack's mrkdwn treats as control characters,
+converts `**bold**` to `*bold*`, and truncates a section before Slack's 3000 character limit.
 
 ### generic_payload.j2
 
-Structured JSON for generic webhooks. Uses `| tojson` filters throughout for safe JSON encoding. Includes recommendations (up to 10) and conditional intelligence fields.
+JSON for generic webhooks: `title`, `message`, `severity`, `channel`, `incident`, `findings`,
+`analysis`, `console_url`, `trace_id` and `generated_at`.
 
 ### pagerduty_payload.j2
 
-PagerDuty Events API v2 format. Populates `summary`, `severity`, `source`, `component`, `group`, `class`, and `custom_details`. Conditionally includes system metrics (`cpu_count`, `ram_total_human`, `disk_total_human`) when available.
+PagerDuty Events API v2 `payload`: `summary` is the title, plus `severity`, `source`,
+`component`, `group`, `class`, and `custom_details` with the message and trace ID. The driver
+adds the console link to the event's `links` when `CONSOLE_URL` is set.
 
 ### incident_notification.j2
 
-Markdown-formatted notification. Uses headings, bold, code spans, and blockquote formatting for recommendations. Includes ingest and check summaries with "N/A" fallback when missing.
+Markdown: a heading with the title, severity, the message body and the trace footer.
 
 ## Context Variables
 
-Every template receives the same context. The system builds this from the notification message and composed incident details.
-
-### Top-Level Variables
+Every template receives the same context, built by
+`NotificationTemplatingService.build_template_context()` from the notification message.
 
 | Variable | Type | Description |
 |----------|------|-------------|
-| `title` | string | Alert title |
-| `message` | string | Alert message body |
+| `title` | string | `[SEVERITY] <problem> on <host>`, or `[RESOLVED] ...` once settled |
+| `message` | string | Plain-text body: detail, `Do this:`, failing checks, AI analysis, console link |
 | `severity` | string | One of: `critical`, `warning`, `info`, `success` |
 | `channel` | string | Notification channel name |
-| `tags` | dict | Key-value metadata (source, component, group, etc.) |
-| `context` | dict | Full context from the pipeline (check results, raw data) |
-| `incident` | dict | Composed incident details (see below) |
-| `intelligence` | dict or None | AI analysis results |
-| `recommendations` | list or None | Normalized recommendation list |
-| `incident_id` | string or None | Incident identifier |
-| `source` | string or None | Alert source system |
+| `tags` | dict | `trace_id`, `run_id` and `idempotency_key` for a pipeline run |
+| `trace_id` | string | The run's trace ID, empty when there is none |
+| `incident` | description or None | What's wrong, from `describe_incident` |
+| `findings` | list of descriptions | Failing checks, worst first, from `describe_findings` |
+| `analysis` | description or None | The AI analysis outcome, from `describe_analysis` |
+| `console_url` | string | The incident's console page, empty when `CONSOLE_URL` is unset |
+| `generated_at` | string | ISO 8601 UTC timestamp |
 
-### The `incident` Object
+### Descriptions
 
-Composed by `NotificationTemplatingService.compose_incident_details()` from message data and live system metrics:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `incident.title` | string | Alert title |
-| `incident.message` | string | Alert message |
-| `incident.severity` | string | Severity level |
-| `incident.channel` | string | Channel name |
-| `incident.tags` | dict | Tags from alert |
-| `incident.context` | dict | Full context dict |
-| `incident.cpu_count` | int or None | CPU count (from context or psutil) |
-| `incident.ram_total_bytes` | int or None | Total RAM in bytes |
-| `incident.ram_total_human` | string or None | Total RAM formatted (e.g., "16.0 GB") |
-| `incident.disk_total_bytes` | int or None | Total disk in bytes |
-| `incident.disk_total_human` | string or None | Total disk formatted (e.g., "500.1 GB") |
-| `incident.incident_id` | string or None | Incident ID |
-| `incident.source` | string or None | Source system |
-| `incident.environment` | string or None | Environment name |
-| `incident.ingest` | dict or None | Ingest stage summary |
-| `incident.check` | dict or None | Check stage summary |
-| `incident.intelligence` | dict or None | Intelligence stage results |
-| `incident.recommendations` | list | Normalized recommendations |
-| `incident.recommendations_pretty` | string | Pretty-printed recommendations text |
-| `incident.generated_at` | string | ISO 8601 UTC timestamp |
-
-### The `intelligence` Object
-
-When AI analysis runs, `intelligence` contains:
+`incident`, each item of `findings`, and `analysis` share one shape:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `intelligence.summary` | string | One-line analysis summary |
-| `intelligence.probable_cause` | string | Root cause assessment |
-| `intelligence.actions` | list[string] | Recommended actions |
-| `intelligence.recommendations` | list[dict] | Detailed recommendations |
+| `headline` | string | What happened, in a sysadmin's words |
+| `detail` | string | More on it, may be empty |
+| `tone` | string | `critical`, `warning`, `info`, `ok` or `muted` |
+| `action` | string | What to do about it, may be empty |
 
-### The `recommendations` List
-
-Each item in `recommendations` can be a dict or a plain string. Dict items typically contain:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `r.title` | string | Short recommendation title |
-| `r.description` | string | Detailed explanation |
-| `r.priority` | string | Priority level (used in incident_notification.j2) |
-| `r.name` | string | Alternative to title (used in slack_text.j2) |
-| `r.detail` | string | Alternative to description (used in slack_text.j2) |
-
-The system normalizes recommendations from various formats (dict-of-dicts, single dict, scalar) into a list before passing to templates.
+`incident` and `analysis` are null and `findings` is empty for messages that didn't come from a
+pipeline run.
 
 ## Customizing Templates
 
@@ -219,24 +187,20 @@ Place custom templates in `apps/notify/templates/`. The file must have a `.j2` e
 
 ### Accessing Nested Data Safely
 
-Use Jinja2's `is mapping`, `is defined`, and `| default()` to guard against missing data:
+Guard on the description before reading its fields, so the template still renders a bare
+message:
 
 {% raw %}
 ```jinja2
-{# Safe intelligence access #}
-{% if intelligence is mapping and intelligence.summary %}
-  Summary: {{ intelligence.summary }}
-{% endif %}
-
-{# Safe recommendation iteration with limit #}
-{% if recommendations %}
-  {% for r in recommendations[:5] %}
-    - {{ r.title | default('Untitled') }}: {{ r.description | default('') }}
+{% if incident %}
+  {{ incident.headline }}
+  {% if incident.action %}Do this: {{ incident.action }}{% endif %}
+  {% for f in findings[:5] %}
+    - {{ f.headline }}
   {% endfor %}
+{% else %}
+  {{ message }}
 {% endif %}
-
-{# Default values for optional fields #}
-Source: {{ source | default('unknown') }}
 ```
 {% endraw %}
 

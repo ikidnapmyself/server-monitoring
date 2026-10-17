@@ -624,7 +624,7 @@ All drivers implement:
 
 **Built-in constants**: `SEVERITY_COLORS`, `SEVERITY_EMOJIS`, `PRIORITY_MAP`
 
-**Template helpers**: `_render_message_templates()`, `_compose_incident_details()`, `_prepare_notification()`
+**Template helpers**: `_render_message_templates()`, `_template_context()`, `_prepare_notification()`
 
 ### Driver Implementations
 

@@ -622,6 +622,8 @@ On the central monitoring server:
 
 ```bash
 API_KEY_AUTH_ENABLED=1
+# Optional: the origin your console is served at. Notifications link to the incident page.
+CONSOLE_URL=https://monitoring-hub.example.com
 ```
 
 Then mint one API key per agent and paste each token into that agent's `HUB_API_KEY` — an active key is what makes this node a receiver (hub):
