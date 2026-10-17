@@ -126,7 +126,6 @@ def test_query_params_are_encoded(admin_user):
         ("view_inbox", {}, "/admin/orchestration/inboxitem/"),
         ("view_nodes", {}, "/admin/alerts/node/"),
         ("view_node", {"pk": 7}, "/admin/alerts/node/7/change/"),
-        ("view_run", {"pk": 7}, "/admin/orchestration/pipelinerun/7/change/"),
     ],
 )
 def test_config_intents_point_at_the_admin(admin_user, intent, params, url):
@@ -145,6 +144,16 @@ def test_config_intents_point_at_the_admin(admin_user, intent, params, url):
 def test_alert_intents_point_at_the_console(admin_user, intent, params, url):
     resolved = resolve_action(Action("Go", intent=intent, params=params), admin_user)
     assert resolved == ResolvedAction("Go", url, "get")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("intent", "url", "method"),
+    [("view_run", "/console/runs/7/", "get")],
+)
+def test_run_intents_point_at_the_console(admin_user, intent, url, method):
+    resolved = resolve_action(Action("Go", intent=intent, params={"pk": 7}), admin_user)
+    assert resolved == ResolvedAction("Go", url, method)
 
 
 @pytest.mark.django_db

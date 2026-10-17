@@ -1,5 +1,6 @@
-{% if act.method == "post" %}<form method="post" action="{{ act.url }}"{% if hx_target %} hx-post="{{ act.url }}" hx-target="{{ hx_target }}" hx-swap="innerHTML" hx-sync="{{ hx_target }}:replace" hx-disabled-elt="{{ hx_target }} .c-button"{% endif %}>
+{% if act.method == "post" %}<form method="post" action="{{ act.url }}"{% if hx_target %} hx-post="{{ act.url }}" hx-target="{{ hx_target }}" hx-swap="{{ swap|default:'innerHTML' }}" hx-sync="{{ hx_target }}:replace" hx-disabled-elt="{{ hx_target }} .c-button"{% endif %}>
   {% csrf_token %}
   {% if hx_target and all %}<input type="hidden" name="all" value="1">{% endif %}
+  {% for name, value in kept %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
   <button id="{{ id }}" class="c-button c-button--sm{% if cls %} {{ cls }}{% endif %}" type="submit">{{ act.text }}</button>
 </form>{% elif act.method == "get" %}<a id="{{ id }}" class="c-button c-button--sm{% if cls %} {{ cls }}{% endif %}" href="{{ act.url }}"{% if act.url|slice:":8" == "https://" or act.url|slice:":7" == "http://" %} rel="noopener noreferrer" target="_blank"{% endif %}>{{ act.text }}</a>{% else %}<p class="c-description__action">{{ act.text }}</p>{% endif %}

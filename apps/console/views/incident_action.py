@@ -4,7 +4,8 @@ from django.urls import reverse
 
 from apps.alerts.models import Incident
 from apps.alerts.services import INCIDENT_ACTIONS, IncidentManager
-from apps.console.views.incident import IncidentPageView, Notice
+from apps.console.views.base import Notice
+from apps.console.views.incident import IncidentPageView
 
 
 class IncidentActionView(IncidentPageView):

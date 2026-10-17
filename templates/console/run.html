@@ -1,0 +1,13 @@
+{% extends "console/base.html" %}
+{% block title %}{{ run.what.headline }} · Console{% endblock %}
+{% block content %}
+{% for message in messages %}
+{% if message.level_tag == "success" %}{% include "console/partials/_flash.html" with tone="ok" text=message %}
+{% elif message.level_tag == "warning" %}{% include "console/partials/_flash.html" with tone="warning" text=message %}
+{% elif message.level_tag == "error" %}{% include "console/partials/_flash.html" with tone="critical" text=message %}
+{% else %}{% include "console/partials/_flash.html" with tone="info" text=message %}{% endif %}
+{% endfor %}
+<div id="run" data-poll hx-get="{{ run.url }}" hx-trigger="every 30s, console:refresh" hx-swap="innerHTML">
+  {% include "console/partials/_run.html" %}
+</div>
+{% endblock %}

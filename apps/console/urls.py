@@ -9,6 +9,8 @@ from apps.console.views import (
     IncidentListView,
     IncidentRerunView,
     OverviewView,
+    RunDetailView,
+    RunListView,
 )
 
 app_name = "console"
@@ -18,8 +20,8 @@ urlpatterns = [
     path("alerts/", AlertListView.as_view(), name="alerts"),
     path("alerts/<int:pk>/", AlertDetailView.as_view(), name="alert"),
     path("alerts/<int:pk>/reevaluate/", AlertReevalView.as_view(), name="alert-reeval"),
-    path("runs/", OverviewView.as_view(), name="runs"),
-    path("runs/<int:pk>/", OverviewView.as_view(), name="run"),
+    path("runs/", RunListView.as_view(), name="runs"),
+    path("runs/<int:pk>/", RunDetailView.as_view(), name="run"),
     path("incidents/", IncidentListView.as_view(), name="incidents"),
     path("incidents/<int:pk>/", IncidentDetailView.as_view(), name="incident"),
     path("incidents/<int:pk>/rerun/", IncidentRerunView.as_view(), name="incident-rerun"),

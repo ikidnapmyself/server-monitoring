@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from urllib.parse import unquote, urlsplit
 
 from django.contrib.auth.views import redirect_to_login
@@ -8,6 +9,14 @@ from django.views.generic import TemplateView
 
 from apps.console.intents import admin_url
 from apps.console.middleware import CONSOLE_PATH_PREFIX
+
+
+@dataclass(frozen=True)
+class Notice:
+    """The outcome of an action, shown once in the response that carried it out."""
+
+    text: str
+    tone: str
 
 
 class ConsoleView(TemplateView):

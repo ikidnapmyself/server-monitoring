@@ -1,20 +1,10 @@
-from dataclasses import dataclass
-
 from django.shortcuts import render
 
 from apps.console.queries.incident import build_incident_detail
-from apps.console.views.base import ConsoleView
+from apps.console.views.base import ConsoleView, Notice
 
 CHANGE_PERMISSION = "alerts.change_incident"
 RERUN_PERMISSION = "checkers.add_checkrun"
-
-
-@dataclass(frozen=True)
-class Notice:
-    """The outcome of an action, shown once in the response that carried it out."""
-
-    text: str
-    tone: str
 
 
 class IncidentPageView(ConsoleView):
