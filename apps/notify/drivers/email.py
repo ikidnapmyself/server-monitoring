@@ -1,6 +1,5 @@
 """Email notification driver."""
 
-import json
 import logging
 import smtplib
 import uuid
@@ -37,7 +36,7 @@ class EmailNotifyDriver(BaseNotifyDriver):
     def _build_email(self, message: NotificationMessage, config: dict[str, Any]) -> MIMEMultipart:
         email = MIMEMultipart("alternative")
 
-        email["Subject"] = f"[{message.severity.upper()}] {message.title}"
+        email["Subject"] = message.title
         email["From"] = config["from_address"]
 
         to_addresses = self._resolve_to_addresses(message, config)
@@ -54,15 +53,6 @@ class EmailNotifyDriver(BaseNotifyDriver):
         html_body = prepared.get("html")
         if html_body:
             email.attach(MIMEText(html_body, "html"))
-
-        try:
-            incident_json = json.dumps(
-                prepared.get("incident") or {}, default=str, ensure_ascii=False
-            )
-            if incident_json:
-                email.attach(MIMEText(incident_json, "plain"))
-        except Exception:
-            pass
 
         return email
 

@@ -100,7 +100,6 @@ class EmailBuildEmailTests(SimpleTestCase):
         prepared = {
             "text": "plain body",
             "html": "<h1>HTML body</h1>",
-            "incident": {"id": "123"},
         }
         with patch.object(d, "_prepare_notification", return_value=prepared):
             email = d._build_email(msg, cfg)
@@ -110,14 +109,13 @@ class EmailBuildEmailTests(SimpleTestCase):
         self.assertIn("text/html", content_types)
 
     def test_build_email_no_html_body(self):
-        """When html is None, only plain text is attached (plus incident JSON)."""
+        """When html is None, only plain text is attached."""
         d = EmailNotifyDriver()
         cfg = _base_config()
         msg = _msg()
         prepared = {
             "text": "plain body",
             "html": None,
-            "incident": {"id": "123"},
         }
         with patch.object(d, "_prepare_notification", return_value=prepared):
             email = d._build_email(msg, cfg)
@@ -125,66 +123,24 @@ class EmailBuildEmailTests(SimpleTestCase):
         content_types = [p.get_content_type() for p in payloads]
         self.assertNotIn("text/html", content_types)
 
-    def test_build_email_incident_json_attached(self):
-        """Incident JSON is serialized and attached as a text part."""
+    def test_build_email_attaches_no_incident_dump(self):
+        """The email holds the rendered bodies and nothing else."""
         d = EmailNotifyDriver()
-        cfg = _base_config()
         msg = _msg()
-        prepared = {
-            "text": "plain body",
-            "html": None,
-            "incident": {"alert_id": "abc-123"},
-        }
+        prepared = {"text": "plain body", "html": None}
         with patch.object(d, "_prepare_notification", return_value=prepared):
-            email = d._build_email(msg, cfg)
-        payloads = email.get_payload()
-        # First is plain text body, second is incident JSON
-        self.assertEqual(len(payloads), 2)
-        json_part = payloads[1].get_payload()
-        self.assertIn("abc-123", json_part)
+            email = d._build_email(msg, _base_config())
 
-    def test_build_email_incident_json_serialization_error(self):
-        """When incident JSON serialization fails, it is silently ignored."""
+        self.assertEqual(len(email.get_payload()), 1)
+
+    def test_subject_is_the_title(self):
+        """The title carries its own prefix, so the subject doesn't add one."""
         d = EmailNotifyDriver()
-        cfg = _base_config()
         msg = _msg()
+        with patch.object(d, "_prepare_notification", return_value={"text": "b", "html": None}):
+            email = d._build_email(msg, _base_config())
 
-        prepared = {
-            "text": "plain body",
-            "html": None,
-            "incident": None,
-        }
-        with patch.object(d, "_prepare_notification", return_value=prepared):
-            with patch(
-                "apps.notify.drivers.email.json.dumps",
-                side_effect=TypeError("boom"),
-            ):
-                email = d._build_email(msg, cfg)
-        # Should still succeed -- only text body attached
-        payloads = email.get_payload()
-        self.assertEqual(len(payloads), 1)
-
-    def test_build_email_incident_json_empty_string_not_attached(self):
-        """When json.dumps returns empty string, no attachment is added."""
-        d = EmailNotifyDriver()
-        cfg = _base_config()
-        msg = _msg()
-
-        prepared = {
-            "text": "plain body",
-            "html": None,
-            "incident": {},
-        }
-        with patch.object(d, "_prepare_notification", return_value=prepared):
-            with patch("apps.notify.drivers.email.json.dumps", return_value=""):
-                email = d._build_email(msg, cfg)
-        # Empty string is falsy, so no incident attachment
-        payloads = email.get_payload()
-        self.assertEqual(len(payloads), 1)
-
-
-class EmailSendTests(SimpleTestCase):
-    """Tests for send() -- all SMTP calls mocked."""
+        self.assertEqual(email["Subject"], msg.title)
 
     def _mock_smtp(self):
         """Create a mock SMTP instance with all needed methods."""
@@ -215,7 +171,6 @@ class EmailSendTests(SimpleTestCase):
         prepared = {
             "text": "Alert body",
             "html": None,
-            "incident": {},
         }
         with patch.object(d, "_prepare_notification", return_value=prepared):
             result = d.send(msg, cfg)
@@ -249,7 +204,6 @@ class EmailSendTests(SimpleTestCase):
         prepared = {
             "text": "Alert body",
             "html": None,
-            "incident": {},
         }
         with patch.object(d, "_prepare_notification", return_value=prepared):
             result = d.send(msg, cfg)
@@ -274,7 +228,7 @@ class EmailSendTests(SimpleTestCase):
         )
         msg = _msg()
 
-        prepared = {"text": "body", "html": None, "incident": {}}
+        prepared = {"text": "body", "html": None}
         with patch.object(d, "_prepare_notification", return_value=prepared):
             result = d.send(msg, cfg)
 
@@ -294,7 +248,7 @@ class EmailSendTests(SimpleTestCase):
         )
         msg = _msg()
 
-        prepared = {"text": "body", "html": None, "incident": {}}
+        prepared = {"text": "body", "html": None}
         with patch.object(d, "_prepare_notification", return_value=prepared):
             result = d.send(msg, cfg)
 
@@ -315,7 +269,7 @@ class EmailSendTests(SimpleTestCase):
         )
         msg = _msg()
 
-        prepared = {"text": "body", "html": None, "incident": {}}
+        prepared = {"text": "body", "html": None}
         with patch.object(d, "_prepare_notification", return_value=prepared):
             result = d.send(msg, cfg)
 
@@ -335,7 +289,7 @@ class EmailSendTests(SimpleTestCase):
         )
         msg = _msg()
 
-        prepared = {"text": "body", "html": None, "incident": {}}
+        prepared = {"text": "body", "html": None}
         with patch.object(d, "_prepare_notification", return_value=prepared):
             result = d.send(msg, cfg)
 
@@ -352,7 +306,7 @@ class EmailSendTests(SimpleTestCase):
         cfg = _base_config()  # no to_addresses
         msg = _msg(channel="oncall@example.local")
 
-        prepared = {"text": "body", "html": None, "incident": {}}
+        prepared = {"text": "body", "html": None}
         with patch.object(d, "_prepare_notification", return_value=prepared):
             result = d.send(msg, cfg)
 
@@ -369,7 +323,7 @@ class EmailSendTests(SimpleTestCase):
         cfg = _base_config()
         msg = _msg(channel="default")
 
-        prepared = {"text": "body", "html": None, "incident": {}}
+        prepared = {"text": "body", "html": None}
         with patch.object(d, "_prepare_notification", return_value=prepared):
             result = d.send(msg, cfg)
 
@@ -393,7 +347,7 @@ class EmailSendTests(SimpleTestCase):
         )
         msg = _msg()
 
-        prepared = {"text": "body", "html": None, "incident": {}}
+        prepared = {"text": "body", "html": None}
         with patch.object(d, "_prepare_notification", return_value=prepared):
             result = d.send(msg, cfg)
 
@@ -418,7 +372,7 @@ class EmailSendTests(SimpleTestCase):
         self.assertEqual(result["failure"], "provider_down")
 
     def _send_with_prepared(self, d):
-        prepared = {"text": "body", "html": None, "incident": {}}
+        prepared = {"text": "body", "html": None}
         with patch.object(d, "_prepare_notification", return_value=prepared):
             return d.send(_msg(), _base_config(to_addresses=["r@example.local"]))
 
@@ -433,7 +387,7 @@ class EmailSendTests(SimpleTestCase):
         cfg = _base_config(to_addresses=["r@example.local"])
         msg = _msg()
 
-        prepared = {"text": "body", "html": None, "incident": {}}
+        prepared = {"text": "body", "html": None}
         with patch.object(d, "_prepare_notification", return_value=prepared):
             result = d.send(msg, cfg)
 
@@ -449,7 +403,7 @@ class EmailSendTests(SimpleTestCase):
         cfg = _base_config(to_addresses=["r@example.local"])
         msg = _msg()
 
-        prepared = {"text": "body", "html": None, "incident": {}}
+        prepared = {"text": "body", "html": None}
         with patch.object(d, "_prepare_notification", return_value=prepared):
             result = d.send(msg, cfg)
 
@@ -470,7 +424,7 @@ class EmailSendTests(SimpleTestCase):
         )
         msg = _msg()
 
-        prepared = {"text": "body", "html": None, "incident": {}}
+        prepared = {"text": "body", "html": None}
         with patch.object(d, "_prepare_notification", return_value=prepared):
             result = d.send(msg, cfg)
 
@@ -488,7 +442,7 @@ class EmailSendTests(SimpleTestCase):
         cfg = _base_config(to_addresses=["r@example.local"])
         msg = _msg()
 
-        prepared = {"text": "body", "html": None, "incident": {}}
+        prepared = {"text": "body", "html": None}
         with patch.object(d, "_prepare_notification", return_value=prepared):
             d.send(msg, cfg)
 
@@ -505,7 +459,7 @@ class EmailSendTests(SimpleTestCase):
         cfg = _base_config(to_addresses=["r@example.local"])
         msg = _msg()
 
-        prepared = {"text": "body", "html": None, "incident": {}}
+        prepared = {"text": "body", "html": None}
         with patch.object(d, "_prepare_notification", return_value=prepared):
             result = d.send(msg, cfg)
 

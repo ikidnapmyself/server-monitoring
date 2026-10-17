@@ -61,7 +61,7 @@ class PagerDutyBuildPayloadTests(SimpleTestCase):
         self.driver = PagerDutyNotifyDriver()
 
     def test_trigger_action_builds_full_payload(self):
-        """Trigger event_action produces payload with payload, incident, etc."""
+        """Trigger event_action produces the event payload and no raw incident dump."""
         msg = _make_msg(tags={"fingerprint": "fp1"})
         cfg = {"integration_key": VALID_KEY, "client": "test-client"}
         payload = self.driver._build_payload(msg, cfg)
@@ -69,7 +69,7 @@ class PagerDutyBuildPayloadTests(SimpleTestCase):
         self.assertEqual(payload["routing_key"], VALID_KEY)
         self.assertEqual(payload["event_action"], "trigger")
         self.assertIn("payload", payload)
-        self.assertIsNotNone(payload.get("incident"))
+        self.assertNotIn("incident", payload)
         self.assertEqual(payload["dedup_key"], "fp1")
         self.assertEqual(payload["client"], "test-client")
 
@@ -101,17 +101,17 @@ class PagerDutyBuildPayloadTests(SimpleTestCase):
         self.assertEqual(payload["client_url"], "https://example.com/dashboard")
 
     def test_trigger_action_with_context_url_creates_links(self):
-        """When message.context has url, links are added."""
-        msg = _make_msg(context={"url": "https://example.com/details"})
+        """A console URL becomes the event's link."""
+        msg = _make_msg(context={"console_url": "https://example.com/details"})
         cfg = {"integration_key": VALID_KEY}
         payload = self.driver._build_payload(msg, cfg)
 
         self.assertIn("links", payload)
         self.assertEqual(payload["links"][0]["href"], "https://example.com/details")
-        self.assertEqual(payload["links"][0]["text"], "View Details")
+        self.assertEqual(payload["links"][0]["text"], "Open in the console")
 
     def test_trigger_action_no_context_url_no_links(self):
-        """When message.context has no url, links are not added."""
+        """No console URL, no links."""
         msg = _make_msg(context={})
         cfg = {"integration_key": VALID_KEY}
         payload = self.driver._build_payload(msg, cfg)
