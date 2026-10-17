@@ -2,7 +2,13 @@ import pytest
 from django.utils import timezone
 
 from apps.alerts.models import Alert, Incident, Node
-from apps.console.queries.hosts import host_summary, incident_hosts
+from apps.console.queries.hosts import (
+    alert_host,
+    host_summary,
+    incident_hosts,
+    node_choices,
+    on_node,
+)
 
 
 def _alert(incident, fingerprint, **fields):
@@ -64,3 +70,48 @@ def test_hosts_cost_one_query(django_assert_num_queries):
 )
 def test_host_summary(hosts, summary):
     assert host_summary(hosts) == summary
+
+
+def _bare_alert(key, **fields):
+    return Alert.objects.create(
+        fingerprint=key,
+        name=key,
+        severity="warning",
+        status="firing",
+        source="cluster",
+        started_at=timezone.now(),
+        **fields,
+    )
+
+
+@pytest.mark.django_db
+def test_on_node_matches_the_fk_and_unlinked_labels_only():
+    node = Node.objects.create(instance_id="i-web", hostname="web")
+    other = Node.objects.create(instance_id="i-db", hostname="db")
+    linked = _bare_alert("a", node=node)
+    by_label = _bare_alert("b", labels={"instance_id": "i-web"})
+    by_hostname = _bare_alert("c", labels={"hostname": "web"})
+    _bare_alert("d", node=other, labels={"instance_id": "i-web"})
+    _bare_alert("e", labels={"instance": "elsewhere"})
+
+    found = set(Alert.objects.filter(on_node(node.pk, ("i-web", "web"))))
+
+    assert found == {linked, by_label, by_hostname}
+
+
+@pytest.mark.django_db
+def test_node_choices_sort_by_name_and_carry_both_keys():
+    Node.objects.create(instance_id="i-2", hostname="Zed")
+    Node.objects.create(instance_id="i-1", hostname="")
+
+    assert [(name, keys) for _, name, keys in node_choices()] == [
+        ("i-1", ("i-1",)),
+        ("Zed", ("i-2", "Zed")),
+    ]
+
+
+def test_alert_host_prefers_the_node_then_the_labels():
+    assert alert_host("web", "i-web", {"instance": "x"}) == "web"
+    assert alert_host("", "i-web", {}) == "i-web"
+    assert alert_host(None, None, {"instance": "x"}) == "x"
+    assert alert_host(None, None, None) == ""
