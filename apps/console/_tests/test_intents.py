@@ -149,7 +149,11 @@ def test_alert_intents_point_at_the_console(admin_user, intent, params, url):
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     ("intent", "url", "method"),
-    [("view_run", "/console/runs/7/", "get")],
+    [
+        ("view_run", "/console/runs/7/", "get"),
+        ("retry_run", "/console/runs/7/retry/", "post"),
+        ("abandon_run", "/console/runs/7/abandon/", "post"),
+    ],
 )
 def test_run_intents_point_at_the_console(admin_user, intent, url, method):
     resolved = resolve_action(Action("Go", intent=intent, params={"pk": 7}), admin_user)
@@ -200,13 +204,6 @@ def test_rerun_check_posts_to_the_incident_rerun(admin_user):
     assert resolved == ResolvedAction(
         "Run again", f"/console/incidents/{incident.pk}/rerun/", "post"
     )
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("intent", ["retry_run", "abandon_run"])
-def test_run_actions_are_text_until_the_run_action_route_exists(admin_user, intent):
-    action = Action("Go", intent=intent, params={"pk": 7})
-    assert resolve_action(action, admin_user) == ResolvedAction("Go")
 
 
 ADMIN_IN_PYTHON = re.compile(r"""reverse\(\s*f?["']admin:""")

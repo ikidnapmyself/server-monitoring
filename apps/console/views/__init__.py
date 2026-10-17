@@ -6,7 +6,7 @@ from apps.console.views.incident_action import IncidentActionView
 from apps.console.views.incident_rerun import IncidentRerunView
 from apps.console.views.incidents import IncidentListView
 from apps.console.views.overview import OverviewView
-from apps.console.views.run import RunDetailView
+from apps.console.views.run import RunActionView, RunDetailView
 from apps.console.views.runs import RunListView
 
 __all__ = [
@@ -18,6 +18,7 @@ __all__ = [
     "IncidentListView",
     "IncidentRerunView",
     "OverviewView",
+    "RunActionView",
     "RunDetailView",
     "RunListView",
 ]

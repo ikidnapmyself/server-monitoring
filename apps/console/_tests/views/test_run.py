@@ -179,7 +179,10 @@ def test_an_operator_sees_retry_on_a_failed_run(client, run_operator, headers):
     body = client.get(_url(run), **headers).content.decode()
 
     assert "Do this" in body
-    assert '<p class="c-description__action">Retry</p>' in body
+    assert (
+        '<button id="action-retry_run" class="c-button c-button--sm c-button--primary" '
+        'type="submit">Retry</button>'
+    ) in body
     assert "Mark failed" not in body
 
 
@@ -189,7 +192,10 @@ def test_an_operator_sees_mark_failed_on_a_queued_run(client, run_operator):
 
     body = client.get(_url(run)).content.decode()
 
-    assert '<p class="c-description__action">Mark failed</p>' in body
+    assert (
+        '<button id="action-abandon_run" class="c-button c-button--sm c-button--danger" '
+        'type="submit">Mark failed</button>'
+    ) in body
 
 
 @pytest.mark.django_db
@@ -268,3 +274,4 @@ def test_every_focusable_element_in_the_polled_region_has_a_unique_id(
     focusable, ids = focus_audit(region)
     assert [tag for tag, element_id in focusable if not element_id] == []
     assert len(ids) == len(set(ids))
+    assert "action-retry_run" in ids
