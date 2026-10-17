@@ -86,6 +86,18 @@ pipeline stage and not an alert producer.
   links target that root with `hx-push-url="true"` and `hx-sync="#<root id>:replace"`.
   Without `hx-sync`, a late response hits a detached node and the URL and the content
   disagree.
+- **The alert pages are read-only evidence.** `/console/alerts/` filters on `AlertFilter`
+  (`q`, `status` firing by default, `severity`, `node`, `source`, `since`, `page`). `q`
+  searches name, fingerprint and trace ID. `/console/alerts/<pk>/` shows the alert, its
+  incident, its history and its re-evaluation facts. No page resolves an alert. A node
+  matches an alert linked by FK or an unlinked one whose `instance_id`, `instance` or
+  `hostname` label names it, through `on_node` in `queries/hosts.py`, which the incident
+  list shares.
+- **A confirm form carries a `scope_digest`.** `/console/alerts/<pk>/reevaluate/` previews
+  on GET and writes nothing. The form posts the digest taken before the preview, and
+  `apply_reeval(scope, expected=digest)` locks the scope's rows and raises `StaleReeval`
+  when they changed. The view answers 409 with a fresh preview, so a double submit or a
+  replay writes nothing. Any later confirm page reuses this guard.
 - **A missing record gets a console 404 page** with a link onward, returned with status
   404, as `IncidentDetailView` does. Don't raise a bare `Http404` from a page view.
 - **Stage output is untrusted in shape.** `queries/incident.py` turns an

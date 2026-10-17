@@ -55,8 +55,9 @@ GET shows the preview: what would change and why, and a warning that a resolved 
 metrics still breach the policy will reopen. POST applies it through `apply_reeval`, which already
 writes history and enqueues the incident run.
 
-The double-submit guard is a digest. The form carries `alert_state_digest(alert)`, a hash of
-status, severity and `updated_at` at preview time. `apply_reeval(scope, expected=digest)` raises
+The double-submit guard is a digest. The form carries `scope_digest(scope)`, a hash of
+each alert's status, severity and `updated_at` in the scope at preview time.
+`apply_reeval(scope, expected=digest)` raises
 `StaleReeval` when the alert no longer matches and writes nothing. The page then says "This alert
 changed since you looked" and shows a fresh preview. A replayed POST hits a changed `updated_at`
 and does nothing. PR 8 reuses this guard for node-wide re-evaluate.
@@ -79,7 +80,7 @@ It needs `alerts.change_alert`, the same as the admin today.
   consumer.
 - `describing.py` gains `describe_reeval_report(report)` for the preview, taking over
   `alert_reeval_intro` from `admin.py`.
-- `reeval_existing.py` gains `alert_state_digest(alert)`, `StaleReeval`, and an `expected`
+- `reeval_existing.py` gains `scope_digest(scope)`, `StaleReeval`, and an `expected`
   argument on `apply_reeval`. The guard lives next to the write, not in the view.
 
 `apps/console` owns reading and routing:

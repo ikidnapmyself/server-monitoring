@@ -37,6 +37,13 @@ Output contract (to orchestrator): the enqueued run's payload,
 `{"downstream_incident_id": N}`. The old `IngestResult` shape is built only by the
 legacy `IngestExecutor`.
 
+## Alerts are machine state
+
+An alert is one condition on one machine. Only producers change its status: a node push, a
+webhook, `check_health` or a re-evaluate. Operators act on incidents. No operator alert
+transition exists, and none should be added. A flapping alert is a job for a future incident
+snooze, not for resolving the alert by hand.
+
 ## Key modules
 
 - `apps/alerts/drivers/` — payload parsers (Alertmanager, Grafana, PagerDuty, etc.)
@@ -113,7 +120,7 @@ legacy `IngestExecutor`.
   open**: an unknown checker, unparseable annotations or a raising builder all return
   `""`, which degrades to severity/status-only gating — over-notifying, never silencing.
   Add a checker by adding a pure builder to `KEY_BUILDERS`.
-- `apps/alerts/describing.py`: `describe_alert(alert)`, `describe_incident(incident)` and `describe_incidents(incidents)`, which return `config.describing.Description`. A checker alert is described by the hub's checker class from its `raw_payload` metrics, or by the node's own text when the hub doesn't know the checker. The sentence is the hub's, but the names inside it (paths, process names, hosts) are the node's and pass through as sent. An UNKNOWN result reads as "could not be checked" from either path: the bridge stores the check status as `raw_payload["status"]`, and `push_to_hub` sends it as `check_status`, which the cluster driver keeps in `raw_payload`. Any other alert reads its name and description. An incident leads with its worst firing alert, or its newest alert once nothing fires, and reads "`<problem>` on `<host>`". **The incident has no stored title or description.** Read its headline through the describer. `describe_incidents` runs a fixed number of queries, so use it for lists. Checker alerts are named by their checker's `label` (`checker_label`), and the name is display only.
+- `apps/alerts/describing.py`: `describe_alert(alert)`, `describe_incident(incident)` and `describe_incidents(incidents)`, which return `config.describing.Description`. A checker alert is described by the hub's checker class from its `raw_payload` metrics, or by the node's own text when the hub doesn't know the checker. The sentence is the hub's, but the names inside it (paths, process names, hosts) are the node's and pass through as sent. An UNKNOWN result reads as "could not be checked" from either path: the bridge stores the check status as `raw_payload["status"]`, and `push_to_hub` sends it as `check_status`, which the cluster driver keeps in `raw_payload`. Any other alert reads its name and description. An incident leads with its worst firing alert, or its newest alert once nothing fires, and reads "`<problem>` on `<host>`". **The incident has no stored title or description.** Read its headline through the describer. `describe_incidents` runs a fixed number of queries, so use it for lists. Checker alerts are named by their checker's `label` (`checker_label`), and the name is display only. It also holds the re-evaluation wording: `describe_reeval(alert)` for an alert's audit facts, `describe_reeval_report(report)` for a preview's rows and `describe_reeval_applied(report)` for the outcome.
 - `apps/alerts/metrics.py` — `parse_metrics(annotations)`, shared by `reevaluation` and
   `context_keys` so "read a node's metrics back" means one thing.
 - `apps/alerts/urls.py` — URL routing for this app
@@ -268,6 +275,9 @@ For `apps.alerts`, admin should make it easy to:
 - Browse incidents and linked alerts efficiently (filters, search, list displays)
 - Inspect alert lifecycle/audit trail (`AlertHistory`)
 - Jump from an `Incident` to related pipeline runs/stage executions (via relationships/links when available)
+
+`AlertAdmin` and `AlertHistoryAdmin` are stock and read-only. Operators read alerts and their
+history on the console alert pages.
 
 ### Node detail page
 
