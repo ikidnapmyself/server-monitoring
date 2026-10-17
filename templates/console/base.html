@@ -24,6 +24,7 @@
     <div class="c-unav__list">
       <a class="c-unav__item" href="{% url 'console:overview' %}"{% if nav == "overview" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="pulse" %}<span>Overview</span></a>
       <a class="c-unav__item" href="{% url 'console:incidents' %}"{% if nav == "incidents" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="issue-opened" %}<span>Incidents</span></a>
+      <a class="c-unav__item" href="{% url 'console:alerts' %}"{% if nav == "alerts" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="bell" %}<span>Alerts</span></a>
     </div>
   </nav>
   <main class="c-main">

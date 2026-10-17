@@ -5,6 +5,7 @@ from html.parser import HTMLParser
 
 import pytest
 
+from apps.alerts.models import Alert
 from apps.console._tests.fixtures import build_world
 from apps.notify.models import NotificationChannel
 from apps.orchestration.describing import REASONS
@@ -78,9 +79,13 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
     world = build_world()
     client.force_login(superuser)
     headers = {"HX-Request": "true"} if partial else {}
-    urls = ["/console/", "/console/incidents/?status=all"] + [
-        f"/console/incidents/{pk}/?all=1" for pk in world.incident_pks
-    ]
+    alert_pks = list(Alert.objects.values_list("pk", flat=True))
+    assert alert_pks
+    urls = (
+        ["/console/", "/console/incidents/?status=all", "/console/alerts/?status=all"]
+        + [f"/console/alerts/{pk}/" for pk in alert_pks]
+        + [f"/console/incidents/{pk}/?all=1" for pk in world.incident_pks]
+    )
     html = {url: _get(client, url, headers) for url in urls}
     # The ids are on the page, inside Details, so the check below has something to catch.
     assert UUID.search(html[urls[-1]])

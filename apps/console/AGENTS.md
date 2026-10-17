@@ -72,9 +72,10 @@ pipeline stage and not an alert producer.
 - **Reads use the admin's view permissions.** A view sets `read_permissions` and
   `ConsoleView._refusal` checks them after the anonymous and staff checks: any one
   suffices, as in `ModelAdmin.has_view_permission`, and none is a 403 "Permission to view
-  incidents required." The Overview, the incident list and the incident page all set
+  this page required." The Overview, the incident list and the incident page all set
   `alerts.view_incident` or `alerts.change_incident`, and the action and rerun views
-  inherit that from `IncidentPageView`. Action views add their own change or add
+  inherit that from `IncidentPageView`. The alert list and the alert page set
+  `alerts.view_alert` or `alerts.change_alert`. Action views add their own change or add
   permission on top. A link the page shows still goes through an intent, so it appears
   only for a user who holds that intent's permission.
 - **Querystrings go through `filters.py`.** A filter object parses and validates every

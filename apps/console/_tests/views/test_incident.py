@@ -310,7 +310,7 @@ def test_a_superuser_gets_navigation_links_into_the_admin(client):
 
     body = client.get(_url(incident), **HTMX).content.decode()
 
-    assert f'href="{reverse("admin:alerts_alert_change", args=[alert.pk])}"' in body
+    assert f'href="{reverse("console:alert", args=[alert.pk])}"' in body
     assert f'href="{reverse("admin:orchestration_pipelinerun_change", args=[run.pk])}"' in body
 
 
