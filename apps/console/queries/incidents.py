@@ -9,7 +9,13 @@ from django.utils import timezone
 
 from apps.alerts.describing import describe_incidents
 from apps.alerts.models import Alert, AlertSeverity, Incident, IncidentStatus
-from apps.console.filters import STATUS_CHOICES, AlertFilter, IncidentFilter
+from apps.console.filters import (
+    STATUS_CHOICES,
+    AlertFilter,
+    InboxFilter,
+    IncidentFilter,
+    RunFilter,
+)
 from apps.console.queries.hosts import host_summary, incident_hosts, node_choices, on_node
 from apps.console.queries.overview import SEVERITY_RANK
 from config.admin_badges import INCIDENT_STATUS_TONES, SEVERITY_TONES, tone_for
@@ -87,7 +93,7 @@ def chip_group(
     name: str,
     label: str,
     choices: tuple[Choice, ...],
-    criteria: IncidentFilter | AlertFilter,
+    criteria: IncidentFilter | AlertFilter | RunFilter | InboxFilter,
     base: str,
     counts: dict[str, int] | None = None,
 ) -> ChipGroup:
