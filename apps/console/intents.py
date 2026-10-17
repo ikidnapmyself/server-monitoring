@@ -82,7 +82,8 @@ INTENTS: dict[str, Intent] = {
     "view_run": Intent(
         _record("admin:orchestration_pipelinerun_change"), "get", "orchestration.view_pipelinerun"
     ),
-    "view_alert": Intent(_record("admin:alerts_alert_change"), "get", "alerts.view_alert"),
+    "view_alert": Intent(_record("console:alert"), "get", "alerts.view_alert"),
+    "reevaluate_alert": Intent(_record("console:alert-reeval"), "get", "alerts.change_alert"),
     "acknowledge": Intent(_incident_action("acknowledge"), "post", "alerts.change_incident"),
     "resolve": Intent(_incident_action("resolve"), "post", "alerts.change_incident"),
     "close": Intent(_incident_action("close"), "post", "alerts.change_incident"),

@@ -37,6 +37,13 @@ Output contract (to orchestrator): the enqueued run's payload,
 `{"downstream_incident_id": N}`. The old `IngestResult` shape is built only by the
 legacy `IngestExecutor`.
 
+## Alerts are machine state
+
+An alert is one condition on one machine. Only producers change its status: a node push, a
+webhook, `check_health` or a re-evaluate. Operators act on incidents. No operator alert
+transition exists, and none should be added. A flapping alert is a job for a future incident
+snooze, not for resolving the alert by hand.
+
 ## Key modules
 
 - `apps/alerts/drivers/` — payload parsers (Alertmanager, Grafana, PagerDuty, etc.)
@@ -44,7 +51,7 @@ legacy `IngestExecutor`.
 - `apps/alerts/services.py` — business logic (`AlertOrchestrator`, `IncidentManager`). `AlertOrchestrator` is **the** alert write path — see below.
 - `apps/alerts/models.py` — `Alert`, `Incident`, `AlertHistory`, `Node`. `Node` is the **registry of every machine that produces truth about itself**, keyed by `instance_id` and upserted (`Node.upsert`) on each accepted cluster push *and* on each local check run that records alerts here — so **the hub is a node in its own registry**. `last_source` distinguishes `cluster` (arrived by push) from `local` (registered by a local check run). Alert/incident grouping resolves the owning node from the `instance_id` label (see `incident_instance_key` / `resolve_node` in `services.py`), and hub-local checker alerts now carry that label like any node's.
 - `apps/alerts/timeline.py` — `build_incident_timeline(incident)`: a **pure** aggregator that merges `AlertHistory` + `StageExecution` + `PipelineRun` into one chronological list (with `trace_id`/`run_id`), rendered read-only + escaped as the "Merged chronological timeline" on the Incident admin. No models/queries with side effects. The console's incident page (`apps/console/queries/incident.py`) builds on the same dicts and reads these keys beyond the admin's `when`/`kind`/`label`/`detail`: `history_pk`, `alert_pk`, `alert_name`, `event`, `severity_to` on `alert_history`; `run_pk`, `status` on `pipeline`; `run_pk`, `stage`, `status`, `execution_pk`, `duration_ms`, `output_snapshot` on `stage`. Add keys freely; renaming or removing one breaks the console.
-- `apps/alerts/reevaluation.py` — **hub-side per-node severity re-evaluation (ingest-time)**. Nodes report raw metrics + a default severity; the hub recomputes severity against per-node policy in `Node.config` and overrides it. Called at the top of `AlertOrchestrator._process_alert` (covers create + update), so nodes stay unchanged. Fail-open: any missing/invalid input (or exception) passes the alert through unchanged. Two checker-types wired: numeric-threshold override for the 7 numeric checkers (`_score_numeric` + `PRIMARY_METRIC`) and a `listening_ports` **allowlist** evaluator (`_score_allowlist`, re-flagging the reported `listening` inventory against `Node.config["listening_ports"]["allowlist"]`; empty allowlist → exposed-only). Extend per checker-type by adding a pure scorer to `SCORERS` + an evaluator to `REEVALUATORS`. Overrides are audited in `annotations["severity_reevaluated"]`. The pure scorers in `SCORERS` are the shared, testable units reused by the config-change re-eval below. **Scorer contract: a scorer returns `Verdict | Skip`, never `None` and never a bare tuple.** A `Verdict` is a score the caller may act on (`severity`, `status`, `value`); a `Skip` carries one of the `SkipReason` values plus the context its sentence needs. **Every `Skip` is a passthrough at ingest.** `reevaluate_severity` acts on a `Verdict` and returns the alert unchanged for anything else. That is what keeps re-evaluation fail-open inside the webhook's atomic block: there is no reason value that can raise or resolve an alert the hub could not score. The reasons differ only where a human asked the question, and `describe_skip(skip, *, checker=…, instance_id=…)` turns one into an operator-facing sentence. The scorers cannot know the node, so the caller supplies both keywords, and a `SkipReason` added without a sentence raises there rather than printing a blank cell. `format_value` / `VALUE_PRECISION` round every printed metric value or threshold to one decimal, type-preserving, so an int threshold stays `80` and a float stays `80.0`. Print through it everywhere; the skip sentences, the confirm page, the command and the admin panel all quote the same numbers. See `docs/plans/2026-08-07-hub-node-severity-reeval-design.md`, `docs/plans/2026-08-09-listening-ports-allowlist-reeval-design.md` and `docs/plans/2026-09-06-reevaluation-surface-design.md`.
+- `apps/alerts/reevaluation.py` — **hub-side per-node severity re-evaluation (ingest-time)**. Nodes report raw metrics + a default severity; the hub recomputes severity against per-node policy in `Node.config` and overrides it. Called at the top of `AlertOrchestrator._process_alert` (covers create + update), so nodes stay unchanged. Fail-open: any missing/invalid input (or exception) passes the alert through unchanged. Two checker-types wired: numeric-threshold override for the 7 numeric checkers (`_score_numeric` + `PRIMARY_METRIC`) and a `listening_ports` **allowlist** evaluator (`_score_allowlist`, re-flagging the reported `listening` inventory against `Node.config["listening_ports"]["allowlist"]`; empty allowlist → exposed-only). Extend per checker-type by adding a pure scorer to `SCORERS` + an evaluator to `REEVALUATORS`. Overrides are audited in `annotations["severity_reevaluated"]`. The pure scorers in `SCORERS` are the shared, testable units reused by the config-change re-eval below. **Scorer contract: a scorer returns `Verdict | Skip`, never `None` and never a bare tuple.** A `Verdict` is a score the caller may act on (`severity`, `status`, `value`); a `Skip` carries one of the `SkipReason` values plus the context its sentence needs. **Every `Skip` is a passthrough at ingest.** `reevaluate_severity` acts on a `Verdict` and returns the alert unchanged for anything else. That is what keeps re-evaluation fail-open inside the webhook's atomic block: there is no reason value that can raise or resolve an alert the hub could not score. The reasons differ only where a human asked the question, and `describe_skip(skip, *, checker=…, node=…)` turns one into an operator-facing sentence. The scorers cannot know the node, so the caller supplies both keywords. `node` is a readable name (the hostname, or "this node"), never a raw instance id, and the sentences name a metric by its checker's label, never by its key. A `SkipReason` added without a sentence raises there rather than printing a blank cell. `format_value` / `VALUE_PRECISION` round every printed metric value or threshold to one decimal, type-preserving, so an int threshold stays `80` and a float stays `80.0`. Print through it everywhere; the skip sentences, the confirm page, the command and the admin panel all quote the same numbers. See `docs/plans/2026-08-07-hub-node-severity-reeval-design.md`, `docs/plans/2026-08-09-listening-ports-allowlist-reeval-design.md` and `docs/plans/2026-09-06-reevaluation-surface-design.md`.
 - `apps/alerts/reeval_existing.py` — **hub-side re-evaluation of EXISTING alerts on config change**
   (operator-triggered, distinct from ingest-time above). Re-scores stored alert metrics through the
   shared `SCORERS` registry, then on apply resolves / adjusts severity, writes `AlertHistory` + a
@@ -113,7 +120,7 @@ legacy `IngestExecutor`.
   open**: an unknown checker, unparseable annotations or a raising builder all return
   `""`, which degrades to severity/status-only gating — over-notifying, never silencing.
   Add a checker by adding a pure builder to `KEY_BUILDERS`.
-- `apps/alerts/describing.py`: `describe_alert(alert)`, `describe_incident(incident)` and `describe_incidents(incidents)`, which return `config.describing.Description`. A checker alert is described by the hub's checker class from its `raw_payload` metrics, or by the node's own text when the hub doesn't know the checker. The sentence is the hub's, but the names inside it (paths, process names, hosts) are the node's and pass through as sent. An UNKNOWN result reads as "could not be checked" from either path: the bridge stores the check status as `raw_payload["status"]`, and `push_to_hub` sends it as `check_status`, which the cluster driver keeps in `raw_payload`. Any other alert reads its name and description. An incident leads with its worst firing alert, or its newest alert once nothing fires, and reads "`<problem>` on `<host>`". **The incident has no stored title or description.** Read its headline through the describer. `describe_incidents` runs a fixed number of queries, so use it for lists. Checker alerts are named by their checker's `label` (`checker_label`), and the name is display only.
+- `apps/alerts/describing.py`: `describe_alert(alert)`, `describe_incident(incident)` and `describe_incidents(incidents)`, which return `config.describing.Description`. A checker alert is described by the hub's checker class from its `raw_payload` metrics, or by the node's own text when the hub doesn't know the checker. The sentence is the hub's, but the names inside it (paths, process names, hosts) are the node's and pass through as sent. An UNKNOWN result reads as "could not be checked" from either path: the bridge stores the check status as `raw_payload["status"]`, and `push_to_hub` sends it as `check_status`, which the cluster driver keeps in `raw_payload`. Any other alert reads its name and description. An incident leads with its worst firing alert, or its newest alert once nothing fires, and reads "`<problem>` on `<host>`". **The incident has no stored title or description.** Read its headline through the describer. `describe_incidents` runs a fixed number of queries, so use it for lists. Checker alerts are named by their checker's `label` (`checker_label`), and the name is display only. It also holds the re-evaluation wording: `describe_reeval(alert)` for an alert's audit facts, `describe_reeval_report(report)` for a preview's rows and `describe_reeval_applied(report)` for the outcome.
 - `apps/alerts/metrics.py` — `parse_metrics(annotations)`, shared by `reevaluation` and
   `context_keys` so "read a node's metrics back" means one thing.
 - `apps/alerts/urls.py` — URL routing for this app
@@ -269,6 +276,9 @@ For `apps.alerts`, admin should make it easy to:
 - Inspect alert lifecycle/audit trail (`AlertHistory`)
 - Jump from an `Incident` to related pipeline runs/stage executions (via relationships/links when available)
 
+`AlertAdmin` and `AlertHistoryAdmin` are stock and read-only. Operators read alerts and their
+history on the console alert pages.
+
 ### Node detail page
 
 The `Node` change form is an operator overview, not a registry form. Its panels are built by
@@ -337,18 +347,22 @@ and the form is `NodePolicyForm` in `apps/alerts/forms.py`.
 
 ### Re-evaluation surfaces
 
-Two admin surfaces read the same re-evaluation code, and they answer different questions.
+Two surfaces read the same re-evaluation code, and they answer different questions.
 Both go through `ReevalScope` + `preview_reeval` / `apply_reeval`; neither holds policy of
 its own.
 
-- **The Alert change page answers "what did policy do to *this* alert, and what would it do
-  now?"** The read-only **Re-evaluation** panel (`apps/alerts/reeval_display.py`) renders both
-  audit annotations as sentences: `severity_reevaluated` written at ingest, and
-  `reevaluated_on_config_change` written by an apply. It only reads. Both are stored as JSON
-  *strings*, and every failure renders a sentence rather than raising, because the change page
-  must open even when a node sent something unreadable. The per-alert **Re-evaluate** action
-  next to it scopes with `ReevalScope.for_alert`, and unlike the node action it has no
-  "nothing to do" early return: the operator clicked this alert and is owed a row about it.
+- **The console alert page answers "what did policy do to *this* alert, and what would it do
+  now?"** (`/console/alerts/<pk>/`). Its **Re-evaluation** facts (`describe_reeval` in
+  `apps/alerts/describing.py`) render both audit annotations as sentences:
+  `severity_reevaluated` written at ingest, and `reevaluated_on_config_change` written by an
+  apply. Both are stored as JSON *strings*, and every failure renders a sentence rather than
+  raising, because the page must open even when a node sent something unreadable. Its
+  **Re-evaluate** page (`/console/alerts/<pk>/reevaluate/`) scopes with
+  `ReevalScope.for_alert` and always answers with a row about this alert. The confirm carries
+  a `scope_digest` of the alerts, their incidents' status and the node's policy, and
+  `apply_reeval` refuses it with `StaleReeval` when any of that changed since the preview. Its
+  row lock serializes submits only on databases that support it. On SQLite a concurrent submit
+  gets a busy `OperationalError`, which the console view also answers with a 409. `AlertAdmin` is stock and read-only and has no re-evaluate action.
 - **`/admin/policy/` answers "which machines have I overridden, and is any of it doing
   nothing?"** (`apps/alerts/policy_overview.py`, rendered by `config/admin.py`). It rows on
   firing alerts as well as on config, so an alerting checker with no policy behind it still
@@ -358,11 +372,11 @@ its own.
   carries `?checker=` into the Node action; a name matching no open alert falls back to the
   whole node rather than previewing an empty page. The page builds in three constant queries,
   so keep any new column out of the per-row path.
-- **The confirm page states its consequences before anything is written**
-  (`templates/admin/alerts/node/reevaluate_confirm.html`, shared by both actions): the run
-  count, a re-open warning, rounded values, a `Reported` column reading `updated_at`, and the
-  skips table. A confirm that would write nothing must still show the skip sentences.
-- Both actions enforce `has_change_permission` themselves. `django_object_actions` only puts
+- **The Node action's confirm page states its consequences before anything is written**
+  (`templates/admin/alerts/node/reevaluate_confirm.html`): the run count, a re-open warning,
+  rounded values, a `Reported` column reading `updated_at`, and the skips table. A confirm
+  that would write nothing must still show the skip sentences.
+- The Node action enforces `has_change_permission` itself. `django_object_actions` only puts
   the URL behind `admin_view`, which is `is_staff` alone.
 
 ## App layout rules (required)

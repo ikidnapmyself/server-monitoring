@@ -296,7 +296,7 @@ def _peer_checker_rows(node) -> list[CheckerRow]:
                 status=_peer_status(alert.severity),
                 value=_format_metric(raw),
                 observed_at=alert.received_at,
-                url=reverse("admin:alerts_alert_change", args=[alert.pk]),
+                url=reverse("console:alert", args=[alert.pk]),
             )
         )
     return sorted(rows, key=lambda r: r.checker)

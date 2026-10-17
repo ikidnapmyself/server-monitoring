@@ -1,0 +1,101 @@
+{% load console %}<a id="alert-back" class="c-crumb" href="{% url 'console:alerts' %}">{% include "console/partials/_octicon.html" with name="chevron-right" %}Back to alerts</a>
+<div class="c-pagehead">
+  <div class="c-pagehead__top">
+    <h1 class="c-pagehead__title">{{ alert.what.headline }}</h1>
+  </div>
+  <div class="c-pagehead__meta">
+    <span class="c-state c-status--{{ alert.status }}">{% include "console/partials/_status_icon.html" with status=alert.status %}{{ alert.status|capfirst }}</span>
+    <span class="c-host c-host--lg{% if not alert.node %} c-host--unknown{% endif %}">{% include "console/partials/_octicon.html" with name="server" %}{{ alert.node|default:"Unknown host" }}</span>
+    <span>Started {% include "console/partials/_time.html" with when=alert.started_at %}</span>
+    <span class="c-pagehead__dot">Last seen {% include "console/partials/_time.html" with when=alert.last_seen %}</span>
+  </div>
+</div>
+
+<div class="c-layout">
+  <div>
+    <section class="c-box c-comment">
+      <h2 class="c-box__header c-box__title">What's wrong</h2>
+      <div class="c-box__body">{% include "console/partials/_description.html" with d=alert.what id="alert-what" %}</div>
+    </section>
+    {% if alert.do %}
+    <section class="c-box c-comment c-do">
+      <h2 class="c-box__header c-box__title">Do this</h2>
+      <div class="c-box__body c-do__list">
+        {% for action in alert.do %}{% resolved action as act %}
+        {% if forloop.first %}{% include "console/partials/_action.html" with act=act id="action-"|add:action.intent cls="c-button--primary" %}
+        {% else %}{% include "console/partials/_action.html" with act=act id="action-"|add:action.intent %}{% endif %}
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+    <section class="c-box c-comment">
+      <h2 class="c-box__header c-box__title">Incident</h2>
+      {% if alert.incident %}
+      <ul class="c-box__list">
+        <li class="c-box__row c-box__row--hover c-row c-status--{{ alert.incident.status }}">
+          <span class="c-row__icon" title="{{ alert.incident.status|capfirst }}">{% include "console/partials/_status_icon.html" with status=alert.incident.status %}<span class="c-sr-only">{{ alert.incident.status }}</span></span>
+          <div class="c-row__main">
+            <a id="alert-incident" href="{{ alert.incident.url }}">{{ alert.incident.what.headline }}</a>
+            <div class="c-row__meta">#{{ alert.incident.pk }} · {{ alert.incident.status|capfirst }}</div>
+          </div>
+        </li>
+      </ul>
+      {% else %}
+      <div class="c-box__body"><p class="c-muted">Not part of an incident.</p></div>
+      {% endif %}
+    </section>
+    <section class="c-box c-comment">
+      <h2 class="c-box__header c-box__title">Re-evaluation</h2>
+      <div class="c-box__body">
+        {% if alert.reeval %}
+        <dl class="c-facts">
+          {% for fact in alert.reeval %}<div><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div>{% endfor %}
+        </dl>
+        {% else %}
+        <p class="c-muted">Never re-evaluated.</p>
+        {% endif %}
+      </div>
+    </section>
+    <h2 class="c-sr-only">History</h2>
+    <ol class="c-timeline">
+      {% if alert.hidden %}
+      <li class="c-timeline__note"><span class="c-muted">{{ alert.hidden }} earlier entr{{ alert.hidden|pluralize:"y,ies" }} not shown.</span></li>
+      {% endif %}
+      {% for entry in alert.history %}
+      <li class="c-timeline__item">
+        <span class="c-timeline__badge c-tone-{{ entry.what.tone }}">{% include "console/partials/_octicon.html" with name="bell" %}</span>
+        <div class="c-entry">
+          <span class="c-entry__text"><span id="{{ entry.id }}">{{ entry.what.headline }}</span></span>
+          <span class="c-entry__meta"><span class="c-entry__time">{% include "console/partials/_time.html" with when=entry.when %}</span></span>
+        </div>
+      </li>
+      {% endfor %}
+    </ol>
+    <div class="c-section">{% include "console/partials/_details.html" with facts=alert.facts raw=alert.raw id="alert-details" %}</div>
+  </div>
+
+  <aside class="c-sidebar" aria-label="Alert details">
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Severity</h2>
+      <span class="c-label c-tone-{{ alert.severity_tone }}">{{ alert.severity }}</span>
+    </div>
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Status</h2>
+      <span class="c-label c-tone-{{ alert.status_tone }}">{{ alert.status }}</span>
+    </div>
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Node</h2>
+      <p class="c-sidebar__value">{% include "console/partials/_octicon.html" with name="server" %}{% if alert.node %}<span>{{ alert.node }}</span>{% else %}<span class="c-muted">Unknown host</span>{% endif %}</p>
+    </div>
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Source</h2>
+      <p class="c-sidebar__value"><span>{{ alert.source }}</span></p>
+    </div>
+    {% if alert.ended_at %}
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Ended</h2>
+      <p class="c-sidebar__value">{% include "console/partials/_octicon.html" with name="clock" %}<span>{% include "console/partials/_time.html" with when=alert.ended_at %}</span></p>
+    </div>
+    {% endif %}
+  </aside>
+</div>

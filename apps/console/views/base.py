@@ -57,7 +57,7 @@ class ConsoleView(TemplateView):
         if not (request.user.is_active and request.user.is_staff):
             return HttpResponseForbidden("Staff access required.")
         if self.read_permissions and not any(map(request.user.has_perm, self.read_permissions)):
-            return HttpResponseForbidden("Permission to view incidents required.")
+            return HttpResponseForbidden("Permission to view this page required.")
         return None
 
     def landing_path(self) -> str:

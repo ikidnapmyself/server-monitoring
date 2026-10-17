@@ -15,7 +15,7 @@ from apps.orchestration.models import PipelineRun
 
 class ReevaluateNodeAlertsCommandTests(TestCase):
     def _node(self, cfg):
-        return Node.objects.create(instance_id="web-03", config=cfg)
+        return Node.objects.create(instance_id="web-03", hostname="web-03", config=cfg)
 
     def _firing_cpu_alert(self, node, value=42.0):
         return Alert.objects.create(
@@ -61,7 +61,7 @@ class ReevaluateNodeAlertsCommandTests(TestCase):
         self._firing_cpu_alert(node)
         out = StringIO()
         call_command("reevaluate_node_alerts", "web-03", "--dry-run", stdout=out)
-        self.assertIn("No policy set for cpu on web-03.", out.getvalue())
+        self.assertIn("No policy set for CPU usage on web-03.", out.getvalue())
 
     def test_the_reasons_come_before_the_line_they_explain(self):
         node = self._node({})
@@ -70,7 +70,7 @@ class ReevaluateNodeAlertsCommandTests(TestCase):
         call_command("reevaluate_node_alerts", "web-03", "--dry-run", stdout=out)
         printed = out.getvalue()
         self.assertLess(
-            printed.index("No policy set for cpu on web-03."),
+            printed.index("No policy set for CPU usage on web-03."),
             printed.index("No open alerts need re-evaluation."),
         )
 

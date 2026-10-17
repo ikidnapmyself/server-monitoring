@@ -9,8 +9,41 @@ reading the ``Node`` link by itself leaves the host blank. This follows the admi
 from collections import defaultdict
 from collections.abc import Iterable
 
-from apps.alerts.models import Alert
+from django.db.models import Q
+
+from apps.alerts.models import Alert, Node
 from apps.alerts.services import instance_key_from_labels
+
+
+def alert_host(hostname: str | None, instance_id: str | None, labels: dict | None) -> str:
+    name = hostname or instance_id or instance_key_from_labels(labels)
+    return name if isinstance(name, str) else ""
+
+
+def node_choices() -> tuple[tuple[int, str, tuple[str, ...]], ...]:
+    """Every node as its pk, display name and the label values that name it."""
+    nodes = [
+        (pk, hostname or instance_id, tuple(key for key in (instance_id, hostname) if key))
+        for pk, hostname, instance_id in Node.objects.order_by().values_list(
+            "pk", "hostname", "instance_id"
+        )
+    ]
+    nodes.sort(key=lambda node: node[1].casefold())
+    return tuple(nodes)
+
+
+def on_node(node_pk: int, node_keys: tuple[str, ...]) -> Q:
+    """Alerts about one node.
+
+    Most checker alerts name their machine only in labels, so an unlinked alert also matches
+    when its instance label is one of the node's own names.
+    """
+    named = (
+        Q(labels__instance_id__in=node_keys)
+        | Q(labels__instance__in=node_keys)
+        | Q(labels__hostname__in=node_keys)
+    )
+    return Q(node_id=node_pk) | Q(node__isnull=True) & named
 
 
 def incident_hosts(incident_pks: Iterable[int]) -> dict[int, tuple[str, ...]]:
@@ -21,8 +54,8 @@ def incident_hosts(incident_pks: Iterable[int]) -> dict[int, tuple[str, ...]]:
         .order_by()
     )
     for incident_pk, hostname, instance_id, labels in rows:
-        name = hostname or instance_id or instance_key_from_labels(labels)
-        if isinstance(name, str) and name:
+        name = alert_host(hostname, instance_id, labels)
+        if name:
             found[incident_pk].add(name)
     return {pk: tuple(sorted(names, key=str.casefold)) for pk, names in found.items()}
 

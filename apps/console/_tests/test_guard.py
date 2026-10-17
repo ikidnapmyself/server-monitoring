@@ -5,6 +5,7 @@ from html.parser import HTMLParser
 
 import pytest
 
+from apps.alerts.models import Alert
 from apps.console._tests.fixtures import build_world
 from apps.notify.models import NotificationChannel
 from apps.orchestration.describing import REASONS
@@ -78,12 +79,18 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
     world = build_world()
     client.force_login(superuser)
     headers = {"HX-Request": "true"} if partial else {}
-    urls = ["/console/", "/console/incidents/?status=all"] + [
-        f"/console/incidents/{pk}/?all=1" for pk in world.incident_pks
-    ]
+    alert_pks = list(Alert.objects.values_list("pk", flat=True))
+    assert alert_pks
+    incident_urls = [f"/console/incidents/{pk}/?all=1" for pk in world.incident_pks]
+    urls = (
+        ["/console/", "/console/incidents/?status=all", "/console/alerts/?status=all"]
+        + incident_urls
+        + [f"/console/alerts/{pk}/" for pk in alert_pks]
+        + [f"/console/alerts/{pk}/reevaluate/" for pk in alert_pks]
+    )
     html = {url: _get(client, url, headers) for url in urls}
     # The ids are on the page, inside Details, so the check below has something to catch.
-    assert UUID.search(html[urls[-1]])
+    assert UUID.search(html[incident_urls[-1]])
     pages = {url: visible(page) for url, page in html.items()}
     for url, text in pages.items():
         _assert_no_leak(url, text)
@@ -111,6 +118,9 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "Analyze skipped",
         "fired again",
         "Open the runbook",
+        "No scorer re-evaluates this alert.",
+        "No policy set for CPU usage on db-1.",
+        "This alert carries no usable Memory usage value",
     ):
         assert shown in everything, shown
 
