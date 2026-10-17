@@ -198,7 +198,6 @@ def describe_history(
     return Description(headline=headline, tone=history_tone(event, severity_to), facts=facts)
 
 
-NEVER = "Never re-evaluated."
 UNREADABLE = "Could not read the re-evaluation record."
 
 RECORD_LABELS = [

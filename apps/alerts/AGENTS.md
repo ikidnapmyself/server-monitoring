@@ -337,18 +337,20 @@ and the form is `NodePolicyForm` in `apps/alerts/forms.py`.
 
 ### Re-evaluation surfaces
 
-Two admin surfaces read the same re-evaluation code, and they answer different questions.
+Two surfaces read the same re-evaluation code, and they answer different questions.
 Both go through `ReevalScope` + `preview_reeval` / `apply_reeval`; neither holds policy of
 its own.
 
-- **The Alert change page answers "what did policy do to *this* alert, and what would it do
-  now?"** The read-only **Re-evaluation** panel (`describe_reeval` in `apps/alerts/describing.py`)
-  renders both audit annotations as sentences: `severity_reevaluated` written at ingest, and
-  `reevaluated_on_config_change` written by an apply. It only reads. Both are stored as JSON
-  *strings*, and every failure renders a sentence rather than raising, because the change page
-  must open even when a node sent something unreadable. The per-alert **Re-evaluate** action
-  next to it scopes with `ReevalScope.for_alert`, and unlike the node action it has no
-  "nothing to do" early return: the operator clicked this alert and is owed a row about it.
+- **The console alert page answers "what did policy do to *this* alert, and what would it do
+  now?"** (`/console/alerts/<pk>/`). Its **Re-evaluation** facts (`describe_reeval` in
+  `apps/alerts/describing.py`) render both audit annotations as sentences:
+  `severity_reevaluated` written at ingest, and `reevaluated_on_config_change` written by an
+  apply. Both are stored as JSON *strings*, and every failure renders a sentence rather than
+  raising, because the page must open even when a node sent something unreadable. Its
+  **Re-evaluate** page (`/console/alerts/<pk>/reevaluate/`) scopes with
+  `ReevalScope.for_alert` and always answers with a row about this alert. The confirm carries
+  a `scope_digest`, and `apply_reeval` refuses it with `StaleReeval` when the scope changed
+  since the preview. `AlertAdmin` is stock and read-only and has no re-evaluate action.
 - **`/admin/policy/` answers "which machines have I overridden, and is any of it doing
   nothing?"** (`apps/alerts/policy_overview.py`, rendered by `config/admin.py`). It rows on
   firing alerts as well as on config, so an alerting checker with no policy behind it still
@@ -358,11 +360,11 @@ its own.
   carries `?checker=` into the Node action; a name matching no open alert falls back to the
   whole node rather than previewing an empty page. The page builds in three constant queries,
   so keep any new column out of the per-row path.
-- **The confirm page states its consequences before anything is written**
-  (`templates/admin/alerts/node/reevaluate_confirm.html`, shared by both actions): the run
-  count, a re-open warning, rounded values, a `Reported` column reading `updated_at`, and the
-  skips table. A confirm that would write nothing must still show the skip sentences.
-- Both actions enforce `has_change_permission` themselves. `django_object_actions` only puts
+- **The Node action's confirm page states its consequences before anything is written**
+  (`templates/admin/alerts/node/reevaluate_confirm.html`): the run count, a re-open warning,
+  rounded values, a `Reported` column reading `updated_at`, and the skips table. A confirm
+  that would write nothing must still show the skip sentences.
+- The Node action enforces `has_change_permission` itself. `django_object_actions` only puts
   the URL behind `admin_view`, which is `is_staff` alone.
 
 ## App layout rules (required)
