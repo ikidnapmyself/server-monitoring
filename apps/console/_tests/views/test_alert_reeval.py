@@ -1,4 +1,8 @@
+import re
+from unittest import mock
+
 import pytest
+from django.db import OperationalError
 from django.urls import reverse
 
 from apps.alerts.models import Alert, AlertHistory, Node
@@ -77,6 +81,26 @@ def test_a_stale_digest_refuses_and_writes_nothing(client, superuser, reevaluabl
     assert response.status_code == 409
     assert "This alert changed since you looked." in response.content.decode()
     assert not AlertHistory.objects.filter(alert=reevaluable_alert).exists()
+
+
+def test_a_locked_database_answers_like_a_stale_digest(client, superuser, reevaluable_alert):
+    client.force_login(superuser)
+
+    with mock.patch(
+        "apps.console.views.alert_reeval.apply_reeval",
+        side_effect=OperationalError("database is locked"),
+    ):
+        response = client.post(_url(reevaluable_alert), {"digest": _digest(reevaluable_alert)})
+
+    assert response.status_code == 409
+    assert "This alert changed since you looked." in response.content.decode()
+    assert not AlertHistory.objects.filter(alert=reevaluable_alert).exists()
+
+
+def test_the_apply_form_disables_itself_on_submit(client, superuser, reevaluable_alert):
+    client.force_login(superuser)
+    body = client.get(_url(reevaluable_alert)).content.decode()
+    assert re.search(r'<form method="post" action="[^"]*" data-disable-on-submit>', body)
 
 
 def test_a_post_without_a_digest_is_stale(client, superuser, reevaluable_alert):

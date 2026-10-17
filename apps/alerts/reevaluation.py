@@ -98,15 +98,15 @@ Outcome = Verdict | Skip
 
 _SKIP_SENTENCES: dict[SkipReason, str] = {
     SkipReason.NO_SCORER: "No scorer re-evaluates {checker}.",
-    SkipReason.NO_POLICY: "No policy set for {checker} on {instance_id}.",
+    SkipReason.NO_POLICY: "No policy set for {checker} on {node}.",
     SkipReason.MALFORMED_POLICY: (
-        "The {checker} policy on {instance_id} is not readable, so it was ignored."
+        "The {checker} policy on {node} is not readable, so it was ignored."
     ),
     SkipReason.INCOMPLETE_THRESHOLDS: (
-        "The {checker} policy on {instance_id} needs both a warning and a critical threshold."
+        "The {checker} policy on {node} needs both a warning and a critical threshold."
     ),
     SkipReason.INVERTED_THRESHOLDS: (
-        "The {checker} policy on {instance_id} is backwards: "
+        "The {checker} policy on {node} is backwards: "
         "critical {critical} is below warning {warning}."
     ),
     SkipReason.NO_PRIMARY_METRIC: (
@@ -116,13 +116,13 @@ _SKIP_SENTENCES: dict[SkipReason, str] = {
         "This alert carries no readable metrics, so there is nothing to re-score."
     ),
     SkipReason.NO_METRIC_VALUE: (
-        "This alert carries no usable {metric_key} value, so there is nothing to re-score."
+        "This alert carries no usable {checker} value, so there is nothing to re-score."
     ),
     SkipReason.UNCHANGED: (
         "Policy already matches: {checker} is at {value}, warning starts at {warning}."
     ),
     SkipReason.UNCHANGED_NO_THRESHOLD: (
-        "Policy already matches: the {checker} policy on {instance_id} "
+        "Policy already matches: the {checker} policy on {node} "
         "scores this alert exactly as it stands."
     ),
 }
@@ -141,10 +141,11 @@ EDITOR_FIXABLE = frozenset(
 )
 
 
-def describe_skip(skip: Skip, *, checker: str, instance_id: str) -> str:
+def describe_skip(skip: Skip, *, checker: str, node: str) -> str:
     """One sentence saying why this alert was not re-scored.
 
-    The scorers cannot know the node, so the caller supplies it. The caller's
+    The scorers cannot know the node, so the caller supplies a readable name for it,
+    never a raw instance id. An empty ``checker`` reads as "this alert". The caller's
     ``checker`` also overrides any copy in the context, which is the same value read
     from the same alert. Every reason has a sentence; a reason added without one
     raises here rather than printing a blank cell, as does a context missing a key
@@ -152,7 +153,7 @@ def describe_skip(skip: Skip, *, checker: str, instance_id: str) -> str:
     """
     template = _SKIP_SENTENCES[skip.reason]
     fields = {key: format_value(value) for key, value in skip.context.items()}
-    fields.update(checker=checker, instance_id=instance_id)
+    fields.update(checker=checker or "this alert", node=node)
     return template.format(**fields)
 
 

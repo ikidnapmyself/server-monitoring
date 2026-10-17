@@ -1,4 +1,5 @@
 from django.contrib import messages
+from django.db import OperationalError
 from django.http import HttpResponseForbidden, HttpResponseRedirect
 from django.urls import reverse
 
@@ -43,7 +44,7 @@ class AlertReevalView(AlertPageView):
             report = apply_reeval(
                 ReevalScope.for_alert(alert), expected=request.POST.get("digest", "")
             )
-        except StaleReeval:
+        except (StaleReeval, OperationalError):
             return self.render_preview(alert.pk, Notice(STALE, "warning"), status=409)
         messages.success(request, describe_reeval_applied(report))
         return HttpResponseRedirect(reverse("console:alert", args=[alert.pk]), status=303)

@@ -279,7 +279,7 @@ class NodeReevaluateActionTests(ReevaluateActionMixin, TestCase):
         self.assertNotIn("41.199999999999996", content)
 
     def test_a_preview_with_only_skips_renders_the_reasons_instead_of_a_message(self):
-        node = Node.objects.create(instance_id="web-03", config={})
+        node = Node.objects.create(instance_id="web-03", hostname="web-03", config={})
         self._firing_cpu_alert(node)
         request = self._request("get")
         response = self.model_admin.reevaluate_open_alerts(request, node)
@@ -289,7 +289,7 @@ class NodeReevaluateActionTests(ReevaluateActionMixin, TestCase):
         self.assertEqual(list(request._messages), [])
 
     def test_a_post_confirm_with_only_skips_writes_nothing_and_renders_the_reasons(self):
-        node = Node.objects.create(instance_id="web-03", config={})
+        node = Node.objects.create(instance_id="web-03", hostname="web-03", config={})
         alert = self._firing_cpu_alert(node)
         response = self.model_admin.reevaluate_open_alerts(
             self._request("post", {"confirm": "1"}), node
@@ -1383,7 +1383,7 @@ class ReevaluateConfirmSkipLinkTests(TestCase):
         return response.content.decode()
 
     def test_a_policy_skip_links_the_editor(self):
-        node = Node.objects.create(instance_id="web-03", config={})
+        node = Node.objects.create(instance_id="web-03", hostname="web-03", config={})
         self._alert(node)
         content = self._render(node)
         assert (

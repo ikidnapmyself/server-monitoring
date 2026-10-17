@@ -9,7 +9,7 @@
   </div>
 </section>
 {% if preview.can_apply and can_reeval %}
-<form method="post" action="{{ preview.url }}">
+<form method="post" action="{{ preview.url }}" data-disable-on-submit>
   {% csrf_token %}
   <input type="hidden" name="digest" value="{{ preview.digest }}">
   <button id="reeval-apply" class="c-button c-button--primary" type="submit">Apply re-evaluation</button>

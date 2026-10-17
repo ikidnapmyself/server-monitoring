@@ -147,10 +147,21 @@ class StaleReeval(Exception):
 
 
 def scope_digest(scope: ReevalScope) -> str:
-    """What the scope's alerts looked like, as one value a confirm form can carry back."""
-    rows = scope.alerts.order_by("pk").values_list("pk", "status", "severity", "updated_at")
+    """What the preview was computed from, as one value a confirm form can carry back.
+
+    The policy is part of it because apply re-scores against ``scope.node.config``, and
+    each incident's status because ``follow_alert`` reads it to decide who hears about it.
+    """
+    rows = scope.alerts.order_by("pk").values_list(
+        "pk", "status", "severity", "updated_at", "incident__status"
+    )
+    policy = json.dumps(scope.node.config, sort_keys=True) if scope.node else ""
     text = "|".join(
-        f"{pk}:{status}:{severity}:{at.isoformat()}" for pk, status, severity, at in rows
+        [policy]
+        + [
+            f"{pk}:{status}:{severity}:{at.isoformat()}:{incident_status}"
+            for pk, status, severity, at, incident_status in rows
+        ]
     )
     return hashlib.sha256(text.encode()).hexdigest()
 
@@ -197,12 +208,9 @@ def preview_reeval(scope: ReevalScope) -> ReevalReport:
     """
     report = ReevalReport(node=scope.node)
     config = scope.node.config if scope.node else {}
+    node_name = (scope.node.hostname if scope.node else "") or "this node"
     for alert in scope.alerts:
-        labels = alert.labels or {}
-        checker = labels.get("checker", "")
-        # An unregistered node has no config to quote, so the label is the only name
-        # this alert's node has.
-        instance_id = scope.node.instance_id if scope.node else labels.get("instance_id", "")
+        checker = (alert.labels or {}).get("checker", "")
         outcome = _outcome_for(alert, config)
         if isinstance(outcome, Verdict):
             _, notify = follow_alert(
@@ -224,9 +232,7 @@ def preview_reeval(scope: ReevalScope) -> ReevalReport:
             AlertSkip(
                 alert=alert,
                 reason=outcome.reason,
-                sentence=describe_skip(
-                    outcome, checker=checker_label(checker), instance_id=instance_id
-                ),
+                sentence=describe_skip(outcome, checker=checker_label(checker), node=node_name),
                 fix_url=(admin_url(scope.node) if outcome.reason in EDITOR_FIXABLE else None),
             )
         )
@@ -256,7 +262,8 @@ def apply_reeval(scope: ReevalScope, expected: str | None = None) -> ReevalRepor
     With ``expected``, refuses with ``StaleReeval`` unless the scope still matches that digest.
     """
     if expected is not None:
-        # Lock first: a second submit waits here, then sees the first one's writes.
+        # On a database with row locks a second submit waits here, then sees the first
+        # one's writes. SQLite ignores the lock, and its busy error is the caller's to answer.
         list(scope.alerts.select_for_update())
         if scope_digest(scope) != expected:
             raise StaleReeval

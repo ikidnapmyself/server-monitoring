@@ -32,7 +32,7 @@ status, node, last seen and a link to its incident.
 
 Filters are chips, the same as the incident list: status (firing by default, resolved, all),
 severity, node, source and since. A `q` box searches name, fingerprint and trace ID, which keeps
-the admin's search. A node matches an alert linked by FK, or an unlinked alert whose
+the admin's search. It also matches an alert whose incident has a pipeline run with that trace ID. A node matches an alert linked by FK, or an unlinked alert whose
 `instance_id`, `instance` or `hostname` label names it. That's the same rule the incident list
 uses, lifted into `queries/hosts.py` so both lists share it.
 
@@ -56,11 +56,15 @@ metrics still breach the policy will reopen. POST applies it through `apply_reev
 writes history and enqueues the incident run.
 
 The double-submit guard is a digest. The form carries `scope_digest(scope)`, a hash of
-each alert's status, severity and `updated_at` in the scope at preview time.
+each alert's status, severity and `updated_at` in the scope at preview time, each alert's
+incident status, and the node's policy as sorted JSON.
 `apply_reeval(scope, expected=digest)` raises
 `StaleReeval` when the alert no longer matches and writes nothing. The page then says "This alert
 changed since you looked" and shows a fresh preview. A replayed POST hits a changed `updated_at`
-and does nothing. PR 8 reuses this guard for node-wide re-evaluate.
+and does nothing. The scope's rows are locked first, which serializes submits on databases that
+support row locks. SQLite doesn't, so a concurrent submit there gets a busy `OperationalError`,
+and the view answers it with the same 409. The apply button disables itself on submit. PR 8
+reuses this guard for node-wide re-evaluate.
 
 It needs `alerts.change_alert`, the same as the admin today.
 

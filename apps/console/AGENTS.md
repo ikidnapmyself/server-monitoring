@@ -88,16 +88,21 @@ pipeline stage and not an alert producer.
   disagree.
 - **The alert pages are read-only evidence.** `/console/alerts/` filters on `AlertFilter`
   (`q`, `status` firing by default, `severity`, `node`, `source`, `since`, `page`). `q`
-  searches name, fingerprint and trace ID. `/console/alerts/<pk>/` shows the alert, its
+  searches name, fingerprint and trace ID, and also matches an alert whose incident has a
+  pipeline run with that trace ID. `/console/alerts/<pk>/` shows the alert, its
   incident, its history and its re-evaluation facts. No page resolves an alert. A node
   matches an alert linked by FK or an unlinked one whose `instance_id`, `instance` or
   `hostname` label names it, through `on_node` in `queries/hosts.py`, which the incident
   list shares.
 - **A confirm form carries a `scope_digest`.** `/console/alerts/<pk>/reevaluate/` previews
-  on GET and writes nothing. The form posts the digest taken before the preview, and
-  `apply_reeval(scope, expected=digest)` locks the scope's rows and raises `StaleReeval`
-  when they changed. The view answers 409 with a fresh preview, so a double submit or a
-  replay writes nothing. Any later confirm page reuses this guard.
+  on GET and writes nothing. The form posts the digest taken before the preview. It covers
+  the node's policy and each alert's incident status as well as the alerts, and
+  `apply_reeval(scope, expected=digest)` raises `StaleReeval` when any of it changed. The
+  scope's rows are locked first, which serializes submits on databases that support row
+  locks. SQLite doesn't, so a concurrent submit there fails with a busy `OperationalError`.
+  The view answers both with a 409 and a fresh preview, so a double submit or a replay
+  writes nothing. The apply form carries `data-disable-on-submit`, which `console.js` reads
+  to disable its button on submit. Any later confirm page reuses this guard.
 - **A missing record gets a console 404 page** with a link onward, returned with status
   404, as `IncidentDetailView` does. Don't raise a bare `Http404` from a page view.
 - **Stage output is untrusted in shape.** `queries/incident.py` turns an

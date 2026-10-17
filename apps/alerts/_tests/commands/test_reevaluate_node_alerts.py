@@ -15,7 +15,7 @@ from apps.orchestration.models import PipelineRun
 
 class ReevaluateNodeAlertsCommandTests(TestCase):
     def _node(self, cfg):
-        return Node.objects.create(instance_id="web-03", config=cfg)
+        return Node.objects.create(instance_id="web-03", hostname="web-03", config=cfg)
 
     def _firing_cpu_alert(self, node, value=42.0):
         return Alert.objects.create(

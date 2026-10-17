@@ -886,7 +886,9 @@ class TestAlertAdminIsStock(TestCase):
         request.user = self.user
         assert not model_admin.has_add_permission(request)
         assert not model_admin.has_change_permission(request, self.alert)
+        assert not model_admin.has_delete_permission(request, self.alert)
         assert "resolve_selected" not in model_admin.get_actions(request)
+        assert "delete_selected" not in model_admin.get_actions(request)
         assert not hasattr(model_admin, "change_actions")
 
     def test_history_admin_is_read_only(self):
@@ -895,6 +897,8 @@ class TestAlertAdminIsStock(TestCase):
         request.user = self.user
         assert not model_admin.has_add_permission(request)
         assert not model_admin.has_change_permission(request)
+        assert not model_admin.has_delete_permission(request)
+        assert "delete_selected" not in model_admin.get_actions(request)
 
     def test_change_page_still_opens_for_a_superuser(self):
         url = reverse("admin:alerts_alert_change", args=[self.alert.pk])

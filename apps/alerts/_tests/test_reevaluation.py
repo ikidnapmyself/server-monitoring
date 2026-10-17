@@ -587,14 +587,14 @@ class AllowlistEvaluatorReasonTests(TestCase):
         parsed = _alert("listening_ports", "not json")
         skip = allowlist_evaluator(parsed, {"allowlist": [22]})
         self.assertEqual(
-            describe_skip(skip, checker="listening_ports", instance_id="web-03"),
+            describe_skip(skip, checker="listening_ports", node="web-03"),
             "This alert carries no readable metrics, so there is nothing to re-score.",
         )
 
 
 class DescribeSkipTests(TestCase):
-    def _say(self, skip, checker="cpu", instance_id="fiyat-ekrani"):
-        return describe_skip(skip, checker=checker, instance_id=instance_id)
+    def _say(self, skip, checker="cpu", node="fiyat-ekrani"):
+        return describe_skip(skip, checker=checker, node=node)
 
     def test_no_scorer_names_the_checker(self):
         self.assertEqual(
@@ -614,10 +614,16 @@ class DescribeSkipTests(TestCase):
             "This alert carries no readable metrics, so there is nothing to re-score.",
         )
 
-    def test_no_metric_value_names_the_key_without_claiming_it_is_absent(self):
+    def test_no_metric_value_names_the_checker_not_the_metric_key(self):
         self.assertEqual(
-            self._say(Skip(SkipReason.NO_METRIC_VALUE, metric_key="cpu_percent")),
-            "This alert carries no usable cpu_percent value, so there is nothing to re-score.",
+            self._say(Skip(SkipReason.NO_METRIC_VALUE, metric_key="cpu_percent"), checker="CPU"),
+            "This alert carries no usable CPU value, so there is nothing to re-score.",
+        )
+
+    def test_no_scorer_without_a_checker_names_the_alert(self):
+        self.assertEqual(
+            self._say(Skip(SkipReason.NO_SCORER), checker=""),
+            "No scorer re-evaluates this alert.",
         )
 
     def test_malformed_policy_names_checker_and_node(self):
@@ -663,7 +669,7 @@ class DescribeSkipTests(TestCase):
             sentence = describe_skip(
                 Skip(reason, value=1.0, warning=2.0, critical=3.0, metric_key="k"),
                 checker="cpu",
-                instance_id="n1",
+                node="n1",
             )
             self.assertTrue(sentence.endswith("."), reason)
             self.assertNotIn("{", sentence, reason)

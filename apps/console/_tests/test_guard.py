@@ -118,6 +118,9 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "Analyze skipped",
         "fired again",
         "Open the runbook",
+        "No scorer re-evaluates this alert.",
+        "No policy set for CPU usage on db-1.",
+        "This alert carries no usable Memory usage value",
     ):
         assert shown in everything, shown
 
