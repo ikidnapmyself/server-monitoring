@@ -1,8 +1,11 @@
+import re
+
 import pytest
 from django.test import override_settings
 from django.utils import timezone
 
 from apps.alerts.models import Alert, Incident
+from apps.notify.templating import NotificationTemplatingService, render_template
 from apps.orchestration.notification import build_notification, console_url
 
 pytestmark = pytest.mark.django_db
@@ -122,3 +125,43 @@ def test_console_url_when_set():
 @override_settings(CONSOLE_URL="")
 def test_no_console_url_when_unset():
     assert console_url(1) == ""
+
+
+_SNAKE = re.compile(r"\b[a-z]+_[a-z_]+\b")
+_TEMPLATES = (
+    "email_text.j2",
+    "email_html.j2",
+    "incident_notification.j2",
+    "slack_text.j2",
+    "generic_payload.j2",
+    "pagerduty_payload.j2",
+)
+_HUMAN = ("email_text.j2", "email_html.j2", "incident_notification.j2")
+
+
+@override_settings(CONSOLE_URL="https://hub.example.com")
+@pytest.mark.parametrize("name", _TEMPLATES)
+def test_no_identifier_reaches_a_notification(name):
+    previous = {
+        "check": {"checks": [CPU_CHECK]},
+        "analyze": {"failure": "timeout", "fallback_used": True, "error_detail": "read timeout"},
+    }
+    n = build_notification(_incident(), previous, "trace-1")
+    ctx = NotificationTemplatingService().build_template_context(
+        {
+            "title": n.title,
+            "message": n.body,
+            "severity": n.severity,
+            "channel": "ops",
+            "tags": {},
+            "context": n.context,
+        }
+    )
+
+    out = render_template(f"file:{name}", ctx)
+
+    assert "check:web-1:cpu" not in out
+    assert "checker:cpu" not in out
+    assert "read timeout" not in out
+    if name in _HUMAN:
+        assert not _SNAKE.findall(out)
