@@ -1,46 +1,10 @@
-{{ "# " + title }}
+# {{ title }}
 
 Severity: **{{ severity | upper }}**
 
-{% if incident_id %}Incident ID: `{{ incident_id }}`
-
-{% endif %}
-{% if source %}Source: `{{ source }}`
-
-{% endif %}
-{% if incident.generated_at %}Time: {{ incident.generated_at }}
-
-{% endif %}
-{% if intelligence and intelligence.summary %}Summary:
-{{ intelligence.summary }}
-
-{% endif %}
-{% if intelligence and intelligence.probable_cause %}Probable cause:
-{{ intelligence.probable_cause }}
-
-{% endif %}
-{% if intelligence and intelligence.actions %}Actions:
-{% for a in intelligence.actions %}- {{ a }}
-{% endfor %}
-
-{% endif %}
-{% if recommendations %}Recommendations (top {{ recommendations[:10]|length }}):
-{% for r in recommendations[:10] %}- **{{ r.title | default('') }}** ({{ r.priority | default('') }})
-  > {{ r.description | default('') }}
-
-{% endfor %}
-{% endif %}
+{{ message }}
+{% if trace_id %}
 
 ---
-
-_Ingest Summary:_
-{% if incident.ingest %}
-{{ incident.ingest }}
-{% else %}N/A
-{% endif %}
-
-_Check Summary:_
-{% if incident.check %}
-{{ incident.check }}
-{% else %}N/A
+_Trace {{ trace_id }}_
 {% endif %}

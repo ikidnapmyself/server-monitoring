@@ -247,7 +247,7 @@ told. Each transitions the row synchronously and, in the same transaction, enque
 `PENDING` run with
 `origin=manual` via `apps.orchestration.inbox.enqueue_incident_runs` — it *announces*.
 Nothing executes in-request; the next `process_inbox` drain delivers, and the headline
-(`derive_headline`) reads the incident's live status, so the message says `[RESOLVED]`.
+(`build_notification`) reads the incident's live status, so the message says `[RESOLVED]`.
 Do not flip `Incident.status` from anywhere else. `reeval_existing.apply_reeval` announces the
 same way, through the shared `announce_incident_change`, so a config-change resolve is no longer
 silent. The one remaining quiet edge is an incident swept by `_resolve_incidents_for` that had no

@@ -83,23 +83,20 @@ class GenericBuildPayloadTests(SimpleTestCase):
         prepared = {
             "payload_obj": {"title": "T", "message": "M"},
             "payload_raw": '{"title": "T", "message": "M"}',
-            "incident": {"title": "T"},
             "text": None,
             "html": None,
         }
         with patch.object(self.driver, "_prepare_notification", return_value=prepared):
             payload = self.driver._build_payload(msg, {"endpoint": ENDPOINT})
 
-        self.assertEqual(payload["title"], "T")
-        self.assertIn("incident", payload)
+        self.assertEqual(payload, {"title": "T", "message": "M"})
 
     def test_build_payload_from_payload_raw(self):
-        """When payload_obj is None but payload_raw exists, wraps in title/message/incident."""
+        """When payload_obj is None but payload_raw exists, wraps it in title/message."""
         msg = _make_msg()
         prepared = {
             "payload_obj": None,
             "payload_raw": "plain text notification",
-            "incident": {"title": "T"},
             "text": None,
             "html": None,
         }
@@ -108,7 +105,7 @@ class GenericBuildPayloadTests(SimpleTestCase):
 
         self.assertEqual(payload["title"], "Test Alert")
         self.assertEqual(payload["message"], "plain text notification")
-        self.assertIn("incident", payload)
+        self.assertNotIn("incident", payload)
 
     def test_build_payload_from_non_dict_payload_obj(self):
         """When payload_obj is a list (not dict), skip setdefault and return as-is."""
@@ -116,7 +113,6 @@ class GenericBuildPayloadTests(SimpleTestCase):
         prepared = {
             "payload_obj": [{"item": 1}, {"item": 2}],
             "payload_raw": '[{"item": 1}, {"item": 2}]',
-            "incident": {"title": "T"},
             "text": None,
             "html": None,
         }
@@ -132,7 +128,6 @@ class GenericBuildPayloadTests(SimpleTestCase):
         prepared = {
             "payload_obj": None,
             "payload_raw": None,
-            "incident": {},
             "text": None,
             "html": None,
         }

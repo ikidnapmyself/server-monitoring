@@ -42,18 +42,13 @@ class GenericNotifyDriver(BaseNotifyDriver):
 
         # Template must provide payload structure (as JSON)
         if prepared.get("payload_obj"):
-            payload = prepared["payload_obj"]
-            # Ensure we include incident details
-            if isinstance(payload, dict):
-                payload.setdefault("incident", prepared.get("incident"))
-            return payload
+            return prepared["payload_obj"]
 
         # If payload_raw (string) exists but not JSON, wrap it
         if prepared.get("payload_raw"):
             return {
                 "title": message.title,
                 "message": prepared.get("payload_raw"),
-                "incident": prepared.get("incident"),
             }
 
         raise ValueError("Generic driver payload template required but not rendered")

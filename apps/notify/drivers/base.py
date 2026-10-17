@@ -110,36 +110,20 @@ class BaseNotifyDriver(ABC):
             self.name, self._message_to_dict(message), config
         )
 
-    def _template_context(self, message: "NotificationMessage", incident_details: dict) -> dict:
+    def _template_context(self, message: "NotificationMessage") -> dict:
         """Build the template rendering context for message templates."""
-        return self._templating_service.build_template_context(
-            self._message_to_dict(message), incident_details
-        )
-
-    def _compose_incident_details(
-        self, message: "NotificationMessage", config: dict[str, Any]
-    ) -> dict:
-        """Compose a common incident detail payload used by all drivers.
-
-        Returns a dict containing normalized metrics, context, summaries and
-        recommendations suitable for including in driver payloads.
-        """
-        return self._templating_service.compose_incident_details(
-            self._message_to_dict(message), config
-        )
+        return self._templating_service.build_template_context(self._message_to_dict(message))
 
     def _prepare_notification(self, message: "NotificationMessage", config: dict[str, Any]) -> dict:
         """Prepare rendered templates and incident details for a notification.
 
-        Returns a dict with keys: 'incident', 'text', 'html', 'payload_obj' (if payload_template
+        Returns a dict with keys: 'text', 'html', 'payload_obj' (if payload_template
         rendered to JSON/dict), and 'payload_raw' (string rendering when not JSON).
         """
         config = config or {}
-        incident = self._compose_incident_details(message, config)
-        ctx = self._template_context(message, incident)
+        ctx = self._template_context(message)
 
         result: dict = {
-            "incident": incident,
             "text": None,
             "html": None,
             "payload_obj": None,

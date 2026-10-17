@@ -1,54 +1,8 @@
-Alert: {{ title }}
+{{ title }}
 Severity: {{ severity | upper }}
-{% if incident_id %}Incident ID: {{ incident_id }}
-{% endif %}{% if source %}Source: {{ source }}
-{% endif %}{% if incident.generated_at %}Time: {{ incident.generated_at }}
-{% endif %}
+
 {{ message }}
+{% if trace_id %}
 
-{% if intelligence and intelligence.summary %}
-Summary:
-{{ intelligence.summary }}
-
-{% endif %}
-{% if intelligence and intelligence.probable_cause %}
-Probable Cause:
-{{ intelligence.probable_cause }}
-
-{% endif %}
-{% if intelligence and intelligence.actions %}
-Recommended Actions:
-{% for action in intelligence.actions %}- {{ action }}
-{% endfor %}
-
-{% endif %}
-{% if recommendations %}
-Recommendations:
-{% for r in recommendations[:10] %}
-- {{ r.title | default('Recommendation') }}: {{ r.description | default('') }}
-{% endfor %}
-
-{% endif %}
-{% if tags %}
-Tags:
-{% for key, value in tags.items() %}
-  {{ key }}: {{ value }}
-{% endfor %}
-
-{% endif %}
-{% if context %}
-Context:
-{% for key, value in context.items() %}
-  {{ key }}: {{ value }}
-{% endfor %}
-
-{% endif %}
-{% if incident.ingest %}
-Ingest Summary:
-{{ incident.ingest }}
-
-{% endif %}
-{% if incident.check %}
-Check Summary:
-{{ incident.check }}
+Trace {{ trace_id }}
 {% endif %}

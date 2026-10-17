@@ -77,38 +77,17 @@ class TestTemplateContext(SimpleTestCase):
         """_template_context delegates to the templating service."""
         driver = DummyDriver()
         msg = _make_msg()
-        incident_details = {"title": "Test Alert", "severity": "warning"}
-        fake_ctx = {"title": "Test Alert", "incident": incident_details}
+        fake_ctx = {"title": "Test Alert"}
 
         with patch.object(
             driver._templating_service,
             "build_template_context",
             return_value=fake_ctx,
         ) as mock_ctx:
-            result = driver._template_context(msg, incident_details)
+            result = driver._template_context(msg)
 
         mock_ctx.assert_called_once()
         assert result == fake_ctx
-
-
-class TestComposeIncidentDetails(SimpleTestCase):
-    """Tests for _compose_incident_details."""
-
-    def test_compose_incident_details_delegates_to_service(self):
-        """_compose_incident_details delegates to the templating service."""
-        driver = DummyDriver()
-        msg = _make_msg()
-        fake_incident = {"title": "Test Alert", "cpu_count": 4}
-
-        with patch.object(
-            driver._templating_service,
-            "compose_incident_details",
-            return_value=fake_incident,
-        ) as mock_compose:
-            result = driver._compose_incident_details(msg, {})
-
-        mock_compose.assert_called_once()
-        assert result == fake_incident
 
 
 class TestPrepareNotification(SimpleTestCase):
@@ -121,11 +100,6 @@ class TestPrepareNotification(SimpleTestCase):
         json_body = json.dumps({"key": "value"})
 
         with (
-            patch.object(
-                driver._templating_service,
-                "compose_incident_details",
-                return_value={},
-            ),
             patch.object(
                 driver._templating_service,
                 "build_template_context",
@@ -154,11 +128,6 @@ class TestPrepareNotification(SimpleTestCase):
         with (
             patch.object(
                 driver._templating_service,
-                "compose_incident_details",
-                return_value={},
-            ),
-            patch.object(
-                driver._templating_service,
                 "build_template_context",
                 return_value={},
             ),
@@ -183,11 +152,6 @@ class TestPrepareNotification(SimpleTestCase):
         msg = _make_msg()
 
         with (
-            patch.object(
-                driver._templating_service,
-                "compose_incident_details",
-                return_value={},
-            ),
             patch.object(
                 driver._templating_service,
                 "build_template_context",
@@ -215,11 +179,6 @@ class TestPrepareNotification(SimpleTestCase):
         with (
             patch.object(
                 driver._templating_service,
-                "compose_incident_details",
-                return_value={},
-            ),
-            patch.object(
-                driver._templating_service,
                 "build_template_context",
                 return_value={},
             ),
@@ -243,11 +202,6 @@ class TestPrepareNotification(SimpleTestCase):
         with (
             patch.object(
                 driver._templating_service,
-                "compose_incident_details",
-                return_value={},
-            ),
-            patch.object(
-                driver._templating_service,
                 "build_template_context",
                 return_value={},
             ),
@@ -268,11 +222,6 @@ class TestPrepareNotification(SimpleTestCase):
         msg = _make_msg()
 
         with (
-            patch.object(
-                driver._templating_service,
-                "compose_incident_details",
-                return_value={},
-            ),
             patch.object(
                 driver._templating_service,
                 "build_template_context",
@@ -298,11 +247,6 @@ class TestPrepareNotification(SimpleTestCase):
         with (
             patch.object(
                 driver._templating_service,
-                "compose_incident_details",
-                return_value={},
-            ),
-            patch.object(
-                driver._templating_service,
                 "build_template_context",
                 return_value={},
             ),
@@ -326,11 +270,6 @@ class TestPrepareNotification(SimpleTestCase):
         with (
             patch.object(
                 driver._templating_service,
-                "compose_incident_details",
-                return_value={},
-            ),
-            patch.object(
-                driver._templating_service,
                 "build_template_context",
                 return_value={},
             ),
@@ -350,11 +289,6 @@ class TestPrepareNotification(SimpleTestCase):
         msg = _make_msg()
 
         with (
-            patch.object(
-                driver._templating_service,
-                "compose_incident_details",
-                return_value={},
-            ),
             patch.object(
                 driver._templating_service,
                 "build_template_context",
@@ -379,11 +313,6 @@ class TestPrepareNotification(SimpleTestCase):
         json_string = json.dumps("just a string")
 
         with (
-            patch.object(
-                driver._templating_service,
-                "compose_incident_details",
-                return_value={},
-            ),
             patch.object(
                 driver._templating_service,
                 "build_template_context",
@@ -413,11 +342,6 @@ class TestPrepareNotification(SimpleTestCase):
         with (
             patch.object(
                 driver._templating_service,
-                "compose_incident_details",
-                return_value={},
-            ),
-            patch.object(
-                driver._templating_service,
                 "build_template_context",
                 return_value={},
             ),
@@ -440,11 +364,6 @@ class TestPrepareNotification(SimpleTestCase):
         json_text = '{"key": "value"}'  # starts with {
 
         with (
-            patch.object(
-                driver._templating_service,
-                "compose_incident_details",
-                return_value={},
-            ),
             patch.object(
                 driver._templating_service,
                 "build_template_context",

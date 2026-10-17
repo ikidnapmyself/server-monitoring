@@ -4,67 +4,25 @@
 <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px;">
   <div style="border-left: 4px solid {{ color }}; padding-left: 15px;">
     <h2 style="margin: 0 0 10px 0; color: {{ color }};">{{ title | e }}</h2>
-    <span style="background-color: {{ color }}; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">
-      {{ severity | upper }}
-    </span>
-    {% if incident_id %}<span style="margin-left: 8px; font-size: 12px; color: #666;">Incident #{{ incident_id }}</span>{% endif %}
+    <span style="background-color: {{ color }}; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">{{ severity | upper | e }}</span>
   </div>
-  {% if source or incident.generated_at %}
-  <p style="margin-top: 10px; font-size: 12px; color: #888;">
-    {% if source %}Source: {{ source | e }}{% endif %}
-    {% if source and incident.generated_at %} | {% endif %}
-    {% if incident.generated_at %}{{ incident.generated_at }}{% endif %}
-  </p>
+  {% if incident %}
+  {% if incident.detail %}<p style="margin-top: 20px; line-height: 1.6;">{{ incident.detail | e }}</p>{% endif %}
+  {% if incident.action %}<p><strong>Do this:</strong> {{ incident.action | e }}</p>{% endif %}
+  {% if findings %}
+  <h3>Failing checks</h3>
+  <ul>{% for f in findings %}<li>{{ f.headline | e }}</li>{% endfor %}</ul>
   {% endif %}
-  <p style="margin-top: 20px; line-height: 1.6;">{{ message | e }}</p>
-  {% if intelligence and intelligence.summary %}
-  <h3>Summary</h3>
-  <p>{{ intelligence.summary | e }}</p>
+  {% if analysis %}
+  <h3>AI analysis</h3>
+  <p>{{ analysis.headline | e }}</p>
+  {% if analysis.detail %}<p>{{ analysis.detail | e }}</p>{% endif %}
+  {% if analysis.action %}<p><strong>Do this:</strong> {{ analysis.action | e }}</p>{% endif %}
   {% endif %}
-  {% if intelligence and intelligence.probable_cause %}
-  <h3>Probable Cause</h3>
-  <p>{{ intelligence.probable_cause | e }}</p>
+  {% if console_url %}<p><a href="{{ console_url | e }}">Open in the console</a></p>{% endif %}
+  {% else %}
+  <p style="margin-top: 20px; line-height: 1.6; white-space: pre-line;">{{ message | e }}</p>
   {% endif %}
-  {% if intelligence and intelligence.actions %}
-  <h3>Recommended Actions</h3>
-  <ul>
-  {% for action in intelligence.actions %}
-    <li>{{ action | e }}</li>
-  {% endfor %}
-  </ul>
-  {% endif %}
-  {% if recommendations %}
-  <div style="margin-top: 20px;">
-    <strong>Recommendations:</strong>
-    <ul>
-    {% for r in recommendations[:10] %}
-      <li><strong>{{ r.title | default('Recommendation') | e }}</strong>: {{ r.description | default('') | e }}</li>
-    {% endfor %}
-    </ul>
-  </div>
-  {% endif %}
-  {% if tags %}
-  <div style="margin-top: 20px;"><strong>Tags:</strong><ul>
-  {% for key, value in tags.items() %}
-    <li><code>{{ key | e }}</code>: {{ value | e }}</li>
-  {% endfor %}
-  </ul></div>
-  {% endif %}
-  {% if context %}
-  <div style="margin-top: 20px;"><strong>Context:</strong><ul>
-  {% for key, value in context.items() %}
-    <li><code>{{ key | e }}</code>: {{ value | e }}</li>
-  {% endfor %}
-  </ul></div>
-  {% endif %}
-  {% if incident.ingest %}
-  <hr>
-  <h4>Ingest Summary</h4>
-  <pre>{{ incident.ingest | e }}</pre>
-  {% endif %}
-  {% if incident.check %}
-  <h4>Check Summary</h4>
-  <pre>{{ incident.check | e }}</pre>
-  {% endif %}
+  {% if trace_id %}<p style="margin-top: 20px; font-size: 12px; color: #888;">Trace {{ trace_id | e }}</p>{% endif %}
 </body>
 </html>

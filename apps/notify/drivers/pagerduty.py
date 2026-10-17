@@ -66,20 +66,14 @@ class PagerDutyNotifyDriver(BaseNotifyDriver):
             else:
                 raise ValueError("PagerDuty payload template required but not rendered")
 
-            # Add incident for tracking
-            payload["incident"] = prepared.get("incident")
-
             if config.get("client"):
                 payload["client"] = config["client"]
             if config.get("client_url"):
                 payload["client_url"] = config["client_url"]
 
-            if message.context.get("url"):
+            if message.context.get("console_url"):
                 payload["links"] = [
-                    {
-                        "href": message.context["url"],
-                        "text": "View Details",
-                    }
+                    {"href": message.context["console_url"], "text": "Open in the console"}
                 ]
 
         return payload

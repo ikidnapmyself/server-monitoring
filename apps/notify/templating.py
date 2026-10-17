@@ -18,13 +18,10 @@ ValueError on invalid template.
 from __future__ import annotations
 
 import logging
-import pprint
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
-import psutil
 
 from config.security import PathNotAllowedError, resolve_safe_name
 
@@ -166,157 +163,24 @@ def render_template(spec: Any, context: dict[str, Any]) -> str | None:
 
 
 class NotificationTemplatingService:
-    """Service for handling notification templating logic.
+    """Builds the template context and renders each driver's templates from it."""
 
-    Follows Single Responsibility Principle: handles all template-related operations
-    including context building, incident details composition, and template rendering.
-    """
-
-    def compose_incident_details(
-        self, message_dict: dict[str, Any], config: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Compose a common incident detail payload used by all drivers.
-
-        Args:
-            message_dict: Dictionary representation of the notification message.
-            config: Driver-specific configuration.
-
-        Returns:
-            Dict containing normalized metrics, context, summaries and recommendations.
-        """
-        ctx = message_dict.get("context", {}) or {}
-
-        # Metrics: prefer explicit context values, otherwise fallback to psutil
-        cpu_count = ctx.get("cpu_count") or ctx.get("cpu_physical_count") or None
-        try:
-            if cpu_count is None:
-                cpu_count = psutil.cpu_count()
-        except Exception:
-            cpu_count = None
-
-        try:
-            ram_total_bytes = (
-                ctx.get("total_memory")
-                or ctx.get("memory_total")
-                or ctx.get("ram_total")
-                or psutil.virtual_memory().total
-            )
-        except Exception:
-            ram_total_bytes = None
-
-        try:
-            disk_total_bytes = (
-                ctx.get("disk_total") or ctx.get("total_disk") or psutil.disk_usage("/").total
-            )
-        except Exception:
-            disk_total_bytes = None
-
-        def _gb(b):
-            try:
-                return f"{float(b) / (1024 ** 3):.1f} GB"
-            except Exception:
-                return None
-
-        # Determine recommendations in a type-safe way
-        # Fetch recommendations from context or intelligence safely so mypy can
-        # narrow types before calling .get on dicts.
-        # Start with a permissive type; we'll normalize below.
-        recommendations: Any = None
-
-        _recs = ctx.get("recommendations")
-        if isinstance(_recs, (list, dict)):
-            recommendations = _recs
-        else:
-            intelligence = ctx.get("intelligence")
-            if isinstance(intelligence, dict):
-                _int_recs = intelligence.get("recommendations")
-                if isinstance(_int_recs, (list, dict)):
-                    recommendations = _int_recs
-                elif _int_recs is not None:
-                    # keep scalar or other value; normalize later
-                    recommendations = _int_recs
-
-            if recommendations is None:
-                # fallback to context 'details' or whole context
-                recommendations = ctx.get("details") or ctx
-
-        # Normalize recommendations to a list when possible. Templates (e.g. slack_text.j2)
-        # expect to index/slice and iterate over recommendations. If we pass a dict,
-        # Jinja will interpret `recs[:5]` as a dict lookup with a slice object and
-        # raise "unhashable type: 'slice'". To avoid that, convert common dict forms
-        # into a list of recommendation dicts. If recommendations is already a list
-        # or is falsy, leave it as-is.
-        if isinstance(recommendations, dict):
-            # If the dict looks like a mapping of ids -> rec dicts, use the values.
-            vals = list(recommendations.values())
-            if vals and all(isinstance(v, dict) for v in vals):
-                recommendations = vals
-            else:
-                # Treat the whole dict as a single recommendation entry.
-                recommendations = [recommendations]
-        elif recommendations is not None and not isinstance(recommendations, list):
-            # Wrap scalars or other single objects into a list so templates can iterate.
-            recommendations = [recommendations]
-
-        # Pretty printed recommendations for human-facing outputs
-        try:
-            recs_pretty = pprint.pformat(recommendations, width=120, depth=4)
-            if isinstance(recs_pretty, str):
-                recs_pretty = recs_pretty.replace("\\n", "\n")
-        except Exception:
-            recs_pretty = str(recommendations)
-
-        incident_details = {
-            "title": message_dict["title"],
-            "message": message_dict["message"],
-            "severity": message_dict["severity"],
-            "channel": message_dict["channel"],
-            "tags": message_dict["tags"],
-            "context": ctx,
-            "cpu_count": cpu_count,
-            "ram_total_bytes": ram_total_bytes,
-            "ram_total_human": _gb(ram_total_bytes),
-            "disk_total_bytes": disk_total_bytes,
-            "disk_total_human": _gb(disk_total_bytes),
-            "incident_id": ctx.get("incident_id") or ctx.get("id"),
-            "source": ctx.get("source") or message_dict["tags"].get("source") or None,
-            "environment": ctx.get("environment"),
-            "ingest": ctx.get("ingest"),
-            "check": ctx.get("check"),
-            "intelligence": ctx.get("intelligence"),
-            "recommendations": recommendations,
-            "recommendations_pretty": recs_pretty,
-            # Use timezone-aware UTC timestamp
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-        }
-
-        return incident_details
-
-    def build_template_context(
-        self, message_dict: dict[str, Any], incident_details: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Build the template rendering context for message templates.
-
-        Args:
-            message_dict: Dictionary representation of the notification message.
-            incident_details: Composed incident details.
-
-        Returns:
-            Dict containing all variables available in templates.
-        """
+    def build_template_context(self, message_dict: dict[str, Any]) -> dict[str, Any]:
+        """Every variable a notification template can read."""
+        ctx = message_dict.get("context") or {}
+        tags = message_dict.get("tags") or {}
         return {
             "title": message_dict["title"],
             "message": message_dict["message"],
             "severity": message_dict["severity"],
             "channel": message_dict["channel"],
-            "tags": message_dict["tags"],
-            "context": message_dict["context"],
-            "incident": incident_details,
-            # Convenience top-level aliases for templates expecting these names
-            "intelligence": incident_details.get("intelligence"),
-            "recommendations": incident_details.get("recommendations"),
-            "incident_id": incident_details.get("incident_id"),
-            "source": incident_details.get("source"),
+            "tags": tags,
+            "trace_id": ctx.get("trace_id") or tags.get("trace_id") or "",
+            "incident": ctx.get("incident"),
+            "findings": ctx.get("findings") or [],
+            "analysis": ctx.get("analysis"),
+            "console_url": ctx.get("console_url") or "",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
         }
 
     def render_message_templates(
@@ -341,8 +205,7 @@ class NotificationTemplatingService:
         # Track which template source was used for diagnostics
         used_template_source: str | None = None
 
-        incident_details = self.compose_incident_details(message_dict, config)
-        ctx = self.build_template_context(message_dict, incident_details)
+        ctx = self.build_template_context(message_dict)
 
         # Try various config keys that may specify a template (template/text/html/payload)
         tmpl = (

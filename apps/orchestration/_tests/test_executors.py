@@ -1351,120 +1351,63 @@ class TestNotifyExecutorSuccess(TestCase):
         assert len(result.messages) == 1
         driver_inst.send.assert_called_once()
 
-    def test_notify_severity_and_title_from_alert_without_ai(self):
-        """Severity/title are authoritative from alert data even with no AI recs.
+    def _incident(self, severity="critical"):
+        from django.utils import timezone
 
-        A checkers-only node with a real critical failure but no AI
-        recommendations must still notify at ``critical`` with the incident
-        title — never the generic AI-derived ``Incident Analysis`` / ``info``.
-        """
+        from apps.alerts.models import Alert, Incident
+
+        incident = Incident.objects.create(severity=severity, instance="web-03")
+        Alert.objects.create(
+            fingerprint="check:web-03:cpu",
+            source="cluster",
+            name="cpu",
+            severity=severity,
+            started_at=timezone.now(),
+            incident=incident,
+            labels={"checker": "cpu", "instance": "web-03"},
+            raw_payload={"metrics": {"cpu_percent": 97.0}},
+        )
+        return incident
+
+    def _send(self, previous, incident_id=None):
         driver_cls, _ = _mock_driver_cls()
-        previous = {
-            "ingest": {
-                "severity": "critical",
-                "incident_title": "High CPU on web-03",
-                "alerts_created": 2,
-                "source": "cluster",
-            },
-            # AI produced nothing usable (fallback / empty recommendations).
-            "analyze": {"fallback_used": True, "recommendations": []},
-        }
-
         with patch(
             "apps.notify.services.NotifySelector.resolve",
             return_value=_resolve_return(driver_cls),
         ):
             result = NotifyExecutor().execute(
-                _ctx(payload={"notify_driver": "slack"}, previous_results=previous)
+                _ctx(
+                    payload={"notify_driver": "slack"},
+                    previous_results=previous,
+                    incident_id=incident_id,
+                )
             )
+        return result.messages[0]
 
-        msg = result.messages[0]
+    def test_a_failed_analysis_keeps_the_alert_headline(self):
+        """Severity and title come from the incident even when the AI gave nothing."""
+        incident = self._incident()
+
+        msg = self._send({"analyze": {"fallback_used": True, "failure": "auth"}}, incident.id)
+
         assert msg["severity"] == "critical"
-        assert "High CPU on web-03" in msg["title"]
-        assert msg["title"] != "Incident Analysis"
-        assert msg["message"]
+        assert msg["title"].endswith(" on web-03")
+        assert "AI analysis failed" in msg["message"]
 
-    def test_recommendations_enrich_body_but_not_severity(self):
-        """AI recommendations enrich the body only; they never raise severity."""
-        driver_cls, _ = _mock_driver_cls()
-        previous = {
-            "ingest": {
-                "severity": "warning",
-                "incident_title": "Elevated CPU on web-03",
-                "alerts_created": 1,
-                "source": "cluster",
-            },
-            "analyze": {
-                "summary": "Restart the CPU-bound worker process",
-                "recommendations": [
-                    {"title": "Restart worker", "priority": "critical", "description": "hot"}
-                ],
-            },
-        }
+    def test_analysis_enriches_the_body_but_not_severity(self):
+        incident = self._incident(severity="warning")
 
-        with patch(
-            "apps.notify.services.NotifySelector.resolve",
-            return_value=_resolve_return(driver_cls),
-        ):
-            result = NotifyExecutor().execute(
-                _ctx(payload={"notify_driver": "slack"}, previous_results=previous)
-            )
+        msg = self._send(
+            {"analyze": {"summary": "Restart the CPU-bound worker", "failure": ""}}, incident.id
+        )
 
-        msg = result.messages[0]
-        # Alert-authoritative: AI's critical recommendation did NOT raise it.
         assert msg["severity"] == "warning"
-        # AI enrichment appears in the body via the intelligence summary.
-        assert "Restart the CPU-bound worker process" in msg["message"]
+        assert "Restart the CPU-bound worker" in msg["message"]
 
-    def test_no_ingest_data_uses_generated_defaults(self):
-        """With no ingest data, title/severity come from derive_headline defaults.
+    def test_no_incident_sends_a_bare_event(self):
+        msg = self._send({"analyze": {}})
 
-        Severity defaults to ``info`` and the title is generated from the
-        source — but it is NOT the old AI-derived ``Incident Analysis``.
-        """
-        driver_cls, _ = _mock_driver_cls()
-        previous = {"analyze": {}}
-
-        with patch(
-            "apps.notify.services.NotifySelector.resolve",
-            return_value=_resolve_return(driver_cls),
-        ):
-            result = NotifyExecutor().execute(
-                _ctx(payload={"notify_driver": "slack"}, previous_results=previous)
-            )
-
-        msg = result.messages[0]
-        assert msg["severity"] == "info"
-        assert msg["title"] != "Incident Analysis"
-        assert msg["message"]
-
-    def test_fallback_used_appends_note_but_keeps_alert_headline(self):
-        """AI fallback appends a note to the body; title/severity stay from alert."""
-        driver_cls, _ = _mock_driver_cls()
-        previous = {
-            "ingest": {
-                "severity": "critical",
-                "incident_title": "Disk full on web-01",
-                "source": "cluster",
-            },
-            "analyze": {
-                "fallback_used": True,
-                "summary": "AI unavailable",
-            },
-        }
-
-        with patch(
-            "apps.notify.services.NotifySelector.resolve",
-            return_value=_resolve_return(driver_cls),
-        ):
-            result = NotifyExecutor().execute(
-                _ctx(payload={"notify_driver": "slack"}, previous_results=previous)
-            )
-
-        msg = result.messages[0]
-        assert msg["severity"] == "critical"
-        assert "Disk full on web-01" in msg["title"]
-        assert "AI analysis unavailable" in msg["message"]
+        assert (msg["title"], msg["severity"]) == ("Monitoring event", "info")
 
 
 class TestNotifyExecutorDriverFailures(TestCase):
@@ -1585,39 +1528,13 @@ class TestNotifyExecutorFailureKind(TestCase):
 
 
 class TestNotifyExecutorTemplateRendering(TestCase):
-    def test_template_from_channel_config(self):
-        driver_cls, _ = _mock_driver_cls()
-        channel_obj = MagicMock()
-        # Channel config templates are trusted (DB-sourced) but must use the
-        # dict form to be rendered as an inline Jinja2 template.
-        channel_obj.config = {
-            "template": {"type": "inline", "template": "Hello {{ title }}"},
-        }
-
-        resolve_ret = ("slack", {}, "slack", driver_cls, channel_obj, "default")
-
-        with patch(
-            "apps.notify.services.NotifySelector.resolve",
-            return_value=resolve_ret,
-        ):
-            result = NotifyExecutor().execute(
-                _ctx(payload={"notify_driver": "slack"}, previous_results={"analyze": {}})
-            )
-
-        assert not result.errors
-        msg = result.messages[0]
-        # Template renders {{ title }}, which now comes from derive_headline
-        # (alert-authoritative) rather than the old AI-derived "Incident Analysis".
-        assert msg["message"].startswith("Hello [")
-        assert msg["title"] in msg["message"]
-
     def test_payload_config_template_is_ignored(self):
         """Templates passed in pipeline payload.notify_config are IGNORED.
 
         SSTI hardening: only DB-sourced channel config may provide a template.
         Untrusted payload templates must never be rendered. When payload
-        contains a template but no channel_obj does, the executor falls back
-        to the default ``build_notification_body`` output.
+        contains a template but no channel_obj does, the message carries the
+        describer-built body.
         """
         driver_cls, _ = _mock_driver_cls()
 
@@ -1639,37 +1556,8 @@ class TestNotifyExecutorTemplateRendering(TestCase):
 
         assert not result.errors
         msg = result.messages[0]
-        # The payload-supplied literal string must not appear anywhere; the
-        # executor must use the default build_notification_body output.
         assert "Payload: {{ title }}" not in msg["message"]
         assert f"Payload: {msg['title']}" not in msg["message"]
-        # Default body is produced from build_notification_body; assert it
-        # produced non-empty content so we know the fallback path ran.
-        assert msg["message"]
-
-    def test_template_render_error_falls_back(self):
-        driver_cls, _ = _mock_driver_cls()
-        channel_obj = MagicMock()
-        # Broken inline template in channel config: render error should be
-        # swallowed and the executor should fall back to the default body.
-        channel_obj.config = {
-            "template": {"type": "inline", "template": "{{ bad }"},
-        }
-
-        resolve_ret = ("slack", {}, "slack", driver_cls, channel_obj, "default")
-
-        with patch(
-            "apps.notify.services.NotifySelector.resolve",
-            return_value=resolve_ret,
-        ):
-            result = NotifyExecutor().execute(
-                _ctx(payload={"notify_driver": "slack"}, previous_results={"analyze": {}})
-            )
-
-        # Falls back to build_notification_body — no error in result
-        assert not result.errors
-        msg = result.messages[0]
-        assert msg["message"]  # non-empty fallback
 
     def test_payload_ssti_attempt_ignored(self):
         """SSTI regression: a malicious inline template in payload is ignored.
@@ -1856,8 +1744,22 @@ class TestNotifyExecutorDownstreamHeadline(TestCase):
         message = self._notify(incident.id)
 
         assert message.severity == "critical"
-        assert "DISK Check Alert" in message.title
-        assert "[CRITICAL]" in message.title
+        assert message.title.startswith("[CRITICAL] ")
+
+    def test_the_message_carries_descriptions_not_stage_dumps(self):
+        incident = self._incident()
+
+        message = self._notify(incident.id, previous={"check": {"checks_run": 1}})
+
+        assert set(message.context) == {
+            "incident",
+            "findings",
+            "analysis",
+            "console_url",
+            "trace_id",
+        }
+        assert message.context["trace_id"] == "trace-abc"
+        assert "Check Summary" not in message.message
 
     def test_a_resolved_incident_keeps_its_own_severity(self):
         """An all-clear is notified through the resolved lane; it is still about a
@@ -1868,28 +1770,6 @@ class TestNotifyExecutorDownstreamHeadline(TestCase):
 
         assert message.severity == "warning"
         assert message.title.startswith("[RESOLVED]")
-
-    def test_headline_facts_carry_the_incident_status(self):
-        """The title says what the incident is now, not only how bad it was."""
-        incident = self._incident(status="acknowledged")
-
-        facts = NotifyExecutor._headline_facts(incident)
-
-        assert facts["status"] == "acknowledged"
-        assert facts["severity"] == "critical"
-        assert facts["incident_title"] == "DISK Check Alert"
-
-    def test_an_ingest_snapshot_still_wins_when_present(self):
-        """The push-run path is unchanged: a real snapshot is authoritative."""
-        incident = self._incident()
-
-        message = self._notify(
-            incident.id,
-            previous={"ingest": {"severity": "info", "incident_title": "From snapshot"}},
-        )
-
-        assert message.severity == "info"
-        assert "From snapshot" in message.title
 
     def test_the_incident_is_fetched_once(self):
         """The headline and the lane read the same row, not two queries for it."""

@@ -213,6 +213,10 @@ STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "pipeline")
 HUB_URL = os.environ.get("HUB_URL", "")
 INSTANCE_ID = os.environ.get("INSTANCE_ID", "")
 HUB_API_KEY = os.environ.get("HUB_API_KEY", "")
+# The origin operators reach this hub's console at, such as https://hub.example.com.
+# Notifications link to the incident when set. HUB_URL can't serve: on an agent it names
+# another machine.
+CONSOLE_URL = os.environ.get("CONSOLE_URL", "")
 
 # ---------------------------------------------------------------------------
 # Django System Check Silencing
