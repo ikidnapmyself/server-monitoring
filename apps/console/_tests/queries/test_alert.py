@@ -1,9 +1,12 @@
 import pytest
 from django.utils import timezone
 
+from apps.alerts._tests.fixtures import make_reevaluable_alert
+from apps.alerts.describing import REOPEN_WARNING
 from apps.alerts.models import Alert, AlertHistory, Incident, Node
+from apps.alerts.reeval_existing import ReevalScope, scope_digest
 from apps.console.queries import alert as alert_query
-from apps.console.queries.alert import build_alert_detail
+from apps.console.queries.alert import build_alert_detail, build_reeval_preview
 
 pytestmark = pytest.mark.django_db
 
@@ -90,3 +93,42 @@ def test_reeval_facts_come_from_the_describer():
 def test_an_empty_trace_id_is_left_out_of_the_facts():
     alert = _alert(trace_id="")
     assert [f.label for f in build_alert_detail(alert.pk).facts] == ["Fingerprint"]
+
+
+def test_reeval_preview_of_a_missing_alert_is_none():
+    assert build_reeval_preview(999) is None
+
+
+def test_reeval_preview_describes_the_change_and_can_apply():
+    alert = make_reevaluable_alert()
+
+    preview = build_reeval_preview(alert.pk)
+
+    assert preview.rows[0].headline == "Would move this alert from critical to warning"
+    assert preview.warning == ""
+    assert preview.can_apply
+    assert preview.digest == scope_digest(ReevalScope.for_alert(alert))
+    assert preview.alert_url == f"/console/alerts/{alert.pk}/"
+    assert preview.url == f"/console/alerts/{alert.pk}/reevaluate/"
+
+
+def test_reeval_preview_warns_before_reopening_a_resolved_alert():
+    alert = make_reevaluable_alert()
+    Alert.objects.filter(pk=alert.pk).update(status="resolved", ended_at=timezone.now())
+
+    preview = build_reeval_preview(alert.pk)
+
+    assert preview.warning == REOPEN_WARNING
+    assert preview.can_apply
+
+
+def test_reeval_preview_of_an_alert_with_no_registered_node_cannot_apply():
+    alert = make_reevaluable_alert()
+    Alert.objects.filter(pk=alert.pk).update(
+        node=None, labels={"checker": "cpu", "instance_id": "gone"}
+    )
+
+    preview = build_reeval_preview(alert.pk)
+
+    assert preview.rows
+    assert not preview.can_apply

@@ -599,7 +599,7 @@ class DescribeSkipTests(TestCase):
     def test_no_scorer_names_the_checker(self):
         self.assertEqual(
             self._say(Skip(SkipReason.NO_SCORER), checker="disk_temp"),
-            "disk_temp is not re-evaluatable. No scorer knows it.",
+            "No scorer re-evaluates disk_temp.",
         )
 
     def test_no_policy_names_the_node(self):

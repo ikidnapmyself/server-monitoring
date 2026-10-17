@@ -439,7 +439,7 @@ class ReportSkipTests(TestCase):
         self._alert(node, checker="raid", annotations={})
         report = preview_reeval(ReevalScope.for_node(node))
         self.assertEqual(report.skips[0].reason, SkipReason.NO_SCORER)
-        self.assertIn("not re-evaluatable", report.skips[0].sentence)
+        self.assertIn("No scorer re-evaluates", report.skips[0].sentence)
 
     def test_an_alert_with_no_readable_metrics_is_a_skip(self):
         node = self._node({"cpu": {"warning_threshold": 80, "critical_threshold": 90}})

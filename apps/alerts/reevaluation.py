@@ -97,7 +97,7 @@ Outcome = Verdict | Skip
 
 
 _SKIP_SENTENCES: dict[SkipReason, str] = {
-    SkipReason.NO_SCORER: "{checker} is not re-evaluatable. No scorer knows it.",
+    SkipReason.NO_SCORER: "No scorer re-evaluates {checker}.",
     SkipReason.NO_POLICY: "No policy set for {checker} on {instance_id}.",
     SkipReason.MALFORMED_POLICY: (
         "The {checker} policy on {instance_id} is not readable, so it was ignored."

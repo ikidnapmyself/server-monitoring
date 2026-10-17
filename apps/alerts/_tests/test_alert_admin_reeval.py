@@ -128,7 +128,7 @@ class AlertReevaluateActionTests(TestCase):
         alert = self._alert(labels={"checker": "raid", "instance_id": "web-03"})
         content = self._rendered(self.model_admin.reevaluate(self._request("get"), alert))
         self.assertIn("What was left alone, and why", content)
-        self.assertIn("RAID arrays is not re-evaluatable. No scorer knows it.", content)
+        self.assertIn("No scorer re-evaluates RAID arrays.", content)
         self.assertNotIn('value="Confirm"', content)
 
     def test_an_alert_whose_node_has_no_policy_for_its_checker_says_so(self):

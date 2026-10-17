@@ -1395,8 +1395,8 @@ class ReevaluateConfirmSkipLinkTests(TestCase):
         node = Node.objects.create(instance_id="web-03", config={})
         self._alert(node, checker="raid", annotations={})
         content = self._render(node)
-        assert "not re-evaluatable" in content
-        assert "not re-evaluatable. No scorer knows it.</a>" not in content
+        assert "No scorer re-evaluates RAID arrays." in content
+        assert "No scorer re-evaluates RAID arrays.</a>" not in content
 
 
 class PolicyPanelFixLinkTests(TestCase):

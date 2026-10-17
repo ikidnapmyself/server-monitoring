@@ -1,6 +1,5 @@
 import json
 
-import pytest
 from django.utils import timezone
 
 from apps.alerts.models import Alert, Incident, Node
@@ -26,8 +25,3 @@ def make_reevaluable_alert(instance_id: str = "web-03") -> Alert:
         labels={"checker": "cpu", "instance_id": instance_id},
         annotations={"metrics": json.dumps({"cpu_percent": 85.0})},
     )
-
-
-@pytest.fixture
-def reevaluable_alert(db) -> Alert:
-    return make_reevaluable_alert()

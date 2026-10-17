@@ -7,12 +7,15 @@ from datetime import datetime
 from django.urls import reverse
 
 from apps.alerts.describing import (
+    REOPEN_WARNING,
     describe_alert,
     describe_history,
     describe_incident,
     describe_reeval,
+    describe_reeval_report,
 )
 from apps.alerts.models import Alert
+from apps.alerts.reeval_existing import ReevalScope, preview_reeval, scope_digest
 from apps.console.queries.hosts import alert_host
 from config.admin_badges import (
     ALERT_STATUS_TONES,
@@ -152,4 +155,37 @@ def build_alert_detail(pk: int, *, can_reeval: bool = False) -> AlertDetail | No
         facts=facts,
         raw=raw,
         url=reverse("console:alert", args=[alert.pk]),
+    )
+
+
+@dataclass(frozen=True)
+class ReevalPreview:
+    pk: int
+    what: Description
+    rows: tuple[Description, ...]
+    warning: str
+    can_apply: bool
+    digest: str
+    alert_url: str
+    url: str
+
+
+def build_reeval_preview(pk: int) -> ReevalPreview | None:
+    alert = Alert.objects.filter(pk=pk).first()
+    if alert is None:
+        return None
+    scope = ReevalScope.for_alert(alert)
+    # Before the preview: if the alert moves in between, the apply refuses rather than
+    # writing a change the operator never saw.
+    digest = scope_digest(scope)
+    report = preview_reeval(scope)
+    return ReevalPreview(
+        pk=alert.pk,
+        what=describe_alert(alert),
+        rows=describe_reeval_report(report),
+        warning=REOPEN_WARNING if report.reopened_count else "",
+        can_apply=bool(report.changes) and report.node is not None,
+        digest=digest,
+        alert_url=reverse("console:alert", args=[alert.pk]),
+        url=reverse("console:alert-reeval", args=[alert.pk]),
     )
