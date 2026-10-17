@@ -12,7 +12,7 @@ from django.utils.html import format_html, format_html_join
 from django_object_actions import DjangoObjectActions
 from django_object_actions import action as object_action
 
-from apps.alerts.describing import describe_incident
+from apps.alerts.describing import NEVER, describe_incident, describe_reeval
 from apps.alerts.diagnosis import diagnose_incident
 from apps.alerts.forms import ADD_SECTION_FIELD, NodePolicyForm
 from apps.alerts.models import (
@@ -37,7 +37,6 @@ from apps.alerts.node_policy import (
     sections_for,
     spec_for,
 )
-from apps.alerts.reeval_display import reeval_panel
 from apps.alerts.reeval_existing import (
     ReevalScope,
     apply_reeval,
@@ -304,7 +303,10 @@ class AlertAdmin(DjangoObjectActions, admin.ModelAdmin):
 
     @admin.display(description="Re-evaluation")
     def reeval_display(self, obj):
-        return reeval_panel(obj)
+        facts = describe_reeval(obj)
+        if not facts:
+            return NEVER
+        return format_html_join("", "<div><b>{}:</b> {}</div>", ((f.label, f.value) for f in facts))
 
     @admin.display(description="Labels")
     def pretty_labels(self, obj):

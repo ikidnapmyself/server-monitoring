@@ -128,14 +128,14 @@ class AlertReevaluateActionTests(TestCase):
         alert = self._alert(labels={"checker": "raid", "instance_id": "web-03"})
         content = self._rendered(self.model_admin.reevaluate(self._request("get"), alert))
         self.assertIn("What was left alone, and why", content)
-        self.assertIn("raid is not re-evaluatable. No scorer knows it.", content)
+        self.assertIn("RAID arrays is not re-evaluatable. No scorer knows it.", content)
         self.assertNotIn('value="Confirm"', content)
 
     def test_an_alert_whose_node_has_no_policy_for_its_checker_says_so(self):
         Node.objects.create(instance_id="web-03", config={"memory": {}})
         alert = self._alert()
         content = self._rendered(self.model_admin.reevaluate(self._request("get"), alert))
-        self.assertIn("No policy set for cpu on web-03.", content)
+        self.assertIn("No policy set for CPU usage on web-03.", content)
         self.assertNotIn('value="Confirm"', content)
 
     def test_an_unregistered_node_is_named_in_the_intro_and_nothing_is_written(self):
@@ -143,7 +143,7 @@ class AlertReevaluateActionTests(TestCase):
         request = self._request("post", {"confirm": "1"})
         content = self._rendered(self.model_admin.reevaluate(request, alert))
         self.assertIn("names web-03, which is not registered on this hub", content)
-        self.assertIn("No policy set for cpu on web-03.", content)
+        self.assertIn("No policy set for CPU usage on web-03.", content)
         self.assertNotIn('value="Confirm"', content)
         alert.refresh_from_db()
         self.assertEqual(alert.status, "firing")
@@ -200,3 +200,19 @@ class AlertReevaluateActionTests(TestCase):
         # not a way back: what must not happen is the page offering it as Back.
         node_url = reverse("admin:alerts_node_change", args=[node.pk])
         self.assertNotIn(f'<a href="{node_url}" class="button cancel-link">', content)
+
+
+class AlertReevalPanelTests(TestCase):
+    def setUp(self):
+        self.model_admin = admin.site._registry[Alert]
+
+    def _alert(self, annotations):
+        return Alert(labels={"checker": "cpu"}, annotations=annotations)
+
+    def test_no_record_reads_never_re_evaluated(self):
+        self.assertEqual(self.model_admin.reeval_display(self._alert({})), "Never re-evaluated.")
+
+    def test_each_record_renders_its_label_and_sentence(self):
+        record = json.dumps({"from": "critical", "to": "warning", "value": 91.3})
+        panel = self.model_admin.reeval_display(self._alert({"severity_reevaluated": record}))
+        self.assertEqual(panel, "<div><b>At ingest:</b> CRITICAL to WARNING, value 91.3.</div>")

@@ -342,8 +342,8 @@ Both go through `ReevalScope` + `preview_reeval` / `apply_reeval`; neither holds
 its own.
 
 - **The Alert change page answers "what did policy do to *this* alert, and what would it do
-  now?"** The read-only **Re-evaluation** panel (`apps/alerts/reeval_display.py`) renders both
-  audit annotations as sentences: `severity_reevaluated` written at ingest, and
+  now?"** The read-only **Re-evaluation** panel (`describe_reeval` in `apps/alerts/describing.py`)
+  renders both audit annotations as sentences: `severity_reevaluated` written at ingest, and
   `reevaluated_on_config_change` written by an apply. It only reads. Both are stored as JSON
   *strings*, and every failure renders a sentence rather than raising, because the change page
   must open even when a node sent something unreadable. The per-alert **Re-evaluate** action

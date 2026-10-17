@@ -285,7 +285,7 @@ class NodeReevaluateActionTests(ReevaluateActionMixin, TestCase):
         response = self.model_admin.reevaluate_open_alerts(request, node)
         self.assertIsInstance(response, TemplateResponse)
         response.render()
-        self.assertIn("No policy set for cpu on web-03.", response.content.decode())
+        self.assertIn("No policy set for CPU usage on web-03.", response.content.decode())
         self.assertEqual(list(request._messages), [])
 
     def test_a_post_confirm_with_only_skips_writes_nothing_and_renders_the_reasons(self):
@@ -296,7 +296,7 @@ class NodeReevaluateActionTests(ReevaluateActionMixin, TestCase):
         )
         self.assertIsInstance(response, TemplateResponse)
         response.render()
-        self.assertIn("No policy set for cpu on web-03.", response.content.decode())
+        self.assertIn("No policy set for CPU usage on web-03.", response.content.decode())
         alert.refresh_from_db()
         self.assertEqual(alert.status, "firing")
 
@@ -1388,7 +1388,7 @@ class ReevaluateConfirmSkipLinkTests(TestCase):
         content = self._render(node)
         assert (
             f'<a href="/admin/alerts/node/{node.pk}/change/">'
-            "No policy set for cpu on web-03.</a>"
+            "No policy set for CPU usage on web-03.</a>"
         ) in content
 
     def test_a_skip_nobody_can_fix_stays_plain_text(self):

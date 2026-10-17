@@ -33,6 +33,7 @@ from apps.alerts.services import (
     announce_incident_change,
     resolve_node,
 )
+from apps.checkers.checkers import checker_label
 from config.admin_links import admin_url
 
 logger = logging.getLogger(__name__)
@@ -209,7 +210,9 @@ def preview_reeval(scope: ReevalScope) -> ReevalReport:
             AlertSkip(
                 alert=alert,
                 reason=outcome.reason,
-                sentence=describe_skip(outcome, checker=checker, instance_id=instance_id),
+                sentence=describe_skip(
+                    outcome, checker=checker_label(checker), instance_id=instance_id
+                ),
                 fix_url=(admin_url(scope.node) if outcome.reason in EDITOR_FIXABLE else None),
             )
         )

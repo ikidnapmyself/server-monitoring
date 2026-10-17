@@ -413,8 +413,15 @@ class ReportSkipTests(TestCase):
         report = preview_reeval(ReevalScope.for_node(node))
         self.assertEqual(report.changes, [])
         self.assertEqual(len(report.skips), 1)
-        self.assertIn("No policy set for cpu on web-03.", report.skips[0].sentence)
+        self.assertIn("No policy set for CPU usage on web-03.", report.skips[0].sentence)
         self.assertEqual(report.skips[0].reason, SkipReason.NO_POLICY)
+
+    def test_a_skip_names_the_checker_by_its_label(self):
+        node = self._node({})
+        self._alert(node, checker="disk_inodes", metric="worst_percent")
+        report = preview_reeval(ReevalScope.for_node(node))
+        self.assertEqual(report.skips[0].sentence, "No policy set for Inode usage on web-03.")
+        self.assertNotIn("disk_inodes", report.skips[0].sentence)
 
     def test_an_unchanged_score_is_a_skip_not_a_silence(self):
         node = self._node({"cpu": {"warning_threshold": 80, "critical_threshold": 90}})
@@ -424,7 +431,7 @@ class ReportSkipTests(TestCase):
         self.assertEqual(report.skips[0].reason, SkipReason.UNCHANGED)
         self.assertEqual(
             report.skips[0].sentence,
-            "Policy already matches: cpu is at 95.0, warning starts at 80.",
+            "Policy already matches: CPU usage is at 95.0, warning starts at 80.",
         )
 
     def test_a_checker_with_no_scorer_is_a_skip(self):
@@ -454,7 +461,7 @@ class ReportSkipTests(TestCase):
         self.assertEqual(report.skips[0].reason, SkipReason.UNCHANGED_NO_THRESHOLD)
         self.assertEqual(
             report.skips[0].sentence,
-            "Policy already matches: the listening_ports policy on web-03 "
+            "Policy already matches: the Listening ports policy on web-03 "
             "scores this alert exactly as it stands.",
         )
         self.assertNotIn("None", report.skips[0].sentence)
@@ -539,7 +546,7 @@ class UnregisteredNodeScopeTests(TestCase):
         report = preview_reeval(scope)
         self.assertIsNone(report.node)
         self.assertEqual(report.changes, [])
-        self.assertEqual(report.skips[0].sentence, "No policy set for cpu on web-99.")
+        self.assertEqual(report.skips[0].sentence, "No policy set for CPU usage on web-99.")
 
     def test_apply_writes_nothing(self):
         report = apply_reeval(ReevalScope.for_alert(self.alert))
