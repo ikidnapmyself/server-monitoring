@@ -10,9 +10,11 @@ docs/plans/2026-08-01-pipeline-routing-phase-a.md.
 from typing import Any
 
 from django.db import models
+from django.db.models import F, Q
+from django.utils import timezone
 
 from apps.alerts.models import AlertSeverity, AlertStatus
-from apps.orchestration.models import PipelineOrigin
+from apps.orchestration.models import PipelineDefinition, PipelineOrigin
 
 FIELDS: dict[str, str] = {
     "source": "Source",
@@ -82,6 +84,38 @@ def describe_match(match: Any) -> str:
     return " and ".join(w for w in words if w)
 
 
+class StaleRoute(Exception):
+    """The route changed between the editor's render and its save."""
+
+
+def save_route(pk: int, fields: dict, *, expected: int) -> None:
+    """Write ``fields`` to route ``pk`` iff it is still at version ``expected``. Bumps it."""
+    # QuerySet.update skips auto_now, so updated_at is set by hand.
+    updated = PipelineDefinition.objects.filter(pk=pk, version=expected).update(
+        **fields, version=F("version") + 1, updated_at=timezone.now()
+    )
+    if not updated:
+        raise StaleRoute
+
+
+def fallthrough(lane: PipelineDefinition) -> str:
+    """Where traffic this route matched goes once it's deleted."""
+    if not lane.is_active:
+        return "This route is off, so deleting it changes no routing."
+    later = (
+        PipelineDefinition.objects.filter(is_active=True)
+        .filter(Q(priority__gt=lane.priority) | Q(priority=lane.priority, id__gt=lane.id))
+        .order_by("priority", "id")
+    )
+    for other in later:
+        if not other.match:
+            return (
+                f"Traffic it matched goes to the next route that matches, at worst {other.name}, "
+                "which matches everything."
+            )
+    return "Traffic only it matched will match no route, and those runs will fail as unrouted."
+
+
 def subject_alert(alerts: Any) -> Any:
     """Most severe alert in a batch, ties broken by name then fingerprint.
 
@@ -149,8 +183,6 @@ def facts_from_alert(alert: Any, origin: str) -> dict:
 
 def resolve_pipeline(facts: dict):
     """Return the first active, highest-priority pipeline that matches, else None."""
-    from apps.orchestration.models import PipelineDefinition
-
     for pipeline in PipelineDefinition.objects.filter(is_active=True).order_by("priority", "id"):
         if pipeline.matches(facts):
             return pipeline

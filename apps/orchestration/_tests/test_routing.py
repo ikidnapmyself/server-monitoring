@@ -1,12 +1,20 @@
-import pytest
+from datetime import timedelta
 
+import pytest
+from django.utils import timezone
+
+from apps.orchestration.models import PipelineDefinition
 from apps.orchestration.routing import (
+    StaleRoute,
     describe_condition,
     describe_match,
+    fallthrough,
     representable,
+    save_route,
     split_field,
     value_words,
 )
+from apps.orchestration.testing import clear_lanes
 
 
 def test_split_field_label():
@@ -121,3 +129,80 @@ def test_representable():
     assert not representable([{"field": "source", "op": "regex", "value": ".*"}])
     assert not representable({"field": "source", "op": "is", "value": "cluster"})
     assert not representable(None)
+
+
+@pytest.fixture
+def lanes(db):
+    clear_lanes()
+
+    def make(name, priority=100, match=None, is_active=True):
+        return PipelineDefinition.objects.create(
+            name=name,
+            priority=priority,
+            match=[{"field": "source", "op": "is", "value": name}] if match is None else match,
+            is_active=is_active,
+        )
+
+    return make
+
+
+def test_save_route_at_current_version_writes_and_bumps(lanes):
+    route = lanes("web")
+    save_route(route.pk, {"description": "edited"}, expected=route.version)
+    route.refresh_from_db()
+    assert route.description == "edited"
+    assert route.version == 2
+
+
+def test_save_route_at_old_version_raises_and_writes_nothing(lanes):
+    route = lanes("web")
+    PipelineDefinition.objects.filter(pk=route.pk).update(version=2)
+    with pytest.raises(StaleRoute):
+        save_route(route.pk, {"description": "edited"}, expected=1)
+    route.refresh_from_db()
+    assert route.description == ""
+    assert route.version == 2
+
+
+def test_save_route_moves_updated_at(lanes):
+    route = lanes("web")
+    old = timezone.now() - timedelta(days=1)
+    PipelineDefinition.objects.filter(pk=route.pk).update(updated_at=old)
+    save_route(route.pk, {"priority": 50}, expected=route.version)
+    route.refresh_from_db()
+    assert route.updated_at > old
+
+
+def test_fallthrough_inactive_route(lanes):
+    route = lanes("web", is_active=False)
+    assert fallthrough(route) == "This route is off, so deleting it changes no routing."
+
+
+def test_fallthrough_names_the_next_active_catch_all(lanes):
+    route = lanes("web", priority=100)
+    lanes("earlier-catch-all", priority=10, match=[])
+    lanes("narrower", priority=200)
+    lanes("off-catch-all", priority=300, match=[], is_active=False)
+    lanes("catch-all", priority=1000, match=[])
+    lanes("later-catch-all", priority=2000, match=[])
+    assert fallthrough(route) == (
+        "Traffic it matched goes to the next route that matches, at worst catch-all, "
+        "which matches everything."
+    )
+
+
+def test_fallthrough_ties_on_priority_break_on_id(lanes):
+    before = lanes("before", priority=100, match=[])
+    route = lanes("web", priority=100)
+    after = lanes("after", priority=100, match=[])
+    assert before.pk < route.pk < after.pk
+    assert "at worst after," in fallthrough(route)
+
+
+def test_fallthrough_without_a_later_catch_all(lanes):
+    route = lanes("web", priority=100)
+    lanes("earlier-catch-all", priority=10, match=[])
+    lanes("off-catch-all", priority=1000, match=[], is_active=False)
+    assert fallthrough(route) == (
+        "Traffic only it matched will match no route, and those runs will fail as unrouted."
+    )
