@@ -18,7 +18,7 @@ from apps.console.queries.hosts import (
 )
 from apps.console.queries.incidents import SINCE_CHIPS, ChipGroup, Choice, chip_group
 from apps.orchestration.describing import STAGE_NAMES, describe_run
-from apps.orchestration.models import PipelineOrigin, PipelineRun, PipelineStatus
+from apps.orchestration.models import PipelineOrigin, PipelineRun
 from config.describing import Description
 
 PAGE_SIZE = 50
@@ -82,10 +82,7 @@ def run_node(run: PipelineRun, hosts: dict[int, tuple[str, ...]]) -> str:
 
 
 def _matching(criteria: RunFilter, node_keys: tuple[str, ...]):
-    runs = PipelineRun.objects.all()
-    statuses = criteria.statuses()
-    if statuses:
-        runs = runs.filter(status__in=statuses)
+    runs = PipelineRun.objects.filter(criteria.matches())
     if criteria.origin:
         runs = runs.filter(origin=criteria.origin)
     cutoff = criteria.cutoff(timezone.now())
@@ -111,13 +108,12 @@ def _matching(criteria: RunFilter, node_keys: tuple[str, ...]):
 
 
 def _status_counts(criteria: RunFilter, node_keys: tuple[str, ...]) -> dict[str, int]:
-    found = _matching(replace(criteria, status="all"), node_keys).aggregate(
-        **{status: Count("pk", filter=Q(status=status)) for status in PipelineStatus.values}
+    return _matching(replace(criteria, status="all"), node_keys).aggregate(
+        **{
+            key: Count("pk", filter=match) if match else Count("pk")
+            for key, match in RUN_STATUS_CHOICES.items()
+        }
     )
-    return {
-        key: sum(found.values()) if not statuses else sum(found[s] for s in statuses)
-        for key, statuses in RUN_STATUS_CHOICES.items()
-    }
 
 
 def _rows(runs, page: int) -> tuple[RunListRow, ...]:

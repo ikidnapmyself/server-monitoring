@@ -46,7 +46,7 @@ def build_readiness():
     from apps.checkers.models import PreflightRun
     from apps.intelligence.models import IntelligenceProvider
     from apps.notify.models import NotificationChannel
-    from apps.orchestration.inbox import DEFAULT_STALE_MINUTES
+    from apps.orchestration.inbox import stuck as stuck_runs
     from apps.orchestration.models import PipelineDefinition, PipelineRun, PipelineStatus
 
     now = timezone.now()
@@ -173,16 +173,11 @@ def build_readiness():
 
     # Inbox
     pending = PipelineRun.objects.filter(status=PipelineStatus.PENDING).count()
-    stuck = PipelineRun.objects.filter(
-        status=PipelineStatus.PROCESSING,
-        updated_at__lt=now - timedelta(minutes=DEFAULT_STALE_MINUTES),
-    ).count()
+    stuck = PipelineRun.objects.filter(stuck_runs()).count()
     inbox_url = reverse("console:inbox")
     if stuck:
         i_status, detail = "error", f"{stuck} stuck run(s)"
-        # The inbox page filters on status. "Stuck" is an age, not a stored field,
-        # so PROCESSING is the nearest filter.
-        inbox_url = f"{inbox_url}?status={PipelineStatus.PROCESSING}"
+        inbox_url = f"{inbox_url}?status=stuck"
     elif pending:
         i_status, detail = "warn", f"{pending} pending"
         inbox_url = f"{inbox_url}?status={PipelineStatus.PENDING}"
@@ -324,7 +319,7 @@ def _inbox(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Descripti
     counts = entry["counts"]
     if counts["stuck"]:
         headline = f"{_plural(counts['stuck'], 'run is', 'runs are')} stuck"
-        action = Action("Open the stuck runs", "view_inbox", {"status": "processing"})
+        action = Action("Open the stuck runs", "view_inbox", {"status": "stuck"})
     else:
         headline = f"{_plural(counts['pending'], 'run is', 'runs are')} waiting to be processed"
         action = Action("Open the waiting runs", "view_inbox", {"status": "pending"})

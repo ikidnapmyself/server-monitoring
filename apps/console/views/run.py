@@ -14,10 +14,10 @@ RUN_CHANGE = "orchestration.change_pipelinerun"
 RETRIED = "Run queued again. The next drain runs the stages that didn't finish."
 NOT_FAILED = "This run is no longer failed."
 ABANDONED = "Run marked failed. No drain will pick it up."
-FINISHED = "This run already finished."
+NOT_STUCK = "This run is running or finished. Only a queued or stuck run can be marked failed."
 ACTIONS: dict[str, tuple[Callable[[int], bool], str, str]] = {
     "retry": (inbox.requeue, RETRIED, NOT_FAILED),
-    "abandon": (inbox.abandon, ABANDONED, FINISHED),
+    "abandon": (inbox.abandon, ABANDONED, NOT_STUCK),
 }
 
 

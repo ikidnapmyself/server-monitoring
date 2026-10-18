@@ -1,10 +1,12 @@
 import re
+from datetime import timedelta
 
 import pytest
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.console._tests.queries.test_runs import _run
-from apps.console.views.run import ABANDONED, FINISHED, NOT_FAILED, RETRIED
+from apps.console.views.run import ABANDONED, NOT_FAILED, NOT_STUCK, RETRIED
 from apps.orchestration.models import PipelineRun
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
@@ -159,10 +161,13 @@ def test_a_double_retry_queues_once(client, run_operator):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("status", ["pending", "processing", "retrying"])
+@pytest.mark.parametrize(("status", "minutes"), [("pending", 0), ("checked", 60), ("retrying", 60)])
 @BOTH
-def test_mark_failed_fails_a_queued_run(client, run_operator, status, headers):
+def test_mark_failed_fails_a_queued_or_stuck_run(client, run_operator, status, minutes, headers):
     run = _run(status=status)
+    PipelineRun.objects.filter(pk=run.pk).update(
+        updated_at=timezone.now() - timedelta(minutes=minutes)
+    )
 
     resp = client.post(_url(run, "abandon"), follow=not headers, **headers)
 
@@ -173,14 +178,19 @@ def test_mark_failed_fails_a_queued_run(client, run_operator, status, headers):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("status", "completed"), [("notified", True), ("processing", False), ("retrying", False)]
+)
 @BOTH
-def test_mark_failed_on_a_finished_run_warns(client, run_operator, headers):
-    run = _run(status="notified")
+def test_mark_failed_on_a_live_or_finished_run_warns(
+    client, run_operator, status, completed, headers
+):
+    run = _run(status=status, completed_at=timezone.now() if completed else None)
 
     resp = client.post(_url(run, "abandon"), follow=not headers, **headers)
 
-    assert _notices(resp.content.decode()) == [("warning", FINISHED)]
-    assert _status(run) == "notified"
+    assert _notices(resp.content.decode()) == [("warning", NOT_STUCK)]
+    assert _status(run) == status
 
 
 @pytest.mark.django_db

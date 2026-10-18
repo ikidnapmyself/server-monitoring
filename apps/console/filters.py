@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
+from django.db.models import Q
 from django.http import QueryDict
 
 from apps.alerts.models import AlertSeverity, AlertStatus, IncidentStatus
@@ -30,24 +31,17 @@ ALERT_STATUS_CHOICES: dict[str, tuple[str, ...]] = {
 }
 
 _S = PipelineStatus
-RUN_STATUS_CHOICES: dict[str, tuple[str, ...]] = {
-    "failed": (_S.FAILED.value,),
-    "active": (_S.PENDING.value, _S.PROCESSING.value, _S.RETRYING.value),
-    "finished": (
-        _S.NOTIFIED.value,
-        _S.ANALYZED.value,
-        _S.CHECKED.value,
-        _S.INGESTED.value,
-        _S.SKIPPED.value,
-    ),
-    "all": (),
+_MID_LANE = (_S.INGESTED.value, _S.CHECKED.value, _S.ANALYZED.value)
+RUN_STATUS_CHOICES: dict[str, Q] = {
+    "failed": Q(status=_S.FAILED.value),
+    "active": Q(status__in=(_S.PENDING.value, _S.PROCESSING.value, _S.RETRYING.value))
+    | Q(status__in=_MID_LANE, completed_at__isnull=True),
+    "finished": Q(status__in=(_S.NOTIFIED.value, _S.SKIPPED.value))
+    | Q(status__in=_MID_LANE, completed_at__isnull=False),
+    "all": Q(),
 }
 ORIGIN_CHOICES: tuple[str, ...] = ("", *PipelineOrigin.values)
-INBOX_STATUS_CHOICES: dict[str, tuple[str, ...]] = {
-    "": (_S.PENDING.value, _S.PROCESSING.value),
-    "pending": (_S.PENDING.value,),
-    "processing": (_S.PROCESSING.value,),
-}
+INBOX_STATUS_CHOICES: tuple[str, ...] = ("", "pending", "processing", "stuck")
 
 FIELDS = ("status", "severity", "node", "since", "page")
 ALERT_FIELDS = ("q", "status", "severity", "node", "source", "since", "page")
@@ -230,7 +224,12 @@ class RunFilter:
             values["q"] = text
         return cls(**values, dropped=tuple(dropped))  # type: ignore[arg-type]
 
-    def statuses(self) -> tuple[str, ...]:
+    def matches(self) -> Q:
+        """The runs this status chip shows, split the way ``describe_run`` words them.
+
+        A lane without notify ends at diagnose or analyze, so only ``completed_at`` tells
+        a finished run from one still going.
+        """
         return RUN_STATUS_CHOICES[self.status]
 
     def cutoff(self, now: datetime) -> datetime | None:
@@ -264,9 +263,6 @@ class InboxFilter:
     def parse(cls, params: QueryDict) -> "InboxFilter":
         values, dropped = _parse(params, (("status", INBOX_STATUS_CHOICES),))
         return cls(**values, dropped=tuple(dropped))  # type: ignore[arg-type]
-
-    def statuses(self) -> tuple[str, ...]:
-        return INBOX_STATUS_CHOICES[self.status]
 
     def querystring(self, **changes: str | int | None) -> str:
         status = changes.get("status", self.status)

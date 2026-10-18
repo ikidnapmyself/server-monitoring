@@ -14,7 +14,8 @@ from apps.console.queries.alert import IncidentCard
 from apps.console.queries.run import build_run_detail, run_exists
 from apps.console.queries.stages import CheckBody
 from apps.orchestration.describing import describe_run, describe_stage_outcome
-from apps.orchestration.models import StageExecution
+from apps.orchestration.inbox import DEFAULT_STALE_MINUTES, IN_FLIGHT_STATUSES
+from apps.orchestration.models import PipelineRun, StageExecution
 from config.describing import Action, Fact
 
 pytestmark = pytest.mark.django_db
@@ -127,19 +128,41 @@ def test_a_failed_run_offers_retry_only_to_a_user_who_may_act(can_act):
     assert detail.do == ((Action("Retry", "retry_run", {"pk": run.pk}),) if can_act else ())
 
 
-@pytest.mark.parametrize("status", ["pending", "processing", "retrying"])
-def test_an_open_run_offers_mark_failed(status):
-    run = _run(status=status)
-
-    assert build_run_detail(run.pk, can_act=True).do == (
-        Action("Mark failed", "abandon_run", {"pk": run.pk}),
+def _stale(run):
+    PipelineRun.objects.filter(pk=run.pk).update(
+        updated_at=timezone.now() - timedelta(minutes=DEFAULT_STALE_MINUTES + 1)
     )
+    return run
+
+
+def _mark_failed(run):
+    return (Action("Mark failed", "abandon_run", {"pk": run.pk}),)
+
+
+def test_a_queued_run_offers_mark_failed():
+    run = _run(status="pending")
+
+    assert build_run_detail(run.pk, can_act=True).do == _mark_failed(run)
     assert build_run_detail(run.pk).do == ()
+
+
+@pytest.mark.parametrize("status", IN_FLIGHT_STATUSES)
+def test_a_stuck_run_offers_mark_failed(status):
+    run = _stale(_run(status=status))
+
+    assert build_run_detail(run.pk, can_act=True).do == _mark_failed(run)
+
+
+@pytest.mark.parametrize("status", IN_FLIGHT_STATUSES)
+def test_a_run_a_drain_is_executing_offers_nothing(status):
+    assert build_run_detail(_run(status=status).pk, can_act=True).do == ()
 
 
 @pytest.mark.parametrize("status", ["notified", "analyzed", "checked", "ingested", "skipped"])
 def test_a_finished_run_offers_nothing(status):
-    assert build_run_detail(_run(status=status).pk, can_act=True).do == ()
+    run = _stale(_run(status=status, completed_at=timezone.now()))
+
+    assert build_run_detail(run.pk, can_act=True).do == ()
 
 
 def test_details_hold_the_ids_refs_error_and_payload():

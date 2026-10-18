@@ -8,17 +8,18 @@ the operator's requeue and abandon. It is also where every downstream incident r
 recorded (``enqueue_incident_runs``).
 
 The claim is atomic (PENDING -> PROCESSING) so overlapping drains never
-double-process, and a crashed drain's PROCESSING runs are reclaimed after the
-timeout.
+double-process, and a run a crashed or killed drain left in flight is reclaimed after
+the timeout.
 """
 
 import logging
+import time
 import uuid
 from collections.abc import Iterable
 from datetime import timedelta
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 
 from apps.orchestration.models import PipelineRun, PipelineStatus
@@ -26,22 +27,42 @@ from apps.orchestration.orchestrator import PipelineOrchestrator
 
 logger = logging.getLogger(__name__)
 
-# Single source of truth for the stall timeout: how long a run may sit PROCESSING
-# before it is considered a crashed/stalled drain and reclaimed. Referenced by
-# ``reclaim_stuck``, ``InboxItem.is_stuck``, and the ``process_inbox --stale-minutes``
-# default so the literal is not triplicated.
 DEFAULT_STALE_MINUTES = 15
 
-ABANDON_STATUSES = (PipelineStatus.PENDING, PipelineStatus.PROCESSING, PipelineStatus.RETRYING)
+IN_FLIGHT_STATUSES = (
+    PipelineStatus.PROCESSING,
+    PipelineStatus.INGESTED,
+    PipelineStatus.CHECKED,
+    PipelineStatus.ANALYZED,
+    PipelineStatus.RETRYING,
+)
 ABANDON_MESSAGE = "Marked failed by an operator"
 
 
-def reclaim_stuck(timeout_minutes: int = DEFAULT_STALE_MINUTES) -> int:
-    """Return PROCESSING runs stuck past the timeout to PENDING; return the count."""
+def stuck(timeout_minutes: int = DEFAULT_STALE_MINUTES) -> Q:
+    """A run a drain left in flight and stopped touching: crashed, killed or timed out.
+
+    The one definition of stuck. Every stage save stamps ``updated_at``, so a live drain
+    keeps its run fresh, and ``completed_at`` tells a lane that ended at diagnose or
+    analyze from one that stopped there.
+    """
     cutoff = timezone.now() - timedelta(minutes=timeout_minutes)
-    return PipelineRun.objects.filter(
-        status=PipelineStatus.PROCESSING, updated_at__lt=cutoff
-    ).update(status=PipelineStatus.PENDING, updated_at=timezone.now())
+    return Q(status__in=IN_FLIGHT_STATUSES, completed_at__isnull=True, updated_at__lt=cutoff)
+
+
+def abandonable() -> Q:
+    """A run no drain is executing: still queued, or stuck."""
+    return Q(status=PipelineStatus.PENDING) | stuck()
+
+
+def reclaim_stuck(timeout_minutes: int = DEFAULT_STALE_MINUTES) -> int:
+    """Return every stuck run to PENDING; return the count.
+
+    The next drain resumes it and skips the stages that already succeeded.
+    """
+    return PipelineRun.objects.filter(stuck(timeout_minutes)).update(
+        status=PipelineStatus.PENDING, updated_at=timezone.now()
+    )
 
 
 def claim(pk: int) -> bool:
@@ -86,14 +107,18 @@ def drain(limit: int = 50) -> int:
     return processed
 
 
-def drain_each(pks: Iterable[int]) -> tuple[int, int]:
+def drain_each(pks: Iterable[int], *, seconds: float | None = None) -> tuple[int, int]:
     """Claim and execute each run on its own. Return how many ran and how many raised.
 
     One run that raises is logged and counted, and the rest still run. A run already
-    claimed, or gone, is neither.
+    claimed, or gone, is neither. With ``seconds``, no run starts once that much time has
+    passed, so a drain inside a request ends before the worker timeout kills it mid-run.
     """
     ran = failed = 0
+    started = time.monotonic()
     for pk in pks:
+        if seconds is not None and time.monotonic() - started >= seconds:
+            break
         try:
             if claim(pk):
                 _execute(PipelineRun(pk=pk))
@@ -109,12 +134,14 @@ def requeue(pk: int) -> bool:
 
     The next drain claims it and ``execute_run`` skips every stage that already succeeded,
     so it keeps its ``run_id`` and ``trace_id`` and re-runs only what failed. ``update``
-    skips ``auto_now``, and ``reclaim_stuck`` reads ``updated_at``, so it is set here.
+    skips ``auto_now``, and ``reclaim_stuck`` reads ``updated_at``, so it is set here. A
+    queued run hasn't finished, so ``completed_at`` goes too.
     """
     return (
         PipelineRun.objects.filter(pk=pk, status=PipelineStatus.FAILED).update(
             status=PipelineStatus.PENDING,
             total_attempts=F("total_attempts") + 1,
+            completed_at=None,
             updated_at=timezone.now(),
         )
         == 1
@@ -122,10 +149,14 @@ def requeue(pk: int) -> bool:
 
 
 def abandon(pk: int) -> bool:
-    """Fail a queued, claimed or retrying run that should never run. True iff this call did."""
+    """Fail a queued or stuck run that should never run. True iff this call did.
+
+    A run a drain is executing right now is refused: the drain would overwrite the
+    failure, or a retry would run it a second time beside it.
+    """
     now = timezone.now()
     return (
-        PipelineRun.objects.filter(pk=pk, status__in=ABANDON_STATUSES).update(
+        PipelineRun.objects.filter(abandonable(), pk=pk).update(
             status=PipelineStatus.FAILED,
             last_error_type="ManualOverride",
             last_error_message=ABANDON_MESSAGE,

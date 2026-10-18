@@ -73,20 +73,40 @@ def test_rows_are_newest_first_and_described():
     assert (rows[0].incident_pk, rows[0].incident_url) == (None, "")
 
 
+def _bucket(run):
+    headline = describe_run(run).headline
+    if headline == "Run failed":
+        return "failed"
+    if headline.startswith(("Run finished", "Run skipped")):
+        return "finished"
+    return "active"
+
+
 @pytest.mark.parametrize("key", list(RUN_STATUS_CHOICES))
-def test_each_status_chip_selects_its_bucket(key):
-    for status in PipelineStatus.values:
-        _run(status=status)
+def test_each_status_chip_selects_the_runs_its_headline_names(key):
+    runs = [
+        _run(status=status, completed_at=completed)
+        for status in PipelineStatus.values
+        for completed in (None, timezone.now())
+    ]
+    expected = {run.pk for run in runs if key in ("all", _bucket(run))}
 
     listing = build_run_list(RunFilter(status=key))
 
-    expected = RUN_STATUS_CHOICES[key] or PipelineStatus.values
-    assert listing.total == len(expected)
-    assert {row.what.facts[2].value for row in listing.rows} == set(expected)
+    assert _pks(listing) == expected
     counts = {chip.key: chip.count for chip in _group(listing, "status").chips}
-    assert counts == {k: len(v or PipelineStatus.values) for k, v in RUN_STATUS_CHOICES.items()}
+    buckets = [_bucket(run) for run in runs]
+    assert counts == {k: len(runs) if k == "all" else buckets.count(k) for k in counts}
     active = [chip.key for chip in _group(listing, "status").chips if chip.active]
     assert active == [key]
+
+
+def test_a_lane_that_ended_at_diagnose_is_finished_and_one_killed_there_is_not():
+    done = _run(status="checked", completed_at=timezone.now())
+    killed = _run(status="checked")
+
+    assert _pks(build_run_list(RunFilter(status="finished"))) == {done.pk}
+    assert _pks(build_run_list(RunFilter(status="active"))) == {killed.pk}
 
 
 def test_origin_and_since_narrow_the_rows(monkeypatch):

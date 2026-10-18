@@ -8,10 +8,9 @@ from django.utils import timezone
 
 from apps.alerts.models import Alert, Incident
 from apps.orchestration import inbox
-from apps.orchestration.dtos import NotifyResult
+from apps.orchestration.dtos import CheckResult, NotifyResult
 from apps.orchestration.executors import AnalyzeExecutor, CheckExecutor, NotifyExecutor
 from apps.orchestration.models import (
-    InboxItem,
     PipelineDefinition,
     PipelineRun,
     PipelineStatus,
@@ -21,8 +20,44 @@ from apps.orchestration.models import (
 from apps.orchestration.testing import clear_lanes
 
 
-def _run(run_id, status=PipelineStatus.PENDING):
-    return PipelineRun.objects.create(trace_id="t", run_id=run_id, status=status)
+def _run(run_id, status=PipelineStatus.PENDING, **fields):
+    return PipelineRun.objects.create(trace_id="t", run_id=run_id, status=status, **fields)
+
+
+def _aged(run, minutes):
+    PipelineRun.objects.filter(pk=run.pk).update(
+        updated_at=timezone.now() - timedelta(minutes=minutes)
+    )
+    return run
+
+
+def _status(run):
+    return PipelineRun.objects.get(pk=run.pk).status
+
+
+def _lane_run(stages, status=PipelineStatus.PENDING):
+    clear_lanes()
+    PipelineDefinition.objects.create(name="all", stages=stages)
+    incident = Incident.objects.create(severity="critical", subject="disk", instance="web-1")
+    Alert.objects.create(
+        incident=incident,
+        fingerprint="fp",
+        name="disk",
+        severity="critical",
+        status="firing",
+        source="cluster",
+        started_at=timezone.now(),
+    )
+    return PipelineRun.objects.create(
+        trace_id="t",
+        run_id="r",
+        status=status,
+        incident=incident,
+        inbound_payload={"downstream_incident_id": incident.pk},
+    )
+
+
+STALE = inbox.DEFAULT_STALE_MINUTES + 1
 
 
 @pytest.mark.django_db
@@ -59,8 +94,7 @@ def test_a_run_that_waited_long_is_not_stuck_the_moment_it_is_claimed():
 
     assert inbox.claim(run.pk) is True
 
-    run.refresh_from_db()
-    assert InboxItem.objects.get(pk=run.pk).is_stuck() is False
+    assert not PipelineRun.objects.filter(inbox.stuck(), pk=run.pk).exists()
     assert inbox.reclaim_stuck() == 0
     run.refresh_from_db()
     assert run.status == PipelineStatus.PROCESSING
@@ -271,7 +305,7 @@ def test_a_legacy_ingest_run_still_drains_without_an_incident():
 
 @pytest.mark.django_db
 def test_requeue_wins_once_and_bumps_attempts():
-    run = _run("failed", status=PipelineStatus.FAILED)
+    run = _run("failed", status=PipelineStatus.FAILED, completed_at=timezone.now())
     stale = timezone.now() - timedelta(hours=2)
     PipelineRun.objects.filter(pk=run.pk).update(updated_at=stale)
 
@@ -282,6 +316,7 @@ def test_requeue_wins_once_and_bumps_attempts():
     assert run.status == PipelineStatus.PENDING
     assert run.total_attempts == 2
     assert run.updated_at > stale + timedelta(hours=1)
+    assert run.completed_at is None
 
 
 @pytest.mark.django_db
@@ -297,9 +332,11 @@ def test_requeue_refuses_a_run_that_is_not_failed(status):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("status", inbox.ABANDON_STATUSES)
-def test_abandon_fails_an_open_run_once_and_writes_the_error(status):
-    run = _run("open", status=status)
+@pytest.mark.parametrize(
+    ("status", "minutes"), [("pending", 0), *((s, STALE) for s in inbox.IN_FLIGHT_STATUSES)]
+)
+def test_abandon_fails_a_queued_or_stuck_run_once_and_writes_the_error(status, minutes):
+    run = _aged(_run("open", status=status), minutes)
 
     assert inbox.abandon(run.pk) is True
     assert inbox.abandon(run.pk) is False
@@ -313,15 +350,123 @@ def test_abandon_fails_an_open_run_once_and_writes_the_error(status):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("status", [s for s in PipelineStatus if s not in inbox.ABANDON_STATUSES])
+@pytest.mark.parametrize("status", inbox.IN_FLIGHT_STATUSES)
+def test_abandon_refuses_a_run_a_drain_is_executing(status):
+    run = _run("live", status=status)
+
+    assert inbox.abandon(run.pk) is False
+    assert _status(run) == status
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "status", [PipelineStatus.NOTIFIED, PipelineStatus.FAILED, PipelineStatus.SKIPPED]
+)
 def test_abandon_refuses_a_finished_run(status):
-    run = _run("finished", status=status)
+    run = _aged(_run("finished", status=status, completed_at=timezone.now()), STALE)
 
     assert inbox.abandon(run.pk) is False
 
     run.refresh_from_db()
     assert run.status == status
     assert run.last_error_type == ""
+
+
+@pytest.mark.django_db
+def test_abandon_refuses_a_lane_that_finished_at_diagnose():
+    run = _aged(_run("done", status=PipelineStatus.CHECKED, completed_at=timezone.now()), STALE)
+
+    assert inbox.abandon(run.pk) is False
+    assert inbox.reclaim_stuck() == 0
+    assert _status(run) == PipelineStatus.CHECKED
+
+
+@pytest.mark.django_db
+def test_abandon_during_a_drain_leaves_the_run_to_the_drain():
+    run = _lane_run(["check"])
+    calls = []
+    inner = {}
+
+    def execute(ctx):
+        calls.append(ctx.attempt)
+        if len(calls) == 1:
+            inner["abandon"] = inbox.abandon(run.pk)
+            inner["requeue"] = inbox.requeue(run.pk)
+            inner["drain"] = inbox.drain_each([run.pk])
+        return CheckResult()
+
+    with patch.object(CheckExecutor, "execute", side_effect=execute):
+        assert inbox.drain_each([run.pk]) == (1, 0)
+
+    assert inner == {"abandon": False, "requeue": False, "drain": (0, 0)}
+    assert len(calls) == 1
+    run.refresh_from_db()
+    assert (run.status, run.last_error_type) == (PipelineStatus.CHECKED, "")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status", inbox.IN_FLIGHT_STATUSES)
+def test_reclaim_returns_every_stuck_status_to_the_queue(status):
+    stuck = _aged(_run("stuck", status=status), STALE)
+    fresh = _run("fresh", status=status)
+
+    assert inbox.reclaim_stuck() == 1
+
+    assert (_status(stuck), _status(fresh)) == (PipelineStatus.PENDING, status)
+    stuck.refresh_from_db()
+    assert stuck.updated_at > timezone.now() - timedelta(minutes=1)
+
+
+@pytest.mark.django_db
+def test_a_run_a_killed_drain_left_after_diagnose_resumes_at_the_next_stage():
+    run = _lane_run(["check", "notify"], status=PipelineStatus.CHECKED)
+    StageExecution.objects.create(
+        pipeline_run=run,
+        stage="check",
+        attempt=1,
+        status=StageStatus.SUCCEEDED,
+        output_snapshot={"summary": "check"},
+    )
+    _aged(run, 60 * 24)
+
+    assert inbox.reclaim_stuck() == 1
+    with (
+        patch.object(CheckExecutor, "execute") as check,
+        patch.object(
+            NotifyExecutor, "execute", return_value=NotifyResult(channels_succeeded=1)
+        ) as notify,
+    ):
+        assert inbox.drain_each(inbox.pending_pks(10)) == (1, 0)
+
+    check.assert_not_called()
+    notify.assert_called_once()
+    assert _status(run) == PipelineStatus.NOTIFIED
+
+
+@pytest.mark.django_db
+def test_drain_each_starts_no_run_once_its_time_is_spent():
+    runs = [_run(f"r{i}") for i in range(3)]
+    clock = iter([0.0, 0.0, 30.0, 61.0])
+
+    with (
+        patch("apps.orchestration.inbox.time.monotonic", side_effect=lambda: next(clock)),
+        patch("apps.orchestration.inbox.PipelineOrchestrator.execute_run") as mock_exec,
+    ):
+        assert inbox.drain_each([run.pk for run in runs], seconds=60) == (2, 0)
+
+    assert mock_exec.call_count == 2
+    assert [_status(run) for run in runs] == ["processing", "processing", "pending"]
+
+
+@pytest.mark.django_db
+def test_drain_each_without_a_budget_runs_them_all():
+    runs = [_run(f"r{i}") for i in range(2)]
+
+    with (
+        patch("apps.orchestration.inbox.time.monotonic", side_effect=[0.0, 1e9, 1e9]),
+        patch("apps.orchestration.inbox.PipelineOrchestrator.execute_run"),
+    ):
+        assert inbox.drain_each([run.pk for run in runs]) == (2, 0)
 
 
 @pytest.mark.django_db

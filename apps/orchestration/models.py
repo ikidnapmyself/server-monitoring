@@ -4,8 +4,6 @@ Models for pipeline orchestration.
 Provides persistent state tracking for pipeline runs and stage executions.
 """
 
-from datetime import timedelta
-
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
@@ -287,12 +285,6 @@ class PipelineRun(models.Model):
             ]
         )
 
-    def mark_retrying(self):
-        """Mark pipeline as retrying."""
-        self.status = PipelineStatus.RETRYING
-        self.total_attempts += 1
-        self.save(update_fields=["status", "total_attempts", "updated_at"])
-
 
 class InboxManager(models.Manager):
     """Restrict the queryset to un-drained runs (the inbox)."""
@@ -314,20 +306,6 @@ class InboxItem(PipelineRun):
         proxy = True
         verbose_name = "Inbox item"
         verbose_name_plural = "Inbox"
-
-    def is_stuck(self, timeout_minutes: int | None = None) -> bool:
-        """True if this run has been PROCESSING past the timeout (a stalled drain).
-
-        ``timeout_minutes`` defaults to ``inbox.DEFAULT_STALE_MINUTES`` (resolved lazily
-        to avoid an import cycle: ``inbox`` imports this module).
-        """
-        if self.status != PipelineStatus.PROCESSING:
-            return False
-        if timeout_minutes is None:
-            from apps.orchestration.inbox import DEFAULT_STALE_MINUTES
-
-            timeout_minutes = DEFAULT_STALE_MINUTES
-        return self.updated_at < timezone.now() - timedelta(minutes=timeout_minutes)
 
 
 class StageExecution(models.Model):

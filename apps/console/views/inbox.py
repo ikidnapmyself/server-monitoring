@@ -6,10 +6,12 @@ from apps.console.filters import InboxFilter
 from apps.console.queries.inbox import build_inbox
 from apps.console.views.base import ConsoleView, Notice
 from apps.orchestration import inbox
+from apps.orchestration.models import PipelineRun, PipelineStatus
 
 INBOX_READ = ("orchestration.view_inboxitem", "orchestration.change_inboxitem")
 INBOX_CHANGE = "orchestration.change_inboxitem"
-DRAIN_LIMIT = 25
+DRAIN_LIMIT = 10
+DRAIN_SECONDS = 60
 LEVELS = {"ok": messages.SUCCESS, "info": messages.INFO, "critical": messages.ERROR}
 
 
@@ -17,7 +19,14 @@ def _runs(count: int) -> str:
     return f"{count} run{'s' if count != 1 else ''}"
 
 
-def _drained(ran: int, failed: int) -> Notice:
+def _drained(ran: int, failed: int, left: int = 0) -> Notice:
+    notice = _outcome(ran, failed)
+    if not left:
+        return notice
+    return Notice(f"{notice.text} {_runs(left)} left for the next drain.", notice.tone)
+
+
+def _outcome(ran: int, failed: int) -> Notice:
     if not failed:
         return Notice(f"Ran {_runs(ran)}.", "ok")
     if ran:
@@ -67,7 +76,9 @@ class InboxActionView(InboxPageView):
             pks = inbox.pending_pks(DRAIN_LIMIT)
             if not pks:
                 return Notice("Nothing was waiting.", "info")
-            return _drained(*inbox.drain_each(pks))
+            ran, failed = inbox.drain_each(pks, seconds=DRAIN_SECONDS)
+            left = PipelineRun.objects.filter(status=PipelineStatus.PENDING).count()
+            return _drained(ran, failed, left)
         count = inbox.reclaim_stuck()
         if not count:
             return Notice("No run was stuck.", "info")

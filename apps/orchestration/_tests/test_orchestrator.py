@@ -19,6 +19,7 @@ from apps.orchestration.inbox import drain_run
 from apps.orchestration.models import (
     PipelineDefinition,
     PipelineOrigin,
+    PipelineRun,
     PipelineStage,
     PipelineStatus,
     StageExecution,
@@ -274,10 +275,50 @@ class ResumePipelineTests(TestCase):
 
         result = orchestrator.resume_pipeline(run_id=pipeline_run.run_id, payload={"payload": {}})
 
-        # Verify mark_retrying was called (total_attempts incremented)
         pipeline_run.refresh_from_db()
         assert pipeline_run.total_attempts == 2
         assert result.status == "COMPLETED"
+
+    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_pipeline")
+    def test_resume_refuses_a_run_taken_between_its_read_and_its_claim(self, mock_execute):
+        """A console Retry and a drain claim the run after resume read it as failed."""
+        from apps.orchestration import inbox
+
+        pipeline_run = PipelineRun.objects.create(
+            trace_id="t", run_id="r-race", status=PipelineStatus.FAILED
+        )
+        real_get = PipelineRun.objects.get
+
+        def get_then_lose(**kwargs):
+            found = real_get(**kwargs)
+            assert inbox.requeue(found.pk) and inbox.claim(found.pk)
+            return found
+
+        with patch.object(PipelineRun.objects, "get", side_effect=get_then_lose):
+            with self.assertRaisesRegex(ValueError, "cannot be resumed from status: processing"):
+                PipelineOrchestrator().resume_pipeline(run_id="r-race", payload={})
+
+        mock_execute.assert_not_called()
+        pipeline_run.refresh_from_db()
+        assert (pipeline_run.status, pipeline_run.total_attempts) == (PipelineStatus.PROCESSING, 2)
+
+    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_pipeline")
+    def test_resume_moves_the_run_to_retrying_and_reopens_it(self, mock_execute):
+        PipelineRun.objects.create(
+            trace_id="t",
+            run_id="r-reopen",
+            status=PipelineStatus.FAILED,
+            completed_at=timezone.now(),
+        )
+
+        PipelineOrchestrator().resume_pipeline(run_id="r-reopen", payload={})
+
+        (claimed, _payload), _ = mock_execute.call_args
+        assert (claimed.status, claimed.total_attempts, claimed.completed_at) == (
+            PipelineStatus.RETRYING,
+            2,
+            None,
+        )
 
 
 class SkipCompletedStagesTests(TestCase):

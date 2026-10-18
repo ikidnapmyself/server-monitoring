@@ -15,9 +15,18 @@ from config.describing import Action
 
 @dataclass(frozen=True)
 class Intent:
+    """``permission`` is one codename, or a tuple of which any one suffices."""
+
     url: Callable[[dict[str, Any]], str]
     method: str
-    permission: str
+    permission: str | tuple[str, ...]
+
+    @property
+    def permissions(self) -> tuple[str, ...]:
+        return (self.permission,) if isinstance(self.permission, str) else self.permission
+
+    def allows(self, user) -> bool:
+        return not self.permission or any(user.has_perm(p) for p in self.permissions)
 
 
 @dataclass(frozen=True)
@@ -77,12 +86,20 @@ INTENTS: dict[str, Intent] = {
         _page("admin:checkers_preflightrun_changelist"), "get", "checkers.view_preflightrun"
     ),
     "view_inbox": Intent(
-        _page("console:inbox", "status", "status"), "get", "orchestration.view_inboxitem"
+        _page("console:inbox", "status", "status"),
+        "get",
+        ("orchestration.view_inboxitem", "orchestration.change_inboxitem"),
     ),
     "view_nodes": Intent(_page("admin:alerts_node_changelist"), "get", "alerts.view_node"),
     "view_node": Intent(_record("admin:alerts_node_change"), "get", "alerts.view_node"),
-    "view_run": Intent(_record("console:run"), "get", "orchestration.view_pipelinerun"),
-    "view_alert": Intent(_record("console:alert"), "get", "alerts.view_alert"),
+    "view_run": Intent(
+        _record("console:run"),
+        "get",
+        ("orchestration.view_pipelinerun", "orchestration.change_pipelinerun"),
+    ),
+    "view_alert": Intent(
+        _record("console:alert"), "get", ("alerts.view_alert", "alerts.change_alert")
+    ),
     "reevaluate_alert": Intent(_record("console:alert-reeval"), "get", "alerts.change_alert"),
     "acknowledge": Intent(_incident_action("acknowledge"), "post", "alerts.change_incident"),
     "resolve": Intent(_incident_action("resolve"), "post", "alerts.change_incident"),
@@ -107,7 +124,7 @@ def admin_url(name: str) -> str:
 
 def resolve_action(action: Action, user) -> ResolvedAction:
     intent = INTENTS.get(action.intent)
-    if intent is None or (intent.permission and not user.has_perm(intent.permission)):
+    if intent is None or not intent.allows(user):
         return ResolvedAction(action.text)
     try:
         url = intent.url(action.params)

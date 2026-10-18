@@ -90,6 +90,20 @@ class ProcessInboxTests(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.status, PipelineStatus.INGESTED)
 
+    def test_stale_minutes_sets_when_a_run_left_mid_lane_is_reclaimed(self):
+        run = PipelineRun.objects.create(trace_id="t", run_id="mid", status=PipelineStatus.CHECKED)
+        PipelineRun.objects.filter(pk=run.pk).update(
+            updated_at=timezone.now() - timedelta(minutes=10)
+        )
+        with patch("apps.orchestration.inbox.PipelineOrchestrator.execute_run") as mock_exec:
+            call_command("process_inbox", "--limit", "10")
+            run.refresh_from_db()
+            self.assertEqual(run.status, PipelineStatus.CHECKED)
+            call_command("process_inbox", "--limit", "10", "--stale-minutes", "5")
+        run.refresh_from_db()
+        self.assertEqual(run.status, PipelineStatus.PROCESSING)
+        self.assertEqual([c.args[0].run_id for c in mock_exec.call_args_list], ["mid"])
+
     def test_lost_claim_is_skipped(self):
         # Simulate a concurrent drain winning the claim: the shared claim() returns False.
         run = self._pending()

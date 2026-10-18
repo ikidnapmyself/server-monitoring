@@ -332,9 +332,12 @@ class PipelineResumeView(JSONResponseMixin, View):
         payload = body.get("payload", {})
 
         orchestrator = PipelineOrchestrator()
-        result = orchestrator.resume_pipeline(
-            run_id=run_id,
-            payload={"payload": payload, **body},
-        )
+        try:
+            result = orchestrator.resume_pipeline(
+                run_id=run_id,
+                payload={"payload": payload, **body},
+            )
+        except ValueError as exc:
+            return self.error_response(str(exc), status=409)
 
         return self.json_response(result.to_dict())

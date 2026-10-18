@@ -96,6 +96,31 @@ def test_a_processing_run_past_the_stale_window_is_stuck():
     assert inbox.stuck == 1
 
 
+@pytest.mark.parametrize("status", ["ingested", "checked", "analyzed", "retrying"])
+def test_a_run_a_killed_drain_left_mid_lane_is_listed_and_stuck(status):
+    stranded = _aged(_run(status=status), DEFAULT_STALE_MINUTES + 1)
+    _run(status=status)
+    _aged(_run(status=status, completed_at=timezone.now()), DEFAULT_STALE_MINUTES + 1)
+
+    inbox = build_inbox(InboxFilter())
+
+    assert [(row.pk, row.stuck) for row in inbox.rows] == [(stranded.pk, True)]
+    assert (inbox.stuck, inbox.pending, inbox.processing) == (1, 0, 0)
+    assert build_inbox(InboxFilter(), can_drain=True).do == (RECLAIM,)
+
+
+def test_the_stuck_filter_shows_every_stuck_run():
+    busy = _aged(_run(status="processing"), DEFAULT_STALE_MINUTES + 1)
+    checked = _aged(_run(status="checked"), DEFAULT_STALE_MINUTES + 1)
+    _run(status="processing")
+    _run(status="pending")
+
+    inbox = build_inbox(InboxFilter(status="stuck"))
+
+    assert _pks(inbox) == [busy.pk, checked.pk]
+    assert inbox.url == "/console/inbox/?status=stuck"
+
+
 def test_counts_cover_the_whole_queue_not_the_shown_rows(monkeypatch):
     monkeypatch.setattr(inbox_queries, "INBOX_LIMIT", 2)
     for _ in range(3):
@@ -138,20 +163,24 @@ def test_the_status_chips_count_the_queue():
     _run(status="pending")
     _run(status="pending")
     _run(status="processing")
+    _aged(_run(status="processing"), DEFAULT_STALE_MINUTES + 1)
+    _aged(_run(status="analyzed"), DEFAULT_STALE_MINUTES + 1)
 
     inbox = build_inbox(InboxFilter(status="pending"))
 
     (group,) = inbox.groups
     assert group.name == "status"
     assert [(c.key, c.count, c.active) for c in group.chips] == [
-        ("both", 3, False),
+        ("both", 5, False),
         ("pending", 2, True),
-        ("processing", 1, False),
+        ("processing", 2, False),
+        ("stuck", 2, False),
     ]
     assert [c.url for c in group.chips] == [
         "/console/inbox/",
         "/console/inbox/?status=pending",
         "/console/inbox/?status=processing",
+        "/console/inbox/?status=stuck",
     ]
 
 

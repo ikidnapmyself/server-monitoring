@@ -12,7 +12,7 @@ from apps.console.queries.hosts import alert_host, incident_hosts
 from apps.console.queries.runs import origin_label
 from apps.console.queries.stages import TimelineEntry, stage_body
 from apps.orchestration.describing import STAGE_NAMES, describe_run, describe_stage_outcome
-from apps.orchestration.inbox import ABANDON_STATUSES
+from apps.orchestration.inbox import abandonable
 from apps.orchestration.models import PipelineRun, PipelineStatus, StageExecution
 from config.describing import Action, Description, Fact
 
@@ -48,7 +48,7 @@ def _do(run: PipelineRun, can_act: bool) -> tuple[Action, ...]:
     params = {"pk": run.pk}
     if run.status == PipelineStatus.FAILED:
         return (Action(RETRY, "retry_run", params),)
-    if run.status in ABANDON_STATUSES:
+    if PipelineRun.objects.filter(abandonable(), pk=run.pk).exists():
         return (Action(MARK_FAILED, "abandon_run", params),)
     return ()
 

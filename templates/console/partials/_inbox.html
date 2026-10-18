@@ -8,11 +8,11 @@
   {% endif %}
   <div class="c-box">
     <div class="c-box__header">
-      <h2 class="c-sr-only">{{ inbox.pending }} waiting, {{ inbox.processing }} in progress</h2>
+      <h2 class="c-sr-only">{{ inbox.pending }} waiting, {{ inbox.processing }} in progress, {{ inbox.stuck }} stuck</h2>
       {% for group in inbox.groups %}
       <nav class="c-states" aria-label="{{ group.label }}">
         {% for chip in group.chips %}
-        <a id="chip-{{ group.name }}-{{ chip.key }}" href="{{ chip.url }}" hx-get="{{ chip.url }}" hx-target="#inbox" hx-swap="outerHTML" hx-push-url="true" hx-sync="#inbox:replace"{% if chip.active %} aria-current="true"{% endif %}>{% if chip.key == "pending" %}{% include "console/partials/_octicon.html" with name="clock" %}{% elif chip.key == "processing" %}{% include "console/partials/_octicon.html" with name="sync" %}{% endif %}<span>{{ chip.label }}</span><span class="c-counter">{{ chip.count }}</span></a>
+        <a id="chip-{{ group.name }}-{{ chip.key }}" href="{{ chip.url }}" hx-get="{{ chip.url }}" hx-target="#inbox" hx-swap="outerHTML" hx-push-url="true" hx-sync="#inbox:replace"{% if chip.active %} aria-current="true"{% endif %}>{% if chip.key == "pending" %}{% include "console/partials/_octicon.html" with name="clock" %}{% elif chip.key == "processing" %}{% include "console/partials/_octicon.html" with name="sync" %}{% elif chip.key == "stuck" %}{% include "console/partials/_octicon.html" with name="alert" %}{% endif %}<span>{{ chip.label }}</span><span class="c-counter">{{ chip.count }}</span></a>
         {% endfor %}
       </nav>
       {% endfor %}

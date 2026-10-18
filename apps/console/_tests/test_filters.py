@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 
 import pytest
+from django.db.models import Q
 from django.http import QueryDict
 
 from apps.alerts.models import AlertSeverity, IncidentStatus
@@ -13,7 +14,6 @@ from apps.console.filters import (
     IncidentFilter,
     RunFilter,
 )
-from apps.orchestration.models import PipelineStatus
 
 NOW = datetime(2026, 10, 14, 12, 0, tzinfo=dt_timezone.utc)
 
@@ -290,16 +290,10 @@ def _run_filter(**params):
     return RunFilter.parse(query)
 
 
-def test_every_run_status_is_in_exactly_one_bucket():
-    buckets = [set(v) for k, v in RUN_STATUS_CHOICES.items() if k != "all"]
-    assert set().union(*buckets) == set(PipelineStatus.values)
-    assert sum(map(len, buckets)) == len(PipelineStatus.values)
-
-
 def test_run_filter_defaults_to_every_status():
     assert _run_filter() == RunFilter()
-    assert RunFilter().statuses() == ()
-    assert RunFilter(status="active").statuses() == ("pending", "processing", "retrying")
+    assert RunFilter().matches() == Q()
+    assert RunFilter(status="active").matches() == RUN_STATUS_CHOICES["active"]
 
 
 def test_run_filter_keeps_valid_values_and_drops_the_rest():
@@ -343,11 +337,10 @@ def test_run_filter_kept_lists_what_the_search_form_must_carry():
     )
 
 
-def test_inbox_filter_takes_pending_processing_or_both():
-    for raw, status in (("", ""), ("pending", "pending"), ("processing", "processing")):
-        assert InboxFilter.parse(QueryDict(f"status={raw}")).status == status
+def test_inbox_filter_takes_pending_processing_stuck_or_all():
+    for status in ("", "pending", "processing", "stuck"):
+        assert InboxFilter.parse(QueryDict(f"status={status}")).status == status
     assert InboxFilter.parse(QueryDict("status=failed")) == InboxFilter(dropped=("status",))
-    assert InboxFilter().statuses() == ("pending", "processing")
     assert InboxFilter(status="pending").querystring() == "?status=pending"
     assert InboxFilter(status="pending").querystring(status="") == ""
     assert InboxFilter().querystring() == ""

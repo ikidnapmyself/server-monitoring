@@ -197,7 +197,42 @@ def test_drain_the_oldest_drains_at_most_the_limit(
 
     assert execute_run.call_count == 2
     assert [_status(run) for run in runs] == ["processing", "processing", "pending"]
-    assert ("ok", "Ran 2 runs.") in _flash(resp)
+    assert ("ok", "Ran 2 runs. 1 run left for the next drain.") in _flash(resp)
+
+
+def test_drain_the_oldest_is_capped_below_the_worker_timeout():
+    assert inbox_views.DRAIN_LIMIT <= 10
+    assert inbox_views.DRAIN_SECONDS <= 60
+
+
+def test_drain_the_oldest_stops_starting_runs_when_its_time_is_spent(
+    client, inbox_operator, execute_run
+):
+    runs = [_run(status="pending") for _ in range(3)]
+    clock = iter([0.0, 0.0, 61.0])
+
+    with patch("apps.orchestration.inbox.time.monotonic", side_effect=lambda: next(clock)):
+        resp = _post(client, POSTS[0], HTMX)
+
+    assert execute_run.call_count == 1
+    assert sorted(_status(run) for run in runs) == ["pending", "pending", "processing"]
+    assert ("ok", "Ran 1 run. 2 runs left for the next drain.") in _flash(resp)
+
+
+def test_a_drain_that_raised_still_counts_what_is_left(
+    client, inbox_operator, execute_run, monkeypatch
+):
+    monkeypatch.setattr(inbox_views, "DRAIN_LIMIT", 1)
+    execute_run.side_effect = RuntimeError("boom")
+    _run(status="pending")
+    _run(status="pending")
+
+    resp = _post(client, POSTS[0], HTMX)
+
+    assert (
+        "critical",
+        "1 run raised an error. Its page shows where it stopped. 1 run left for the next drain.",
+    ) in _flash(resp)
 
 
 @BOTH

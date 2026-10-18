@@ -22,7 +22,8 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import F, Max
+from django.utils import timezone
 
 if TYPE_CHECKING:
     from apps.alerts.models import Node
@@ -286,7 +287,21 @@ class PipelineOrchestrator:
         if pipeline_run.status not in (PipelineStatus.FAILED, PipelineStatus.RETRYING):
             raise ValueError(f"Pipeline cannot be resumed from status: {pipeline_run.status}")
 
-        pipeline_run.mark_retrying()
+        # Conditional on the row as read, like ``inbox.claim``: a console Retry, a drain or
+        # a second resume can take the run between the read above and here, and only one
+        # of them may execute it.
+        claimed = PipelineRun.objects.filter(
+            pk=pipeline_run.pk, status=pipeline_run.status, updated_at=pipeline_run.updated_at
+        ).update(
+            status=PipelineStatus.RETRYING,
+            total_attempts=F("total_attempts") + 1,
+            completed_at=None,
+            updated_at=timezone.now(),
+        )
+        if not claimed:
+            pipeline_run.refresh_from_db(fields=["status"])
+            raise ValueError(f"Pipeline cannot be resumed from status: {pipeline_run.status}")
+        pipeline_run.refresh_from_db()
         # A downstream run IS its stored payload: the one incident it was created
         # for. The resume endpoint builds `payload` from the caller's request body
         # (views.py:229), which cannot describe that — resuming a child with it
