@@ -275,13 +275,6 @@ run_systemd_checks() {
         hc_fail "systemd_inbox" "server-monitoring-inbox.service is not active"
     fi
 
-    # Redis
-    if systemctl is-active --quiet redis-server 2>/dev/null || systemctl is-active --quiet redis 2>/dev/null; then
-        hc_pass "redis" "Redis service is active"
-    else
-        hc_fail "redis" "Redis service is not active"
-    fi
-
     # Gunicorn socket
     if [ -S /run/server-monitoring/gunicorn.sock ]; then
         hc_pass "socket" "Gunicorn socket exists"
