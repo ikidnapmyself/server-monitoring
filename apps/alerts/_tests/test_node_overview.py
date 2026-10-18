@@ -134,12 +134,11 @@ class SeverityChipTests(TestCase):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
         self.assertEqual(render_severity_chips(node), "—")
 
-    def test_each_chip_links_to_that_severity_on_the_changelist(self):
+    def test_each_chip_links_to_that_node_and_severity_on_the_console(self):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
         self._incident(node, AlertSeverity.WARNING)
         html = render_severity_chips(node)
-        self.assertIn(f"alerts__node__id__exact={node.pk}", html)
-        self.assertIn("severity__exact=warning", html)
+        self.assertIn(f'href="/console/incidents/?severity=warning&amp;node={node.pk}"', html)
         self.assertIn("1 WARNING", html)
         self.assertIn("ops-badge--warning", html)
         self.assertNotIn("#", html)
@@ -487,7 +486,7 @@ class RecentIncidentTests(TestCase):
         self.assertEqual(row.severity, AlertSeverity.CRITICAL)
         self.assertEqual(row.status, IncidentStatus.OPEN)
         self.assertEqual(row.tone, "critical")
-        self.assertIn(str(incident.pk), row.url)
+        self.assertEqual(row.url, f"/console/incidents/{incident.pk}/")
 
     def test_an_unknown_severity_falls_back_to_the_neutral_tone(self):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
@@ -638,7 +637,7 @@ class PipelinePanelTests(TestCase):
         PipelineRun.objects.filter(pk=new.pk).update(created_at=timezone.now())
         rows = build_pipeline_rows(node)
         self.assertEqual([r.run_id for r in rows], ["run-new", "run-old"])
-        self.assertIn(f"/admin/orchestration/pipelinerun/{new.pk}/change/", rows[0].url)
+        self.assertEqual(rows[0].url, f"/console/runs/{new.pk}/")
         self.assertEqual(rows[0].origin, new.origin)
         self.assertEqual(rows[0].status, new.status)
         self.assertIsNotNone(rows[0].created_at)

@@ -138,6 +138,11 @@ _RUN_PLAIN = {
     "retrying": ("Run will be retried", "info"),
     "skipped": ("Run skipped", "muted"),
 }
+_RUN_FINISHED = {
+    "ingested": ("Run finished, ingested, nothing to notify", "ok"),
+    "checked": ("Run finished, diagnosed, nothing to notify", "ok"),
+    "analyzed": ("Run finished, analyzed, nothing to notify", "ok"),
+}
 
 
 def describe_run(run: PipelineRun) -> Description:
@@ -146,13 +151,18 @@ def describe_run(run: PipelineRun) -> Description:
         trace_id=run.trace_id,
         status=run.status,
         error_message=run.last_error_message or "",
+        finished=run.completed_at is not None,
     )
 
 
 def describe_run_fields(
-    *, run_id: str, trace_id: str, status: str, error_message: str
+    *, run_id: str, trace_id: str, status: str, error_message: str, finished: bool
 ) -> Description:
-    """``describe_run`` from the stored fields, for a reader that holds a row's values."""
+    """``describe_run`` from the stored fields, for a reader that holds a row's values.
+
+    ``finished`` is whether the orchestrator completed the run. A lane without notify stops
+    at diagnose or analyze, so only that tells a finished run from one still going.
+    """
     ids = (
         Fact("Run", run_id, copy=True),
         Fact("Trace", trace_id, copy=True),
@@ -160,5 +170,6 @@ def describe_run_fields(
     )
     if status == "failed":
         return _failed("Run failed", "Run failed", error_message, ids)
-    headline, tone = _RUN_PLAIN.get(status, (f"Run {status.replace('_', ' ')}", "muted"))
+    plain = (finished and _RUN_FINISHED.get(status)) or _RUN_PLAIN.get(status)
+    headline, tone = plain or (f"Run {status.replace('_', ' ')}", "muted")
     return Description(headline, tone, facts=ids)

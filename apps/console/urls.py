@@ -4,11 +4,16 @@ from apps.console.views import (
     AlertDetailView,
     AlertListView,
     AlertReevalView,
+    InboxActionView,
+    InboxPageView,
     IncidentActionView,
     IncidentDetailView,
     IncidentListView,
     IncidentRerunView,
     OverviewView,
+    RunActionView,
+    RunDetailView,
+    RunListView,
 )
 
 app_name = "console"
@@ -18,6 +23,20 @@ urlpatterns = [
     path("alerts/", AlertListView.as_view(), name="alerts"),
     path("alerts/<int:pk>/", AlertDetailView.as_view(), name="alert"),
     path("alerts/<int:pk>/reevaluate/", AlertReevalView.as_view(), name="alert-reeval"),
+    path("runs/", RunListView.as_view(), name="runs"),
+    path("runs/<int:pk>/", RunDetailView.as_view(), name="run"),
+    path("runs/<int:pk>/<str:action>/", RunActionView.as_view(), name="run-action"),
+    path("inbox/", InboxPageView.as_view(), name="inbox"),
+    path(
+        "inbox/drain-oldest/",
+        InboxActionView.as_view(),
+        {"action": "drain-oldest"},
+        name="inbox-drain-oldest",
+    ),
+    path("inbox/reclaim/", InboxActionView.as_view(), {"action": "reclaim"}, name="inbox-reclaim"),
+    path(
+        "inbox/<int:pk>/drain/", InboxActionView.as_view(), {"action": "drain"}, name="inbox-drain"
+    ),
     path("incidents/", IncidentListView.as_view(), name="incidents"),
     path("incidents/<int:pk>/", IncidentDetailView.as_view(), name="incident"),
     path("incidents/<int:pk>/rerun/", IncidentRerunView.as_view(), name="incident-rerun"),

@@ -94,7 +94,7 @@ def test_inbox_ok_backlog_stuck():
     assert _by_key(build_readiness())["inbox"]["status"] == "ok"
     PipelineRun.objects.create(trace_id="t", run_id="p1", status=PipelineStatus.PENDING)
     assert _by_key(build_readiness())["inbox"]["status"] == "warn"
-    run = PipelineRun.objects.create(trace_id="t", run_id="p2", status=PipelineStatus.PROCESSING)
+    run = PipelineRun.objects.create(trace_id="t", run_id="p2", status=PipelineStatus.CHECKED)
     PipelineRun.objects.filter(pk=run.pk).update(updated_at=timezone.now() - timedelta(hours=1))
     assert _by_key(build_readiness())["inbox"]["status"] == "error"
 
@@ -448,15 +448,15 @@ def test_the_inbox_entry_filters_to_the_runs_it_counted():
 
     from apps.orchestration.models import PipelineRun, PipelineStatus
 
-    base = reverse("admin:orchestration_inboxitem_changelist")
+    base = reverse("console:inbox")
     assert _by_key(build_readiness())["inbox"]["url"] == base
 
     PipelineRun.objects.create(trace_id="t", run_id="p1", status=PipelineStatus.PENDING)
-    assert _by_key(build_readiness())["inbox"]["url"] == f"{base}?status__exact=pending"
+    assert _by_key(build_readiness())["inbox"]["url"] == f"{base}?status=pending"
 
     run = PipelineRun.objects.create(trace_id="t", run_id="p2", status=PipelineStatus.PROCESSING)
     PipelineRun.objects.filter(pk=run.pk).update(updated_at=timezone.now() - timedelta(hours=1))
-    assert _by_key(build_readiness())["inbox"]["url"] == f"{base}?status__exact=processing"
+    assert _by_key(build_readiness())["inbox"]["url"] == f"{base}?status=stuck"
 
 
 @pytest.mark.django_db
@@ -683,8 +683,8 @@ def test_preflight_counts_what_it_found(status, counts, headline, tone):
 @pytest.mark.parametrize(
     "pending,stuck,headline,status,tone",
     [
-        (0, 3, "3 runs are stuck", "processing", "critical"),
-        (0, 1, "1 run is stuck", "processing", "critical"),
+        (0, 3, "3 runs are stuck", "stuck", "critical"),
+        (0, 1, "1 run is stuck", "stuck", "critical"),
         (4, 0, "4 runs are waiting to be processed", "pending", "warning"),
         (1, 0, "1 run is waiting to be processed", "pending", "warning"),
     ],

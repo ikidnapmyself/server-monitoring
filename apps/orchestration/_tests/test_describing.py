@@ -1,6 +1,7 @@
 import re
 
 import pytest
+from django.utils import timezone
 
 from apps.orchestration.describing import (
     REASONS,
@@ -111,9 +112,13 @@ def test_unknown_status_is_muted_and_in_words():
     assert (d.headline, d.tone) == ("Diagnose on hold", "muted")
 
 
-def _run(status, message=""):
+def _run(status, message="", completed_at=None):
     return PipelineRun.objects.create(
-        trace_id="trace-1", run_id="run-1", status=status, last_error_message=message
+        trace_id="trace-1",
+        run_id="run-1",
+        status=status,
+        last_error_message=message,
+        completed_at=completed_at,
     )
 
 
@@ -138,6 +143,43 @@ def test_run_outcomes(status, headline, tone):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "status, headline",
+    [
+        ("notified", "Run finished, notified"),
+        ("analyzed", "Run finished, analyzed, nothing to notify"),
+        ("checked", "Run finished, diagnosed, nothing to notify"),
+        ("ingested", "Run finished, ingested, nothing to notify"),
+    ],
+)
+def test_a_finished_run_reads_as_finished_wherever_its_lane_stopped(status, headline):
+    d = describe_run(_run(status, completed_at=timezone.now()))
+    assert (d.headline, d.tone) == (headline, "ok")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "status, headline",
+    [
+        ("pending", "Run queued"),
+        ("skipped", "Run skipped"),
+        ("on_hold", "Run on hold"),
+    ],
+)
+def test_finishing_only_changes_the_stopping_points(status, headline):
+    assert describe_run(_run(status, completed_at=timezone.now())).headline == headline
+
+
+def test_a_finished_run_wording_is_plain():
+    for status in ("notified", "analyzed", "checked", "ingested"):
+        d = describe_run_fields(
+            run_id="r", trace_id="t", status=status, error_message="", finished=True
+        )
+        assert not _UUID.search(d.headline) and not _SNAKE.search(d.headline)
+        assert "{" not in d.headline
+
+
+@pytest.mark.django_db
 def test_run_carries_its_ids_and_status():
     d = describe_run(_run("notified"))
     assert ("Run", "run-1", True) in [(f.label, f.value, f.copy) for f in d.facts]
@@ -157,7 +199,9 @@ def test_run_failed_on_a_routing_gap_names_its_fix():
 @pytest.mark.parametrize("code", ROUTING_GAPS)
 def test_run_failed_as_the_orchestrator_stores_it_names_its_fix(code):
     message = str(routing_gap("notify", code, "the detail"))
-    d = describe_run_fields(run_id="r", trace_id="t", status="failed", error_message=message)
+    d = describe_run_fields(
+        run_id="r", trace_id="t", status="failed", error_message=message, finished=True
+    )
     assert d.headline == f"Run failed: {REASONS[code].headline}"
     assert d.action == REASONS[code].action
     assert ("Error", "the detail") in facts(d)
@@ -165,7 +209,9 @@ def test_run_failed_as_the_orchestrator_stores_it_names_its_fix(code):
 
 def test_run_failed_with_a_stage_prefix_and_no_code_keeps_the_message():
     message = "Stage analyze failed: Analyze error: boom"
-    d = describe_run_fields(run_id="r", trace_id="t", status="failed", error_message=message)
+    d = describe_run_fields(
+        run_id="r", trace_id="t", status="failed", error_message=message, finished=True
+    )
     assert d.headline == "Run failed"
     assert ("Error", message) in facts(d)
 
@@ -304,7 +350,13 @@ def test_a_config_skip_reads_through_the_stage_describer():
 
 
 def test_run_fields_read_like_the_run():
-    d = describe_run_fields(run_id="r", trace_id="t", status="failed", error_message="no_route: x")
+    d = describe_run_fields(
+        run_id="r", trace_id="t", status="failed", error_message="no_route: x", finished=False
+    )
     assert d == describe_run(
         PipelineRun(run_id="r", trace_id="t", status="failed", last_error_message="no_route: x")
+    )
+    done = PipelineRun(run_id="r", trace_id="t", status="checked", completed_at=timezone.now())
+    assert describe_run(done) == describe_run_fields(
+        run_id="r", trace_id="t", status="checked", error_message="", finished=True
     )

@@ -12,7 +12,7 @@ from apps.alerts.models import Alert, AlertHistory, Incident, Node
 from apps.checkers.models import PreflightRun
 from apps.notify.models import NotificationChannel
 from apps.orchestration.errors import ROUTING_GAPS, StageExecutionError, routing_gap
-from apps.orchestration.inbox import DEFAULT_STALE_MINUTES
+from apps.orchestration.inbox import DEFAULT_STALE_MINUTES, requeue
 from apps.orchestration.models import PipelineDefinition, PipelineRun, StageExecution
 from config.failures import FAILURE_KINDS
 
@@ -89,6 +89,7 @@ DELIVERY_OK = {
 @dataclass(frozen=True)
 class World:
     incident_pks: tuple[int, ...]
+    run_pks: tuple[int, ...]
 
 
 def _uuid() -> str:
@@ -244,6 +245,43 @@ def _stalled_incident() -> Incident:
     return incident
 
 
+def _queued_incident() -> Incident:
+    incident = _incident("Queued run")
+    _alert(incident, "Disk is filling")
+    _run(incident, status="pending")
+    return incident
+
+
+def _in_progress_incident() -> Incident:
+    incident = _incident("Run in progress")
+    _alert(incident, "Load is high")
+    run = _run(incident, status="processing")
+    _stage(run, "check", output_snapshot=CHECK_SNAPSHOT, duration_ms=41.0)
+    _stage(run, "analyze", status="running")
+    return incident
+
+
+def _requeued_incident() -> Incident:
+    """A run that failed at notify and was retried: queued again, its old attempts kept."""
+    incident = _incident("Requeued run")
+    _alert(incident, "Swap is filling up")
+    gap = routing_gap("notify", "no_channel", GAP_DETAILS["no_channel"])
+    run = _run(incident, status="failed", error=str(gap))
+    _stage(run, "check", output_snapshot=CHECK_SNAPSHOT)
+    for attempt in (1, 2, 3):
+        _stage(
+            run,
+            "notify",
+            status="failed",
+            attempt=attempt,
+            error_type="StageExecutionError",
+            error_message=gap.errors[0],
+            error_retryable=False,
+        )
+    assert requeue(run.pk)
+    return incident
+
+
 def _analysis_incident(snapshot: dict) -> Incident:
     incident = _incident("Analysis outcome")
     _alert(incident, "Load is climbing")
@@ -319,10 +357,16 @@ def build_world() -> World:
         _retryable_incident(),
         _skipped_incident(),
         _stalled_incident(),
+        _queued_incident(),
+        _in_progress_incident(),
+        _requeued_incident(),
         *(_analysis_incident(_analysis_failure(kind)) for kind in FAILURE_KINDS),
         _analysis_incident(ANALYSIS_OK),
         *(_delivery_incident(_delivery_failure(kind)) for kind in FAILURE_KINDS),
         _delivery_incident(DELIVERY_OK),
     ]
     _readiness_faults()
-    return World(incident_pks=tuple(i.pk for i in incidents))
+    return World(
+        incident_pks=tuple(i.pk for i in incidents),
+        run_pks=tuple(PipelineRun.objects.values_list("pk", flat=True)),
+    )

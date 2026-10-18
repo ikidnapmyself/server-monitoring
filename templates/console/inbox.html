@@ -1,0 +1,12 @@
+{% extends "console/base.html" %}
+{% block title %}Inbox · Console{% endblock %}
+{% block content %}
+<h1 class="c-sr-only">Inbox</h1>
+{% for message in messages %}
+{% if message.level_tag == "success" %}{% include "console/partials/_flash.html" with tone="ok" text=message %}
+{% elif message.level_tag == "warning" %}{% include "console/partials/_flash.html" with tone="warning" text=message %}
+{% elif message.level_tag == "error" %}{% include "console/partials/_flash.html" with tone="critical" text=message %}
+{% else %}{% include "console/partials/_flash.html" with tone="info" text=message %}{% endif %}
+{% endfor %}
+{% include "console/partials/_inbox.html" %}
+{% endblock %}

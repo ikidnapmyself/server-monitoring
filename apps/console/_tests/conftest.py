@@ -41,3 +41,30 @@ def view_alert_user():
 @pytest.fixture
 def reevaluable_alert(db) -> Alert:
     return make_reevaluable_alert()
+
+
+def _perm(user, app_label, codename):
+    user.user_permissions.add(
+        Permission.objects.get(content_type__app_label=app_label, codename=codename)
+    )
+    return user
+
+
+@pytest.fixture
+def run_viewer(bare_staff):
+    return _perm(bare_staff, "orchestration", "view_pipelinerun")
+
+
+@pytest.fixture
+def run_operator(run_viewer):
+    return _perm(run_viewer, "orchestration", "change_pipelinerun")
+
+
+@pytest.fixture
+def inbox_viewer(bare_staff):
+    return _perm(bare_staff, "orchestration", "view_inboxitem")
+
+
+@pytest.fixture
+def inbox_operator(inbox_viewer):
+    return _perm(inbox_viewer, "orchestration", "change_inboxitem")

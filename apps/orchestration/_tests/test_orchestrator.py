@@ -14,10 +14,12 @@ from apps.orchestration.dtos import (
     IngestResult,
     NotifyResult,
 )
+from apps.orchestration.executors import AnalyzeExecutor, NotifyExecutor
 from apps.orchestration.inbox import drain_run
 from apps.orchestration.models import (
     PipelineDefinition,
     PipelineOrigin,
+    PipelineRun,
     PipelineStage,
     PipelineStatus,
     StageExecution,
@@ -273,10 +275,50 @@ class ResumePipelineTests(TestCase):
 
         result = orchestrator.resume_pipeline(run_id=pipeline_run.run_id, payload={"payload": {}})
 
-        # Verify mark_retrying was called (total_attempts incremented)
         pipeline_run.refresh_from_db()
         assert pipeline_run.total_attempts == 2
         assert result.status == "COMPLETED"
+
+    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_pipeline")
+    def test_resume_refuses_a_run_taken_between_its_read_and_its_claim(self, mock_execute):
+        """A console Retry and a drain claim the run after resume read it as failed."""
+        from apps.orchestration import inbox
+
+        pipeline_run = PipelineRun.objects.create(
+            trace_id="t", run_id="r-race", status=PipelineStatus.FAILED
+        )
+        real_get = PipelineRun.objects.get
+
+        def get_then_lose(**kwargs):
+            found = real_get(**kwargs)
+            assert inbox.requeue(found.pk) and inbox.claim(found.pk)
+            return found
+
+        with patch.object(PipelineRun.objects, "get", side_effect=get_then_lose):
+            with self.assertRaisesRegex(ValueError, "cannot be resumed from status: processing"):
+                PipelineOrchestrator().resume_pipeline(run_id="r-race", payload={})
+
+        mock_execute.assert_not_called()
+        pipeline_run.refresh_from_db()
+        assert (pipeline_run.status, pipeline_run.total_attempts) == (PipelineStatus.PROCESSING, 2)
+
+    @patch("apps.orchestration.orchestrator.PipelineOrchestrator._execute_pipeline")
+    def test_resume_moves_the_run_to_retrying_and_reopens_it(self, mock_execute):
+        PipelineRun.objects.create(
+            trace_id="t",
+            run_id="r-reopen",
+            status=PipelineStatus.FAILED,
+            completed_at=timezone.now(),
+        )
+
+        PipelineOrchestrator().resume_pipeline(run_id="r-reopen", payload={})
+
+        (claimed, _payload), _ = mock_execute.call_args
+        assert (claimed.status, claimed.total_attempts, claimed.completed_at) == (
+            PipelineStatus.RETRYING,
+            2,
+            None,
+        )
 
 
 class SkipCompletedStagesTests(TestCase):
@@ -421,6 +463,91 @@ class SkipCompletedStagesTests(TestCase):
         assert result.stages_completed == []
         assert mock_execute.call_count == 0
         assert StageExecution.objects.filter(pipeline_run=pipeline_run).count() == 1
+
+
+class StageAttemptNumberingTests(TestCase):
+    """A stage numbers its attempts after the ones the run already stored."""
+
+    def _run(self):
+        from apps.orchestration.models import PipelineRun
+
+        return PipelineRun.objects.create(trace_id="t-num", run_id="r-num")
+
+    def _execute(self, run):
+        with patch.object(
+            NotifyExecutor, "execute", return_value=NotifyResult(channels_succeeded=1)
+        ):
+            PipelineOrchestrator(max_retries=1)._execute_stage_with_retry(
+                pipeline_run=run,
+                stage=PipelineStage.NOTIFY,
+                payload={},
+                previous_results={},
+                incident_id=None,
+            )
+
+    def test_a_fresh_stage_writes_attempt_one(self):
+        run = self._run()
+
+        self._execute(run)
+
+        assert list(run.stage_executions.values_list("attempt", "status")) == [
+            (1, StageStatus.SUCCEEDED)
+        ]
+
+    def test_a_stage_with_stored_attempts_writes_the_next_one(self):
+        run = self._run()
+        StageExecution.objects.create(
+            pipeline_run=run, stage=PipelineStage.NOTIFY, attempt=2, status=StageStatus.FAILED
+        )
+
+        self._execute(run)
+
+        execution = run.stage_executions.get(status=StageStatus.SUCCEEDED)
+        assert (execution.attempt, execution.idempotency_key) == (3, "r-num:notify:3")
+
+    def test_a_resumed_run_reruns_its_failed_stage_through_the_real_loop(self):
+        from apps.orchestration.models import PipelineRun
+
+        incident, _alert = make_subject_incident()
+        PipelineDefinition.objects.create(
+            name="analyze-notify", match=[], stages=["analyze", "notify"], priority=1
+        )
+        run = PipelineRun.objects.create(
+            trace_id="t-resume",
+            run_id="r-resume",
+            source="cluster",
+            status=PipelineStatus.FAILED,
+            inbound_payload={"downstream_incident_id": incident.id},
+        )
+        StageExecution.objects.create(
+            pipeline_run=run,
+            stage=PipelineStage.ANALYZE,
+            attempt=1,
+            status=StageStatus.SUCCEEDED,
+            output_snapshot={"summary": "already analysed"},
+        )
+        StageExecution.objects.create(
+            pipeline_run=run, stage=PipelineStage.NOTIFY, attempt=1, status=StageStatus.FAILED
+        )
+
+        with (
+            patch.object(AnalyzeExecutor, "execute") as analyze,
+            patch.object(
+                NotifyExecutor, "execute", return_value=NotifyResult(channels_succeeded=1)
+            ) as notify,
+        ):
+            result = PipelineOrchestrator(max_retries=1).resume_pipeline(
+                run_id="r-resume", payload={}
+            )
+
+        assert result.status == "COMPLETED"
+        analyze.assert_not_called()
+        notify.assert_called_once()
+        assert list(
+            run.stage_executions.filter(stage=PipelineStage.NOTIFY)
+            .order_by("attempt")
+            .values_list("attempt", "status")
+        ) == [(1, StageStatus.FAILED), (2, StageStatus.SUCCEEDED)]
 
 
 class AnalyzeFallbackContinuesTests(TestCase):

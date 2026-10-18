@@ -6,9 +6,11 @@ from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
+from django.db.models import Q
 from django.http import QueryDict
 
 from apps.alerts.models import AlertSeverity, AlertStatus, IncidentStatus
+from apps.orchestration.models import PipelineOrigin, PipelineStatus
 
 STATUS_CHOICES: dict[str, tuple[str, ...]] = {
     "active": (IncidentStatus.OPEN.value, IncidentStatus.ACKNOWLEDGED.value),
@@ -28,8 +30,22 @@ ALERT_STATUS_CHOICES: dict[str, tuple[str, ...]] = {
     "all": (),
 }
 
+_S = PipelineStatus
+_MID_LANE = (_S.INGESTED.value, _S.CHECKED.value, _S.ANALYZED.value)
+RUN_STATUS_CHOICES: dict[str, Q] = {
+    "failed": Q(status=_S.FAILED.value),
+    "active": Q(status__in=(_S.PENDING.value, _S.PROCESSING.value, _S.RETRYING.value))
+    | Q(status__in=_MID_LANE, completed_at__isnull=True),
+    "finished": Q(status__in=(_S.NOTIFIED.value, _S.SKIPPED.value))
+    | Q(status__in=_MID_LANE, completed_at__isnull=False),
+    "all": Q(),
+}
+ORIGIN_CHOICES: tuple[str, ...] = ("", *PipelineOrigin.values)
+INBOX_STATUS_CHOICES: tuple[str, ...] = ("", "pending", "processing", "stuck")
+
 FIELDS = ("status", "severity", "node", "since", "page")
 ALERT_FIELDS = ("q", "status", "severity", "node", "source", "since", "page")
+RUN_FIELDS = ("q", "status", "origin", "node", "since", "page")
 SEARCH_LIMIT = 255
 SOURCE_LIMIT = 100
 
@@ -69,8 +85,8 @@ def _text(params: QueryDict, name: str, limit: int) -> str:
 
 
 def _encode(
-    target: "IncidentFilter | AlertFilter",
-    default: "IncidentFilter | AlertFilter",
+    target: "IncidentFilter | AlertFilter | RunFilter",
+    default: "IncidentFilter | AlertFilter | RunFilter",
     fields: tuple[str, ...],
     changes: dict[str, Any],
 ) -> str:
@@ -179,3 +195,75 @@ class AlertFilter:
             for name in ("status", "severity", "node", "source", "since")
             if getattr(self, name) != getattr(default, name)
         )
+
+
+@dataclass(frozen=True)
+class RunFilter:
+    q: str = ""
+    status: str = "all"
+    origin: str = ""
+    node: int | None = None
+    since: str = ""
+    page: int = 1
+    dropped: tuple[str, ...] = ()
+
+    @classmethod
+    def parse(cls, params: QueryDict) -> "RunFilter":
+        values, dropped = _parse(
+            params,
+            (
+                ("status", RUN_STATUS_CHOICES),
+                ("origin", ORIGIN_CHOICES),
+                ("node", None),
+                ("since", SINCE_CHOICES),
+                ("page", None),
+            ),
+        )
+        text = _text(params, "q", SEARCH_LIMIT)
+        if text:
+            values["q"] = text
+        return cls(**values, dropped=tuple(dropped))  # type: ignore[arg-type]
+
+    def matches(self) -> Q:
+        """The runs this status chip shows, split the way ``describe_run`` words them.
+
+        A lane without notify ends at diagnose or analyze, so only ``completed_at`` tells
+        a finished run from one still going.
+        """
+        return RUN_STATUS_CHOICES[self.status]
+
+    def cutoff(self, now: datetime) -> datetime | None:
+        window = SINCE_CHOICES[self.since]
+        return now - window if window else None
+
+    def querystring(self, **changes: str | int | None) -> str:
+        return _encode(self, RunFilter(), RUN_FIELDS, changes)
+
+    def without(self, *names: str) -> "RunFilter":
+        default = RunFilter()
+        dropped = tuple(n for n in RUN_FIELDS if n in names or n in self.dropped)
+        return replace(self, **{n: getattr(default, n) for n in names}, dropped=dropped)
+
+    def kept(self) -> tuple[tuple[str, str], ...]:
+        """Filters a search submit must resend, since a GET form sends only its own fields."""
+        default = RunFilter()
+        return tuple(
+            (name, str(getattr(self, name)))
+            for name in ("status", "origin", "node", "since")
+            if getattr(self, name) != getattr(default, name)
+        )
+
+
+@dataclass(frozen=True)
+class InboxFilter:
+    status: str = ""
+    dropped: tuple[str, ...] = ()
+
+    @classmethod
+    def parse(cls, params: QueryDict) -> "InboxFilter":
+        values, dropped = _parse(params, (("status", INBOX_STATUS_CHOICES),))
+        return cls(**values, dropped=tuple(dropped))  # type: ignore[arg-type]
+
+    def querystring(self, **changes: str | int | None) -> str:
+        status = changes.get("status", self.status)
+        return f"?{urlencode({'status': status})}" if status else ""

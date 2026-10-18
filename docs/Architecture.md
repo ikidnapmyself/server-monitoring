@@ -281,13 +281,15 @@ something that has already recovered. See
 - **CLI:** `python manage.py run_pipeline --sample` / `--dry-run` (and the deprecated
   `--checks-only`, whose work `check_health` now does).
 - **Resume:** failed pipelines resume from the last successful stage.
+- **Retry:** the console's Retry moves a failed run back to `PENDING`. The next drain skips
+  the stages that already succeeded. `RETRYING` is set only by the resume API.
 
 Routing pipelines are managed in **Django Admin** (`/admin/orchestration/pipelinedefinition/`)
 or wired by the guided `setup_cluster`. The legacy node/edge graph engine was retired
 in Phase D — `PipelineDefinition` is now purely a routing rule (match → ordered stages → one channel).
 
-**Observability:** a "Journey" panel on the Alert/Incident admin, `manage.py trace
-<alert|trace_id>`, and `manage.py report` (per-node incidents, per-pipeline routing
+**Observability:** the console incident page's timeline and the console run page,
+`manage.py trace <alert|trace_id>`, and `manage.py report` (per-node incidents, per-pipeline routing
 hits, inbox depth) — all read-only projections over the `trace_id` chain.
 
 ## Data Models

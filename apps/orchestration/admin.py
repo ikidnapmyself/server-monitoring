@@ -1,354 +1,57 @@
 """Admin configuration for orchestration models."""
 
-from django.contrib import admin, messages
-from django.core.exceptions import PermissionDenied
+from django.contrib import admin
 from django.db import models as db_models
-from django.urls import reverse
-from django.utils.html import format_html, format_html_join
-from django.utils.timesince import timesince
+from django.utils.html import format_html
 from django_json_widget.widgets import JSONEditorWidget
-from django_object_actions import DjangoObjectActions
-from django_object_actions import action as object_action
 
 from apps.notify.models import NotificationChannel
-from apps.orchestration import inbox
 from apps.orchestration.models import (
     InboxItem,
     PipelineDefinition,
     PipelineRun,
-    PipelineStatus,
     StageExecution,
-    StageStatus,
 )
-from config.admin_badges import STAGE_STATUS_TONES, tinted, tone_for
+from config.admin_badges import tinted
 from config.admin_links import DASH, admin_link, changelist_link
-from config.dashboard import prettify_json
-
-# One mark per stage state. ``retrying`` and ``skipped`` get their own so a stage in
-# backoff and a stage deliberately passed over stop reading as one that never started;
-# the default covers a stage with no execution row at all.
-STAGE_GLYPHS = {
-    StageStatus.PENDING: "\u25cb",
-    StageStatus.RUNNING: "\u25cf",
-    StageStatus.SUCCEEDED: "\u2713",
-    StageStatus.FAILED: "\u2717",
-    StageStatus.RETRYING: "\u21bb",
-    StageStatus.SKIPPED: "\u2298",
-}
 
 
-class StageExecutionInline(admin.TabularInline):
-    """Inline display of stage executions within a pipeline run."""
-
-    model = StageExecution
-    extra = 0
-    readonly_fields = [
-        "stage",
-        "status",
-        "attempt",
-        "idempotency_key",
-        "started_at",
-        "completed_at",
-        "duration_ms",
-        "error_type",
-        "error_message",
-    ]
-    can_delete = False
+class ReadOnlyAdmin(admin.ModelAdmin):
+    """Read-only. Operators act on runs and the inbox in the console."""
 
     def has_add_permission(self, request, obj=None):
         return False
 
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 
 @admin.register(PipelineRun)
-class PipelineRunAdmin(DjangoObjectActions, admin.ModelAdmin):
-    """Admin for PipelineRun model."""
-
+class PipelineRunAdmin(ReadOnlyAdmin):
     list_display = [
         "run_id",
-        "trace_id",
-        "pipeline_flow",
         "status",
         "origin",
         "node",
-        "source",
+        "incident",
         "current_stage",
         "total_attempts",
         "created_at",
-        "total_duration_ms",
     ]
     list_filter = ["status", "origin", "node", "source", "current_stage", "environment"]
     search_fields = ["run_id", "trace_id", "alert_fingerprint"]
-    readonly_fields = [
-        "run_id",
-        "trace_id",
-        "created_at",
-        "updated_at",
-        "started_at",
-        "completed_at",
-        "total_duration_ms",
-        "pipeline_flow",
-        "node_link",
-        "incident_link",
-    ]
-    inlines = [StageExecutionInline]
-    actions = ["mark_for_retry_selected"]
-    change_actions = ["mark_for_retry", "mark_failed"]
-
-    def get_queryset(self, request):
-        return (
-            super()
-            .get_queryset(request)
-            .select_related("incident", "node")
-            .prefetch_related("stage_executions")
-        )
-
-    @admin.action(description="Mark selected for retry")
-    def mark_for_retry_selected(self, request, queryset):
-        count = 0
-        for run in queryset.filter(status=PipelineStatus.FAILED):
-            run.mark_retrying()
-            count += 1
-        self.message_user(request, f"{count} pipeline run(s) marked for retry.")
-
-    def get_change_actions(self, request, object_id, form_url):
-        if not self.has_change_permission(request):
-            return []
-        return super().get_change_actions(request, object_id, form_url)
-
-    @object_action(
-        label="Mark for Retry",
-        description="Queue this pipeline for retry",
-        methods=("POST",),
-        button_type="form",
-    )
-    def mark_for_retry(self, request, obj):
-        if not self.has_change_permission(request, obj):
-            raise PermissionDenied
-        if obj.status == PipelineStatus.FAILED:
-            obj.mark_retrying()
-            self.message_user(request, f"Pipeline '{obj.run_id}' marked for retry.")
-        else:
-            self.message_user(
-                request,
-                f"Can only retry failed pipelines (current: {obj.status}).",
-                level="warning",
-            )
-
-    @object_action(
-        label="Mark Failed",
-        description="Mark this pipeline as failed",
-        methods=("POST",),
-        button_type="form",
-    )
-    def mark_failed(self, request, obj):
-        if not self.has_change_permission(request, obj):
-            raise PermissionDenied
-        if obj.status not in (PipelineStatus.FAILED, PipelineStatus.NOTIFIED):
-            obj.mark_failed(
-                error_type="ManualOverride",
-                message="Manually marked as failed via admin",
-            )
-            self.message_user(request, f"Pipeline '{obj.run_id}' marked as failed.")
-        else:
-            self.message_user(
-                request,
-                f"Cannot mark as failed — status is '{obj.status}'.",
-                level="warning",
-            )
-
-    fieldsets = [
-        (
-            "Identification",
-            {
-                "fields": [
-                    "pipeline_flow",
-                    "trace_id",
-                    "run_id",
-                    "incident",
-                    "incident_link",
-                    "node_link",
-                    "source",
-                    "environment",
-                    "alert_fingerprint",
-                ]
-            },
-        ),
-        (
-            "State",
-            {
-                "fields": [
-                    "status",
-                    "current_stage",
-                    "total_attempts",
-                    "max_retries",
-                ]
-            },
-        ),
-        (
-            "References",
-            {
-                "fields": [
-                    "normalized_payload_ref",
-                    "checker_output_ref",
-                    "intelligence_output_ref",
-                    "notify_output_ref",
-                    "intelligence_fallback_used",
-                ]
-            },
-        ),
-        (
-            "Errors",
-            {
-                "fields": [
-                    "last_error_type",
-                    "last_error_message",
-                    "last_error_retryable",
-                ],
-                "classes": ["collapse"],
-            },
-        ),
-        (
-            "Timestamps",
-            {
-                "fields": [
-                    "created_at",
-                    "updated_at",
-                    "started_at",
-                    "completed_at",
-                    "total_duration_ms",
-                ]
-            },
-        ),
-    ]
-
-    @admin.display(description="Pipeline Flow")
-    def pipeline_flow(self, obj):
-        """Render a horizontal stage flow with status indicators.
-
-        Warning: This method calls obj.stage_executions.all() and should NOT be
-        added to list_display as it would cause N+1 query problems. Use only in
-        readonly_fields and detail view fieldsets where prefetch_related is effective.
-        """
-        from apps.orchestration.models import PipelineStage
-
-        stages = [
-            (PipelineStage.INGEST, "INGEST"),
-            (PipelineStage.CHECK, "CHECK"),
-            (PipelineStage.ANALYZE, "ANALYZE"),
-            (PipelineStage.NOTIFY, "NOTIFY"),
-        ]
-        # Latest attempt per stage, so a retried stage shows the attempt an
-        # operator would open rather than whichever row the prefetch ended on.
-        latest = {}
-        for se in obj.stage_executions.all():
-            current = latest.get(se.stage)
-            if current is None or se.attempt >= current.attempt:
-                latest[se.stage] = se
-        parts = []
-        for stage_value, stage_label in stages:
-            execution = latest.get(stage_value)
-            status = execution.status if execution is not None else None
-            # Build each stage part with format_html for proper escaping of dynamic content
-            part = format_html(
-                '<span class="ops-stage">{}<br><span class="ops-stage-label">{}</span></span>',
-                tinted(STAGE_GLYPHS.get(status, "○"), tone_for(STAGE_STATUS_TONES, status)),
-                stage_label,
-            )
-            if execution is not None:
-                part = format_html(
-                    '<a href="{}">{}</a>',
-                    reverse("admin:orchestration_stageexecution_change", args=[execution.pk]),
-                    part,
-                )
-            parts.append(part)
-
-        # Join parts with format_html_join — Django's safe way to join HTML fragments.
-        # Each part is already a SafeString from format_html above.
-        # The separator uses format_html with a placeholder to avoid the no-args deprecation.
-        separator = format_html(
-            '<span class="ops-stage-arrow">{}</span>',
-            tinted("\u2192", "muted"),
-        )
-        stages_html = format_html_join(separator, "{}", ((part,) for part in parts))
-
-        return format_html(
-            '<div style="display:flex;align-items:center;padding:8px 0;">{}</div>',
-            stages_html,
-        )
-
-    @admin.display(description="Node")
-    def node_link(self, obj):
-        """Link to the Node change page this run concerns (— when unset)."""
-        if obj.node_id:
-            return format_html(
-                '<a href="{}">{}</a>',
-                reverse("admin:alerts_node_change", args=[obj.node_id]),
-                str(obj.node),
-            )
-        return "—"
-
-    @admin.display(description="Incident")
-    def incident_link(self, obj):
-        """Link to the linked Incident change page (— when unset)."""
-        if obj.incident_id:
-            return format_html(
-                '<a href="{}">{}</a>',
-                reverse("admin:alerts_incident_change", args=[obj.incident_id]),
-                str(obj.incident),
-            )
-        return "—"
+    list_select_related = ["node", "incident"]
 
 
 @admin.register(StageExecution)
-class StageExecutionAdmin(admin.ModelAdmin):
-    """Admin for StageExecution model."""
-
-    list_display = [
-        "pipeline_run",
-        "stage",
-        "status",
-        "attempt",
-        "duration_ms",
-        "started_at",
-    ]
+class StageExecutionAdmin(ReadOnlyAdmin):
+    list_display = ["pipeline_run", "stage", "status", "attempt", "duration_ms", "started_at"]
     list_filter = ["stage", "status"]
     search_fields = ["pipeline_run__run_id", "pipeline_run__trace_id", "idempotency_key"]
-    readonly_fields = ["started_at", "completed_at", "duration_ms", "pretty_output_snapshot"]
-    formfield_overrides = {db_models.JSONField: {"widget": JSONEditorWidget}}
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related("pipeline_run")
-
-    @admin.display(description="Output Snapshot")
-    def pretty_output_snapshot(self, obj):
-        return prettify_json(obj.output_snapshot)
-
-    fieldsets = [
-        (
-            "Identification",
-            {"fields": ["pipeline_run", "stage", "attempt", "idempotency_key"]},
-        ),
-        (
-            "State",
-            {"fields": ["status", "input_ref", "output_ref", "pretty_output_snapshot"]},
-        ),
-        (
-            "Errors",
-            {
-                "fields": [
-                    "error_type",
-                    "error_message",
-                    "error_stack",
-                    "error_retryable",
-                ],
-                "classes": ["collapse"],
-            },
-        ),
-        (
-            "Timestamps",
-            {"fields": ["started_at", "completed_at", "duration_ms"]},
-        ),
-    ]
+    list_select_related = ["pipeline_run"]
 
 
 @admin.register(PipelineDefinition)
@@ -456,84 +159,8 @@ class PipelineDefinitionAdmin(admin.ModelAdmin):
 
 
 @admin.register(InboxItem)
-class InboxAdmin(admin.ModelAdmin):
-    """Monitor of un-drained pipeline runs (PENDING/PROCESSING) with drain/reclaim.
-
-    Reuses the shared ``apps.orchestration.inbox`` helpers so the drain/claim logic
-    is single-sourced with the ``process_inbox`` management command.
-    """
-
-    ordering = ["created_at"]  # oldest first — the natural drain order
-    list_display = ["run_id", "source", "node", "origin", "status", "age", "stuck"]
-    list_filter = ["status", "origin", "node", "source"]
+class InboxAdmin(ReadOnlyAdmin):
+    ordering = ["created_at"]
+    list_display = ["run_id", "status", "origin", "node", "created_at", "updated_at"]
+    list_filter = ["status", "origin", "node"]
     search_fields = ["run_id", "trace_id", "alert_fingerprint"]
-    actions = ["drain_selected", "reclaim_stuck"]
-
-    # Draining runs the full pipeline synchronously per row inside the request, so a
-    # large selection would tie up the worker. Refuse anything bigger and let the
-    # operator narrow the selection.
-    max_drain_selection = 25
-
-    def has_add_permission(self, request):
-        # The inbox is populated by ingest, never created by hand.
-        return False
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related("node")
-
-    @admin.display(description="Age")
-    def age(self, obj):
-        """Human-readable time since the run was recorded."""
-        return timesince(obj.created_at)
-
-    @admin.display(description="Stuck", boolean=True)
-    def stuck(self, obj):
-        """True if the run has been PROCESSING past the stall timeout."""
-        return obj.is_stuck()
-
-    @admin.action(description="Drain selected (process now)")
-    def drain_selected(self, request, queryset):
-        """Claim + execute each selected run via the shared inbox helper.
-
-        Each row is isolated: a failure (including a row claimed or deleted between
-        listing and action, which raises ``PipelineRun.DoesNotExist``) is counted and
-        the drain continues. Oversized selections are refused up front because each row
-        runs the full pipeline synchronously in-request.
-        """
-        if queryset.count() > self.max_drain_selection:
-            self.message_user(
-                request,
-                f"Refusing to drain more than {self.max_drain_selection} runs at once; "
-                "narrow the selection and retry.",
-                level=messages.WARNING,
-            )
-            return
-
-        processed = 0
-        failed = 0
-        for obj in queryset:
-            try:
-                processed += inbox.drain_run(obj.run_id)
-            except (
-                Exception
-            ):  # noqa: BLE001 — isolate each row; one bad run must not abort the rest
-                failed += 1
-        if failed:
-            self.message_user(
-                request,
-                f"Drained {processed} run(s); {failed} failed.",
-                level=messages.ERROR,
-            )
-        else:
-            self.message_user(
-                request,
-                f"Drained {processed} run(s).",
-                level=messages.SUCCESS,
-            )
-
-    @admin.action(description="Reclaim stuck (PROCESSING -> PENDING)")
-    def reclaim_stuck(self, request, queryset):
-        """Return stalled PROCESSING runs in the selection to PENDING (scoped reclaim)."""
-        pks = list(queryset.values_list("pk", flat=True))
-        count = inbox.reclaim_stuck(pks=pks)
-        self.message_user(request, f"Reclaimed {count} stuck run(s).", level=messages.SUCCESS)

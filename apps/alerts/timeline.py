@@ -3,8 +3,8 @@
 A pure read-only function that gathers an incident's three lifecycle sources —
 alert history events, pipeline stage executions, and pipeline runs — into a
 single chronologically ordered list of plain dicts. No side effects: it only
-reads the ORM and returns data, so callers (admin display, APIs) can render it
-however they like.
+reads the ORM and returns data, so a caller such as the console's incident page can
+render it however it likes.
 """
 
 from apps.alerts.models import AlertHistory, Incident
@@ -21,11 +21,11 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
     - ``detail``: optional string with extra context (may be ``None``).
     - ``run_id``: present on ``stage``/``pipeline`` entries for correlation.
 
-    The console's incident page reads further keys, which the admin ignores:
+    The console's incident page reads further keys:
     ``history_pk``, ``alert_pk``, ``alert_name``, ``event``, ``old_status``,
     ``new_status``, ``severity_from`` and ``severity_to`` on ``alert_history`` entries,
-    ``run_pk``, ``status`` and ``error_message`` on ``pipeline`` entries, and ``stage``,
-    ``status``, ``execution_pk``, ``run_pk``, ``duration_ms``, ``output_snapshot``,
+    ``run_pk``, ``status``, ``error_message`` and ``finished`` on ``pipeline`` entries, and
+    ``stage``, ``status``, ``execution_pk``, ``run_pk``, ``duration_ms``, ``output_snapshot``,
     ``error_message`` and ``retryable`` on ``stage`` entries.
 
     Entries whose event time is unknown are skipped. Specifically, a
@@ -65,7 +65,7 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
         )
 
     # 2) PipelineRun creation + 3) its StageExecutions. prefetch_related keeps this a
-    # constant ~3 queries regardless of run count (renders inline on the admin page).
+    # constant ~3 queries regardless of run count.
     for run in incident.pipeline_runs.prefetch_related("stage_executions"):
         entries.append(
             {
@@ -78,6 +78,7 @@ def build_incident_timeline(incident: Incident) -> list[dict]:
                 "run_pk": run.pk,
                 "status": run.status,
                 "error_message": run.last_error_message or "",
+                "finished": run.completed_at is not None,
             }
         )
         for stage in run.stage_executions.all():

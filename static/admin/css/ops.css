@@ -288,38 +288,6 @@ a.ops-badge--muted:link,    a.ops-badge--muted:visited    { color: var(--ops-mut
   padding-left: var(--ops-space-3);
 }
 
-/* The pipeline run's stage strip (apps/orchestration/admin.py: pipeline_flow). */
-.ops-stage {
-  display: inline-block;
-  text-align: center;
-  margin: 0 var(--ops-space-1);
-}
-
-.ops-stage .ops-tint {
-  font-size: 18px;
-}
-
-.ops-stage-label {
-  font-size: 11px;
-}
-
-.ops-stage-arrow {
-  margin: 0 2px;
-}
-
-/* The incident page's expected-vs-actual stage strip (apps/alerts/admin.py:
-   diagnosis_display). */
-.ops-diag {
-  margin: 0 0 0 var(--ops-space-4);
-  padding: 0;
-  list-style: none;
-}
-
-.ops-diag-stage {
-  display: inline-block;
-  width: 90px;
-}
-
 /* Read-only JSON on a change form (config/dashboard.py: prettify_json). */
 .ops-pre {
   background: var(--darkened-bg);

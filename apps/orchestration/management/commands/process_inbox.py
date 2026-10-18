@@ -3,11 +3,11 @@
 Durable ingest records each inbound alert as a PENDING ``PipelineRun``; this command
 claims and executes them. Run it as a supervised loop (systemd ``--loop``) or a
 one-shot pass from cron. The claim is atomic (PENDING -> PROCESSING) so overlapping
-drains never double-process, and a crashed drain's PROCESSING runs are reclaimed
-after ``--stale-minutes``.
+drains never double-process, and a run a crashed or killed drain left in flight is
+reclaimed after ``--stale-minutes``.
 
-All claim/drain/reclaim logic lives in ``apps.orchestration.inbox`` so the admin
-Inbox monitor can reuse it; this command is a thin CLI wrapper.
+All claim/drain/reclaim logic lives in ``apps.orchestration.inbox`` so the console's
+inbox page can reuse it; this command is a thin CLI wrapper.
 """
 
 import time
@@ -31,7 +31,7 @@ class Command(BaseCommand):
             "--stale-minutes",
             type=int,
             default=inbox.DEFAULT_STALE_MINUTES,
-            help="Reclaim PROCESSING runs older than this (crashed drain recovery).",
+            help="Reclaim runs a drain left in flight longer than this (crashed drain recovery).",
         )
         parser.add_argument(
             "--id", dest="run_id", default=None, help="Process one specific PENDING run by run_id."
@@ -62,7 +62,7 @@ class Command(BaseCommand):
         self.stdout.write(f"Processed {processed} run(s).")
 
     def _reclaim_stale(self, stale_minutes: int) -> None:
-        """Return PROCESSING runs stuck past the timeout to PENDING for retry (global)."""
+        """Return every run stuck past the timeout to PENDING for retry (global)."""
         inbox.reclaim_stuck(stale_minutes)
 
     def _drain(self, limit: int) -> int:

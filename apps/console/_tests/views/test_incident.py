@@ -8,7 +8,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.alerts.models import Alert, AlertHistory, Incident, Node
-from apps.console._tests.queries.test_incident import (
+from apps.console._tests.queries.test_stages import (
     ANALYZE_SNAPSHOT,
     CHECK_SNAPSHOT,
     NOTIFY_SNAPSHOT,
@@ -304,14 +304,14 @@ def test_a_staff_user_without_admin_permissions_gets_no_admin_link(client, staff
 
 
 @pytest.mark.django_db
-def test_a_superuser_gets_navigation_links_into_the_admin(client):
+def test_a_superuser_gets_navigation_links_into_the_console(client):
     client.force_login(get_user_model().objects.create_superuser("root", password="x"))
     incident, alert, _, run, *_ = _busy()
 
     body = client.get(_url(incident), **HTMX).content.decode()
 
     assert f'href="{reverse("console:alert", args=[alert.pk])}"' in body
-    assert f'href="{reverse("admin:orchestration_pipelinerun_change", args=[run.pk])}"' in body
+    assert f'href="{reverse("console:run", args=[run.pk])}"' in body
 
 
 @pytest.mark.django_db

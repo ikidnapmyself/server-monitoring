@@ -366,3 +366,14 @@ class TimelineConsoleKeysTests(TestCase):
         assert (failed_stage["error_message"], failed_stage["retryable"]) == ("slack 500", False)
         assert quiet_run["error_message"] == ""
         assert (quiet_stage["error_message"], quiet_stage["retryable"]) == ("", True)
+
+    def test_a_pipeline_entry_says_whether_the_run_finished(self):
+        incident = Incident.objects.create()
+        PipelineRun.objects.create(
+            trace_id="t", run_id="r-done", incident=incident, completed_at=timezone.now()
+        )
+        PipelineRun.objects.create(trace_id="t2", run_id="r-going", incident=incident)
+
+        done, going = build_incident_timeline(incident)
+
+        assert (done["finished"], going["finished"]) == (True, False)

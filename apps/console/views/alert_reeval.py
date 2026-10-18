@@ -8,7 +8,7 @@ from apps.alerts.models import Alert
 from apps.alerts.reeval_existing import ReevalScope, StaleReeval, apply_reeval
 from apps.console.queries.alert import build_reeval_preview
 from apps.console.views.alert import AlertPageView
-from apps.console.views.incident import Notice
+from apps.console.views.base import Notice
 
 STALE = "This alert changed since you looked. Here is what re-evaluating does now."
 

@@ -1,0 +1,92 @@
+{% load console %}{% if notice %}<div id="run-notice" class="c-flash c-tone-{{ notice.tone }}" role="status" tabindex="-1" data-fresh>{% include "console/partials/_flash_icon.html" with tone=notice.tone %}<span>{{ notice.text }}</span></div>{% endif %}
+<a id="run-back" class="c-crumb" href="{% url 'console:runs' %}">{% include "console/partials/_octicon.html" with name="chevron-right" %}Back to runs</a>
+<div class="c-pagehead">
+  <div class="c-pagehead__top">
+    <h1 class="c-pagehead__title">{{ run.what.headline }} <span class="c-pagehead__number">#{{ run.pk }}</span></h1>
+  </div>
+  <div class="c-pagehead__meta">
+    <span>{{ run.origin }}</span>
+    <span class="c-host c-host--lg{% if not run.node %} c-host--unknown{% endif %}">{% include "console/partials/_octicon.html" with name="server" %}{{ run.node|default:"Unknown host" }}</span>
+    <span>Created {% include "console/partials/_time.html" with when=run.created_at %}</span>
+  </div>
+</div>
+
+<div class="c-layout">
+  <div>
+    <section class="c-box c-comment">
+      <h2 class="c-box__header c-box__title">What's wrong</h2>
+      <div class="c-box__body">{% include "console/partials/_description.html" with d=run.what id="run-what" raw=run.raw hx_target="#run" %}</div>
+    </section>
+    {% if run.do %}
+    <section class="c-box c-comment c-do">
+      <h2 class="c-box__header c-box__title">Do this</h2>
+      <div class="c-box__body c-do__list">
+        {% for action in run.do %}{% resolved action as act %}
+        {% if action.intent == "abandon_run" %}{% include "console/partials/_action.html" with act=act id="action-"|add:action.intent hx_target="#run" cls="c-button--danger" %}
+        {% else %}{% include "console/partials/_action.html" with act=act id="action-"|add:action.intent hx_target="#run" cls="c-button--primary" %}{% endif %}
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+    <section class="c-box c-comment">
+      <h2 class="c-box__header c-box__title">Incident</h2>
+      {% if run.incident %}
+      <ul class="c-box__list">
+        <li class="c-box__row c-box__row--hover c-row c-status--{{ run.incident.status }}">
+          <span class="c-row__icon" title="{{ run.incident.status|capfirst }}">{% include "console/partials/_status_icon.html" with status=run.incident.status %}<span class="c-sr-only">{{ run.incident.status }}</span></span>
+          <div class="c-row__main">
+            <a id="run-incident" href="{{ run.incident.url }}">{{ run.incident.what.headline }}</a>
+            <div class="c-row__meta">#{{ run.incident.pk }} · {{ run.incident.status|capfirst }}</div>
+          </div>
+        </li>
+      </ul>
+      {% else %}
+      <div class="c-box__body"><p class="c-muted">Not part of an incident.</p></div>
+      {% endif %}
+    </section>
+    <h2 class="c-sr-only">Timeline</h2>
+    <ol class="c-timeline" data-print-open>
+      {% for entry in run.timeline %}
+      <li class="c-timeline__item">
+        {% include "console/partials/_timeline_badge.html" %}
+        {% if entry.body or entry.what.detail or entry.what.action or entry.what.facts %}
+        <details id="{{ entry.id }}">
+          <summary id="{{ entry.id }}-summary" class="c-entry">
+            <span class="c-entry__text"><span class="c-entry__title">{{ entry.what.headline }}</span></span>
+            {% include "console/partials/_entry_lead.html" with chevron=True %}
+          </summary>
+          <div class="c-entry__body">
+            {% if entry.body %}{% include "console/partials/_stage_body.html" with body=entry.body %}{% endif %}
+            {% include "console/partials/_description.html" with d=entry.what id=entry.id|add:"-what" headless=True raw=entry.body.raw hx_target="#run" %}
+          </div>
+        </details>
+        {% else %}
+        <div class="c-entry">
+          <span class="c-entry__text"><span id="{{ entry.id }}">{{ entry.what.headline }}</span></span>
+          {% include "console/partials/_entry_lead.html" %}
+        </div>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+
+  <aside class="c-sidebar" aria-label="Run details">
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Node</h2>
+      <p class="c-sidebar__value">{% include "console/partials/_octicon.html" with name="server" %}{% if run.node %}<span>{{ run.node }}</span>{% else %}<span class="c-muted">Unknown host</span>{% endif %}</p>
+    </div>
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Origin</h2>
+      <p class="c-sidebar__value"><span>{{ run.origin }}</span></p>
+    </div>
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Stage reached</h2>
+      <p class="c-sidebar__value">{% include "console/partials/_octicon.html" with name="workflow" %}{% if run.stage %}<span>{{ run.stage }}</span>{% else %}<span class="c-muted">None</span>{% endif %}</p>
+    </div>
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Attempts</h2>
+      <p class="c-sidebar__value">{% include "console/partials/_octicon.html" with name="sync" %}<span>{{ run.attempts }}</span></p>
+    </div>
+  </aside>
+</div>

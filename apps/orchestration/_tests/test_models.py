@@ -1,11 +1,9 @@
 """Tests for PipelineRun and StageExecution model state transitions."""
 
 import uuid
-from datetime import timedelta
 
 import pytest
 from django.test import TestCase
-from django.utils import timezone
 
 from apps.orchestration.models import (
     InboxItem,
@@ -47,6 +45,13 @@ class PipelineRunModelTests(TestCase):
         run.mark_started(PipelineStage.INGEST)
         assert run.current_stage == PipelineStage.INGEST
         assert run.started_at is not None
+
+    def test_mark_started_reopens_a_run_that_failed(self):
+        run = PipelineRun.objects.create(trace_id=str(uuid.uuid4()), run_id=str(uuid.uuid4()))
+        run.mark_failed("StageExecutionError", "boom")
+        run.mark_started(None)
+        run.refresh_from_db()
+        assert run.completed_at is None
 
     def test_advance_to(self):
         """Test advancing pipeline status."""
@@ -94,18 +99,6 @@ class PipelineRunModelTests(TestCase):
         assert run.last_error_type == "TestError"
         assert run.last_error_message == "Something went wrong"
         assert run.last_error_retryable is True
-
-    def test_mark_retrying(self):
-        """Test marking pipeline as retrying."""
-        run = PipelineRun.objects.create(
-            trace_id=str(uuid.uuid4()),
-            run_id=str(uuid.uuid4()),
-        )
-        initial_attempts = run.total_attempts
-        run.mark_retrying()
-        run.refresh_from_db()
-        assert run.status == PipelineStatus.RETRYING
-        assert run.total_attempts == initial_attempts + 1
 
 
 class StageExecutionModelTests(TestCase):
@@ -193,37 +186,3 @@ def test_inbox_lists_only_pending_and_processing():
     PipelineRun.objects.create(trace_id="t", run_id="p", status=PipelineStatus.PROCESSING)
     ids = set(InboxItem.objects.values_list("run_id", flat=True))
     assert ids == {"a", "p"}
-
-
-@pytest.mark.django_db
-def test_stuck_true_when_processing_past_cutoff():
-    run = PipelineRun.objects.create(trace_id="t", run_id="c", status=PipelineStatus.PROCESSING)
-    PipelineRun.objects.filter(pk=run.pk).update(updated_at=timezone.now() - timedelta(minutes=30))
-    item = InboxItem.objects.get(pk=run.pk)
-    assert item.is_stuck(timeout_minutes=15) is True
-
-
-@pytest.mark.django_db
-def test_stuck_false_for_pending_item():
-    run = PipelineRun.objects.create(trace_id="t", run_id="d", status=PipelineStatus.PENDING)
-    item = InboxItem.objects.get(pk=run.pk)
-    assert item.is_stuck(timeout_minutes=15) is False
-
-
-@pytest.mark.django_db
-def test_stuck_false_for_recent_processing_item():
-    run = PipelineRun.objects.create(trace_id="t", run_id="e", status=PipelineStatus.PROCESSING)
-    item = InboxItem.objects.get(pk=run.pk)
-    assert item.is_stuck(timeout_minutes=15) is False
-
-
-@pytest.mark.django_db
-def test_stuck_uses_default_stale_minutes_when_none():
-    from apps.orchestration.inbox import DEFAULT_STALE_MINUTES
-
-    run = PipelineRun.objects.create(trace_id="t", run_id="f", status=PipelineStatus.PROCESSING)
-    PipelineRun.objects.filter(pk=run.pk).update(
-        updated_at=timezone.now() - timedelta(minutes=DEFAULT_STALE_MINUTES + 5)
-    )
-    item = InboxItem.objects.get(pk=run.pk)
-    assert item.is_stuck() is True

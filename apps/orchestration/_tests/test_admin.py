@@ -1,14 +1,17 @@
+import pytest
 from django.contrib import admin
 from django.contrib.auth.models import User
 from django.db import connection
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
+from django.urls import reverse
 from django.utils import timezone
 
 from apps.alerts.models import Alert, AlertSeverity, AlertStatus, Incident, IncidentStatus
 from apps.checkers.models import CheckRun, CheckStatus
 from apps.intelligence.models import AnalysisRun
 from apps.orchestration.models import (
+    InboxItem,
     PipelineRun,
     PipelineStatus,
     StageExecution,
@@ -171,17 +174,6 @@ class TestPipelineTracing(TestCase):
     def setUp(self):
         self.client.login(username="admin", password="password")
 
-    def test_pipeline_run_detail_shows_flow(self):
-        run = self.pipeline_run
-        response = self.client.get(f"/admin/orchestration/pipelinerun/{run.pk}/change/")
-        assert response.status_code == 200
-        content = response.content.decode()
-        # Should show the pipeline flow stages
-        assert "INGEST" in content
-        assert "CHECK" in content
-        assert "ANALYZE" in content
-        assert "NOTIFY" in content
-
     def test_alert_search_by_trace_id(self):
         """AlertAdmin should support searching by fingerprint."""
         response = self.client.get("/admin/alerts/alert/?q=fp-1")
@@ -198,88 +190,6 @@ class TestPipelineTracing(TestCase):
         assert response.status_code == 200
         content = response.content.decode()
         assert "trace-xyz" in content
-
-
-class TestPipelineRunObjectActions(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
-
-    def setUp(self):
-        self.client.login(username="admin", password="password")
-
-    def test_mark_for_retry_button(self):
-        run = PipelineRun.objects.create(
-            trace_id="t1",
-            run_id="r1",
-            status=PipelineStatus.FAILED,
-        )
-        response = self.client.post(
-            f"/admin/orchestration/pipelinerun/{run.pk}/actions/mark_for_retry/",
-        )
-        assert response.status_code == 302
-        run.refresh_from_db()
-        assert run.status == PipelineStatus.RETRYING
-
-    def test_a_get_never_changes_a_run(self):
-        for tool in ("mark_for_retry", "mark_failed"):
-            run = PipelineRun.objects.create(
-                trace_id=tool, run_id=tool, status=PipelineStatus.FAILED
-            )
-            before = run.updated_at
-            response = self.client.get(f"/admin/orchestration/pipelinerun/{run.pk}/actions/{tool}/")
-            assert response.status_code == 405
-            run.refresh_from_db()
-            assert run.status == PipelineStatus.FAILED
-            assert run.updated_at == before
-
-    def test_staff_without_change_permission_cannot_change_a_run(self):
-        User.objects.create_user("viewer", password="password", is_staff=True)
-        self.client.login(username="viewer", password="password")
-        for tool, status in (
-            ("mark_for_retry", PipelineStatus.FAILED),
-            ("mark_failed", PipelineStatus.PENDING),
-        ):
-            run = PipelineRun.objects.create(trace_id=tool, run_id=tool, status=status)
-            response = self.client.post(
-                f"/admin/orchestration/pipelinerun/{run.pk}/actions/{tool}/"
-            )
-            assert response.status_code == 403
-            run.refresh_from_db()
-            assert run.status == status
-
-    def test_buttons_are_csrf_protected_forms(self):
-        run = PipelineRun.objects.create(trace_id="t1", run_id="r1", status=PipelineStatus.FAILED)
-        content = self.client.get(
-            f"/admin/orchestration/pipelinerun/{run.pk}/change/"
-        ).content.decode()
-        action_url = f"/admin/orchestration/pipelinerun/{run.pk}/actions/mark_for_retry/"
-        assert f'<form method="post" action="{action_url}">' in content
-        assert f'href="{action_url}"' not in content
-
-    def test_view_only_staff_see_no_buttons(self):
-        from django.contrib.auth.models import Permission
-
-        viewer = User.objects.create_user("viewer", password="password", is_staff=True)
-        viewer.user_permissions.add(Permission.objects.get(codename="view_pipelinerun"))
-        self.client.login(username="viewer", password="password")
-        run = PipelineRun.objects.create(trace_id="t1", run_id="r1", status=PipelineStatus.FAILED)
-        response = self.client.get(f"/admin/orchestration/pipelinerun/{run.pk}/change/")
-        assert response.status_code == 200
-        assert "/actions/" not in response.content.decode()
-
-    def test_mark_failed_button(self):
-        run = PipelineRun.objects.create(
-            trace_id="t1",
-            run_id="r1",
-            status=PipelineStatus.PENDING,
-        )
-        response = self.client.post(
-            f"/admin/orchestration/pipelinerun/{run.pk}/actions/mark_failed/",
-        )
-        assert response.status_code == 302
-        run.refresh_from_db()
-        assert run.status == PipelineStatus.FAILED
 
 
 class TestPrettifyJson(SimpleTestCase):
@@ -436,26 +346,6 @@ class TestJsonWidgetRendering(TestCase):
         admin_obj.save_model(request, obj2, form=None, change=False)
         assert obj2.created_by == "bob"
 
-    def test_stage_execution_snapshot_pretty(self):
-        from apps.orchestration.models import (
-            PipelineRun,
-            StageExecution,
-            StageStatus,
-        )
-
-        run = PipelineRun.objects.create(trace_id="t1", run_id="r1")
-        se = StageExecution.objects.create(
-            pipeline_run=run,
-            stage="ingest",
-            status=StageStatus.SUCCEEDED,
-            attempt=1,
-            output_snapshot={"result": "ok", "items": [1, 2, 3]},
-        )
-        response = self.client.get(f"/admin/orchestration/stageexecution/{se.pk}/change/")
-        assert response.status_code == 200
-        content = response.content.decode()
-        assert "<pre" in content
-
 
 class TestPipelineRunAdminFilters(SimpleTestCase):
     """PipelineRunAdmin exposes node/origin/status for filtering and display."""
@@ -501,108 +391,8 @@ class TestInboxAdmin(SimpleTestCase):
 
     def test_list_display_columns(self):
         list_display = self._admin().list_display
-        for col in ("run_id", "source", "node", "origin", "status", "age", "stuck"):
+        for col in ("run_id", "status", "origin", "node", "created_at", "updated_at"):
             self.assertIn(col, list_display)
-
-    def test_actions_defined(self):
-        actions = self._admin().actions
-        self.assertIn("drain_selected", actions)
-        self.assertIn("reclaim_stuck", actions)
-
-    def test_age_returns_human_string(self):
-        from apps.orchestration.models import InboxItem
-
-        item = InboxItem(trace_id="t", run_id="r", created_at=timezone.now())
-        self.assertIsInstance(self._admin().age(item), str)
-
-    def test_stuck_display_delegates_to_model(self):
-        from unittest.mock import MagicMock
-
-        obj = MagicMock()
-        obj.is_stuck.return_value = True
-        self.assertTrue(self._admin().stuck(obj))
-        obj.is_stuck.assert_called_once()
-
-    @staticmethod
-    def _queryset(rows=None, count=None, pks=None):
-        """Build a fake queryset supporting count(), iteration, and values_list()."""
-        from unittest.mock import MagicMock
-
-        qs = MagicMock()
-        qs.count.return_value = len(rows) if count is None and rows is not None else count
-        if rows is not None:
-            qs.__iter__.return_value = iter(rows)
-        if pks is not None:
-            qs.values_list.return_value = pks
-        return qs
-
-    def test_drain_selected_calls_helper_per_row(self):
-        from unittest.mock import MagicMock, patch
-
-        from django.contrib import messages
-
-        admin_obj = self._admin()
-        rows = [MagicMock(run_id="a"), MagicMock(run_id="b")]
-        qs = self._queryset(rows=rows)
-        with patch("apps.orchestration.inbox.drain_run", return_value=1) as mock_drain:
-            with patch.object(admin_obj, "message_user") as mock_msg:
-                admin_obj.drain_selected(request=MagicMock(), queryset=qs)
-        called_ids = [c.args[0] for c in mock_drain.call_args_list]
-        self.assertEqual(called_ids, ["a", "b"])
-        mock_msg.assert_called_once()
-        self.assertEqual(mock_msg.call_args.kwargs["level"], messages.SUCCESS)
-
-    def test_drain_selected_isolates_row_errors(self):
-        from unittest.mock import MagicMock, patch
-
-        from django.contrib import messages
-
-        from apps.orchestration.models import PipelineRun
-
-        admin_obj = self._admin()
-        rows = [MagicMock(run_id="ok1"), MagicMock(run_id="bad"), MagicMock(run_id="ok2")]
-        qs = self._queryset(rows=rows)
-
-        def fake_drain(run_id):
-            if run_id == "bad":
-                # A row claimed/deleted between listing and action.
-                raise PipelineRun.DoesNotExist()
-            return 1
-
-        with patch("apps.orchestration.inbox.drain_run", side_effect=fake_drain):
-            with patch.object(admin_obj, "message_user") as mock_msg:
-                # Must not raise (no 500) even though a row fails.
-                admin_obj.drain_selected(request=MagicMock(), queryset=qs)
-        mock_msg.assert_called_once()
-        message = mock_msg.call_args.args[1]
-        self.assertIn("Drained 2", message)
-        self.assertIn("1 failed", message)
-        self.assertEqual(mock_msg.call_args.kwargs["level"], messages.ERROR)
-
-    def test_drain_selected_refuses_oversized_selection(self):
-        from unittest.mock import MagicMock, patch
-
-        from django.contrib import messages
-
-        admin_obj = self._admin()
-        qs = self._queryset(count=admin_obj.max_drain_selection + 1)
-        with patch("apps.orchestration.inbox.drain_run") as mock_drain:
-            with patch.object(admin_obj, "message_user") as mock_msg:
-                admin_obj.drain_selected(request=MagicMock(), queryset=qs)
-        mock_drain.assert_not_called()
-        mock_msg.assert_called_once()
-        self.assertEqual(mock_msg.call_args.kwargs["level"], messages.WARNING)
-
-    def test_reclaim_stuck_scopes_to_selected_pks(self):
-        from unittest.mock import MagicMock, patch
-
-        admin_obj = self._admin()
-        qs = self._queryset(pks=[7, 8])
-        with patch("apps.orchestration.inbox.reclaim_stuck", return_value=3) as mock_reclaim:
-            with patch.object(admin_obj, "message_user") as mock_msg:
-                admin_obj.reclaim_stuck(request=MagicMock(), queryset=qs)
-        mock_reclaim.assert_called_once_with(pks=[7, 8])
-        mock_msg.assert_called_once()
 
 
 class TestInboxAdminQueryset(TestCase):
@@ -621,50 +411,6 @@ class TestInboxAdminQueryset(TestCase):
         self.assertEqual(list(qs.values_list("run_id", flat=True)), ["pend"])
 
 
-class TestPipelineRunCrossLinks(TestCase):
-    """PipelineRunAdmin cross-links to Node and Incident change pages."""
-
-    def _admin(self):
-        from apps.orchestration.admin import PipelineRunAdmin
-
-        return PipelineRunAdmin(PipelineRun, admin.site)
-
-    def test_cross_link_methods_in_readonly_fields(self):
-        readonly = self._admin().readonly_fields
-        self.assertIn("node_link", readonly)
-        self.assertIn("incident_link", readonly)
-
-    def test_node_link_renders_anchor(self):
-        from django.utils.safestring import SafeString
-
-        from apps.alerts.models import Node
-
-        node = Node.objects.create(instance_id="web-01", hostname="web-01")
-        run = PipelineRun.objects.create(trace_id="t", run_id="r", node=node)
-        result = self._admin().node_link(run)
-        self.assertIsInstance(result, SafeString)
-        self.assertIn(f"/admin/alerts/node/{node.pk}/change/", result)
-
-    def test_node_link_dash_when_null(self):
-        run = PipelineRun.objects.create(trace_id="t", run_id="r")
-        self.assertEqual(self._admin().node_link(run), "—")
-
-    def test_incident_link_renders_anchor(self):
-        from django.utils.safestring import SafeString
-
-        incident = Incident.objects.create(
-            severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN
-        )
-        run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
-        result = self._admin().incident_link(run)
-        self.assertIsInstance(result, SafeString)
-        self.assertIn(f"/admin/alerts/incident/{incident.pk}/change/", result)
-
-    def test_incident_link_dash_when_null(self):
-        run = PipelineRun.objects.create(trace_id="t", run_id="r")
-        self.assertEqual(self._admin().incident_link(run), "—")
-
-
 class TestPipelineRunChangePageRendersCrossLinks(TestCase):
     """The PipelineRun change page actually renders the node + incident links."""
 
@@ -674,22 +420,6 @@ class TestPipelineRunChangePageRendersCrossLinks(TestCase):
 
     def setUp(self):
         self.client.force_login(self.user)
-
-    def test_change_page_contains_node_and_incident_urls(self):
-        from django.urls import reverse
-
-        from apps.alerts.models import Node
-
-        node = Node.objects.create(instance_id="web-30", hostname="web-30")
-        incident = Incident.objects.create(
-            severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN
-        )
-        run = PipelineRun.objects.create(trace_id="t", run_id="r", node=node, incident=incident)
-        url = reverse("admin:orchestration_pipelinerun_change", args=[run.pk])
-        resp = self.client.get(url)
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, f"/admin/alerts/node/{node.pk}/change/")
-        self.assertContains(resp, f"/admin/alerts/incident/{incident.pk}/change/")
 
     def test_historical_run_without_an_incident_still_renders(self):
         """``PipelineRun.incident`` is required in code, nullable in the database.
@@ -814,57 +544,6 @@ class RoutingHelpTextDiscoverabilityTests(SimpleTestCase):
             assert value in description
 
 
-class TestPipelineFlowLinks(TestCase):
-    """The flow strip is what an operator clicks when a stage shows a cross.
-
-    A stage with an execution links to it; one that never ran has nothing to
-    point at and stays plain.
-    """
-
-    def setUp(self):
-        from django.contrib.admin.sites import AdminSite
-
-        from apps.orchestration.admin import PipelineRunAdmin
-
-        self.admin = PipelineRunAdmin(PipelineRun, AdminSite())
-        self.run = PipelineRun.objects.create(
-            trace_id="t", run_id="r", status=PipelineStatus.FAILED
-        )
-
-    def test_a_stage_with_an_execution_links_to_it(self):
-        execution = StageExecution.objects.create(
-            pipeline_run=self.run, stage="notify", status=StageStatus.FAILED, attempt=1
-        )
-        html = str(self.admin.pipeline_flow(self.run))
-        assert f'href="/admin/orchestration/stageexecution/{execution.pk}/change/"' in html
-
-    def test_the_latest_attempt_is_the_one_linked(self):
-        StageExecution.objects.create(
-            pipeline_run=self.run, stage="check", status=StageStatus.FAILED, attempt=1
-        )
-        second = StageExecution.objects.create(
-            pipeline_run=self.run, stage="check", status=StageStatus.SUCCEEDED, attempt=2
-        )
-        html = str(self.admin.pipeline_flow(self.run))
-        assert f'href="/admin/orchestration/stageexecution/{second.pk}/change/"' in html
-
-    def test_an_earlier_attempt_seen_last_does_not_win(self):
-        """Prefetch order is not attempt order, so a lower attempt must lose."""
-        high = StageExecution.objects.create(
-            pipeline_run=self.run, stage="check", status=StageStatus.FAILED, attempt=5
-        )
-        StageExecution.objects.create(
-            pipeline_run=self.run, stage="check", status=StageStatus.SUCCEEDED, attempt=2
-        )
-        html = str(self.admin.pipeline_flow(self.run))
-        assert f'href="/admin/orchestration/stageexecution/{high.pk}/change/"' in html
-
-    def test_a_stage_that_never_ran_is_not_a_link(self):
-        html = str(self.admin.pipeline_flow(self.run))
-        assert "stageexecution" not in html
-        assert "NOTIFY" in html
-
-
 class TestChannelColumnLinksTheChannel(TestCase):
     """The lane list names a channel; naming it is how you get to it."""
 
@@ -907,65 +586,21 @@ class TestChannelColumnLinksTheChannel(TestCase):
         assert '<a href="/admin/notify/notificationchannel/">' in html
 
 
-class TestPipelineFlowTones(TestCase):
-    """The strip's colour is the whole point of it: a glance says where a run stands.
+@pytest.mark.django_db
+@pytest.mark.parametrize("model", [PipelineRun, StageExecution, InboxItem])
+def test_run_admins_are_stock_and_read_only(model, rf, admin_user):
+    model_admin = admin.site._registry[model]
+    request = rf.get("/")
+    request.user = admin_user
+    assert not model_admin.has_add_permission(request)
+    assert not model_admin.has_change_permission(request)
+    assert not model_admin.has_delete_permission(request)
+    assert not model_admin.get_actions(request)
+    assert not hasattr(model_admin, "change_actions")
 
-    Before the tone sweep ``pending``, ``retrying`` and ``skipped`` all fell into
-    one grey branch, so a stage mid-backoff looked exactly like one that had not
-    started.
-    """
 
-    def setUp(self):
-        from django.contrib.admin.sites import AdminSite
-
-        from apps.orchestration.admin import PipelineRunAdmin
-
-        self.admin = PipelineRunAdmin(PipelineRun, AdminSite())
-        self.run = PipelineRun.objects.create(
-            trace_id="t", run_id="r", status=PipelineStatus.PROCESSING
-        )
-
-    def _flow(self, status):
-        StageExecution.objects.create(
-            pipeline_run=self.run, stage="check", status=status, attempt=1
-        )
-        return str(self.admin.pipeline_flow(self.run))
-
-    def test_a_succeeded_stage_reads_ok(self):
-        html = self._flow(StageStatus.SUCCEEDED)
-        assert "ops-tint--ok" in html
-        assert "✓" in html
-
-    def test_a_failed_stage_reads_critical(self):
-        html = self._flow(StageStatus.FAILED)
-        assert "ops-tint--critical" in html
-        assert "✗" in html
-
-    def test_a_running_stage_reads_warning(self):
-        html = self._flow(StageStatus.RUNNING)
-        assert "ops-tint--warning" in html
-        assert "●" in html
-
-    def test_a_retrying_stage_is_warning_and_not_a_dormant_circle(self):
-        html = self._flow(StageStatus.RETRYING)
-        assert "ops-tint--warning" in html
-        assert "↻" in html
-
-    def test_a_skipped_stage_is_muted_with_its_own_mark(self):
-        html = self._flow(StageStatus.SKIPPED)
-        assert "ops-tint--muted" in html
-        assert "⊘" in html
-
-    def test_a_stage_with_no_execution_is_a_muted_empty_circle(self):
-        html = str(self.admin.pipeline_flow(self.run))
-        assert "ops-tint--muted" in html
-        assert "○" in html
-
-    def test_the_strip_hardcodes_no_colour(self):
-        html = self._flow(StageStatus.SUCCEEDED)
-        assert "#" not in html
-
-    def test_the_arrow_keeps_its_spacing_class(self):
-        html = str(self.admin.pipeline_flow(self.run))
-        assert "ops-stage-arrow" in html
-        assert "ops-stage-label" in html
+@pytest.mark.django_db
+def test_a_run_change_page_still_opens(admin_client):
+    run = PipelineRun.objects.create(trace_id="t", run_id="r-stock", status="failed")
+    url = reverse("admin:orchestration_pipelinerun_change", args=[run.pk])
+    assert admin_client.get(url).status_code == 200

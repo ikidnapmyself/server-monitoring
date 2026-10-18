@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import F, Max
+from django.utils import timezone
 
 if TYPE_CHECKING:
     from apps.alerts.models import Node
@@ -285,7 +287,21 @@ class PipelineOrchestrator:
         if pipeline_run.status not in (PipelineStatus.FAILED, PipelineStatus.RETRYING):
             raise ValueError(f"Pipeline cannot be resumed from status: {pipeline_run.status}")
 
-        pipeline_run.mark_retrying()
+        # Conditional on the row as read, like ``inbox.claim``: a console Retry, a drain or
+        # a second resume can take the run between the read above and here, and only one
+        # of them may execute it.
+        claimed = PipelineRun.objects.filter(
+            pk=pipeline_run.pk, status=pipeline_run.status, updated_at=pipeline_run.updated_at
+        ).update(
+            status=PipelineStatus.RETRYING,
+            total_attempts=F("total_attempts") + 1,
+            completed_at=None,
+            updated_at=timezone.now(),
+        )
+        if not claimed:
+            pipeline_run.refresh_from_db(fields=["status"])
+            raise ValueError(f"Pipeline cannot be resumed from status: {pipeline_run.status}")
+        pipeline_run.refresh_from_db()
         # A downstream run IS its stored payload: the one incident it was created
         # for. The resume endpoint builds `payload` from the caller's request body
         # (views.py:229), which cannot describe that — resuming a child with it
@@ -766,8 +782,17 @@ class PipelineOrchestrator:
         """
         last_error: Exception | None = None
         last_result = None
+        # A requeued or resumed run re-runs a stage that already holds failed attempts,
+        # and (run, stage, attempt) is unique.
+        done = (
+            StageExecution.objects.filter(pipeline_run=pipeline_run, stage=stage).aggregate(
+                last=Max("attempt")
+            )["last"]
+            or 0
+        )
 
-        for attempt in range(1, self.max_retries + 1):
+        for tries in range(1, self.max_retries + 1):
+            attempt = done + tries
             # Create stage execution record
             stage_execution = StageExecution.objects.create(
                 pipeline_run=pipeline_run,
@@ -845,12 +870,12 @@ class PipelineOrchestrator:
                 )
 
                 # Check if retryable
-                if not e.retryable or attempt >= self.max_retries:
+                if not e.retryable or tries >= self.max_retries:
                     raise
 
                 # Emit retrying and backoff
                 emit_stage_retrying(tags)
-                backoff_time = self.backoff_factor**attempt
+                backoff_time = self.backoff_factor**tries
                 time.sleep(backoff_time)
 
             except Exception as e:
@@ -869,11 +894,11 @@ class PipelineOrchestrator:
                     duration_ms=0,
                 )
 
-                if attempt >= self.max_retries:
+                if tries >= self.max_retries:
                     raise
 
                 emit_stage_retrying(tags)
-                backoff_time = self.backoff_factor**attempt
+                backoff_time = self.backoff_factor**tries
                 time.sleep(backoff_time)
 
         # Should not reach here, but raise last error if we do

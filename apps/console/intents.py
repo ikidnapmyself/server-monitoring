@@ -15,9 +15,18 @@ from config.describing import Action
 
 @dataclass(frozen=True)
 class Intent:
+    """``permission`` is one codename, or a tuple of which any one suffices."""
+
     url: Callable[[dict[str, Any]], str]
     method: str
-    permission: str
+    permission: str | tuple[str, ...]
+
+    @property
+    def permissions(self) -> tuple[str, ...]:
+        return (self.permission,) if isinstance(self.permission, str) else self.permission
+
+    def allows(self, user) -> bool:
+        return not self.permission or any(user.has_perm(p) for p in self.permissions)
 
 
 @dataclass(frozen=True)
@@ -43,6 +52,10 @@ def _record(name: str) -> Callable[[dict[str, Any]], str]:
 
 def _incident_action(action: str) -> Callable[[dict[str, Any]], str]:
     return lambda params: reverse("console:incident-action", args=[params["pk"], action])
+
+
+def _run_action(action: str) -> Callable[[dict[str, Any]], str]:
+    return lambda params: reverse("console:run-action", args=[params["pk"], action])
 
 
 def _external(params: dict[str, Any]) -> str:
@@ -73,21 +86,34 @@ INTENTS: dict[str, Intent] = {
         _page("admin:checkers_preflightrun_changelist"), "get", "checkers.view_preflightrun"
     ),
     "view_inbox": Intent(
-        _page("admin:orchestration_inboxitem_changelist", "status__exact", "status"),
+        _page("console:inbox", "status", "status"),
         "get",
-        "orchestration.view_inboxitem",
+        ("orchestration.view_inboxitem", "orchestration.change_inboxitem"),
     ),
     "view_nodes": Intent(_page("admin:alerts_node_changelist"), "get", "alerts.view_node"),
     "view_node": Intent(_record("admin:alerts_node_change"), "get", "alerts.view_node"),
     "view_run": Intent(
-        _record("admin:orchestration_pipelinerun_change"), "get", "orchestration.view_pipelinerun"
+        _record("console:run"),
+        "get",
+        ("orchestration.view_pipelinerun", "orchestration.change_pipelinerun"),
     ),
-    "view_alert": Intent(_record("console:alert"), "get", "alerts.view_alert"),
+    "view_alert": Intent(
+        _record("console:alert"), "get", ("alerts.view_alert", "alerts.change_alert")
+    ),
     "reevaluate_alert": Intent(_record("console:alert-reeval"), "get", "alerts.change_alert"),
     "acknowledge": Intent(_incident_action("acknowledge"), "post", "alerts.change_incident"),
     "resolve": Intent(_incident_action("resolve"), "post", "alerts.change_incident"),
     "close": Intent(_incident_action("close"), "post", "alerts.change_incident"),
     "rerun_check": Intent(_record("console:incident-rerun"), "post", "checkers.add_checkrun"),
+    "retry_run": Intent(_run_action("retry"), "post", "orchestration.change_pipelinerun"),
+    "abandon_run": Intent(_run_action("abandon"), "post", "orchestration.change_pipelinerun"),
+    "drain_run": Intent(_record("console:inbox-drain"), "post", "orchestration.change_inboxitem"),
+    "drain_inbox": Intent(
+        _page("console:inbox-drain-oldest"), "post", "orchestration.change_inboxitem"
+    ),
+    "reclaim_inbox": Intent(
+        _page("console:inbox-reclaim"), "post", "orchestration.change_inboxitem"
+    ),
 }
 
 
@@ -98,7 +124,7 @@ def admin_url(name: str) -> str:
 
 def resolve_action(action: Action, user) -> ResolvedAction:
     intent = INTENTS.get(action.intent)
-    if intent is None or (intent.permission and not user.has_perm(intent.permission)):
+    if intent is None or not intent.allows(user):
         return ResolvedAction(action.text)
     try:
         url = intent.url(action.params)

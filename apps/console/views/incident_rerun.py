@@ -4,7 +4,8 @@ from django.urls import reverse
 
 from apps.alerts.check_integration import PipelineRunFailed, RerunRefused, rerun_incident_checks
 from apps.alerts.models import Incident
-from apps.console.views.incident import IncidentPageView, Notice
+from apps.console.views.base import Notice
+from apps.console.views.incident import IncidentPageView
 
 REFUSED = "This incident's checks can't run on this machine."
 RAN = "Checks ran again. The incident updates when the run finishes."

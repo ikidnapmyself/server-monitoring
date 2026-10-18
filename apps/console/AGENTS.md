@@ -94,6 +94,29 @@ pipeline stage and not an alert producer.
   matches an alert linked by FK or an unlinked one whose `instance_id`, `instance` or
   `hostname` label names it, through `on_node` in `queries/hosts.py`, which the incident
   list shares.
+- **The runs list filters on `RunFilter`** (`q`, `status` all by default, `origin`, `node`,
+  `since`, `page`). `q` matches run ID, trace ID and fingerprint, and an alert fingerprint
+  on the run's incident. A node matches the run's FK, or an unlinked run whose incident's
+  alerts name it.
+- **Run and inbox pages hold separate permissions.** The runs list and the run page read
+  with `orchestration.view_pipelinerun` or `change_pipelinerun`. Retry and Mark failed need
+  `change_pipelinerun` and go through `RunActionView`. The inbox reads with
+  `orchestration.view_inboxitem` or `change_inboxitem`. Drain and reclaim need
+  `change_inboxitem`. Neither permission set opens the other page. Every write is a
+  function in `apps/orchestration/inbox.py`.
+- **An inbox action swaps the polled root whole** (`swap="outerHTML"`) and resends the
+  filter as `kept` hidden inputs, since the POST URL doesn't carry the querystring. Drain
+  now executes one run in the request. Drain the oldest executes up to `DRAIN_LIMIT` (10)
+  runs and starts none after `DRAIN_SECONDS` (60), through `inbox.drain_each(pks,
+  seconds=…)`, so it ends well inside gunicorn's 120 second `--timeout`. Its notice says
+  how many runs are left for the next drain. Never drain in a test without patching
+  `PipelineOrchestrator.execute_run`.
+- **Stuck has one definition**, `inbox.stuck()`: in flight (`PROCESSING`, `INGESTED`,
+  `CHECKED`, `ANALYZED` or `RETRYING`), `completed_at` unset, and untouched for
+  `DEFAULT_STALE_MINUTES`. The inbox lists stuck runs of every such status and marks them,
+  its Stuck chip filters to them, and the dashboard counts them. Mark failed is offered,
+  and `inbox.abandon` acts, only on a `PENDING` or stuck run, so it never races a live
+  drain.
 - **A confirm form carries a `scope_digest`.** `/console/alerts/<pk>/reevaluate/` previews
   on GET and writes nothing. The form posts the digest taken before the preview. It covers
   the node's policy and each alert's incident status as well as the alerts, and
@@ -105,8 +128,9 @@ pipeline stage and not an alert producer.
   to disable its button on submit. Any later confirm page reuses this guard.
 - **A missing record gets a console 404 page** with a link onward, returned with status
   404, as `IncidentDetailView` does. Don't raise a bare `Http404` from a page view.
-- **Stage output is untrusted in shape.** `queries/incident.py` turns an
-  `output_snapshot` into `CheckBody`, `AnalyzeBody`, `NotifyBody` or `RawBody`. Every
+- **Stage output is untrusted in shape.** Every page reads stage output through
+  `queries/stages.py`, which turns an `output_snapshot` into `CheckBody`, `AnalyzeBody`,
+  `NotifyBody` or `RawBody`. Every
   builder must survive a list, a string, `None` and wrong-typed members without
   raising, because a raise is a 500 on every poll. Raw JSON renders through
   autoescaping only, inside an entry's Details.

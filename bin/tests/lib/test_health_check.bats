@@ -188,3 +188,14 @@ setup() {
     rm -rf "$tmpdir"
     assert_output "docker"
 }
+
+# --- run_systemd_checks ---
+
+@test "run_systemd_checks passes a healthy install that runs no Redis" {
+    systemctl() { [ "$3" != "redis-server" ] && [ "$3" != "redis" ]; }
+    export -f systemctl
+    _hc_json_mode=true
+    run_systemd_checks
+    [ "$_hc_failed" -eq 0 ]
+    [[ "${_hc_json_results[*]}" != *redis* ]]
+}

@@ -544,11 +544,13 @@ For Docker image vulnerabilities (trivy), rebuild with an updated base image or 
 
 ## Admin Interface
 
-The Django admin (`/admin/`) is the primary operations surface:
+Operators act on incidents, runs and the inbox in the console (`/console/`). The Django admin
+(`/admin/`) keeps configuration, and its incident, alert, run and inbox pages are read-only:
 
-- Protected by Django's built-in staff/superuser authentication
+- Both are protected by Django's built-in staff/superuser authentication
 - Custom `MonitoringAdminSite` inherits all default auth protections
-- Admin actions (acknowledge, resolve, retry) require authenticated staff access
+- Console actions (acknowledge, resolve, retry, drain) require active staff access plus the
+  model's change permission
 
 ## Reporting Vulnerabilities
 

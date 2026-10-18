@@ -535,7 +535,7 @@ class NodeChangeFormTests(TestCase):
         run = PipelineRun.objects.create(trace_id="t", run_id="run-render", node=node)
         response = self.client.get(self._url(node))
         self.assertContains(response, "<svg")
-        self.assertContains(response, f"/admin/orchestration/pipelinerun/{run.pk}/change/")
+        self.assertContains(response, f"/console/runs/{run.pk}/")
 
     def test_no_object_means_no_overview(self):
         # NodeAdmin forbids adding, but render_change_form is still called with
@@ -662,31 +662,25 @@ class NodeIncidentsColumnTests(TestCase):
         self.assertEqual(self._admin().incidents(self._annotated(node)), "—")
         self.assertIn("1 CRITICAL", str(self._admin().incidents(self._annotated(other))))
 
-    def test_link_filters_the_incident_changelist_to_this_node(self):
+    def test_link_filters_the_console_incident_list_to_this_node(self):
         node = self._node()
         self._incident(node, severity="critical")
         html = str(self._admin().incidents(self._annotated(node)))
-        self.assertIn(f"alerts__node__id__exact={node.pk}", html)
-        self.assertIn("severity__exact=critical", html)
-        self.assertIn("status__in=open,acknowledged", html)
+        self.assertIn(f'href="/console/incidents/?severity=critical&amp;node={node.pk}"', html)
 
     def test_the_link_target_actually_filters(self):
         node = self._node()
         other = self._node(instance_id="node-b", hostname="web-02")
-        self._incident(node, severity="critical", title="mine")
-        self._incident(other, severity="critical", title="theirs")
-        response = self.client.get(
-            "/admin/alerts/incident/",
-            {
-                "alerts__node__id__exact": node.pk,
-                "status__in": "open,acknowledged",
-                "severity__exact": "critical",
-            },
-        )
+        mine = self._incident(node, severity="critical")
+        theirs = self._incident(other, severity="critical")
+        resolved = self._incident(node, severity="critical", status="resolved")
+        warning = self._incident(node, severity="warning")
+        response = self.client.get("/console/incidents/", {"severity": "critical", "node": node.pk})
         self.assertEqual(response.status_code, 200)
         body = response.content.decode()
-        self.assertIn("mine", body)
-        self.assertNotIn("theirs", body)
+        self.assertIn(f"/console/incidents/{mine.pk}/", body)
+        for hidden in (theirs, resolved, warning):
+            self.assertNotIn(f"/console/incidents/{hidden.pk}/", body)
 
     def test_column_is_sortable_by_total(self):
         quiet = self._node()

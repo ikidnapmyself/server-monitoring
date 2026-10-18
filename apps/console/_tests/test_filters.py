@@ -3,10 +3,17 @@ from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 
 import pytest
+from django.db.models import Q
 from django.http import QueryDict
 
 from apps.alerts.models import AlertSeverity, IncidentStatus
-from apps.console.filters import AlertFilter, IncidentFilter
+from apps.console.filters import (
+    RUN_STATUS_CHOICES,
+    AlertFilter,
+    InboxFilter,
+    IncidentFilter,
+    RunFilter,
+)
 
 NOW = datetime(2026, 10, 14, 12, 0, tzinfo=dt_timezone.utc)
 
@@ -275,3 +282,65 @@ def test_alert_filter_without_drops_named_fields():
 def test_alert_filter_kept_lists_what_the_search_form_must_carry():
     criteria = AlertFilter(q="cpu", status="all", node=2, page=5)
     assert criteria.kept() == (("status", "all"), ("node", "2"))
+
+
+def _run_filter(**params):
+    query = QueryDict(mutable=True)
+    query.update(params)
+    return RunFilter.parse(query)
+
+
+def test_run_filter_defaults_to_every_status():
+    assert _run_filter() == RunFilter()
+    assert RunFilter().matches() == Q()
+    assert RunFilter(status="active").matches() == RUN_STATUS_CHOICES["active"]
+
+
+def test_run_filter_keeps_valid_values_and_drops_the_rest():
+    criteria = _run_filter(status="failed", origin="bogus", node="3", since="24h", page="0")
+    assert criteria == RunFilter(status="failed", node=3, since="24h", dropped=("origin", "page"))
+    assert _run_filter(origin="checker_generated").origin == "checker_generated"
+
+
+def test_run_filter_search_is_trimmed_capped_and_cleaned():
+    criteria = _run_filter(q="  abc\x00 " + "x" * 300)
+    assert criteria.q.startswith("abc ")
+    assert len(criteria.q) == 255
+    assert "\x00" not in criteria.q
+    assert _run_filter(q="   ").q == ""
+
+
+def test_run_filter_cutoff_counts_back_from_now():
+    assert RunFilter().cutoff(NOW) is None
+    assert RunFilter(since="7d").cutoff(NOW) == NOW - timedelta(days=7)
+
+
+def test_run_filter_querystring_resets_the_page_and_skips_defaults():
+    criteria = RunFilter(status="failed", page=3)
+    assert criteria.querystring(origin="manual") == "?status=failed&origin=manual"
+    assert criteria.querystring(page=2) == "?status=failed&page=2"
+    assert RunFilter().querystring() == ""
+
+
+def test_run_filter_without_drops_named_fields():
+    criteria = RunFilter(node=9, origin="manual", dropped=("since",)).without("node")
+    assert criteria == RunFilter(origin="manual", dropped=("node", "since"))
+
+
+def test_run_filter_kept_lists_what_the_search_form_must_carry():
+    criteria = RunFilter(q="abc", status="failed", origin="manual", node=2, since="24h", page=5)
+    assert criteria.kept() == (
+        ("status", "failed"),
+        ("origin", "manual"),
+        ("node", "2"),
+        ("since", "24h"),
+    )
+
+
+def test_inbox_filter_takes_pending_processing_stuck_or_all():
+    for status in ("", "pending", "processing", "stuck"):
+        assert InboxFilter.parse(QueryDict(f"status={status}")).status == status
+    assert InboxFilter.parse(QueryDict("status=failed")) == InboxFilter(dropped=("status",))
+    assert InboxFilter(status="pending").querystring() == "?status=pending"
+    assert InboxFilter(status="pending").querystring(status="") == ""
+    assert InboxFilter().querystring() == ""

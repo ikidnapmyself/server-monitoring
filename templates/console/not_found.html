@@ -7,6 +7,8 @@
     <h1 class="c-blankslate__heading">Not found</h1>
     {% if nav == "alerts" %}<p>This alert doesn't exist. It may have been deleted.</p>
     <p class="c-section"><a id="not-found-back" href="{% url 'console:alerts' %}">Back to alerts</a></p>
+    {% elif nav == "runs" %}<p>This run doesn't exist. It may have been deleted.</p>
+    <p class="c-section"><a id="not-found-back" href="{% url 'console:runs' %}">Back to runs</a></p>
     {% else %}<p>This incident doesn't exist. It may have been deleted.</p>
     <p class="c-section"><a id="not-found-back" href="{% url 'console:incidents' %}">Back to incidents</a></p>{% endif %}
   </div>

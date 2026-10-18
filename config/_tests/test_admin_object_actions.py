@@ -18,7 +18,7 @@ def _object_actions():
 
 
 def test_there_are_object_actions_to_check():
-    assert len(list(_object_actions())) >= len(PREVIEW_ON_GET) + 5
+    assert len(list(_object_actions())) >= len(PREVIEW_ON_GET)
 
 
 def test_writing_object_actions_refuse_get():

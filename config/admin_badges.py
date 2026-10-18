@@ -53,24 +53,6 @@ CHECK_STATUS_TONES = {
     "skipped": "muted",
 }
 
-STAGE_STATUS_TONES = {
-    "pending": "muted",
-    "running": "warning",
-    "succeeded": "ok",
-    "failed": "critical",
-    "retrying": "warning",
-    "skipped": "muted",
-}
-
-DIAGNOSIS_TONES = {
-    "ok": "ok",
-    "empty": "warning",
-    "failed": "critical",
-    "stalled": "warning",
-    "skipped": "muted",
-    "never_ran": "critical",
-}
-
 
 def tone_for(table: dict[str, str], value: str) -> str:
     """Tone for a domain status, falling back to ``muted`` for anything unmapped."""

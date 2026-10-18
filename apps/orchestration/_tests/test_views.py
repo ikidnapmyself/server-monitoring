@@ -388,6 +388,26 @@ class TestPipelineResumeView(TestCase):
         assert response.status_code == 200
         mock_orch_cls.return_value.resume_pipeline.assert_called_once()
 
+    @patch("apps.orchestration.views.PipelineOrchestrator")
+    def test_a_resume_that_loses_the_run_is_a_conflict(self, mock_orch_cls):
+        from apps.orchestration.models import PipelineRun, PipelineStatus
+
+        PipelineRun.objects.create(
+            trace_id="t-1", run_id="r-resume-lost", status=PipelineStatus.FAILED, source="test"
+        )
+        mock_orch_cls.return_value.resume_pipeline.side_effect = ValueError(
+            "Pipeline cannot be resumed from status: processing"
+        )
+
+        response = Client().post(
+            "/orchestration/pipeline/r-resume-lost/resume/",
+            data="{}",
+            content_type="application/json",
+        )
+
+        assert response.status_code == 409
+        assert response.json()["error"] == "Pipeline cannot be resumed from status: processing"
+
     def test_invalid_json(self):
         """Invalid JSON in resume request returns 400."""
         from apps.orchestration.models import PipelineRun, PipelineStatus
