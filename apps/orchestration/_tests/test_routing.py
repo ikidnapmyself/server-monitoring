@@ -128,7 +128,8 @@ def test_representable():
     assert representable([{"field": "source", "op": "is", "value": "cluster"}])
     assert not representable([{"field": "source", "op": "regex", "value": ".*"}])
     assert not representable({"field": "source", "op": "is", "value": "cluster"})
-    assert not representable(None)
+    assert representable(None)
+    assert representable({})
 
 
 @pytest.fixture

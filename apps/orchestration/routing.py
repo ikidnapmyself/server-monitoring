@@ -70,7 +70,8 @@ def describe_condition(cond: Any) -> str | None:
 
 
 def representable(match: Any) -> bool:
-    """True if ``match`` is a list whose every condition the console can read."""
+    """True if ``match`` is empty or a list whose every condition the console can read."""
+    match = match or []
     return isinstance(match, list) and all(describe_condition(c) is not None for c in match)
 
 
