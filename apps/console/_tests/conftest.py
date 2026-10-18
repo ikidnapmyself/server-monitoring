@@ -68,3 +68,13 @@ def inbox_viewer(bare_staff):
 @pytest.fixture
 def inbox_operator(inbox_viewer):
     return _perm(inbox_viewer, "orchestration", "change_inboxitem")
+
+
+@pytest.fixture
+def node_viewer(bare_staff):
+    return _perm(bare_staff, "alerts", "view_node")
+
+
+@pytest.fixture
+def node_operator(node_viewer):
+    return _perm(node_viewer, "alerts", "change_node")

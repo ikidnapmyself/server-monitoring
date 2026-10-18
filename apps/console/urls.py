@@ -10,6 +10,8 @@ from apps.console.views import (
     IncidentDetailView,
     IncidentListView,
     IncidentRerunView,
+    NodeDetailView,
+    NodeListView,
     OverviewView,
     RunActionView,
     RunDetailView,
@@ -37,6 +39,8 @@ urlpatterns = [
     path(
         "inbox/<int:pk>/drain/", InboxActionView.as_view(), {"action": "drain"}, name="inbox-drain"
     ),
+    path("nodes/", NodeListView.as_view(), name="nodes"),
+    path("nodes/<int:pk>/", NodeDetailView.as_view(), name="node"),
     path("incidents/", IncidentListView.as_view(), name="incidents"),
     path("incidents/<int:pk>/", IncidentDetailView.as_view(), name="incident"),
     path("incidents/<int:pk>/rerun/", IncidentRerunView.as_view(), name="incident-rerun"),

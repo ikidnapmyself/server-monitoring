@@ -42,6 +42,7 @@ RUN_STATUS_CHOICES: dict[str, Q] = {
 }
 ORIGIN_CHOICES: tuple[str, ...] = ("", *PipelineOrigin.values)
 INBOX_STATUS_CHOICES: tuple[str, ...] = ("", "pending", "processing", "stuck")
+FRESHNESS_CHOICES: tuple[str, ...] = ("", "silent", "reporting")
 
 FIELDS = ("status", "severity", "node", "since", "page")
 ALERT_FIELDS = ("q", "status", "severity", "node", "source", "since", "page")
@@ -267,3 +268,32 @@ class InboxFilter:
     def querystring(self, **changes: str | int | None) -> str:
         status = changes.get("status", self.status)
         return f"?{urlencode({'status': status})}" if status else ""
+
+
+@dataclass(frozen=True)
+class NodeFilter:
+    q: str = ""
+    freshness: str = ""
+    dropped: tuple[str, ...] = ()
+
+    @classmethod
+    def parse(cls, params: QueryDict) -> "NodeFilter":
+        values, dropped = _parse(params, (("freshness", FRESHNESS_CHOICES),))
+        text = _text(params, "q", SEARCH_LIMIT)
+        if text:
+            values["q"] = text
+        return cls(**values, dropped=tuple(dropped))  # type: ignore[arg-type]
+
+    def querystring(self, **changes: str | int | None) -> str:
+        target = replace(self, **changes)  # type: ignore[arg-type]
+        pairs = [(name, value) for name in ("q", "freshness") if (value := getattr(target, name))]
+        return f"?{urlencode(pairs)}" if pairs else ""
+
+    def kept(self) -> tuple[tuple[str, str], ...]:
+        """Filters a search submit must resend, since a GET form sends only its own fields."""
+        return (("freshness", self.freshness),) if self.freshness else ()
+
+
+def checker_param(params: QueryDict) -> str:
+    """The checker a re-evaluate link narrows to, or blank for the whole node."""
+    return _text(params, "checker", SEARCH_LIMIT)

@@ -88,7 +88,7 @@ def test_get_action_is_a_link(operator):
 
     html = _render(operator, d)
 
-    assert '<a id="disk-action" class="c-button c-button--sm" href="/admin/alerts/node/"' in html
+    assert '<a id="disk-action" class="c-button c-button--sm" href="/console/nodes/"' in html
     assert "noopener" not in html
     assert "<form" not in html
 

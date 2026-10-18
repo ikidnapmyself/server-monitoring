@@ -14,6 +14,12 @@ from django.db.models import Q
 from apps.alerts.models import Alert, Node
 from apps.alerts.services import instance_key_from_labels
 
+UNNAMED_NODE = "Unnamed node"
+
+
+def node_name(hostname: str) -> str:
+    return hostname or UNNAMED_NODE
+
 
 def alert_host(hostname: str | None, instance_id: str | None, labels: dict | None) -> str:
     name = hostname or instance_id or instance_key_from_labels(labels)

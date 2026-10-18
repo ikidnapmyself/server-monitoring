@@ -244,7 +244,7 @@ def test_each_node_tile_counts_only_its_own_firing_alerts():
 
 
 @pytest.mark.django_db
-def test_node_tiles_cost_two_queries_and_fall_back_to_the_instance_id(django_assert_num_queries):
+def test_node_tiles_cost_two_queries_and_name_an_unnamed_node(django_assert_num_queries):
     Node.objects.create(instance_id="b-id", hostname="")
     alpha = Node.objects.create(instance_id="a-id", hostname="alpha")
     _alert(alpha, severity="critical", key="a")
@@ -253,7 +253,7 @@ def test_node_tiles_cost_two_queries_and_fall_back_to_the_instance_id(django_ass
     with django_assert_num_queries(2):
         tiles = overview.node_tiles()
 
-    assert [tile.name for tile in tiles] == ["alpha", "b-id"]
+    assert [tile.name for tile in tiles] == ["alpha", "Unnamed node"]
 
 
 @pytest.mark.django_db

@@ -12,6 +12,8 @@ from django.urls import NoReverseMatch, reverse
 
 from config.describing import Action
 
+NODE_READ = ("alerts.view_node", "alerts.change_node")
+
 
 @dataclass(frozen=True)
 class Intent:
@@ -99,7 +101,8 @@ INTENTS: dict[str, Intent] = {
         "get",
         ("orchestration.view_inboxitem", "orchestration.change_inboxitem"),
     ),
-    "view_nodes": Intent(_page("admin:alerts_node_changelist"), "get", "alerts.view_node"),
+    "view_nodes": Intent(_page("console:nodes"), "get", NODE_READ),
+    "view_policy": Intent(_page("admin:policy-overview"), "get", NODE_READ),
     "view_node": Intent(_record("admin:alerts_node_change"), "get", "alerts.view_node"),
     "edit_node_policy": Intent(_record("admin:alerts_node_change"), "get", "alerts.change_node"),
     "reevaluate_node": Intent(_node_reeval_admin, "get", "alerts.change_node"),

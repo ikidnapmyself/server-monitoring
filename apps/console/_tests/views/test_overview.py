@@ -464,14 +464,23 @@ def test_incident_title_is_escaped(client, staff):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("field", ["hostname", "instance_id"])
-def test_node_name_is_escaped(client, staff, field):
-    Node.objects.create(**{"instance_id": "n1", "hostname": "", field: f"web {MARKUP}"})
+def test_node_name_is_escaped(client, staff):
+    Node.objects.create(instance_id="n1", hostname=f"web {MARKUP}")
 
     body = client.get(reverse("console:overview")).content.decode()
 
     assert "web &lt;img src=x onerror=alert(1)&gt;" in body
     assert "<img" not in body
+
+
+@pytest.mark.django_db
+def test_an_unnamed_node_tile_keeps_its_instance_id_off_the_page(client, staff):
+    Node.objects.create(instance_id=f"web {MARKUP}", hostname="")
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert "Unnamed node" in body
+    assert "onerror" not in body
 
 
 @pytest.mark.django_db
