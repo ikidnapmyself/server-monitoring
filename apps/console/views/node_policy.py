@@ -1,6 +1,6 @@
 from django.contrib import messages
 from django.db import OperationalError
-from django.http import HttpResponseForbidden, HttpResponseRedirect
+from django.http import HttpResponseRedirect
 from django.urls import reverse
 
 from apps.alerts.forms import ADD_SECTION_FIELD
@@ -8,7 +8,7 @@ from apps.alerts.node_policy import StalePolicy, editor_anchor, save_policy, sco
 from apps.checkers.checkers import checker_label
 from apps.console.queries.node import PolicyEditor, build_policy_editor
 from apps.console.views.base import Notice
-from apps.console.views.node import CHANGE_REQUIRED, NodePageView
+from apps.console.views.node import NodePageView
 
 STALE = "This node's policy changed since you opened it. Here it is now."
 SCORING_CHANGED = (
@@ -37,12 +37,12 @@ class NodePolicyView(NodePageView):
 
     def get(self, request, *args, **kwargs):
         if not self.can_change:
-            return HttpResponseForbidden(CHANGE_REQUIRED)
+            return self.forbidden()
         return self.render_editor(build_policy_editor(kwargs["pk"]))
 
     def post(self, request, *args, **kwargs):
         if not self.can_change:
-            return HttpResponseForbidden(CHANGE_REQUIRED)
+            return self.forbidden()
         pk = kwargs["pk"]
         digest = request.POST.get("digest", "")
         editor = build_policy_editor(pk, request.POST, digest=digest)

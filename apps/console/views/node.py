@@ -1,3 +1,4 @@
+from django.http import HttpResponseForbidden
 from django.shortcuts import render
 
 from apps.console.intents import NODE_READ
@@ -5,7 +6,6 @@ from apps.console.queries.node import build_node_detail
 from apps.console.views.base import ConsoleView
 
 NODE_CHANGE = "alerts.change_node"
-CHANGE_REQUIRED = "Permission to change nodes required."
 
 
 class NodePageView(ConsoleView):
@@ -14,6 +14,9 @@ class NodePageView(ConsoleView):
     @property
     def can_change(self) -> bool:
         return self.request.user.has_perm(NODE_CHANGE)
+
+    def forbidden(self):
+        return HttpResponseForbidden("Permission to change nodes required.")
 
     def not_found(self):
         return render(self.request, "console/not_found.html", {"nav": "nodes"}, status=404)

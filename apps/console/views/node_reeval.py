@@ -2,7 +2,7 @@ from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.db import OperationalError
-from django.http import HttpResponseForbidden, HttpResponseRedirect
+from django.http import HttpResponseRedirect
 from django.urls import reverse
 
 from apps.alerts.describing import describe_reeval_applied
@@ -11,7 +11,7 @@ from apps.alerts.reeval_existing import StaleReeval, apply_reeval
 from apps.console.filters import checker_param
 from apps.console.queries.reeval import build_node_reeval_preview, node_scope
 from apps.console.views.base import NOTHING_TO_APPLY, Notice
-from apps.console.views.node import CHANGE_REQUIRED, NodePageView
+from apps.console.views.node import NodePageView
 
 STALE = (
     "This node's alerts or policy changed since you looked. Here is what re-evaluating does now."
@@ -47,7 +47,7 @@ class NodeReevalView(NodePageView):
 
     def post(self, request, *args, **kwargs):
         if not self.can_change:
-            return HttpResponseForbidden(CHANGE_REQUIRED)
+            return self.forbidden()
         node = Node.objects.filter(pk=kwargs["pk"]).first()
         if node is None:
             return self.not_found()
