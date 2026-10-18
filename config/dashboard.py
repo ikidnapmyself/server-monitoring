@@ -237,7 +237,7 @@ def build_readiness():
             "label": "Nodes",
             "status": n_status,
             "detail": detail,
-            "url": reverse("admin:alerts_node_changelist"),
+            "url": reverse("console:nodes"),
             "gaps": [],
             "counts": {"total": total_nodes, "recent": recent},
         }
@@ -576,7 +576,7 @@ def build_fleet_metrics() -> FleetMetrics:
         NodeMetrics(
             instance_id=node.instance_id,
             hostname=node.hostname,
-            url=reverse("admin:alerts_node_change", args=[node.pk]),
+            url=reverse("console:node", args=[node.pk]),
             cells=[
                 (
                     MetricCell(value=found.value, status=found.status)

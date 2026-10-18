@@ -114,6 +114,11 @@ def test_nodes_neutral_then_recent_ok():
 
 
 @pytest.mark.django_db
+def test_the_nodes_card_opens_the_console():
+    assert _by_key(build_readiness())["nodes"]["url"] == reverse("console:nodes")
+
+
+@pytest.mark.django_db
 def test_readiness_in_dashboard_context():
     ctx = get_dashboard_context()
     assert "readiness" in ctx

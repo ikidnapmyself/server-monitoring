@@ -5,7 +5,7 @@
 <div id="readiness">
   <h2>Readiness
     <a class="heading-link" href="{% url 'admin:netmap' %}">Network map</a>
-    <a class="heading-link" href="{% url 'admin:policy-overview' %}">Hub-side policy</a>
+    <a class="heading-link" href="{% url 'console:policy' %}">Fleet policy</a>
   </h2>
   <div class="dashboard-row">
     {% for r in readiness %}
@@ -176,7 +176,7 @@
         </tbody>
       </table>
     </div>
-    <div class="table-link"><a href="{% url 'admin:policy-overview' %}">Hub-side policy &rarr;</a></div>
+    <div class="table-link"><a href="{% url 'console:policy' %}">Fleet policy &rarr;</a></div>
     {% else %}
     <div class="no-data-message">No node has reported a headline metric yet</div>
     {% endif %}
