@@ -889,8 +889,8 @@ the run's incident's subject alert (`apps.orchestration.routing`, first-match-wi
 `priority`, ties on `id`) and runs the downstream stages listed in its `stages`
 column; NOTIFY sends to the matched pipeline's single `channel`. A no-match is a
 non-retryable `no_route` failure — the seeded `catch-all` lane is what routes
-otherwise-unmatched traffic. Observability: the Journey admin panel, `manage.py
-trace`, and `manage.py report`.
+otherwise-unmatched traffic. Observability: the console incident page's timeline and the console run page,
+`manage.py trace`, and `manage.py report`.
 
 ### Monitoring Signals
 

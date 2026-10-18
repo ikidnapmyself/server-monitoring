@@ -156,7 +156,7 @@ Apps under `apps/` should follow this layout. A few legacy `views.py` modules â€
 |-----|---------|------------|
 | `alerts` | Webhook ingestion (8 drivers), incident rollup, operator transitions. A **producer**, not a stage | Alert, Incident, AlertHistory |
 | `checkers` | Health checks (CPU, memory, disk, disk_macos, disk_linux, disk_common, disk_inodes, network, process, raid, disk_temp, cpu_temp, io_strain, listening_ports). Also a **producer of alert truth** about the machine it runs on, via `CheckAlertBridge` â€” see "Checkers as an alert producer" below | CheckRun |
-| `console` | Operator console at `/console/`. Server-rendered, staff only. A consumer: not a stage, not a producer | none |
+| `console` | Operator console at `/console/`. Server-rendered, staff only. A consumer: not a stage, not a producer. The incident admin is stock and no longer carries the journey. The console incident and run pages do | none |
 | `intelligence` | AI analysis via provider pattern | Uses StageExecution |
 | `notify` | Notification delivery (Email, Slack, PagerDuty, Generic) | NotificationChannel |
 | `orchestration` | Intake (`intake.enqueue_for`), inbox, pipeline state machine, retry logic | PipelineRun, StageExecution, PipelineDefinition |
