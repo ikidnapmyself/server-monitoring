@@ -1,0 +1,148 @@
+{% load console %}<a id="node-back" class="c-crumb" href="{% url 'console:nodes' %}">{% include "console/partials/_octicon.html" with name="chevron-right" %}Back to nodes</a>
+<div class="c-pagehead">
+  <div class="c-pagehead__top">
+    <h1 class="c-pagehead__title">{{ node.name }}</h1>
+  </div>
+  <div class="c-pagehead__meta">
+    <span class="c-label c-tone-{{ node.tone }}">{{ node.label }}</span>
+    {% for c in node.counts %}<a id="node-count-{{ c.severity }}" class="c-label c-tone-{{ c.tone }}" href="{{ c.url }}">{{ c.count }} {{ c.severity }}</a>{% endfor %}
+    <span>{{ node.role }}</span>
+    <span class="c-pagehead__dot c-tone-{{ node.freshness_tone }}">{{ node.freshness }}</span>
+  </div>
+</div>
+
+<div class="c-layout">
+  <div>
+    {% if node.do %}
+    <section class="c-box c-comment c-do">
+      <h2 class="c-box__header c-box__title">Do this</h2>
+      <div class="c-box__body c-do__list">
+        {% for action in node.do %}{% resolved action as act %}
+        {% if forloop.first %}{% include "console/partials/_action.html" with act=act id="action-"|add:action.intent cls="c-button--primary" %}
+        {% else %}{% include "console/partials/_action.html" with act=act id="action-"|add:action.intent %}{% endif %}
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+    <section class="c-box c-comment">
+      <h2 class="c-box__header c-box__title">Checker state</h2>
+      {% if node.checkers %}
+      <table class="c-table">
+        <thead><tr><th scope="col">Checker</th><th scope="col">Status</th><th scope="col" class="c-table__num">Value</th><th scope="col">{{ node.checker_time_label }}</th></tr></thead>
+        <tbody>
+          {% for line in node.checkers %}{% resolved line.action as act %}
+          <tr>
+            <td>{% if act.url %}<a id="checker-{{ line.key }}" href="{{ act.url }}">{{ line.label }}</a>{% else %}{{ line.label }}{% endif %}</td>
+            <td>{{ line.status }}</td>
+            <td class="c-table__num">{{ line.value }}</td>
+            <td>{% include "console/partials/_time.html" with when=line.observed_at %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="c-box__body"><p class="c-muted">No checker has reported on this node yet.</p></div>
+      {% endif %}
+    </section>
+    <section class="c-box c-comment">
+      <h2 class="c-box__header c-box__title">Open incidents</h2>
+      {% if node.incidents %}
+      <ul class="c-box__list">
+        {% for card in node.incidents %}
+        <li class="c-box__row c-box__row--hover c-row c-status--{{ card.status }}">
+          <span class="c-row__icon" title="{{ card.status|capfirst }}">{% include "console/partials/_status_icon.html" with status=card.status %}<span class="c-sr-only">{{ card.status }}</span></span>
+          <div class="c-row__main">
+            <a id="node-incident-{{ card.pk }}" href="{{ card.url }}">{{ card.what.headline }}</a>
+            <div class="c-row__meta">#{{ card.pk }} · {{ card.status|capfirst }}</div>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="c-box__body"><p class="c-muted">Nothing open on this node.</p></div>
+      {% endif %}
+    </section>
+    <section class="c-box c-comment">
+      <h2 class="c-box__header c-box__title">History</h2>
+      <div class="c-box__body">
+        {% for chart in node.charts %}
+        <figure class="c-section">
+          <figcaption class="c-box__title">{{ chart.title }}</figcaption>
+          {{ chart.svg }}
+          <p class="c-muted">latest {{ chart.latest }}</p>
+        </figure>
+        {% empty %}
+        <p class="c-muted">{% if node.charts_note %}{{ node.charts_note }}{% else %}No history recorded yet.{% endif %}</p>
+        {% endfor %}
+      </div>
+    </section>
+    <section class="c-box c-comment">
+      <h2 class="c-box__header c-box__title">Policy</h2>
+      <div class="c-box__body">
+        {% if node.in_effect %}
+        <h3 class="c-box__title">Policy in effect</h3>
+        <ul class="c-box__list">
+          {% for line in node.in_effect %}
+          <li class="c-section">
+            <strong>{{ line.label }}</strong> {{ line.values|join:", " }}
+            {% if line.edit %}{% resolved line.edit as act %}{% if act.url %} <a id="policy-edit-{{ line.key }}" href="{{ act.url }}">{{ act.text }}</a>{% endif %}{% endif %}
+            {% if line.note %}<p class="c-muted">Scoring as stored, but {{ line.note }}</p>{% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+        {% if node.not_scoring %}
+        <h3 class="c-box__title">Saved but not scoring</h3>
+        <ul class="c-box__list">
+          {% for line in node.not_scoring %}
+          <li class="c-section">
+            <strong>{{ line.label }}</strong> {{ line.values|join:", " }}
+            {% if line.edit %}{% resolved line.edit as act %}{% if act.url %} <a id="policy-edit-{{ line.key }}" href="{{ act.url }}">{{ act.text }}</a>{% endif %}{% endif %}
+            <p class="c-tone-warning">{{ line.note }}</p>
+          </li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+        {% if node.unread %}
+        <h3 class="c-box__title">Not honoured</h3>
+        <p>{{ node.unread|length }} stored setting{{ node.unread|length|pluralize }} no scorer reads.</p>
+        {% include "console/partials/_details.html" with facts=node.unread raw="" id="node-unread" %}
+        {% endif %}
+        {% if not node.in_effect and not node.not_scoring and not node.unread %}
+        <p class="c-muted">No policy set on this node.</p>
+        {% endif %}
+      </div>
+    </section>
+    <section class="c-box c-comment">
+      <h2 class="c-box__header c-box__title">Recent runs</h2>
+      {% if node.runs %}
+      <ul class="c-box__list">
+        {% for row in node.runs %}{% include "console/partials/_run_row.html" %}{% endfor %}
+      </ul>
+      {% else %}
+      <div class="c-box__body"><p class="c-muted">No runs on this node yet.</p></div>
+      {% endif %}
+      <div class="c-box__body"><a id="node-runs" href="{{ node.runs_url }}">All runs on this node</a></div>
+    </section>
+    <div class="c-section">{% include "console/partials/_details.html" with facts=node.facts raw=node.raw id="node-details" %}</div>
+  </div>
+
+  <aside class="c-sidebar" aria-label="Node details">
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Role</h2>
+      <p class="c-sidebar__value">{% include "console/partials/_octicon.html" with name="server" %}<span>{{ node.role }}</span></p>
+    </div>
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Freshness</h2>
+      <p class="c-sidebar__value"><span class="c-label c-tone-{{ node.freshness_tone }}">{{ node.freshness }}</span></p>
+    </div>
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Preflight</h2>
+      {% if node.preflight %}{% resolved node.preflight_action as act %}
+      <p class="c-sidebar__value"><span>{% if act.url %}<a id="node-preflight" href="{{ act.url }}">{{ node.preflight }}</a>{% else %}{{ node.preflight }}{% endif %} {% include "console/partials/_time.html" with when=node.preflight_at %}</span></p>
+      {% else %}
+      <p class="c-sidebar__value c-muted"><span>{{ node.preflight_note }}</span></p>
+      {% endif %}
+    </div>
+  </aside>
+</div>

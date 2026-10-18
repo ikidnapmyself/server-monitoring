@@ -323,7 +323,7 @@ def test_a_node_tile_links_to_the_node_for_a_user_who_can_view_nodes(client, sta
 
     body = client.get(reverse("console:overview")).content.decode()
 
-    href = reverse("admin:alerts_node_change", args=[node.pk])
+    href = reverse("console:node", args=[node.pk])
     assert f'<a id="node-{node.pk}" class="c-box c-tile" href="{href}">' in body
 
 
@@ -335,7 +335,7 @@ def test_a_node_tile_is_not_a_link_for_a_user_who_cannot_view_nodes(client, staf
 
     assert '<div class="c-box c-tile">' in body
     assert f'id="node-{node.pk}"' not in body
-    assert reverse("admin:alerts_node_change", args=[node.pk]) not in body
+    assert reverse("console:node", args=[node.pk]) not in body
     assert "web-1" in body and "seen " in body
 
 

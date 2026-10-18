@@ -124,7 +124,8 @@ def test_query_params_are_encoded(admin_user):
         ("edit_provider", {}, "/admin/intelligence/intelligenceprovider/"),
         ("view_preflight", {}, "/admin/checkers/preflightrun/"),
         ("view_policy", {}, "/admin/policy/"),
-        ("view_node", {"pk": 7}, "/admin/alerts/node/7/change/"),
+        ("view_check_run", {"pk": 7}, "/admin/checkers/checkrun/7/change/"),
+        ("view_preflight_run", {"pk": 7}, "/admin/checkers/preflightrun/7/change/"),
         ("edit_node_policy", {"pk": 7, "checker": "cpu"}, "/admin/alerts/node/7/change/"),
         (
             "reevaluate_node",
@@ -190,6 +191,7 @@ def test_inbox_intents_point_at_the_console(admin_user, intent, params, url, met
     ("intent", "params", "url", "method"),
     [
         ("view_nodes", {}, "/console/nodes/", "get"),
+        ("view_node", {"pk": 7}, "/console/nodes/7/", "get"),
     ],
 )
 def test_node_intents_point_at_the_console(admin_user, intent, params, url, method):
@@ -226,6 +228,7 @@ def _user_with(django_user_model, codename):
             ("view_inbox", {}, "orchestration", "inboxitem"),
             ("view_alert", {"pk": 7}, "alerts", "alert"),
             ("view_nodes", {}, "alerts", "node"),
+            ("view_node", {"pk": 7}, "alerts", "node"),
             ("view_policy", {}, "alerts", "node"),
         )
         for verb in ("view", "change")

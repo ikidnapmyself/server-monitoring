@@ -1,6 +1,7 @@
 """Read model for one alert's page. Returns dataclasses, never querysets."""
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -10,6 +11,7 @@ from apps.alerts.describing import (
     describe_alert,
     describe_history,
     describe_incident,
+    describe_incidents,
     describe_reeval,
 )
 from apps.alerts.models import Alert, Incident
@@ -75,6 +77,20 @@ def incident_card(incident: Incident | None) -> IncidentCard | None:
         status=incident.status,
         status_tone=tone_for(INCIDENT_STATUS_TONES, incident.status),
         url=reverse("console:incident", args=[incident.pk]),
+    )
+
+
+def incident_cards(incidents: Sequence[Incident]) -> tuple[IncidentCard, ...]:
+    described = describe_incidents(incidents)
+    return tuple(
+        IncidentCard(
+            pk=incident.pk,
+            what=described[incident.pk],
+            status=incident.status,
+            status_tone=tone_for(INCIDENT_STATUS_TONES, incident.status),
+            url=reverse("console:incident", args=[incident.pk]),
+        )
+        for incident in incidents
     )
 
 

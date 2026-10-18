@@ -18,7 +18,7 @@ from django.utils.http import urlencode
 from django.utils.timesince import timesince
 
 from apps.alerts.check_integration import STATUS_TO_SEVERITY
-from apps.alerts.describing import describe_incidents
+from apps.alerts.describing import alert_link, describe_incidents
 from apps.alerts.identity import local_hostname, local_instance_id
 from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
 from apps.alerts.reevaluation import PRIMARY_METRIC
@@ -27,6 +27,7 @@ from apps.checkers.checkers import CheckStatus
 from apps.checkers.models import CheckRun, PreflightRun
 from config.admin_badges import SEVERITY_TONES, badge, tone_for
 from config.dashboard import NODE_RECENT_MINUTES
+from config.describing import Action
 
 # Worst first: the order both the changelist column and the detail header read in.
 SEVERITIES_WORST_FIRST = [AlertSeverity.CRITICAL, AlertSeverity.WARNING, AlertSeverity.INFO]
@@ -170,6 +171,7 @@ class CheckerRow:
     value: str
     observed_at: object
     url: str
+    action: Action
 
 
 def _format_metric(raw) -> str:
@@ -253,6 +255,7 @@ def _local_checker_rows(node) -> list[CheckerRow]:
                 value=_format_metric(raw),
                 observed_at=run.executed_at,
                 url=reverse("admin:checkers_checkrun_change", args=[run.pk]),
+                action=Action("Open the check run", "view_check_run", {"pk": run.pk}),
             )
         )
     return sorted(rows, key=lambda r: r.checker)
@@ -295,6 +298,7 @@ def _peer_checker_rows(node) -> list[CheckerRow]:
                 value=_format_metric(raw),
                 observed_at=alert.received_at,
                 url=reverse("console:alert", args=[alert.pk]),
+                action=alert_link(alert.pk),
             )
         )
     return sorted(rows, key=lambda r: r.checker)
@@ -444,7 +448,7 @@ PEER_PREFLIGHT_NOTE = (
 
 @dataclass(frozen=True)
 class PreflightPanel:
-    run: object
+    run: PreflightRun | None
     note: str
 
 

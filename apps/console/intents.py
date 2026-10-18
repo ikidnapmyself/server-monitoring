@@ -103,7 +103,13 @@ INTENTS: dict[str, Intent] = {
     ),
     "view_nodes": Intent(_page("console:nodes"), "get", NODE_READ),
     "view_policy": Intent(_page("admin:policy-overview"), "get", NODE_READ),
-    "view_node": Intent(_record("admin:alerts_node_change"), "get", "alerts.view_node"),
+    "view_node": Intent(_record("console:node"), "get", NODE_READ),
+    "view_check_run": Intent(
+        _record("admin:checkers_checkrun_change"), "get", "checkers.view_checkrun"
+    ),
+    "view_preflight_run": Intent(
+        _record("admin:checkers_preflightrun_change"), "get", "checkers.view_preflightrun"
+    ),
     "edit_node_policy": Intent(_record("admin:alerts_node_change"), "get", "alerts.change_node"),
     "reevaluate_node": Intent(_node_reeval_admin, "get", "alerts.change_node"),
     "view_run": Intent(

@@ -26,6 +26,7 @@ from apps.alerts.node_overview import (
 from apps.checkers.models import CheckRun, PreflightRun
 from apps.orchestration.models import PipelineRun
 from config.dashboard import NODE_RECENT_MINUTES
+from config.describing import Action
 
 
 class IdentityHeaderTests(TestCase):
@@ -218,6 +219,22 @@ class CheckerStateTests(TestCase):
         alert = self._peer_alert(node, "cpu", AlertSeverity.WARNING)
         rows = build_checker_rows(node)
         self.assertEqual(rows[0].url, reverse("console:alert", args=[alert.pk]))
+
+    def test_a_peer_row_acts_by_opening_the_alert(self):
+        node = Node.objects.create(instance_id="web-03", hostname="web-03")
+        alert = self._peer_alert(node, "cpu", AlertSeverity.WARNING)
+        rows = build_checker_rows(node)
+        self.assertEqual(
+            rows[0].action, Action("Open the alert", intent="view_alert", params={"pk": alert.pk})
+        )
+
+    def test_a_hub_row_acts_by_opening_the_check_run(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        run = self._run("cpu", "ok", {"cpu_percent": 10.0})
+        rows = build_checker_rows(node)
+        self.assertEqual(
+            rows[0].action, Action("Open the check run", "view_check_run", {"pk": run.pk})
+        )
 
     def test_a_peer_at_info_reads_as_ok(self):
         # A passing health check is "ok" in the checker's own words. Reading
