@@ -101,13 +101,15 @@ def test_membership_needs_a_value():
 def test_bad_severity_names_the_choices():
     form = _condition(field="severity", op="is", value="critcal")
     assert not form.is_valid()
-    assert form.errors["value"] == ["Not a severity: critcal. Use one of Critical, Warning, Info."]
+    assert form.errors["value"] == [
+        "Severity can't be critcal. Use one of Critical, Warning, Info."
+    ]
 
 
 def test_bad_membership_value_is_named():
     form = _condition(field="status", op="in", value="firing, gone")
     assert not form.is_valid()
-    assert form.errors["value"] == ["Not a status: gone. Use one of Firing, Resolved."]
+    assert form.errors["value"] == ["Status can't be gone. Use one of Firing, Resolved."]
 
 
 def test_choice_accepts_label_or_value_case_blind():
@@ -347,9 +349,46 @@ def test_inactive_channel_reads_off():
     assert field.required is False
 
 
-@pytest.mark.django_db
-def test_an_added_blank_row_is_an_error_not_a_silent_drop():
-    route = _route()
-    form = RouteForm(RouteForm.add_condition(_data(route)), instance=route)
+def test_bad_origin_names_the_choices():
+    form = _condition(field="origin", op="is", value="x")
     assert not form.is_valid()
-    assert form.conditions.errors[0]["value"]
+    assert form.errors["value"] == [
+        "Started by can't be x. Use one of Incoming webhook, Checker generated, Manual / CLI."
+    ]
+
+
+def test_op_is_labelled_rule():
+    assert ConditionForm().fields["op"].label == "Rule"
+
+
+def test_blank_row_is_valid_with_no_condition():
+    form = _condition(field="label", op="is", value=" ")
+    assert form.is_valid()
+    assert form.condition is None
+
+
+def test_label_key_without_value_is_an_error():
+    form = _condition(field="label", label_key="team", op="is", value="")
+    assert not form.is_valid()
+    assert form.errors["value"] == ["This field is required."]
+
+
+@pytest.mark.django_db
+def test_an_added_blank_row_is_dropped():
+    route = _route()
+    rows = [
+        {"field": "source", "op": "is", "value": "zabbix"},
+        {"field": "source", "op": "is", "value": "", "label_key": ""},
+    ]
+    form = RouteForm(_data(route, rows), instance=route)
+    assert form.is_valid(), form.conditions.errors
+    assert form.route_fields()["match"] == [{"field": "source", "op": "is", "value": "zabbix"}]
+
+
+@pytest.mark.django_db
+def test_a_row_with_a_key_and_no_value_fails_the_form():
+    route = _route()
+    data = _data(route, [{"field": "label", "label_key": "team", "op": "is", "value": ""}])
+    form = RouteForm(data, instance=route)
+    assert not form.is_valid()
+    assert form.conditions.errors[0]["value"] == ["This field is required."]

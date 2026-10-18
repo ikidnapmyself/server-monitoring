@@ -26,8 +26,10 @@ MODEL_FIELDS = ["name", "description", "is_active", "priority", "channel"]
 class ConditionForm(forms.Form):
     field = forms.ChoiceField(choices=FIELDS.items())
     label_key = forms.CharField(required=False, label="Label name")
-    op = forms.ChoiceField(choices=OPS.items(), label="Test")
-    value = forms.CharField(help_text="For “is one of”, separate values with commas.")
+    op = forms.ChoiceField(choices=OPS.items(), label="Rule")
+    value = forms.CharField(
+        required=False, help_text="For “is one of”, separate values with commas."
+    )
 
     @staticmethod
     def initial_for(cond: dict) -> dict:
@@ -41,9 +43,14 @@ class ConditionForm(forms.Form):
         super().clean()
         cleaned = self.cleaned_data
         kind, op, raw = cleaned.get("field"), cleaned.get("op"), cleaned.get("value")
+        self.condition: dict | None = None
+        if not raw and not cleaned.get("label_key"):
+            return cleaned
+        if not raw:
+            self.add_error("value", self.fields["value"].error_messages["required"])
         if kind == "label" and not cleaned.get("label_key"):
             self.add_error("label_key", "Name the label to match on.")
-        if kind is None or op is None or raw is None:
+        if kind is None or op is None or not raw:
             return cleaned
         if op in MEMBERSHIP:
             values = [v.strip() for v in raw.split(",") if v.strip()]
@@ -68,9 +75,7 @@ class ConditionForm(forms.Form):
         for value in values:
             if value.lower() not in known:
                 labels = ", ".join(str(label) for label in choices.labels)
-                self.add_error(
-                    "value", f"Not a {FIELDS[kind].lower()}: {value}. Use one of {labels}."
-                )
+                self.add_error("value", f"{FIELDS[kind]} can't be {value}. Use one of {labels}.")
                 return values
         return [known[v.lower()] for v in values]
 
@@ -153,5 +158,9 @@ class RouteForm(forms.ModelForm):
             fields["match"] = self._stored_match
         else:
             deleted = self.conditions.deleted_forms
-            fields["match"] = [row.condition for row in self.conditions.forms if row not in deleted]
+            fields["match"] = [
+                row.condition
+                for row in self.conditions.forms
+                if row not in deleted and row.condition is not None
+            ]
         return fields
