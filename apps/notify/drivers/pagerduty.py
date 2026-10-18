@@ -30,17 +30,6 @@ class PagerDutyNotifyDriver(BaseNotifyDriver):
             secret=True,
             help="The Events API v2 routing key of the PagerDuty service.",
         ),
-        ConfigField(
-            "event_action",
-            "Event action",
-            "choice",
-            default="trigger",
-            choices=(
-                ("trigger", "Trigger"),
-                ("acknowledge", "Acknowledge"),
-                ("resolve", "Resolve"),
-            ),
-        ),
         ConfigField("client", "Client name", "text", help="Shown in PagerDuty as the sender."),
         ConfigField("client_url", "Client URL", "url"),
         timeout_field(),

@@ -5,7 +5,7 @@ import re
 
 import pytest
 
-from apps.notify import templating
+from apps.notify import services, templating
 from apps.notify.config_fields import COMMON_FIELDS, KINDS, ConfigField
 from apps.notify.drivers import DRIVER_REGISTRY
 from apps.notify.drivers import base as base_module
@@ -13,15 +13,20 @@ from apps.notify.drivers.base import BaseNotifyDriver
 
 ALIASES = {
     "generic": {"webhook_url"},
-    "pagerduty": {"dedup_key"},
+    "pagerduty": {"dedup_key", "event_action"},
     "*": {"text_template"},
 }
 
-CONFIG_KEY = re.compile(r"""\bconfig(?:\.get\(\s*|\[\s*)(["'])(?P<key>[^"']+)\1""")
+_KEY = r"""(["'])(?P<key>[^"']+)\1"""
+CONFIG_KEY_PATTERNS = (
+    re.compile(r"\bconfig(?:\.get\(\s*|\[\s*)" + _KEY),
+    re.compile(r"\.config\s+or\s+\{\}\s*\)\.get\(\s*" + _KEY),
+    re.compile(_KEY + r"\s+(?:not\s+)?in\s+config\b"),
+)
 
 
 def _read_keys(source: str) -> set[str]:
-    return {m.group("key") for m in CONFIG_KEY.finditer(source)}
+    return {m.group("key") for p in CONFIG_KEY_PATTERNS for m in p.finditer(source)}
 
 
 def test_key_regex_reads_both_quotes_and_whitespace():
@@ -32,22 +37,34 @@ def test_key_regex_reads_both_quotes_and_whitespace():
         config[ 'd' ]
         other_config.get("e")
         config.get(name)
+        if "f" in config
+        if 'g' not in config
+        "h" in configured
+        (channel.config or {}).get("i")
+        (channel_obj.config or {}).get( 'j', None)
     """
-    assert _read_keys(source) == {"a", "b", "c", "d"}
+    assert _read_keys(source) == {"a", "b", "c", "d", "f", "g", "i", "j"}
 
 
 @pytest.mark.parametrize("name", sorted(DRIVER_REGISTRY))
 def test_every_key_a_driver_reads_is_declared(name):
     """Every config key a driver's code reads is a declared field or a listed alias.
 
+    The scan reads literal keys on a variable named ``config`` and on ``(x.config or {})``.
+    It can't see non-literal keys, other variable names such as ``payload_config``, or keys
+    passed on through ``**config``.
+
     Aliases are read but kept as unknown keys, never offered in the form:
     - generic ``webhook_url``: an old spelling of ``endpoint``.
     - pagerduty ``dedup_key``: set by ``acknowledge`` and ``resolve``, not an operator setting.
+    - pagerduty ``event_action``: set per call, not an operator setting. A channel set to
+      resolve would close the incident on every page.
     - ``text_template`` on every driver: the templating service accepts it for ``template``.
     """
     driver = DRIVER_REGISTRY[name]
     source = "\n".join(
-        inspect.getsource(module) for module in (inspect.getmodule(driver), base_module, templating)
+        inspect.getsource(module)
+        for module in (inspect.getmodule(driver), base_module, templating, services)
     )
     declared = {f.key for f in driver.all_config_fields()}
     allowed = declared | ALIASES.get(name, set()) | ALIASES["*"]
@@ -109,7 +126,7 @@ def test_base_driver_declares_only_the_common_fields():
                 "timeout",
             ],
         ),
-        ("pagerduty", ["integration_key", "event_action", "client", "client_url", "timeout"]),
+        ("pagerduty", ["integration_key", "client", "client_url", "timeout"]),
         ("generic", ["endpoint", "method", "headers", "timeout", "disabled"]),
     ],
 )
@@ -125,7 +142,6 @@ def test_driver_fields_in_order(name, keys):
         ("email", "use_tls", True),
         ("email", "use_ssl", False),
         ("email", "timeout", 30),
-        ("pagerduty", "event_action", "trigger"),
         ("pagerduty", "timeout", 30),
         ("generic", "method", "POST"),
         ("generic", "timeout", 30),

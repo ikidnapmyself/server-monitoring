@@ -43,6 +43,7 @@ COMMON_FIELDS = (
         "payload_template",
         "Payload template",
         "template",
-        help="A JSON body to send in place of the built one.",
+        help="Used as the message text when no message template is set. "
+        "A webhook or PagerDuty sends it as the JSON body.",
     ),
 )
