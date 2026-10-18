@@ -106,7 +106,7 @@ INTENTS: dict[str, Intent] = {
         ("orchestration.view_inboxitem", "orchestration.change_inboxitem"),
     ),
     "view_nodes": Intent(_page("console:nodes"), "get", NODE_READ),
-    "view_policy": Intent(_page("admin:policy-overview"), "get", NODE_READ),
+    "view_policy": Intent(_page("console:policy"), "get", NODE_READ),
     "view_node": Intent(_record("console:node"), "get", NODE_READ),
     "view_check_run": Intent(
         _record("admin:checkers_checkrun_change"), "get", "checkers.view_checkrun"

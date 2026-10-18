@@ -179,6 +179,7 @@ def test_inbox_intents_point_at_the_console(admin_user, intent, params, url, met
     ("intent", "params", "url", "method"),
     [
         ("view_nodes", {}, "/console/nodes/", "get"),
+        ("view_policy", {}, "/console/policy/", "get"),
         ("view_node", {"pk": 7}, "/console/nodes/7/", "get"),
         ("edit_node_policy", {"pk": 7}, "/console/nodes/7/policy/", "get"),
         (

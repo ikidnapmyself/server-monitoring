@@ -1,0 +1,36 @@
+{% load console %}<div id="policy">
+  {% for group in page.groups %}{% resolved group.view as open %}
+  <section id="policy-node-{{ group.pk }}" class="c-box c-comment">
+    <div class="c-box__header">
+      <h2 class="c-box__title">{% if open.url %}<a id="policy-node-{{ group.pk }}-open" href="{{ open.url }}">{{ group.name }}</a>{% else %}{{ group.name }}{% endif %}</h2>
+      {% with pk=group.pk|stringformat:"s" %}{% include "console/partials/_details.html" with facts=group.facts raw="" id="policy-node-"|add:pk|add:"-details" %}{% endwith %}
+    </div>
+    <table class="c-table">
+      <thead><tr><th scope="col">Checker</th><th scope="col">Policy</th><th scope="col">Status</th><th scope="col">Why</th><th scope="col">Effect</th><th scope="col">Last applied</th><th scope="col"><span class="c-sr-only">Actions</span></th></tr></thead>
+      <tbody>
+        {% for row in group.rows %}
+        <tr>
+          <td>{{ row.checker }}</td>
+          <td>{{ row.policy }}</td>
+          <td><span class="c-label c-tone-{{ row.tone }}">{{ row.status }}</span></td>
+          <td>{% if row.caution %}<span class="c-tone-warning">{{ row.why }}</span>{% else %}{{ row.why }}{% endif %}
+            {% if row.unread %}{% with pk=group.pk|stringformat:"s" %}{% include "console/partials/_details.html" with facts=row.unread raw="" id="policy-"|add:pk|add:"-"|add:row.key|add:"-unread" %}{% endwith %}{% endif %}</td>
+          <td>{{ row.effect }}</td>
+          <td>{{ row.applied }}</td>
+          <td>
+            {% if row.edit %}{% resolved row.edit as act %}{% if act.url %}<a id="policy-{{ group.pk }}-{{ row.key }}-edit" href="{{ act.url }}">{{ act.text }}</a>{% endif %}{% endif %}
+            {% if row.reeval %}{% resolved row.reeval as act %}{% if act.url %}<a id="policy-{{ group.pk }}-{{ row.key }}-reeval" href="{{ act.url }}">{{ act.text }}</a>{% endif %}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% empty %}
+  <div class="c-blankslate">
+    {% include "console/partials/_octicon.html" with name="server" %}
+    <h3 class="c-blankslate__heading">No node holds a policy yet.</h3>
+  </div>
+  {% endfor %}
+  {% if page.quiet_count %}<p class="c-muted">{{ page.quiet_count }} node{{ page.quiet_count|pluralize }} hold{{ page.quiet_count|pluralize:"s," }} no policy and fire{{ page.quiet_count|pluralize:"s," }} nothing.</p>{% endif %}
+</div>
