@@ -48,7 +48,7 @@
         {% endif %}
       </div>
       <div class="view-all-link">
-        <a href="/admin/alerts/incident/?status__exact=open">View all &rarr;</a>
+        <a href="{% url 'console:incidents' %}?status=open">View all &rarr;</a>
       </div>
       {% else %}
       <div class="success-message">No active incidents</div>
@@ -131,7 +131,7 @@
           {% for run in failed_pipelines %}
           <tr>
             <td>
-              <a href="/admin/orchestration/pipelinerun/{{ run.pk }}/change/">{{ run.run_id|truncatechars:12 }}</a>
+              <a href="{% url 'console:run' run.pk %}">{{ run.run_id|truncatechars:12 }}</a>
             </td>
             <td>{{ run.last_error_type|default:"Unknown"|truncatechars:40 }}</td>
             <td>{{ run.created_at|timesince }} ago</td>
@@ -140,7 +140,7 @@
         </tbody>
       </table>
       <div class="table-link">
-        <a href="/admin/orchestration/pipelinerun/?status__exact=failed">View all &rarr;</a>
+        <a href="{% url 'console:runs' %}?status=failed">View all &rarr;</a>
       </div>
       {% else %}
       <div class="success-message">No failed pipelines</div>

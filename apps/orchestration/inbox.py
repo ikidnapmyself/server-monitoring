@@ -36,20 +36,12 @@ ABANDON_STATUSES = (PipelineStatus.PENDING, PipelineStatus.PROCESSING, PipelineS
 ABANDON_MESSAGE = "Marked failed by an operator"
 
 
-def reclaim_stuck(
-    timeout_minutes: int = DEFAULT_STALE_MINUTES, pks: Iterable[int] | None = None
-) -> int:
-    """Return PROCESSING runs stuck past the timeout to PENDING; return the count.
-
-    When ``pks`` is given, only those runs are considered (the admin action scopes the
-    reclaim to the operator's selection); with ``pks=None`` the sweep is global (the
-    management command's crash-recovery pass).
-    """
+def reclaim_stuck(timeout_minutes: int = DEFAULT_STALE_MINUTES) -> int:
+    """Return PROCESSING runs stuck past the timeout to PENDING; return the count."""
     cutoff = timezone.now() - timedelta(minutes=timeout_minutes)
-    qs = PipelineRun.objects.filter(status=PipelineStatus.PROCESSING, updated_at__lt=cutoff)
-    if pks is not None:
-        qs = qs.filter(pk__in=pks)
-    return qs.update(status=PipelineStatus.PENDING, updated_at=timezone.now())
+    return PipelineRun.objects.filter(
+        status=PipelineStatus.PROCESSING, updated_at__lt=cutoff
+    ).update(status=PipelineStatus.PENDING, updated_at=timezone.now())
 
 
 def claim(pk: int) -> bool:

@@ -4,17 +4,13 @@ import pytest
 from django.utils.html import format_html
 from django.utils.safestring import SafeString
 
-from apps.alerts.diagnosis import StageDiag
 from apps.alerts.models import AlertSeverity, AlertStatus, IncidentStatus
 from apps.checkers.models import CheckStatus
-from apps.orchestration.models import StageStatus
 from config.admin_badges import (
     ALERT_STATUS_TONES,
     CHECK_STATUS_TONES,
-    DIAGNOSIS_TONES,
     INCIDENT_STATUS_TONES,
     SEVERITY_TONES,
-    STAGE_STATUS_TONES,
     TONES,
     badge,
     tinted,
@@ -26,8 +22,6 @@ _ALL_TABLES = {
     "alert_status": ALERT_STATUS_TONES,
     "incident_status": INCIDENT_STATUS_TONES,
     "check": CHECK_STATUS_TONES,
-    "stage": STAGE_STATUS_TONES,
-    "diagnosis": DIAGNOSIS_TONES,
 }
 
 
@@ -131,10 +125,8 @@ def test_every_mapped_tone_is_a_known_tone(table):
         (ALERT_STATUS_TONES, AlertStatus),
         (INCIDENT_STATUS_TONES, IncidentStatus),
         (CHECK_STATUS_TONES, CheckStatus),
-        (STAGE_STATUS_TONES, StageStatus),
-        (DIAGNOSIS_TONES, StageDiag),
     ],
-    ids=["severity", "alert_status", "incident_status", "check", "stage", "diagnosis"],
+    ids=["severity", "alert_status", "incident_status", "check"],
 )
 def test_table_covers_its_whole_enum(table, enum):
     # A status added to the enum without a tone would silently render muted.

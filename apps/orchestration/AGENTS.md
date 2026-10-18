@@ -37,7 +37,7 @@ Required tags/fields:
 - `apps/orchestration/orchestrator.py` — pipeline implementation (`start_pipeline`, `execute_run`)
 - `apps/orchestration/management/commands/process_inbox.py` — broker-free drain of PENDING runs (thin CLI wrapper over `inbox.py`)
 - `apps/orchestration/intake.py` — **the front door for producers**: `enqueue_for(result, *, trace_id, origin, …, sync=False)` reads `result.material_alerts`, resolves the materially changed incidents, and enqueues one run each. `sync=True` drains them before returning.
-- `apps/orchestration/inbox.py` — **single source of truth** for the enqueue/drain/reclaim logic: `enqueue_incident_runs(incident_ids, …)`, `drain_runs(runs, orchestrator=…)` (the scoped synchronous drain `sync=True` uses), `claim` (atomic PENDING→PROCESSING CAS), `drain`, `drain_run`, `reclaim_stuck(pks=…)`, and `DEFAULT_STALE_MINUTES`. Both the `process_inbox` command and the admin Inbox actions call these — never duplicate the claim.
+- `apps/orchestration/inbox.py` — **single source of truth** for the enqueue/drain/reclaim logic: `enqueue_incident_runs(incident_ids, …)`, `drain_runs(runs, orchestrator=…)` (the scoped synchronous drain `sync=True` uses), `claim` (atomic PENDING→PROCESSING CAS), `drain`, `drain_run`, `drain_each`, `pending_pks`, `requeue`, `abandon`, `reclaim_stuck`, and `DEFAULT_STALE_MINUTES`. Both the `process_inbox` command and the console's run and inbox pages call these — never duplicate the claim.
 - `apps/orchestration/models.py` — `PipelineRun`, `StageExecution`. `PipelineRun.node` (FK → `alerts.Node`, the server the run concerns) and `PipelineRun.origin` (`incoming_webhook`/`checker_generated`/`manual`) power admin filtering by node+origin+status. `origin` is now passed by each producer into `enqueue_for`; `node` is passed only by `IncidentManager._announce`, so it is NULL on runs from the other producers — see "Known gaps" below. `InboxItem` is a proxy over `PipelineRun` filtered to PENDING/PROCESSING (the admin Inbox monitor, with age/`is_stuck` + drain/reclaim actions). See `docs/plans/2026-08-09-admin-hardening-design.md`.
 - `apps/orchestration/executors.py` / `dtos.py` — stage execution helpers and DTOs
 - `apps/orchestration/describing.py` — runs and stage outcomes in words: `describe_run`, `describe_stage_outcome`, `describe_stage_diagnosis`, the `REASONS` registry and `reason_code`
@@ -278,8 +278,8 @@ notifies too, which is intended.
 The legacy node/edge graph (`DefinitionBasedOrchestrator`, the `nodes/` package,
 `PipelineDefinition.config`) was **retired in Phase D** — do not reintroduce it.
 
-**Observability (projections, no new models):** journey panel on the Alert/Incident
-admin; `manage.py trace <alert|trace_id>` (the chain); `manage.py report` (per-node
+**Observability (projections, no new models):** journey panel on the console incident
+page; `manage.py trace <alert|trace_id>` (the chain); `manage.py report` (per-node
 incidents, per-pipeline routing hits, inbox depth).
 
 ## App layout rules (required)
@@ -298,11 +298,11 @@ Tests have been migrated to `_tests/` (completed). Some code still uses monolith
 
 Each app must provide an **extensive** `admin.py` so operators can manage its models and trace pipeline behavior.
 
-For `apps.orchestration`, admin is the primary operations surface and should:
-- Provide rich list/detail views for `PipelineRun` and `StageExecution` (filters, search, durations, attempts)
-- Make it easy to traverse `PipelineRun` → `StageExecution` → linked `Incident`/artifacts
-- Expose retry/failure context clearly (error type/message, retryable flag, attempt count)
-- Ensure any stored payloads/prompts are redacted (show refs, not secrets)
+For `apps.orchestration`, operators read and act on runs and the inbox in the console
+(`/console/runs/`, `/console/runs/<pk>/`, `/console/inbox/`). `PipelineRunAdmin`,
+`StageExecutionAdmin` and `InboxAdmin` are stock and read-only: filters and search, no add,
+change, delete or actions. `PipelineDefinitionAdmin` stays editable. Stored payloads and
+prompts are shown as refs, never secrets.
 
 ## Security standards (audit-enforced)
 

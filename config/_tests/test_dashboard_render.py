@@ -158,3 +158,22 @@ def test_the_dashboard_badges_are_the_shared_badge(client):
     assert "ops-badge ops-badge--critical" in body  # the severity count
     assert "severity-badge" not in body
     assert "status-badge" not in body
+
+
+@pytest.mark.django_db
+def test_the_dashboard_sends_incidents_and_runs_to_the_console(client):
+    from apps.alerts.models import Incident
+    from apps.orchestration.models import PipelineRun
+
+    get_user_model().objects.create_superuser("admin3", "a3@b.co", "x")
+    client.login(username="admin3", password="x")
+    Incident.objects.create(subject="HighCPU", severity="critical", status="open")
+    run = PipelineRun.objects.create(trace_id="t", run_id="r-dash", status="failed")
+
+    body = client.get(reverse("admin:index")).content.decode()
+
+    assert f'href="{reverse("console:incidents")}?status=open"' in body
+    assert f'href="{reverse("console:run", args=[run.pk])}"' in body
+    assert f'href="{reverse("console:runs")}?status=failed"' in body
+    assert "/admin/alerts/incident/?" not in body
+    assert "/admin/orchestration/pipelinerun/?status" not in body
