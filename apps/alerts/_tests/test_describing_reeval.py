@@ -9,8 +9,11 @@ from django.utils import timezone
 from apps.alerts.describing import (
     REOPEN_WARNING,
     UNREADABLE,
+    alert_link,
+    alert_name,
     describe_reeval,
     describe_reeval_applied,
+    describe_reeval_consequences,
     describe_reeval_report,
 )
 from apps.alerts.models import Alert, Node
@@ -283,3 +286,24 @@ def test_applied_names_the_runs_it_queued():
 
 def test_reopen_warning_has_no_identifiers():
     assert "{" not in REOPEN_WARNING and "_" not in REOPEN_WARNING
+
+
+def test_a_named_report_leads_each_change_with_its_alert_and_links_it():
+    change = _change()
+    (row,) = describe_reeval_report(ReevalReport(node=None, changes=[change]), named=True)
+    assert row.headline.startswith(f"{alert_name(change.alert)}: would ")
+    assert row.action == alert_link(change.alert.pk)
+
+
+def test_an_unnamed_report_is_unchanged():
+    (row,) = describe_reeval_report(ReevalReport(node=None, changes=[_change()]))
+    assert row.headline.startswith("Would ")
+    assert row.action is None
+
+
+def test_consequences_name_the_runs_and_the_sweep():
+    report = ReevalReport(node=None, changes=[_change(new_status="resolved")])
+    lines = describe_reeval_consequences(report)
+    assert any(line.startswith("Applying queues ") for line in lines)
+    assert any("sweeps this node" in line for line in lines)
+    assert describe_reeval_consequences(ReevalReport(node=None)) == ()

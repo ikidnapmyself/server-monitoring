@@ -316,7 +316,7 @@ def describe_reeval(alert: Alert) -> tuple[Fact, ...]:
     return tuple(facts)
 
 
-def _describe_change(change: "AlertChange") -> Description:
+def _describe_change(change: "AlertChange", named: bool = False) -> Description:
     if change.new_status == AlertStatus.RESOLVED:
         headline, tone = "Would resolve this alert", "ok"
     elif change.reopens:
@@ -328,7 +328,14 @@ def _describe_change(change: "AlertChange") -> Description:
     detail = f"Its stored value is {change.value_display}."
     if not change.notify:
         detail += " Its incident is acknowledged, so nobody is notified."
-    return Description(headline=headline, tone=tone, detail=detail)
+    if named:
+        headline = f"{alert_name(change.alert)}: {headline[0].lower()}{headline[1:]}"
+    return Description(
+        headline=headline,
+        tone=tone,
+        detail=detail,
+        action=alert_link(change.alert.pk) if named else None,
+    )
 
 
 def _describe_skip(skip: "AlertSkip", node: Node | None) -> Description:
@@ -338,12 +345,37 @@ def _describe_skip(skip: "AlertSkip", node: Node | None) -> Description:
     return Description(headline=skip.sentence, tone="info", action=action)
 
 
-def describe_reeval_report(report: "ReevalReport") -> tuple[Description, ...]:
-    """One description per alert the preview looked at: what would change, or why not."""
+def describe_reeval_report(
+    report: "ReevalReport", *, named: bool = False
+) -> tuple[Description, ...]:
+    """One description per alert the preview looked at. ``named`` when it looked at many."""
     return (
-        *(_describe_change(change) for change in report.changes),
+        *(_describe_change(change, named) for change in report.changes),
         *(_describe_skip(skip, report.node) for skip in report.skips),
     )
+
+
+def describe_reeval_consequences(report: "ReevalReport") -> tuple[str, ...]:
+    """What an apply does beyond its rows, said before anything is written."""
+    if not report.changes:
+        return ()
+    runs = report.run_count
+    lines = [
+        "Every value above is one the node pushed, not a fresh reading.",
+        (
+            f"Applying queues {runs} pipeline run{'s' if runs != 1 else ''}. "
+            "They notify once the inbox drains, if their lane has a channel."
+            if runs
+            else "Applying queues no pipeline run: no change above belongs to an incident "
+            "anyone is notified about."
+        ),
+    ]
+    if report.resolved_count:
+        lines.append(
+            "Resolving anything also sweeps this node for incidents whose alerts have all "
+            "cleared. Each one it resolves gets its own run."
+        )
+    return tuple(lines)
 
 
 def describe_reeval_applied(report: "ReevalReport") -> str:

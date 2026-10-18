@@ -31,6 +31,12 @@ def test_preview_writes_nothing(client, superuser, reevaluable_alert):
     assert not AlertHistory.objects.filter(alert=reevaluable_alert).exists()
 
 
+def test_the_preview_states_what_an_apply_queues(client, superuser, reevaluable_alert):
+    client.force_login(superuser)
+    body = client.get(_url(reevaluable_alert)).content.decode()
+    assert "Applying queues 1 pipeline run." in body
+
+
 def test_a_skip_row_links_the_policy_editor(client, superuser, reevaluable_alert):
     Node.objects.filter(pk=reevaluable_alert.node_id).update(config={})
     client.force_login(superuser)

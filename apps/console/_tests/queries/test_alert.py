@@ -108,7 +108,9 @@ def test_reeval_preview_describes_the_change_and_can_apply():
     assert preview.warning == ""
     assert preview.can_apply
     assert preview.digest == scope_digest(ReevalScope.for_alert(alert))
-    assert preview.alert_url == f"/console/alerts/{alert.pk}/"
+    assert preview.back_url == f"/console/alerts/{alert.pk}/"
+    assert preview.title.startswith("Re-evaluate ")
+    assert preview.back_text == "Back to the alert"
     assert preview.url == f"/console/alerts/{alert.pk}/reevaluate/"
 
 

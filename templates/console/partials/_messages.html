@@ -1,0 +1,6 @@
+{% for message in messages %}
+{% if message.level_tag == "success" %}{% include "console/partials/_flash.html" with tone="ok" text=message %}
+{% elif message.level_tag == "warning" %}{% include "console/partials/_flash.html" with tone="warning" text=message %}
+{% elif message.level_tag == "error" %}{% include "console/partials/_flash.html" with tone="critical" text=message %}
+{% else %}{% include "console/partials/_flash.html" with tone="info" text=message %}{% endif %}
+{% endfor %}

@@ -16,8 +16,8 @@ STALE = "This alert changed since you looked. Here is what re-evaluating does no
 class AlertReevalView(AlertPageView):
     """Preview, then apply, one alert's re-score. The rules live in ``apply_reeval``."""
 
-    template_name = "console/alert_reeval.html"
-    partial_template_name = "console/partials/_alert_reeval.html"
+    template_name = "console/reeval.html"
+    partial_template_name = "console/partials/_reeval.html"
 
     def landing_path(self) -> str:
         return self.request.path
