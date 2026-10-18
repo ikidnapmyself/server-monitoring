@@ -67,13 +67,10 @@ def _node_policy(params: dict[str, Any]) -> str:
     return f"{url}#{anchor}" if anchor else url
 
 
-def _node_reeval_admin(params: dict[str, Any]) -> str:
-    url = reverse(
-        "admin:alerts_node_actions", kwargs={"pk": params["pk"], "tool": "reevaluate_open_alerts"}
-    )
-    if params.get("checker"):
-        url = f"{url}?{urlencode({'checker': params['checker']})}"
-    return url
+def _node_reeval(params: dict[str, Any]) -> str:
+    url = reverse("console:node-reeval", args=[params["pk"]])
+    checker = params.get("checker")
+    return f"{url}?{urlencode({'checker': checker})}" if checker else url
 
 
 def _external(params: dict[str, Any]) -> str:
@@ -118,7 +115,7 @@ INTENTS: dict[str, Intent] = {
         _record("admin:checkers_preflightrun_change"), "get", "checkers.view_preflightrun"
     ),
     "edit_node_policy": Intent(_node_policy, "get", "alerts.change_node"),
-    "reevaluate_node": Intent(_node_reeval_admin, "get", "alerts.change_node"),
+    "reevaluate_node": Intent(_node_reeval, "get", "alerts.change_node"),
     "view_run": Intent(
         _record("console:run"),
         "get",

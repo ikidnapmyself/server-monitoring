@@ -153,6 +153,18 @@ def test_an_operator_gets_the_policy_links(client, node_operator):
 
 
 @pytest.mark.django_db
+def test_an_operator_sees_both_actions(client, node_operator):
+    node, _ = _busy()
+
+    body = client.get(_url(node)).content.decode()
+
+    assert 'id="action-edit_node_policy"' in body
+    assert re.search(
+        rf'id="action-reevaluate_node"[^>]* href="/console/nodes/{node.pk}/reevaluate/"', body
+    )
+
+
+@pytest.mark.django_db
 def test_a_node_with_no_policy_says_so(client, node_viewer):
     node = _busy()[0]
     Node.objects.filter(pk=node.pk).update(config={})

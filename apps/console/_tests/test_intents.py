@@ -123,19 +123,8 @@ def test_query_params_are_encoded(admin_user):
         ("edit_route", {}, "/admin/orchestration/pipelinedefinition/"),
         ("edit_provider", {}, "/admin/intelligence/intelligenceprovider/"),
         ("view_preflight", {}, "/admin/checkers/preflightrun/"),
-        ("view_policy", {}, "/admin/policy/"),
         ("view_check_run", {"pk": 7}, "/admin/checkers/checkrun/7/change/"),
         ("view_preflight_run", {"pk": 7}, "/admin/checkers/preflightrun/7/change/"),
-        (
-            "reevaluate_node",
-            {"pk": 7},
-            "/admin/alerts/node/7/actions/reevaluate_open_alerts/",
-        ),
-        (
-            "reevaluate_node",
-            {"pk": 7, "checker": "disk:/var"},
-            "/admin/alerts/node/7/actions/reevaluate_open_alerts/?checker=disk%3A%2Fvar",
-        ),
     ],
 )
 def test_config_intents_point_at_the_admin(admin_user, intent, params, url):
@@ -199,6 +188,13 @@ def test_inbox_intents_point_at_the_console(admin_user, intent, params, url, met
             "get",
         ),
         ("edit_node_policy", {"pk": 7, "checker": "raid"}, "/console/nodes/7/policy/", "get"),
+        ("reevaluate_node", {"pk": 7}, "/console/nodes/7/reevaluate/", "get"),
+        (
+            "reevaluate_node",
+            {"pk": 7, "checker": "disk inodes"},
+            "/console/nodes/7/reevaluate/?checker=disk+inodes",
+            "get",
+        ),
     ],
 )
 def test_node_intents_point_at_the_console(admin_user, intent, params, url, method):

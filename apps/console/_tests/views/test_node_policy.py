@@ -126,6 +126,8 @@ def test_a_scoring_change_lands_on_the_preview_and_applies_nothing(client, node_
     assert resp["Location"] == reverse("console:node-reeval", args=[node.pk])
     node.refresh_from_db()
     assert node.config["cpu"]["warning_threshold"] == 70
+    body = client.get(resp["Location"]).content.decode()
+    assert "This policy doesn&#x27;t touch the alerts already open." in body
 
 
 def test_an_untouched_save_lands_on_the_node_page(client, node_operator, node):
@@ -172,10 +174,6 @@ def test_a_missing_node_is_the_console_404_page(client, node_operator, method):
 
     assert resp.status_code == 404
     assert "This node doesn't exist." in resp.content.decode()
-
-
-def test_the_reevaluate_page_is_not_built_yet(client, node_operator, node):
-    assert client.get(reverse("console:node-reeval", args=[node.pk])).status_code == 404
 
 
 def test_an_unnamed_node_hides_its_id(client, node_operator):
