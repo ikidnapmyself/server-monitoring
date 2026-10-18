@@ -11,6 +11,7 @@ from apps.orchestration import inbox
 from apps.orchestration.dtos import NotifyResult
 from apps.orchestration.executors import AnalyzeExecutor, CheckExecutor, NotifyExecutor
 from apps.orchestration.models import (
+    InboxItem,
     PipelineDefinition,
     PipelineRun,
     PipelineStatus,
@@ -47,6 +48,35 @@ def test_claim_is_atomic():
     assert inbox.claim(run.pk) is False
     run.refresh_from_db()
     assert run.status == PipelineStatus.PROCESSING
+
+
+@pytest.mark.django_db
+def test_a_run_that_waited_long_is_not_stuck_the_moment_it_is_claimed():
+    run = _run("waited")
+    PipelineRun.objects.filter(pk=run.pk).update(
+        updated_at=timezone.now() - timedelta(minutes=inbox.DEFAULT_STALE_MINUTES * 4)
+    )
+
+    assert inbox.claim(run.pk) is True
+
+    run.refresh_from_db()
+    assert InboxItem.objects.get(pk=run.pk).is_stuck() is False
+    assert inbox.reclaim_stuck() == 0
+    run.refresh_from_db()
+    assert run.status == PipelineStatus.PROCESSING
+
+
+@pytest.mark.django_db
+def test_a_reclaimed_run_is_stamped_when_it_returns_to_the_queue():
+    run = _run("stalled", status=PipelineStatus.PROCESSING)
+    stale = timezone.now() - timedelta(hours=2)
+    PipelineRun.objects.filter(pk=run.pk).update(updated_at=stale)
+
+    assert inbox.reclaim_stuck() == 1
+
+    run.refresh_from_db()
+    assert run.status == PipelineStatus.PENDING
+    assert run.updated_at > stale + timedelta(hours=1)
 
 
 @pytest.mark.django_db

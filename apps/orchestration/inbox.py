@@ -49,14 +49,19 @@ def reclaim_stuck(
     qs = PipelineRun.objects.filter(status=PipelineStatus.PROCESSING, updated_at__lt=cutoff)
     if pks is not None:
         qs = qs.filter(pk__in=pks)
-    return qs.update(status=PipelineStatus.PENDING)
+    return qs.update(status=PipelineStatus.PENDING, updated_at=timezone.now())
 
 
 def claim(pk: int) -> bool:
-    """Atomically move one run PENDING -> PROCESSING. True iff we won the claim."""
+    """Atomically move one run PENDING -> PROCESSING. True iff we won the claim.
+
+    ``update`` skips ``auto_now``, so ``updated_at`` is set here. Otherwise a run that
+    waited past the stall timeout would read as stuck the instant it is claimed, and a
+    concurrent ``reclaim_stuck`` could hand it to a second drain.
+    """
     return (
         PipelineRun.objects.filter(pk=pk, status=PipelineStatus.PENDING).update(
-            status=PipelineStatus.PROCESSING
+            status=PipelineStatus.PROCESSING, updated_at=timezone.now()
         )
         == 1
     )
