@@ -10,6 +10,7 @@ from urllib.parse import urlencode, urlsplit
 
 from django.urls import NoReverseMatch, reverse
 
+from apps.alerts.node_policy import editor_anchor
 from config.describing import Action
 
 NODE_READ = ("alerts.view_node", "alerts.change_node")
@@ -58,6 +59,12 @@ def _incident_action(action: str) -> Callable[[dict[str, Any]], str]:
 
 def _run_action(action: str) -> Callable[[dict[str, Any]], str]:
     return lambda params: reverse("console:run-action", args=[params["pk"], action])
+
+
+def _node_policy(params: dict[str, Any]) -> str:
+    url = reverse("console:node-policy", args=[params["pk"]])
+    anchor = editor_anchor(str(params.get("checker", "")))
+    return f"{url}#{anchor}" if anchor else url
 
 
 def _node_reeval_admin(params: dict[str, Any]) -> str:
@@ -110,7 +117,7 @@ INTENTS: dict[str, Intent] = {
     "view_preflight_run": Intent(
         _record("admin:checkers_preflightrun_change"), "get", "checkers.view_preflightrun"
     ),
-    "edit_node_policy": Intent(_record("admin:alerts_node_change"), "get", "alerts.change_node"),
+    "edit_node_policy": Intent(_node_policy, "get", "alerts.change_node"),
     "reevaluate_node": Intent(_node_reeval_admin, "get", "alerts.change_node"),
     "view_run": Intent(
         _record("console:run"),

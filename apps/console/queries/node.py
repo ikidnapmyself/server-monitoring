@@ -4,8 +4,10 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 
+from django import forms
 from django.urls import reverse
 
+from apps.alerts.forms import ADD_SECTION_FIELD, NodePolicyForm
 from apps.alerts.models import Incident, Node
 from apps.alerts.node_overview import (
     Chart,
@@ -16,7 +18,12 @@ from apps.alerts.node_overview import (
     charts_note,
     checker_time_label,
 )
-from apps.alerts.node_policy import PolicySection, build_effective_policy
+from apps.alerts.node_policy import (
+    PolicySection,
+    build_effective_policy,
+    config_digest,
+    editor_anchor,
+)
 from apps.checkers.checkers import checker_label
 from apps.console.filters import RunFilter
 from apps.console.queries.alert import IncidentCard, incident_cards
@@ -27,6 +34,25 @@ from apps.console.queries.runs import RunListRow, build_run_list
 from config.describing import Action, Fact
 
 RUN_LIMIT = 10
+
+
+@dataclass(frozen=True)
+class EditorGroup:
+    label: str
+    anchor: str
+    fields: tuple[forms.BoundField, ...]
+
+
+@dataclass(frozen=True)
+class PolicyEditor:
+    pk: int
+    name: str
+    form: NodePolicyForm
+    groups: tuple[EditorGroup, ...]
+    add: forms.BoundField | None
+    digest: str
+    node_url: str
+    url: str
 
 
 @dataclass(frozen=True)
@@ -189,4 +215,25 @@ def build_node_detail(pk: int, *, can_change: bool = False) -> NodeDetail | None
             {"labels": node.labels, "config": node.config}, indent=2, sort_keys=True, default=str
         ),
         url=reverse("console:node", args=[node.pk]),
+    )
+
+
+def build_policy_editor(pk: int, data=None, *, digest: str | None = None) -> PolicyEditor | None:
+    """The editor for one node. ``digest`` keeps the one an invalid submit carried."""
+    node = Node.objects.filter(pk=pk).first()
+    if node is None:
+        return None
+    form = NodePolicyForm(data, instance=node)
+    return PolicyEditor(
+        pk=node.pk,
+        name=node_name(node.hostname),
+        form=form,
+        groups=tuple(
+            EditorGroup(checker_label(checker), editor_anchor(checker), tuple(fields))
+            for checker, fields in form.policy_groups()
+        ),
+        add=form[ADD_SECTION_FIELD] if ADD_SECTION_FIELD in form.fields else None,
+        digest=config_digest(node.config) if digest is None else digest,
+        node_url=reverse("console:node", args=[node.pk]),
+        url=reverse("console:node-policy", args=[node.pk]),
     )

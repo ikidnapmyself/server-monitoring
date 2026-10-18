@@ -145,8 +145,11 @@ def test_an_operator_gets_the_policy_links(client, node_operator):
 
     body = client.get(_url(node)).content.decode()
 
-    assert 'id="policy-edit-cpu"' in body
-    assert 'id="action-edit_node_policy"' in body
+    assert f'<a id="policy-edit-cpu" href="/console/nodes/{node.pk}/policy/#policy-cpu">' in body
+    assert (
+        f'id="action-edit_node_policy" class="c-button c-button--sm c-button--primary" href="/console/nodes/{node.pk}/policy/"'
+        in body
+    )
 
 
 @pytest.mark.django_db

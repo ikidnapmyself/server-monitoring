@@ -5,6 +5,7 @@ from apps.console.views.base import ConsoleView
 
 NODE_READ = ("alerts.view_node", "alerts.change_node")
 NODE_CHANGE = "alerts.change_node"
+CHANGE_REQUIRED = "Permission to change nodes required."
 
 
 class NodePageView(ConsoleView):

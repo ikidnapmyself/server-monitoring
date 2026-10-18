@@ -19,6 +19,7 @@ from apps.alerts.describing import (
 from apps.alerts.models import Alert, Node
 from apps.alerts.reeval_existing import AlertChange, AlertSkip, ReevalReport
 from apps.alerts.reevaluation import SkipReason
+from config.describing import Action
 
 INGEST_RECORD = {
     "from": "critical",
@@ -254,15 +255,26 @@ def test_report_words_each_change():
 @pytest.mark.django_db
 def test_report_offers_the_node_only_for_a_skip_an_editor_can_fix():
     node = Node.objects.create(instance_id="i-1", hostname="web")
+    alert = Alert.objects.create(
+        fingerprint="check:i-1:cpu",
+        name="cpu",
+        severity="warning",
+        source="cluster",
+        node=node,
+        labels={"checker": "cpu"},
+        started_at=timezone.now(),
+    )
     report = ReevalReport(
         node=node,
         skips=[
-            AlertSkip(alert=None, reason=SkipReason.NO_POLICY, sentence="No policy."),
-            AlertSkip(alert=None, reason=SkipReason.NO_SCORER, sentence="No scorer."),
+            AlertSkip(alert=alert, reason=SkipReason.NO_POLICY, sentence="No policy."),
+            AlertSkip(alert=alert, reason=SkipReason.NO_SCORER, sentence="No scorer."),
         ],
     )
     fixable, unfixable = describe_reeval_report(report)
-    assert fixable.action.intent == "view_node" and fixable.action.params == {"pk": node.pk}
+    assert fixable.action == Action(
+        "Edit the node's policy", "edit_node_policy", {"pk": node.pk, "checker": "cpu"}
+    )
     assert unfixable.action is None and unfixable.tone == "info"
 
 

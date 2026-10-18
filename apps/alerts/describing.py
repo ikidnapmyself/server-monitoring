@@ -341,7 +341,8 @@ def _describe_change(change: "AlertChange", named: bool = False) -> Description:
 def _describe_skip(skip: "AlertSkip", node: Node | None) -> Description:
     action = None
     if node is not None and skip.reason in EDITOR_FIXABLE:
-        action = Action("Edit the node's policy", intent="view_node", params={"pk": node.pk})
+        params = {"pk": node.pk, "checker": _checker_name(skip.alert)}
+        action = Action("Edit the node's policy", intent="edit_node_policy", params=params)
     return Description(headline=skip.sentence, tone="info", action=action)
 
 
