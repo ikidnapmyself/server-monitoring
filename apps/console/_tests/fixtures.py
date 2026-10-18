@@ -90,6 +90,8 @@ DELIVERY_OK = {
 class World:
     incident_pks: tuple[int, ...]
     run_pks: tuple[int, ...]
+    node_pks: tuple[int, ...]
+    policy_node_pk: int
 
 
 def _uuid() -> str:
@@ -182,6 +184,43 @@ def _reeval_skip_incident() -> Incident:
             node=node,
             labels={"checker": checker, "instance_id": node.instance_id},
             annotations={"metrics": json.dumps(metrics)},
+        )
+    return incident
+
+
+def _policy_incident() -> Incident:
+    """A peer whose policy is in effect, not scoring and partly unread, with a CPU alert the
+    policy re-scores, beside a node that never sent a hostname."""
+    node = Node.objects.create(
+        instance_id=_uuid(),
+        hostname="cache-1",
+        address="10.0.0.7",
+        labels={"rack_unit": "r1"},
+        config={
+            "cpu": {"warning_threshold": 80, "critical_threshold": 99, "warn_level": 3},
+            "disk_inodes": {"warning_threshold": 70},
+            "listening_ports": {"allowlist": [22, 70000]},
+            "gpu_fans": {"max_rpm": 900},
+        },
+    )
+    unnamed = Node.objects.create(instance_id=_uuid())
+    # Old, so the readiness card still reads "No node reported in the last 15 minutes".
+    Node.objects.filter(pk__in=[node.pk, unnamed.pk]).update(
+        last_seen=timezone.now() - timedelta(hours=2)
+    )
+    incident = _incident("Cache host", instance=node.instance_id, node=node)
+    for checker, severity, annotations in (
+        ("cpu", "critical", {"metrics": json.dumps({"cpu_percent": 85.0})}),
+        ("listening_ports", "warning", {}),
+    ):
+        _alert(
+            incident,
+            checker,
+            source="cluster",
+            node=node,
+            severity=severity,
+            labels={"checker": checker, "instance_id": node.instance_id},
+            annotations=annotations,
         )
     return incident
 
@@ -353,6 +392,7 @@ def build_world() -> World:
         _checker_incident(),
         _webhook_incident(),
         _reeval_skip_incident(),
+        _policy_incident(),
         *(_gap_incident(code) for code in ROUTING_GAPS),
         _retryable_incident(),
         _skipped_incident(),
@@ -369,4 +409,6 @@ def build_world() -> World:
     return World(
         incident_pks=tuple(i.pk for i in incidents),
         run_pks=tuple(PipelineRun.objects.values_list("pk", flat=True)),
+        node_pks=tuple(Node.objects.values_list("pk", flat=True)),
+        policy_node_pk=Node.objects.get(hostname="cache-1").pk,
     )

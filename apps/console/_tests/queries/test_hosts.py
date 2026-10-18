@@ -102,10 +102,12 @@ def test_on_node_matches_the_fk_and_unlinked_labels_only():
 @pytest.mark.django_db
 def test_node_choices_sort_by_name_and_carry_both_keys():
     Node.objects.create(instance_id="i-2", hostname="Zed")
+    Node.objects.create(instance_id="i-3", hostname="Abe")
     Node.objects.create(instance_id="i-1", hostname="")
 
     assert [(name, keys) for _, name, keys in node_choices()] == [
-        ("i-1", ("i-1",)),
+        ("Abe", ("i-3", "Abe")),
+        ("Unnamed node", ("i-1",)),
         ("Zed", ("i-2", "Zed")),
     ]
 

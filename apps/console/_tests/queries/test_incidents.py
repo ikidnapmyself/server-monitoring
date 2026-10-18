@@ -484,7 +484,7 @@ def test_the_node_group_lists_every_node_by_name(base):
     assert [(chip.key, chip.label, chip.active, chip.url) for chip in group.chips] == [
         ("any", "Any node", False, base),
         (str(alpha.pk), "alpha", False, f"{base}?node={alpha.pk}"),
-        (str(bare.pk), "beta-id", True, f"{base}?node={bare.pk}"),
+        (str(bare.pk), "Unnamed node", True, f"{base}?node={bare.pk}"),
         (str(zeta.pk), "Zeta", False, f"{base}?node={zeta.pk}"),
     ]
 

@@ -89,6 +89,11 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         + [f"/console/alerts/{pk}/reevaluate/" for pk in alert_pks]
         + ["/console/runs/?status=all", "/console/inbox/", "/console/inbox/?status=processing"]
         + [f"/console/runs/{pk}/" for pk in world.run_pks]
+        + ["/console/nodes/", "/console/nodes/?freshness=silent", "/console/policy/"]
+        + [f"/console/nodes/{pk}/" for pk in world.node_pks]
+        + [f"/console/nodes/{pk}/policy/" for pk in world.node_pks]
+        + [f"/console/nodes/{pk}/reevaluate/" for pk in world.node_pks]
+        + [f"/console/nodes/{world.policy_node_pk}/reevaluate/?checker=listening_ports"]
     )
     html = {url: _get(client, url, headers) for url in urls}
     # The ids are on the page, inside Details, so the check below has something to catch.
@@ -131,6 +136,15 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "Return stuck runs to the queue",
         "Stuck",
         "Diagnose finished",
+        "Unnamed node",
+        "Saved but not scoring",
+        "Not honoured",
+        "Edit policy",
+        "Re-evaluate open alerts",
+        "Allowed ports",
+        "would move this alert from critical to warning",
+        "No open alerts need re-evaluation.",
+        "Applying queues 1 pipeline run.",
     ):
         assert shown in everything, shown
 

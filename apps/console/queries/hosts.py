@@ -29,7 +29,7 @@ def alert_host(hostname: str | None, instance_id: str | None, labels: dict | Non
 def node_choices() -> tuple[tuple[int, str, tuple[str, ...]], ...]:
     """Every node as its pk, display name and the label values that name it."""
     nodes = [
-        (pk, hostname or instance_id, tuple(key for key in (instance_id, hostname) if key))
+        (pk, node_name(hostname), tuple(key for key in (instance_id, hostname) if key))
         for pk, hostname, instance_id in Node.objects.order_by().values_list(
             "pk", "hostname", "instance_id"
         )
