@@ -1,0 +1,49 @@
+{% load console %}<div id="inbox" data-poll hx-get="{{ inbox.url }}" hx-trigger="every 30s, console:refresh" hx-swap="outerHTML">
+  {% if notice %}<div id="inbox-notice" class="c-flash c-tone-{{ notice.tone }}" role="status" tabindex="-1" data-fresh>{% include "console/partials/_flash_icon.html" with tone=notice.tone %}<span>{{ notice.text }}</span></div>{% endif %}
+  {% if inbox.notice %}{% include "console/partials/_flash.html" with tone="warning" text=inbox.notice %}{% endif %}
+  {% if inbox.do %}
+  <div class="c-toolbar c-do__list">
+    {% for action in inbox.do %}{% resolved action as act %}{% include "console/partials/_action.html" with act=act id="action-"|add:action.intent hx_target="#inbox" swap="outerHTML" kept=inbox.kept %}{% endfor %}
+  </div>
+  {% endif %}
+  <div class="c-box">
+    <div class="c-box__header">
+      <h2 class="c-sr-only">{{ inbox.pending }} waiting, {{ inbox.processing }} in progress</h2>
+      {% for group in inbox.groups %}
+      <nav class="c-states" aria-label="{{ group.label }}">
+        {% for chip in group.chips %}
+        <a id="chip-{{ group.name }}-{{ chip.key }}" href="{{ chip.url }}" hx-get="{{ chip.url }}" hx-target="#inbox" hx-swap="outerHTML" hx-push-url="true" hx-sync="#inbox:replace"{% if chip.active %} aria-current="true"{% endif %}>{% if chip.key == "pending" %}{% include "console/partials/_octicon.html" with name="clock" %}{% elif chip.key == "processing" %}{% include "console/partials/_octicon.html" with name="sync" %}{% endif %}<span>{{ chip.label }}</span><span class="c-counter">{{ chip.count }}</span></a>
+        {% endfor %}
+      </nav>
+      {% endfor %}
+    </div>
+    {% if inbox.rows %}
+    <ul class="c-box__list">
+      {% for row in inbox.rows %}
+      <li id="inbox-run-{{ row.pk }}" class="c-box__row c-box__row--hover c-row">
+        <span class="c-row__icon c-tone-{{ row.what.tone }}">{% include "console/partials/_tone_icon.html" with tone=row.what.tone %}</span>
+        <div class="c-row__main">
+          <a id="inbox-run-{{ row.pk }}-link" href="{{ row.url }}">{{ row.what.headline }}</a>{% if row.stuck %} <span class="c-label c-tone-critical">Stuck</span>{% endif %}
+          <div class="c-row__meta"><span class="c-host{% if not row.node %} c-host--unknown{% endif %}">{% include "console/partials/_octicon.html" with name="server" %}{{ row.node|default:"Unknown host" }}</span> · {{ row.origin }} · since {% include "console/partials/_time.html" with when=row.since %}{% if row.incident_url %} · <a id="inbox-run-{{ row.pk }}-incident" href="{{ row.incident_url }}">Incident #{{ row.incident_pk }}</a>{% endif %}</div>
+        </div>
+        {% if row.drain %}{% resolved row.drain as act %}{% with pk=row.pk|stringformat:"d" %}{% include "console/partials/_action.html" with act=act id="inbox-run-"|add:pk|add:"-drain" hx_target="#inbox" swap="outerHTML" kept=inbox.kept %}{% endwith %}{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% if inbox.hidden %}<div class="c-box__body"><p class="c-muted">{{ inbox.hidden }} more not shown.</p></div>{% endif %}
+    {% elif inbox.empty == "drained" %}
+    <div class="c-blankslate">
+      {% include "console/partials/_octicon.html" with name="check-circle" %}
+      <h3 class="c-blankslate__heading">Nothing is waiting.</h3>
+      <p>Runs wait here until a drain picks them up.</p>
+    </div>
+    {% else %}
+    {% url 'console:inbox' as clear_url %}
+    <div class="c-blankslate">
+      {% include "console/partials/_octicon.html" with name="clock" %}
+      <h3 class="c-blankslate__heading">Nothing is {% if inbox.kept.0.1 == "pending" %}waiting{% else %}in progress{% endif %}.</h3>
+      <p><a id="filters-clear" href="{{ clear_url }}" hx-get="{{ clear_url }}" hx-target="#inbox" hx-swap="outerHTML" hx-push-url="true" hx-sync="#inbox:replace">Show the whole queue</a></p>
+    </div>
+    {% endif %}
+  </div>
+</div>

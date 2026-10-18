@@ -113,7 +113,7 @@ def test_unreversible_is_text(admin_user, monkeypatch):
 def test_query_params_are_encoded(admin_user):
     action = Action("Inbox", intent="view_inbox", params={"status": "a&b"})
     resolved = resolve_action(action, admin_user)
-    assert resolved.url == "/admin/orchestration/inboxitem/?status__exact=a%26b"
+    assert resolved.url == "/console/inbox/?status=a%26b"
 
 
 @pytest.mark.django_db
@@ -123,7 +123,6 @@ def test_query_params_are_encoded(admin_user):
         ("edit_route", {}, "/admin/orchestration/pipelinedefinition/"),
         ("edit_provider", {}, "/admin/intelligence/intelligenceprovider/"),
         ("view_preflight", {}, "/admin/checkers/preflightrun/"),
-        ("view_inbox", {}, "/admin/orchestration/inboxitem/"),
         ("view_nodes", {}, "/admin/alerts/node/"),
         ("view_node", {"pk": 7}, "/admin/alerts/node/7/change/"),
     ],
@@ -157,6 +156,21 @@ def test_alert_intents_point_at_the_console(admin_user, intent, params, url):
 )
 def test_run_intents_point_at_the_console(admin_user, intent, url, method):
     resolved = resolve_action(Action("Go", intent=intent, params={"pk": 7}), admin_user)
+    assert resolved == ResolvedAction("Go", url, method)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("intent", "params", "url", "method"),
+    [
+        ("view_inbox", {}, "/console/inbox/", "get"),
+        ("drain_run", {"pk": 7}, "/console/inbox/7/drain/", "post"),
+        ("drain_inbox", {}, "/console/inbox/drain-oldest/", "post"),
+        ("reclaim_inbox", {}, "/console/inbox/reclaim/", "post"),
+    ],
+)
+def test_inbox_intents_point_at_the_console(admin_user, intent, params, url, method):
+    resolved = resolve_action(Action("Go", intent=intent, params=params), admin_user)
     assert resolved == ResolvedAction("Go", url, method)
 
 

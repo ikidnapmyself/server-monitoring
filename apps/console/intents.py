@@ -77,9 +77,7 @@ INTENTS: dict[str, Intent] = {
         _page("admin:checkers_preflightrun_changelist"), "get", "checkers.view_preflightrun"
     ),
     "view_inbox": Intent(
-        _page("admin:orchestration_inboxitem_changelist", "status__exact", "status"),
-        "get",
-        "orchestration.view_inboxitem",
+        _page("console:inbox", "status", "status"), "get", "orchestration.view_inboxitem"
     ),
     "view_nodes": Intent(_page("admin:alerts_node_changelist"), "get", "alerts.view_node"),
     "view_node": Intent(_record("admin:alerts_node_change"), "get", "alerts.view_node"),
@@ -92,6 +90,13 @@ INTENTS: dict[str, Intent] = {
     "rerun_check": Intent(_record("console:incident-rerun"), "post", "checkers.add_checkrun"),
     "retry_run": Intent(_run_action("retry"), "post", "orchestration.change_pipelinerun"),
     "abandon_run": Intent(_run_action("abandon"), "post", "orchestration.change_pipelinerun"),
+    "drain_run": Intent(_record("console:inbox-drain"), "post", "orchestration.change_inboxitem"),
+    "drain_inbox": Intent(
+        _page("console:inbox-drain-oldest"), "post", "orchestration.change_inboxitem"
+    ),
+    "reclaim_inbox": Intent(
+        _page("console:inbox-reclaim"), "post", "orchestration.change_inboxitem"
+    ),
 }
 
 

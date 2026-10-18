@@ -70,6 +70,17 @@ def origin_label(origin: str) -> str:
     return str(ORIGIN_LABELS.get(origin, origin.replace("_", " ").capitalize()))
 
 
+def run_hosts(runs: list[PipelineRun]) -> dict[int, tuple[str, ...]]:
+    """The hosts each unlinked run's incident names, for ``run_node``."""
+    return incident_hosts(run.incident_id for run in runs if not run.node and run.incident_id)
+
+
+def run_node(run: PipelineRun, hosts: dict[int, tuple[str, ...]]) -> str:
+    if run.node:
+        return alert_host(run.node.hostname, run.node.instance_id, None)
+    return host_summary(hosts.get(run.incident_id, ())) if run.incident_id else ""
+
+
 def _matching(criteria: RunFilter, node_keys: tuple[str, ...]):
     runs = PipelineRun.objects.all()
     statuses = criteria.statuses()
@@ -114,7 +125,7 @@ def _rows(runs, page: int) -> tuple[RunListRow, ...]:
     found = list(
         runs.select_related("node").order_by("-created_at", "-pk")[start : start + PAGE_SIZE]
     )
-    hosts = incident_hosts(run.incident_id for run in found if not run.node and run.incident_id)
+    hosts = run_hosts(found)
     return tuple(
         RunListRow(
             pk=run.pk,
@@ -123,11 +134,7 @@ def _rows(runs, page: int) -> tuple[RunListRow, ...]:
             incident_url=(
                 reverse("console:incident", args=[run.incident_id]) if run.incident_id else ""
             ),
-            node=(
-                alert_host(run.node.hostname, run.node.instance_id, None)
-                if run.node
-                else host_summary(hosts.get(run.incident_id, ()))
-            ),
+            node=run_node(run, hosts),
             origin=origin_label(run.origin),
             stage=STAGE_NAMES.get(run.current_stage or "", ""),
             attempts=run.total_attempts,

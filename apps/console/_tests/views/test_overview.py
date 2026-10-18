@@ -251,8 +251,8 @@ def test_readiness_shows_the_describers_headline_and_fix_link_for_a_superuser(cl
 
     assert "3 runs are stuck" in body
     fix = re.search(r'<a id="readiness-inbox-action"[^>]*href="([^"]+)"[^>]*>([^<]+)</a>', body)
-    inbox = reverse("admin:orchestration_inboxitem_changelist")
-    assert fix.groups() == (f"{inbox}?status__exact=processing", "Open the stuck runs")
+    inbox = reverse("console:inbox")
+    assert fix.groups() == (f"{inbox}?status=processing", "Open the stuck runs")
     assert "System ready." not in body
 
 
