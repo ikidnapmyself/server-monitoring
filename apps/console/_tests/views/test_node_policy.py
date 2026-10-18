@@ -1,6 +1,8 @@
 import re
+from unittest import mock
 
 import pytest
+from django.db import OperationalError
 from django.urls import reverse
 
 from apps.alerts.models import Node
@@ -56,6 +58,19 @@ def test_a_stale_save_is_a_409_with_the_fresh_boxes(client, node_operator, node)
     assert 'value="60"' in body
     node.refresh_from_db()
     assert node.config["cpu"]["warning_threshold"] == 60
+
+
+def test_a_busy_database_is_a_409_with_the_fresh_boxes(client, node_operator, node):
+    with mock.patch(
+        "apps.console.views.node_policy.save_policy",
+        side_effect=OperationalError("database is locked"),
+    ):
+        response = _post(client, node, _boxes(warning=70))
+
+    assert response.status_code == 409
+    assert "This node&#x27;s policy changed since you opened it." in response.content.decode()
+    node.refresh_from_db()
+    assert node.config == CPU
 
 
 def test_anonymous_is_sent_to_the_admin_login(client, node):

@@ -41,6 +41,25 @@ def test_a_checker_narrows_even_when_it_matches_nothing(alert):
     assert preview.url.endswith("?checker=memory")
 
 
+@pytest.mark.parametrize("checker", ["disk_{x}", ""])
+def test_a_checker_nothing_knows_gets_a_fixed_title(alert, checker):
+    preview = build_node_reeval_preview(alert.node_id, checker)
+
+    assert preview.title == "Re-evaluate one checker's alerts on web-03"
+    assert preview.empty == "No open alerts for that checker on web-03."
+    assert preview.rows == ()
+    assert not preview.can_apply
+
+
+def test_a_checker_on_an_open_alert_keeps_its_label(alert):
+    Alert.objects.filter(pk=alert.pk).update(labels={**alert.labels, "checker": "gpu_fans"})
+
+    preview = build_node_reeval_preview(alert.node_id, "gpu_fans")
+
+    assert preview.title == f"Re-evaluate the {checker_label('gpu_fans')} alerts on web-03"
+    assert len(preview.rows) == 1
+
+
 def test_an_empty_node_wide_scope_says_nothing_needs_it(alert):
     Alert.objects.filter(pk=alert.pk).update(status="resolved")
 

@@ -1,6 +1,7 @@
 """Re-evaluation in words: the records an alert carries and the preview of a re-score."""
 
 import json
+from datetime import timedelta
 
 import pytest
 from django.test import TestCase
@@ -250,6 +251,14 @@ def test_report_words_each_change():
     assert rows[0].detail == "Its stored value is 72.0."
     assert rows[2].detail.endswith("Its incident is acknowledged, so nobody is notified.")
     assert [r.tone for r in rows] == ["warning", "ok", "critical"]
+
+
+def test_a_change_says_when_the_node_reported_its_value():
+    reported = Alert(updated_at=timezone.now() - timedelta(hours=2))
+
+    (row,) = describe_reeval_report(ReevalReport(node=None, changes=[_change(alert=reported)]))
+
+    assert row.detail == "Its stored value is 72.0, reported 2\xa0hours ago."
 
 
 @pytest.mark.django_db

@@ -16,6 +16,7 @@ from apps.console.views.node import CHANGE_REQUIRED, NodePageView
 STALE = (
     "This node's alerts or policy changed since you looked. Here is what re-evaluating does now."
 )
+NOTHING_TO_APPLY = "Nothing here needs re-evaluating, so nothing was applied."
 
 
 class NodeReevalView(NodePageView):
@@ -25,12 +26,13 @@ class NodeReevalView(NodePageView):
     partial_template_name = "console/partials/_reeval.html"
 
     @property
-    def checker(self) -> str:
+    def checker(self) -> str | None:
         return checker_param(self.request.GET)
 
     def landing_path(self) -> str:
         url = reverse("console:node-reeval", args=[self.kwargs["pk"]])
-        return f"{url}?{urlencode({'checker': self.checker})}" if self.checker else url
+        raw = self.request.GET.get("checker")
+        return f"{url}?{urlencode({'checker': raw})}" if raw else url
 
     def render_preview(self, notice: Notice | None = None, status: int = 200):
         preview = build_node_reeval_preview(self.kwargs["pk"], self.checker)
@@ -56,5 +58,7 @@ class NodeReevalView(NodePageView):
             )
         except (StaleReeval, OperationalError):
             return self.render_preview(Notice(STALE, "warning"), status=409)
+        if not report.changes:
+            return self.render_preview(Notice(NOTHING_TO_APPLY, "info"), status=409)
         messages.success(request, describe_reeval_applied(report))
         return HttpResponseRedirect(reverse("console:node", args=[node.pk]), status=303)

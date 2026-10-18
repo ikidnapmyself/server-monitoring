@@ -16,12 +16,12 @@ pytestmark = pytest.mark.django_db
 HTMX = {"HTTP_HX_REQUEST": "true"}
 
 
-def _url(node, checker=""):
+def _url(node, checker=None):
     url = reverse("console:node-reeval", args=[node.pk])
-    return f"{url}?checker={checker}" if checker else url
+    return f"{url}?checker={checker}" if checker is not None else url
 
 
-def _digest(node, checker=""):
+def _digest(node, checker=None):
     return scope_digest(node_scope(node, checker))
 
 
@@ -63,6 +63,7 @@ def test_preview_writes_nothing(client, superuser, node):
     assert resp.templates[0].name == "console/reeval.html"
     assert "<title>Re-evaluate the open alerts on web-03 · Console</title>" in body
     assert 'name="digest"' in body and 'id="reeval-apply"' in body
+    assert ", reported " in body and " ago." in body
     assert f'href="{reverse("console:node", args=[node.pk])}"' in body
     assert not AlertHistory.objects.exists()
 
@@ -164,6 +165,40 @@ def test_an_empty_scope_offers_no_apply(client, node_operator, node):
 
     assert "No open alerts need re-evaluation." in body
     assert 'id="reeval-apply"' not in body
+
+
+def test_a_crafted_post_on_an_empty_scope_applies_nothing(client, node_operator, node):
+    Alert.objects.update(status="resolved")
+
+    resp = client.post(_url(node), {"digest": _digest(node)})
+
+    body = resp.content.decode()
+    assert resp.status_code == 409
+    assert "No open alerts need re-evaluation." in body
+    assert "Resolved 0" not in body
+    assert not AlertHistory.objects.exists()
+    assert not PipelineRun.objects.exists()
+    assert "Resolved 0" not in client.get(reverse("console:node", args=[node.pk])).content.decode()
+
+
+def test_an_empty_checker_means_the_whole_node(client, node_operator, node):
+    body = client.get(_url(node, "")).content.decode()
+
+    assert "Re-evaluate the open alerts on web-03" in body
+    assert 'id="reeval-apply"' in body
+
+
+@pytest.mark.parametrize("checker", ["%20", "%00", "%20%00%20"])
+def test_a_checker_that_cleans_to_blank_narrows_to_nothing(client, node_operator, node, checker):
+    body = client.get(_url(node, checker)).content.decode()
+
+    assert "Re-evaluate one checker&#x27;s alerts on web-03" in body
+    assert 'id="reeval-apply"' not in body
+
+    resp = client.post(_url(node, checker), {"digest": _digest(node)})
+
+    assert resp.status_code == 409
+    assert not AlertHistory.objects.exists()
 
 
 @pytest.mark.parametrize("method", ["get", "post"])

@@ -294,6 +294,12 @@ class NodeFilter:
         return (("freshness", self.freshness),) if self.freshness else ()
 
 
-def checker_param(params: QueryDict) -> str:
-    """The checker a re-evaluate link narrows to, or blank for the whole node."""
+def checker_param(params: QueryDict) -> str | None:
+    """The checker a re-evaluate link narrows to, or ``None`` for the whole node.
+
+    Only an absent or empty ``checker`` widens. One that cleans to blank, such as a space
+    or a NUL, still narrows, so to nothing.
+    """
+    if not params.get("checker"):
+        return None
     return _text(params, "checker", SEARCH_LIMIT)

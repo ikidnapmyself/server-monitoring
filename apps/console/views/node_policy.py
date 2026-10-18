@@ -1,4 +1,5 @@
 from django.contrib import messages
+from django.db import OperationalError
 from django.http import HttpResponseForbidden, HttpResponseRedirect
 from django.urls import reverse
 
@@ -50,7 +51,7 @@ class NodePolicyView(NodePageView):
         config = editor.form.policy_config
         try:
             stored = save_policy(pk, config, expected=digest)
-        except StalePolicy:
+        except (StalePolicy, OperationalError):
             return self.render_editor(build_policy_editor(pk), Notice(STALE, "warning"), 409)
         if scoring_changed(stored, config):
             # The preview's GET, never its apply: a mistyped threshold must not resolve

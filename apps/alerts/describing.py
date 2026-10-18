@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.utils.dateparse import parse_datetime
 from django.utils.formats import date_format
+from django.utils.timesince import timesince
 from django.utils.timezone import is_aware, localtime
 
 from apps.alerts.models import Alert, AlertSeverity, AlertStatus, Incident, Node
@@ -332,7 +333,9 @@ def _describe_change(change: "AlertChange", named: bool = False) -> Description:
     else:
         headline = f"Would move this alert from {change.old_severity} to {change.new_severity}"
         tone = tone_for(SEVERITY_TONES, change.new_severity)
-    detail = f"Its stored value is {change.value_display}."
+    reported = change.alert.updated_at
+    detail = f"Its stored value is {change.value_display}"
+    detail += f", reported {timesince(reported)} ago." if reported else "."
     if not change.notify:
         detail += " Its incident is acknowledged, so nobody is notified."
     if named:

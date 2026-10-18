@@ -363,6 +363,9 @@ def test_node_filter_querystring_and_kept():
     assert NodeFilter(q="web").kept() == ()
 
 
-def test_checker_param_is_the_trimmed_checker_or_blank():
+def test_checker_param_is_the_trimmed_checker_or_none_for_the_whole_node():
     assert checker_param(QueryDict("checker=+cpu+")) == "cpu"
-    assert checker_param(QueryDict("")) == ""
+    assert checker_param(QueryDict("")) is None
+    assert checker_param(QueryDict("checker=")) is None
+    assert checker_param(QueryDict("checker=+")) == ""
+    assert checker_param(QueryDict("checker=%00")) == ""

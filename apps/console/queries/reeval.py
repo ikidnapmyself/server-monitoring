@@ -10,9 +10,9 @@ from apps.alerts.describing import (
     describe_reeval_consequences,
     describe_reeval_report,
 )
-from apps.alerts.models import Node
+from apps.alerts.models import Alert, Node
 from apps.alerts.reeval_existing import ReevalScope, preview_reeval, scope_digest
-from apps.checkers.checkers import checker_label
+from apps.checkers.checkers import CHECKER_REGISTRY, checker_label
 from apps.console.queries.hosts import node_name
 from config.describing import Description
 
@@ -62,30 +62,44 @@ def reeval_preview(
     )
 
 
-def node_scope(node: Node, checker: str) -> ReevalScope:
+def node_scope(node: Node, checker: str | None) -> ReevalScope:
     """One checker when named, else the whole node.
 
     A named checker narrows even when it matches nothing: a stale link widened to the whole
-    node would re-evaluate, and notify about, alerts nobody asked about.
+    node would re-evaluate, and notify about, alerts nobody asked about. A blank name
+    matches nothing.
     """
-    return ReevalScope.for_checker(node, checker) if checker else ReevalScope.for_node(node)
+    if checker is None:
+        return ReevalScope.for_node(node)
+    if not checker:
+        return ReevalScope(node=node, alerts=Alert.objects.none(), checker=checker)
+    return ReevalScope.for_checker(node, checker)
 
 
-def build_node_reeval_preview(pk: int, checker: str = "") -> ReevalPreview | None:
+def _known(scope: ReevalScope, checker: str) -> bool:
+    return bool(checker) and (checker in CHECKER_REGISTRY or scope.alerts.exists())
+
+
+def build_node_reeval_preview(pk: int, checker: str | None = None) -> ReevalPreview | None:
     node = Node.objects.filter(pk=pk).first()
     if node is None:
         return None
     name = node_name(node.hostname)
     url = reverse("console:node-reeval", args=[node.pk])
-    if checker:
-        label = checker_label(checker)
-        title = f"Re-evaluate the {label} alerts on {name}"
-        empty = f"No open {label} alerts on {name}."
-        url += f"?{urlencode({'checker': checker})}"
-    else:
+    scope = node_scope(node, checker)
+    if checker is None:
         title, empty = f"Re-evaluate the open alerts on {name}", NOTHING_OPEN
+    else:
+        if _known(scope, checker):
+            label = checker_label(checker)
+            title = f"Re-evaluate the {label} alerts on {name}"
+            empty = f"No open {label} alerts on {name}."
+        else:
+            title = f"Re-evaluate one checker's alerts on {name}"
+            empty = f"No open alerts for that checker on {name}."
+        url += f"?{urlencode({'checker': checker})}"
     return reeval_preview(
-        node_scope(node, checker),
+        scope,
         title=title,
         back_url=reverse("console:node", args=[node.pk]),
         back_text="Back to the node",
