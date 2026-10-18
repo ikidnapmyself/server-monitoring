@@ -39,11 +39,10 @@ class NodePolicyForm(forms.ModelForm):
 
     class Meta:
         model = Node
-        # The registry fields are written by the ingest path and are read-only in
-        # the admin; this form owns nothing but the policy boxes. ``exclude``
-        # says the same thing about ``config`` a second time, because the admin
-        # regenerates the form with its own field list and the raw JSON must
-        # never come back through that door.
+        # The registry fields are written by the ingest path, so this form owns
+        # nothing but the policy boxes. ``exclude`` says the same thing about
+        # ``config`` a second time, so a caller that regenerates the form with
+        # its own field list can't bring the raw JSON back through that door.
         fields: list[str] = []
         exclude = ["config"]
 
@@ -74,9 +73,9 @@ class NodePolicyForm(forms.ModelForm):
         """The checkers to render, or none at all for a node with no row yet.
 
         ``sections_for`` reads ``node.alerts``, and a reverse relation on an
-        unsaved instance raises. ``NodeAdmin`` forbids adding nodes so this
-        should not happen, but a form that explodes when constructed bare is a
-        trap for whoever wires it up next.
+        unsaved instance raises. The console only edits nodes that exist, so
+        this should not happen, but a form that explodes when constructed bare
+        is a trap for whoever builds on it next.
         """
         if self.instance.pk is None:
             return []
@@ -174,7 +173,7 @@ class NodePolicyForm(forms.ModelForm):
         return cleaned
 
     def save(self, commit=True):
-        # Set before ``super().save`` so ``commit=False`` (which the admin uses)
-        # still hands back an instance carrying the new policy.
+        # Set before ``super().save`` so ``commit=False`` still hands back an
+        # instance carrying the new policy.
         self.instance.config = self.policy_config
         return super().save(commit=commit)

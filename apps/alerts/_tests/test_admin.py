@@ -9,6 +9,7 @@ from apps.alerts.models import (
     Alert,
     AlertHistory,
     Incident,
+    Node,
 )
 
 
@@ -127,3 +128,27 @@ class TestAlertAdminIsStock(TestCase):
     def test_change_page_still_opens_for_a_superuser(self):
         url = reverse("admin:alerts_alert_change", args=[self.alert.pk])
         assert self.client.get(url).status_code == 200
+
+
+class TestNodeAdminIsStock(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser("root", password="x")
+        self.client.force_login(self.user)
+        self.node = Node.objects.create(instance_id="n1", hostname="n1")
+
+    def test_node_admin_is_read_only_with_no_actions(self):
+        model_admin = admin.site._registry[Node]
+        request = RequestFactory().get("/")
+        request.user = self.user
+        assert not model_admin.has_add_permission(request)
+        assert not model_admin.has_change_permission(request, self.node)
+        assert not model_admin.has_delete_permission(request, self.node)
+        assert not model_admin.get_actions(request)
+        assert not hasattr(model_admin, "change_actions")
+
+    def test_change_page_still_opens_for_a_superuser(self):
+        url = reverse("admin:alerts_node_change", args=[self.node.pk])
+        assert self.client.get(url).status_code == 200
+
+    def test_the_admin_policy_page_is_gone(self):
+        assert self.client.get("/admin/policy/").status_code == 404

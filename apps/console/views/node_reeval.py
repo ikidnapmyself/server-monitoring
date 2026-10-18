@@ -14,7 +14,7 @@ from apps.console.views.base import Notice
 from apps.console.views.node import CHANGE_REQUIRED, NodePageView
 
 STALE = (
-    "This node's alerts or policy changed since you looked. " "Here is what re-evaluating does now."
+    "This node's alerts or policy changed since you looked. Here is what re-evaluating does now."
 )
 
 

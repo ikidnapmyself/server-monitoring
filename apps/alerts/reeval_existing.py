@@ -1,6 +1,6 @@
 """Re-evaluate a node's existing open alerts against its current Node.config.
 
-Operator-triggered (admin action + management command). Re-scores stored alert
+Operator-triggered (the console and a management command). Re-scores stored alert
 metrics with the same scorer as ingest, then (on apply) resolves / adjusts
 severity, records history + a distinct audit annotation, and auto-resolves
 incidents. See docs/plans/2026-08-08-reeval-existing-alerts-design.md.
@@ -17,7 +17,6 @@ from django.utils import timezone
 from apps.alerts.incident_gate import follow_alert
 from apps.alerts.models import Alert, AlertHistory, Incident, IncidentStatus, Node
 from apps.alerts.reevaluation import (
-    EDITOR_FIXABLE,
     SCORERS,
     Outcome,
     Skip,
@@ -35,7 +34,6 @@ from apps.alerts.services import (
     resolve_node,
 )
 from apps.checkers.checkers import checker_label
-from config.admin_links import admin_url
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +64,6 @@ class AlertSkip:
     alert: Alert
     reason: SkipReason
     sentence: str
-    # Where an operator fixes this, or None when the reason is not theirs to fix.
-    fix_url: str | None = None
 
 
 @dataclass
@@ -233,14 +229,13 @@ def preview_reeval(scope: ReevalScope) -> ReevalReport:
                 alert=alert,
                 reason=outcome.reason,
                 sentence=describe_skip(outcome, checker=checker_label(checker), node=node_name),
-                fix_url=(admin_url(scope.node) if outcome.reason in EDITOR_FIXABLE else None),
             )
         )
     return report
 
 
 def preview_node_alert_reeval(node: Node) -> ReevalReport:
-    """Every open alert on ``node``; kept for the Node admin button and the command."""
+    """Every open alert on ``node``; kept for the command."""
     return preview_reeval(ReevalScope.for_node(node))
 
 
@@ -329,7 +324,7 @@ def apply_reeval(scope: ReevalScope, expected: str | None = None) -> ReevalRepor
 
 
 def apply_node_alert_reeval(node: Node) -> ReevalReport:
-    """Apply across every open alert on ``node``; kept for the admin button and the command."""
+    """Apply across every open alert on ``node``; kept for the command."""
     return apply_reeval(ReevalScope.for_node(node))
 
 

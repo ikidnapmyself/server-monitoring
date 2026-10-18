@@ -19,9 +19,7 @@ from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, replace
 from datetime import datetime
-from urllib.parse import urlencode
 
-from django.urls import reverse
 from django.utils.formats import date_format
 from django.utils.timezone import localtime
 
@@ -30,7 +28,6 @@ from apps.alerts.node_policy import (
     PolicySection,
     UnreadKey,
     build_effective_policy,
-    field_name,
     spec_for,
 )
 from apps.alerts.reeval_existing import _outcome_for
@@ -39,7 +36,7 @@ from apps.checkers.checkers import checker_label
 from config.admin_badges import tone_for
 from config.describing import Action
 
-# The badge wording follows the change form's policy panel vocabulary, so one
+# The badge wording follows the node page's policy panel vocabulary, so one
 # state does not get two names across the two surfaces.
 IN_EFFECT = "In effect"
 NOT_SCORING = "Saved but not scoring"
@@ -107,12 +104,10 @@ class PolicyRow:
     status: str
     why: str
     caution: bool
-    edit_url: str
     firing_count: int = 0
     would_change_count: int = 0
     last_applied: datetime | None = None
     applied_at_ingest: bool = False
-    reeval_url: str = ""
     edit: Action | None = None
     reeval: Action | None = None
     unread: tuple[str, ...] = ()
@@ -158,39 +153,6 @@ class PolicyRow:
         return self.status == NOT_REEVALUATABLE
 
 
-def _node_url(node) -> str:
-    """The admin change page for one node."""
-    return reverse("admin:alerts_node_change", args=[node.pk])
-
-
-def _edit_url(checker: str, node_url: str) -> str:
-    """The node page, landing on this checker's own boxes where it has any.
-
-    The anchor is the first box rather than the section heading because the
-    admin's fieldset template carries no id of its own, while ``field_name``
-    plus Django's ``id_`` prefix gives every policy input a stable one. A checker
-    name reaches the fragment only after matching a ``FIELD_SPECS`` key, so a
-    name off a webhook never lands in the URL.
-    """
-    spec = spec_for(checker)
-    if not spec:
-        return node_url
-    return f"{node_url}#id_{field_name(checker, spec[0].name)}"
-
-
-def _reeval_url(node, checker: str) -> str:
-    """The node's existing re-evaluate action, narrowed to one checker.
-
-    A query parameter rather than a second action, so both buttons land on the one
-    confirm-then-apply flow. The checker arrives over a webhook, so it is
-    URL-encoded here and the action validates it before scoping anything.
-    """
-    tool_url = reverse(
-        "admin:alerts_node_actions", kwargs={"pk": node.pk, "tool": "reevaluate_open_alerts"}
-    )
-    return f"{tool_url}?{urlencode({'checker': checker})}"
-
-
 def _edit(node, checker: str) -> Action:
     """This checker's boxes on the editor, or the node page for a checker with none."""
     if spec_for(checker):
@@ -216,7 +178,6 @@ def _with_evidence(row: PolicyRow, node, evidence: CheckerEvidence) -> PolicyRow
         would_change_count=evidence.would_change_count,
         last_applied=evidence.last_applied,
         applied_at_ingest=evidence.applied_at_ingest,
-        reeval_url=_reeval_url(node, row.checker) if can_reeval else "",
         reeval=_reeval(node, row.checker) if can_reeval else None,
     )
 
@@ -255,13 +216,13 @@ def _why(section: PolicySection | None, unread: list[UnreadKey]) -> str:
     if section is not None and section.editor_note:
         parts.append(
             f"Scoring as stored, but {section.editor_note}"
-            " Retyping it on the node page means changing it."
+            " Retyping it in the editor means changing it."
         )
     parts.extend(_unread_sentences(unread))
     return " ".join(parts)
 
 
-def _firing_only_row(node, checker: str, node_url: str) -> PolicyRow:
+def _firing_only_row(node, checker: str) -> PolicyRow:
     """The row for a checker this node is alerting on with no config entry.
 
     ``SCORERS`` decides which of the two states it is in, because that is the map
@@ -278,7 +239,6 @@ def _firing_only_row(node, checker: str, node_url: str) -> PolicyRow:
                 "node sends it."
             ),
             caution=False,
-            edit_url=_edit_url(checker, node_url),
             edit=_edit(node, checker),
         )
     return PolicyRow(
@@ -290,7 +250,6 @@ def _firing_only_row(node, checker: str, node_url: str) -> PolicyRow:
             "change it."
         ),
         caution=False,
-        edit_url=node_url,
         edit=_edit(node, checker),
     )
 
@@ -310,7 +269,6 @@ def rows_for_node(
     """
     evidence = evidence or {}
     policy = build_effective_policy(node)
-    node_url = _node_url(node)
     unread: dict[str, list[UnreadKey]] = {}
     for entry in policy.unread:
         unread.setdefault(entry.checker, []).append(entry)
@@ -331,13 +289,12 @@ def rows_for_node(
                 status=min(statuses, key=_WORST_FIRST.index),
                 why=_why(section, unread.get(checker, [])),
                 caution=section is not None and bool(section.editor_note),
-                edit_url=_edit_url(checker, node_url),
                 edit=_edit(node, checker),
                 unread=tuple(entry.label for entry in unread.get(checker, [])),
             )
         )
     rows.extend(
-        _firing_only_row(node, checker, node_url)
+        _firing_only_row(node, checker)
         for checker in sorted(set(firing) - set(sections) - set(unread))
     )
     rows = [_with_evidence(row, node, evidence.get(row.checker, NO_EVIDENCE)) for row in rows]
@@ -446,7 +403,6 @@ class NodeGroup:
     pk: int
     instance_id: str
     hostname: str
-    node_url: str
     rows: list[PolicyRow]
     has_problem: bool
 
@@ -482,7 +438,6 @@ def build_policy_overview() -> PolicyOverview:
                 pk=node.pk,
                 instance_id=node.instance_id,
                 hostname=node.hostname,
-                node_url=_node_url(node),
                 rows=rows,
                 has_problem=any(row.is_problem for row in rows),
             )

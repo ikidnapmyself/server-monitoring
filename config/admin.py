@@ -7,8 +7,6 @@ from django.shortcuts import render
 from django.urls import path, reverse
 from django.utils.text import slugify
 
-from apps.alerts.models import Node
-from apps.alerts.policy_overview import build_policy_overview
 from apps.orchestration.models import PipelineDefinition
 from config.dashboard import get_dashboard_context
 from config.netmap import get_map_context
@@ -38,12 +36,11 @@ SECTION_MAP = {
     ],
 }
 
-# The two pages this site adds that are not model changelists. Each sits in the
+# The page this site adds that is not a model changelist. It sits in the
 # section holding the model it reports on, and is gated by that model's view
 # permission so the link and the view agree about who may see it. Rendered by
 # the sidebar and the dashboard's Navigate card, both of which read app_list.
 SECTION_LINKS = {
-    "Operations": [("Hub-side policy", "admin:policy-overview", Node)],
     "Configuration": [("Network map", "admin:netmap", PipelineDefinition)],
 }
 
@@ -57,7 +54,6 @@ class MonitoringAdminSite(AdminSite):
     def get_urls(self):
         custom = [
             path("map/", self.admin_view(self.map_view), name="netmap"),
-            path("policy/", self.admin_view(self.policy_view), name="policy-overview"),
         ]
         return custom + super().get_urls()
 
@@ -91,25 +87,12 @@ class MonitoringAdminSite(AdminSite):
 
         admin_view only asks for staff, and every card on this page is a
         PipelineDefinition, so the sidebar link and the page have to agree about
-        who may look. Same reasoning as policy_view below.
+        who may look.
         """
         if not self._registry[PipelineDefinition].has_view_permission(request):
             raise PermissionDenied
         context = {**self.each_context(request), **get_map_context(), "title": "Network map"}
         return render(request, "admin/map.html", context)
-
-    def policy_view(self, request):
-        """Every node's hub-side policy in one table."""
-        # admin_view only asks for staff. This page prints the same facts a node page
-        # shows, so NodeAdmin decides, which keeps view-or-change parity with it.
-        if not self._registry[Node].has_view_permission(request):
-            raise PermissionDenied
-        context = {
-            **self.each_context(request),
-            "overview": build_policy_overview(),
-            "title": "Hub-side policy",
-        }
-        return render(request, "admin/policy_overview.html", context)
 
     def index(self, request, extra_context=None):
         extra_context = extra_context or {}
