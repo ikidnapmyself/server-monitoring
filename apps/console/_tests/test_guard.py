@@ -137,6 +137,7 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "Stuck",
         "Diagnose finished",
         "Unnamed node",
+        "High CPU usage on Unnamed node",
         "Saved but not scoring",
         "Not honoured",
         "Edit policy",

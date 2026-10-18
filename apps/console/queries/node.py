@@ -25,12 +25,11 @@ from apps.alerts.node_policy import (
     editor_anchor,
 )
 from apps.checkers.checkers import checker_label
-from apps.console.filters import RunFilter
 from apps.console.queries.alert import IncidentCard, incident_cards
-from apps.console.queries.hosts import node_name
+from apps.console.queries.hosts import node_keys, node_name
 from apps.console.queries.nodes import SeverityCount, open_incidents_by_node, severity_counts
 from apps.console.queries.overview import SEVERITY_RANK, firing_by_node, node_badge
-from apps.console.queries.runs import RunListRow, build_run_list
+from apps.console.queries.runs import RunListRow, recent_runs
 from config.describing import Action, Fact
 
 RUN_LIMIT = 10
@@ -94,7 +93,7 @@ class NodeDetail:
     preflight_action: Action | None
     preflight_note: str
     runs: tuple[RunListRow, ...]
-    runs_url: str
+    all_runs: Action
     in_effect: tuple[PolicyLine, ...]
     not_scoring: tuple[PolicyLine, ...]
     unread: tuple[Fact, ...]
@@ -148,7 +147,6 @@ def build_node_detail(pk: int, *, can_change: bool = False) -> NodeDetail | None
     )
     preflight = build_preflight(node, identity)
     run = preflight.run
-    runs = RunFilter(node=node.pk)
     in_effect, not_scoring, unread = _policy(node, can_change)
     do = (
         (
@@ -204,8 +202,8 @@ def build_node_detail(pk: int, *, can_change: bool = False) -> NodeDetail | None
             Action("Open the preflight run", "view_preflight_run", {"pk": run.pk}) if run else None
         ),
         preflight_note=preflight.note,
-        runs=build_run_list(runs).rows[:RUN_LIMIT],
-        runs_url=reverse("console:runs") + runs.querystring(),
+        runs=recent_runs(node.pk, node_keys(node), RUN_LIMIT),
+        all_runs=Action("All runs on this node", "view_runs", {"node": node.pk}),
         in_effect=in_effect,
         not_scoring=not_scoring,
         unread=unread,

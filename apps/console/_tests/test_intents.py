@@ -150,6 +150,7 @@ def test_alert_intents_point_at_the_console(admin_user, intent, params, url):
     ("intent", "url", "method"),
     [
         ("view_run", "/console/runs/7/", "get"),
+        ("view_incident", "/console/incidents/7/", "get"),
         ("retry_run", "/console/runs/7/retry/", "post"),
         ("abandon_run", "/console/runs/7/abandon/", "post"),
     ],
@@ -204,6 +205,26 @@ def test_node_intents_point_at_the_console(admin_user, intent, params, url, meth
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("intent", "params", "url"),
+    [
+        ("view_incidents", {}, "/console/incidents/"),
+        (
+            "view_incidents",
+            {"severity": "critical", "node": 7},
+            "/console/incidents/?severity=critical&node=7",
+        ),
+        ("view_incidents", {"severity": "loud"}, "/console/incidents/"),
+        ("view_runs", {}, "/console/runs/"),
+        ("view_runs", {"node": 7}, "/console/runs/?node=7"),
+    ],
+)
+def test_list_intents_carry_only_valid_filters(admin_user, intent, params, url):
+    resolved = resolve_action(Action("Go", intent=intent, params=params), admin_user)
+    assert resolved == ResolvedAction("Go", url, "get")
+
+
+@pytest.mark.django_db
 def test_every_permission_exists():
     for name, intent in INTENTS.items():
         for permission in intent.permissions if intent.permission else ():
@@ -229,6 +250,9 @@ def _user_with(django_user_model, codename):
         (intent, params, f"{app}.{verb}_{model}")
         for intent, params, app, model in (
             ("view_run", {"pk": 7}, "orchestration", "pipelinerun"),
+            ("view_runs", {}, "orchestration", "pipelinerun"),
+            ("view_incident", {"pk": 7}, "alerts", "incident"),
+            ("view_incidents", {}, "alerts", "incident"),
             ("view_inbox", {}, "orchestration", "inboxitem"),
             ("view_alert", {"pk": 7}, "alerts", "alert"),
             ("view_nodes", {}, "alerts", "node"),

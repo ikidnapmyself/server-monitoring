@@ -47,7 +47,9 @@ def test_the_page_carries_the_runs_description_and_incident_card():
     assert detail.pk == run.pk
     assert detail.what.headline == describe_run(run).headline
     assert isinstance(detail.incident, IncidentCard)
-    assert detail.incident.url == f"/console/incidents/{incident.pk}/"
+    assert detail.incident.link == Action(
+        detail.incident.what.headline, "view_incident", {"pk": incident.pk}
+    )
     assert (detail.origin, detail.stage, detail.attempts) == ("Manual / CLI", "Notify", 2)
     assert detail.created_at == run.created_at
     assert detail.url == f"/console/runs/{run.pk}/"

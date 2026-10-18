@@ -82,7 +82,8 @@ def test_the_partial_is_the_polled_root(client, run_viewer, url):
 
 
 @pytest.mark.django_db
-def test_rows_link_to_the_run_and_its_incident(client, run_viewer, url):
+def test_rows_link_to_the_run_and_its_incident(client, run_viewer, incident_reader, url):
+    incident_reader(run_viewer)
     node = Node.objects.create(instance_id="i-web", hostname="web")
     incident = _incident()
     run = _run(
@@ -108,6 +109,18 @@ def test_rows_link_to_the_run_and_its_incident(client, run_viewer, url):
         body,
     )
     assert re.search(r"Unknown host</span> · [^·]+ · 1 attempt · <time", body)
+
+
+@pytest.mark.django_db
+def test_a_run_reader_sees_the_incident_as_text(client, run_viewer, url):
+    incident = _incident()
+    run = _run(incident=incident)
+
+    body = client.get(url, **HTMX).content.decode()
+
+    assert f'id="run-{run.pk}" href="/console/runs/{run.pk}/"' in body
+    assert f"run-{run.pk}-incident" not in body
+    assert f"</time> · Incident #{incident.pk}</div>" in body
     assert "octicon-x-circle" in body
 
 

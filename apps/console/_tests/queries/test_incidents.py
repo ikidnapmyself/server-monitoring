@@ -148,7 +148,7 @@ def test_nodes_reads_as_the_first_name_plus_a_count_of_the_rest():
     rows = build_incident_list(ALL).rows
 
     assert list(zip(_subjects(rows), [row.nodes for row in rows], strict=True)) == [
-        ("three nodes", "alpha-id +2"),
+        ("three nodes", "Beta +2"),
         ("one node", "zeta"),
         ("no node", ""),
     ]
@@ -533,7 +533,10 @@ def test_the_result_is_frozen_and_holds_tuples():
 @pytest.mark.django_db
 @pytest.mark.parametrize("count", [1, 7])
 def test_the_query_count_does_not_grow_with_the_page(django_assert_num_queries, count):
-    nodes = [Node.objects.create(instance_id=f"web-{index}") for index in range(3)]
+    nodes = [
+        Node.objects.create(instance_id=f"web-{index}", hostname=f"web-{index}")
+        for index in range(3)
+    ]
     for index in range(count):
         incident = _incident(f"incident {index}")
         for node in nodes:

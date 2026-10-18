@@ -11,6 +11,7 @@ from apps.checkers.models import CheckRun
 from apps.console._tests.test_guard import visible
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console._tests.views.test_incident import focus_audit
+from apps.orchestration.models import PipelineRun
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
 MARKUP = "<img src=x onerror=alert(1)>"
@@ -121,12 +122,23 @@ def test_a_missing_node_is_the_console_404_page(client, node_viewer, headers):
     assert f'<a id="not-found-back" href="{reverse("console:nodes")}">Back to nodes</a>' in body
 
 
+def _grant(user, *perms):
+    for app_label, codename in perms:
+        user.user_permissions.add(
+            Permission.objects.get(content_type__app_label=app_label, codename=codename)
+        )
+
+
 @pytest.mark.django_db
 def test_the_page_links_the_incident_the_counts_and_the_runs(client, node_viewer):
-    node_viewer.user_permissions.add(
-        Permission.objects.get(content_type__app_label="alerts", codename="view_alert")
+    _grant(
+        node_viewer,
+        ("alerts", "view_alert"),
+        ("alerts", "view_incident"),
+        ("orchestration", "view_pipelinerun"),
     )
     node, incident = _busy()
+    run = PipelineRun.objects.create(run_id="r-1", trace_id="t-1", node=node, incident=incident)
 
     body = client.get(_url(node)).content.decode()
 
@@ -134,9 +146,29 @@ def test_the_page_links_the_incident_the_counts_and_the_runs(client, node_viewer
     count = re.search(r'<a id="node-count-critical"[^>]*>', body).group()
     assert f'href="/console/incidents/?severity=critical&amp;node={node.pk}"' in count
     assert f'<a id="node-runs" href="/console/runs/?node={node.pk}">' in body
+    assert f'<a id="run-{run.pk}" href="/console/runs/{run.pk}/">' in body
+    assert f'<a id="run-{run.pk}-incident" href="/console/incidents/{incident.pk}/">' in body
     assert re.search(r'<a id="checker-cpu" href="/console/alerts/\d+/">', body)
     assert "Warning at 80" in body
     assert "1 stored setting no scorer reads." in body
+
+
+@pytest.mark.django_db
+def test_a_node_only_viewer_sees_incidents_and_runs_as_text(client, node_viewer):
+    node, incident = _busy()
+    run = PipelineRun.objects.create(run_id="r-1", trace_id="t-1", node=node, incident=incident)
+
+    body = client.get(_url(node), **HTMX).content.decode()
+
+    assert "/console/incidents/" not in body
+    assert "/console/runs/" not in body
+    assert f'id="node-incident-{incident.pk}"' not in body
+    assert f'id="run-{run.pk}"' not in body
+    text = visible(body)
+    assert "1 critical" in text
+    assert "High CPU usage" in text
+    assert f"Incident #{incident.pk}" in text
+    assert "All runs on this node" in text
 
 
 @pytest.mark.django_db

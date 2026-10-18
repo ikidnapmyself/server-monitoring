@@ -35,7 +35,7 @@ class IncidentCard:
     what: Description
     status: str
     status_tone: str
-    url: str
+    link: Action
 
 
 @dataclass(frozen=True)
@@ -68,30 +68,25 @@ class AlertDetail:
     url: str
 
 
+def _card(incident: Incident, what: Description) -> IncidentCard:
+    return IncidentCard(
+        pk=incident.pk,
+        what=what,
+        status=incident.status,
+        status_tone=tone_for(INCIDENT_STATUS_TONES, incident.status),
+        link=Action(what.headline, "view_incident", {"pk": incident.pk}),
+    )
+
+
 def incident_card(incident: Incident | None) -> IncidentCard | None:
     if incident is None:
         return None
-    return IncidentCard(
-        pk=incident.pk,
-        what=describe_incident(incident),
-        status=incident.status,
-        status_tone=tone_for(INCIDENT_STATUS_TONES, incident.status),
-        url=reverse("console:incident", args=[incident.pk]),
-    )
+    return _card(incident, describe_incident(incident))
 
 
 def incident_cards(incidents: Sequence[Incident]) -> tuple[IncidentCard, ...]:
     described = describe_incidents(incidents)
-    return tuple(
-        IncidentCard(
-            pk=incident.pk,
-            what=described[incident.pk],
-            status=incident.status,
-            status_tone=tone_for(INCIDENT_STATUS_TONES, incident.status),
-            url=reverse("console:incident", args=[incident.pk]),
-        )
-        for incident in incidents
-    )
+    return tuple(_card(incident, described[incident.pk]) for incident in incidents)
 
 
 def _history(alert: Alert, headline: str) -> tuple[tuple[HistoryEntry, ...], int]:

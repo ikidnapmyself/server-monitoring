@@ -110,7 +110,8 @@ def test_htmx_request_gets_only_the_partial(client, viewer):
 
 @pytest.mark.django_db
 @BOTH
-def test_the_incident_card_links_the_incident(client, viewer, headers):
+def test_the_incident_card_links_the_incident(client, viewer, incident_reader, headers):
+    incident_reader(viewer)
     incident = Incident.objects.create(severity="critical")
     alert = _checker_alert(incident=incident)
 
@@ -118,6 +119,18 @@ def test_the_incident_card_links_the_incident(client, viewer, headers):
 
     assert f'<a id="alert-incident" href="/console/incidents/{incident.pk}/">' in body
     assert "Not part of an incident." not in body
+
+
+@pytest.mark.django_db
+def test_an_alert_reader_sees_the_incident_as_text(client, viewer):
+    incident = Incident.objects.create(severity="critical")
+    alert = _checker_alert(incident=incident)
+
+    body = client.get(_url(alert), **HTMX).content.decode()
+
+    assert 'id="alert-incident"' not in body
+    assert "/console/incidents/" not in body
+    assert f"#{incident.pk} · Open" in body
 
 
 @pytest.mark.django_db

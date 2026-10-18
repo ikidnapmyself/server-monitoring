@@ -190,7 +190,7 @@ def _reeval_skip_incident() -> Incident:
 
 def _policy_incident() -> Incident:
     """A peer whose policy is in effect, not scoring and partly unread, with a CPU alert the
-    policy re-scores, beside a node that never sent a hostname."""
+    policy re-scores."""
     node = Node.objects.create(
         instance_id=_uuid(),
         hostname="cache-1",
@@ -203,11 +203,8 @@ def _policy_incident() -> Incident:
             "gpu_fans": {"max_rpm": 900},
         },
     )
-    unnamed = Node.objects.create(instance_id=_uuid())
     # Old, so the readiness card still reads "No node reported in the last 15 minutes".
-    Node.objects.filter(pk__in=[node.pk, unnamed.pk]).update(
-        last_seen=timezone.now() - timedelta(hours=2)
-    )
+    Node.objects.filter(pk=node.pk).update(last_seen=timezone.now() - timedelta(hours=2))
     incident = _incident("Cache host", instance=node.instance_id, node=node)
     for checker, severity, annotations in (
         ("cpu", "critical", {"metrics": json.dumps({"cpu_percent": 85.0})}),
@@ -222,6 +219,23 @@ def _policy_incident() -> Incident:
             labels={"checker": checker, "instance_id": node.instance_id},
             annotations=annotations,
         )
+    return incident
+
+
+def _unnamed_node_incident() -> Incident:
+    """A CPU incident on a node that never sent a hostname, so only its UUID names it."""
+    node = Node.objects.create(instance_id=_uuid())
+    Node.objects.filter(pk=node.pk).update(last_seen=timezone.now() - timedelta(hours=2))
+    incident = _incident("High CPU usage", instance=node.instance_id, node=node)
+    _alert(
+        incident,
+        "cpu",
+        source="cluster",
+        node=node,
+        labels={"checker": "cpu", "instance_id": node.instance_id},
+        raw_payload={"metrics": {"cpu_percent": 97.1, "cpu_count": 4}},
+    )
+    _run(incident)
     return incident
 
 
@@ -393,6 +407,7 @@ def build_world() -> World:
         _webhook_incident(),
         _reeval_skip_incident(),
         _policy_incident(),
+        _unnamed_node_incident(),
         *(_gap_incident(code) for code in ROUTING_GAPS),
         _retryable_incident(),
         _skipped_incident(),

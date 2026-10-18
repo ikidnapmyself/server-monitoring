@@ -91,7 +91,10 @@ def test_htmx_request_gets_only_the_partial_rooted_at_the_polled_element(client,
     assert 'hx-swap="outerHTML"' in root
 
 
-def test_a_row_links_the_node_page_and_its_counts_the_incident_list(client, node_viewer, url):
+def test_a_row_links_the_node_page_and_its_counts_the_incident_list(
+    client, node_viewer, incident_reader, url
+):
+    incident_reader(node_viewer)
     node = Node.objects.create(instance_id="i-web", hostname="web")
     _open_critical(node)
 
@@ -102,6 +105,17 @@ def test_a_row_links_the_node_page_and_its_counts_the_incident_list(client, node
     assert f'href="/console/incidents/?severity=critical&amp;node={node.pk}"' in count
     assert "1 critical</a>" in body
     assert "This hub" not in body and "Peer · seen <time" in body
+
+
+def test_a_node_reader_sees_the_counts_as_text(client, node_viewer, url):
+    node = Node.objects.create(instance_id="i-web", hostname="web")
+    _open_critical(node)
+
+    body = client.get(url, **HTMX).content.decode()
+
+    assert f'id="node-{node.pk}-critical"' not in body
+    assert "/console/incidents/" not in body
+    assert '<span class="c-label c-tone-critical">1 critical</span>' in body
 
 
 def test_the_freshness_chips_swap_the_list(client, node_viewer, url):

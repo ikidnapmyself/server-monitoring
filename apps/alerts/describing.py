@@ -23,6 +23,8 @@ from config.describing import Action, Description, Fact
 if TYPE_CHECKING:
     from apps.alerts.reeval_existing import AlertChange, AlertSkip, ReevalReport
 
+UNNAMED_NODE = "Unnamed node"
+
 HISTORY_TONES = {"resolved": "ok", "created": "info", "refired": "info"}
 _HISTORY_HEADLINES = {
     "created": "{} started firing",
@@ -105,13 +107,18 @@ def describe_alert(alert: Alert) -> Description:
     )
 
 
+def node_name(hostname: str) -> str:
+    """What a node is called on any page. Its instance ID is an identifier, so never that."""
+    return hostname or UNNAMED_NODE
+
+
 def _lead(alerts: list[Alert]) -> Alert | None:
     pool = [a for a in alerts if a.status == AlertStatus.FIRING] or alerts
     return min(pool, key=lambda a: _RANK.get(a.severity, 3)) if pool else None
 
 
 def _describe(incident: Incident, alerts: list[Alert], node: Node | None) -> Description:
-    host = (node.hostname or node.instance_id) if node is not None else incident.instance
+    host = node_name(node.hostname) if node is not None else incident.instance
     tone = "ok" if incident.is_resolved else tone_for(SEVERITY_TONES, incident.severity)
     facts = (Fact("Incident", f"#{incident.pk}", copy=True),) + tuple(
         Fact(label, value)

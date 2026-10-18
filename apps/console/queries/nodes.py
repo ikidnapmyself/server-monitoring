@@ -11,8 +11,8 @@ from django.utils import timezone
 
 from apps.alerts.identity import local_instance_id
 from apps.alerts.models import Alert, AlertSeverity, Node
-from apps.console.filters import IncidentFilter, NodeFilter
-from apps.console.queries.hosts import node_name
+from apps.console.filters import NodeFilter
+from apps.console.queries.hosts import node_keys, node_name, on_node
 from apps.console.queries.incidents import ChipGroup, Choice, chip_group
 from apps.console.queries.overview import OPEN_STATUSES, firing_by_node, is_silent, node_badge
 from config.admin_badges import SEVERITY_TONES, tone_for
@@ -33,7 +33,7 @@ class SeverityCount:
     severity: str
     count: int
     tone: str
-    url: str
+    link: Action
 
 
 @dataclass(frozen=True)
@@ -66,17 +66,16 @@ def open_incidents_by_node(nodes: Iterable[Node]) -> dict[int, dict[str, set[int
     A linked alert counts for its node. An unlinked one counts for every node its instance
     labels name, as ``on_node`` matches.
     """
+    nodes = list(nodes)
     named: defaultdict[str, set[int]] = defaultdict(set)
     for node in nodes:
-        for key in (node.instance_id, node.hostname):
-            if key:
-                named[key].add(node.pk)
+        for key in node_keys(node):
+            named[key].add(node.pk)
     found: defaultdict[int, defaultdict[str, set[int]]] = defaultdict(lambda: defaultdict(set))
-    rows = (
-        Alert.objects.filter(incident__status__in=OPEN_STATUSES)
-        .values_list("incident_id", "incident__severity", "node_id", "labels")
-        .order_by()
-    )
+    alerts = Alert.objects.filter(incident__status__in=OPEN_STATUSES)
+    if len(nodes) == 1:
+        alerts = alerts.filter(on_node(nodes[0].pk, node_keys(nodes[0])))
+    rows = alerts.values_list("incident_id", "incident__severity", "node_id", "labels").order_by()
     for incident_pk, severity, node_pk, labels in rows:
         owners = {node_pk} if node_pk is not None else set()
         if node_pk is None and isinstance(labels, dict):
@@ -90,13 +89,16 @@ def open_incidents_by_node(nodes: Iterable[Node]) -> dict[int, dict[str, set[int
 
 
 def severity_counts(node_pk: int, by_severity: dict[str, set[int]]) -> tuple[SeverityCount, ...]:
-    base = reverse("console:incidents")
     return tuple(
         SeverityCount(
             severity=str(severity),
             count=len(by_severity[severity]),
             tone=tone_for(SEVERITY_TONES, severity),
-            url=base + IncidentFilter(severity=str(severity), node=node_pk).querystring(),
+            link=Action(
+                f"{len(by_severity[severity])} {severity}",
+                "view_incidents",
+                {"severity": str(severity), "node": node_pk},
+            ),
         )
         for severity in SEVERITIES
         if by_severity.get(severity)

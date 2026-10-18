@@ -8,12 +8,16 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode, urlsplit
 
+from django.http import QueryDict
 from django.urls import NoReverseMatch, reverse
 
 from apps.alerts.node_policy import editor_anchor
+from apps.console.filters import IncidentFilter, RunFilter
 from config.describing import Action
 
 NODE_READ = ("alerts.view_node", "alerts.change_node")
+INCIDENT_READ = ("alerts.view_incident", "alerts.change_incident")
+RUN_READ = ("orchestration.view_pipelinerun", "orchestration.change_pipelinerun")
 
 
 @dataclass(frozen=True)
@@ -51,6 +55,18 @@ def _page(name: str, filter_param: str = "", param: str = "") -> Callable[[dict[
 
 def _record(name: str) -> Callable[[dict[str, Any]], str]:
     return lambda params: reverse(name, args=[params["pk"]])
+
+
+def _filtered(
+    name: str, criteria: type[IncidentFilter] | type[RunFilter]
+) -> Callable[[dict[str, Any]], str]:
+    def build(params: dict[str, Any]) -> str:
+        query = QueryDict(mutable=True)
+        for key, value in params.items():
+            query[key] = str(value)
+        return reverse(name) + criteria.parse(query).querystring()
+
+    return build
 
 
 def _incident_action(action: str) -> Callable[[dict[str, Any]], str]:
@@ -116,11 +132,10 @@ INTENTS: dict[str, Intent] = {
     ),
     "edit_node_policy": Intent(_node_policy, "get", "alerts.change_node"),
     "reevaluate_node": Intent(_node_reeval, "get", "alerts.change_node"),
-    "view_run": Intent(
-        _record("console:run"),
-        "get",
-        ("orchestration.view_pipelinerun", "orchestration.change_pipelinerun"),
-    ),
+    "view_run": Intent(_record("console:run"), "get", RUN_READ),
+    "view_runs": Intent(_filtered("console:runs", RunFilter), "get", RUN_READ),
+    "view_incident": Intent(_record("console:incident"), "get", INCIDENT_READ),
+    "view_incidents": Intent(_filtered("console:incidents", IncidentFilter), "get", INCIDENT_READ),
     "view_alert": Intent(
         _record("console:alert"), "get", ("alerts.view_alert", "alerts.change_alert")
     ),

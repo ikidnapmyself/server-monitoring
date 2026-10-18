@@ -51,6 +51,12 @@ def _perm(user, app_label, codename):
 
 
 @pytest.fixture
+def incident_reader():
+    """Adds ``alerts.view_incident`` to a user, so the incident links a page shows resolve."""
+    return lambda user: _perm(user, "alerts", "view_incident")
+
+
+@pytest.fixture
 def run_viewer(bare_staff):
     return _perm(bare_staff, "orchestration", "view_pipelinerun")
 

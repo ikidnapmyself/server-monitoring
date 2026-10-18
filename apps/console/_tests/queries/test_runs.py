@@ -13,6 +13,7 @@ from apps.console.queries import runs as run_queries
 from apps.console.queries.runs import build_run_list, origin_label
 from apps.orchestration.describing import describe_run
 from apps.orchestration.models import PipelineRun, PipelineStatus
+from config.describing import Action
 
 pytestmark = pytest.mark.django_db
 
@@ -62,15 +63,14 @@ def test_rows_are_newest_first_and_described():
     for row, run in zip(rows, (new, mid, old), strict=True):
         run.refresh_from_db()
         assert row.what == describe_run(run)
-        assert row.url == f"/console/runs/{run.pk}/"
+        assert row.link == Action(row.what.headline, "view_run", {"pk": run.pk})
         assert row.attempts == 1
         assert row.created_at == run.created_at
     assert rows[0].what.headline == "Run finished, diagnosed, nothing to notify"
-    assert (rows[2].incident_pk, rows[2].incident_url) == (
-        incident.pk,
-        f"/console/incidents/{incident.pk}/",
+    assert rows[2].incident == Action(
+        f"Incident #{incident.pk}", "view_incident", {"pk": incident.pk}
     )
-    assert (rows[0].incident_pk, rows[0].incident_url) == (None, "")
+    assert rows[0].incident is None
 
 
 def _bucket(run):
@@ -185,7 +185,12 @@ def test_a_row_names_its_node_or_its_incidents_hosts():
 
     rows = {row.pk: row.node for row in build_run_list(RunFilter()).rows}
 
-    assert rows == {linked.pk: "web", unnamed.pk: "i-bare", unlinked.pk: "i-a +1", alone.pk: ""}
+    assert rows == {
+        linked.pk: "web",
+        unnamed.pk: "Unnamed node",
+        unlinked.pk: "i-a +1",
+        alone.pk: "",
+    }
 
 
 def test_origin_and_stage_read_as_words():

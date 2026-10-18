@@ -5,7 +5,7 @@
   </div>
   <div class="c-pagehead__meta">
     <span class="c-label c-tone-{{ node.tone }}">{{ node.label }}</span>
-    {% for c in node.counts %}<a id="node-count-{{ c.severity }}" class="c-label c-tone-{{ c.tone }}" href="{{ c.url }}">{{ c.count }} {{ c.severity }}</a>{% endfor %}
+    {% for c in node.counts %}{% resolved c.link as act %}{% if act.url %}<a id="node-count-{{ c.severity }}" class="c-label c-tone-{{ c.tone }}" href="{{ act.url }}">{{ act.text }}</a>{% else %}<span class="c-label c-tone-{{ c.tone }}">{{ act.text }}</span>{% endif %}{% endfor %}
     <span>{{ node.role }}</span>
     <span class="c-pagehead__dot c-tone-{{ node.freshness_tone }}">{{ node.freshness }}</span>
   </div>
@@ -52,7 +52,7 @@
         <li class="c-box__row c-box__row--hover c-row c-status--{{ card.status }}">
           <span class="c-row__icon" title="{{ card.status|capfirst }}">{% include "console/partials/_status_icon.html" with status=card.status %}<span class="c-sr-only">{{ card.status }}</span></span>
           <div class="c-row__main">
-            <a id="node-incident-{{ card.pk }}" href="{{ card.url }}">{{ card.what.headline }}</a>
+            {% resolved card.link as act %}{% if act.url %}<a id="node-incident-{{ card.pk }}" href="{{ act.url }}">{{ act.text }}</a>{% else %}<span>{{ act.text }}</span>{% endif %}
             <div class="c-row__meta">#{{ card.pk }} · {{ card.status|capfirst }}</div>
           </div>
         </li>
@@ -122,7 +122,7 @@
       {% else %}
       <div class="c-box__body"><p class="c-muted">No runs on this node yet.</p></div>
       {% endif %}
-      <div class="c-box__body"><a id="node-runs" href="{{ node.runs_url }}">All runs on this node</a></div>
+      {% resolved node.all_runs as act %}<div class="c-box__body">{% if act.url %}<a id="node-runs" href="{{ act.url }}">{{ act.text }}</a>{% else %}<span class="c-muted">{{ act.text }}</span>{% endif %}</div>
     </section>
     <div class="c-section">{% include "console/partials/_details.html" with facts=node.facts raw=node.raw id="node-details" %}</div>
   </div>

@@ -19,7 +19,7 @@ from apps.console.queries.hosts import (
 from apps.console.queries.incidents import SINCE_CHIPS, ChipGroup, Choice, chip_group
 from apps.orchestration.describing import STAGE_NAMES, describe_run
 from apps.orchestration.models import PipelineOrigin, PipelineRun
-from config.describing import Description
+from config.describing import Action, Description
 
 PAGE_SIZE = 50
 
@@ -40,14 +40,13 @@ ORIGIN_LABELS = dict(PipelineOrigin.choices)
 class RunListRow:
     pk: int
     what: Description
-    incident_pk: int | None
-    incident_url: str
+    incident: Action | None
     node: str
     origin: str
     stage: str
     attempts: int
     created_at: datetime
-    url: str
+    link: Action
 
 
 @dataclass(frozen=True)
@@ -116,29 +115,34 @@ def _status_counts(criteria: RunFilter, node_keys: tuple[str, ...]) -> dict[str,
     )
 
 
-def _rows(runs, page: int) -> tuple[RunListRow, ...]:
-    start = (page - 1) * PAGE_SIZE
-    found = list(
-        runs.select_related("node").order_by("-created_at", "-pk")[start : start + PAGE_SIZE]
+def _row(run: PipelineRun, hosts: dict[int, tuple[str, ...]]) -> RunListRow:
+    what = describe_run(run)
+    return RunListRow(
+        pk=run.pk,
+        what=what,
+        incident=(
+            Action(f"Incident #{run.incident_id}", "view_incident", {"pk": run.incident_id})
+            if run.incident_id
+            else None
+        ),
+        node=run_node(run, hosts),
+        origin=origin_label(run.origin),
+        stage=STAGE_NAMES.get(run.current_stage or "", ""),
+        attempts=run.total_attempts,
+        created_at=run.created_at,
+        link=Action(what.headline, "view_run", {"pk": run.pk}),
     )
+
+
+def _rows(runs, start: int, stop: int) -> tuple[RunListRow, ...]:
+    found = list(runs.select_related("node").order_by("-created_at", "-pk")[start:stop])
     hosts = run_hosts(found)
-    return tuple(
-        RunListRow(
-            pk=run.pk,
-            what=describe_run(run),
-            incident_pk=run.incident_id,
-            incident_url=(
-                reverse("console:incident", args=[run.incident_id]) if run.incident_id else ""
-            ),
-            node=run_node(run, hosts),
-            origin=origin_label(run.origin),
-            stage=STAGE_NAMES.get(run.current_stage or "", ""),
-            attempts=run.total_attempts,
-            created_at=run.created_at,
-            url=reverse("console:run", args=[run.pk]),
-        )
-        for run in found
-    )
+    return tuple(_row(run, hosts) for run in found)
+
+
+def recent_runs(node_pk: int, node_keys: tuple[str, ...], limit: int) -> tuple[RunListRow, ...]:
+    """The newest runs on one node by the runs list's node rule, without its counts or chips."""
+    return _rows(_matching(RunFilter(node=node_pk), node_keys), 0, limit)
 
 
 def build_run_list(criteria: RunFilter) -> RunList:
@@ -156,7 +160,8 @@ def build_run_list(criteria: RunFilter) -> RunList:
     criteria = replace(criteria, page=page)
 
     if total:
-        rows, empty = _rows(runs, page), ""
+        start = (page - 1) * PAGE_SIZE
+        rows, empty = _rows(runs, start, start + PAGE_SIZE), ""
     elif not PipelineRun.objects.exists():
         rows, empty = (), "none"
     else:

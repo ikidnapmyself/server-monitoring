@@ -2,6 +2,8 @@ import json
 from datetime import timedelta
 
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from apps.alerts.identity import local_instance_id
@@ -11,6 +13,7 @@ from apps.checkers.checkers import checker_label
 from apps.checkers.models import CheckRun, PreflightRun
 from apps.console._tests.queries.test_runs import _run
 from apps.console.queries.node import build_node_detail
+from apps.console.queries.nodes import open_incidents_by_node
 from config.describing import Action, Fact
 
 pytestmark = pytest.mark.django_db
@@ -146,7 +149,8 @@ def test_open_incidents_are_cards_worst_first_and_match_the_counts():
     detail = build_node_detail(node.pk)
 
     assert [card.pk for card in detail.incidents] == [critical.pk, warning.pk, info.pk]
-    assert detail.incidents[0].url == f"/console/incidents/{critical.pk}/"
+    assert detail.incidents[0].link.params == {"pk": critical.pk}
+    assert detail.incidents[0].link.intent == "view_incident"
     assert sum(count.count for count in detail.counts) == 3
 
 
@@ -157,7 +161,7 @@ def test_recent_runs_are_the_runs_list_rows_for_this_node():
     detail = build_node_detail(node.pk)
 
     assert [row.pk for row in detail.runs] == [run.pk for run in reversed(runs)][:10]
-    assert detail.runs_url == f"/console/runs/?node={node.pk}"
+    assert detail.all_runs == Action("All runs on this node", "view_runs", {"node": node.pk})
 
 
 def test_the_policy_reads_in_effect_not_scoring_and_unread():
@@ -202,3 +206,37 @@ def test_raw_holds_labels_and_config():
 
     assert json.loads(detail.raw) == {"labels": {"role": "web"}, "config": POLICY}
     assert detail.url == f"/console/nodes/{node.pk}/"
+
+
+def test_the_query_count_does_not_grow_with_incidents_runs_or_other_nodes():
+    node = _peer()
+
+    def queries(total):
+        for index in range(total):
+            incident = Incident.objects.create(severity="critical", status="open")
+            _alert(node, f"{total}-{index}", incident=incident)
+            _run(node=node, incident=incident)
+            other = _peer(instance_id=f"other-{total}-{index}", hostname=f"other-{total}-{index}")
+            _alert(other, f"other-{total}-{index}", incident=incident)
+        with CaptureQueriesContext(connection) as captured:
+            build_node_detail(node.pk)
+        return len(captured)
+
+    assert queries(2) == queries(12)
+
+
+def test_the_incident_scan_reads_only_this_nodes_alerts():
+    node = _peer()
+    other = _peer(instance_id="db-1", hostname="db-1")
+    mine = Incident.objects.create(severity="warning", status="open")
+    theirs = Incident.objects.create(severity="critical", status="open")
+    _alert(node, "mine", incident=mine)
+    _alert(None, "labelled", incident=mine, labels={"hostname": "web-1"})
+    _alert(other, "theirs", incident=theirs)
+
+    with CaptureQueriesContext(connection) as captured:
+        found = open_incidents_by_node([node])
+
+    assert found == {node.pk: {"warning": {mine.pk}}}
+    scan = next(q["sql"] for q in captured.captured_queries if "labels" in q["sql"])
+    assert "node_id" in scan.split("WHERE", 1)[1]

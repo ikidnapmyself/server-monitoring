@@ -1,4 +1,5 @@
 from datetime import timedelta
+from urllib.parse import urlencode
 
 import pytest
 from django.db import connection
@@ -138,9 +139,13 @@ def test_counts_follow_the_incident_list_rule():
         ("warning", 1, "warning"),
     ]
     for count in counts:
-        assert count.url == f"/console/incidents/?severity={count.severity}&node={node.pk}"
+        assert count.link == Action(
+            f"{count.count} {count.severity}",
+            "view_incidents",
+            {"severity": count.severity, "node": node.pk},
+        )
         listed = build_incident_list(
-            IncidentFilter.parse(QueryDict(count.url.split("?", 1)[1]))
+            IncidentFilter.parse(QueryDict(urlencode(count.link.params)))
         ).rows
         expected = {critical.pk, acked.pk} if count.severity == "critical" else {labelled.pk}
         assert {row.pk for row in listed} == expected
