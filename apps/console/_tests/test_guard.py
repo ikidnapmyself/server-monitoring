@@ -87,6 +87,8 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         + incident_urls
         + [f"/console/alerts/{pk}/" for pk in alert_pks]
         + [f"/console/alerts/{pk}/reevaluate/" for pk in alert_pks]
+        + ["/console/runs/?status=all", "/console/inbox/", "/console/inbox/?status=processing"]
+        + [f"/console/runs/{pk}/" for pk in world.run_pks]
     )
     html = {url: _get(client, url, headers) for url in urls}
     # The ids are on the page, inside Details, so the check below has something to catch.
@@ -121,6 +123,14 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "No scorer re-evaluates this alert.",
         "No policy set for CPU usage on db-1.",
         "This alert carries no usable Memory usage value",
+        "Run queued",
+        "Run in progress",
+        "Retry",
+        "Mark failed",
+        "Drain now",
+        "Return stuck runs to the queue",
+        "Stuck",
+        "Diagnose finished",
     ):
         assert shown in everything, shown
 
