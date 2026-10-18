@@ -215,9 +215,9 @@ Below that, a delivery line mirrors `delivery_gap()` 1:1: bound to a channel,
 recording only (no `notify` stage), no channel (none configured, or the bound
 channel is inactive), or channel driver not registered.
 
-#### Hub-side policy
+#### Fleet policy
 
-`/admin/policy/` answers "which machines have I overridden, and is any of it doing
+`/console/policy/` answers "which machines have I overridden, and is any of it doing
 nothing?" A row exists per node and checker where the node holds a config entry **or**
 has a firing alert, so a checker alerting with no policy at all stops looking like a
 machine with nothing wrong. Problem rows sort first.
@@ -225,18 +225,19 @@ machine with nothing wrong. Problem rows sort first.
 Each row prints the checker, its stored policy, one of five states, why it is not
 simply working, what it is doing now (`3 firing, 2 would change`), when a
 re-evaluation last visibly changed something, and a link into that checker's own
-boxes on the node page. Three of the states come from config
+boxes on the console policy editor. Three of the states come from config
 (**In effect**, **Saved but not scoring**, **Not honoured**); two come from a firing
 alert with no matching config: **No policy set**, which is a gap an operator can close,
 and **Not re-evaluatable**, which is muted because no scorer reads that checker and
 nothing can be done about it.
 
-A row that can be scored also carries a **Re-evaluate** button, scoping the node
-action to that checker. The page itself writes nothing: it reads `Node.config` through
+A row that can be scored also carries a **Re-evaluate** button. It scopes the console
+re-evaluate page to that one checker. The page itself writes nothing: it reads `Node.config` through
 `apps.alerts.node_policy.build_effective_policy`, scores firing alerts with the same
 `_outcome_for` the confirm preview uses, and reads `AlertHistory` for the applied
-column, in three queries that do not grow with the node count. Access follows
-`NodeAdmin.has_view_permission`, so anyone who can view a node can read the page.
+column, in three queries that do not grow with the node count. Access is
+`alerts.view_node` or `change_node`. Only `change_node` gets the edit and re-evaluate
+links.
 
 ## Pipeline Execution
 
