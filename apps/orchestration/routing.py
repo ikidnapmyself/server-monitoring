@@ -5,12 +5,15 @@ no route matched, which the orchestrator fails as a non-retryable ``no_route``
 rather than defaulting (migration ``0012`` seeds a catch-all lane so that only
 happens once an operator has removed or deactivated it). See the Phase A plan:
 docs/plans/2026-08-01-pipeline-routing-phase-a.md.
+
+It also holds the condition vocabulary the console reads routes in, and the route
+save and delete helpers the console edits them with.
 """
 
 from typing import Any
 
 from django.db import models
-from django.db.models import F, Q
+from django.db.models import F
 from django.utils import timezone
 
 from apps.alerts.models import AlertSeverity, AlertStatus
@@ -103,13 +106,16 @@ def fallthrough(lane: PipelineDefinition) -> str:
     """Where traffic this route matched goes once it's deleted."""
     if not lane.is_active:
         return "This route is off, so deleting it changes no routing."
-    later = (
-        PipelineDefinition.objects.filter(is_active=True)
-        .filter(Q(priority__gt=lane.priority) | Q(priority=lane.priority, id__gt=lane.id))
-        .order_by("priority", "id")
-    )
-    for other in later:
-        if not other.match:
+    position = (lane.priority, lane.id)
+    for other in PipelineDefinition.objects.filter(is_active=True).order_by("priority", "id"):
+        if other.match:
+            continue
+        if (other.priority, other.id) < position:
+            return (
+                f"Every alert matches {other.name} first, so this route gets no traffic and "
+                "deleting it changes no routing."
+            )
+        if (other.priority, other.id) > position:
             return (
                 f"Traffic it matched goes to the next route that matches, at worst {other.name}, "
                 "which matches everything."

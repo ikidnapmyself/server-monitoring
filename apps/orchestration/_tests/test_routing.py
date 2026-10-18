@@ -180,8 +180,8 @@ def test_fallthrough_inactive_route(lanes):
 
 
 def test_fallthrough_names_the_next_active_catch_all(lanes):
+    lanes("earlier", priority=10)
     route = lanes("web", priority=100)
-    lanes("earlier-catch-all", priority=10, match=[])
     lanes("narrower", priority=200)
     lanes("off-catch-all", priority=300, match=[], is_active=False)
     lanes("catch-all", priority=1000, match=[])
@@ -192,17 +192,47 @@ def test_fallthrough_names_the_next_active_catch_all(lanes):
     )
 
 
+def test_fallthrough_behind_an_earlier_catch_all(lanes):
+    lanes("earlier-catch-all", priority=10, match=[])
+    route = lanes("web", priority=100)
+    lanes("catch-all", priority=1000, match=[])
+    assert fallthrough(route) == (
+        "Every alert matches earlier-catch-all first, so this route gets no traffic and "
+        "deleting it changes no routing."
+    )
+
+
+def test_fallthrough_ignores_an_earlier_inactive_catch_all(lanes):
+    lanes("off-catch-all", priority=10, match=[], is_active=False)
+    route = lanes("web", priority=100)
+    lanes("catch-all", priority=1000, match=[])
+    assert "at worst catch-all," in fallthrough(route)
+
+
 def test_fallthrough_ties_on_priority_break_on_id(lanes):
-    before = lanes("before", priority=100, match=[])
     route = lanes("web", priority=100)
     after = lanes("after", priority=100, match=[])
-    assert before.pk < route.pk < after.pk
+    assert route.pk < after.pk
     assert "at worst after," in fallthrough(route)
 
 
-def test_fallthrough_without_a_later_catch_all(lanes):
+def test_fallthrough_tie_before_on_id_is_earlier(lanes):
+    before = lanes("before", priority=100, match=[])
     route = lanes("web", priority=100)
-    lanes("earlier-catch-all", priority=10, match=[])
+    assert before.pk < route.pk
+    assert fallthrough(route).startswith("Every alert matches before first")
+
+
+def test_fallthrough_of_a_catch_all_skips_itself(lanes):
+    route = lanes("catch-all", priority=1000, match=[])
+    assert fallthrough(route) == (
+        "Traffic only it matched will match no route, and those runs will fail as unrouted."
+    )
+
+
+def test_fallthrough_without_a_later_catch_all(lanes):
+    lanes("earlier", priority=10)
+    route = lanes("web", priority=100)
     lanes("off-catch-all", priority=1000, match=[], is_active=False)
     assert fallthrough(route) == (
         "Traffic only it matched will match no route, and those runs will fail as unrouted."
