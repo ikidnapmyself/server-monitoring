@@ -323,7 +323,7 @@ def test_a_node_tile_links_to_the_node_for_a_user_who_can_view_nodes(client, sta
 
     body = client.get(reverse("console:overview")).content.decode()
 
-    href = reverse("admin:alerts_node_change", args=[node.pk])
+    href = reverse("console:node", args=[node.pk])
     assert f'<a id="node-{node.pk}" class="c-box c-tile" href="{href}">' in body
 
 
@@ -335,7 +335,7 @@ def test_a_node_tile_is_not_a_link_for_a_user_who_cannot_view_nodes(client, staf
 
     assert '<div class="c-box c-tile">' in body
     assert f'id="node-{node.pk}"' not in body
-    assert reverse("admin:alerts_node_change", args=[node.pk]) not in body
+    assert reverse("console:node", args=[node.pk]) not in body
     assert "web-1" in body and "seen " in body
 
 
@@ -464,14 +464,23 @@ def test_incident_title_is_escaped(client, staff):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("field", ["hostname", "instance_id"])
-def test_node_name_is_escaped(client, staff, field):
-    Node.objects.create(**{"instance_id": "n1", "hostname": "", field: f"web {MARKUP}"})
+def test_node_name_is_escaped(client, staff):
+    Node.objects.create(instance_id="n1", hostname=f"web {MARKUP}")
 
     body = client.get(reverse("console:overview")).content.decode()
 
     assert "web &lt;img src=x onerror=alert(1)&gt;" in body
     assert "<img" not in body
+
+
+@pytest.mark.django_db
+def test_an_unnamed_node_tile_keeps_its_instance_id_off_the_page(client, staff):
+    Node.objects.create(instance_id=f"web {MARKUP}", hostname="")
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert "Unnamed node" in body
+    assert "onerror" not in body
 
 
 @pytest.mark.django_db

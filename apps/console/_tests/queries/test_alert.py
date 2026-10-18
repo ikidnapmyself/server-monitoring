@@ -7,6 +7,7 @@ from apps.alerts.models import Alert, AlertHistory, Incident, Node
 from apps.alerts.reeval_existing import ReevalScope, scope_digest
 from apps.console.queries import alert as alert_query
 from apps.console.queries.alert import build_alert_detail, build_reeval_preview
+from config.describing import Action
 
 pytestmark = pytest.mark.django_db
 
@@ -41,7 +42,9 @@ def test_detail_describes_the_alert_and_its_incident():
     assert detail.what.headline
     assert detail.node == "web"
     assert detail.incident.pk == incident.pk
-    assert detail.incident.url == f"/console/incidents/{incident.pk}/"
+    assert detail.incident.link == Action(
+        detail.incident.what.headline, "view_incident", {"pk": incident.pk}
+    )
     assert {f.label for f in detail.facts} == {"Fingerprint", "Trace ID"}
     assert '"cpu_percent": 97.1' in detail.raw
 
@@ -108,7 +111,9 @@ def test_reeval_preview_describes_the_change_and_can_apply():
     assert preview.warning == ""
     assert preview.can_apply
     assert preview.digest == scope_digest(ReevalScope.for_alert(alert))
-    assert preview.alert_url == f"/console/alerts/{alert.pk}/"
+    assert preview.back_url == f"/console/alerts/{alert.pk}/"
+    assert preview.title.startswith("Re-evaluate ")
+    assert preview.back_text == "Back to the alert"
     assert preview.url == f"/console/alerts/{alert.pk}/reevaluate/"
 
 

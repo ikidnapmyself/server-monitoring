@@ -1,0 +1,40 @@
+{% load console %}<div id="nodes" data-poll hx-get="{{ list.url }}" hx-trigger="every 30s, console:refresh" hx-swap="outerHTML">
+  {% if list.notice %}{% include "console/partials/_flash.html" with tone="warning" text=list.notice %}{% endif %}
+  <form class="c-search" role="search" method="get" action="{% url 'console:nodes' %}" hx-get="{% url 'console:nodes' %}" hx-target="#nodes" hx-swap="outerHTML" hx-push-url="true" hx-sync="#nodes:replace">
+    {% for name, value in list.kept %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+    <label class="c-sr-only" for="nodes-q">Search nodes</label>
+    <input id="nodes-q" class="c-search__input" type="search" name="q" value="{{ list.q }}" maxlength="255" placeholder="Hostname or instance ID">
+    <button id="nodes-search" class="c-button c-button--sm" type="submit">Search</button>
+  </form>
+  <div class="c-box">
+    <div class="c-box__header">
+      <h2 class="c-sr-only">{{ list.rows|length }} node{{ list.rows|length|pluralize }}</h2>
+      {% for group in list.groups %}
+      <nav class="c-states" aria-label="{{ group.label }}">
+        {% for chip in group.chips %}
+        <a id="chip-{{ group.name }}-{{ chip.key }}" href="{{ chip.url }}" hx-get="{{ chip.url }}" hx-target="#nodes" hx-swap="outerHTML" hx-push-url="true" hx-sync="#nodes:replace"{% if chip.active %} aria-current="true"{% endif %}><span>{{ chip.label }}</span><span class="c-counter">{{ chip.count }}</span></a>
+        {% endfor %}
+      </nav>
+      {% endfor %}
+      {% resolved list.policy as act %}{% if act.url %}{% include "console/partials/_action.html" with act=act id="nodes-policy" %}{% endif %}
+    </div>
+    {% if list.rows %}
+    <ul class="c-box__list">
+      {% for row in list.rows %}{% include "console/partials/_node_row.html" %}{% endfor %}
+    </ul>
+    {% elif list.empty == "none" %}
+    <div class="c-blankslate">
+      {% include "console/partials/_octicon.html" with name="server" %}
+      <h3 class="c-blankslate__heading">No nodes have reported yet.</h3>
+      <p>A node shows up here once it reports to this hub.</p>
+    </div>
+    {% else %}
+    {% url 'console:nodes' as clear_url %}
+    <div class="c-blankslate">
+      {% include "console/partials/_octicon.html" with name="server" %}
+      <h3 class="c-blankslate__heading">No nodes match these filters.</h3>
+      <p><a id="filters-clear" href="{{ clear_url }}" hx-get="{{ clear_url }}" hx-target="#nodes" hx-swap="outerHTML" hx-push-url="true" hx-sync="#nodes:replace">Clear filters</a></p>
+    </div>
+    {% endif %}
+  </div>
+</div>

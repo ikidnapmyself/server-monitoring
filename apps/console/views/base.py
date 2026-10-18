@@ -10,6 +10,8 @@ from django.views.generic import TemplateView
 from apps.console.intents import admin_url
 from apps.console.middleware import CONSOLE_PATH_PREFIX
 
+NOTHING_TO_APPLY = "Nothing here needs re-evaluating, so nothing was applied."
+
 
 @dataclass(frozen=True)
 class Notice:

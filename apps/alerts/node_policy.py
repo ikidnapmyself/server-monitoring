@@ -12,10 +12,14 @@ caught by ``apps/alerts/_tests/test_node_policy.py``, matching how
 ``config.SECTION_MAP`` completeness is guarded.
 """
 
+import hashlib
+import json
 from dataclasses import dataclass
 
 from apps.alerts.identity import local_hostname, local_instance_id
+from apps.alerts.models import Node
 from apps.alerts.reevaluation import PRIMARY_METRIC, _int_set, _number
+from apps.checkers.checkers import checker_label
 from apps.checkers.models import CheckRun
 
 
@@ -186,6 +190,39 @@ def clean_stored_allowlist(value) -> list[int]:
 _PREFIX = "policy"
 
 
+class StalePolicy(Exception):
+    """The stored policy changed between the editor's render and its save."""
+
+
+def config_digest(config) -> str:
+    """The policy an editor was rendered from, as one value its form carries back."""
+    return hashlib.sha256(json.dumps(config, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _stored_config(pk: int) -> list:
+    return list(Node.objects.filter(pk=pk).values_list("config", flat=True))
+
+
+def save_policy(pk: int, config: dict, *, expected: str):
+    """Replace a node's policy iff it still hashes to ``expected``. Return the one replaced.
+
+    A plain ``UPDATE``, so ``last_seen`` keeps saying when the machine last reported.
+    """
+    stored = _stored_config(pk)
+    if not stored or config_digest(stored[0]) != expected:
+        raise StalePolicy
+    # SQLite ignores row locks. Matching the policy just read means a save that landed in
+    # between wins, and this update matches no row.
+    if not Node.objects.filter(pk=pk, config=stored[0]).update(config=config):
+        raise StalePolicy
+    return stored[0]
+
+
+def editor_anchor(checker: str) -> str:
+    """The id of a checker's box group on the console editor, or blank when it has none."""
+    return f"policy-{checker}" if spec_for(checker) else ""
+
+
 def field_name(checker: str, field: str) -> str:
     """The flat form field name for one policy key."""
     return f"{_PREFIX}__{checker}__{field}"
@@ -196,10 +233,9 @@ def _json_dict(value) -> dict:
 
     ``Node.config`` is a ``JSONField`` and the ingest path never validates it, so
     it can hold a string, and so can any entry inside it. ``node_overview`` keeps
-    its own copy of this two-liner: importing it here would pull the admin panels
-    (and through them ``apps.alerts.models``) into a module the form and the
-    scorers both sit next to, and Task 7 puts the policy form on the very page
-    ``node_overview`` builds, which would close the loop into a real cycle.
+    its own copy of this two-liner: importing it here would pull the node page
+    panels (and through them ``apps.alerts.models``) into a module the form and
+    the scorers both sit next to, which would close the loop into a real cycle.
     """
     return value if isinstance(value, dict) else {}
 
@@ -340,7 +376,7 @@ def _scoring_view(config) -> dict:
 def scoring_changed(before, after) -> bool:
     """Whether the change from one config to another can re-score an alert.
 
-    The question the admin asks to decide whether a save is worth previewing.
+    The question the console editor asks to decide whether a save is worth previewing.
     Numeric equality is what makes an untouched save compare equal: ``to_config``
     keeps the stored ``80`` rather than the form's ``80.0``, and ``80 == 80.0``
     here as well, so a save that retypes the same number is not a change.
@@ -349,8 +385,8 @@ def scoring_changed(before, after) -> bool:
 
 
 # The memo lives on the Node instance, never in a module-level cache keyed by pk:
-# a ModelAdmin is one shared object serving every request. Nothing the admin can
-# edit changes what a node reports, so nothing in a request can stale it.
+# a module-level cache outlives the request that filled it. Nothing the editor can
+# change alters what a node reports, so nothing in a request can stale it.
 _REPORTED_MEMO = "_node_policy_reported_checkers"
 
 
@@ -362,9 +398,8 @@ def _reported_checkers(node) -> set[str]:
 
     ``node_overview.build_checker_rows`` answers the same question and is
     deliberately not reused. Importing it here would point ``node_policy`` at a
-    module that pulls in the admin URLs, the sparkline renderer and
-    ``config.dashboard``, and Task 6 puts this form on the page
-    ``node_overview`` builds, which closes the loop into a real import cycle.
+    module that pulls in the sparkline renderer and ``config.dashboard``, which
+    closes the loop into a real import cycle.
     The same reasoning already kept ``_json_dict`` duplicated above. What is
     needed here is also far less than that function returns: names only, so one
     ``distinct`` on each side rather than a newest-row query per checker.
@@ -375,10 +410,9 @@ def _reported_checkers(node) -> set[str]:
     unbounded, so a list there is one entry per alert row for the same handful of
     names.
 
-    Memoised on the instance, because rendering the change page asks twice:
-    ``NodeAdmin.get_fieldsets`` and ``NodePolicyForm.__init__`` are handed the
-    same object by ``_changeform_view``, and a node with a long alert history
-    paid for the whole scan each time.
+    Memoised on the instance, because rendering the editor asks twice: the form
+    and the node page each ask about the same object, and a node with a long
+    alert history would pay for the whole scan each time.
     """
     memo = getattr(node, _REPORTED_MEMO, None)
     if memo is not None:
@@ -425,7 +459,7 @@ def sections_for(node) -> list[str]:
     Driven from ``FIELD_SPECS`` rather than from the node's data, so a stale key
     for a checker that no longer exists cannot become an editable section.
 
-    Cheap to ask twice, which rendering the change page does: the scan behind
+    Cheap to ask twice, which rendering the editor does: the scan behind
     ``_reported_checkers`` is memoised and the config half is a set of dict keys.
     This function is deliberately not memoised itself. ``form.save`` rewrites
     ``node.config`` on the very instance it was already asked about, so a cached
@@ -441,41 +475,10 @@ def sections_for(node) -> list[str]:
     ]
 
 
-@dataclass(frozen=True)
-class EditorLink:
-    """Where the boxes are, for a panel that sits above them.
-
-    The node page opens with several screens of read-only panels, so a reader
-    who came to set a threshold has no way of knowing the boxes exist. The
-    anchor is built the same way ``policy_overview._edit_url`` builds its own,
-    from ``field_name`` plus Django's ``id_`` prefix, so both land on the same
-    input.
-    """
-
-    anchor: str
-    count: int
-
-
-def editor_link(node) -> EditorLink | None:
-    """The jump target for this node's policy boxes, or None when it has none.
-
-    Takes the node rather than the sections because the panel that renders this
-    is built from the node, and ``sections_for`` is cheap to ask twice: the scan
-    behind it is memoised on the instance.
-    """
-    sections = sections_for(node)
-    if not sections:
-        return None
-    return EditorLink(
-        anchor=f"id_{field_name(sections[0], spec_for(sections[0])[0].name)}",
-        count=len(sections),
-    )
-
-
 def addable_checkers(sections: list[str]) -> list[str]:
     """The checkers a node could be given a policy section for, sorted.
 
-    Takes the sections rather than the node so the form and the admin can each
+    Takes the sections rather than the node so the form and the editor page can each
     ask this without a second trip through ``sections_for``'s queries, and so
     the two cannot disagree about which select to render.
     """
@@ -500,7 +503,7 @@ class PolicySection:
     still scores nothing, which is neither "in effect" nor "not honoured".
 
     ``editor_note`` is the opposite case and only ever set on a section that is
-    in effect: the value scores, but the boxes below are stricter than the
+    in effect: the value scores, but the console editor is stricter than the
     runtime and would refuse it back. Blank whenever the two agree, which is
     almost always.
     """
@@ -510,19 +513,6 @@ class PolicySection:
     values: list[PolicyValue]
     inactive_reason: str = ""
     editor_note: str = ""
-
-    @property
-    def anchor(self) -> str:
-        """The id of this section's first box, or blank when it has none.
-
-        Spelled from ``field_name`` plus Django's ``id_`` prefix, the same way
-        ``editor_link`` and ``policy_overview._edit_url`` spell theirs, so every
-        surface that offers "the boxes below" lands on the same input.
-        """
-        fields = spec_for(self.checker)
-        if not fields:
-            return ""
-        return f"id_{field_name(self.checker, fields[0].name)}"
 
 
 @dataclass(frozen=True)
@@ -611,7 +601,7 @@ def _inactive_reason(checker: str, entry: dict) -> str:
 
 
 def _editor_note(checker: str, entry: dict) -> str:
-    """Why the boxes below would refuse a value that is scoring right now.
+    """Why the console editor would refuse a value that is scoring right now.
 
     The editor is deliberately stricter than the runtime, and only in that
     direction: ``clean_int_list`` rejects a port outside 1-65535 or one that is
@@ -639,7 +629,7 @@ def _editor_note(checker: str, entry: dict) -> str:
             # its leading capital has to go.
             message = str(exc)
             reason = f"{message[:1].lower()}{message[1:]}"
-            return f"the boxes below are stricter than the scorers, and {reason}"
+            return f"the editor is stricter than the scorers, and {reason}"
     return ""
 
 
@@ -650,8 +640,7 @@ def build_effective_policy(node) -> EffectivePolicy:
     nothing an operator wrote is silently deleted. The price is that a key left
     behind by a checker that no longer exists looks identical to a live one.
     This panel is the answer to that, and it is also the whole policy view for
-    an operator with view-but-not-change permission, whose page carries no
-    boxes at all (``NodeAdmin.get_fieldsets``).
+    an operator with view-but-not-change permission, who gets no editor.
 
     An empty entry is left out of every list. ``{"cpu": {}}`` is the marker that
     opens a section (see ``NodePolicyForm.clean``), it scores nothing, and there
@@ -661,7 +650,7 @@ def build_effective_policy(node) -> EffectivePolicy:
     inactive: list[PolicySection] = []
     unread: list[UnreadKey] = []
     for checker, raw_entry in sorted(_json_dict(node.config).items()):
-        title = checker.replace("_", " ")
+        title = checker_label(checker)
         spec = spec_for(checker)
         if not spec or not isinstance(raw_entry, dict):
             # A checker with no scorer, or an entry that is not even a mapping.

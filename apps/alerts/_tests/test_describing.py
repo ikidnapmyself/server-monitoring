@@ -224,11 +224,11 @@ class TestDescribeIncident:
         )
         assert Fact("Fingerprint", cpu.fingerprint, copy=True) in d.facts
 
-    def test_node_without_hostname_uses_its_instance_id(self):
-        node = Node.objects.create(instance_id="i-9")
+    def test_node_without_hostname_reads_unnamed_node(self):
+        node = Node.objects.create(instance_id="8c1f3a2e-0000-4000-8000-000000000000")
         incident = _incident(node=node)
         _cpu(incident)
-        assert describe_incident(incident).headline == "High CPU usage on i-9"
+        assert describe_incident(incident).headline == "High CPU usage on Unnamed node"
 
     def test_no_node_uses_the_incident_instance(self):
         incident = _incident()

@@ -1,6 +1,7 @@
 """Re-evaluation in words: the records an alert carries and the preview of a re-score."""
 
 import json
+from datetime import timedelta
 
 import pytest
 from django.test import TestCase
@@ -9,13 +10,17 @@ from django.utils import timezone
 from apps.alerts.describing import (
     REOPEN_WARNING,
     UNREADABLE,
+    alert_link,
+    alert_name,
     describe_reeval,
     describe_reeval_applied,
+    describe_reeval_consequences,
     describe_reeval_report,
 )
 from apps.alerts.models import Alert, Node
 from apps.alerts.reeval_existing import AlertChange, AlertSkip, ReevalReport
 from apps.alerts.reevaluation import SkipReason
+from config.describing import Action
 
 INGEST_RECORD = {
     "from": "critical",
@@ -248,18 +253,37 @@ def test_report_words_each_change():
     assert [r.tone for r in rows] == ["warning", "ok", "critical"]
 
 
+def test_a_change_says_when_the_node_reported_its_value():
+    reported = Alert(updated_at=timezone.now() - timedelta(hours=2))
+
+    (row,) = describe_reeval_report(ReevalReport(node=None, changes=[_change(alert=reported)]))
+
+    assert row.detail == "Its stored value is 72.0, reported 2\xa0hours ago."
+
+
 @pytest.mark.django_db
 def test_report_offers_the_node_only_for_a_skip_an_editor_can_fix():
     node = Node.objects.create(instance_id="i-1", hostname="web")
+    alert = Alert.objects.create(
+        fingerprint="check:i-1:cpu",
+        name="cpu",
+        severity="warning",
+        source="cluster",
+        node=node,
+        labels={"checker": "cpu"},
+        started_at=timezone.now(),
+    )
     report = ReevalReport(
         node=node,
         skips=[
-            AlertSkip(alert=None, reason=SkipReason.NO_POLICY, sentence="No policy."),
-            AlertSkip(alert=None, reason=SkipReason.NO_SCORER, sentence="No scorer."),
+            AlertSkip(alert=alert, reason=SkipReason.NO_POLICY, sentence="No policy."),
+            AlertSkip(alert=alert, reason=SkipReason.NO_SCORER, sentence="No scorer."),
         ],
     )
     fixable, unfixable = describe_reeval_report(report)
-    assert fixable.action.intent == "view_node" and fixable.action.params == {"pk": node.pk}
+    assert fixable.action == Action(
+        "Edit the node's policy", "edit_node_policy", {"pk": node.pk, "checker": "cpu"}
+    )
     assert unfixable.action is None and unfixable.tone == "info"
 
 
@@ -283,3 +307,24 @@ def test_applied_names_the_runs_it_queued():
 
 def test_reopen_warning_has_no_identifiers():
     assert "{" not in REOPEN_WARNING and "_" not in REOPEN_WARNING
+
+
+def test_a_named_report_leads_each_change_with_its_alert_and_links_it():
+    change = _change()
+    (row,) = describe_reeval_report(ReevalReport(node=None, changes=[change]), named=True)
+    assert row.headline.startswith(f"{alert_name(change.alert)}: would ")
+    assert row.action == alert_link(change.alert.pk)
+
+
+def test_an_unnamed_report_is_unchanged():
+    (row,) = describe_reeval_report(ReevalReport(node=None, changes=[_change()]))
+    assert row.headline.startswith("Would ")
+    assert row.action is None
+
+
+def test_consequences_name_the_runs_and_the_sweep():
+    report = ReevalReport(node=None, changes=[_change(new_status="resolved")])
+    lines = describe_reeval_consequences(report)
+    assert any(line.startswith("Applying queues ") for line in lines)
+    assert any("sweeps this node" in line for line in lines)
+    assert describe_reeval_consequences(ReevalReport(node=None)) == ()

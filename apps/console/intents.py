@@ -8,9 +8,16 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode, urlsplit
 
+from django.http import QueryDict
 from django.urls import NoReverseMatch, reverse
 
+from apps.alerts.node_policy import editor_anchor
+from apps.console.filters import IncidentFilter, RunFilter
 from config.describing import Action
+
+NODE_READ = ("alerts.view_node", "alerts.change_node")
+INCIDENT_READ = ("alerts.view_incident", "alerts.change_incident")
+RUN_READ = ("orchestration.view_pipelinerun", "orchestration.change_pipelinerun")
 
 
 @dataclass(frozen=True)
@@ -50,12 +57,36 @@ def _record(name: str) -> Callable[[dict[str, Any]], str]:
     return lambda params: reverse(name, args=[params["pk"]])
 
 
+def _filtered(
+    name: str, criteria: type[IncidentFilter] | type[RunFilter]
+) -> Callable[[dict[str, Any]], str]:
+    def build(params: dict[str, Any]) -> str:
+        query = QueryDict(mutable=True)
+        for key, value in params.items():
+            query[key] = str(value)
+        return reverse(name) + criteria.parse(query).querystring()
+
+    return build
+
+
 def _incident_action(action: str) -> Callable[[dict[str, Any]], str]:
     return lambda params: reverse("console:incident-action", args=[params["pk"], action])
 
 
 def _run_action(action: str) -> Callable[[dict[str, Any]], str]:
     return lambda params: reverse("console:run-action", args=[params["pk"], action])
+
+
+def _node_policy(params: dict[str, Any]) -> str:
+    url = reverse("console:node-policy", args=[params["pk"]])
+    anchor = editor_anchor(str(params.get("checker", "")))
+    return f"{url}#{anchor}" if anchor else url
+
+
+def _node_reeval(params: dict[str, Any]) -> str:
+    url = reverse("console:node-reeval", args=[params["pk"]])
+    checker = params.get("checker")
+    return f"{url}?{urlencode({'checker': checker})}" if checker else url
 
 
 def _external(params: dict[str, Any]) -> str:
@@ -90,13 +121,21 @@ INTENTS: dict[str, Intent] = {
         "get",
         ("orchestration.view_inboxitem", "orchestration.change_inboxitem"),
     ),
-    "view_nodes": Intent(_page("admin:alerts_node_changelist"), "get", "alerts.view_node"),
-    "view_node": Intent(_record("admin:alerts_node_change"), "get", "alerts.view_node"),
-    "view_run": Intent(
-        _record("console:run"),
-        "get",
-        ("orchestration.view_pipelinerun", "orchestration.change_pipelinerun"),
+    "view_nodes": Intent(_page("console:nodes"), "get", NODE_READ),
+    "view_policy": Intent(_page("console:policy"), "get", NODE_READ),
+    "view_node": Intent(_record("console:node"), "get", NODE_READ),
+    "view_check_run": Intent(
+        _record("admin:checkers_checkrun_change"), "get", "checkers.view_checkrun"
     ),
+    "view_preflight_run": Intent(
+        _record("admin:checkers_preflightrun_change"), "get", "checkers.view_preflightrun"
+    ),
+    "edit_node_policy": Intent(_node_policy, "get", "alerts.change_node"),
+    "reevaluate_node": Intent(_node_reeval, "get", "alerts.change_node"),
+    "view_run": Intent(_record("console:run"), "get", RUN_READ),
+    "view_runs": Intent(_filtered("console:runs", RunFilter), "get", RUN_READ),
+    "view_incident": Intent(_record("console:incident"), "get", INCIDENT_READ),
+    "view_incidents": Intent(_filtered("console:incidents", IncidentFilter), "get", INCIDENT_READ),
     "view_alert": Intent(
         _record("console:alert"), "get", ("alerts.view_alert", "alerts.change_alert")
     ),

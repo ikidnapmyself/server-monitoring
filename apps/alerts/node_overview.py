@@ -1,8 +1,7 @@
-"""Panels for the Node admin detail page.
+"""Panels for the console node page.
 
 Every panel is a plain function returning a plain dataclass, so the whole page
-is testable without driving the admin. ``NodeAdmin.render_change_form`` calls
-``build_node_overview`` and the change_form template renders the result.
+is testable without a request. ``apps/console/queries/node.py`` reads them.
 
 Nothing here writes. Nothing here knows about requests.
 """
@@ -10,31 +9,19 @@ Nothing here writes. Nothing here knows about requests.
 from dataclasses import dataclass
 from datetime import timedelta
 
-from django.db.models import Count
-from django.urls import reverse
 from django.utils import timezone
-from django.utils.html import format_html_join
-from django.utils.http import urlencode
 from django.utils.timesince import timesince
 
 from apps.alerts.check_integration import STATUS_TO_SEVERITY
-from apps.alerts.describing import describe_incidents
+from apps.alerts.describing import alert_link
 from apps.alerts.identity import local_hostname, local_instance_id
-from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
 from apps.alerts.reevaluation import PRIMARY_METRIC
 from apps.checkers.admin_charts import render_sparkline
 from apps.checkers.checkers import CheckStatus
 from apps.checkers.models import CheckRun, PreflightRun
-from config.admin_badges import SEVERITY_TONES, badge, tone_for
+from config.admin_badges import tone_for
 from config.dashboard import NODE_RECENT_MINUTES
-
-# Worst first: the order both the changelist column and the detail header read in.
-SEVERITIES_WORST_FIRST = [AlertSeverity.CRITICAL, AlertSeverity.WARNING, AlertSeverity.INFO]
-
-# An acknowledged incident is a live problem someone has picked up. Counting it
-# as handled would make a node look healthy the moment an operator touched it.
-UNRESOLVED_INCIDENT_STATUSES = [IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED]
-
+from config.describing import Action
 
 # The header chip's tone, derived from the freshness verdict rather than stored
 # beside it so the two cannot disagree. "info" is the local node, whose self-check
@@ -83,48 +70,6 @@ def build_identity(node) -> Identity:
     )
 
 
-def unresolved_counts(node) -> dict[str, int]:
-    """Unresolved incidents per severity for one node.
-
-    Prefers the annotations ``NodeAdmin.get_queryset`` adds, so rendering the
-    whole changelist stays one query. Falls back to a per-node aggregate for a
-    node that arrived unannotated. Both paths count incidents, not alerts: an
-    incident this node raised six alerts on is one incident, not six.
-    """
-    if hasattr(node, "unresolved_total"):
-        return {s: getattr(node, f"unresolved_{s}", 0) for s in SEVERITIES_WORST_FIRST}
-    rows = (
-        Incident.objects.filter(alerts__node=node, status__in=UNRESOLVED_INCIDENT_STATUSES)
-        .values("severity")
-        .annotate(count=Count("pk", distinct=True))
-    )
-    counted = {row["severity"]: row["count"] for row in rows}
-    return {s: counted.get(s, 0) for s in SEVERITIES_WORST_FIRST}
-
-
-def render_severity_chips(node) -> str:
-    """Linked severity chips, worst first. A quiet node reads as a dash.
-
-    Each chip links to the console incident list narrowed to this node and severity.
-    That list already defaults to unresolved incidents.
-    """
-    counts = unresolved_counts(node)
-    parts = []
-    for severity in SEVERITIES_WORST_FIRST:
-        count = counts.get(severity, 0)
-        if not count:
-            continue
-        url = (
-            reverse("console:incidents") + "?" + urlencode({"severity": severity, "node": node.pk})
-        )
-        parts.append(
-            badge(f"{count} {severity.upper()}", tone_for(SEVERITY_TONES, severity), url=url)
-        )
-    if not parts:
-        return "—"
-    return format_html_join(" ", "{}", ((part,) for part in parts))
-
-
 # The metric each numeric checker is judged on comes from the severity
 # re-evaluator: one map, so the state table, the charts and the hub-side
 # scoring all read the same field of the same checker.
@@ -169,7 +114,7 @@ class CheckerRow:
     status: str
     value: str
     observed_at: object
-    url: str
+    action: Action
 
 
 def _format_metric(raw) -> str:
@@ -252,7 +197,7 @@ def _local_checker_rows(node) -> list[CheckerRow]:
                 status=run.status,
                 value=_format_metric(raw),
                 observed_at=run.executed_at,
-                url=reverse("admin:checkers_checkrun_change", args=[run.pk]),
+                action=Action("Open the check run", "view_check_run", {"pk": run.pk}),
             )
         )
     return sorted(rows, key=lambda r: r.checker)
@@ -271,7 +216,7 @@ def _peer_checker_rows(node) -> list[CheckerRow]:
     The timestamp is ``received_at``, and the column is headed "First seen" to
     match. Nothing on Alert records when a peer last repeated an observation:
     ``updated_at`` is auto_now, so it bumps on hub-side writes the peer had no
-    part in (the re-evaluate action, an admin save, an incident relink) and it
+    part in (a re-evaluation, an incident relink) and it
     does NOT bump on a quiet re-push, which _process_alert returns early on
     without saving. ``started_at`` is the peer's own clock, stamped once at
     creation and never refreshed on a later push. ``received_at`` is the only
@@ -294,7 +239,7 @@ def _peer_checker_rows(node) -> list[CheckerRow]:
                 status=_peer_status(alert.severity),
                 value=_format_metric(raw),
                 observed_at=alert.received_at,
-                url=reverse("console:alert", args=[alert.pk]),
+                action=alert_link(alert.pk),
             )
         )
     return sorted(rows, key=lambda r: r.checker)
@@ -327,39 +272,6 @@ def checker_time_label(node, identity: Identity | None = None) -> str:
     if (identity or build_identity(node)).is_local:
         return LOCAL_TIME_LABEL
     return PEER_TIME_LABEL
-
-
-@dataclass(frozen=True)
-class IncidentRow:
-    title: str
-    severity: str
-    status: str
-    tone: str
-    created_at: object
-    url: str
-
-
-def build_incident_rows(node, limit: int = 10) -> list[IncidentRow]:
-    """The node's newest incidents. The chips give counts; this gives names.
-
-    ``distinct()`` because an incident this node raised six alerts on must appear
-    once, not six times.
-    """
-    incidents = list(
-        Incident.objects.filter(alerts__node=node).distinct().order_by("-created_at")[:limit]
-    )
-    described = describe_incidents(incidents)
-    return [
-        IncidentRow(
-            title=described[incident.pk].headline,
-            severity=incident.severity,
-            status=incident.status,
-            tone=tone_for(SEVERITY_TONES, incident.severity),
-            created_at=incident.created_at,
-            url=reverse("console:incident", args=[incident.pk]),
-        )
-        for incident in incidents
-    ]
 
 
 # Charts read the same primary metric the state table reads.
@@ -444,7 +356,7 @@ PEER_PREFLIGHT_NOTE = (
 
 @dataclass(frozen=True)
 class PreflightPanel:
-    run: object
+    run: PreflightRun | None
     note: str
 
 
@@ -461,55 +373,3 @@ def build_preflight(node, identity: Identity | None = None) -> PreflightPanel:
     if run is None:
         return PreflightPanel(run=None, note="No preflight recorded on this machine yet.")
     return PreflightPanel(run=run, note="")
-
-
-@dataclass(frozen=True)
-class PipelineRow:
-    run_id: str
-    origin: str
-    status: str
-    created_at: object
-    url: str
-
-
-def build_pipeline_rows(node, limit: int = 10) -> list[PipelineRow]:
-    """The node's newest pipeline runs, each admin-linked."""
-    return [
-        PipelineRow(
-            run_id=run.run_id,
-            origin=run.origin,
-            status=run.status,
-            created_at=run.created_at,
-            url=reverse("console:run", args=[run.pk]),
-        )
-        for run in node.pipeline_runs.order_by("-created_at")[:limit]
-    ]
-
-
-@dataclass(frozen=True)
-class NodeOverview:
-    identity: Identity
-    chips: object
-    checker_rows: list[CheckerRow]
-    checker_time_label: str
-    incident_rows: list[IncidentRow]
-    charts: list[Chart]
-    charts_note: str
-    preflight: PreflightPanel
-    pipeline_rows: list[PipelineRow]
-
-
-def build_node_overview(node) -> NodeOverview:
-    """Every panel on the node detail page, in one object for the template."""
-    identity = build_identity(node)
-    return NodeOverview(
-        identity=identity,
-        chips=render_severity_chips(node),
-        checker_rows=build_checker_rows(node, identity),
-        checker_time_label=checker_time_label(node, identity),
-        incident_rows=build_incident_rows(node),
-        charts=build_charts(node, identity),
-        charts_note=charts_note(node, identity),
-        preflight=build_preflight(node, identity),
-        pipeline_rows=build_pipeline_rows(node),
-    )

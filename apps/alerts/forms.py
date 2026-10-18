@@ -21,6 +21,7 @@ from apps.alerts.node_policy import (
     to_config,
     to_form_values,
 )
+from apps.checkers.checkers import checker_label
 
 # The select that adds a section, named like the policy boxes so it cannot
 # collide with a model field. ``field_name`` puts a checker between two double
@@ -38,11 +39,10 @@ class NodePolicyForm(forms.ModelForm):
 
     class Meta:
         model = Node
-        # The registry fields are written by the ingest path and are read-only in
-        # the admin; this form owns nothing but the policy boxes. ``exclude``
-        # says the same thing about ``config`` a second time, because the admin
-        # regenerates the form with its own field list and the raw JSON must
-        # never come back through that door.
+        # The registry fields are written by the ingest path, so this form owns
+        # nothing but the policy boxes. ``exclude`` says the same thing about
+        # ``config`` a second time, so a caller that regenerates the form with
+        # its own field list can't bring the raw JSON back through that door.
         fields: list[str] = []
         exclude = ["config"]
 
@@ -56,8 +56,8 @@ class NodePolicyForm(forms.ModelForm):
         if self._addable:
             self.fields[ADD_SECTION_FIELD] = self._build_add_field(self._addable)
         self.initial.update(to_form_values(self.instance.config))
-        # What ``save`` will write. Overwritten by ``clean``; the stored config
-        # is the right answer for a form that is never validated at all.
+        # What ``save_policy`` will write. Overwritten by ``clean``; the stored
+        # config is the right answer for a form that is never validated at all.
         self.policy_config = self.instance.config
 
     @property
@@ -73,13 +73,20 @@ class NodePolicyForm(forms.ModelForm):
         """The checkers to render, or none at all for a node with no row yet.
 
         ``sections_for`` reads ``node.alerts``, and a reverse relation on an
-        unsaved instance raises. ``NodeAdmin`` forbids adding nodes so this
-        should not happen, but a form that explodes when constructed bare is a
-        trap for whoever wires it up next.
+        unsaved instance raises. The console only edits nodes that exist, so
+        this should not happen, but a form that explodes when constructed bare
+        is a trap for whoever builds on it next.
         """
         if self.instance.pk is None:
             return []
         return sections_for(self.instance)
+
+    def policy_groups(self) -> list[tuple[str, list[forms.BoundField]]]:
+        """Each section's checker and its bound boxes, in the order the form built them."""
+        return [
+            (checker, [self[field_name(checker, field.name)] for field in spec_for(checker)])
+            for checker in self._sections
+        ]
 
     @staticmethod
     def _build_field(field) -> forms.Field:
@@ -103,7 +110,7 @@ class NodePolicyForm(forms.ModelForm):
         """
         return forms.ChoiceField(
             required=False,
-            choices=[("", "---------")] + [(c, c.replace("_", " ")) for c in addable],
+            choices=[("", "---------")] + [(c, checker_label(c)) for c in addable],
             label="Add a policy for",
             help_text="Save to open this checker's boxes. Until you fill them in it scores "
             "nothing.",
@@ -149,9 +156,9 @@ class NodePolicyForm(forms.ModelForm):
             # nobody asked for. An invalid form writes nothing, so it keeps the
             # stored config as its answer.
             return cleaned
-        # Assembled here, applied in ``save``: validation must not mutate the
-        # instance, or a caller can no longer compare the stored config against
-        # the one this form would write.
+        # Assembled here, written by ``node_policy.save_policy``: validation must
+        # not mutate the instance, or a caller can no longer compare the stored
+        # config against the one this form would write.
         config = to_config(
             {name: cleaned.get(name) for name in self.fields if name != ADD_SECTION_FIELD},
             existing=self.instance.config,
@@ -166,7 +173,7 @@ class NodePolicyForm(forms.ModelForm):
         return cleaned
 
     def save(self, commit=True):
-        # Set before ``super().save`` so ``commit=False`` (which the admin uses)
-        # still hands back an instance carrying the new policy.
-        self.instance.config = self.policy_config
-        return super().save(commit=commit)
+        raise NotImplementedError(
+            "Write policy_config with node_policy.save_policy, which checks the stored "
+            "digest and leaves last_seen alone."
+        )

@@ -126,6 +126,31 @@ pipeline stage and not an alert producer.
   The view answers both with a 409 and a fresh preview, so a double submit or a replay
   writes nothing. The apply form carries `data-disable-on-submit`, which `console.js` reads
   to disable its button on submit. Any later confirm page reuses this guard.
+- **The node pages read with `alerts.view_node` or `change_node`.** `/console/nodes/`
+  filters on `NodeFilter` (`q` on hostname and instance ID, `freshness` all, silent or
+  reporting) and sorts worst first by the Overview tile's rule. Its counts come from
+  `open_incidents_by_node`, which follows `on_node`, so a count and the incident list it
+  opens agree. A node with no hostname reads "Unnamed node" everywhere, incident headlines
+  and host names included, through `node_name` in `apps/alerts/describing.py`. Its
+  instance ID lives in Details. The counts, incident cards and runs on the node pages are
+  intents (`view_incidents`, `view_incident`, `view_run`, `view_runs`), so a node reader
+  without incident or run permissions sees them as plain text.
+- **The editor and re-evaluate need `alerts.change_node`.** A reader gets a 403 on the
+  editor, and the preview with no apply. The editor is a plain form that doesn't poll. It
+  carries the `config_digest` of the stored policy, and `node_policy.save_policy` refuses a
+  stale one with a 409 and fresh boxes. A busy SQLite `OperationalError` gets the same
+  answer. `NodePolicyForm.save()` raises `NotImplementedError`, because a model save bumps
+  `last_seen` and skips the stale check.
+- **Both re-evaluate pages share `queries/reeval.py` and `partials/_reeval.html`.** A node
+  preview names each alert, with its stored value and when the node reported it, and
+  states the run count and the sweep before the apply. `?checker=` narrows the scope even
+  when it matches nothing. Only an absent or empty one means the whole node. One that
+  cleans to blank, such as a space or a NUL, narrows to nothing. A checker that is neither
+  registered nor on an open alert of the node gets the fixed title "Re-evaluate one
+  checker's alerts on <node>", so a typed name never reaches the page. On both pages, an
+  apply whose fresh report has no changes writes nothing and answers 409 with the preview.
+- **Fleet policy** (`/console/policy/`) renders `build_policy_overview`. Its edit and
+  re-evaluate links are intents, so a reader sees none.
 - **A missing record gets a console 404 page** with a link onward, returned with status
   404, as `IncidentDetailView` does. Don't raise a bare `Http404` from a page view.
 - **Stage output is untrusted in shape.** Every page reads stage output through
@@ -158,7 +183,9 @@ pipeline stage and not an alert producer.
   `_tests/test_guard.py` renders every page against `build_world()` from
   `_tests/fixtures.py`, a world with every routing gap and failure kind, and fails if any
   text outside `data-details` holds a UUID, a `snake_case` token, a `{` or a reason code.
-  A new outcome or reason code needs a case in `build_world()`.
+  A new outcome or reason code needs a case in `build_world()`. A stored policy value
+  renders as stored, like text a source sent. The editor validates every new value, so
+  only legacy rows hold odd ones.
 - **The incident timeline is capped.** The page shows lifecycle entries plus the newest
   `TIMELINE_LIMIT` others, and `?all=1` shows everything. Bodies are built only for
   entries that survive the cut. The database read is not capped.

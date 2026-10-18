@@ -1,0 +1,9 @@
+{% load console %}<li class="c-box__row c-box__row--hover c-row">
+  <span class="c-row__icon">{% include "console/partials/_tone_icon.html" with tone=row.tone %}</span>
+  <div class="c-row__main">
+    <a id="node-{{ row.pk }}" href="{{ row.url }}">{{ row.name }}</a>
+    <span class="c-label c-tone-{{ row.tone }}">{{ row.label }}</span>
+    {% for c in row.counts %}{% resolved c.link as act %}{% if act.url %}<a id="node-{{ row.pk }}-{{ c.severity }}" class="c-label c-tone-{{ c.tone }}" href="{{ act.url }}">{{ act.text }}</a>{% else %}<span class="c-label c-tone-{{ c.tone }}">{{ act.text }}</span>{% endif %}{% endfor %}
+    <div class="c-row__meta">{{ row.role }} · seen {% include "console/partials/_time.html" with when=row.last_seen %}</div>
+  </div>
+</li>

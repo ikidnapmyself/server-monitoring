@@ -65,10 +65,8 @@ SCANNED = _scanned()
 # Named so a rename or a move fails loudly here instead of silently dropping out
 # of the scan. Every one of these has held a hex at some point in the sweep.
 MUST_BE_SCANNED = {
-    "templates/admin/policy_overview.html",
     "templates/admin/dashboard.html",
     "templates/admin/map.html",
-    "templates/admin/alerts/node/change_form.html",
     "apps/alerts/admin.py",
     "apps/checkers/admin.py",
     "apps/checkers/admin_charts.py",

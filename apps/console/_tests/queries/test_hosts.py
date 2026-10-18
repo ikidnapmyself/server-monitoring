@@ -23,12 +23,12 @@ def _alert(incident, fingerprint, **fields):
 
 
 @pytest.mark.django_db
-def test_a_linked_node_names_the_host_by_hostname_then_instance_id():
+def test_a_linked_node_names_the_host_by_hostname_never_by_instance_id():
     incident = Incident.objects.create()
     _alert(incident, "a", node=Node.objects.create(instance_id="i-1", hostname="web-1"))
     _alert(incident, "b", node=Node.objects.create(instance_id="i-2", hostname=""))
 
-    assert incident_hosts([incident.pk]) == {incident.pk: ("i-2", "web-1")}
+    assert incident_hosts([incident.pk]) == {incident.pk: ("Unnamed node", "web-1")}
 
 
 @pytest.mark.django_db
@@ -102,16 +102,18 @@ def test_on_node_matches_the_fk_and_unlinked_labels_only():
 @pytest.mark.django_db
 def test_node_choices_sort_by_name_and_carry_both_keys():
     Node.objects.create(instance_id="i-2", hostname="Zed")
+    Node.objects.create(instance_id="i-3", hostname="Abe")
     Node.objects.create(instance_id="i-1", hostname="")
 
     assert [(name, keys) for _, name, keys in node_choices()] == [
-        ("i-1", ("i-1",)),
+        ("Abe", ("i-3", "Abe")),
+        ("Unnamed node", ("i-1",)),
         ("Zed", ("i-2", "Zed")),
     ]
 
 
 def test_alert_host_prefers_the_node_then_the_labels():
     assert alert_host("web", "i-web", {"instance": "x"}) == "web"
-    assert alert_host("", "i-web", {}) == "i-web"
+    assert alert_host("", "i-web", {"instance": "x"}) == "Unnamed node"
     assert alert_host(None, None, {"instance": "x"}) == "x"
     assert alert_host(None, None, None) == ""

@@ -12,7 +12,9 @@ from apps.console.filters import (
     AlertFilter,
     InboxFilter,
     IncidentFilter,
+    NodeFilter,
     RunFilter,
+    checker_param,
 )
 
 NOW = datetime(2026, 10, 14, 12, 0, tzinfo=dt_timezone.utc)
@@ -344,3 +346,26 @@ def test_inbox_filter_takes_pending_processing_stuck_or_all():
     assert InboxFilter(status="pending").querystring() == "?status=pending"
     assert InboxFilter(status="pending").querystring(status="") == ""
     assert InboxFilter().querystring() == ""
+
+
+def test_node_filter_parses_freshness_and_a_trimmed_search():
+    assert NodeFilter.parse(QueryDict("")) == NodeFilter()
+    assert NodeFilter.parse(QueryDict("freshness=silent&q=+web+")) == NodeFilter(
+        q="web", freshness="silent"
+    )
+    assert NodeFilter.parse(QueryDict("freshness=gone")) == NodeFilter(dropped=("freshness",))
+
+
+def test_node_filter_querystring_and_kept():
+    assert NodeFilter(q="web", freshness="silent").querystring(freshness="") == "?q=web"
+    assert NodeFilter().querystring() == ""
+    assert NodeFilter(freshness="silent").kept() == (("freshness", "silent"),)
+    assert NodeFilter(q="web").kept() == ()
+
+
+def test_checker_param_is_the_trimmed_checker_or_none_for_the_whole_node():
+    assert checker_param(QueryDict("checker=+cpu+")) == "cpu"
+    assert checker_param(QueryDict("")) is None
+    assert checker_param(QueryDict("checker=")) is None
+    assert checker_param(QueryDict("checker=+")) == ""
+    assert checker_param(QueryDict("checker=%00")) == ""

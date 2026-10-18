@@ -200,12 +200,24 @@ def test_an_operator_sees_mark_failed_on_a_queued_run(client, run_operator):
 
 @pytest.mark.django_db
 @BOTH
-def test_the_incident_card_links_the_console_incident(client, run_viewer, headers):
+def test_the_incident_card_links_the_console_incident(client, run_viewer, incident_reader, headers):
+    incident_reader(run_viewer)
     run, incident, _ = _busy()
 
     body = client.get(_url(run), **headers).content.decode()
 
     assert f'<a id="run-incident" href="/console/incidents/{incident.pk}/">' in body
+    assert f"#{incident.pk} · Open" in body
+
+
+@pytest.mark.django_db
+def test_a_run_reader_sees_the_incident_as_text(client, run_viewer):
+    run, incident, _ = _busy()
+
+    body = client.get(_url(run), **HTMX).content.decode()
+
+    assert 'id="run-incident"' not in body
+    assert "/console/incidents/" not in body
     assert f"#{incident.pk} · Open" in body
 
 

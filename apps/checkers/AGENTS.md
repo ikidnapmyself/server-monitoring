@@ -31,7 +31,7 @@ the two. See `apps/orchestration/AGENTS.md`.
 - `apps/checkers/checks.py` — Django system checks (run with `manage.py check`)
 - `apps/checkers/management/commands/` — commands like `check_health`, `run_check`, `preflight`
 - `apps/checkers/models.py` — `CheckRun` (standalone mode audit trail); `PreflightRun` + `PreflightCheck` (node-local persisted history of `preflight` runs — counts, `overall_status`, and per-check `level`/`message`/`hint`; **no hub-push**). Browse under Checkers → Preflight runs (readonly, with a readonly check inline).
-- `apps/checkers/admin_charts.py` — `render_sparkline(points, markers=…)`: self-contained inline SVG (no JS/CDN/`xmlns`, `currentColor` for theme). Used for the disk-usage sparkline on the Node admin page; reuse it for any admin trend chart.
+- `apps/checkers/admin_charts.py` — `render_sparkline(points, markers=…)`: self-contained inline SVG (no JS/CDN/`xmlns`, `currentColor` for theme). It draws the charts on the console node page. Reuse it for any trend chart.
 
 ## Describing results
 

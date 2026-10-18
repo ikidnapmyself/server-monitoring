@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.utils.dateparse import parse_datetime
 from django.utils.formats import date_format
+from django.utils.timesince import timesince
 from django.utils.timezone import is_aware, localtime
 
 from apps.alerts.models import Alert, AlertSeverity, AlertStatus, Incident, Node
@@ -22,6 +23,8 @@ from config.describing import Action, Description, Fact
 
 if TYPE_CHECKING:
     from apps.alerts.reeval_existing import AlertChange, AlertSkip, ReevalReport
+
+UNNAMED_NODE = "Unnamed node"
 
 HISTORY_TONES = {"resolved": "ok", "created": "info", "refired": "info"}
 _HISTORY_HEADLINES = {
@@ -105,13 +108,18 @@ def describe_alert(alert: Alert) -> Description:
     )
 
 
+def node_name(hostname: str) -> str:
+    """What a node is called on any page. Its instance ID is an identifier, so never that."""
+    return hostname or UNNAMED_NODE
+
+
 def _lead(alerts: list[Alert]) -> Alert | None:
     pool = [a for a in alerts if a.status == AlertStatus.FIRING] or alerts
     return min(pool, key=lambda a: _RANK.get(a.severity, 3)) if pool else None
 
 
 def _describe(incident: Incident, alerts: list[Alert], node: Node | None) -> Description:
-    host = (node.hostname or node.instance_id) if node is not None else incident.instance
+    host = node_name(node.hostname) if node is not None else incident.instance
     tone = "ok" if incident.is_resolved else tone_for(SEVERITY_TONES, incident.severity)
     facts = (Fact("Incident", f"#{incident.pk}", copy=True),) + tuple(
         Fact(label, value)
@@ -316,7 +324,7 @@ def describe_reeval(alert: Alert) -> tuple[Fact, ...]:
     return tuple(facts)
 
 
-def _describe_change(change: "AlertChange") -> Description:
+def _describe_change(change: "AlertChange", named: bool = False) -> Description:
     if change.new_status == AlertStatus.RESOLVED:
         headline, tone = "Would resolve this alert", "ok"
     elif change.reopens:
@@ -325,25 +333,60 @@ def _describe_change(change: "AlertChange") -> Description:
     else:
         headline = f"Would move this alert from {change.old_severity} to {change.new_severity}"
         tone = tone_for(SEVERITY_TONES, change.new_severity)
-    detail = f"Its stored value is {change.value_display}."
+    reported = change.alert.updated_at
+    detail = f"Its stored value is {change.value_display}"
+    detail += f", reported {timesince(reported)} ago." if reported else "."
     if not change.notify:
         detail += " Its incident is acknowledged, so nobody is notified."
-    return Description(headline=headline, tone=tone, detail=detail)
+    if named:
+        headline = f"{alert_name(change.alert)}: {headline[0].lower()}{headline[1:]}"
+    return Description(
+        headline=headline,
+        tone=tone,
+        detail=detail,
+        action=alert_link(change.alert.pk) if named else None,
+    )
 
 
 def _describe_skip(skip: "AlertSkip", node: Node | None) -> Description:
     action = None
     if node is not None and skip.reason in EDITOR_FIXABLE:
-        action = Action("Edit the node's policy", intent="view_node", params={"pk": node.pk})
+        params = {"pk": node.pk, "checker": _checker_name(skip.alert)}
+        action = Action("Edit the node's policy", intent="edit_node_policy", params=params)
     return Description(headline=skip.sentence, tone="info", action=action)
 
 
-def describe_reeval_report(report: "ReevalReport") -> tuple[Description, ...]:
-    """One description per alert the preview looked at: what would change, or why not."""
+def describe_reeval_report(
+    report: "ReevalReport", *, named: bool = False
+) -> tuple[Description, ...]:
+    """One description per alert the preview looked at. ``named`` when it looked at many."""
     return (
-        *(_describe_change(change) for change in report.changes),
+        *(_describe_change(change, named) for change in report.changes),
         *(_describe_skip(skip, report.node) for skip in report.skips),
     )
+
+
+def describe_reeval_consequences(report: "ReevalReport") -> tuple[str, ...]:
+    """What an apply does beyond its rows, said before anything is written."""
+    if not report.changes:
+        return ()
+    runs = report.run_count
+    lines = [
+        "Every value above is one the node pushed, not a fresh reading.",
+        (
+            f"Applying queues {runs} pipeline run{'s' if runs != 1 else ''}. "
+            "They notify once the inbox drains, if their lane has a channel."
+            if runs
+            else "Applying queues no pipeline run: no change above belongs to an incident "
+            "anyone is notified about."
+        ),
+    ]
+    if report.resolved_count:
+        lines.append(
+            "Resolving anything also sweeps this node for incidents whose alerts have all "
+            "cleared. Each one it resolves gets its own run."
+        )
+    return tuple(lines)
 
 
 def describe_reeval_applied(report: "ReevalReport") -> str:

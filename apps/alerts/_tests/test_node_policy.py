@@ -1,3 +1,7 @@
+from datetime import timedelta
+from unittest.mock import patch
+
+import pytest
 from django.test import TestCase
 from django.utils import timezone
 
@@ -7,14 +11,17 @@ from apps.alerts.node_policy import (
     FIELD_SPECS,
     PolicyError,
     PolicyField,
+    StalePolicy,
     _reported_checkers,
     build_effective_policy,
     clean_int_list,
     clean_number,
     clean_stored_allowlist,
     clean_thresholds,
-    editor_link,
+    config_digest,
+    editor_anchor,
     field_name,
+    save_policy,
     scoring_changed,
     sections_for,
     spec_for,
@@ -22,7 +29,7 @@ from apps.alerts.node_policy import (
     to_form_values,
 )
 from apps.alerts.reevaluation import PRIMARY_METRIC, SCORERS
-from apps.checkers.checkers import CheckStatus
+from apps.checkers.checkers import CheckStatus, checker_label
 from apps.checkers.models import CheckRun
 
 
@@ -661,7 +668,7 @@ class EffectivePolicyTests(TestCase):
         policy = build_effective_policy(
             self._node({"listening_ports": {"allowlist": [22]}}),
         )
-        self.assertEqual(policy.sections[0].title, "listening ports")
+        self.assertEqual(policy.sections[0].title, checker_label("listening_ports"))
 
     def test_a_port_the_runtime_scores_but_the_editor_would_refuse_says_so(self):
         # The editor rejects a port outside 1-65535; _int_set coerces it happily,
@@ -784,53 +791,59 @@ class ScoringChangedTests(TestCase):
         )
 
 
-class TestEditorLink(TestCase):
-    """Where the read-only panel points a reader who came to set a threshold."""
+@pytest.mark.django_db
+def test_a_save_that_loses_the_race_after_its_read_writes_nothing():
+    node = Node.objects.create(instance_id="n1", config={"cpu": {"warning_threshold": 80}})
+    old = dict(node.config)
+    Node.objects.filter(pk=node.pk).update(config={"cpu": {"warning_threshold": 60}})
 
-    def test_a_node_with_no_editable_checker_gets_no_link(self):
-        node = Node.objects.create(instance_id="quiet", hostname="quiet")
-        assert editor_link(node) is None
+    with patch("apps.alerts.node_policy._stored_config", return_value=[old]):
+        with pytest.raises(StalePolicy):
+            save_policy(node.pk, {}, expected=config_digest(old))
 
-    def test_the_anchor_is_the_first_section_s_first_box(self):
-        node = Node.objects.create(instance_id="peer", hostname="peer", config={"memory": {}})
-        link = editor_link(node)
-        assert link.anchor == f"id_{field_name('memory', spec_for('memory')[0].name)}"
-        assert link.count == 1
-
-    def test_the_count_is_every_section_the_form_will_render(self):
-        node = Node.objects.create(
-            instance_id="peer2", hostname="peer2", config={"memory": {}, "cpu": {}}
-        )
-        link = editor_link(node)
-        assert link.count == 2
-        # sections_for sorts, so the anchor is cpu's box, not memory's.
-        assert link.anchor == f"id_{field_name('cpu', spec_for('cpu')[0].name)}"
+    node.refresh_from_db()
+    assert node.config == {"cpu": {"warning_threshold": 60}}
 
 
-class PolicySectionAnchorTests(TestCase):
-    """A section says where its own boxes are, so a panel row can link them.
+def test_the_digest_ignores_key_order():
+    assert config_digest({"a": 1, "b": {"c": 2}}) == config_digest({"b": {"c": 2}, "a": 1})
+    assert config_digest({"a": 1}) != config_digest({"a": 2})
 
-    Built from ``field_name`` the same way ``editor_link`` builds its own, so the
-    panel and the overview page land on the same input.
-    """
 
-    def test_a_section_anchors_at_its_first_box(self):
-        from apps.alerts.node_policy import field_name, spec_for
+@pytest.mark.django_db
+def test_a_save_with_the_current_digest_writes_and_keeps_last_seen():
+    node = Node.objects.create(instance_id="n1", config={"cpu": {"warning_threshold": 80}})
+    seen = timezone.now() - timedelta(hours=2)
+    Node.objects.filter(pk=node.pk).update(last_seen=seen)
+    new = {"cpu": {"warning_threshold": 70, "critical_threshold": 90}}
 
-        node = Node.objects.create(
-            instance_id="web-03",
-            config={"cpu": {"warning_threshold": 80, "critical_threshold": 90}},
-        )
-        section = build_effective_policy(node).sections[0]
-        assert section.anchor == f"id_{field_name('cpu', spec_for('cpu')[0].name)}"
+    replaced = save_policy(node.pk, new, expected=config_digest(node.config))
 
-    def test_an_inactive_section_anchors_too(self):
-        node = Node.objects.create(instance_id="web-03", config={"cpu": {"warning_threshold": 80}})
-        section = build_effective_policy(node).inactive[0]
-        assert section.anchor.startswith("id_")
-        assert "cpu" in section.anchor
+    assert replaced == {"cpu": {"warning_threshold": 80}}
+    node.refresh_from_db()
+    assert node.config == new
+    assert node.last_seen == seen
 
-    def test_a_section_for_a_checker_with_no_boxes_has_no_anchor(self):
-        from apps.alerts.node_policy import PolicySection
 
-        assert PolicySection(checker="raid", title="Raid", values=[]).anchor == ""
+@pytest.mark.django_db
+def test_a_save_with_an_old_digest_writes_nothing():
+    node = Node.objects.create(instance_id="n1", config={"cpu": {"warning_threshold": 80}})
+    digest = config_digest(node.config)
+    Node.objects.filter(pk=node.pk).update(config={"cpu": {"warning_threshold": 60}})
+
+    with pytest.raises(StalePolicy):
+        save_policy(node.pk, {}, expected=digest)
+
+    node.refresh_from_db()
+    assert node.config == {"cpu": {"warning_threshold": 60}}
+
+
+@pytest.mark.django_db
+def test_a_missing_node_is_stale():
+    with pytest.raises(StalePolicy):
+        save_policy(999_999, {}, expected=config_digest({}))
+
+
+def test_the_editor_anchor_names_only_a_checker_with_boxes():
+    assert editor_anchor("cpu") == "policy-cpu"
+    assert editor_anchor("raid") == ""

@@ -1,22 +1,23 @@
 """Read model for one alert's page. Returns dataclasses, never querysets."""
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
 from django.urls import reverse
 
 from apps.alerts.describing import (
-    REOPEN_WARNING,
     describe_alert,
     describe_history,
     describe_incident,
+    describe_incidents,
     describe_reeval,
-    describe_reeval_report,
 )
 from apps.alerts.models import Alert, Incident
-from apps.alerts.reeval_existing import ReevalScope, preview_reeval, scope_digest
+from apps.alerts.reeval_existing import ReevalScope
 from apps.console.queries.hosts import alert_host
+from apps.console.queries.reeval import ReevalPreview, reeval_preview
 from config.admin_badges import (
     ALERT_STATUS_TONES,
     INCIDENT_STATUS_TONES,
@@ -34,7 +35,7 @@ class IncidentCard:
     what: Description
     status: str
     status_tone: str
-    url: str
+    link: Action
 
 
 @dataclass(frozen=True)
@@ -67,16 +68,25 @@ class AlertDetail:
     url: str
 
 
+def _card(incident: Incident, what: Description) -> IncidentCard:
+    return IncidentCard(
+        pk=incident.pk,
+        what=what,
+        status=incident.status,
+        status_tone=tone_for(INCIDENT_STATUS_TONES, incident.status),
+        link=Action(what.headline, "view_incident", {"pk": incident.pk}),
+    )
+
+
 def incident_card(incident: Incident | None) -> IncidentCard | None:
     if incident is None:
         return None
-    return IncidentCard(
-        pk=incident.pk,
-        what=describe_incident(incident),
-        status=incident.status,
-        status_tone=tone_for(INCIDENT_STATUS_TONES, incident.status),
-        url=reverse("console:incident", args=[incident.pk]),
-    )
+    return _card(incident, describe_incident(incident))
+
+
+def incident_cards(incidents: Sequence[Incident]) -> tuple[IncidentCard, ...]:
+    described = describe_incidents(incidents)
+    return tuple(_card(incident, described[incident.pk]) for incident in incidents)
 
 
 def _history(alert: Alert, headline: str) -> tuple[tuple[HistoryEntry, ...], int]:
@@ -157,34 +167,14 @@ def build_alert_detail(pk: int, *, can_reeval: bool = False) -> AlertDetail | No
     )
 
 
-@dataclass(frozen=True)
-class ReevalPreview:
-    pk: int
-    what: Description
-    rows: tuple[Description, ...]
-    warning: str
-    can_apply: bool
-    digest: str
-    alert_url: str
-    url: str
-
-
 def build_reeval_preview(pk: int) -> ReevalPreview | None:
     alert = Alert.objects.filter(pk=pk).first()
     if alert is None:
         return None
-    scope = ReevalScope.for_alert(alert)
-    # Before the preview: if the alert moves in between, the apply refuses rather than
-    # writing a change the operator never saw.
-    digest = scope_digest(scope)
-    report = preview_reeval(scope)
-    return ReevalPreview(
-        pk=alert.pk,
-        what=describe_alert(alert),
-        rows=describe_reeval_report(report),
-        warning=REOPEN_WARNING if report.reopened_count else "",
-        can_apply=bool(report.changes) and report.node is not None,
-        digest=digest,
-        alert_url=reverse("console:alert", args=[alert.pk]),
+    return reeval_preview(
+        ReevalScope.for_alert(alert),
+        title=f"Re-evaluate {describe_alert(alert).headline}",
+        back_url=reverse("console:alert", args=[alert.pk]),
+        back_text="Back to the alert",
         url=reverse("console:alert-reeval", args=[alert.pk]),
     )

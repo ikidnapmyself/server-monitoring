@@ -11,19 +11,28 @@ from collections.abc import Iterable
 
 from django.db.models import Q
 
+from apps.alerts.describing import node_name
 from apps.alerts.models import Alert, Node
 from apps.alerts.services import instance_key_from_labels
 
 
 def alert_host(hostname: str | None, instance_id: str | None, labels: dict | None) -> str:
-    name = hostname or instance_id or instance_key_from_labels(labels)
+    """The linked node's name when there is one, else the instance its labels name."""
+    if instance_id:
+        return node_name(hostname or "")
+    name = hostname or instance_key_from_labels(labels)
     return name if isinstance(name, str) else ""
+
+
+def node_keys(node: Node) -> tuple[str, ...]:
+    """The label values that name one node, as ``on_node`` matches them."""
+    return tuple(key for key in (node.instance_id, node.hostname) if key)
 
 
 def node_choices() -> tuple[tuple[int, str, tuple[str, ...]], ...]:
     """Every node as its pk, display name and the label values that name it."""
     nodes = [
-        (pk, hostname or instance_id, tuple(key for key in (instance_id, hostname) if key))
+        (pk, node_name(hostname), tuple(key for key in (instance_id, hostname) if key))
         for pk, hostname, instance_id in Node.objects.order_by().values_list(
             "pk", "hostname", "instance_id"
         )

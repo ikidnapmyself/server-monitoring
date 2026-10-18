@@ -153,7 +153,7 @@ class TestFleetMetrics:
 
         node = self._peer("peer-a", "cpu", {"cpu_percent": "41.5"})
         (row,) = build_fleet_metrics().rows
-        assert row.url == reverse("admin:alerts_node_change", args=[node.pk])
+        assert row.url == reverse("console:node", args=[node.pk])
 
 
 @pytest.mark.django_db

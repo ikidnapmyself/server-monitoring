@@ -20,7 +20,7 @@ from apps.alerts.models import (
     IncidentStatus,
     Node,
 )
-from apps.console.queries.hosts import host_summary, incident_hosts
+from apps.console.queries.hosts import host_summary, incident_hosts, node_name
 from config.admin_badges import INCIDENT_STATUS_TONES, SEVERITY_TONES, tone_for
 from config.dashboard import NODE_RECENT_MINUTES, keyed_readiness
 from config.describing import Action, Description
@@ -165,7 +165,7 @@ def open_incidents() -> tuple[IncidentRow, ...]:
     )
 
 
-def _node_badge(critical: int, warning: int, firing: int, silent: bool) -> tuple[str, str]:
+def node_badge(critical: int, warning: int, firing: int, silent: bool) -> tuple[str, str]:
     """Tone and label for a node tile. Firing alerts outrank silence."""
     if firing:
         tone = "critical" if critical else "warning" if warning else "info"
@@ -175,7 +175,7 @@ def _node_badge(critical: int, warning: int, firing: int, silent: bool) -> tuple
     return "ok", "healthy"
 
 
-def _firing_by_node() -> tuple[Counter[int], Counter[int], Counter[int]]:
+def firing_by_node() -> tuple[Counter[int], Counter[int], Counter[int]]:
     # Counted from the alert side so only firing rows are read. Joining from Node
     # reads every alert a node ever had, which grows without bound.
     rows = (
@@ -196,19 +196,23 @@ def _firing_by_node() -> tuple[Counter[int], Counter[int], Counter[int]]:
     return firing, critical, warning
 
 
-def node_tiles() -> tuple[NodeTile, ...]:
-    firing, critical, warning = _firing_by_node()
-    cutoff = timezone.now() - timedelta(minutes=NODE_RECENT_MINUTES)
+def is_silent(node: Node, cutoff: datetime, self_id: str) -> bool:
     # This instance's own row is never silent: a hub checked by hand is not a quiet agent.
+    return node.last_seen < cutoff and node.instance_id != self_id
+
+
+def node_tiles() -> tuple[NodeTile, ...]:
+    firing, critical, warning = firing_by_node()
+    cutoff = timezone.now() - timedelta(minutes=NODE_RECENT_MINUTES)
     self_id = local_instance_id()
     tiles = []
     for node in Node.objects.order_by():
-        silent = node.last_seen < cutoff and node.instance_id != self_id
-        tone, label = _node_badge(critical[node.pk], warning[node.pk], firing[node.pk], silent)
+        silent = is_silent(node, cutoff, self_id)
+        tone, label = node_badge(critical[node.pk], warning[node.pk], firing[node.pk], silent)
         tiles.append(
             NodeTile(
                 pk=node.pk,
-                name=node.hostname or node.instance_id,
+                name=node_name(node.hostname),
                 tone=tone,
                 label=label,
                 firing=firing[node.pk],

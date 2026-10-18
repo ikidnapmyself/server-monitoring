@@ -31,6 +31,12 @@ def test_preview_writes_nothing(client, superuser, reevaluable_alert):
     assert not AlertHistory.objects.filter(alert=reevaluable_alert).exists()
 
 
+def test_the_preview_states_what_an_apply_queues(client, superuser, reevaluable_alert):
+    client.force_login(superuser)
+    body = client.get(_url(reevaluable_alert)).content.decode()
+    assert "Applying queues 1 pipeline run." in body
+
+
 def test_a_skip_row_links_the_policy_editor(client, superuser, reevaluable_alert):
     Node.objects.filter(pk=reevaluable_alert.node_id).update(config={})
     client.force_login(superuser)
@@ -58,6 +64,25 @@ def test_nothing_to_change_offers_no_button(client, superuser, reevaluable_alert
     client.force_login(superuser)
     body = client.get(_url(reevaluable_alert)).content.decode()
     assert 'id="reeval-apply"' not in body
+
+
+def test_a_crafted_post_with_nothing_to_change_applies_nothing(
+    client, superuser, reevaluable_alert
+):
+    Alert.objects.filter(pk=reevaluable_alert.pk).update(severity="warning")
+    reevaluable_alert.refresh_from_db()
+    client.force_login(superuser)
+
+    resp = client.post(_url(reevaluable_alert), {"digest": _digest(reevaluable_alert)})
+
+    body = resp.content.decode()
+    assert resp.status_code == 409
+    assert "Nothing here needs re-evaluating, so nothing was applied." in body
+    assert "Resolved 0" not in body
+    assert not AlertHistory.objects.filter(alert=reevaluable_alert).exists()
+    assert not PipelineRun.objects.exists()
+    page = client.get(reverse("console:alert", args=[reevaluable_alert.pk]))
+    assert "Resolved 0" not in page.content.decode()
 
 
 def test_apply_writes_history_enqueues_and_redirects(client, superuser, reevaluable_alert):

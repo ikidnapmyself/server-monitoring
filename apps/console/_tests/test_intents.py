@@ -123,8 +123,8 @@ def test_query_params_are_encoded(admin_user):
         ("edit_route", {}, "/admin/orchestration/pipelinedefinition/"),
         ("edit_provider", {}, "/admin/intelligence/intelligenceprovider/"),
         ("view_preflight", {}, "/admin/checkers/preflightrun/"),
-        ("view_nodes", {}, "/admin/alerts/node/"),
-        ("view_node", {"pk": 7}, "/admin/alerts/node/7/change/"),
+        ("view_check_run", {"pk": 7}, "/admin/checkers/checkrun/7/change/"),
+        ("view_preflight_run", {"pk": 7}, "/admin/checkers/preflightrun/7/change/"),
     ],
 )
 def test_config_intents_point_at_the_admin(admin_user, intent, params, url):
@@ -150,6 +150,7 @@ def test_alert_intents_point_at_the_console(admin_user, intent, params, url):
     ("intent", "url", "method"),
     [
         ("view_run", "/console/runs/7/", "get"),
+        ("view_incident", "/console/incidents/7/", "get"),
         ("retry_run", "/console/runs/7/retry/", "post"),
         ("abandon_run", "/console/runs/7/abandon/", "post"),
     ],
@@ -172,6 +173,55 @@ def test_run_intents_point_at_the_console(admin_user, intent, url, method):
 def test_inbox_intents_point_at_the_console(admin_user, intent, params, url, method):
     resolved = resolve_action(Action("Go", intent=intent, params=params), admin_user)
     assert resolved == ResolvedAction("Go", url, method)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("intent", "params", "url", "method"),
+    [
+        ("view_nodes", {}, "/console/nodes/", "get"),
+        ("view_policy", {}, "/console/policy/", "get"),
+        ("view_node", {"pk": 7}, "/console/nodes/7/", "get"),
+        ("edit_node_policy", {"pk": 7}, "/console/nodes/7/policy/", "get"),
+        (
+            "edit_node_policy",
+            {"pk": 7, "checker": "cpu"},
+            "/console/nodes/7/policy/#policy-cpu",
+            "get",
+        ),
+        ("edit_node_policy", {"pk": 7, "checker": "raid"}, "/console/nodes/7/policy/", "get"),
+        ("reevaluate_node", {"pk": 7}, "/console/nodes/7/reevaluate/", "get"),
+        (
+            "reevaluate_node",
+            {"pk": 7, "checker": "disk inodes"},
+            "/console/nodes/7/reevaluate/?checker=disk+inodes",
+            "get",
+        ),
+    ],
+)
+def test_node_intents_point_at_the_console(admin_user, intent, params, url, method):
+    resolved = resolve_action(Action("Go", intent=intent, params=params), admin_user)
+    assert resolved == ResolvedAction("Go", url, method)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("intent", "params", "url"),
+    [
+        ("view_incidents", {}, "/console/incidents/"),
+        (
+            "view_incidents",
+            {"severity": "critical", "node": 7},
+            "/console/incidents/?severity=critical&node=7",
+        ),
+        ("view_incidents", {"severity": "loud"}, "/console/incidents/"),
+        ("view_runs", {}, "/console/runs/"),
+        ("view_runs", {"node": 7}, "/console/runs/?node=7"),
+    ],
+)
+def test_list_intents_carry_only_valid_filters(admin_user, intent, params, url):
+    resolved = resolve_action(Action("Go", intent=intent, params=params), admin_user)
+    assert resolved == ResolvedAction("Go", url, "get")
 
 
 @pytest.mark.django_db
@@ -200,8 +250,14 @@ def _user_with(django_user_model, codename):
         (intent, params, f"{app}.{verb}_{model}")
         for intent, params, app, model in (
             ("view_run", {"pk": 7}, "orchestration", "pipelinerun"),
+            ("view_runs", {}, "orchestration", "pipelinerun"),
+            ("view_incident", {"pk": 7}, "alerts", "incident"),
+            ("view_incidents", {}, "alerts", "incident"),
             ("view_inbox", {}, "orchestration", "inboxitem"),
             ("view_alert", {"pk": 7}, "alerts", "alert"),
+            ("view_nodes", {}, "alerts", "node"),
+            ("view_node", {"pk": 7}, "alerts", "node"),
+            ("view_policy", {}, "alerts", "node"),
         )
         for verb in ("view", "change")
     ],

@@ -104,7 +104,7 @@ def test_header_fields_describe_the_incident():
     assert (detail.status, detail.status_tone) == ("acknowledged", "warning")
     assert detail.summary == "Logs rotated"
     assert detail.created_at == T0
-    assert detail.nodes == "Alpha, web-2"
+    assert detail.nodes == "Unnamed node, web-2"
     assert detail.pipeline == "pager"
     assert detail.alert_count == 4
     assert detail.url == f"/console/incidents/{incident.pk}/"

@@ -2,30 +2,23 @@ import socket
 from io import StringIO
 from unittest.mock import patch
 
-from django.contrib import admin
 from django.core.management import call_command
 from django.test import TestCase, override_settings
-from django.urls import reverse
 from django.utils import timezone
 
-from apps.alerts.admin import NodeAdmin
 from apps.alerts.identity import local_instance_id
-from apps.alerts.models import Alert, AlertSeverity, Incident, IncidentStatus, Node
+from apps.alerts.models import Alert, AlertSeverity, Node
 from apps.alerts.node_overview import (
     build_charts,
     build_checker_rows,
     build_identity,
-    build_incident_rows,
-    build_node_overview,
-    build_pipeline_rows,
     build_preflight,
     charts_note,
-    render_severity_chips,
-    unresolved_counts,
+    checker_time_label,
 )
 from apps.checkers.models import CheckRun, PreflightRun
-from apps.orchestration.models import PipelineRun
 from config.dashboard import NODE_RECENT_MINUTES
+from config.describing import Action
 
 
 class IdentityHeaderTests(TestCase):
@@ -95,64 +88,6 @@ class IdentityHeaderTests(TestCase):
         self.assertEqual(build_identity(node).freshness_tone, "muted")
 
 
-class SeverityChipTests(TestCase):
-    def _incident(self, node, severity, status=IncidentStatus.OPEN):
-        incident = Incident.objects.create(severity=severity, status=status)
-        Alert.objects.create(
-            fingerprint=f"f-{incident.pk}",
-            source="cluster",
-            name="disk",
-            severity=severity,
-            started_at=timezone.now(),
-            node=node,
-            incident=incident,
-        )
-        return incident
-
-    def test_counts_unresolved_incidents_once_per_incident(self):
-        node = Node.objects.create(instance_id="web-03", hostname="web-03")
-        incident = self._incident(node, AlertSeverity.CRITICAL)
-        # A second alert on the SAME incident must not double the count.
-        Alert.objects.create(
-            fingerprint="f-second",
-            source="cluster",
-            name="cpu",
-            severity=AlertSeverity.CRITICAL,
-            started_at=timezone.now(),
-            node=node,
-            incident=incident,
-        )
-        counts = unresolved_counts(node)
-        self.assertEqual(counts[AlertSeverity.CRITICAL], 1)
-
-    def test_resolved_incidents_are_not_counted(self):
-        node = Node.objects.create(instance_id="web-03", hostname="web-03")
-        self._incident(node, AlertSeverity.CRITICAL, status=IncidentStatus.RESOLVED)
-        self.assertEqual(unresolved_counts(node)[AlertSeverity.CRITICAL], 0)
-
-    def test_a_quiet_node_renders_a_dash_not_a_zero(self):
-        node = Node.objects.create(instance_id="web-03", hostname="web-03")
-        self.assertEqual(render_severity_chips(node), "—")
-
-    def test_each_chip_links_to_that_node_and_severity_on_the_console(self):
-        node = Node.objects.create(instance_id="web-03", hostname="web-03")
-        self._incident(node, AlertSeverity.WARNING)
-        html = render_severity_chips(node)
-        self.assertIn(f'href="/console/incidents/?severity=warning&amp;node={node.pk}"', html)
-        self.assertIn("1 WARNING", html)
-        self.assertIn("ops-badge--warning", html)
-        self.assertNotIn("#", html)
-
-    def test_annotated_counts_are_reused_when_present(self):
-        # The changelist annotates; the helper must not re-query in that case.
-        node = Node.objects.create(instance_id="web-03", hostname="web-03")
-        self._incident(node, AlertSeverity.CRITICAL)
-        annotated = NodeAdmin(Node, admin.site).get_queryset(None).get(pk=node.pk)
-        with self.assertNumQueries(0):
-            counts = unresolved_counts(annotated)
-        self.assertEqual(counts[AlertSeverity.CRITICAL], 1)
-
-
 class CheckerStateTests(TestCase):
     def _peer_alert(self, node, checker, severity):
         return Alert.objects.create(
@@ -213,11 +148,21 @@ class CheckerStateTests(TestCase):
         self.assertIn("93.5", rows[0].value)
         self.assertEqual(rows[0].status, "warning")
 
-    def test_a_peer_row_links_the_console_alert_page(self):
+    def test_a_peer_row_acts_by_opening_the_alert(self):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
         alert = self._peer_alert(node, "cpu", AlertSeverity.WARNING)
         rows = build_checker_rows(node)
-        self.assertEqual(rows[0].url, reverse("console:alert", args=[alert.pk]))
+        self.assertEqual(
+            rows[0].action, Action("Open the alert", intent="view_alert", params={"pk": alert.pk})
+        )
+
+    def test_a_hub_row_acts_by_opening_the_check_run(self):
+        node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+        run = self._run("cpu", "ok", {"cpu_percent": 10.0})
+        rows = build_checker_rows(node)
+        self.assertEqual(
+            rows[0].action, Action("Open the check run", "view_check_run", {"pk": run.pk})
+        )
 
     def test_a_peer_at_info_reads_as_ok(self):
         # A passing health check is "ok" in the checker's own words. Reading
@@ -423,77 +368,6 @@ class CheckerStateTests(TestCase):
         self.assertEqual(rows[0].value, "—")
 
 
-class RecentIncidentTests(TestCase):
-    def _incident(self, node, title, severity=AlertSeverity.WARNING, created_at=None):
-        incident = Incident.objects.create(severity=severity)
-        if created_at is not None:
-            # created_at is auto_now_add, and two rows written in the same test can
-            # land on the same timestamp, so ordering is stamped explicitly here.
-            Incident.objects.filter(pk=incident.pk).update(created_at=created_at)
-        Alert.objects.create(
-            fingerprint=f"f-{title}",
-            source="cluster",
-            name=title,
-            severity=severity,
-            started_at=timezone.now(),
-            node=node,
-            incident=incident,
-        )
-        return incident
-
-    def test_lists_the_nodes_incidents_newest_first(self):
-        node = Node.objects.create(instance_id="web-03", hostname="web-03")
-        now = timezone.now()
-        self._incident(node, "older", created_at=now - timezone.timedelta(minutes=5))
-        self._incident(node, "newer", created_at=now)
-        rows = build_incident_rows(node)
-        self.assertEqual([r.title for r in rows], ["newer", "older"])
-
-    def test_counts_an_incident_once_however_many_alerts_reached_it(self):
-        node = Node.objects.create(instance_id="web-03", hostname="web-03")
-        incident = self._incident(node, "disk full")
-        Alert.objects.create(
-            fingerprint="f-second",
-            source="cluster",
-            name="disk",
-            severity=AlertSeverity.WARNING,
-            started_at=timezone.now(),
-            node=node,
-            incident=incident,
-        )
-        self.assertEqual(len(build_incident_rows(node)), 1)
-
-    def test_caps_at_ten(self):
-        node = Node.objects.create(instance_id="web-03", hostname="web-03")
-        for i in range(12):
-            self._incident(node, f"i{i}")
-        self.assertEqual(len(build_incident_rows(node)), 10)
-
-    def test_another_nodes_incidents_are_not_listed(self):
-        node = Node.objects.create(instance_id="web-03", hostname="web-03")
-        other = Node.objects.create(instance_id="web-04", hostname="web-04")
-        self._incident(other, "theirs")
-        self.assertEqual(build_incident_rows(node), [])
-
-    def test_a_node_with_no_incidents_yields_no_rows(self):
-        node = Node.objects.create(instance_id="web-03", hostname="web-03")
-        self.assertEqual(build_incident_rows(node), [])
-
-    def test_each_row_links_to_the_incident_and_carries_its_severity_tone(self):
-        node = Node.objects.create(instance_id="web-03", hostname="web-03")
-        incident = self._incident(node, "hot disk", severity=AlertSeverity.CRITICAL)
-        row = build_incident_rows(node)[0]
-        self.assertEqual(row.severity, AlertSeverity.CRITICAL)
-        self.assertEqual(row.status, IncidentStatus.OPEN)
-        self.assertEqual(row.tone, "critical")
-        self.assertEqual(row.url, f"/console/incidents/{incident.pk}/")
-
-    def test_an_unknown_severity_falls_back_to_the_neutral_tone(self):
-        node = Node.objects.create(instance_id="web-03", hostname="web-03")
-        self._incident(node, "odd", severity="mauve")
-        self.assertEqual(build_incident_rows(node)[0].tone, "muted")
-
-
 class ChartTests(TestCase):
     def _run(self, checker, metric, value, minutes_ago=0, alert=None):
         run = CheckRun.objects.create(
@@ -625,40 +499,6 @@ class PreflightPanelTests(TestCase):
         self.assertIsNone(build_preflight(node).run)
 
 
-class PipelinePanelTests(TestCase):
-    def test_lists_the_ten_newest_runs_with_links(self):
-        node = Node.objects.create(instance_id="web-06", hostname="web-06")
-        old = PipelineRun.objects.create(trace_id="t1", run_id="run-old", node=node)
-        new = PipelineRun.objects.create(trace_id="t2", run_id="run-new", node=node)
-        # created_at is auto_now_add, so ordering is stamped explicitly here.
-        PipelineRun.objects.filter(pk=old.pk).update(
-            created_at=timezone.now() - timezone.timedelta(minutes=5)
-        )
-        PipelineRun.objects.filter(pk=new.pk).update(created_at=timezone.now())
-        rows = build_pipeline_rows(node)
-        self.assertEqual([r.run_id for r in rows], ["run-new", "run-old"])
-        self.assertEqual(rows[0].url, f"/console/runs/{new.pk}/")
-        self.assertEqual(rows[0].origin, new.origin)
-        self.assertEqual(rows[0].status, new.status)
-        self.assertIsNotNone(rows[0].created_at)
-
-    def test_caps_at_ten(self):
-        node = Node.objects.create(instance_id="web-06", hostname="web-06")
-        for i in range(12):
-            PipelineRun.objects.create(trace_id="t", run_id=f"run-{i}", node=node)
-        self.assertEqual(len(build_pipeline_rows(node)), 10)
-
-    def test_another_nodes_runs_are_not_listed(self):
-        node = Node.objects.create(instance_id="web-06", hostname="web-06")
-        other = Node.objects.create(instance_id="web-07", hostname="web-07")
-        PipelineRun.objects.create(trace_id="t", run_id="theirs", node=other)
-        self.assertEqual(build_pipeline_rows(node), [])
-
-    def test_a_node_with_no_runs_yields_no_rows(self):
-        node = Node.objects.create(instance_id="web-03", hostname="web-03")
-        self.assertEqual(build_pipeline_rows(node), [])
-
-
 class BlankHostnameTests(TestCase):
     """``Node.hostname`` is optional, so the local row can carry an empty one.
 
@@ -765,9 +605,9 @@ class PeerObservedSemanticsTests(TestCase):
         # the hub, not when the peer last repeated it. Nothing on Alert records
         # the latter, so the header must not promise it.
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
-        self.assertEqual(build_node_overview(node).checker_time_label, "First seen")
+        self.assertEqual(checker_time_label(node), "First seen")
 
     def test_the_local_column_is_still_headed_as_an_observation(self):
         # A local row is a CheckRun, and executed_at really is the last reading.
         node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
-        self.assertEqual(build_node_overview(node).checker_time_label, "Observed")
+        self.assertEqual(checker_time_label(node), "Observed")

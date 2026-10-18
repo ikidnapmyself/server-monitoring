@@ -22,7 +22,8 @@ def test_dashboard_renders_readiness_and_sections(client):
     assert "Operations" in body and "Configuration" in body  # grouped nav grid
     assert reverse("admin:alerts_incident_changelist") in body  # a model link in the grid
     assert reverse("admin:netmap") in body  # readiness heading links to the network map
-    assert reverse("admin:policy-overview") in body  # and to the hub-side policy overview
+    assert reverse("console:policy") in body
+    assert "Fleet policy" in body
     assert "<style>" not in body  # the dashboard's styles live in ops.css
 
 
@@ -65,8 +66,6 @@ def test_dashboard_says_so_when_no_node_reports_a_metric(client):
 
 @pytest.mark.django_db
 def test_every_admin_surface_links_the_ops_stylesheet(client):
-    """Including the django_object_actions changelist, which extends admin/change_list.html
-    rather than base_site.html directly."""
     get_user_model().objects.create_superuser("admin4", "a4@b.co", "x")
     client.login(username="admin4", password="x")
 
@@ -75,17 +74,14 @@ def test_every_admin_surface_links_the_ops_stylesheet(client):
         assert resp.status_code == 200, name
         assert "admin/css/ops.css" in resp.content.decode(), name
 
-    body = client.get(reverse("admin:alerts_node_changelist")).content.decode()
-    assert "object-tools" in body  # the skin must not cost the changelist its buttons
-
 
 @pytest.mark.django_db
 def test_every_skinned_surface_renders(client):
     """The skin is CSS, so nothing here asserts how a page looks.
 
     What it asserts is that each surface the restyle touches still renders: a
-    changelist with filters and actions, a change form with the admin-action
-    buttons, an add form carrying the JSON editor widget, and the two custom views.
+    changelist with filters and actions, a change form, an add form carrying the
+    JSON editor widget, and the custom view.
     """
     from apps.alerts.models import Node
 
@@ -100,7 +96,6 @@ def test_every_skinned_surface_renders(client):
         reverse("admin:alerts_node_changelist"),
         reverse("admin:alerts_node_change", args=[node.pk]),
         reverse("admin:orchestration_pipelinedefinition_add"),
-        reverse("admin:policy-overview"),
         reverse("admin:netmap"),
     ]
     for url in urls:

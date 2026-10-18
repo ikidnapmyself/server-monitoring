@@ -14,6 +14,7 @@ from apps.console.filters import (
     AlertFilter,
     InboxFilter,
     IncidentFilter,
+    NodeFilter,
     RunFilter,
 )
 from apps.console.queries.hosts import host_summary, incident_hosts, node_choices, on_node
@@ -93,7 +94,7 @@ def chip_group(
     name: str,
     label: str,
     choices: tuple[Choice, ...],
-    criteria: IncidentFilter | AlertFilter | RunFilter | InboxFilter,
+    criteria: IncidentFilter | AlertFilter | RunFilter | InboxFilter | NodeFilter,
     base: str,
     counts: dict[str, int] | None = None,
 ) -> ChipGroup:

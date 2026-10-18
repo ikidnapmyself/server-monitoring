@@ -1,0 +1,20 @@
+{% if notice %}{% include "console/partials/_flash.html" with tone=notice.tone text=notice.text %}{% endif %}
+<a id="policy-back" class="c-crumb" href="{{ editor.node_url }}">{% include "console/partials/_octicon.html" with name="chevron-right" %}Back to the node</a>
+<div class="c-pagehead"><div class="c-pagehead__top"><h1 class="c-pagehead__title">Policy for {{ editor.name }}</h1></div></div>
+<form method="post" action="{{ editor.url }}" data-disable-on-submit>
+  {% csrf_token %}
+  <input type="hidden" name="digest" value="{{ editor.digest }}">
+  {% for group in editor.groups %}
+  <fieldset id="{{ group.anchor }}" class="c-box c-form__group">
+    <legend class="c-box__header c-box__title">{{ group.label }}</legend>
+    <div class="c-box__body">{% for field in group.fields %}{% include "console/partials/_field.html" %}{% endfor %}</div>
+  </fieldset>
+  {% empty %}
+  <p class="c-muted">This node reports no checker that takes a policy yet.</p>
+  {% endfor %}
+  {% if editor.add %}
+  <div id="policy-add" class="c-box c-form__group"><div class="c-box__body">{% include "console/partials/_field.html" with field=editor.add %}</div></div>
+  {% endif %}
+  <button id="policy-save" class="c-button c-button--primary" type="submit">Save policy</button>
+  <a id="policy-cancel" class="c-button" href="{{ editor.node_url }}">Cancel</a>
+</form>
