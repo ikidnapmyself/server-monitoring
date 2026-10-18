@@ -24,6 +24,7 @@ MODEL_FIELDS = ["name", "description", "is_active", "priority", "channel"]
 
 
 class ConditionForm(forms.Form):
+    condition: dict | None = None
     field = forms.ChoiceField(choices=FIELDS.items())
     label_key = forms.CharField(required=False, label="Label name")
     op = forms.ChoiceField(choices=OPS.items(), label="Rule")
@@ -34,16 +35,15 @@ class ConditionForm(forms.Form):
     @staticmethod
     def initial_for(cond: dict) -> dict:
         kind, key = split_field(cond["field"])
-        value = cond["value"]
-        values = value if cond["op"] in MEMBERSHIP else [value]
+        op, value = cond.get("op", "is"), cond["value"]
+        values = value if op in MEMBERSHIP else [value]
         said = ", ".join(value_words(kind, v) for v in values)
-        return {"field": kind, "label_key": key, "op": cond["op"], "value": said}
+        return {"field": kind, "label_key": key, "op": op, "value": said}
 
     def clean(self) -> dict:
         super().clean()
         cleaned = self.cleaned_data
         kind, op, raw = cleaned.get("field"), cleaned.get("op"), cleaned.get("value")
-        self.condition: dict | None = None
         if not raw and not cleaned.get("label_key"):
             return cleaned
         if not raw:

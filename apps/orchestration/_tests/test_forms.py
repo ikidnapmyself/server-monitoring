@@ -42,18 +42,22 @@ def _condition(**data):
 
 
 @pytest.mark.parametrize(
-    "cond",
+    "cond, saved",
     [
-        {"field": "source", "op": "is", "value": "grafana"},
-        {"field": "severity", "op": "in", "value": ["critical", "warning"]},
-        {"field": "label:team", "op": "is-not", "value": "db"},
-        {"field": "origin", "op": "not-in", "value": ["manual"]},
+        ({"field": "source", "op": "is", "value": "grafana"}, None),
+        ({"field": "severity", "op": "in", "value": ["critical", "warning"]}, None),
+        ({"field": "label:team", "op": "is-not", "value": "db"}, None),
+        ({"field": "origin", "op": "not-in", "value": ["manual"]}, None),
+        (
+            {"field": "source", "value": "grafana"},
+            {"field": "source", "op": "is", "value": "grafana"},
+        ),
     ],
 )
-def test_condition_round_trips_through_initial_for(cond):
+def test_condition_round_trips_through_initial_for(cond, saved):
     form = ConditionForm(data=ConditionForm.initial_for(cond))
     assert form.is_valid(), form.errors
-    assert form.condition == cond
+    assert form.condition == (saved or cond)
 
 
 def test_initial_for_shows_choice_values_in_words():
@@ -392,3 +396,31 @@ def test_a_row_with_a_key_and_no_value_fails_the_form():
     form = RouteForm(data, instance=route)
     assert not form.is_valid()
     assert form.conditions.errors[0]["value"] == ["This field is required."]
+
+
+@pytest.mark.django_db
+def test_round_trip_in_the_shape_the_page_posts():
+    match = [
+        {"field": "status", "op": "is", "value": "resolved"},
+        {"field": "label:env", "op": "not-in", "value": ["dev", "test"]},
+    ]
+    route = _route(match=match)
+    rows = [f.initial for f in RouteForm(instance=route).conditions.forms]
+    form = RouteForm(_data(route, rows, **{"cond-INITIAL_FORMS": str(len(rows))}), instance=route)
+    assert form.is_valid(), form.conditions.errors
+    assert form.route_fields()["match"] == match
+
+
+@pytest.mark.django_db
+def test_a_match_the_rows_cant_reproduce_is_kept_on_save():
+    stored = [{"field": "source", "op": "in", "value": ["a,b", "c"]}]
+    route = _route(match=stored)
+    form = RouteForm(instance=route)
+    assert "replace_match" in form.fields
+    assert form.conditions.forms == []
+    form = RouteForm(_data(route, description="edited"), instance=route)
+    assert form.is_valid()
+    save_route(route.pk, form.route_fields(), expected=route.version)
+    route.refresh_from_db()
+    assert route.match == stored
+    assert route.description == "edited"

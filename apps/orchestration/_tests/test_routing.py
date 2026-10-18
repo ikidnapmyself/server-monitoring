@@ -132,6 +132,39 @@ def test_representable():
     assert representable({})
 
 
+@pytest.mark.parametrize(
+    "cond",
+    [
+        {"field": "source", "op": "in", "value": ["a,b"]},
+        {"field": "source", "op": "is", "value": " grafana"},
+        {"field": "source", "op": "in", "value": ["grafana "]},
+        {"field": "label: team", "op": "is", "value": "db"},
+        {"field": "label:team ", "op": "is", "value": "db"},
+        {"field": "severity", "op": "is", "value": "critcal"},
+        {"field": "status", "op": "in", "value": ["firing", "Resolved"]},
+        {"field": "origin", "op": "is", "value": "cron"},
+        {"field": "source", "op": "is", "value": ""},
+        {"field": "source", "op": "in", "value": []},
+    ],
+)
+def test_not_representable_when_rows_cant_reproduce_it(cond):
+    assert describe_condition(cond) is not None
+    assert not representable([cond])
+
+
+@pytest.mark.parametrize(
+    "cond",
+    [
+        {"field": "source", "op": "is", "value": "a,b"},
+        {"field": "source", "value": "grafana"},
+        {"field": "severity", "op": "in", "value": ["critical", "info"]},
+        {"field": "label:team", "op": "not-in", "value": ["db", "web"]},
+    ],
+)
+def test_representable_when_rows_reproduce_it(cond):
+    assert representable([cond])
+
+
 @pytest.fixture
 def lanes(db):
     clear_lanes()

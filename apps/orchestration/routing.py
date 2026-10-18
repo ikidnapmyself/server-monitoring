@@ -72,10 +72,27 @@ def describe_condition(cond: Any) -> str | None:
     return f"{subject} {OPS[op]} {said}"
 
 
+def _reproducible(cond: Any) -> bool:
+    """True if the console's condition rows would save ``cond`` back exactly as stored."""
+    if describe_condition(cond) is None:
+        return False
+    kind, key = split_field(cond["field"])
+    value = cond["value"]
+    values = value if isinstance(value, list) else [value]
+    if not values or key != key.strip():
+        return False
+    if isinstance(value, list) and any("," in v for v in values):
+        return False
+    if any(not v or v != v.strip() for v in values):
+        return False
+    choices = CHOICES.get(kind)
+    return choices is None or all(v in choices.values for v in values)
+
+
 def representable(match: Any) -> bool:
-    """True if ``match`` is empty or a list whose every condition the console can read."""
+    """True if ``match`` is empty or a list the console's rows reproduce exactly."""
     match = match or []
-    return isinstance(match, list) and all(describe_condition(c) is not None for c in match)
+    return isinstance(match, list) and all(_reproducible(c) for c in match)
 
 
 def describe_match(match: Any) -> str:
