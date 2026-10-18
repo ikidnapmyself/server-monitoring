@@ -21,6 +21,7 @@ from apps.alerts.node_policy import (
     to_config,
     to_form_values,
 )
+from apps.checkers.checkers import checker_label
 
 # The select that adds a section, named like the policy boxes so it cannot
 # collide with a model field. ``field_name`` puts a checker between two double
@@ -81,6 +82,13 @@ class NodePolicyForm(forms.ModelForm):
             return []
         return sections_for(self.instance)
 
+    def policy_groups(self) -> list[tuple[str, list[forms.BoundField]]]:
+        """Each section's checker and its bound boxes, in the order the form built them."""
+        return [
+            (checker, [self[field_name(checker, field.name)] for field in spec_for(checker)])
+            for checker in self._sections
+        ]
+
     @staticmethod
     def _build_field(field) -> forms.Field:
         if field.kind == "number":
@@ -103,7 +111,7 @@ class NodePolicyForm(forms.ModelForm):
         """
         return forms.ChoiceField(
             required=False,
-            choices=[("", "---------")] + [(c, c.replace("_", " ")) for c in addable],
+            choices=[("", "---------")] + [(c, checker_label(c)) for c in addable],
             label="Add a policy for",
             help_text="Save to open this checker's boxes. Until you fill them in it scores "
             "nothing.",

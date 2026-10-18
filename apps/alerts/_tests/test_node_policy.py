@@ -1,3 +1,7 @@
+from datetime import timedelta
+from unittest.mock import patch
+
+import pytest
 from django.test import TestCase
 from django.utils import timezone
 
@@ -7,14 +11,18 @@ from apps.alerts.node_policy import (
     FIELD_SPECS,
     PolicyError,
     PolicyField,
+    StalePolicy,
     _reported_checkers,
     build_effective_policy,
     clean_int_list,
     clean_number,
     clean_stored_allowlist,
     clean_thresholds,
+    config_digest,
+    editor_anchor,
     editor_link,
     field_name,
+    save_policy,
     scoring_changed,
     sections_for,
     spec_for,
@@ -22,7 +30,7 @@ from apps.alerts.node_policy import (
     to_form_values,
 )
 from apps.alerts.reevaluation import PRIMARY_METRIC, SCORERS
-from apps.checkers.checkers import CheckStatus
+from apps.checkers.checkers import CheckStatus, checker_label
 from apps.checkers.models import CheckRun
 
 
@@ -661,7 +669,7 @@ class EffectivePolicyTests(TestCase):
         policy = build_effective_policy(
             self._node({"listening_ports": {"allowlist": [22]}}),
         )
-        self.assertEqual(policy.sections[0].title, "listening ports")
+        self.assertEqual(policy.sections[0].title, checker_label("listening_ports"))
 
     def test_a_port_the_runtime_scores_but_the_editor_would_refuse_says_so(self):
         # The editor rejects a port outside 1-65535; _int_set coerces it happily,
@@ -834,3 +842,61 @@ class PolicySectionAnchorTests(TestCase):
         from apps.alerts.node_policy import PolicySection
 
         assert PolicySection(checker="raid", title="Raid", values=[]).anchor == ""
+
+
+@pytest.mark.django_db
+def test_a_save_that_loses_the_race_after_its_read_writes_nothing():
+    node = Node.objects.create(instance_id="n1", config={"cpu": {"warning_threshold": 80}})
+    old = dict(node.config)
+    Node.objects.filter(pk=node.pk).update(config={"cpu": {"warning_threshold": 60}})
+
+    with patch("apps.alerts.node_policy._stored_config", return_value=[old]):
+        with pytest.raises(StalePolicy):
+            save_policy(node.pk, {}, expected=config_digest(old))
+
+    node.refresh_from_db()
+    assert node.config == {"cpu": {"warning_threshold": 60}}
+
+
+def test_the_digest_ignores_key_order():
+    assert config_digest({"a": 1, "b": {"c": 2}}) == config_digest({"b": {"c": 2}, "a": 1})
+    assert config_digest({"a": 1}) != config_digest({"a": 2})
+
+
+@pytest.mark.django_db
+def test_a_save_with_the_current_digest_writes_and_keeps_last_seen():
+    node = Node.objects.create(instance_id="n1", config={"cpu": {"warning_threshold": 80}})
+    seen = timezone.now() - timedelta(hours=2)
+    Node.objects.filter(pk=node.pk).update(last_seen=seen)
+    new = {"cpu": {"warning_threshold": 70, "critical_threshold": 90}}
+
+    replaced = save_policy(node.pk, new, expected=config_digest(node.config))
+
+    assert replaced == {"cpu": {"warning_threshold": 80}}
+    node.refresh_from_db()
+    assert node.config == new
+    assert node.last_seen == seen
+
+
+@pytest.mark.django_db
+def test_a_save_with_an_old_digest_writes_nothing():
+    node = Node.objects.create(instance_id="n1", config={"cpu": {"warning_threshold": 80}})
+    digest = config_digest(node.config)
+    Node.objects.filter(pk=node.pk).update(config={"cpu": {"warning_threshold": 60}})
+
+    with pytest.raises(StalePolicy):
+        save_policy(node.pk, {}, expected=digest)
+
+    node.refresh_from_db()
+    assert node.config == {"cpu": {"warning_threshold": 60}}
+
+
+@pytest.mark.django_db
+def test_a_missing_node_is_stale():
+    with pytest.raises(StalePolicy):
+        save_policy(999_999, {}, expected=config_digest({}))
+
+
+def test_the_editor_anchor_names_only_a_checker_with_boxes():
+    assert editor_anchor("cpu") == "policy-cpu"
+    assert editor_anchor("raid") == ""

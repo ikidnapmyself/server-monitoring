@@ -12,10 +12,14 @@ caught by ``apps/alerts/_tests/test_node_policy.py``, matching how
 ``config.SECTION_MAP`` completeness is guarded.
 """
 
+import hashlib
+import json
 from dataclasses import dataclass
 
 from apps.alerts.identity import local_hostname, local_instance_id
+from apps.alerts.models import Node
 from apps.alerts.reevaluation import PRIMARY_METRIC, _int_set, _number
+from apps.checkers.checkers import checker_label
 from apps.checkers.models import CheckRun
 
 
@@ -184,6 +188,39 @@ def clean_stored_allowlist(value) -> list[int]:
 
 # The prefix keeps policy fields out of the way of the model form's own fields.
 _PREFIX = "policy"
+
+
+class StalePolicy(Exception):
+    """The stored policy changed between the editor's render and its save."""
+
+
+def config_digest(config) -> str:
+    """The policy an editor was rendered from, as one value its form carries back."""
+    return hashlib.sha256(json.dumps(config, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _stored_config(pk: int) -> list:
+    return list(Node.objects.filter(pk=pk).values_list("config", flat=True))
+
+
+def save_policy(pk: int, config: dict, *, expected: str):
+    """Replace a node's policy iff it still hashes to ``expected``. Return the one replaced.
+
+    A plain ``UPDATE``, so ``last_seen`` keeps saying when the machine last reported.
+    """
+    stored = _stored_config(pk)
+    if not stored or config_digest(stored[0]) != expected:
+        raise StalePolicy
+    # SQLite ignores row locks. Matching the policy just read means a save that landed in
+    # between wins, and this update matches no row.
+    if not Node.objects.filter(pk=pk, config=stored[0]).update(config=config):
+        raise StalePolicy
+    return stored[0]
+
+
+def editor_anchor(checker: str) -> str:
+    """The id of a checker's box group on the console editor, or blank when it has none."""
+    return f"policy-{checker}" if spec_for(checker) else ""
 
 
 def field_name(checker: str, field: str) -> str:
@@ -661,7 +698,7 @@ def build_effective_policy(node) -> EffectivePolicy:
     inactive: list[PolicySection] = []
     unread: list[UnreadKey] = []
     for checker, raw_entry in sorted(_json_dict(node.config).items()):
-        title = checker.replace("_", " ")
+        title = checker_label(checker)
         spec = spec_for(checker)
         if not spec or not isinstance(raw_entry, dict):
             # A checker with no scorer, or an entry that is not even a mapping.

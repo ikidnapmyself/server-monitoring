@@ -5,11 +5,13 @@ test here is about an operator being told at the keyboard what the ingest path
 would never tell them.
 """
 
+import pytest
 from django.test import TestCase
 
 from apps.alerts.forms import ADD_SECTION_FIELD, NodePolicyForm
 from apps.alerts.models import Node
 from apps.alerts.node_policy import FIELD_SPECS
+from apps.checkers.checkers import checker_label
 
 
 class NodePolicyFormTests(TestCase):
@@ -463,3 +465,18 @@ class MalformedStoredValueTests(TestCase):
         self.assertIn("policy__cpu__warning_threshold", form.errors)
         node.refresh_from_db()
         self.assertEqual(node.config["cpu"]["warning_threshold"], True)
+
+
+@pytest.mark.django_db
+def test_policy_groups_follow_the_sections_and_the_select_reads_as_labels():
+    node = Node.objects.create(
+        instance_id="web-03", hostname="web-03", config={"listening_ports": {"allowlist": [22]}}
+    )
+    form = NodePolicyForm(instance=node)
+
+    groups = form.policy_groups()
+
+    assert [checker for checker, _ in groups] == ["listening_ports"]
+    assert [field.name for field in groups[0][1]] == ["policy__listening_ports__allowlist"]
+    choices = dict(form.fields[ADD_SECTION_FIELD].choices)
+    assert choices["disk_inodes"] == checker_label("disk_inodes")
