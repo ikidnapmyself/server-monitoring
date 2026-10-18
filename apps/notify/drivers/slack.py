@@ -9,6 +9,7 @@ from urllib.request import Request  # noqa: TID251 — Request is a data object,
 
 from django.conf import settings
 
+from apps.notify.config_fields import ConfigField, timeout_field
 from apps.notify.drivers.base import BaseNotifyDriver, NotificationMessage
 from config.security.http import safe_urlopen
 from config.security.url_validation import URLNotAllowedError
@@ -25,6 +26,17 @@ class SlackNotifyDriver(BaseNotifyDriver):
 
     name = "slack"
     label = "Slack"
+    config_fields = (
+        ConfigField(
+            "webhook_url",
+            "Webhook URL",
+            "url",
+            required=True,
+            secret=True,
+            help="The incoming webhook address Slack gave you.",
+        ),
+        timeout_field(),
+    )
 
     def validate_config(self, config: dict[str, Any]) -> bool:
         if "webhook_url" not in config:

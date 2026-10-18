@@ -1,0 +1,184 @@
+"""Tests for the config fields each notify driver declares."""
+
+import inspect
+import re
+
+import pytest
+
+from apps.notify import templating
+from apps.notify.config_fields import COMMON_FIELDS, KINDS, ConfigField
+from apps.notify.drivers import DRIVER_REGISTRY
+from apps.notify.drivers import base as base_module
+from apps.notify.drivers.base import BaseNotifyDriver
+
+ALIASES = {
+    "generic": {"webhook_url"},
+    "pagerduty": {"dedup_key"},
+    "*": {"text_template"},
+}
+
+CONFIG_KEY = re.compile(r"""\bconfig(?:\.get\(\s*|\[\s*)(["'])(?P<key>[^"']+)\1""")
+
+
+def _read_keys(source: str) -> set[str]:
+    return {m.group("key") for m in CONFIG_KEY.finditer(source)}
+
+
+def test_key_regex_reads_both_quotes_and_whitespace():
+    source = """
+        config.get("a")
+        config.get( 'b', 30)
+        config["c"]
+        config[ 'd' ]
+        other_config.get("e")
+        config.get(name)
+    """
+    assert _read_keys(source) == {"a", "b", "c", "d"}
+
+
+@pytest.mark.parametrize("name", sorted(DRIVER_REGISTRY))
+def test_every_key_a_driver_reads_is_declared(name):
+    """Every config key a driver's code reads is a declared field or a listed alias.
+
+    Aliases are read but kept as unknown keys, never offered in the form:
+    - generic ``webhook_url``: an old spelling of ``endpoint``.
+    - pagerduty ``dedup_key``: set by ``acknowledge`` and ``resolve``, not an operator setting.
+    - ``text_template`` on every driver: the templating service accepts it for ``template``.
+    """
+    driver = DRIVER_REGISTRY[name]
+    source = "\n".join(
+        inspect.getsource(module) for module in (inspect.getmodule(driver), base_module, templating)
+    )
+    declared = {f.key for f in driver.all_config_fields()}
+    allowed = declared | ALIASES.get(name, set()) | ALIASES["*"]
+
+    assert _read_keys(source) - allowed == set()
+
+
+def test_aliases_are_never_declared():
+    for name, cls in DRIVER_REGISTRY.items():
+        declared = {f.key for f in cls.all_config_fields()}
+        assert declared & (ALIASES.get(name, set()) | ALIASES["*"]) == set()
+
+
+@pytest.mark.parametrize("name", sorted(DRIVER_REGISTRY))
+def test_fields_are_unique_and_worded_for_people(name):
+    fields = DRIVER_REGISTRY[name].all_config_fields()
+    keys = [f.key for f in fields]
+
+    assert len(keys) == len(set(keys))
+    for f in fields:
+        for text in (f.label, f.help, *(label for _, label in f.choices)):
+            assert "_" not in text and "{" not in text
+        assert f.label
+
+
+@pytest.mark.parametrize("name", sorted(DRIVER_REGISTRY))
+def test_a_choice_default_is_one_of_its_choices(name):
+    for f in DRIVER_REGISTRY[name].all_config_fields():
+        if f.kind == "choice":
+            assert f.default in {value for value, _ in f.choices}
+
+
+def test_common_fields_come_after_the_drivers_own():
+    for cls in DRIVER_REGISTRY.values():
+        fields = cls.all_config_fields()
+        assert fields == cls.config_fields + COMMON_FIELDS
+
+
+def test_base_driver_declares_only_the_common_fields():
+    assert BaseNotifyDriver.config_fields == ()
+    assert BaseNotifyDriver.all_config_fields() == COMMON_FIELDS
+
+
+@pytest.mark.parametrize(
+    "name,keys",
+    [
+        ("slack", ["webhook_url", "timeout"]),
+        (
+            "email",
+            [
+                "smtp_host",
+                "smtp_port",
+                "use_tls",
+                "use_ssl",
+                "username",
+                "password",
+                "from_address",
+                "to_addresses",
+                "timeout",
+            ],
+        ),
+        ("pagerduty", ["integration_key", "event_action", "client", "client_url", "timeout"]),
+        ("generic", ["endpoint", "method", "headers", "timeout", "disabled"]),
+    ],
+)
+def test_driver_fields_in_order(name, keys):
+    assert [f.key for f in DRIVER_REGISTRY[name].config_fields] == keys
+
+
+@pytest.mark.parametrize(
+    "name,key,default",
+    [
+        ("slack", "timeout", 30),
+        ("email", "smtp_port", 587),
+        ("email", "use_tls", True),
+        ("email", "use_ssl", False),
+        ("email", "timeout", 30),
+        ("pagerduty", "event_action", "trigger"),
+        ("pagerduty", "timeout", 30),
+        ("generic", "method", "POST"),
+        ("generic", "timeout", 30),
+        ("generic", "disabled", False),
+    ],
+)
+def test_defaults_match_what_the_driver_falls_back_to(name, key, default):
+    fields = {f.key: f for f in DRIVER_REGISTRY[name].config_fields}
+    assert fields[key].default == default
+
+
+def test_credentials_are_secret():
+    secret = {
+        (name, f.key)
+        for name, cls in DRIVER_REGISTRY.items()
+        for f in cls.config_fields
+        if f.secret
+    }
+    assert secret == {
+        ("slack", "webhook_url"),
+        ("email", "password"),
+        ("pagerduty", "integration_key"),
+        ("generic", "endpoint"),
+        ("generic", "headers"),
+    }
+
+
+def test_required_fields_match_validate_config():
+    required = {
+        (name, f.key)
+        for name, cls in DRIVER_REGISTRY.items()
+        for f in cls.config_fields
+        if f.required
+    }
+    assert required == {
+        ("slack", "webhook_url"),
+        ("email", "smtp_host"),
+        ("email", "from_address"),
+        ("pagerduty", "integration_key"),
+    }
+
+
+def test_an_unknown_kind_is_refused():
+    with pytest.raises(ValueError, match="kind"):
+        ConfigField("x", "X", "number")
+
+
+def test_headers_must_be_secret():
+    with pytest.raises(ValueError, match="secret"):
+        ConfigField("headers", "Headers", "headers")
+
+
+def test_every_kind_builds():
+    for kind in KINDS:
+        field = ConfigField("x", "X", kind, secret=kind == "headers")
+        assert field.kind == kind

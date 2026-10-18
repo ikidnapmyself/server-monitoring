@@ -8,6 +8,7 @@ from urllib.request import Request  # noqa: TID251 — Request is a data object,
 
 from django.conf import settings
 
+from apps.notify.config_fields import ConfigField, timeout_field
 from apps.notify.drivers.base import BaseNotifyDriver, NotificationMessage
 from config.security.http import safe_urlopen
 from config.security.url_validation import URLNotAllowedError
@@ -20,6 +21,30 @@ class PagerDutyNotifyDriver(BaseNotifyDriver):
 
     name = "pagerduty"
     label = "PagerDuty"
+    config_fields = (
+        ConfigField(
+            "integration_key",
+            "Integration key",
+            "text",
+            required=True,
+            secret=True,
+            help="The Events API v2 routing key of the PagerDuty service.",
+        ),
+        ConfigField(
+            "event_action",
+            "Event action",
+            "choice",
+            default="trigger",
+            choices=(
+                ("trigger", "Trigger"),
+                ("acknowledge", "Acknowledge"),
+                ("resolve", "Resolve"),
+            ),
+        ),
+        ConfigField("client", "Client name", "text", help="Shown in PagerDuty as the sender."),
+        ConfigField("client_url", "Client URL", "url"),
+        timeout_field(),
+    )
 
     EVENTS_API_URL = "https://events.pagerduty.com/v2/enqueue"
 

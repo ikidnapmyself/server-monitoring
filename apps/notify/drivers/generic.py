@@ -8,6 +8,7 @@ from urllib.request import Request  # noqa: TID251 — Request is a data object,
 
 from django.conf import settings
 
+from apps.notify.config_fields import ConfigField, timeout_field
 from apps.notify.drivers.base import BaseNotifyDriver, NotificationMessage
 from config.security.http import safe_urlopen
 from config.security.url_validation import URLNotAllowedError
@@ -20,6 +21,31 @@ class GenericNotifyDriver(BaseNotifyDriver):
 
     name = "generic"
     label = "Generic webhook"
+    config_fields = (
+        ConfigField("endpoint", "Endpoint URL", "url", secret=True),
+        ConfigField(
+            "method",
+            "HTTP method",
+            "choice",
+            default="POST",
+            choices=(("POST", "POST"), ("PUT", "PUT"), ("PATCH", "PATCH")),
+        ),
+        ConfigField(
+            "headers",
+            "Headers",
+            "headers",
+            secret=True,
+            help="Sent with every request, added to the content type and user agent.",
+        ),
+        timeout_field(),
+        ConfigField(
+            "disabled",
+            "Disabled",
+            "bool",
+            default=False,
+            help="Accept every message and send nothing.",
+        ),
+    )
 
     def validate_config(self, config: dict[str, Any]) -> bool:
         # Allow empty/default config to mean "notifications disabled" (no-op)
