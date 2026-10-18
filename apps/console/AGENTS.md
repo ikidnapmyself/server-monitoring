@@ -106,8 +106,17 @@ pipeline stage and not an alert producer.
   function in `apps/orchestration/inbox.py`.
 - **An inbox action swaps the polled root whole** (`swap="outerHTML"`) and resends the
   filter as `kept` hidden inputs, since the POST URL doesn't carry the querystring. Drain
-  executes one run in the request. Never drain in a test without patching
+  now executes one run in the request. Drain the oldest executes up to `DRAIN_LIMIT` (10)
+  runs and starts none after `DRAIN_SECONDS` (60), through `inbox.drain_each(pks,
+  seconds=…)`, so it ends well inside gunicorn's 120 second `--timeout`. Its notice says
+  how many runs are left for the next drain. Never drain in a test without patching
   `PipelineOrchestrator.execute_run`.
+- **Stuck has one definition**, `inbox.stuck()`: in flight (`PROCESSING`, `INGESTED`,
+  `CHECKED`, `ANALYZED` or `RETRYING`), `completed_at` unset, and untouched for
+  `DEFAULT_STALE_MINUTES`. The inbox lists stuck runs of every such status and marks them,
+  its Stuck chip filters to them, and the dashboard counts them. Mark failed is offered,
+  and `inbox.abandon` acts, only on a `PENDING` or stuck run, so it never races a live
+  drain.
 - **A confirm form carries a `scope_digest`.** `/console/alerts/<pk>/reevaluate/` previews
   on GET and writes nothing. The form posts the digest taken before the preview. It covers
   the node's policy and each alert's incident status as well as the alerts, and

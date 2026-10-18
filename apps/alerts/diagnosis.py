@@ -87,7 +87,7 @@ def diagnose_incident(incident) -> list[dict]:
     surface can link the failure it reports rather than only describing it.
     ``execution_status`` (that execution's ``StageStatus``, ``"skipped"`` for a config
     skip, else None), ``error_message`` (str) and ``retryable`` (bool) carry the raw
-    outcome for a describer; ``detail`` stays the admin's preformatted string.
+    outcome for a describer; ``detail`` stays a preformatted string.
 
     INGEST appears only for an incident with a run from before "a run is an
     incident" — see ``_stage_order``.

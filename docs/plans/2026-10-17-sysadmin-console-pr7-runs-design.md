@@ -13,9 +13,25 @@ and `IncidentAdmin` to stock.
 
 There's no broker. A `PipelineRun` row with status `PENDING` is a queued job.
 `process_inbox`, run by `server-monitoring-inbox.service`, claims it `PENDING → PROCESSING`
-with one conditional `UPDATE` (`inbox.claim`) and calls `execute_run`. `reclaim_stuck` returns
-runs a crashed drain left in `PROCESSING`. Every action below is a status change on that row
-or a call into `apps/orchestration/inbox.py`.
+with one conditional `UPDATE` (`inbox.claim`) and calls `execute_run`. Every action below is a
+status change on that row or a call into `apps/orchestration/inbox.py`.
+
+## Decision: stuck has one definition
+
+A drain that crashes, or is killed mid-run by gunicorn's 120 second timeout on an in-request
+drain, leaves its run in flight with `completed_at` unset. Its status is whatever stage it
+reached, so a run can sit at `CHECKED`, `ANALYZED` or `INGESTED` forever, not only at
+`PROCESSING`.
+
+`inbox.stuck()` is the one definition, a `Q`: status `PROCESSING`, `INGESTED`, `CHECKED`,
+`ANALYZED` or `RETRYING`, `completed_at` null, and `updated_at` older than
+`DEFAULT_STALE_MINUTES`. Every stage save stamps `updated_at`, so a live drain keeps its run
+fresh, and `completed_at` tells a lane that ended at diagnose from one killed there.
+`reclaim_stuck`, `abandon`, the run page, the inbox page and the dashboard all read it.
+`InboxItem.is_stuck` goes, since nothing called it.
+
+`reclaim_stuck` returns every stuck run to `PENDING` with `updated_at` stamped. The next
+drain resumes it and skips the stages that already succeeded.
 
 ## Decision: retry re-queues the run
 
@@ -43,6 +59,9 @@ A list of runs, newest first. Each row shows the `describe_run` headline, the in
 served, the node, origin, the stage it reached, attempts and age.
 
 Filter chips: status (failed, queued and in progress, finished, all), origin, node and since.
+The status chips split runs the way `describe_run` words them. A lane without notify ends at
+diagnose or analyze, so a `CHECKED`, `ANALYZED` or `INGESTED` run is finished only when
+`completed_at` is set, and queued and in progress otherwise.
 `q` matches run ID, trace ID and alert fingerprint, the admin's search. `RunFilter` lives in
 `filters.py` on the same helpers as `AlertFilter`.
 
@@ -53,31 +72,46 @@ Filter chips: status (failed, queued and in progress, finished, all), origin, no
 - One timeline entry per `StageExecution`, every attempt, through `describe_stage_outcome`.
   Each entry's body comes from `stage_body`, which moves from `queries/incident.py` to a
   shared `queries/stages.py` so both pages render stage output the same way.
-- Do this: Retry when the run failed. Mark failed when the run is `PENDING`, `PROCESSING` or
-  `RETRYING`.
+- Do this: Retry when the run failed. Mark failed when the run is `PENDING` or stuck.
 - Details: run ID, trace ID, fingerprint, the output refs, the last error with its type and
   retryable flag, and the stored payload.
 
 Mark failed is for a run that's stuck or queued and should never run. It doesn't apply to a
-finished run, so `NOTIFIED`, `ANALYZED`, `CHECKED`, `SKIPPED` and `FAILED` don't offer it.
-`inbox.abandon(pk)` does it as a conditional update on those three statuses, with error type
-`ManualOverride` and "Marked failed by an operator".
+finished run, and it doesn't apply to a run a drain is executing right now. Failing a live
+run loses either way: the drain overwrites `FAILED`, or a Retry plus a drain runs it twice
+and pages twice. `inbox.abandon(pk)` does it as one conditional update on
+`inbox.abandonable()`, which is `status=PENDING` or `inbox.stuck()`, with error type
+`ManualOverride` and "Marked failed by an operator". The run page offers it under the same
+`Q`. A refused click says "This run is running or finished. Only a queued or stuck run can
+be marked failed."
 
 ### `/console/inbox/`
 
-The runs still waiting: `PENDING` and `PROCESSING`, oldest first, each with its age. A run in
-`PROCESSING` past `DEFAULT_STALE_MINUTES` is marked stuck.
+The runs still waiting: `PENDING`, `PROCESSING` and every stuck run, oldest first, each with
+its age. A stuck run is marked stuck. The status chips are all, waiting, in progress and
+stuck.
 
 - **Drain now** on a `PENDING` row calls `inbox.drain_run(run_id)`. It executes in the
   request, the way the admin's drain does, so it's one run per click.
-- **Drain the oldest** drains up to `DRAIN_LIMIT = 25` through `inbox.drain(limit=25)`, the
-  admin's cap.
+- **Drain the oldest** drains up to `DRAIN_LIMIT = 10` through
+  `inbox.drain_each(pks, seconds=DRAIN_SECONDS)`. With `DRAIN_SECONDS = 60` it starts no run
+  after a minute, so the request ends well inside gunicorn's 120 second `--timeout` and
+  doesn't strand the run it was executing. The notice says how many runs are left for the
+  next drain.
 - **Return stuck runs to the queue** calls `inbox.reclaim_stuck()`. The button shows only
   when a run is stuck.
 
 Each outcome is a `Notice`, and each action is idempotent: `claim` refuses a run already
 claimed, and reclaim touches only stuck rows. A drain that raises is caught per run and
 reported as a count, as in the admin.
+
+## Decision: a resume claims the run conditionally
+
+`resume_pipeline` read the run as `FAILED`, then saved `RETRYING` without a condition and
+executed. A console Retry plus a drain could claim the run in between. The move to
+`RETRYING` is now one conditional update on the status and `updated_at` it read. A resume
+that loses raises the existing `ValueError`, and `/orchestration/pipeline/<run_id>/resume/`
+answers 409.
 
 ## Permissions
 
@@ -90,7 +124,9 @@ reported as a count, as in the admin.
 ## Wiring
 
 - `view_run` points at `console:run`. `view_inbox` points at `console:inbox`, and its status
-  param becomes the inbox page's filter.
+  param becomes the inbox page's filter. `Intent.permission` takes a tuple where any one
+  suffices, so `view_run`, `view_inbox` and `view_alert` link for a user with the view or
+  the change permission.
 - The sidebar gains Runs and Inbox after Alerts.
 - `apps/alerts/node_overview.py` links its incident and run rows to the console, and
   `config/dashboard.py` links the inbox card to `console:inbox`.

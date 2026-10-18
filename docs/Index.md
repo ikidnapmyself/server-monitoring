@@ -755,7 +755,7 @@ Main pipeline execution record.
 | `completed_at` | DateTimeField | Pipeline end time |
 | `total_duration_ms` | FloatField | Total execution duration |
 
-Methods: `mark_started()`, `advance_to()`, `mark_completed()`, `mark_failed()`, `mark_retrying()`
+Methods: `mark_started()`, `advance_to()`, `mark_completed()`, `mark_failed()`
 
 #### StageExecution
 
