@@ -147,8 +147,8 @@ pipeline stage and not an alert producer.
   when it matches nothing. Only an absent or empty one means the whole node. One that
   cleans to blank, such as a space or a NUL, narrows to nothing. A checker that is neither
   registered nor on an open alert of the node gets the fixed title "Re-evaluate one
-  checker's alerts on <node>", so a typed name never reaches the page. An apply whose
-  fresh report has no changes writes nothing and answers 409 with the preview.
+  checker's alerts on <node>", so a typed name never reaches the page. On both pages, an
+  apply whose fresh report has no changes writes nothing and answers 409 with the preview.
 - **Fleet policy** (`/console/policy/`) renders `build_policy_overview`. Its edit and
   re-evaluate links are intents, so a reader sees none.
 - **A missing record gets a console 404 page** with a link onward, returned with status

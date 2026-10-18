@@ -10,13 +10,12 @@ from apps.alerts.models import Node
 from apps.alerts.reeval_existing import StaleReeval, apply_reeval
 from apps.console.filters import checker_param
 from apps.console.queries.reeval import build_node_reeval_preview, node_scope
-from apps.console.views.base import Notice
+from apps.console.views.base import NOTHING_TO_APPLY, Notice
 from apps.console.views.node import CHANGE_REQUIRED, NodePageView
 
 STALE = (
     "This node's alerts or policy changed since you looked. Here is what re-evaluating does now."
 )
-NOTHING_TO_APPLY = "Nothing here needs re-evaluating, so nothing was applied."
 
 
 class NodeReevalView(NodePageView):

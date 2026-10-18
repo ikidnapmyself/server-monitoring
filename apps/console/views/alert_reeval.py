@@ -8,7 +8,7 @@ from apps.alerts.models import Alert
 from apps.alerts.reeval_existing import ReevalScope, StaleReeval, apply_reeval
 from apps.console.queries.alert import build_reeval_preview
 from apps.console.views.alert import AlertPageView
-from apps.console.views.base import Notice
+from apps.console.views.base import NOTHING_TO_APPLY, Notice
 
 STALE = "This alert changed since you looked. Here is what re-evaluating does now."
 
@@ -46,5 +46,7 @@ class AlertReevalView(AlertPageView):
             )
         except (StaleReeval, OperationalError):
             return self.render_preview(alert.pk, Notice(STALE, "warning"), status=409)
+        if not report.changes:
+            return self.render_preview(alert.pk, Notice(NOTHING_TO_APPLY, "info"), status=409)
         messages.success(request, describe_reeval_applied(report))
         return HttpResponseRedirect(reverse("console:alert", args=[alert.pk]), status=303)
