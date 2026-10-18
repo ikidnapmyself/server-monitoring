@@ -448,15 +448,15 @@ def test_the_inbox_entry_filters_to_the_runs_it_counted():
 
     from apps.orchestration.models import PipelineRun, PipelineStatus
 
-    base = reverse("admin:orchestration_inboxitem_changelist")
+    base = reverse("console:inbox")
     assert _by_key(build_readiness())["inbox"]["url"] == base
 
     PipelineRun.objects.create(trace_id="t", run_id="p1", status=PipelineStatus.PENDING)
-    assert _by_key(build_readiness())["inbox"]["url"] == f"{base}?status__exact=pending"
+    assert _by_key(build_readiness())["inbox"]["url"] == f"{base}?status=pending"
 
     run = PipelineRun.objects.create(trace_id="t", run_id="p2", status=PipelineStatus.PROCESSING)
     PipelineRun.objects.filter(pk=run.pk).update(updated_at=timezone.now() - timedelta(hours=1))
-    assert _by_key(build_readiness())["inbox"]["url"] == f"{base}?status__exact=processing"
+    assert _by_key(build_readiness())["inbox"]["url"] == f"{base}?status=processing"
 
 
 @pytest.mark.django_db

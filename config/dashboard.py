@@ -177,15 +177,15 @@ def build_readiness():
         status=PipelineStatus.PROCESSING,
         updated_at__lt=now - timedelta(minutes=DEFAULT_STALE_MINUTES),
     ).count()
-    inbox_url = reverse("admin:orchestration_inboxitem_changelist")
+    inbox_url = reverse("console:inbox")
     if stuck:
         i_status, detail = "error", f"{stuck} stuck run(s)"
-        # Land on the rows the count is about. "Stuck" is an age, not a stored
-        # field, so PROCESSING is the closest filter the changelist has.
-        inbox_url = f"{inbox_url}?status__exact={PipelineStatus.PROCESSING}"
+        # The inbox page filters on status. "Stuck" is an age, not a stored field,
+        # so PROCESSING is the nearest filter.
+        inbox_url = f"{inbox_url}?status={PipelineStatus.PROCESSING}"
     elif pending:
         i_status, detail = "warn", f"{pending} pending"
-        inbox_url = f"{inbox_url}?status__exact={PipelineStatus.PENDING}"
+        inbox_url = f"{inbox_url}?status={PipelineStatus.PENDING}"
     else:
         i_status, detail = "ok", "Drained"
     out.append(

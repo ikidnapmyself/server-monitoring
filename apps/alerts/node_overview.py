@@ -14,6 +14,7 @@ from django.db.models import Count
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html_join
+from django.utils.http import urlencode
 from django.utils.timesince import timesince
 
 from apps.alerts.check_integration import STATUS_TO_SEVERITY
@@ -104,8 +105,8 @@ def unresolved_counts(node) -> dict[str, int]:
 def render_severity_chips(node) -> str:
     """Linked severity chips, worst first. A quiet node reads as a dash.
 
-    Each chip links to the incident changelist already narrowed to this node and
-    severity, reusing the ``alerts__node`` filter rather than a parallel view.
+    Each chip links to the console incident list narrowed to this node and severity.
+    That list already defaults to unresolved incidents.
     """
     counts = unresolved_counts(node)
     parts = []
@@ -113,11 +114,8 @@ def render_severity_chips(node) -> str:
         count = counts.get(severity, 0)
         if not count:
             continue
-        url = "{}?alerts__node__id__exact={}&status__in={}&severity__exact={}".format(
-            reverse("admin:alerts_incident_changelist"),
-            node.pk,
-            ",".join(UNRESOLVED_INCIDENT_STATUSES),
-            severity,
+        url = (
+            reverse("console:incidents") + "?" + urlencode({"severity": severity, "node": node.pk})
         )
         parts.append(
             badge(f"{count} {severity.upper()}", tone_for(SEVERITY_TONES, severity), url=url)
@@ -358,7 +356,7 @@ def build_incident_rows(node, limit: int = 10) -> list[IncidentRow]:
             status=incident.status,
             tone=tone_for(SEVERITY_TONES, incident.severity),
             created_at=incident.created_at,
-            url=reverse("admin:alerts_incident_change", args=[incident.pk]),
+            url=reverse("console:incident", args=[incident.pk]),
         )
         for incident in incidents
     ]
@@ -482,7 +480,7 @@ def build_pipeline_rows(node, limit: int = 10) -> list[PipelineRow]:
             origin=run.origin,
             status=run.status,
             created_at=run.created_at,
-            url=reverse("admin:orchestration_pipelinerun_change", args=[run.pk]),
+            url=reverse("console:run", args=[run.pk]),
         )
         for run in node.pipeline_runs.order_by("-created_at")[:limit]
     ]
