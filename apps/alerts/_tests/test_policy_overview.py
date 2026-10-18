@@ -29,7 +29,9 @@ from apps.alerts.policy_overview import (
     rows_for_node,
 )
 from apps.alerts.reeval_existing import ReevalScope, preview_reeval
+from apps.checkers.checkers import checker_label
 from config.admin_badges import TONES
+from config.describing import Action
 
 
 class PolicyOverviewTestCase(TestCase):
@@ -91,7 +93,8 @@ class RowsForNodeTests(PolicyOverviewTestCase):
         self.assertEqual(row.checker, "network")
         self.assertEqual(row.status, NOT_HONOURED)
         self.assertEqual(row.policy, NO_POLICY)
-        self.assertEqual(row.why, "Nothing reads network.")
+        self.assertEqual(row.why, "Nothing reads 1 stored setting.")
+        self.assertEqual(row.unread, ("network",))
         self.assertTrue(row.is_problem)
 
     def test_a_scoring_checker_with_a_leftover_key_stays_one_row(self):
@@ -99,14 +102,16 @@ class RowsForNodeTests(PolicyOverviewTestCase):
         (row,) = rows_for_node(node)
         self.assertEqual(row.status, NOT_HONOURED)
         self.assertEqual(row.policy, "Warning at 90, Critical at 99")
-        self.assertEqual(row.why, "Nothing reads cpu → spare.")
+        self.assertEqual(row.why, "Nothing reads 1 stored setting.")
+        self.assertEqual(row.unread, ("cpu → spare",))
 
     def test_two_leftover_keys_on_one_checker_are_one_sentence(self):
         node = self._node(
             {"cpu": {"warning_threshold": 90, "critical_threshold": 99, "spare": 1, "old": 2}}
         )
         (row,) = rows_for_node(node)
-        self.assertEqual(row.why, "Nothing reads cpu → old, cpu → spare.")
+        self.assertEqual(row.why, "Nothing reads 2 stored settings.")
+        self.assertEqual(row.unread, ("cpu → old", "cpu → spare"))
 
     def test_a_not_scoring_checker_with_a_leftover_key_keeps_the_worse_status(self):
         node = self._node({"memory": {"warning_threshold": 90, "spare": 1}})
@@ -115,7 +120,7 @@ class RowsForNodeTests(PolicyOverviewTestCase):
         self.assertEqual(row.policy, "Warning at 90")
         self.assertEqual(
             row.why,
-            "Set a critical threshold too, or clear both. Nothing reads memory → spare.",
+            "Set a critical threshold too, or clear both. Nothing reads 1 stored setting.",
         )
 
     def test_an_editor_note_is_reported_on_a_row_that_scores(self):
@@ -154,7 +159,9 @@ class NonMappingEntryTests(PolicyOverviewTestCase):
         self.assertEqual(row.status, NOT_HONOURED)
         self.assertEqual(row.policy, NO_POLICY)
         self.assertEqual(
-            row.why, "cpu is set to something that is not a policy, so nothing reads it."
+            row.why,
+            f"{checker_label('cpu')} is set to something that is not a policy, "
+            "so nothing reads it.",
         )
         # cpu really does have boxes on the node page, so the link keeps its
         # fragment. The entry is what is wrong here, not the checker.
@@ -164,7 +171,7 @@ class NonMappingEntryTests(PolicyOverviewTestCase):
         node = self._node({"network": "90"})
         (row,) = rows_for_node(node)
         self.assertEqual(row.status, NOT_HONOURED)
-        self.assertEqual(row.why, "Nothing reads network.")
+        self.assertEqual(row.why, "Nothing reads 1 stored setting.")
         self.assertEqual(row.edit_url, self._change_url(node))
 
 
@@ -271,7 +278,9 @@ class FiringAlertRowTests(PolicyOverviewTestCase):
         self.assertEqual(row.status, NO_POLICY_SET)
         self.assertEqual(row.policy, NO_POLICY)
         self.assertEqual(
-            row.why, "Alerting now with no policy set, so disk scores as the node sends it."
+            row.why,
+            f"Alerting now with no policy set, so {checker_label('disk')} scores as the node "
+            "sends it.",
         )
         self.assertTrue(row.is_problem)
         self.assertFalse(row.is_muted)
@@ -290,7 +299,9 @@ class FiringAlertRowTests(PolicyOverviewTestCase):
         self.assertEqual(row.status, NOT_REEVALUATABLE)
         self.assertEqual(row.policy, NO_POLICY)
         self.assertEqual(
-            row.why, "Alerting now, but no scorer reads raid, so no policy can change it."
+            row.why,
+            f"Alerting now, but no scorer reads {checker_label('raid')}, so no policy can "
+            "change it.",
         )
         self.assertFalse(row.is_problem)
         self.assertTrue(row.is_muted)
@@ -314,7 +325,7 @@ class FiringAlertRowTests(PolicyOverviewTestCase):
         node = self._node({"network": {"warning_threshold": 60}})
         (row,) = rows_for_node(node, {"network"})
         self.assertEqual(row.status, NOT_HONOURED)
-        self.assertEqual(row.why, "Nothing reads network.")
+        self.assertEqual(row.why, "Nothing reads 1 stored setting.")
 
     def test_not_reevaluatable_rows_sort_last_and_the_rest_stay_alphabetical(self):
         node = self._node({"memory": {"warning_threshold": 1, "critical_threshold": 2}})
@@ -671,3 +682,21 @@ class ReevalUrlTests(EvidenceTestCase):
     def test_a_row_with_nothing_firing_has_no_reeval_url(self):
         self._node(self.WOULD_CHANGE)
         self.assertEqual(self._row().reeval_url, "")
+
+
+class RowActionTests(EvidenceTestCase):
+    def test_a_row_carries_its_actions(self):
+        node = self._node(self.WOULD_CHANGE)
+        self._alert()
+        (group,) = build_policy_overview().groups
+        (row,) = group.rows
+        params = {"pk": node.pk, "checker": "cpu"}
+        self.assertEqual(group.pk, node.pk)
+        self.assertEqual(row.edit, Action("Edit the policy", "edit_node_policy", params))
+        self.assertEqual(row.reeval, Action("Re-evaluate", "reevaluate_node", params))
+
+    def test_a_checker_with_no_boxes_opens_the_node(self):
+        node = Node.objects.create(instance_id="node-a", config={"network": {"x": 1}})
+        (row,) = rows_for_node(node)
+        self.assertEqual(row.edit, Action("Open the node", "view_node", {"pk": node.pk}))
+        self.assertIsNone(row.reeval)

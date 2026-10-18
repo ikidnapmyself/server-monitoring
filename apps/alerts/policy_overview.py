@@ -35,7 +35,9 @@ from apps.alerts.node_policy import (
 )
 from apps.alerts.reeval_existing import _outcome_for
 from apps.alerts.reevaluation import SCORERS, Verdict
+from apps.checkers.checkers import checker_label
 from config.admin_badges import tone_for
+from config.describing import Action
 
 # The badge wording follows the change form's policy panel vocabulary, so one
 # state does not get two names across the two surfaces.
@@ -111,6 +113,9 @@ class PolicyRow:
     last_applied: datetime | None = None
     applied_at_ingest: bool = False
     reeval_url: str = ""
+    edit: Action | None = None
+    reeval: Action | None = None
+    unread: tuple[str, ...] = ()
 
     @property
     def effect(self) -> str:
@@ -186,6 +191,17 @@ def _reeval_url(node, checker: str) -> str:
     return f"{tool_url}?{urlencode({'checker': checker})}"
 
 
+def _edit(node, checker: str) -> Action:
+    """This checker's boxes on the editor, or the node page for a checker with none."""
+    if spec_for(checker):
+        return Action("Edit the policy", "edit_node_policy", {"pk": node.pk, "checker": checker})
+    return Action("Open the node", "view_node", {"pk": node.pk})
+
+
+def _reeval(node, checker: str) -> Action:
+    return Action("Re-evaluate", "reevaluate_node", {"pk": node.pk, "checker": checker})
+
+
 def _with_evidence(row: PolicyRow, node, evidence: CheckerEvidence) -> PolicyRow:
     """Attach what this row's policy is doing, and a button where it can do something.
 
@@ -193,36 +209,36 @@ def _with_evidence(row: PolicyRow, node, evidence: CheckerEvidence) -> PolicyRow
     firing alerts, and a muted row gets none for the same reason it gets no Edit
     link: no policy can move it.
     """
+    can_reeval = bool(evidence.firing_count) and not row.is_muted
     return replace(
         row,
         firing_count=evidence.firing_count,
         would_change_count=evidence.would_change_count,
         last_applied=evidence.last_applied,
         applied_at_ingest=evidence.applied_at_ingest,
-        reeval_url=(
-            _reeval_url(node, row.checker) if evidence.firing_count and not row.is_muted else ""
-        ),
+        reeval_url=_reeval_url(node, row.checker) if can_reeval else "",
+        reeval=_reeval(node, row.checker) if can_reeval else None,
     )
 
 
 def _unread_sentences(entries: list[UnreadKey]) -> list[str]:
-    """What the unread entries for one checker mean, in plain sentences.
+    """What the unread entries for one checker mean. The keys themselves go to Details.
 
-    A blank ``key`` covers two different problems: no scorer knows the checker,
-    or a known checker holds something that is not a mapping. "Nothing reads
-    cpu" is false in the second case, so ``spec_for`` separates them.
+    A blank ``key`` covers two problems: no scorer knows the checker, or a known checker
+    holds something that is not a mapping. ``spec_for`` separates them.
     """
-    labels = []
+    count = 0
     sentences = []
     for entry in entries:
         if not entry.key and spec_for(entry.checker):
             sentences.append(
-                f"{entry.checker} is set to something that is not a policy, so nothing reads it."
+                f"{checker_label(entry.checker)} is set to something that is not a policy, "
+                "so nothing reads it."
             )
         else:
-            labels.append(entry.label)
-    if labels:
-        sentences.append(f"Nothing reads {', '.join(labels)}.")
+            count += 1
+    if count:
+        sentences.append(f"Nothing reads {count} stored setting{'s' if count != 1 else ''}.")
     return sentences
 
 
@@ -245,7 +261,7 @@ def _why(section: PolicySection | None, unread: list[UnreadKey]) -> str:
     return " ".join(parts)
 
 
-def _firing_only_row(checker: str, node_url: str) -> PolicyRow:
+def _firing_only_row(node, checker: str, node_url: str) -> PolicyRow:
     """The row for a checker this node is alerting on with no config entry.
 
     ``SCORERS`` decides which of the two states it is in, because that is the map
@@ -257,17 +273,25 @@ def _firing_only_row(checker: str, node_url: str) -> PolicyRow:
             checker=checker,
             policy=NO_POLICY,
             status=NO_POLICY_SET,
-            why=f"Alerting now with no policy set, so {checker} scores as the node sends it.",
+            why=(
+                f"Alerting now with no policy set, so {checker_label(checker)} scores as the "
+                "node sends it."
+            ),
             caution=False,
             edit_url=_edit_url(checker, node_url),
+            edit=_edit(node, checker),
         )
     return PolicyRow(
         checker=checker,
         policy=NO_POLICY,
         status=NOT_REEVALUATABLE,
-        why=f"Alerting now, but no scorer reads {checker}, so no policy can change it.",
+        why=(
+            f"Alerting now, but no scorer reads {checker_label(checker)}, so no policy can "
+            "change it."
+        ),
         caution=False,
         edit_url=node_url,
+        edit=_edit(node, checker),
     )
 
 
@@ -308,10 +332,12 @@ def rows_for_node(
                 why=_why(section, unread.get(checker, [])),
                 caution=section is not None and bool(section.editor_note),
                 edit_url=_edit_url(checker, node_url),
+                edit=_edit(node, checker),
+                unread=tuple(entry.label for entry in unread.get(checker, [])),
             )
         )
     rows.extend(
-        _firing_only_row(checker, node_url)
+        _firing_only_row(node, checker, node_url)
         for checker in sorted(set(firing) - set(sections) - set(unread))
     )
     rows = [_with_evidence(row, node, evidence.get(row.checker, NO_EVIDENCE)) for row in rows]
@@ -417,6 +443,7 @@ def _evidence_for(
 class NodeGroup:
     """One node's rows, under the identity that names it."""
 
+    pk: int
     instance_id: str
     hostname: str
     node_url: str
@@ -452,6 +479,7 @@ def build_policy_overview() -> PolicyOverview:
             continue
         groups.append(
             NodeGroup(
+                pk=node.pk,
                 instance_id=node.instance_id,
                 hostname=node.hostname,
                 node_url=_node_url(node),

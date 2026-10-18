@@ -125,6 +125,17 @@ def test_query_params_are_encoded(admin_user):
         ("view_preflight", {}, "/admin/checkers/preflightrun/"),
         ("view_nodes", {}, "/admin/alerts/node/"),
         ("view_node", {"pk": 7}, "/admin/alerts/node/7/change/"),
+        ("edit_node_policy", {"pk": 7, "checker": "cpu"}, "/admin/alerts/node/7/change/"),
+        (
+            "reevaluate_node",
+            {"pk": 7},
+            "/admin/alerts/node/7/actions/reevaluate_open_alerts/",
+        ),
+        (
+            "reevaluate_node",
+            {"pk": 7, "checker": "disk:/var"},
+            "/admin/alerts/node/7/actions/reevaluate_open_alerts/?checker=disk%3A%2Fvar",
+        ),
     ],
 )
 def test_config_intents_point_at_the_admin(admin_user, intent, params, url):

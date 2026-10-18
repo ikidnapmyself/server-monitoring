@@ -140,7 +140,7 @@ def test_an_unscorable_firing_checker_reads_muted_with_no_edit_link(admin_client
     _firing("a", "raid")
     body = admin_client.get(reverse("admin:policy-overview")).content.decode()
     assert '<span class="ops-badge ops-badge--muted">Not re-evaluatable</span>' in body
-    assert "no scorer reads raid" in body
+    assert "no scorer reads RAID arrays" in body
     assert ">Edit</a>" not in body
 
 

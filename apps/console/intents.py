@@ -58,6 +58,15 @@ def _run_action(action: str) -> Callable[[dict[str, Any]], str]:
     return lambda params: reverse("console:run-action", args=[params["pk"], action])
 
 
+def _node_reeval_admin(params: dict[str, Any]) -> str:
+    url = reverse(
+        "admin:alerts_node_actions", kwargs={"pk": params["pk"], "tool": "reevaluate_open_alerts"}
+    )
+    if params.get("checker"):
+        url = f"{url}?{urlencode({'checker': params['checker']})}"
+    return url
+
+
 def _external(params: dict[str, Any]) -> str:
     url = str(params["url"])
     if urlsplit(url).scheme not in ("http", "https"):
@@ -92,6 +101,8 @@ INTENTS: dict[str, Intent] = {
     ),
     "view_nodes": Intent(_page("admin:alerts_node_changelist"), "get", "alerts.view_node"),
     "view_node": Intent(_record("admin:alerts_node_change"), "get", "alerts.view_node"),
+    "edit_node_policy": Intent(_record("admin:alerts_node_change"), "get", "alerts.change_node"),
+    "reevaluate_node": Intent(_node_reeval_admin, "get", "alerts.change_node"),
     "view_run": Intent(
         _record("console:run"),
         "get",
