@@ -197,6 +197,8 @@ def save_route(pk: int, fields: dict, *, expected: int) -> None:
 `fallthrough(lane) -> str` answers "what happens to traffic this route matched once it's gone":
 
 - Not active: "This route is off, so deleting it changes no routing."
+- An earlier active lane with an empty match: "Every alert matches <name> first, so this route
+  gets no traffic and deleting it changes no routing."
 - Otherwise the first later active lane (by `priority`, `id`) with an empty match:
   "Traffic it matched goes to the next route that matches, at worst <name>, which matches
   everything."
@@ -204,7 +206,7 @@ def save_route(pk: int, fields: dict, *, expected: int) -> None:
 
 **Steps:** Tests: a save at the current version writes and bumps; a save at an old version raises
 and writes nothing; `updated_at` moves. Each `fallthrough` branch, including an inactive
-catch-all being skipped and an earlier catch-all being ignored. Change the `version` help text to
+catch-all being skipped and an earlier active catch-all taking all the traffic. Change the `version` help text to
 "Bumped by every console save." and run `uv run python manage.py makemigrations orchestration`.
 Commit `feat(orchestration): a route save that refuses a stale editor`.
 
