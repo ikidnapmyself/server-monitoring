@@ -1,6 +1,6 @@
+from apps.console.intents import NODE_READ
 from apps.console.queries.policy import build_policy_page
 from apps.console.views.base import ConsoleView
-from apps.console.views.node import NODE_READ
 
 
 class PolicyView(ConsoleView):

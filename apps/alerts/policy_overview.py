@@ -168,8 +168,8 @@ def _with_evidence(row: PolicyRow, node, evidence: CheckerEvidence) -> PolicyRow
     """Attach what this row's policy is doing, and a button where it can do something.
 
     A row with nothing firing gets no button because the action only ever scores
-    firing alerts, and a muted row gets none for the same reason it gets no Edit
-    link: no policy can move it.
+    firing alerts, and a muted row gets none because no policy can move it. Its edit
+    link still opens the node page, since it has no boxes to open.
     """
     can_reeval = bool(evidence.firing_count) and not row.is_muted
     return replace(

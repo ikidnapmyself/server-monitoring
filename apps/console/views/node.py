@@ -1,9 +1,9 @@
 from django.shortcuts import render
 
+from apps.console.intents import NODE_READ
 from apps.console.queries.node import build_node_detail
 from apps.console.views.base import ConsoleView
 
-NODE_READ = ("alerts.view_node", "alerts.change_node")
 NODE_CHANGE = "alerts.change_node"
 CHANGE_REQUIRED = "Permission to change nodes required."
 

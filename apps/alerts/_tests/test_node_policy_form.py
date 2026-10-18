@@ -10,8 +10,16 @@ from django.test import TestCase
 
 from apps.alerts.forms import ADD_SECTION_FIELD, NodePolicyForm
 from apps.alerts.models import Node
-from apps.alerts.node_policy import FIELD_SPECS
+from apps.alerts.node_policy import FIELD_SPECS, config_digest, save_policy
 from apps.checkers.checkers import checker_label
+
+
+def _save(form):
+    """Write the form's policy the way the console does, and return what is stored."""
+    node = form.instance
+    save_policy(node.pk, form.policy_config, expected=config_digest(node.config))
+    node.refresh_from_db()
+    return node.config
 
 
 class NodePolicyFormTests(TestCase):
@@ -45,7 +53,7 @@ class NodePolicyFormTests(TestCase):
         form = NodePolicyForm(instance=node, data={})
         self.assertEqual(list(form.fields), [ADD_SECTION_FIELD])
         self.assertTrue(form.is_valid(), form.errors)
-        self.assertEqual(form.save().config, {})
+        self.assertEqual(_save(form), {})
 
     def test_an_unsaved_instance_cannot_raise(self):
         # NodeAdmin forbids adding nodes, but a form built with no instance at
@@ -102,8 +110,7 @@ class NodePolicyFormTests(TestCase):
             },
         )
         self.assertTrue(form.is_valid(), form.errors)
-        form.save()
-        node.refresh_from_db()
+        _save(form)
         self.assertEqual(
             node.config, {"cpu": {"warning_threshold": 70.0, "critical_threshold": 90.0}}
         )
@@ -118,8 +125,7 @@ class NodePolicyFormTests(TestCase):
             },
         )
         self.assertTrue(form.is_valid(), form.errors)
-        form.save()
-        node.refresh_from_db()
+        _save(form)
         self.assertEqual(node.config, {"cpu": {}})
 
     def test_saving_an_untouched_form_leaves_config_byte_identical(self):
@@ -136,8 +142,7 @@ class NodePolicyFormTests(TestCase):
         data = {name: unbound.initial.get(name, "") for name in unbound.fields}
         form = NodePolicyForm(instance=node, data=data)
         self.assertTrue(form.is_valid(), form.errors)
-        form.save()
-        node.refresh_from_db()
+        _save(form)
         self.assertEqual(node.config, config)
         self.assertIsInstance(node.config["cpu"]["warning_threshold"], int)
         self.assertEqual(node.config["listening_ports"]["allowlist"], [22, 443])
@@ -148,8 +153,7 @@ class NodePolicyFormTests(TestCase):
         self.assertEqual(form.initial["policy__listening_ports__allowlist"], "22")
         form = NodePolicyForm(instance=node, data={"policy__listening_ports__allowlist": "22, 443"})
         self.assertTrue(form.is_valid(), form.errors)
-        form.save()
-        node.refresh_from_db()
+        _save(form)
         self.assertEqual(node.config["listening_ports"]["allowlist"], [22, 443])
 
     def test_a_bad_port_is_a_field_error(self):
@@ -167,8 +171,7 @@ class NodePolicyFormTests(TestCase):
         node = self._node(config={"listening_ports": {"allowlist": [22]}})
         form = NodePolicyForm(instance=node, data={"policy__listening_ports__allowlist": "none"})
         self.assertTrue(form.is_valid(), form.errors)
-        form.save()
-        node.refresh_from_db()
+        _save(form)
         self.assertEqual(node.config, {"listening_ports": {"allowlist": []}})
 
     def test_an_empty_allowlist_survives_an_untouched_save(self):
@@ -178,8 +181,7 @@ class NodePolicyFormTests(TestCase):
         data = {name: unbound.initial.get(name, "") for name in unbound.fields}
         form = NodePolicyForm(instance=node, data=data)
         self.assertTrue(form.is_valid(), form.errors)
-        form.save()
-        node.refresh_from_db()
+        _save(form)
         self.assertEqual(node.config, {"listening_ports": {"allowlist": []}})
 
     def test_clearing_an_allowlist_removes_the_policy(self):
@@ -188,8 +190,7 @@ class NodePolicyFormTests(TestCase):
         node = self._node(config={"listening_ports": {"allowlist": [22]}})
         form = NodePolicyForm(instance=node, data={"policy__listening_ports__allowlist": ""})
         self.assertTrue(form.is_valid(), form.errors)
-        form.save()
-        node.refresh_from_db()
+        _save(form)
         self.assertEqual(node.config, {"listening_ports": {}})
 
     def test_unknown_keys_survive_a_save_through_the_form(self):
@@ -203,8 +204,7 @@ class NodePolicyFormTests(TestCase):
             },
         )
         self.assertTrue(form.is_valid(), form.errors)
-        form.save()
-        node.refresh_from_db()
+        _save(form)
         self.assertEqual(node.config["made_up"], {"a": 1})
         self.assertEqual(node.config["cpu"]["future_option"], "x")
         self.assertEqual(node.config["cpu"]["warning_threshold"], 70.0)
@@ -224,7 +224,7 @@ class NodePolicyFormTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertEqual(form.policy_config, config)
 
-    def test_the_config_is_only_written_on_save(self):
+    def test_the_config_is_only_written_by_save_policy(self):
         # Task 9 compares the stored config against what the form would write,
         # so validating must not already have mutated the instance.
         node = self._node(config={"cpu": {"warning_threshold": 80, "critical_threshold": 95}})
@@ -238,8 +238,14 @@ class NodePolicyFormTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(node.config["cpu"]["warning_threshold"], 80)
         self.assertEqual(form.policy_config["cpu"]["warning_threshold"], 70.0)
-        form.save(commit=False)
-        self.assertEqual(form.instance.config["cpu"]["warning_threshold"], 70.0)
+        self.assertEqual(_save(form)["cpu"]["warning_threshold"], 70.0)
+
+    def test_save_refuses_and_names_save_policy(self):
+        node = self._node(config={"cpu": {"warning_threshold": 80, "critical_threshold": 95}})
+        form = NodePolicyForm(instance=node, data={})
+        self.assertTrue(form.is_valid(), form.errors)
+        with self.assertRaisesMessage(NotImplementedError, "save_policy"):
+            form.save()
 
 
 class StoredGarbageTests(TestCase):
@@ -285,8 +291,7 @@ class StoredGarbageTests(TestCase):
             data={name: unbound.initial.get(name, "") for name in unbound.fields},
         )
         self.assertTrue(form.is_valid(), form.errors)
-        form.save()
-        node.refresh_from_db()
+        _save(form)
         self.assertEqual(node.config["cpu"]["warning_threshold"], 90.0)
         self.assertEqual(node.config["cpu"]["critical_threshold"], 95)
 
@@ -332,8 +337,7 @@ class AddSectionTests(TestCase):
         data[ADD_SECTION_FIELD] = "disk"
         form = NodePolicyForm(instance=node, data=data)
         self.assertTrue(form.is_valid(), form.errors)
-        form.save()
-        node.refresh_from_db()
+        _save(form)
         self.assertEqual(node.config["disk"], {})
         self.assertEqual(node.config["cpu"], {"warning_threshold": 80, "critical_threshold": 95})
         self.assertEqual(node.config["made_up"], {"a": 1})
@@ -342,8 +346,7 @@ class AddSectionTests(TestCase):
         node = self._node(config={"cpu": {}})
         form = NodePolicyForm(instance=node, data={ADD_SECTION_FIELD: "memory"})
         self.assertTrue(form.is_valid(), form.errors)
-        form.save()
-        node.refresh_from_db()
+        _save(form)
         self.assertIn("policy__memory__warning_threshold", NodePolicyForm(instance=node).fields)
 
     def test_choosing_nothing_leaves_the_config_untouched(self):
@@ -359,8 +362,7 @@ class AddSectionTests(TestCase):
             },
         )
         self.assertTrue(form.is_valid(), form.errors)
-        form.save()
-        node.refresh_from_db()
+        _save(form)
         self.assertEqual(node.config, config)
 
     def test_a_checker_outside_the_specs_is_refused_and_writes_nothing(self):
@@ -433,7 +435,7 @@ class MalformedStoredValueTests(TestCase):
         )
         form = self._resubmit(node, policy__cpu__warning_threshold="85")
         self.assertTrue(form.is_valid(), form.errors)
-        config = form.save().config
+        config = _save(form)
         self.assertEqual(config["listening_ports"]["allowlist"], [22, 80])
         self.assertEqual(config["cpu"]["warning_threshold"], 85.0)
 

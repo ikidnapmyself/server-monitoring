@@ -56,8 +56,8 @@ class NodePolicyForm(forms.ModelForm):
         if self._addable:
             self.fields[ADD_SECTION_FIELD] = self._build_add_field(self._addable)
         self.initial.update(to_form_values(self.instance.config))
-        # What ``save`` will write. Overwritten by ``clean``; the stored config
-        # is the right answer for a form that is never validated at all.
+        # What ``save_policy`` will write. Overwritten by ``clean``; the stored
+        # config is the right answer for a form that is never validated at all.
         self.policy_config = self.instance.config
 
     @property
@@ -156,9 +156,9 @@ class NodePolicyForm(forms.ModelForm):
             # nobody asked for. An invalid form writes nothing, so it keeps the
             # stored config as its answer.
             return cleaned
-        # Assembled here, applied in ``save``: validation must not mutate the
-        # instance, or a caller can no longer compare the stored config against
-        # the one this form would write.
+        # Assembled here, written by ``node_policy.save_policy``: validation must
+        # not mutate the instance, or a caller can no longer compare the stored
+        # config against the one this form would write.
         config = to_config(
             {name: cleaned.get(name) for name in self.fields if name != ADD_SECTION_FIELD},
             existing=self.instance.config,
@@ -173,7 +173,7 @@ class NodePolicyForm(forms.ModelForm):
         return cleaned
 
     def save(self, commit=True):
-        # Set before ``super().save`` so ``commit=False`` still hands back an
-        # instance carrying the new policy.
-        self.instance.config = self.policy_config
-        return super().save(commit=commit)
+        raise NotImplementedError(
+            "Write policy_config with node_policy.save_policy, which checks the stored "
+            "digest and leaves last_seen alone."
+        )

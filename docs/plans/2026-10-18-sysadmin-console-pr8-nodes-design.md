@@ -70,7 +70,11 @@ The admin let two editors overwrite each other's thresholds. The form now carrie
 digest of the stored `config`, sorted JSON hashed like `scope_digest`. Save is one
 conditional `UPDATE` on the row's pk and that config. If it loses, the page answers 409:
 "This node's policy changed since you opened it. Here it is now." It shows the fresh
-boxes, and nothing is written.
+boxes, and nothing is written. A busy SQLite `OperationalError` gets the same 409.
+
+On SQLite a `JSONField` exact match compares the serialized text. A config row written
+outside Django with different JSON spacing never matches, so every save on that node gets
+409. There is no code fix for that.
 
 ### `/console/nodes/<pk>/reevaluate/`
 

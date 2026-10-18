@@ -303,7 +303,8 @@ reads them.
 `apps/alerts/node_policy.py` (plain functions and dataclasses, testable without a request)
 and the form is `NodePolicyForm` in `apps/alerts/forms.py`. The console editor
 (`/console/nodes/<pk>/policy/`) renders it through `policy_groups()` and saves through
-`save_policy`, never `form.save()`.
+`save_policy`. `NodePolicyForm.save()` raises `NotImplementedError`, because a model save
+bumps `last_seen` and skips the stale check.
 
 - **The field spec is derived, not restated.** `FIELD_SPECS` is built from
   `reevaluation.SCORERS` and `PRIMARY_METRIC`, so adding a scorer adds a form section with
@@ -374,8 +375,9 @@ its own.
   even when it matches no open alert. Only an empty one means the whole node. The page builds in three constant queries,
   so keep any new column out of the per-row path.
 - **`/console/nodes/<pk>/reevaluate/` states its consequences before anything is written**,
-  through the shared `partials/_reeval.html`: each alert by name, the run count, the sweep
-  and the re-open warning, and the skip sentences. A confirm that would write nothing must
+  through the shared `partials/_reeval.html`: each alert by name with its stored value and
+  when the node reported it (`updated_at`), the run count, the sweep and the re-open
+  warning, and the skip sentences. A confirm that would write nothing must
   still show the skip sentences. A node-wide scope with no changes and no skips says "No
   open alerts need re-evaluation." and offers no apply.
 
