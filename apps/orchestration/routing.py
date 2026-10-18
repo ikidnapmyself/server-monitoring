@@ -9,6 +9,78 @@ docs/plans/2026-08-01-pipeline-routing-phase-a.md.
 
 from typing import Any
 
+from django.db import models
+
+from apps.alerts.models import AlertSeverity, AlertStatus
+from apps.orchestration.models import PipelineOrigin
+
+FIELDS: dict[str, str] = {
+    "source": "Source",
+    "severity": "Severity",
+    "status": "Status",
+    "instance": "Host",
+    "origin": "Started by",
+    "label": "Label",
+}
+OPS: dict[str, str] = {"is": "is", "is-not": "is not", "in": "is one of", "not-in": "is not one of"}
+MEMBERSHIP = ("in", "not-in")
+CHOICES: dict[str, type[models.TextChoices]] = {
+    "severity": AlertSeverity,
+    "status": AlertStatus,
+    "origin": PipelineOrigin,
+}
+
+
+def split_field(field: str) -> tuple[str, str]:
+    """``"label:team"`` -> ``("label", "team")``; ``"source"`` -> ``("source", "")``."""
+    kind, _, key = field.partition(":")
+    return kind, key
+
+
+def value_words(kind: str, value: str) -> str:
+    """A choice value as its label; anything else as sent."""
+    choices = CHOICES.get(kind)
+    if choices is not None and value in choices.values:
+        return str(choices(value).label)
+    return value
+
+
+def describe_condition(cond: Any) -> str | None:
+    """One condition in words, or None when the console's editor can't express it."""
+    if not isinstance(cond, dict) or not isinstance(cond.get("field"), str):
+        return None
+    kind, key = split_field(cond["field"])
+    if kind not in FIELDS or (kind == "label") != bool(key):
+        return None
+    op, value = cond.get("op", "is"), cond.get("value")
+    if op not in OPS:
+        return None
+    if op in MEMBERSHIP:
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            return None
+        said = ", ".join(value_words(kind, v) for v in value)
+    elif isinstance(value, str):
+        said = value_words(kind, value)
+    else:
+        return None
+    subject = f"{FIELDS[kind]} {key}" if key else FIELDS[kind]
+    return f"{subject} {OPS[op]} {said}"
+
+
+def representable(match: Any) -> bool:
+    """True if ``match`` is a list whose every condition the console can read."""
+    return isinstance(match, list) and all(describe_condition(c) is not None for c in match)
+
+
+def describe_match(match: Any) -> str:
+    """A route's conditions in words."""
+    if not match:
+        return "Matches everything"
+    words = [describe_condition(c) for c in match] if isinstance(match, list) else [None]
+    if None in words:
+        return "Uses conditions the console can't show"
+    return " and ".join(w for w in words if w)
+
 
 def subject_alert(alerts: Any) -> Any:
     """Most severe alert in a batch, ties broken by name then fingerprint.
