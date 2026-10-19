@@ -112,3 +112,23 @@ def test_the_digest_is_a_sha256_hmac_of_the_sorted_fields(channel):
 
     assert digest(stored) == salted_hmac(SALT, payload, algorithm="sha256").hexdigest()
     assert len(digest(stored)) == 64
+
+
+def test_a_model_without_updated_at_saves_without_stamping_it():
+    from config.models import APIKey
+
+    key = APIKey.objects.create(name="ops")
+    fields = ("name", "is_active")
+    stored = APIKey.objects.filter(pk=key.pk).values(*fields).get()
+
+    save_if_unchanged(
+        APIKey,
+        key.pk,
+        fields,
+        {"name": "renamed"},
+        salt=SALT,
+        expected=row_digest(SALT, stored, fields),
+    )
+
+    key.refresh_from_db()
+    assert key.name == "renamed"

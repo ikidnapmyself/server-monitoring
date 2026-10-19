@@ -25,6 +25,10 @@ def _stored(model, pk: int, fields: tuple[str, ...]) -> list[dict]:
     return list(model.objects.filter(pk=pk).values(*fields))
 
 
+def _has_field(model, name: str) -> bool:
+    return any(field.name == name for field in model._meta.concrete_fields)
+
+
 def save_if_unchanged(
     model, pk: int, fields: tuple[str, ...], values: dict, *, salt: str, expected: str
 ) -> None:
@@ -34,6 +38,7 @@ def save_if_unchanged(
         raise Stale
     # SQLite ignores row locks. Matching the row just read means a save that landed in
     # between wins, and this update matches no row.
-    updated = model.objects.filter(pk=pk, **stored[0]).update(**values, updated_at=timezone.now())
+    stamp = {"updated_at": timezone.now()} if _has_field(model, "updated_at") else {}
+    updated = model.objects.filter(pk=pk, **stored[0]).update(**values, **stamp)
     if not updated:
         raise Stale
