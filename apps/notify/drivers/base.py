@@ -52,6 +52,7 @@ class BaseNotifyDriver(ABC):
     name: str = "base"
     label: str = ""
     config_fields: tuple[ConfigField, ...] = ()
+    credential_aliases: tuple[str, ...] = ()
 
     _templating_service = NotificationTemplatingService()
 

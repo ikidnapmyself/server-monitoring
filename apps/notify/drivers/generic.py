@@ -21,6 +21,7 @@ class GenericNotifyDriver(BaseNotifyDriver):
 
     name = "generic"
     label = "Generic webhook"
+    credential_aliases = ("webhook_url",)
     config_fields = (
         ConfigField("endpoint", "Endpoint URL", "url", secret=True),
         ConfigField(
