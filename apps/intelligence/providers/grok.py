@@ -8,7 +8,8 @@ from typing import Any
 
 from django.conf import settings
 
-from apps.intelligence.providers.ai_base import BaseAIProvider
+from apps.intelligence.providers.ai_base import AI_FIELDS, BaseAIProvider
+from config.config_fields import ConfigField
 from config.security.url_validation import validate_safe_url
 
 
@@ -18,6 +19,10 @@ class GrokRecommendationProvider(BaseAIProvider):
     name = "grok"
     description = "Grok (xAI) intelligence provider"
     default_model = "grok-3-mini"
+    config_fields = (
+        *AI_FIELDS,
+        ConfigField("base_url", "API address", "url", default="https://api.x.ai/v1"),
+    )
 
     def __init__(
         self,

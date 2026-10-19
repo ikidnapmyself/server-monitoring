@@ -17,8 +17,16 @@ from apps.intelligence.providers.base import (
     RecommendationPriority,
     RecommendationType,
 )
+from config.config_fields import ConfigField
 
 logger = logging.getLogger(__name__)
+
+AI_FIELDS = (
+    ConfigField("api_key", "API key", "text", secret=True),
+    ConfigField("model", "Model", "text", help="Leave blank for the provider's default."),
+    ConfigField("max_tokens", "Most tokens per answer", "int"),
+    ConfigField("timeout_s", "Timeout (seconds)", "int"),
+)
 
 
 class BaseAIProvider(BaseProvider):
@@ -32,6 +40,7 @@ class BaseAIProvider(BaseProvider):
     default_model: str = ""
     default_max_tokens: int = 1024
     default_timeout_s: int = 30
+    config_fields: tuple[ConfigField, ...] = AI_FIELDS
 
     SYSTEM_PROMPT = (
         "You are an expert system administrator and incident response specialist.\n"

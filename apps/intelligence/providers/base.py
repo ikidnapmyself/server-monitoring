@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from config.config_fields import ConfigField
+
 logger = logging.getLogger(__name__)
 
 SENSITIVE_PATTERNS = {"key", "secret", "token", "password", "api"}
@@ -79,6 +81,12 @@ class BaseProvider(ABC):
 
     name: str = "base"
     description: str = "Base intelligence provider"
+    config_fields: tuple[ConfigField, ...] = ()
+    unused_config: tuple[str, ...] = ()
+
+    @classmethod
+    def all_config_fields(cls) -> tuple[ConfigField, ...]:
+        return cls.config_fields
 
     @abstractmethod
     def analyze(

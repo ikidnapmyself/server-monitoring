@@ -8,7 +8,8 @@ from typing import Any
 
 from django.conf import settings
 
-from apps.intelligence.providers.ai_base import BaseAIProvider
+from apps.intelligence.providers.ai_base import AI_FIELDS, BaseAIProvider
+from config.config_fields import ConfigField
 from config.security.url_validation import validate_safe_url
 
 
@@ -18,6 +19,11 @@ class OllamaRecommendationProvider(BaseAIProvider):
     name = "ollama"
     description = "Ollama local LLM intelligence provider"
     default_model = "llama3.1"
+    config_fields = (
+        *AI_FIELDS[1:],
+        ConfigField("host", "Ollama address", "url", default="http://localhost:11434"),
+    )
+    unused_config = ("api_key",)
 
     def __init__(
         self,
