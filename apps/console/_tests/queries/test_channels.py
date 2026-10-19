@@ -5,6 +5,7 @@ from django.test.utils import CaptureQueriesContext
 from apps.console.queries.channels import (
     LaneLine,
     UnknownDriver,
+    build_channel_deletion,
     build_channel_editor,
     build_channel_list,
     driver_choices,
@@ -182,3 +183,28 @@ class TestTheEditor:
         assert not editor.form.is_bound
         assert editor.form.initial["name"] == "renamed"
         assert editor.form.driver_key == "email"
+
+
+class TestTheDeletion:
+    def test_a_missing_channel_is_none(self):
+        assert build_channel_deletion(999) is None
+
+    def test_it_names_only_the_lanes_that_notify(self):
+        ch = _channel("ops")
+        web = PipelineDefinition.objects.create(name="web", stages=["notify"], channel=ch)
+        PipelineDefinition.objects.create(name="quiet", stages=["check"], channel=ch)
+
+        deletion = build_channel_deletion(ch.pk)
+
+        assert deletion.name == "ops"
+        assert deletion.cut == (Action("web", "edit_route", {"pk": web.pk}),)
+        assert deletion.url == f"/console/channels/{ch.pk}/delete/"
+        assert deletion.back_url == f"/console/channels/{ch.pk}/"
+
+    def test_the_editor_offers_it_only_for_an_existing_channel(self):
+        ch = _channel("ops")
+
+        existing = build_channel_editor(ch.pk, can_change=True)
+
+        assert existing.delete == Action("Delete channel", "delete_channel", {"pk": ch.pk})
+        assert build_channel_editor(None, driver="slack", can_change=True).delete is None

@@ -141,7 +141,7 @@ def test_the_editor_renders_the_channel(client, superuser, channel):
         f'<a id="channel-back" class="c-crumb" href="/console/channels/#channel-{channel.pk}"'
         in (body)
     )
-    assert "Delete channel" not in body
+    assert f'href="/console/channels/{channel.pk}/delete/">Delete channel</a>' in body
     assert "data-poll" not in body[body.index("<main") :]
 
 

@@ -113,8 +113,9 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         + ["/console/channels/", "/console/channels/new/"]
         + [f"/console/channels/new/?driver={key}" for key in DRIVER_REGISTRY]
         + [
-            f"/console/channels/{pk}/"
+            f"/console/channels/{pk}/{page}"
             for pk in NotificationChannel.objects.values_list("pk", flat=True)
+            for page in ("", "delete/")
         ]
         + [f"/console/nodes/{pk}/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/policy/" for pk in world.node_pks]

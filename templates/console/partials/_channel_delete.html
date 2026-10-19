@@ -1,0 +1,15 @@
+{% load console %}<a id="channel-delete-back" class="c-crumb" href="{{ deletion.back_url }}">{% include "console/partials/_octicon.html" with name="chevron-right" %}Back to channel {{ deletion.name }}</a>
+<div class="c-pagehead"><div class="c-pagehead__top"><h1 class="c-pagehead__title">Delete channel {{ deletion.name }}?</h1></div></div>
+<section class="c-box c-comment">
+  <h2 class="c-box__header c-box__title">What deleting does</h2>
+  <div id="channel-delete-consequence" class="c-box__body">
+    {% if deletion.cut %}<p>These routes will stop delivering:</p>
+    <ul class="c-bullets">{% for lane in deletion.cut %}{% resolved lane as act %}<li>{% if act.url %}<a id="channel-delete-lane-{{ forloop.counter }}" href="{{ act.url }}">{{ act.text }}</a>{% else %}{{ act.text }}{% endif %}</li>{% endfor %}</ul>
+    {% else %}<p>No route delivers through it.</p>{% endif %}
+  </div>
+</section>
+<form method="post" action="{{ deletion.url }}" data-disable-on-submit>
+  {% csrf_token %}
+  <button id="channel-delete-confirm" class="c-button c-button--danger" type="submit">Delete channel</button>
+  <a id="channel-delete-cancel" class="c-button" href="{{ deletion.back_url }}">Cancel</a>
+</form>

@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
-from apps.notify.channels import FIELDS, channel_digest
+from apps.notify.channels import FIELDS, channel_digest, lanes_cut_by_delete
 from apps.notify.drivers import DRIVER_REGISTRY
 from apps.notify.forms import UNKNOWN_DRIVER, ChannelForm
 from apps.notify.models import NotificationChannel
@@ -70,6 +70,37 @@ class ChannelEditor:
     lanes: tuple[LaneLine, ...]
     facts: tuple[Fact, ...]
     can_change: bool
+
+    @property
+    def delete(self) -> Action | None:
+        if self.pk is None:
+            return None
+        return Action("Delete channel", "delete_channel", {"pk": self.pk})
+
+
+@dataclass(frozen=True)
+class ChannelDeletion:
+    pk: int
+    name: str
+    cut: tuple[Action, ...]
+    url: str
+    back_url: str
+
+
+def build_channel_deletion(pk: int) -> ChannelDeletion | None:
+    channel = NotificationChannel.objects.filter(pk=pk).first()
+    if channel is None:
+        return None
+    return ChannelDeletion(
+        pk=channel.pk,
+        name=channel.name,
+        cut=tuple(
+            Action(lane.name, "edit_route", {"pk": lane.pk})
+            for lane in lanes_cut_by_delete(channel)
+        ),
+        url=reverse("console:channel-delete", args=[channel.pk]),
+        back_url=reverse("console:channel", args=[channel.pk]),
+    )
 
 
 def _label(driver: str) -> str:
