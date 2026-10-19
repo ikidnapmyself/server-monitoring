@@ -16,6 +16,7 @@ CHANNEL_FIELDS = ("name", "driver", "is_active", "description", "config")
 SET_HELP = "Set. Leave blank to keep it."
 UNSET_HELP = "Not set."
 ALIAS_HELP = "Set under an older name. Leave blank to keep it."
+NAME_TAKEN = "Another channel already has this name."
 HEADER_ERROR = "Write each header on its own line as Name: value."
 
 
@@ -197,7 +198,7 @@ class ChannelForm(forms.Form):
         if self.channel:
             others = others.exclude(pk=self.channel.pk)
         if others.exists():
-            raise ValidationError("Another channel already has this name.")
+            raise ValidationError(NAME_TAKEN)
         return name
 
     def clean(self) -> dict:

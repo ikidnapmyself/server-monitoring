@@ -1,0 +1,36 @@
+{% load console %}{% url 'console:channels' as channels_url %}<div id="channels">
+  {% if channels.can_add %}<p>{% resolved channels.add as act %}{% include "console/partials/_action.html" with act=act id="channels-add" %}</p>{% endif %}
+  <form class="c-search" role="search" method="get" action="{{ channels_url }}" hx-get="{{ channels_url }}" hx-target="#channels" hx-swap="outerHTML" hx-push-url="true" hx-sync="#channels:replace">
+    <label class="c-sr-only" for="channels-q">Search channels</label>
+    <input id="channels-q" class="c-search__input" type="search" name="q" value="{{ channels.q }}" maxlength="255" placeholder="Channel name">
+    <button id="channels-search" class="c-button c-button--sm" type="submit">Search</button>
+  </form>
+  <div class="c-box">
+    {% if channels.rows %}
+    <ul class="c-box__list">
+      {% for row in channels.rows %}
+      <li id="{{ row.anchor }}" class="c-box__row c-row">
+        <div class="c-row__main">
+          {% resolved row.edit as act %}{% if act.url %}<a id="{{ row.anchor }}-edit" href="{{ act.url }}">{{ act.text }}</a>{% else %}<strong>{{ act.text }}</strong>{% endif %}
+          <span class="c-label">{{ row.driver_label }}</span>
+          {% if row.active %}<span class="c-label c-tone-ok">Active</span>{% else %}<span class="c-label c-tone-muted">Inactive</span>{% endif %}
+          <div class="c-row__meta">{% if row.lanes %}Routed here by {% for line in row.lanes %}{% resolved line.action as act %}{% if act.url %}<a id="{{ row.anchor }}-lane-{{ forloop.counter }}" href="{{ act.url }}">{{ act.text }}</a>{% else %}{{ act.text }}{% endif %}{% if line.gap_words %} <span class="c-tone-critical">(can't deliver: {{ line.gap_words }})</span>{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}{% else %}No route sends here{% endif %}</div>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% elif channels.q %}
+    <div class="c-blankslate">
+      {% include "console/partials/_octicon.html" with name="bell" %}
+      <h2 class="c-blankslate__heading">No channels match this search.</h2>
+      <p><a id="channels-clear" href="{{ channels_url }}" hx-get="{{ channels_url }}" hx-target="#channels" hx-swap="outerHTML" hx-push-url="true" hx-sync="#channels:replace">Clear the search</a></p>
+    </div>
+    {% else %}
+    <div class="c-blankslate">
+      {% include "console/partials/_octicon.html" with name="bell" %}
+      <h2 class="c-blankslate__heading">No channels.</h2>
+      <p>Until one exists, no route can deliver.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>

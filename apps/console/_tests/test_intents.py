@@ -60,14 +60,14 @@ def test_missing_permission_is_text(staff):
 @pytest.mark.django_db
 def test_permitted_link(admin_user):
     resolved = resolve_action(Action("Fix", intent="edit_channel"), admin_user)
-    assert resolved == ResolvedAction("Fix", "/admin/notify/notificationchannel/", "get")
+    assert resolved == ResolvedAction("Fix", "/console/channels/", "get")
 
 
 @pytest.mark.django_db
 def test_named_channel_is_searched(admin_user):
     action = Action("Fix", intent="edit_channel", params={"name": "ops & on-call"})
     resolved = resolve_action(action, admin_user)
-    assert resolved.url == "/admin/notify/notificationchannel/?q=ops+%26+on-call"
+    assert resolved.url == "/console/channels/?q=ops+%26+on-call"
 
 
 @pytest.mark.django_db
@@ -186,10 +186,28 @@ def test_a_route_viewer_can_list_routes_but_not_edit_one(django_user_model):
 
 
 @pytest.mark.django_db
-def test_a_channel_named_by_pk_and_name_opens_its_admin_list(admin_user):
+def test_a_channel_named_by_pk_and_name_opens_its_page(admin_user):
     action = Action("Open ops", intent="edit_channel", params={"pk": 7, "name": "ops"})
     resolved = resolve_action(action, admin_user)
-    assert resolved.url == "/admin/notify/notificationchannel/?q=ops"
+    assert resolved.url == "/console/channels/7/"
+
+
+@pytest.mark.django_db
+def test_the_channel_intents_need_their_own_permissions(django_user_model):
+    user = _user_with(django_user_model, "notify.view_notificationchannel")
+
+    go = Action("Go", intent="view_channels", params={"name": "ops"})
+    assert resolve_action(go, user).url == "/console/channels/?q=ops"
+    assert resolve_action(Action("Go", intent="edit_channel", params={"pk": 7}), user).url == ""
+    assert resolve_action(Action("Go", intent="add_channel"), user).url == ""
+    assert resolve_action(Action("Go", intent="delete_channel", params={"pk": 7}), user).url == ""
+
+
+@pytest.mark.django_db
+def test_add_channel_opens_the_driver_picker(admin_user):
+    assert resolve_action(Action("Add", intent="add_channel"), admin_user).url == (
+        "/console/channels/new/"
+    )
 
 
 @pytest.mark.django_db

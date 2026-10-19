@@ -149,6 +149,12 @@ pipeline stage and not an alert producer.
   registered nor on an open alert of the node gets the fixed title "Re-evaluate one
   checker's alerts on <node>", so a typed name never reaches the page. On both pages, an
   apply whose fresh report has no changes writes nothing and answers 409 with the preview.
+- **A channel page never renders a secret.** `/console/channels/<pk>/` renders
+  `ChannelForm`, whose secret inputs render empty and whose undeclared settings show by
+  name only, in Details. The page posts to its own URL with `?driver=`, the driver its
+  fields were built for. "Show this driver's settings" (`switch_driver`) re-renders and
+  saves nothing, and a driver key that's neither registered nor the channel's own is a 400.
+  A save carries `channel_digest`, and `save_channel` refuses a stale one with a 409.
 - **Fleet policy** (`/console/policy/`) renders `build_policy_overview`. Its edit and
   re-evaluate links are intents, so a reader sees none.
 - **A missing record gets a console 404 page** with a link onward, returned with status
@@ -166,9 +172,9 @@ pipeline stage and not an alert producer.
 - **`intents.py` is the only place that builds an admin URL.** `INTENTS` maps each
   `Action.intent` to a URL builder, a method and a permission. `resolve_action` turns an
   `Action` into a link, a POST button, or plain text when the intent is unknown, the user
-  lacks its permission or the URL can't be built. Config intents such as `edit_route`,
-  `edit_channel` and `edit_provider` point at the admin until their domain gets a console
-  page, and then only their entry here changes. `admin_url()` covers the chrome's index,
+  lacks its permission or the URL can't be built. Config intents such as `edit_provider`
+  point at the admin until their domain gets a console page, and then only their entry
+  here changes. Routes and channels already have theirs. `admin_url()` covers the chrome's index,
   login and logout links. No template or query reverses an `admin:` name or writes
   `/admin/`, and `_tests/test_intents.py` scans for both. Templates resolve an action with
   `{% load console %}{% resolved action as act %}` and render it through

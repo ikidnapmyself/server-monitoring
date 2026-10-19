@@ -7,6 +7,8 @@ import pytest
 
 from apps.alerts.models import Alert
 from apps.console._tests.fixtures import build_world
+from apps.notify._tests.test_forms import STORED
+from apps.notify.drivers import DRIVER_REGISTRY
 from apps.notify.models import NotificationChannel
 from apps.orchestration.describing import REASONS
 from apps.orchestration.models import PipelineDefinition
@@ -85,6 +87,10 @@ def _get(client, url, headers):
 @pytest.mark.parametrize("partial", [False, True])
 def test_no_page_leaks_identifiers(client, superuser, partial):
     world = build_world()
+    for driver, config in STORED.items():
+        NotificationChannel.objects.create(
+            name=f"{driver}-off", driver=driver, config=config, is_active=False
+        )
     client.force_login(superuser)
     headers = {"HX-Request": "true"} if partial else {}
     alert_pks = list(Alert.objects.values_list("pk", flat=True))
@@ -103,6 +109,12 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
             f"/console/routes/{pk}/{page}"
             for pk in PipelineDefinition.objects.values_list("pk", flat=True)
             for page in ("", "delete/")
+        ]
+        + ["/console/channels/", "/console/channels/new/"]
+        + [f"/console/channels/new/?driver={key}" for key in DRIVER_REGISTRY]
+        + [
+            f"/console/channels/{pk}/"
+            for pk in NotificationChannel.objects.values_list("pk", flat=True)
         ]
         + [f"/console/nodes/{pk}/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/policy/" for pk in world.node_pks]

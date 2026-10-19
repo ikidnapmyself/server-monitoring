@@ -105,7 +105,7 @@ def test_a_superuser_gets_the_links(client, superuser, url):
 
     bound_card = _card(body, bound)
     assert "Delivers to ops" in bound_card
-    assert 'href="/admin/notify/notificationchannel/?q=ops">Open ops</a>' in bound_card
+    assert f'href="/console/channels/{ch.pk}/">Open ops</a>' in bound_card
     assert f'href="/console/routes/{bound.pk}/">Edit route</a>' in bound_card
     assert "Set up without delivery. It delivers once a channel is active." in bound_card
     bare_card = _card(body, bare)
