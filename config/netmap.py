@@ -10,7 +10,7 @@ Design: docs/plans/2026-08-23-network-map-design.md
 
 from apps.orchestration.describing import REASONS, STAGE_NAMES
 from apps.orchestration.models import PipelineDefinition
-from apps.orchestration.routing import describe_condition, describe_match
+from apps.orchestration.routing import describe_condition, describe_match, never_matches
 from apps.orchestration.seeding import SEED_SHAPE_KEY
 from config.describing import Action
 
@@ -90,32 +90,6 @@ def _lane_shadows(a_match: list, b_match: list) -> bool:
     return all(_cond_implied(b_match, a_cond) for a_cond in a_match)
 
 
-_MATCH_OPS = ("is", "is-not", "in", "not-in")
-
-
-def _never_matches(match) -> bool:
-    """Static mirror of ``PipelineDefinition.matches()`` fail-closed rules.
-
-    A condition that can never hold — non-dict, unknown op, membership without a
-    list — makes the whole lane unmatchable. A falsy non-list ``match`` (None,
-    ``{}``) iterates as empty in ``matches()`` (catch-all), so it is NOT
-    never-matching; a truthy non-list iterates junk there and fails closed, so
-    it IS. Emptiness/contradiction (e.g. ``in []``) is deliberately not
-    checked — conservative toward drawing a normal lane.
-    """
-    if not isinstance(match, list):
-        return bool(match)  # falsy → catch-all in matches(); truthy → iterates junk, fails closed
-    for c in match:
-        if not isinstance(c, dict):
-            return True
-        op = c.get("op", "is")
-        if op not in _MATCH_OPS:
-            return True
-        if op in ("in", "not-in") and not isinstance(c.get("value"), (list, tuple)):
-            return True
-    return False
-
-
 def _annotate_shadows(lanes) -> dict[str, str]:
     """Map lane name → name of the earlier active lane that provably shadows it.
 
@@ -131,7 +105,7 @@ def _annotate_shadows(lanes) -> dict[str, str]:
     shadowed: dict[str, str] = {}
     candidates: list = []  # earlier lanes that can actually win traffic
     for b in lanes:
-        if b.is_active and not _never_matches(b.match):
+        if b.is_active and not never_matches(b.match):
             for a in candidates:
                 if _lane_shadows(a.match or [], b.match or []):
                     shadowed[b.name] = a.name
@@ -206,7 +180,7 @@ def get_map_context() -> dict:
     for lane in lanes:
         if not lane.is_active:
             state = "inactive"
-        elif _never_matches(lane.match):
+        elif never_matches(lane.match):
             state = "never-matches"
         elif lane.name in shadows:
             state = "shadowed"

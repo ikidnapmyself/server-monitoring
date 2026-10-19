@@ -119,10 +119,34 @@ def save_route(pk: int, fields: dict, *, expected: int) -> None:
         raise StaleRoute
 
 
+def never_matches(match) -> bool:
+    """Static mirror of ``PipelineDefinition.matches()`` fail-closed rules.
+
+    A condition that can never hold makes the whole lane unmatchable: a non-dict, an
+    unknown op, or membership without a list. A falsy non-list ``match`` (None, ``{}``)
+    iterates as empty in ``matches()``, so it's a catch-all. A truthy non-list iterates
+    junk there and fails closed. Emptiness and contradiction, such as ``in []``, are
+    deliberately not checked, so a doubtful lane is drawn as a normal one.
+    """
+    if not isinstance(match, list):
+        return bool(match)
+    for c in match:
+        if not isinstance(c, dict):
+            return True
+        op = c.get("op", "is")
+        if op not in OPS:
+            return True
+        if op in ("in", "not-in") and not isinstance(c.get("value"), (list, tuple)):
+            return True
+    return False
+
+
 def fallthrough(lane: PipelineDefinition) -> str:
     """Where traffic this route matched goes once it's deleted."""
     if not lane.is_active:
         return "This route is off, so deleting it changes no routing."
+    if never_matches(lane.match):
+        return "This route matches nothing, so deleting it changes no routing."
     position = (lane.priority, lane.id)
     for other in PipelineDefinition.objects.filter(is_active=True).order_by("priority", "id"):
         if other.match:

@@ -10,7 +10,6 @@ from config.netmap import (
     _annotate_shadows,
     _cond_implied,
     _lane_shadows,
-    _never_matches,
     get_map_context,
 )
 
@@ -100,28 +99,6 @@ class TestLaneShadows:
         a = [cond("source", "is", "cluster")]
         b = [cond("source", "is", "cluster"), cond("sev", "is", "high")]
         assert _lane_shadows(a, b) is True
-
-
-class TestNeverMatches:
-    """Static mirror of matches() fail-closed rules."""
-
-    @pytest.mark.parametrize(
-        "match,expected",
-        [
-            ([], False),
-            ([cond("sev", "is", "high")], False),
-            (["not-a-dict"], True),
-            ([cond("sev", "frobnicate", "x")], True),
-            ([cond("sev", "in", "high")], True),  # membership needs a list
-            ([cond("sev", "not-in", "high")], True),
-            (None, False),  # falsy non-list → catch-all in matches()
-            ({}, False),  # falsy dict → catch-all
-            ("junk", True),  # truthy non-list iterates junk in matches() → fails closed
-            ({"a": 1}, True),  # truthy non-list
-        ],
-    )
-    def test_table(self, match, expected):
-        assert _never_matches(match) is expected
 
 
 def lane(name, match, active=True):

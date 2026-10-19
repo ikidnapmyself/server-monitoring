@@ -9,6 +9,7 @@ from apps.orchestration.routing import (
     describe_condition,
     describe_match,
     fallthrough,
+    never_matches,
     representable,
     save_route,
     split_field,
@@ -270,3 +271,32 @@ def test_fallthrough_without_a_later_catch_all(lanes):
     assert fallthrough(route) == (
         "Traffic only it matched will match no route, and those runs will fail as unrouted."
     )
+
+
+def _cond(field, op, value):
+    return {"field": field, "op": op, "value": value}
+
+
+@pytest.mark.parametrize(
+    "match,expected",
+    [
+        ([], False),
+        ([_cond("sev", "is", "high")], False),
+        (["not-a-dict"], True),
+        ([_cond("sev", "frobnicate", "x")], True),
+        ([_cond("sev", "in", "high")], True),
+        ([_cond("sev", "not-in", "high")], True),
+        (None, False),
+        ({}, False),
+        ("junk", True),
+        ({"a": 1}, True),
+    ],
+)
+def test_never_matches(match, expected):
+    assert never_matches(match) is expected
+
+
+def test_fallthrough_a_route_that_matches_nothing(lanes):
+    route = lanes("web", priority=100, match=[_cond("sev", "frobnicate", "x")])
+    lanes("catch-all", priority=1000, match=[])
+    assert fallthrough(route) == "This route matches nothing, so deleting it changes no routing."
