@@ -1,4 +1,6 @@
 <nav class="c-subnav" aria-label="System">
   {% if perms.orchestration.view_pipelinedefinition or perms.orchestration.change_pipelinedefinition %}<a class="c-subnav__item" href="{% url 'console:routes' %}"{% if section == "routes" %} aria-current="page"{% endif %}>Routes</a>{% endif %}
   {% if perms.notify.view_notificationchannel or perms.notify.change_notificationchannel %}<a class="c-subnav__item" href="{% url 'console:channels' %}"{% if section == "channels" %} aria-current="page"{% endif %}>Channels</a>{% endif %}
+  {% if perms.intelligence.view_intelligenceprovider or perms.intelligence.change_intelligenceprovider %}{% url 'console:providers' as providers_url %}{% if providers_url %}<a class="c-subnav__item" href="{{ providers_url }}"{% if section == "providers" %} aria-current="page"{% endif %}>Providers</a>{% endif %}{% endif %}
+  {% if perms.config_app.view_apikey or perms.config_app.change_apikey %}{% url 'console:keys' as keys_url %}{% if keys_url %}<a class="c-subnav__item" href="{{ keys_url }}"{% if section == "keys" %} aria-current="page"{% endif %}>API keys</a>{% endif %}{% endif %}
 </nav>

@@ -26,6 +26,17 @@ CHANNEL_READ = ("notify.view_notificationchannel", "notify.change_notificationch
 CHANNEL_CHANGE = "notify.change_notificationchannel"
 CHANNEL_ADD = "notify.add_notificationchannel"
 CHANNEL_DELETE = "notify.delete_notificationchannel"
+PROVIDER_READ = (
+    "intelligence.view_intelligenceprovider",
+    "intelligence.change_intelligenceprovider",
+)
+PROVIDER_CHANGE = "intelligence.change_intelligenceprovider"
+PROVIDER_ADD = "intelligence.add_intelligenceprovider"
+PROVIDER_DELETE = "intelligence.delete_intelligenceprovider"
+KEY_READ = ("config_app.view_apikey", "config_app.change_apikey")
+KEY_CHANGE = "config_app.change_apikey"
+KEY_ADD = "config_app.add_apikey"
+KEY_DELETE = "config_app.delete_apikey"
 
 
 @dataclass(frozen=True)
@@ -109,6 +120,19 @@ def _channel(params: dict[str, Any]) -> str:
     return _page("console:channels", "q", "name")(params)
 
 
+def _record_or_list(record: str, listing: str) -> Callable[[dict[str, Any]], str]:
+    def build(params: dict[str, Any]) -> str:
+        if params.get("pk"):
+            return reverse(record, args=[params["pk"]])
+        return reverse(listing)
+
+    return build
+
+
+_provider = _record_or_list("console:provider", "console:providers")
+_key = _record_or_list("console:key", "console:keys")
+
+
 def _external(params: dict[str, Any]) -> str:
     url = str(params["url"])
     if urlsplit(url).scheme not in ("http", "https"):
@@ -126,11 +150,14 @@ INTENTS: dict[str, Intent] = {
     "edit_channel": Intent(_channel, "get", CHANNEL_CHANGE),
     "add_channel": Intent(_page("console:channel-new"), "get", CHANNEL_ADD),
     "delete_channel": Intent(_record("console:channel-delete"), "get", CHANNEL_DELETE),
-    "edit_provider": Intent(
-        _page("admin:intelligence_intelligenceprovider_changelist"),
-        "get",
-        "intelligence.change_intelligenceprovider",
-    ),
+    "view_provider": Intent(_provider, "get", PROVIDER_READ),
+    "edit_provider": Intent(_provider, "get", PROVIDER_CHANGE),
+    "add_provider": Intent(_page("console:provider-new"), "get", PROVIDER_ADD),
+    "delete_provider": Intent(_record("console:provider-delete"), "get", PROVIDER_DELETE),
+    "view_key": Intent(_key, "get", KEY_READ),
+    "edit_key": Intent(_key, "get", KEY_CHANGE),
+    "add_key": Intent(_page("console:key-new"), "get", KEY_ADD),
+    "delete_key": Intent(_record("console:key-delete"), "get", KEY_DELETE),
     "view_preflight": Intent(
         _page("admin:checkers_preflightrun_changelist"), "get", "checkers.view_preflightrun"
     ),

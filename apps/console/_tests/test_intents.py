@@ -5,6 +5,7 @@ import pytest
 from django.conf import settings
 from django.contrib.auth.models import Permission
 from django.template import Context, Template
+from django.template.loader import render_to_string
 from django.test import RequestFactory
 from django.urls import reverse
 
@@ -126,7 +127,6 @@ def test_query_params_are_encoded(admin_user):
 @pytest.mark.parametrize(
     ("intent", "params", "url"),
     [
-        ("edit_provider", {}, "/admin/intelligence/intelligenceprovider/"),
         ("view_preflight", {}, "/admin/checkers/preflightrun/"),
         ("view_check_run", {"pk": 7}, "/admin/checkers/checkrun/7/change/"),
         ("view_preflight_run", {"pk": 7}, "/admin/checkers/preflightrun/7/change/"),
@@ -419,3 +419,113 @@ def test_an_edit_link_needs_the_change_permission(django_user_model, perm, inten
 
 def test_the_list_intents_are_gone():
     assert not {"view_routes", "view_channels"} & set(INTENTS)
+
+
+PROVIDER_AND_KEY_INTENTS = [
+    ("view_provider", {}, "intelligence.view_intelligenceprovider"),
+    ("view_provider", {"pk": 7}, "intelligence.view_intelligenceprovider"),
+    ("view_provider", {"pk": 7}, "intelligence.change_intelligenceprovider"),
+    ("edit_provider", {}, "intelligence.change_intelligenceprovider"),
+    ("edit_provider", {"pk": 7}, "intelligence.change_intelligenceprovider"),
+    ("add_provider", {}, "intelligence.add_intelligenceprovider"),
+    ("delete_provider", {"pk": 7}, "intelligence.delete_intelligenceprovider"),
+    ("view_key", {}, "config_app.view_apikey"),
+    ("view_key", {"pk": 7}, "config_app.view_apikey"),
+    ("view_key", {"pk": 7}, "config_app.change_apikey"),
+    ("edit_key", {"pk": 7}, "config_app.change_apikey"),
+    ("add_key", {}, "config_app.add_apikey"),
+    ("delete_key", {"pk": 7}, "config_app.delete_apikey"),
+]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("intent", "params", "permission"), PROVIDER_AND_KEY_INTENTS)
+def test_a_provider_or_key_intent_is_text_until_its_page_exists(
+    django_user_model, intent, params, permission
+):
+    user = _user_with(django_user_model, permission)
+
+    assert INTENTS[intent].allows(user)
+    assert resolve_action(Action("Go", intent=intent, params=params), user) == ResolvedAction("Go")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("intent", "allowed"),
+    [
+        ("view_provider", {"view", "change"}),
+        ("edit_provider", {"change"}),
+        ("add_provider", {"add"}),
+        ("delete_provider", {"delete"}),
+    ],
+)
+@pytest.mark.parametrize("verb", ["view", "change", "add", "delete"])
+def test_each_provider_intent_takes_its_own_permission(django_user_model, intent, allowed, verb):
+    user = _user_with(django_user_model, f"intelligence.{verb}_intelligenceprovider")
+
+    assert INTENTS[intent].allows(user) is (verb in allowed)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("intent", "allowed"),
+    [
+        ("view_key", {"view", "change"}),
+        ("edit_key", {"change"}),
+        ("add_key", {"add"}),
+        ("delete_key", {"delete"}),
+    ],
+)
+@pytest.mark.parametrize("verb", ["view", "change", "add", "delete"])
+def test_each_key_intent_takes_its_own_permission(django_user_model, intent, allowed, verb):
+    user = _user_with(django_user_model, f"config_app.{verb}_apikey")
+
+    assert INTENTS[intent].allows(user) is (verb in allowed)
+
+
+def _chrome(user, template):
+    request = RequestFactory().get("/console/")
+    request.user = user
+    return render_to_string(template, {"nav": "system"}, request=request)
+
+
+def _system_item(user) -> str:
+    found = re.search(
+        r'<a class="c-unav__item" href="([^"]+)"[^>]*>(?:(?!</a>).)*<span>System</span>',
+        _chrome(user, "console/base.html"),
+        re.DOTALL,
+    )
+    return found.group(1) if found else ""
+
+
+def _tabs(user) -> list[str]:
+    return re.findall(r">([^<>]+)</a>", _chrome(user, "console/partials/_system_nav.html"))
+
+
+SYSTEM_READERS = [
+    ("orchestration.view_pipelinedefinition", ["Routes"], "/console/routes/"),
+    ("orchestration.change_pipelinedefinition", ["Routes"], "/console/routes/"),
+    ("notify.view_notificationchannel", ["Channels"], "/console/channels/"),
+    ("notify.change_notificationchannel", ["Channels"], "/console/channels/"),
+    ("intelligence.view_intelligenceprovider", [], ""),
+    ("intelligence.change_intelligenceprovider", [], ""),
+    ("config_app.view_apikey", [], ""),
+    ("config_app.change_apikey", [], ""),
+    ("intelligence.add_intelligenceprovider", [], ""),
+    ("config_app.delete_apikey", [], ""),
+]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("permission", "tabs", "system"), SYSTEM_READERS)
+def test_a_single_permission_reader_gets_only_its_tab(django_user_model, permission, tabs, system):
+    user = _user_with(django_user_model, permission)
+
+    assert _tabs(user) == tabs
+    assert _system_item(user) == system
+
+
+@pytest.mark.django_db
+def test_a_reader_of_everything_gets_every_tab_in_order(admin_user):
+    assert _tabs(admin_user) == ["Routes", "Channels"]
+    assert _system_item(admin_user) == "/console/routes/"
