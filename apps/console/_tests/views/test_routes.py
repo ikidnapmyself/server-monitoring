@@ -199,3 +199,20 @@ def test_a_route_adder_gets_the_add_button(client, superuser, url):
 
 def test_a_view_only_reader_gets_no_add_button(client, route_viewer, url):
     assert "Add a route" not in client.get(url).content.decode()
+
+
+def test_a_route_only_reader_gets_system_on_routes_and_no_channels_tab(client, route_viewer, url):
+    body = client.get(url).content.decode()
+
+    assert re.search(r'href="/console/routes/" aria-current="page">.*?<span>System</span>', body)
+    assert ">Routes</a>" in body
+    assert 'href="/console/channels/"' not in body
+    assert ">Channels</a>" not in body
+
+
+def test_a_reader_of_neither_sees_no_system_item(client, staff):
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert "<span>System</span>" not in body
+    assert 'href="/console/routes/"' not in body
+    assert 'href="/console/channels/"' not in body

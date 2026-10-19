@@ -3,7 +3,7 @@ from django.http import HttpResponseForbidden, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
-from apps.console.intents import ROUTE_DELETE
+from apps.console.intents import ROUTE_DELETE, ROUTE_READ
 from apps.console.queries.routes import build_route_deletion
 from apps.console.views.base import ConsoleView
 from apps.orchestration.models import PipelineDefinition
@@ -14,6 +14,7 @@ class RouteDeleteView(ConsoleView):
 
     template_name = "console/route_delete.html"
     partial_template_name = "console/partials/_route_delete.html"
+    read_permissions = ROUTE_READ
 
     def landing_path(self) -> str:
         return reverse("console:route", args=[self.kwargs["pk"]])

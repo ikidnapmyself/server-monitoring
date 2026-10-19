@@ -3,7 +3,7 @@ from django.http import HttpResponseForbidden, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
-from apps.console.intents import CHANNEL_DELETE
+from apps.console.intents import CHANNEL_DELETE, CHANNEL_READ
 from apps.console.queries.channels import build_channel_deletion
 from apps.console.views.base import ConsoleView
 from apps.notify.models import NotificationChannel
@@ -14,6 +14,7 @@ class ChannelDeleteView(ConsoleView):
 
     template_name = "console/channel_delete.html"
     partial_template_name = "console/partials/_channel_delete.html"
+    read_permissions = CHANNEL_READ
 
     def landing_path(self) -> str:
         return reverse("console:channel", args=[self.kwargs["pk"]])

@@ -161,3 +161,13 @@ class TestTheEditorLink:
         body = client.get(reverse("console:route-new")).content.decode()
 
         assert 'id="route-delete"' not in body
+
+
+@pytest.mark.parametrize("method", ["get", "post"])
+def test_a_delete_only_user_is_refused(client, bare_staff, route, method):
+    _grant(bare_staff, "delete_pipelinedefinition")
+
+    resp = getattr(client, method)(_url(route))
+
+    assert resp.status_code == 403
+    assert PipelineDefinition.objects.filter(pk=route.pk).exists()

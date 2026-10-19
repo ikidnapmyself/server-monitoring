@@ -184,3 +184,13 @@ class TestTheEditorLink:
         body = client.get(f"{reverse('console:channel-new')}?driver=slack").content.decode()
 
         assert 'id="channel-delete"' not in body
+
+
+@pytest.mark.parametrize("method", ["get", "post"])
+def test_a_delete_only_user_is_refused(client, bare_staff, channel, method):
+    _grant(bare_staff, "delete_notificationchannel")
+
+    resp = getattr(client, method)(_url(channel))
+
+    assert resp.status_code == 403
+    assert NotificationChannel.objects.filter(pk=channel.pk).exists()

@@ -149,9 +149,11 @@ pipeline stage and not an alert producer.
   registered nor on an open alert of the node gets the fixed title "Re-evaluate one
   checker's alerts on <node>", so a typed name never reaches the page. On both pages, an
   apply whose fresh report has no changes writes nothing and answers 409 with the preview.
-- **System holds routes and channels.** The header's System item opens `/console/routes/`,
-  and `partials/_system_nav.html` switches between Routes and Channels. The lists and the
-  editors read with the admin's view or change permission (`ROUTE_READ` and
+- **System holds routes and channels.** The header's System item opens `/console/routes/`
+  for a route reader, else `/console/channels/` for a channel reader, and is hidden for a
+  user who reads neither. `partials/_system_nav.html` switches between Routes and
+  Channels and shows each tab only to its readers. The lists, the editors and the delete
+  pages read with the admin's view or change permission (`ROUTE_READ` and
   `CHANNEL_READ` in `intents.py`). Add, change and delete each need their own permission,
   and a reader sees the editor disabled. Both admins are stock and read-only.
 - **The route pages.** `/console/routes/` lists every route in match order through

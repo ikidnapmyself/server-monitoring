@@ -160,3 +160,14 @@ def test_htmx_gets_the_list_without_the_layout(client, superuser, url):
 
     assert resp.templates[0].name == "console/partials/_channels.html"
     assert "<html" not in resp.content.decode()
+
+
+def test_a_channel_only_reader_gets_system_on_channels_and_no_routes_tab(
+    client, channel_viewer, url
+):
+    body = client.get(url).content.decode()
+
+    assert 'href="/console/channels/" aria-current="page">' in body
+    assert "<span>System</span>" in body
+    assert 'href="/console/routes/"' not in body
+    assert ">Routes</a>" not in body
