@@ -2,16 +2,16 @@
 
 import re
 from html.parser import HTMLParser
+from typing import cast
 
 import pytest
 
 from apps.alerts.models import Alert
-from apps.console._tests.fixtures import build_world
-from apps.notify._tests.test_forms import STORED
+from apps.console._tests.fixtures import OPS_SLACK_WEBHOOK, build_world
+from apps.notify._tests.test_forms import SECRETS, STORED
 from apps.notify.drivers import DRIVER_REGISTRY
 from apps.notify.models import NotificationChannel
 from apps.orchestration.describing import REASONS
-from apps.orchestration.models import PipelineDefinition
 from config.failures import FAILURE_KINDS
 
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-")
@@ -77,6 +77,15 @@ def _assert_no_leak(url, text):
     assert not CODES & set(re.findall(r"[a-z_]+", text)), url
 
 
+def _secret_values() -> list[str]:
+    """Every secret value the fixtures store, each string inside a dict on its own."""
+    values = [OPS_SLACK_WEBHOOK]
+    for config in cast(list[dict], list(STORED.values())):
+        for value in (config[key] for key in SECRETS if key in config):
+            values += list(value.values()) if isinstance(value, dict) else [value]
+    return values
+
+
 def _get(client, url, headers):
     response = client.get(url, headers=headers)
     assert response.status_code == 200, url
@@ -87,10 +96,12 @@ def _get(client, url, headers):
 @pytest.mark.parametrize("partial", [False, True])
 def test_no_page_leaks_identifiers(client, superuser, partial):
     world = build_world()
-    for driver, config in STORED.items():
+    channel_pks = [
         NotificationChannel.objects.create(
             name=f"{driver}-off", driver=driver, config=config, is_active=False
-        )
+        ).pk
+        for driver, config in STORED.items()
+    ]
     client.force_login(superuser)
     headers = {"HX-Request": "true"} if partial else {}
     alert_pks = list(Alert.objects.values_list("pk", flat=True))
@@ -105,16 +116,12 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         + [f"/console/runs/{pk}/" for pk in world.run_pks]
         + ["/console/nodes/", "/console/nodes/?freshness=silent", "/console/policy/"]
         + ["/console/routes/", "/console/routes/new/"]
-        + [
-            f"/console/routes/{pk}/{page}"
-            for pk in PipelineDefinition.objects.values_list("pk", flat=True)
-            for page in ("", "delete/")
-        ]
+        + [f"/console/routes/{pk}/{page}" for pk in world.route_pks for page in ("", "delete/")]
         + ["/console/channels/", "/console/channels/new/"]
         + [f"/console/channels/new/?driver={key}" for key in DRIVER_REGISTRY]
         + [
             f"/console/channels/{pk}/{page}"
-            for pk in NotificationChannel.objects.values_list("pk", flat=True)
+            for pk in (*world.channel_pks, *channel_pks)
             for page in ("", "delete/")
         ]
         + [f"/console/nodes/{pk}/" for pk in world.node_pks]
@@ -128,6 +135,11 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
     pages = {url: visible(page) for url, page in html.items()}
     for url, text in pages.items():
         _assert_no_leak(url, text)
+    secrets = _secret_values()
+    assert len(secrets) == 7
+    for url, page in html.items():
+        for secret in secrets:
+            assert secret not in page, (url, secret)
 
     overview = pages["/console/"]
     for fault in (
@@ -173,8 +185,17 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "would move this alert from critical to warning",
         "No open alerts need re-evaluation.",
         "Applying queues 1 pipeline run.",
+        "Severity is Critical",
+        "Started by is Incoming webhook",
+        "Never reached",
+        "Can't deliver",
+        "A driver this hub doesn't have",
+        "Set. Leave blank to keep it.",
+        "These routes will stop delivering",
     ):
         assert shown in everything, shown
+    # The templates group is a Details disclosure, so its summary is not visible text.
+    assert any("Message templates" in page for page in html.values())
 
 
 @pytest.mark.django_db
@@ -186,4 +207,4 @@ def test_overview_without_a_channel_leaks_nothing(client, superuser):
     text = visible(_get(client, "/console/", {}))
 
     _assert_no_leak("/console/", text)
-    assert "No active channel, 2 routes can't deliver" in text
+    assert "No active channel, 3 routes can't deliver" in text
