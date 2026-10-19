@@ -176,11 +176,12 @@ def test_route_intents_point_at_the_route_pages(admin_user, intent, params, url)
 
 
 @pytest.mark.django_db
-def test_a_route_viewer_can_list_routes_but_not_edit_one(django_user_model):
+def test_a_route_viewer_can_open_a_route_but_not_add_or_delete_one(django_user_model):
     user = _user_with(django_user_model, "orchestration.view_pipelinedefinition")
 
     assert resolve_action(Action("Go", intent="view_routes"), user).url == "/console/routes/"
-    assert resolve_action(Action("Go", intent="edit_route", params={"pk": 7}), user).url == ""
+    edit = Action("Go", intent="edit_route", params={"pk": 7})
+    assert resolve_action(edit, user).url == "/console/routes/7/"
     assert resolve_action(Action("Go", intent="add_route"), user).url == ""
     assert resolve_action(Action("Go", intent="delete_route", params={"pk": 7}), user).url == ""
 
@@ -198,7 +199,8 @@ def test_the_channel_intents_need_their_own_permissions(django_user_model):
 
     go = Action("Go", intent="view_channels", params={"name": "ops"})
     assert resolve_action(go, user).url == "/console/channels/?q=ops"
-    assert resolve_action(Action("Go", intent="edit_channel", params={"pk": 7}), user).url == ""
+    edit = Action("Go", intent="edit_channel", params={"pk": 7})
+    assert resolve_action(edit, user).url == "/console/channels/7/"
     assert resolve_action(Action("Go", intent="add_channel"), user).url == ""
     assert resolve_action(Action("Go", intent="delete_channel", params={"pk": 7}), user).url == ""
 
@@ -325,10 +327,10 @@ def test_a_tuple_permission_refuses_a_user_with_none_of_them(staff):
 
 @pytest.mark.django_db
 def test_a_single_permission_still_works(django_user_model):
-    user = _user_with(django_user_model, "notify.change_notificationchannel")
+    user = _user_with(django_user_model, "notify.add_notificationchannel")
 
-    assert resolve_action(Action("Fix", intent="edit_channel"), user).url
-    assert resolve_action(Action("Fix", intent="edit_route"), user).url == ""
+    assert resolve_action(Action("Add", intent="add_channel"), user).url
+    assert resolve_action(Action("Fix", intent="edit_channel"), user).url == ""
 
 
 def test_every_method_is_get_or_post():

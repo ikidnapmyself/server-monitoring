@@ -1,3 +1,5 @@
+from unittest import mock
+
 import pytest
 from django.contrib.auth.models import Permission
 from django.urls import reverse
@@ -93,14 +95,22 @@ def test_the_page_sits_under_system_with_its_subnav(client, superuser, url):
     assert 'href="/console/channels/" aria-current="page">Channels</a>' in body
 
 
-def test_a_viewer_sees_names_without_links_or_add(client, channel_viewer, url):
+def test_a_viewer_gets_links_but_no_add(client, channel_viewer, url):
     ops = _channel("ops")
 
     body = client.get(url).content.decode()
 
-    assert "<strong>ops</strong>" in body
-    assert f'href="/console/channels/{ops.pk}/"' not in body
+    assert f'<a id="channel-{ops.pk}-edit" href="/console/channels/{ops.pk}/">ops</a>' in body
     assert "Add a channel" not in body
+
+
+def test_a_name_without_a_link_is_plain_text(client, channel_viewer, url):
+    _channel("ops")
+
+    with mock.patch("apps.console.intents.INTENTS", {}):
+        body = client.get(url).content.decode()
+
+    assert "<strong>ops</strong>" in body
 
 
 def test_a_viewer_sees_lanes_as_text(client, channel_viewer, url):

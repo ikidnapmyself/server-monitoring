@@ -145,6 +145,18 @@ def test_the_editor_renders_the_channel(client, superuser, channel):
     assert "data-poll" not in body[body.index("<main") :]
 
 
+def test_the_editor_reads_in_a_fixed_number_of_queries(
+    client, superuser, channel, django_assert_num_queries
+):
+    client.force_login(superuser)
+    for i in range(3):
+        PipelineDefinition.objects.create(name=f"lane-{i}", stages=["notify"], channel=channel)
+    client.get(_url(channel))
+
+    with django_assert_num_queries(4):
+        assert client.get(_url(channel)).status_code == 200
+
+
 def test_the_message_templates_sit_in_details(client, superuser, channel):
     client.force_login(superuser)
 
@@ -442,8 +454,10 @@ def test_an_unknown_driver_in_the_url_is_a_400(client, superuser, channel):
 
     resp = client.get(_url(channel, driver="nope"))
 
+    body = resp.content.decode()
     assert resp.status_code == 400
-    assert "This hub has no driver by that name." in resp.content.decode()
+    assert "This hub has no driver by that name." in body
+    _secrets_absent(body, UNKNOWN_VALUE)
 
 
 def test_an_unknown_driver_on_a_save_saves_nothing(client, superuser, channel):
@@ -452,6 +466,7 @@ def test_an_unknown_driver_on_a_save_saves_nothing(client, superuser, channel):
     resp = client.post(_url(channel, driver="nope"), _data(channel, name="renamed"))
 
     assert resp.status_code == 400
+    _secrets_absent(resp.content.decode(), UNKNOWN_VALUE)
     channel.refresh_from_db()
     assert channel.name == "ops"
 

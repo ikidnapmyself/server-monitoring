@@ -154,7 +154,8 @@ pipeline stage and not an alert producer.
   name only, in Details. The page posts to its own URL with `?driver=`, the driver its
   fields were built for. "Show this driver's settings" (`switch_driver`) re-renders and
   saves nothing, and a driver key that's neither registered nor the channel's own is a 400.
-  A save carries `channel_digest`, and `save_channel` refuses a stale one with a 409.
+  A save posts `digest`, the `channel_digest` of the row it opened, and `save_channel`
+  refuses a stale one with a 409.
 - **Fleet policy** (`/console/policy/`) renders `build_policy_overview`. Its edit and
   re-evaluate links are intents, so a reader sees none.
 - **A missing record gets a console 404 page** with a link onward, returned with status

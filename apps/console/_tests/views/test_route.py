@@ -133,6 +133,18 @@ def test_the_editor_renders_the_route(client, superuser, route):
     assert "data-poll" not in body[body.index("<main") :]
 
 
+def test_the_editor_reads_in_a_fixed_number_of_queries(
+    client, superuser, route, django_assert_num_queries
+):
+    client.force_login(superuser)
+    for i in range(3):
+        NotificationChannel.objects.create(name=f"ch-{i}", driver="email", config={})
+    client.get(_url(route))
+
+    with django_assert_num_queries(4):
+        assert client.get(_url(route)).status_code == 200
+
+
 def test_the_details_hold_the_facts(client, superuser, route):
     client.force_login(superuser)
     PipelineDefinition.objects.filter(pk=route.pk).update(

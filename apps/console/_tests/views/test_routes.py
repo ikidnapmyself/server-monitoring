@@ -113,14 +113,23 @@ def test_a_superuser_gets_the_links(client, superuser, url):
     assert f'href="/console/routes/{bare.pk}/">Give it an active channel</a>' in bare_card
 
 
-def test_a_view_only_reader_sees_the_actions_as_text(client, route_viewer, url):
+def test_a_view_only_reader_can_open_a_route(client, route_viewer, url):
     lane = _lane("all", 1, match=[], stages=["check"])
 
     card = _card(client.get(url).content.decode(), lane)
 
     assert "Records only, sends nothing" in card
-    assert '<p class="c-description__action">Edit route</p>' in card
-    assert "href" not in card
+    assert f'href="/console/routes/{lane.pk}/">Edit route</a>' in card
+
+
+def test_a_route_viewer_sees_the_channel_as_text(client, route_viewer, url):
+    ch = NotificationChannel.objects.create(name="ops", driver="email", is_active=True)
+    lane = _lane("bound", 1, match=[], stages=["notify"], channel=ch)
+
+    card = _card(client.get(url).content.decode(), lane)
+
+    assert '<p class="c-description__action">Open ops</p>' in card
+    assert f'href="/console/channels/{ch.pk}/"' not in card
 
 
 def test_no_routes_says_so(client, superuser, url):
