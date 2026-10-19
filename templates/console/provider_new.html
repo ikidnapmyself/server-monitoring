@@ -1,0 +1,15 @@
+{% extends "console/base.html" %}
+{% block title %}New provider · Console{% endblock %}
+{% block content %}
+{% include "console/partials/_system_nav.html" %}
+{% include "console/partials/_messages.html" %}
+{% if notice %}{% include "console/partials/_flash.html" with tone=notice.tone text=notice.text %}{% endif %}
+<a id="provider-back" class="c-crumb" href="{% url 'console:providers' %}">{% include "console/partials/_octicon.html" with name="chevron-right" %}Back to providers</a>
+<div class="c-pagehead"><div class="c-pagehead__top"><h1 class="c-pagehead__title">New provider</h1></div></div>
+<div id="provider-kinds" class="c-box">
+  <div class="c-box__header"><h2 class="c-box__title">Pick who analyzes incidents</h2></div>
+  <ul class="c-box__list">
+    {% for choice in kinds %}<li class="c-box__row c-box__row--hover c-row"><span class="c-row__icon">{% include "console/partials/_octicon.html" with name="pulse" %}</span><div class="c-row__main"><a id="provider-kind-{{ forloop.counter }}" href="{{ choice.url }}">{{ choice.label }}</a></div></li>{% endfor %}
+  </ul>
+</div>
+{% endblock %}

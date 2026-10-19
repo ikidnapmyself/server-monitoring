@@ -421,13 +421,44 @@ def test_the_list_intents_are_gone():
     assert not {"view_routes", "view_channels"} & set(INTENTS)
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("intent", "params", "permission", "url"),
+    [
+        ("view_provider", {}, "intelligence.view_intelligenceprovider", "/console/providers/"),
+        (
+            "view_provider",
+            {"pk": 7},
+            "intelligence.view_intelligenceprovider",
+            "/console/providers/7/",
+        ),
+        (
+            "view_provider",
+            {"pk": 7},
+            "intelligence.change_intelligenceprovider",
+            "/console/providers/7/",
+        ),
+        ("edit_provider", {}, "intelligence.change_intelligenceprovider", "/console/providers/"),
+        (
+            "edit_provider",
+            {"pk": 7},
+            "intelligence.change_intelligenceprovider",
+            "/console/providers/7/",
+        ),
+        ("add_provider", {}, "intelligence.add_intelligenceprovider", "/console/providers/new/"),
+    ],
+)
+def test_the_provider_intents_point_at_the_provider_pages(
+    django_user_model, intent, params, permission, url
+):
+    user = _user_with(django_user_model, permission)
+
+    assert resolve_action(Action("Go", intent=intent, params=params), user) == ResolvedAction(
+        "Go", url, "get"
+    )
+
+
 PROVIDER_AND_KEY_INTENTS = [
-    ("view_provider", {}, "intelligence.view_intelligenceprovider"),
-    ("view_provider", {"pk": 7}, "intelligence.view_intelligenceprovider"),
-    ("view_provider", {"pk": 7}, "intelligence.change_intelligenceprovider"),
-    ("edit_provider", {}, "intelligence.change_intelligenceprovider"),
-    ("edit_provider", {"pk": 7}, "intelligence.change_intelligenceprovider"),
-    ("add_provider", {}, "intelligence.add_intelligenceprovider"),
     ("delete_provider", {"pk": 7}, "intelligence.delete_intelligenceprovider"),
     ("view_key", {}, "config_app.view_apikey"),
     ("view_key", {"pk": 7}, "config_app.view_apikey"),
@@ -507,8 +538,8 @@ SYSTEM_READERS = [
     ("orchestration.change_pipelinedefinition", ["Routes"], "/console/routes/"),
     ("notify.view_notificationchannel", ["Channels"], "/console/channels/"),
     ("notify.change_notificationchannel", ["Channels"], "/console/channels/"),
-    ("intelligence.view_intelligenceprovider", [], ""),
-    ("intelligence.change_intelligenceprovider", [], ""),
+    ("intelligence.view_intelligenceprovider", ["Providers"], "/console/providers/"),
+    ("intelligence.change_intelligenceprovider", ["Providers"], "/console/providers/"),
     ("config_app.view_apikey", [], ""),
     ("config_app.change_apikey", [], ""),
     ("intelligence.add_intelligenceprovider", [], ""),
@@ -527,5 +558,5 @@ def test_a_single_permission_reader_gets_only_its_tab(django_user_model, permiss
 
 @pytest.mark.django_db
 def test_a_reader_of_everything_gets_every_tab_in_order(admin_user):
-    assert _tabs(admin_user) == ["Routes", "Channels"]
+    assert _tabs(admin_user) == ["Routes", "Channels", "Providers"]
     assert _system_item(admin_user) == "/console/routes/"

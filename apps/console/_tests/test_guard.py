@@ -8,6 +8,9 @@ import pytest
 
 from apps.alerts.models import Alert
 from apps.console._tests.fixtures import OPS_SLACK_WEBHOOK, build_world
+from apps.intelligence._tests.test_forms import KEY
+from apps.intelligence._tests.test_forms import STORED as PROVIDER_STORED
+from apps.intelligence.models import IntelligenceProvider
 from apps.notify._tests.test_forms import SECRETS, STORED
 from apps.notify.drivers import DRIVER_REGISTRY
 from apps.notify.models import NotificationChannel
@@ -102,6 +105,10 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         ).pk
         for driver, config in STORED.items()
     ]
+    provider_pks = [
+        IntelligenceProvider.objects.create(name=f"{kind}-off", provider=kind, config=config).pk
+        for kind, config in PROVIDER_STORED.items()
+    ]
     client.force_login(superuser)
     headers = {"HX-Request": "true"} if partial else {}
     alert_pks = list(Alert.objects.values_list("pk", flat=True))
@@ -124,6 +131,9 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
             for pk in (*world.channel_pks, *channel_pks)
             for page in ("", "delete/")
         ]
+        + ["/console/providers/", "/console/providers/new/"]
+        + [f"/console/providers/new/?provider={key}" for key in PROVIDER_STORED]
+        + [f"/console/providers/{pk}/" for pk in provider_pks]
         + [f"/console/nodes/{pk}/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/policy/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/reevaluate/" for pk in world.node_pks]
@@ -137,6 +147,7 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         _assert_no_leak(url, text)
     secrets = _secret_values()
     assert len(secrets) == 7
+    secrets.append(KEY)
     for url, page in html.items():
         for secret in secrets:
             assert secret not in page, (url, secret)
