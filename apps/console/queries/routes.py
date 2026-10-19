@@ -9,7 +9,7 @@ from django.utils.dateformat import format as date_format
 
 from apps.orchestration.forms import RouteForm
 from apps.orchestration.models import PipelineDefinition
-from apps.orchestration.routing import representable
+from apps.orchestration.routing import fallthrough, representable
 from config.describing import Action, Fact
 from config.netmap import get_map_context
 
@@ -89,6 +89,34 @@ class RouteEditor:
     stored_conditions: tuple[str, ...]
     facts: tuple[Fact, ...]
     can_change: bool
+
+    @property
+    def delete(self) -> Action | None:
+        if self.pk is None:
+            return None
+        return Action("Delete route", "delete_route", {"pk": self.pk})
+
+
+@dataclass(frozen=True)
+class RouteDeletion:
+    pk: int
+    name: str
+    consequence: str
+    url: str
+    back_url: str
+
+
+def build_route_deletion(pk: int) -> RouteDeletion | None:
+    lane = PipelineDefinition.objects.filter(pk=pk).first()
+    if lane is None:
+        return None
+    return RouteDeletion(
+        pk=lane.pk,
+        name=lane.name,
+        consequence=fallthrough(lane),
+        url=reverse("console:route-delete", args=[lane.pk]),
+        back_url=reverse("console:route", args=[lane.pk]),
+    )
 
 
 def _when(moment) -> str:

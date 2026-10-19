@@ -167,6 +167,7 @@ def test_run_intents_point_at_the_console(admin_user, intent, url, method):
         ("edit_route", {}, "/console/routes/"),
         ("edit_route", {"pk": 7}, "/console/routes/7/"),
         ("add_route", {}, "/console/routes/new/"),
+        ("delete_route", {"pk": 7}, "/console/routes/7/delete/"),
     ],
 )
 def test_route_intents_point_at_the_route_pages(admin_user, intent, params, url):
@@ -181,6 +182,7 @@ def test_a_route_viewer_can_list_routes_but_not_edit_one(django_user_model):
     assert resolve_action(Action("Go", intent="view_routes"), user).url == "/console/routes/"
     assert resolve_action(Action("Go", intent="edit_route", params={"pk": 7}), user).url == ""
     assert resolve_action(Action("Go", intent="add_route"), user).url == ""
+    assert resolve_action(Action("Go", intent="delete_route", params={"pk": 7}), user).url == ""
 
 
 @pytest.mark.django_db

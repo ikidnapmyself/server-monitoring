@@ -100,8 +100,9 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         + ["/console/nodes/", "/console/nodes/?freshness=silent", "/console/policy/"]
         + ["/console/routes/", "/console/routes/new/"]
         + [
-            f"/console/routes/{pk}/"
+            f"/console/routes/{pk}/{page}"
             for pk in PipelineDefinition.objects.values_list("pk", flat=True)
+            for page in ("", "delete/")
         ]
         + [f"/console/nodes/{pk}/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/policy/" for pk in world.node_pks]

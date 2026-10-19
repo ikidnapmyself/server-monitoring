@@ -129,7 +129,7 @@ def test_the_editor_renders_the_route(client, superuser, route):
     assert body.index('id="route-save"') < body.index('id="route-add-condition"')
     assert "data-disable-on-submit" in body
     assert '<a id="route-back" class="c-crumb" href="/console/routes/#route-' in body
-    assert "Delete route" not in body
+    assert f'href="/console/routes/{route.pk}/delete/">Delete route</a>' in body
     assert "data-poll" not in body[body.index("<main") :]
 
 

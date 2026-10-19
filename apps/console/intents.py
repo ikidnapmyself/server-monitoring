@@ -21,6 +21,7 @@ RUN_READ = ("orchestration.view_pipelinerun", "orchestration.change_pipelinerun"
 ROUTE_READ = ("orchestration.view_pipelinedefinition", "orchestration.change_pipelinedefinition")
 ROUTE_CHANGE = "orchestration.change_pipelinedefinition"
 ROUTE_ADD = "orchestration.add_pipelinedefinition"
+ROUTE_DELETE = "orchestration.delete_pipelinedefinition"
 
 
 @dataclass(frozen=True)
@@ -110,6 +111,7 @@ INTENTS: dict[str, Intent] = {
     "view_routes": Intent(_page("console:routes"), "get", ROUTE_READ),
     "edit_route": Intent(_route, "get", ROUTE_CHANGE),
     "add_route": Intent(_page("console:route-new"), "get", ROUTE_ADD),
+    "delete_route": Intent(_record("console:route-delete"), "get", ROUTE_DELETE),
     "edit_channel": Intent(
         _page("admin:notify_notificationchannel_changelist", "q", "name"),
         "get",
