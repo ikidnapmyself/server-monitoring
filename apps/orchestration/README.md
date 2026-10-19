@@ -412,13 +412,14 @@ Run orchestration tests:
 uv run pytest apps/orchestration/_tests/ -v
 ```
 
-## Admin Interface
+## Console
 
-The orchestration models are registered in Django admin:
+Operators read and act on orchestration in the console:
 
-- View and filter pipeline runs by status, source, stage
-- Inspect stage execution details inline
-- View error information
+- `/console/runs/` lists pipeline runs, and each run page shows its stages and errors
+- `/console/inbox/` drains and reclaims queued runs
+- `/console/routes/` lists, edits, adds and deletes routes (`PipelineDefinition` rows)
+- `/console/channels/` holds the channels a route delivers to
 
-Access at `/admin/orchestration/`.
+The orchestration admin at `/admin/orchestration/` is stock and read-only.
 

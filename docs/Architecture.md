@@ -201,8 +201,8 @@ All apps register their models at `/admin/`:
 | `/admin/alerts/` | Alert, Incident, AlertHistory, Node |
 | `/admin/checkers/` | CheckRun |
 | `/admin/intelligence/` | AnalysisRun |
-| `/admin/notify/` | NotificationChannel |
-| `/admin/orchestration/` | PipelineRun, StageExecution, PipelineDefinition |
+| `/admin/notify/` | NotificationChannel, read-only. Manage it at `/console/channels/` |
+| `/admin/orchestration/` | PipelineRun, StageExecution, PipelineDefinition, read-only. Manage routes at `/console/routes/` |
 
 The run, stage, inbox, route and channel admins are stock and read-only. Their pages
 live in the console.
@@ -364,7 +364,7 @@ Every pipeline run carries:
 
 ### Key Environment Variables
 
-Environment variables configure **infrastructure only**. Application behavior (which checkers to run, intelligence provider, notification channels) is managed through the console, Django Admin and pipeline definitions.
+Environment variables configure **infrastructure only**. Application behavior (which checkers to run, intelligence provider, notification channels) is managed through the console and Django Admin. Routes and notification channels live in the console at `/console/routes/` and `/console/channels/`.
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
