@@ -106,7 +106,7 @@ def test_a_superuser_gets_the_links(client, superuser, url):
     bound_card = _card(body, bound)
     assert "Delivers to ops" in bound_card
     assert f'href="/console/channels/{ch.pk}/">Open ops</a>' in bound_card
-    assert f'href="/console/routes/{bound.pk}/">Edit route</a>' in bound_card
+    assert f'href="/console/routes/{bound.pk}/">Open route</a>' in bound_card
     assert "Set up without delivery. It delivers once a channel is active." in bound_card
     bare_card = _card(body, bare)
     assert "Can&#x27;t deliver: the matched route has no active channel" in bare_card
@@ -119,7 +119,16 @@ def test_a_view_only_reader_can_open_a_route(client, route_viewer, url):
     card = _card(client.get(url).content.decode(), lane)
 
     assert "Records only, sends nothing" in card
-    assert f'href="/console/routes/{lane.pk}/">Edit route</a>' in card
+    assert f'href="/console/routes/{lane.pk}/">Open route</a>' in card
+
+
+def test_a_view_only_reader_sees_the_route_fix_as_text(client, route_viewer, url):
+    lane = _lane("bare", 1, match=[], stages=["notify"])
+
+    card = _card(client.get(url).content.decode(), lane)
+
+    assert "Give it an active channel" in card
+    assert f'href="/console/routes/{lane.pk}/">Give it an active channel</a>' not in card
 
 
 def test_a_route_viewer_sees_the_channel_as_text(client, route_viewer, url):

@@ -95,7 +95,7 @@ def build_channel_deletion(pk: int) -> ChannelDeletion | None:
         pk=channel.pk,
         name=channel.name,
         cut=tuple(
-            Action(lane.name, "edit_route", {"pk": lane.pk})
+            Action(lane.name, "view_route", {"pk": lane.pk})
             for lane in lanes_cut_by_delete(channel)
         ),
         url=reverse("console:channel-delete", args=[channel.pk]),
@@ -113,7 +113,7 @@ def _line(lane: PipelineDefinition) -> LaneLine:
     return LaneLine(
         name=lane.name,
         gap_words=REASONS[gap].headline if gap else "",
-        action=Action(lane.name, "edit_route", {"pk": lane.pk}),
+        action=Action(lane.name, "view_route", {"pk": lane.pk}),
     )
 
 
@@ -139,7 +139,7 @@ def build_channel_list(q: str, *, can_add: bool = False) -> ChannelList:
             driver_label=_label(channel.driver),
             active=channel.is_active,
             lanes=tuple(lanes.get(channel.pk, ())),
-            edit=Action(channel.name, "edit_channel", {"pk": channel.pk}),
+            edit=Action(channel.name, "view_channel", {"pk": channel.pk}),
         )
         for channel in channels
     )

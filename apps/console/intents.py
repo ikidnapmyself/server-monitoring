@@ -118,12 +118,12 @@ def _external(params: dict[str, Any]) -> str:
 
 INTENTS: dict[str, Intent] = {
     "open_url": Intent(_external, "get", ""),
-    "view_routes": Intent(_page("console:routes"), "get", ROUTE_READ),
-    "edit_route": Intent(_route, "get", ROUTE_READ),
+    "view_route": Intent(_route, "get", ROUTE_READ),
+    "edit_route": Intent(_route, "get", ROUTE_CHANGE),
     "add_route": Intent(_page("console:route-new"), "get", ROUTE_ADD),
     "delete_route": Intent(_record("console:route-delete"), "get", ROUTE_DELETE),
-    "view_channels": Intent(_page("console:channels", "q", "name"), "get", CHANNEL_READ),
-    "edit_channel": Intent(_channel, "get", CHANNEL_READ),
+    "view_channel": Intent(_channel, "get", CHANNEL_READ),
+    "edit_channel": Intent(_channel, "get", CHANNEL_CHANGE),
     "add_channel": Intent(_page("console:channel-new"), "get", CHANNEL_ADD),
     "delete_channel": Intent(_record("console:channel-delete"), "get", CHANNEL_DELETE),
     "edit_provider": Intent(

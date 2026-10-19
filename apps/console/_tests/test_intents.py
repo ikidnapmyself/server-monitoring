@@ -32,9 +32,15 @@ def emitted_intents() -> set[str]:
 
 
 def test_the_scan_sees_the_emitted_intents():
-    assert {"open_url", "edit_channel", "edit_route", "view_inbox", "view_nodes"} <= (
-        emitted_intents()
-    )
+    assert {
+        "open_url",
+        "view_channel",
+        "edit_channel",
+        "view_route",
+        "edit_route",
+        "view_inbox",
+        "view_nodes",
+    } <= emitted_intents()
 
 
 def test_every_emitted_intent_is_known():
@@ -163,7 +169,8 @@ def test_run_intents_point_at_the_console(admin_user, intent, url, method):
 @pytest.mark.parametrize(
     ("intent", "params", "url"),
     [
-        ("view_routes", {}, "/console/routes/"),
+        ("view_route", {}, "/console/routes/"),
+        ("view_route", {"pk": 7}, "/console/routes/7/"),
         ("edit_route", {}, "/console/routes/"),
         ("edit_route", {"pk": 7}, "/console/routes/7/"),
         ("add_route", {}, "/console/routes/new/"),
@@ -176,12 +183,13 @@ def test_route_intents_point_at_the_route_pages(admin_user, intent, params, url)
 
 
 @pytest.mark.django_db
-def test_a_route_viewer_can_open_a_route_but_not_add_or_delete_one(django_user_model):
+def test_a_route_viewer_can_open_a_route_but_not_edit_add_or_delete_one(django_user_model):
     user = _user_with(django_user_model, "orchestration.view_pipelinedefinition")
 
-    assert resolve_action(Action("Go", intent="view_routes"), user).url == "/console/routes/"
-    edit = Action("Go", intent="edit_route", params={"pk": 7})
-    assert resolve_action(edit, user).url == "/console/routes/7/"
+    assert resolve_action(Action("Go", intent="view_route"), user).url == "/console/routes/"
+    view = Action("Go", intent="view_route", params={"pk": 7})
+    assert resolve_action(view, user).url == "/console/routes/7/"
+    assert resolve_action(Action("Go", intent="edit_route", params={"pk": 7}), user).url == ""
     assert resolve_action(Action("Go", intent="add_route"), user).url == ""
     assert resolve_action(Action("Go", intent="delete_route", params={"pk": 7}), user).url == ""
 
@@ -197,10 +205,11 @@ def test_a_channel_named_by_pk_and_name_opens_its_page(admin_user):
 def test_the_channel_intents_need_their_own_permissions(django_user_model):
     user = _user_with(django_user_model, "notify.view_notificationchannel")
 
-    go = Action("Go", intent="view_channels", params={"name": "ops"})
+    go = Action("Go", intent="view_channel", params={"name": "ops"})
     assert resolve_action(go, user).url == "/console/channels/?q=ops"
-    edit = Action("Go", intent="edit_channel", params={"pk": 7})
-    assert resolve_action(edit, user).url == "/console/channels/7/"
+    view = Action("Go", intent="view_channel", params={"pk": 7})
+    assert resolve_action(view, user).url == "/console/channels/7/"
+    assert resolve_action(Action("Go", intent="edit_channel", params={"pk": 7}), user).url == ""
     assert resolve_action(Action("Go", intent="add_channel"), user).url == ""
     assert resolve_action(Action("Go", intent="delete_channel", params={"pk": 7}), user).url == ""
 
@@ -392,3 +401,21 @@ def test_only_intents_builds_admin_urls():
 
 def test_admin_url_names_the_admins_own_pages():
     assert admin_url("login") == reverse("admin:login")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("perm", "intent"),
+    [
+        ("orchestration.change_pipelinedefinition", "edit_route"),
+        ("notify.change_notificationchannel", "edit_channel"),
+    ],
+)
+def test_an_edit_link_needs_the_change_permission(django_user_model, perm, intent):
+    user = _user_with(django_user_model, perm)
+
+    assert resolve_action(Action("Fix", intent=intent, params={"pk": 7}), user).url
+
+
+def test_the_list_intents_are_gone():
+    assert not {"view_routes", "view_channels"} & set(INTENTS)

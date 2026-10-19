@@ -240,7 +240,7 @@ class TestGetMapContext:
         assert card["seed_note"] == (
             "Set up without delivery. It delivers once a channel is active."
         )
-        assert card["edit"] == Action("Edit route", "edit_route", {"pk": lane_row.pk})
+        assert card["edit"] == Action("Open route", "view_route", {"pk": lane_row.pk})
 
     def test_a_lane_without_the_seed_tag_carries_no_note(self):
         self._lane("plain", priority=1, match=[], stages=["check"])
@@ -376,20 +376,20 @@ class TestDeliveryAction:
         ch = self._channel("ops", driver="email", is_active=True)
         self._lane("l", match=[cond("source", "is", "a")], stages=["notify"], channel=ch)
         action = get_map_context()["lanes"][0]["delivery"]["action"]
-        assert action == Action("Open ops", "edit_channel", {"pk": ch.pk, "name": "ops"})
+        assert action == Action("Open ops", "view_channel", {"pk": ch.pk, "name": "ops"})
 
     def test_an_inactive_channel_opens_the_channel(self):
         ch = self._channel("dormant", driver="email", is_active=False)
         self._lane("l", match=[cond("source", "is", "a")], stages=["notify"], channel=ch)
         action = get_map_context()["lanes"][0]["delivery"]["action"]
-        assert action == Action("Open dormant", "edit_channel", {"pk": ch.pk, "name": "dormant"})
+        assert action == Action("Open dormant", "view_channel", {"pk": ch.pk, "name": "dormant"})
 
     def test_an_unregistered_driver_opens_the_channel(self):
         ch = self._channel("ghost", driver="not-a-driver", is_active=True)
         self._lane("l", match=[cond("source", "is", "a")], stages=["notify"], channel=ch)
         card = get_map_context()["lanes"][0]
         assert card["delivery"]["state"] == "no_driver"
-        assert card["delivery"]["action"].intent == "edit_channel"
+        assert card["delivery"]["action"].intent == "view_channel"
 
     def test_a_lane_with_no_channel_opens_the_route(self):
         lane_row = self._lane("l", match=[cond("source", "is", "a")], stages=["notify"])

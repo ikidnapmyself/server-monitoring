@@ -67,9 +67,9 @@ def test_a_card_carries_the_map_in_words_and_actions():
     assert card.conditions == ("Source is cluster",)
     assert card.stages == ("Diagnose", "Notify")
     assert card.delivery == "Delivers to ops"
-    assert card.delivery_action == Action("Open ops", "edit_channel", {"pk": ch.pk, "name": "ops"})
+    assert card.delivery_action == Action("Open ops", "view_channel", {"pk": ch.pk, "name": "ops"})
     assert card.seed_note.startswith("Set up without delivery.")
-    assert card.edit == Action("Edit route", "edit_route", {"pk": lane.pk})
+    assert card.edit == Action("Open route", "view_route", {"pk": lane.pk})
 
 
 def test_a_catch_all_says_it_matches_everything():

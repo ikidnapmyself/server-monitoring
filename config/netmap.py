@@ -171,7 +171,7 @@ def _delivery(lane) -> dict:
     if lane.channel_id:
         action = Action(
             f"Open {lane.channel.name}",
-            "edit_channel",
+            "view_channel",
             {"pk": lane.channel_id, "name": lane.channel.name},
         )
     else:
@@ -230,7 +230,7 @@ def get_map_context() -> dict:
                 "delivery": _delivery(lane),
                 "seed_shaped": seed_shaped,
                 "seed_note": SEED_NOTE if seed_shaped else "",
-                "edit": Action("Edit route", "edit_route", {"pk": lane.pk}),
+                "edit": Action("Open route", "view_route", {"pk": lane.pk}),
             }
         )
     return {"lanes": cards}

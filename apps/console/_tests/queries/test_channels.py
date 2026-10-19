@@ -48,7 +48,7 @@ def test_a_row_names_its_driver_state_and_edit_action():
 
     assert rows["ops"].driver_label == "Slack"
     assert rows["ops"].active is False
-    assert rows["ops"].edit == Action("ops", "edit_channel", {"pk": ch.pk})
+    assert rows["ops"].edit == Action("ops", "view_channel", {"pk": ch.pk})
     assert rows["ops"].anchor == f"channel-{ch.pk}"
     assert rows["pigeon"].driver_label == "A driver this hub doesn't have"
     assert pigeon.pk == rows["pigeon"].pk
@@ -78,14 +78,14 @@ def test_lanes_name_their_gap_and_link_their_route():
     rows = {row.name: row for row in build_channel_list("").rows}
 
     assert rows["ops"].lanes == (
-        LaneLine("early", "", Action("early", "edit_route", {"pk": early.pk})),
-        LaneLine("late", "", Action("late", "edit_route", {"pk": late.pk})),
+        LaneLine("early", "", Action("early", "view_route", {"pk": early.pk})),
+        LaneLine("late", "", Action("late", "view_route", {"pk": late.pk})),
     )
     assert rows["pigeon"].lanes == (
         LaneLine(
             "pager",
             "the channel uses a driver this hub doesn't have",
-            Action("pager", "edit_route", {"pk": pager.pk}),
+            Action("pager", "view_route", {"pk": pager.pk}),
         ),
     )
 
@@ -197,7 +197,7 @@ class TestTheDeletion:
         deletion = build_channel_deletion(ch.pk)
 
         assert deletion.name == "ops"
-        assert deletion.cut == (Action("web", "edit_route", {"pk": web.pk}),)
+        assert deletion.cut == (Action("web", "view_route", {"pk": web.pk}),)
         assert deletion.url == f"/console/channels/{ch.pk}/delete/"
         assert deletion.back_url == f"/console/channels/{ch.pk}/"
 

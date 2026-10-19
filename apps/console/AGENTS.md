@@ -193,8 +193,11 @@ pipeline stage and not an alert producer.
   `Action` into a link, a POST button, or plain text when the intent is unknown, the user
   lacks its permission or the URL can't be built. Config intents such as `edit_provider`
   point at the admin until their domain gets a console page, and then only their entry
-  here changes. Routes and channels have theirs: `view_routes`, `edit_route`, `add_route`,
-  `delete_route`, `view_channels`, `edit_channel`, `add_channel` and `delete_channel`.
+  here changes. Routes and channels have theirs: `view_route`, `edit_route`, `add_route`,
+  `delete_route`, `view_channel`, `edit_channel`, `add_channel` and `delete_channel`. A
+  `view_*` intent opens the page, or the list when it has no `pk`, for anyone who can read
+  it. A name link uses it. An `edit_*` intent opens the same page but needs the change
+  permission, so a remedy such as "Give it an active channel" is plain text to a reader.
   `admin_url()` covers the chrome's index,
   login and logout links. No template or query reverses an `admin:` name or writes
   `/admin/`, and `_tests/test_intents.py` scans for both. Templates resolve an action with
