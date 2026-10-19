@@ -18,3 +18,14 @@ def test_the_channel_admin_is_stock_and_read_only(admin_client, rf, admin_user):
     response = admin_client.get(reverse("admin:notify_notificationchannel_changelist"))
     assert response.status_code == 200
     assert "listed" in response.content.decode()
+
+
+def test_the_channel_admin_never_shows_stored_settings(admin_client):
+    channel = NotificationChannel.objects.create(
+        name="slack", driver="slack", config={"webhook_url": "https://hooks.slack.com/SECRETXYZ"}
+    )
+    response = admin_client.get(
+        reverse("admin:notify_notificationchannel_change", args=[channel.pk])
+    )
+    assert response.status_code == 200
+    assert "SECRETXYZ" not in response.content.decode()

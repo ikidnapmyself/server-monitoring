@@ -10,6 +10,7 @@ class NotificationChannelAdmin(admin.ModelAdmin):
     """Read-only. Operators edit channels in the console."""
 
     list_display = ["name", "driver", "is_active", "updated_at"]
+    exclude = ["config"]
 
     def has_add_permission(self, request, obj=None):
         return False
