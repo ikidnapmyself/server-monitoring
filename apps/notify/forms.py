@@ -101,7 +101,7 @@ class ChannelForm(forms.Form):
     name = forms.CharField(max_length=100)
     driver = forms.ChoiceField()
     is_active = forms.BooleanField(required=False, label="Active")
-    description = forms.CharField(widget=forms.Textarea, required=False)
+    description = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), required=False)
 
     def __init__(
         self,

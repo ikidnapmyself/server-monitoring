@@ -1,8 +1,7 @@
 <div id="route-condition-{{ forloop.counter0 }}" class="c-condition">
   {% for field in row.visible_fields %}{% if field.name != "DELETE" %}{% include "console/partials/_field.html" %}{% endif %}{% endfor %}
-  <div class="c-field">
-    <label class="c-field__label" for="{{ row.DELETE.id_for_label }}">Remove</label>
-    {{ row.DELETE }}
+  <div class="c-field c-condition__remove">
+    <div class="c-check">{{ row.DELETE }}<label class="c-field__label" for="{{ row.DELETE.id_for_label }}">Remove</label></div>
   </div>
   {% for error in row.non_field_errors %}<p class="c-field__error c-tone-critical">{{ error }}</p>{% endfor %}
 </div>

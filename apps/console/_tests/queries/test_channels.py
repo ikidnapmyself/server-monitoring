@@ -208,3 +208,16 @@ class TestTheDeletion:
 
         assert existing.delete == Action("Delete channel", "delete_channel", {"pk": ch.pk})
         assert build_channel_editor(None, driver="slack", can_change=True).delete is None
+
+
+@pytest.mark.parametrize(
+    ("active", "driver", "tone"),
+    [(True, "slack", "ok"), (False, "slack", "muted"), (True, "carrier_pigeon", "critical")],
+)
+def test_a_row_tone_puts_a_lane_that_cant_deliver_first(active, driver, tone):
+    ch = _channel("ops", driver=driver, is_active=active)
+    PipelineDefinition.objects.create(name="early", stages=["check"], channel=ch)
+    if driver != "slack":
+        PipelineDefinition.objects.create(name="pager", stages=["notify"], channel=ch)
+
+    assert build_channel_list("").rows[0].tone == tone

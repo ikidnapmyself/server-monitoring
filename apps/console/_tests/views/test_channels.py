@@ -72,7 +72,10 @@ def test_channels_render_by_name_with_driver_state_and_lanes(client, superuser, 
     assert '<span class="c-label c-tone-ok">Active</span>' in body
     assert f'href="/console/routes/{lane.pk}/">web</a>' in body
     assert "No route sends here" in body
-    assert 'href="/console/channels/new/">Add a channel</a>' in body
+    assert (
+        '<a id="channels-add" class="c-button c-button--sm c-button--primary" '
+        'href="/console/channels/new/">Add a channel</a>'
+    ) in body
     assert not [label for label, rule in FORBIDDEN.items() if rule.search(body)]
 
 
@@ -83,7 +86,11 @@ def test_a_lane_that_cant_deliver_says_why(client, superuser, url):
 
     body = client.get(url).content.decode()
 
-    assert "(can't deliver: the channel uses a driver this hub doesn&#x27;t have)" in body
+    assert (
+        '<div class="c-row__meta c-tone-critical">pager can\'t deliver: '
+        "the channel uses a driver this hub doesn&#x27;t have</div>"
+    ) in body
+    assert '<span class="c-row__icon c-tone-critical">' in body
     assert "A driver this hub doesn" in body
 
 

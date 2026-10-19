@@ -292,7 +292,7 @@ button { font: inherit; }
 }
 
 /* Sub-navigation: the pages under one nav item */
-.c-subnav { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-bottom: var(--space-4); }
+.c-subnav { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-bottom: var(--space-6); }
 .c-subnav__item {
   padding: 0 var(--space-2);
   border-radius: var(--radius);
@@ -337,6 +337,9 @@ button { font: inherit; }
 }
 .c-box__header:last-child { border-bottom: 0; border-radius: var(--radius); }
 .c-box__title { font-size: 14px; font-weight: 600; }
+fieldset.c-box { margin-inline: 0; padding: 0; }
+legend.c-box__header { float: left; width: 100%; }
+legend.c-box__header + * { clear: both; }
 .c-box__list { margin: 0; padding: 0; list-style: none; }
 .c-box__row {
   padding: var(--space-4);
@@ -347,6 +350,7 @@ button { font: inherit; }
 .c-box__header + .c-box__list > .c-box__row:first-child { border-top: 0; }
 .c-box__row--hover:hover { background: var(--bgColor-muted); }
 .c-box__body { padding: var(--space-4); }
+.c-box__body > :last-child { margin-bottom: 0; }
 
 /* Issue row */
 .c-row { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: var(--space-2); padding: var(--space-2) var(--space-4); }
@@ -360,9 +364,16 @@ button { font: inherit; }
   vertical-align: middle;
 }
 .c-row__main > a:hover { color: var(--fgColor-accent); text-decoration: none; }
-.c-row__main > .c-label { vertical-align: middle; }
+.c-row__main > .c-label { vertical-align: middle; white-space: normal; }
 .c-row__detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fgColor-muted); }
 .c-row__meta { margin-top: var(--space-1); color: var(--fgColor-muted); font-size: 12px; }
+.c-row__line { margin-top: var(--space-1); }
+.c-row__icon.c-tone-critical,
+.c-row__icon.c-tone-warning,
+.c-row__icon.c-tone-ok,
+.c-row__meta.c-tone-critical { color: var(--tone-fg); }
+.c-row--muted .c-row__main,
+.c-row--muted .c-row__main > a { color: var(--fgColor-muted); }
 .c-box__row.c-row__more { padding: var(--space-3) var(--space-4); text-align: center; }
 .c-box__row.c-row__more > a { font-weight: 600; }
 
@@ -651,6 +662,7 @@ details[open] > .c-entry .c-entry__chevron { transform: rotate(90deg); }
 }
 .c-search__input:focus-visible { border-color: var(--focus-outlineColor); outline-offset: -1px; }
 .c-form__group { margin: 0 0 var(--space-3); padding: 0; min-width: 0; }
+.c-form__note { margin-bottom: var(--space-3); }
 .c-field { display: grid; gap: var(--space-1); margin-bottom: var(--space-3); }
 .c-field__label { font-weight: 600; }
 .c-field input,
@@ -667,8 +679,17 @@ details[open] > .c-entry .c-entry__chevron { transform: rotate(90deg); }
 .c-field input:focus-visible,
 .c-field select:focus-visible { border-color: var(--focus-outlineColor); outline-offset: -1px; }
 .c-field__help { margin: 0; color: var(--fgColor-muted); font-size: 12px; }
+.c-field input[type="checkbox"] { margin: 0; padding: 0; }
+.c-check { display: flex; align-items: center; gap: var(--space-2); }
+.c-check + .c-field__help { padding-left: calc(13px + var(--space-2)); }
+.c-fieldset { min-width: 0; margin: 0 0 var(--space-3); padding: 0; border: 0; }
+.c-fieldset > legend { margin-bottom: var(--space-1); padding: 0; }
+.c-fieldset label { display: inline-flex; align-items: center; gap: var(--space-2); }
+.c-fieldset > div > div + div { margin-top: var(--space-1); }
 .c-field__error { margin: 0; }
-.c-condition { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: flex-end; }
+.c-condition { display: flex; flex-wrap: wrap; gap: 0 var(--space-3); align-items: flex-start; }
+.c-condition + .c-condition { padding-top: var(--space-3); border-top: 1px solid var(--borderColor-muted); }
+.c-condition__remove { align-self: center; }
 .c-condition .c-field { margin-bottom: var(--space-3); }
 
 .c-stages { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
@@ -815,14 +836,6 @@ summary.c-entry:hover .c-entry__title { color: var(--fgColor-accent); }
   cursor: pointer;
 }
 .c-copy:hover { background: var(--button-default-bgColor-hover); }
-
-/* Routes: one box per route, in the order they're tried */
-.c-routes { display: grid; gap: var(--space-4); margin: var(--space-4) 0 0; padding: 0; list-style: none; }
-.c-routes .c-lines { margin: 0 0 var(--space-3); }
-.c-routes .c-bullets { margin: 0; }
-.c-routes .c-lines .c-button { margin-left: var(--space-2); }
-.c-box--muted .c-box__title,
-.c-box--muted .c-box__body { color: var(--fgColor-muted); }
 
 /* Responsive */
 @media (max-width: 1011px) {

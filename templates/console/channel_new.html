@@ -9,7 +9,7 @@
 <div id="channel-drivers" class="c-box">
   <div class="c-box__header"><h2 class="c-box__title">Pick how it sends</h2></div>
   <ul class="c-box__list">
-    {% for choice in drivers %}<li class="c-box__row"><a id="channel-driver-{{ forloop.counter }}" href="{{ choice.url }}">{{ choice.label }}</a></li>{% endfor %}
+    {% for choice in drivers %}<li class="c-box__row c-box__row--hover c-row"><span class="c-row__icon">{% include "console/partials/_octicon.html" with name="bell" %}</span><div class="c-row__main"><a id="channel-driver-{{ forloop.counter }}" href="{{ choice.url }}">{{ choice.label }}</a></div></li>{% endfor %}
   </ul>
 </div>
 {% endblock %}

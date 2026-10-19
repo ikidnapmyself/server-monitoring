@@ -104,3 +104,19 @@ def test_a_shadowed_route_is_muted_and_names_its_shadower():
 
     assert (card.state, card.tone, card.muted) == ("shadowed", "warning", True)
     assert card.state_words == "Never reached: all catches its traffic first"
+
+
+@pytest.mark.parametrize(
+    ("kw", "gap", "icon"),
+    [
+        ({"stages": ["check"]}, False, "ok"),
+        ({"stages": ["notify"]}, True, "warning"),
+        ({"stages": ["notify"], "is_active": False}, True, "muted"),
+    ],
+)
+def test_the_row_icon_warns_when_a_reachable_route_cant_deliver(kw, gap, icon):
+    _lane("web", 1, match=[], **kw)
+
+    card = build_route_list().cards[0]
+
+    assert (card.delivery_gap, card.icon_tone) == (gap, icon)

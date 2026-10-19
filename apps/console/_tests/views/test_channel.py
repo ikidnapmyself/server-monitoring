@@ -209,7 +209,13 @@ def test_routed_here_by_lists_each_lane_with_its_gap(client, superuser, channel)
     lanes = body[body.index('id="channel-lanes"') :]
     assert "Routed here by" in lanes
     assert f'<a id="channel-lane-1" href="/console/routes/{lane.pk}/">web</a>' in lanes
-    assert "Can't deliver: the matched route has no active channel" in lanes
+    assert (
+        '<div class="c-row__meta c-tone-critical">'
+        "Can't deliver: the matched route has no active channel</div>"
+    ) in lanes
+    assert '<span class="c-row__icon c-tone-critical">' in lanes
+    assert '<textarea name="description" cols="40" rows="3"' in body
+    assert '<div class="c-check"><input type="checkbox" name="is_active"' in body
 
 
 def test_a_channel_no_route_uses_says_so(client, superuser, channel):

@@ -1,8 +1,8 @@
-{% extends "console/base.html" %}
+{% extends "console/base.html" %}{% load console %}
 {% block title %}Routes · Console{% endblock %}
 {% block content %}
 {% include "console/partials/_system_nav.html" %}
 {% include "console/partials/_messages.html" %}
-<div class="c-pagehead"><div class="c-pagehead__top"><h1 class="c-pagehead__title">Routes</h1></div></div>
+<div class="c-pagehead"><div class="c-pagehead__top"><h1 class="c-pagehead__title">Routes</h1>{% if routes.can_add %}{% resolved routes.add as act %}{% include "console/partials/_action.html" with act=act id="routes-add" cls="c-button--primary" %}{% endif %}</div></div>
 {% include "console/partials/_routes.html" %}
 {% endblock %}

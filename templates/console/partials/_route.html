@@ -12,7 +12,7 @@
     {% include "console/partials/_field.html" with field=form.is_active %}
     {% include "console/partials/_field.html" with field=form.priority %}
     {% include "console/partials/_field.html" with field=form.channel %}
-    <fieldset id="route-stages" class="c-field c-form__group">
+    <fieldset id="route-stages" class="c-fieldset">
       <legend class="c-field__label">Stages</legend>
       {{ form.stages }}
       {% for error in form.stages.errors %}<p class="c-field__error c-tone-critical">{{ error }}</p>{% endfor %}
@@ -21,7 +21,7 @@
   <fieldset id="route-conditions" class="c-box c-form__group">
     <legend class="c-box__header c-box__title">Conditions</legend>
     <div class="c-box__body">
-      <p class="c-muted">All of these must hold. No conditions matches everything.</p>
+      <p class="c-muted c-form__note">All of these must hold. No conditions matches everything.</p>
       {% if not editor.represented %}
       {% include "console/partials/_flash.html" with tone="warning" text="These conditions use a shape the editor can't show. Saving keeps them." %}
       <details id="route-stored" class="c-details" data-details>

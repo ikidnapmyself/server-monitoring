@@ -91,7 +91,8 @@ def test_the_shadowed_route_names_its_shadower_and_is_muted(client, superuser, u
 
     card = _card(client.get(url).content.decode(), later)
 
-    assert "c-box--muted" in card
+    assert "c-row--muted" in card
+    assert '<span class="c-row__icon c-tone-warning">' in card
     assert "Never reached: all catches its traffic first" in card
 
 
@@ -106,10 +107,17 @@ def test_a_superuser_gets_the_links(client, superuser, url):
     bound_card = _card(body, bound)
     assert "Delivers to ops" in bound_card
     assert f'href="/console/channels/{ch.pk}/">Open ops</a>' in bound_card
-    assert f'href="/console/routes/{bound.pk}/">Open route</a>' in bound_card
+    assert (
+        f'<a id="route-{bound.pk}-edit" href="/console/routes/{bound.pk}/">bound</a>' in bound_card
+    )
+    assert '<span class="c-row__icon c-tone-ok">' in bound_card
     assert "Set up without delivery. It delivers once a channel is active." in bound_card
     bare_card = _card(body, bare)
-    assert "Can&#x27;t deliver: the matched route has no active channel" in bare_card
+    assert (
+        '<span class="c-tone-warning">'
+        "Can&#x27;t deliver: the matched route has no active channel</span>"
+    ) in bare_card
+    assert '<span class="c-row__icon c-tone-warning">' in bare_card
     assert f'href="/console/routes/{bare.pk}/">Give it an active channel</a>' in bare_card
 
 
@@ -119,7 +127,8 @@ def test_a_view_only_reader_can_open_a_route(client, route_viewer, url):
     card = _card(client.get(url).content.decode(), lane)
 
     assert "Records only, sends nothing" in card
-    assert f'href="/console/routes/{lane.pk}/">Open route</a>' in card
+    assert f'href="/console/routes/{lane.pk}/">all</a>' in card
+    assert "Open route" not in card
 
 
 def test_a_view_only_reader_sees_the_route_fix_as_text(client, route_viewer, url):
@@ -137,7 +146,7 @@ def test_a_route_viewer_sees_the_channel_as_text(client, route_viewer, url):
 
     card = _card(client.get(url).content.decode(), lane)
 
-    assert '<p class="c-description__action">Open ops</p>' in card
+    assert "Delivers to ops · Open ops</div>" in card
     assert f'href="/console/channels/{ch.pk}/"' not in card
 
 
@@ -169,13 +178,20 @@ def test_the_page_carries_nothing_the_csp_blocks(client, superuser, url):
     assert not [label for label, rule in FORBIDDEN.items() if rule.search(body)]
 
 
-def test_a_card_labels_its_conditions(client, superuser, url):
+def test_a_row_says_its_conditions_in_one_line(client, superuser, url):
     client.force_login(superuser)
-    lane = _lane("all", 1, match=[])
+    lane = _lane(
+        "web",
+        1,
+        match=[
+            {"field": "source", "op": "is", "value": "cluster"},
+            {"field": "source", "op": "is-not", "value": "grafana"},
+        ],
+    )
 
     card = _card(client.get(url).content.decode(), lane)
 
-    assert '<span class="c-muted">Conditions</span>' in card
+    assert '<div class="c-row__line">Source is cluster and Source is not grafana</div>' in card
     assert ">Matches<" not in card
 
 
@@ -194,7 +210,11 @@ def test_a_route_adder_gets_the_add_button(client, superuser, url):
 
     body = client.get(url).content.decode()
 
-    assert '<a id="routes-add" class="c-button c-button--sm" href="/console/routes/new/">' in body
+    head = body[body.index('<div class="c-pagehead">') : body.index('<div id="routes">')]
+    assert (
+        '<a id="routes-add" class="c-button c-button--sm c-button--primary" '
+        'href="/console/routes/new/">'
+    ) in head
 
 
 def test_a_view_only_reader_gets_no_add_button(client, route_viewer, url):

@@ -15,6 +15,7 @@ from config.netmap import get_map_context
 
 STATE_TONES = {"ok": "ok", "inactive": "muted", "never-matches": "critical", "shadowed": "warning"}
 MUTED_STATES = ("inactive", "shadowed")
+DELIVERING = ("bound", "recording-only")
 
 
 @dataclass(frozen=True)
@@ -29,12 +30,19 @@ class RouteCard:
     stages: tuple[str, ...]
     delivery: str
     delivery_action: Action | None
+    delivery_gap: bool
     seed_note: str
     edit: Action
 
     @property
     def anchor(self) -> str:
         return f"route-{self.pk}"
+
+    @property
+    def icon_tone(self) -> str:
+        if self.state == "ok" and self.delivery_gap:
+            return "warning"
+        return self.tone
 
 
 @dataclass(frozen=True)
@@ -60,6 +68,7 @@ def _card(lane: dict) -> RouteCard:
         stages=tuple(lane["stages"]),
         delivery=lane["delivery"]["words"],
         delivery_action=lane["delivery"]["action"],
+        delivery_gap=lane["delivery"]["state"] not in DELIVERING,
         seed_note=lane["seed_note"],
         edit=lane["edit"],
     )

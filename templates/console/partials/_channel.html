@@ -34,10 +34,18 @@
   <a id="channel-cancel" class="c-button" href="{{ editor.back_url }}">{% if editor.can_change %}Cancel{% else %}Back to channels{% endif %}</a>
 </form>
 {% endwith %}
-{% if editor.pk %}<div id="channel-lanes" class="c-section">
-  <h2 class="c-section-title">Routed here by</h2>
-  {% if editor.lanes %}<ul class="c-bullets">
-    {% for line in editor.lanes %}<li>{% resolved line.action as act %}{% if act.url %}<a id="channel-lane-{{ forloop.counter }}" href="{{ act.url }}">{{ act.text }}</a>{% else %}{{ act.text }}{% endif %}{% if line.gap_words %} <span class="c-tone-critical">Can't deliver: {{ line.gap_words }}</span>{% endif %}</li>{% endfor %}
-  </ul>{% else %}<p class="c-muted">No route sends here.</p>{% endif %}
-</div>{% endif %}
+{% if editor.pk %}<section id="channel-lanes" class="c-box c-section">
+  <div class="c-box__header"><h2 class="c-box__title">Routed here by</h2></div>
+  {% if editor.lanes %}<ul class="c-box__list">
+    {% for line in editor.lanes %}{% resolved line.action as act %}
+    <li class="c-box__row c-box__row--hover c-row">
+      <span class="c-row__icon c-tone-{% if line.gap_words %}critical{% else %}ok{% endif %}">{% if line.gap_words %}{% include "console/partials/_tone_icon.html" with tone="critical" %}{% else %}{% include "console/partials/_tone_icon.html" with tone="ok" %}{% endif %}</span>
+      <div class="c-row__main">
+        {% if act.url %}<a id="channel-lane-{{ forloop.counter }}" href="{{ act.url }}">{{ act.text }}</a>{% else %}<strong>{{ act.text }}</strong>{% endif %}
+        {% if line.gap_words %}<div class="c-row__meta c-tone-critical">Can't deliver: {{ line.gap_words }}</div>{% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>{% else %}<div class="c-blankslate c-blankslate--sm"><p>No route sends here.</p></div>{% endif %}
+</section>{% endif %}
 {% if editor.facts %}<div class="c-section">{% include "console/partials/_details.html" with facts=editor.facts raw="" id="channel-details" %}</div>{% endif %}

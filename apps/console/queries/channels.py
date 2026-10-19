@@ -40,6 +40,12 @@ class ChannelRow:
     def anchor(self) -> str:
         return f"channel-{self.pk}"
 
+    @property
+    def tone(self) -> str:
+        if any(line.gap_words for line in self.lanes):
+            return "critical"
+        return "ok" if self.active else "muted"
+
 
 @dataclass(frozen=True)
 class ChannelList:

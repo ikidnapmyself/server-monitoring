@@ -108,6 +108,7 @@ class RouteForm(forms.ModelForm):
         model = PipelineDefinition
         fields = MODEL_FIELDS
         labels = {"is_active": "On"}
+        widgets = {"description": forms.Textarea(attrs={"rows": 3})}
         help_texts = {
             "name": "No two routes share a name.",
             "description": "What this route is for.",

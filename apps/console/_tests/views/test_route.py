@@ -1,4 +1,5 @@
 import json
+import re
 from unittest import mock
 
 import pytest
@@ -497,3 +498,17 @@ class TestANewRoute:
 
         assert resp.status_code == 200
         assert "Another route already has this name." in resp.content.decode()
+
+
+def test_a_checkbox_sits_before_its_label_and_the_description_is_short(client, superuser, route):
+    client.force_login(superuser)
+
+    body = client.get(_url(route)).content.decode()
+
+    assert re.search(
+        r'<div class="c-check"><input type="checkbox" name="is_active"[^>]*>'
+        r'<label class="c-field__label" for="id_is_active">On</label></div>',
+        body,
+    )
+    assert re.search(r'<textarea name="description" cols="40" rows="3"', body)
+    assert '<fieldset id="route-stages" class="c-fieldset">' in body
