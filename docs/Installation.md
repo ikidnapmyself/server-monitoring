@@ -321,7 +321,7 @@ uv run python manage.py run_pipeline --sample
 
 ```bash
 sm-cluster        # guided: notification channel + a catch-all routing pipeline
-# or manage routing pipelines directly in Django Admin (Orchestration → Pipeline definitions)
+# or manage routes and channels directly in the console (/console/routes/, /console/channels/)
 uv run python manage.py setup_intelligence   # optional: pick an AI provider
 ```
 

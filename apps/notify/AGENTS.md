@@ -58,10 +58,37 @@ driver absent from `DRIVER_REGISTRY` fails the same way as `no_driver`.
 ## Key modules
 
 - `apps/notify/drivers/` — notification drivers/backends
+- `apps/notify/config_fields.py`: `ConfigField`, one setting a driver reads from its channel config
+- `apps/notify/forms.py`: `ChannelForm`, the console's channel editor
+- `apps/notify/channels.py`: `save_channel`, `channel_digest`, `StaleChannel` and `lanes_cut_by_delete`
 - `apps/notify/describing.py` — `describe_delivery`, `describe_notify`
 - `apps/notify/models.py` — notification channel configuration models
 - `apps/notify/urls.py` — URL routing
 - `apps/notify/management/commands/test_notify.py` — interactive test notification wizard
+
+## Channel settings
+
+**A driver declares every setting it reads.** Each driver lists its `ConfigField`s in
+`config_fields`. `BaseNotifyDriver.all_config_fields()` appends `COMMON_FIELDS`, the
+destination and template settings every driver shares. `credential_aliases` maps an old
+key to the declared one it stands for, such as the generic driver's `webhook_url` for
+`endpoint`. `ChannelForm` builds the console form from these declarations alone.
+`_tests/test_config_fields.py` scans each driver's source and fails when it reads a
+config key that is neither declared nor listed as an alias there.
+
+**Secrets are write-only.** A field with `secret=True` never renders its stored value.
+The input stays empty and says "Set. Leave blank to keep it." A blank submit keeps the
+stored value, and "Clear" removes it and any alias. Switching driver drops the old
+driver's secrets and aliases. A headers field must be secret.
+
+**Unknown keys are kept.** A stored key the driver doesn't declare survives every save.
+The page names it in Details and never shows its value.
+
+**A save is checked against what was opened.** The form posts `channel_digest`, an HMAC
+of the stored row keyed on the secret key, so the page carries no plain hash of
+credentials. `save_channel` writes only when the row still hashes to it, and raises
+`StaleChannel` otherwise. `lanes_cut_by_delete` lists the lanes on a channel that notify,
+which a delete leaves with no channel.
 
 ## Management command: test_notify
 
@@ -86,10 +113,9 @@ Key contract:
 
 Each app must provide an **extensive** `admin.py` so operators can manage its models and trace pipeline behavior.
 
-For `apps.notify`, admin should make it easy to:
-- Manage `NotificationChannel` configurations safely (mask/redact secrets)
-- Inspect notification attempts/deliveries for pipeline runs (typically via orchestration models)
-- Correlate deliveries with `Incident` and `trace_id/run_id` to debug duplicates/failures
+For `apps.notify`, operators read and edit channels in the console
+(`/console/channels/`). `NotificationChannelAdmin` is stock and read-only: no add, change
+or delete. Deliveries are read on the console run page.
 
 ## App layout rules (required)
 
@@ -163,6 +189,7 @@ Guidelines for drivers:
 ## How to extend with a new driver (added)
 
 1. Create `apps/notify/drivers/mydriver.py` and subclass `BaseNotifyDriver`.
+   Set `label` and declare every config key it reads in `config_fields`. Mark credentials `secret=True`.
 2. Implement `validate_config(config)`.
 3. Implement `send(message, config)` — recommended pattern:
 

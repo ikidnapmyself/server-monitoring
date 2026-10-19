@@ -124,7 +124,8 @@ pipeline run.
 
 ### Override via NotificationChannel Config
 
-Set a custom template in the channel's `config` field in Django admin (`/admin/notify/notificationchannel/`):
+Set a custom template on the channel's console page (`/console/channels/<pk>/`), under
+**Message templates**. It is stored in the channel's `config`:
 
 ```json
 {
@@ -156,8 +157,8 @@ For email drivers, you can set both text and HTML templates:
 
 ### Override via NotificationChannel config
 
-Set a `template` key on the channel's `config` (Django Admin → Notify → Notification
-channels). The notify stage reads it from the DB-stored channel config:
+Set a `template` key on the channel's `config` (Console → System → Channels). The
+notify stage reads it from the DB-stored channel config:
 
 ```json
 {

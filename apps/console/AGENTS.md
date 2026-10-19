@@ -149,6 +149,24 @@ pipeline stage and not an alert producer.
   registered nor on an open alert of the node gets the fixed title "Re-evaluate one
   checker's alerts on <node>", so a typed name never reaches the page. On both pages, an
   apply whose fresh report has no changes writes nothing and answers 409 with the preview.
+- **System holds routes and channels.** The header's System item opens `/console/routes/`,
+  and `partials/_system_nav.html` switches between Routes and Channels. The lists and the
+  editors read with the admin's view or change permission (`ROUTE_READ` and
+  `CHANNEL_READ` in `intents.py`). Add, change and delete each need their own permission,
+  and a reader sees the editor disabled. Both admins are stock and read-only.
+- **The route pages.** `/console/routes/` lists every route in match order through
+  `build_route_list`, which reads `config.netmap.get_map_context()`, so each card says
+  when a route is off, never matches or is never reached, and whether it can deliver.
+  `/console/routes/<pk>/` and `/console/routes/new/` render `RouteForm`. Conditions are
+  rows, and "Add condition" (`add_condition`) re-renders and saves nothing. A save posts
+  the `version` it opened and goes through `save_route`, which refuses a stale one with a
+  409 and the fresh route. A stored match the rows can't reproduce (`representable`) is
+  shown as stored and kept unless "Replace them" is ticked. `/console/routes/<pk>/delete/`
+  confirms first and states where the traffic goes, from `routing.fallthrough`.
+- **The channel pages.** `/console/channels/` lists channels with the routes on each,
+  and `q` searches names. `/console/channels/new/` picks a driver first, then
+  `?driver=<key>` renders that driver's form. `/console/channels/<pk>/delete/` confirms
+  first and names the routes that stop delivering, from `lanes_cut_by_delete`.
 - **A channel page never renders a secret.** `/console/channels/<pk>/` renders
   `ChannelForm`, whose secret inputs render empty and whose undeclared settings show by
   name only, in Details. The page posts to its own URL with `?driver=`, the driver its
@@ -175,7 +193,9 @@ pipeline stage and not an alert producer.
   `Action` into a link, a POST button, or plain text when the intent is unknown, the user
   lacks its permission or the URL can't be built. Config intents such as `edit_provider`
   point at the admin until their domain gets a console page, and then only their entry
-  here changes. Routes and channels already have theirs. `admin_url()` covers the chrome's index,
+  here changes. Routes and channels have theirs: `view_routes`, `edit_route`, `add_route`,
+  `delete_route`, `view_channels`, `edit_channel`, `add_channel` and `delete_channel`.
+  `admin_url()` covers the chrome's index,
   login and logout links. No template or query reverses an `admin:` name or writes
   `/admin/`, and `_tests/test_intents.py` scans for both. Templates resolve an action with
   `{% load console %}{% resolved action as act %}` and render it through

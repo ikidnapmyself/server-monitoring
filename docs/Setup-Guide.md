@@ -236,8 +236,8 @@ its lane from its incident's subject alert. Checker-origin alerts carry `source:
 page about its own full disk. (The old record-only `hub-self-check` lane is retired: the
 incident change gate now absorbs a repeat that says nothing new, so a still-firing alert
 no longer re-notifies on every tick.) To keep local checks record-only instead, add a
-higher-priority lane in **Orchestration → Pipeline definitions** matching
-`origin is checker_generated` with empty `stages`.
+higher-priority route at `/console/routes/new/` matching
+`Started by is Checker generated` with no stages ticked.
 
 On a machine with a `HUB_URL` the script offers a second job on the same schedule,
 **push to hub**. A machine without one needs nothing more: the health-check job above is

@@ -124,11 +124,11 @@ Nothing stores display text. Each app describes its own output when it's read, a
 
 ### Stage Configuration
 
-Stage behavior is controlled through routing pipelines and Django Admin — not environment variables:
+Stage behavior is controlled through routing pipelines, the console and Django Admin, not environment variables:
 
-- **Routing**: `PipelineDefinition` (Django Admin) matches the run's subject alert and its ordered `stages` list selects which downstream stages run; its single `channel` is the notify target. Unmatched traffic fails non-retryably as `no_route` — there is no implicit fallback.
+- **Routing**: `PipelineDefinition` (console, `/console/routes/`) matches the run's subject alert and its ordered `stages` list selects which downstream stages run; its single `channel` is the notify target. Unmatched traffic fails non-retryably as `no_route`. There is no implicit fallback.
 - **Intelligence**: The `IntelligenceProvider` model (Django Admin) controls which AI provider is active.
-- **Notify**: The `NotificationChannel` model (Django Admin) controls which channels are active via `is_active`.
+- **Notify**: The `NotificationChannel` model (console, `/console/channels/`) controls which channels are active via `is_active`.
 
 ## Entry Points
 
@@ -204,6 +204,9 @@ All apps register their models at `/admin/`:
 | `/admin/notify/` | NotificationChannel |
 | `/admin/orchestration/` | PipelineRun, StageExecution, PipelineDefinition |
 
+The run, stage, inbox, route and channel admins are stock and read-only. Their pages
+live in the console.
+
 #### Routes
 
 `/console/routes/` renders the routing table as a read-time projection
@@ -223,7 +226,18 @@ hold. A save carries the version it opened, and `save_route` writes only if the 
 still at that version, so a route changed in between answers 409 with its fresh values. A
 stored match the rows can't reproduce is kept as it is unless the operator ticks "Replace
 them". A reader with only `view_pipelinedefinition` sees the same form, disabled. Tags stay
-out of the form and show in Details.
+out of the form and show in Details. `/console/routes/<pk>/delete/` confirms first and
+says where the route's traffic goes.
+
+#### Channels
+
+`/console/channels/` lists the notification channels and the routes on each, under the
+same **System** item. `/console/channels/new/` picks a driver, then shows the settings
+that driver declares. `/console/channels/<pk>/` edits one. A secret is never rendered:
+its box stays empty, and leaving it blank keeps the stored value. Settings the driver
+doesn't declare are kept and named in Details. A save carries a digest of the channel it
+opened, so a channel changed in between answers 409. `/console/channels/<pk>/delete/`
+names the routes that would stop delivering.
 
 #### Fleet policy
 
@@ -295,8 +309,8 @@ something that has already recovered. See
 - **Retry:** the console's Retry moves a failed run back to `PENDING`. The next drain skips
   the stages that already succeeded. `RETRYING` is set only by the resume API.
 
-Routing pipelines are managed in **Django Admin** (`/admin/orchestration/pipelinedefinition/`)
-or wired by the guided `setup_cluster`. The legacy node/edge graph engine was retired
+Routing pipelines are managed in the console (`/console/routes/`) or set up by the
+guided `setup_cluster`. The legacy node/edge graph engine was retired
 in Phase D — `PipelineDefinition` is now purely a routing rule (match → ordered stages → one channel).
 
 **Observability:** the console incident page's timeline and the console run page,
@@ -350,7 +364,7 @@ Every pipeline run carries:
 
 ### Key Environment Variables
 
-Environment variables configure **infrastructure only**. Application behavior (which checkers to run, intelligence provider, notification channels) is managed through Django Admin and pipeline definitions.
+Environment variables configure **infrastructure only**. Application behavior (which checkers to run, intelligence provider, notification channels) is managed through the console, Django Admin and pipeline definitions.
 
 | Variable | Purpose | Default |
 |----------|---------|---------|

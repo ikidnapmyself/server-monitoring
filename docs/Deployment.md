@@ -476,7 +476,7 @@ One command wires a node and **proves it works** — use this instead of editing
 uv run python manage.py setup_cluster --role hub --name "web-03" \
     --notify-driver slack --notify-webhook https://hooks.slack.com/services/XXX
 # Omit the --notify-* flags to be prompted; --no-notify to skip (the hub then
-# receives pushes but sends nothing until you add a channel in admin).
+# receives pushes but sends nothing until you add a channel at /console/channels/).
 
 # On the agent: write HUB_URL/INSTANCE_ID/HUB_API_KEY and verify with a live push.
 uv run python manage.py setup_cluster --role agent \
@@ -518,7 +518,7 @@ that is the seeded `catch-all` lane; if no catch-all exists at all it creates
   records and analyses without notifying; `[]` records the alert and stops.
 - To route specific traffic elsewhere (e.g. send `severity: critical` from a given
   node to a dedicated channel, or silence a noisy source), add a higher-priority
-  pipeline in **Orchestration → Pipeline definitions** with the narrower `match`,
+  route at `/console/routes/new/` with the narrower `match`,
   its own channel, and the `stages` you want. Lower `priority` numbers win, so an
   exception rule sits *above* the general one. Convention: **below 100** for system
   lanes that must pre-empt operator rules, **100** (the default) for your own
@@ -545,12 +545,12 @@ Notes:
   nobody configured. `preflight` warns when no active pipeline definitions exist.
 - A lane with an empty `match` is a catch-all, and lanes are evaluated by
   `(priority, id)`. **Several catch-alls at the same priority means the lowest
-  `id` wins and the rest never route** — check the `stages` and `channel` columns
-  on the Pipeline definitions changelist if a lane you expect never fires.
+  `id` wins and the rest never route**. `/console/routes/` marks such a route
+  "Never reached" and names the route that takes its traffic.
 - **A lane targets exactly one channel.** Delivery has never fanned out; the
   `channel` FK simply makes the field match the behaviour. An **inactive** channel
-  routes nowhere — the lane delivers nothing through it and notify falls back to
-  payload-driven selection — so the changelist marks such a channel `(inactive)`.
+  routes nowhere. A lane that notifies through it fails as `no_channel`, and
+  `/console/routes/` marks such a route "Can't deliver".
 - **A pipeline run is an incident**, and producing an alert is not a stage of it.
   `check_health` (and the deprecated `run_pipeline --checks-only`, which does the
   same work behind a stderr notice) writes the alerts, lets
