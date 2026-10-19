@@ -15,6 +15,7 @@ UNKNOWN_DRIVER = "A driver this hub doesn't have"
 CHANNEL_FIELDS = ("name", "driver", "is_active", "description", "config")
 SET_HELP = "Set. Leave blank to keep it."
 UNSET_HELP = "Not set."
+ALIAS_HELP = "Set under an older name. Leave blank to keep it."
 HEADER_ERROR = "Write each header on its own line as Name: value."
 
 
@@ -114,14 +115,19 @@ class ChannelForm(forms.Form):
         self.driver_key = driver or (channel.driver if channel else "")
         stored = channel.config if channel else {}
         self._base = dict(stored) if isinstance(stored, dict) else {}
-        if channel and self.driver_key != channel.driver and channel.driver in DRIVER_REGISTRY:
-            for key in self._credentials(DRIVER_REGISTRY[channel.driver]):
-                self._base.pop(key, None)
+        if channel and self.driver_key != channel.driver:
+            old_cls = DRIVER_REGISTRY.get(channel.driver)
+            if old_cls is None:
+                self._base = {}
+            else:
+                for key in self._credentials(old_cls):
+                    self._base.pop(key, None)
         driver_cls = DRIVER_REGISTRY.get(self.driver_key)
         self.driver_label = driver_cls.label if driver_cls else UNKNOWN_DRIVER
         self._specs = driver_cls.all_config_fields() if driver_cls else ()
         self._display: dict[str, Any] = {}
         self._config: dict = {}
+        self._aliases = dict(driver_cls.credential_aliases) if driver_cls else {}
 
         choices = [(key, cls.label) for key, cls in DRIVER_REGISTRY.items()]
         if channel and channel.driver not in DRIVER_REGISTRY:
@@ -152,9 +158,10 @@ class ChannelForm(forms.Form):
         if spec.secret:
             if spec.kind != "headers":
                 field.widget = forms.PasswordInput(render_value=False)
-            state = SET_HELP if is_stored else UNSET_HELP
+            by_alias = not is_stored and bool(self._stored_aliases(spec.key))
+            state = SET_HELP if is_stored else ALIAS_HELP if by_alias else UNSET_HELP
             field.help_text = f"{spec.help} {state}" if spec.help else state
-            if is_stored:
+            if is_stored or by_alias:
                 self.fields[clear_name(spec.key)] = forms.BooleanField(
                     required=False, label="Clear"
                 )
@@ -171,9 +178,18 @@ class ChannelForm(forms.Form):
             field.choices = choices
         self.initial[name] = shown
 
+    def _stored_aliases(self, key: str) -> list[str]:
+        return [
+            alias
+            for alias, target in self._aliases.items()
+            if target == key and alias in self._base
+        ]
+
     def _untouched(self) -> set[str]:
         """Stored fields posted back as they were shown, which keep their stored value."""
-        return {name for name, shown in self._display.items() if _unix(self[name].data) == shown}
+        return {
+            name for name, shown in self._display.items() if _unix(self[name].data) == _unix(shown)
+        }
 
     def clean_name(self) -> str:
         name = self.cleaned_data["name"]
@@ -216,7 +232,8 @@ class ChannelForm(forms.Form):
                 if not _blank(value):
                     config[spec.key] = value
                 elif self.cleaned_data.get(clear_name(spec.key)):
-                    config.pop(spec.key)
+                    for key in [spec.key, *self._stored_aliases(spec.key)]:
+                        config.pop(key, None)
             elif spec.kind != "bool" and _blank(value):
                 config.pop(spec.key, None)
             elif spec.key in self._base or value != spec.default:

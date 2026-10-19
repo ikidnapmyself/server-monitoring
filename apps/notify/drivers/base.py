@@ -14,7 +14,9 @@ import json
 import logging
 import urllib.error
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any
 
 from apps.notify.config_fields import COMMON_FIELDS, ConfigField
@@ -52,7 +54,7 @@ class BaseNotifyDriver(ABC):
     name: str = "base"
     label: str = ""
     config_fields: tuple[ConfigField, ...] = ()
-    credential_aliases: tuple[str, ...] = ()
+    credential_aliases: Mapping[str, str] = MappingProxyType({})
 
     _templating_service = NotificationTemplatingService()
 

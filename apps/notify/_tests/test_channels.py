@@ -1,5 +1,7 @@
 """Saving a channel from the console, and what deleting one would cut."""
 
+import hashlib
+import json
 from unittest.mock import patch
 
 import pytest
@@ -109,3 +111,11 @@ def test_junk_stages_do_not_count_as_notify(channel):
     PipelineDefinition.objects.create(name="junk", stages="notify", channel=channel)
 
     assert lanes_cut_by_delete(channel) == []
+
+
+def test_the_digest_is_keyed_so_the_page_cannot_be_brute_forced(channel):
+    stored = row(channel)
+    plain = hashlib.sha256(json.dumps(stored, sort_keys=True, default=str).encode()).hexdigest()
+
+    assert channel_digest(stored) != plain
+    assert channel_digest(stored) == channel_digest(dict(stored))

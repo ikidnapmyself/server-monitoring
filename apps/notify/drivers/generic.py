@@ -3,6 +3,7 @@
 import json
 import logging
 import urllib.error
+from types import MappingProxyType
 from typing import Any
 from urllib.request import Request  # noqa: TID251 — Request is a data object, not urlopen
 
@@ -21,7 +22,7 @@ class GenericNotifyDriver(BaseNotifyDriver):
 
     name = "generic"
     label = "Generic webhook"
-    credential_aliases = ("webhook_url",)
+    credential_aliases = MappingProxyType({"webhook_url": "endpoint"})
     config_fields = (
         ConfigField("endpoint", "Endpoint URL", "url", secret=True),
         ConfigField(

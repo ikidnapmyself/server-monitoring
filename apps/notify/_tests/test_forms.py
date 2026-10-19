@@ -1,11 +1,13 @@
 """The typed channel form: what an operator edits, and what it writes back."""
 
+import re
+
 import pytest
 from django import forms
 
 from apps.notify.config_fields import ConfigField
 from apps.notify.drivers import DRIVER_REGISTRY, GenericNotifyDriver
-from apps.notify.forms import UNKNOWN_DRIVER, ChannelForm
+from apps.notify.forms import ALIAS_HELP, UNKNOWN_DRIVER, ChannelForm
 from apps.notify.models import NotificationChannel
 
 pytestmark = pytest.mark.django_db
@@ -58,7 +60,7 @@ def initial_data(form):
             if value:
                 data[bound.html_name] = "on"
         elif value is not None:
-            data[bound.html_name] = str(value).replace("\n", "\r\n")
+            data[bound.html_name] = re.sub(r"\r?\n", "\r\n", str(value))
     return data
 
 
@@ -443,3 +445,38 @@ def test_a_choice_with_no_default_offers_not_set(monkeypatch):
     form = resubmit(channel)
     assert form.is_valid(), form.errors
     assert form.config() == {}
+
+
+def test_a_stored_crlf_survives_an_untouched_save():
+    stored = dict(STORED["slack"], template="a\r\nb")
+    form = resubmit(make("slack", stored))
+
+    assert form.is_valid(), form.errors
+    assert form.config() == stored
+
+
+def test_switching_away_from_an_unknown_driver_starts_empty():
+    channel = make("teams", {"webhook": "https://teams.example.com/teams-secret", "n": "x9z"})
+    form = ChannelForm(channel=channel, driver="slack")
+    page = str(form)
+
+    assert form.unknown_keys() == []
+    assert "teams-secret" not in page
+    assert "x9z" not in page
+
+
+def test_an_old_spelling_of_a_secret_reads_as_set_and_clear_drops_it():
+    stored = {"webhook_url": "https://example.com/old-name-secret", "timeout": 5}
+    channel = make("generic", stored)
+    form = ChannelForm(channel=channel)
+
+    assert form.fields["cfg__endpoint"].help_text == ALIAS_HELP
+    assert "old-name-secret" not in str(form)
+
+    kept = resubmit(channel)
+    assert kept.is_valid(), kept.errors
+    assert kept.config() == stored
+
+    cleared = resubmit(channel, cfg__endpoint__clear="on", cfg__disabled="on")
+    assert cleared.is_valid(), cleared.errors
+    assert cleared.config() == {"timeout": 5, "disabled": True}
