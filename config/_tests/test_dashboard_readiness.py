@@ -25,7 +25,7 @@ def test_channels_error_when_none_active_and_a_lane_promises_delivery():
     PipelineDefinition.objects.create(name="delivers", match=[], stages=["notify"], priority=1)
     r = _by_key(build_readiness())["channels"]
     assert r["status"] == "error"
-    assert r["url"] == reverse("admin:notify_notificationchannel_changelist")
+    assert r["url"] == reverse("console:channels")
 
 
 @pytest.mark.django_db
@@ -233,6 +233,7 @@ def test_every_delivering_lane_bound_is_ok():
 
     entry = _by_key(build_readiness())["lane_channels"]
     assert entry["status"] == "ok"
+    assert entry["url"] == reverse("console:routes")
     assert "1" in entry["detail"]
 
 

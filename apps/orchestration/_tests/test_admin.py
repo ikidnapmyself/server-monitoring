@@ -1,9 +1,7 @@
 import pytest
 from django.contrib import admin
 from django.contrib.auth.models import User
-from django.db import connection
 from django.test import SimpleTestCase, TestCase
-from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -12,6 +10,7 @@ from apps.checkers.models import CheckRun, CheckStatus
 from apps.intelligence.models import AnalysisRun
 from apps.orchestration.models import (
     InboxItem,
+    PipelineDefinition,
     PipelineRun,
     PipelineStatus,
     StageExecution,
@@ -214,139 +213,6 @@ class TestPrettifyJson(SimpleTestCase):
         assert "-" in result
 
 
-class TestJsonWidgetRendering(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
-
-    def setUp(self):
-        self.client.login(username="admin", password="password")
-
-    def test_pipeline_definition_change_page_uses_json_widget(self):
-        from apps.orchestration.models import PipelineDefinition
-
-        pd = PipelineDefinition.objects.create(name="test", match=[], is_active=True)
-        response = self.client.get(f"/admin/orchestration/pipelinedefinition/{pd.pk}/change/")
-        assert response.status_code == 200
-        content = response.content.decode()
-        # django-json-widget injects its CSS/JS for the match/tags JSONFields
-        assert "json-editor" in content.lower() or "jsoneditor" in content.lower()
-
-    def test_pipeline_definition_changelist_shows_channel_name(self):
-        from django.contrib.admin.sites import site
-
-        from apps.notify.models import NotificationChannel
-        from apps.orchestration.admin import PipelineDefinitionAdmin
-        from apps.orchestration.models import PipelineDefinition
-
-        ch = NotificationChannel.objects.create(
-            name="ops", driver="slack", config={"webhook_url": "https://hooks.slack.com/x"}
-        )
-        pd = PipelineDefinition.objects.create(name="routed", match=[], priority=5, channel=ch)
-        bare = PipelineDefinition.objects.create(name="unrouted", match=[], priority=6)
-        response = self.client.get("/admin/orchestration/pipelinedefinition/")
-        assert response.status_code == 200
-        body = response.content.decode()
-        assert "routed" in body
-        # The wired channel's name reaches the rendered changelist, not just the method.
-        assert "ops" in body
-        admin_obj = PipelineDefinitionAdmin(PipelineDefinition, site)
-        # The name is the link text; an unrouted lane offers the channel list.
-        assert ">ops</a>" in admin_obj.channel_name(pd)
-        assert "\u2014</a>" in admin_obj.channel_name(bare)
-
-    def test_pipeline_definition_changelist_marks_an_inactive_channel(self):
-        """A deactivated channel routes nowhere, so the changelist must not imply it does."""
-        from django.contrib.admin.sites import site
-
-        from apps.notify.models import NotificationChannel
-        from apps.orchestration.admin import PipelineDefinitionAdmin
-        from apps.orchestration.models import PipelineDefinition
-
-        ch = NotificationChannel.objects.create(
-            name="dead-ops",
-            driver="slack",
-            config={"webhook_url": "https://hooks.slack.com/x"},
-            is_active=False,
-        )
-        pd = PipelineDefinition.objects.create(name="stale", match=[], priority=5, channel=ch)
-        admin_obj = PipelineDefinitionAdmin(PipelineDefinition, site)
-        rendered = admin_obj.channel_name(pd)
-        assert "dead-ops" in rendered
-        assert "(inactive)" in rendered
-        # ...and the marker survives into the actual changelist HTML.
-        body = self.client.get("/admin/orchestration/pipelinedefinition/").content.decode()
-        assert "(inactive)" in body
-
-    def test_pipeline_definition_channel_name_escapes_the_channel_name(self):
-        """The name is interpolated into HTML, so it must be escaped, not trusted."""
-        from django.contrib.admin.sites import site
-
-        from apps.notify.models import NotificationChannel
-        from apps.orchestration.admin import PipelineDefinitionAdmin
-        from apps.orchestration.models import PipelineDefinition
-
-        ch = NotificationChannel.objects.create(
-            name="<b>x</b>",
-            driver="slack",
-            config={"webhook_url": "https://hooks.slack.com/x"},
-            is_active=False,
-        )
-        pd = PipelineDefinition.objects.create(name="xss", match=[], priority=5, channel=ch)
-        rendered = PipelineDefinitionAdmin(PipelineDefinition, site).channel_name(pd)
-        assert "&lt;b&gt;x&lt;/b&gt;" in rendered
-        assert "<b>x</b>" not in rendered
-
-    def test_pipeline_definition_changelist_does_not_n_plus_one_on_channel(self):
-        """channel_name touches a related row; get_queryset's join keeps it constant.
-
-        Without this, dropping select_related would still pass every other test while
-        adding one query per lane to an ops page.
-        """
-        from apps.notify.models import NotificationChannel
-        from apps.orchestration.models import PipelineDefinition
-
-        for i in range(4):
-            ch = NotificationChannel.objects.create(
-                name=f"ch-{i}", driver="slack", config={"webhook_url": "https://hooks.slack.com/x"}
-            )
-            PipelineDefinition.objects.create(name=f"lane-{i}", match=[], priority=i, channel=ch)
-        with CaptureQueriesContext(connection) as ctx:
-            response = self.client.get("/admin/orchestration/pipelinedefinition/")
-        assert response.status_code == 200
-        # With select_related the channel arrives via a JOIN on the lane query, so no
-        # query selects from the channel table on its own. Without it there would be
-        # one per lane.
-        standalone = [
-            q["sql"]
-            for q in ctx.captured_queries
-            if "notify_notificationchannel" in q["sql"]
-            and "orchestration_pipelinedefinition" not in q["sql"]
-        ]
-        assert standalone == []
-
-    def test_save_model_defaults_created_by(self):
-        from unittest.mock import MagicMock
-
-        from django.contrib.admin.sites import site
-
-        from apps.orchestration.admin import PipelineDefinitionAdmin
-        from apps.orchestration.models import PipelineDefinition
-
-        admin_obj = PipelineDefinitionAdmin(PipelineDefinition, site)
-        request = MagicMock()
-        request.user.username = "alice"
-
-        obj = PipelineDefinition(name="new-pipe")
-        admin_obj.save_model(request, obj, form=None, change=False)
-        assert obj.created_by == "alice"
-
-        # An explicit created_by is preserved.
-        obj2 = PipelineDefinition(name="kept", created_by="bob")
-        admin_obj.save_model(request, obj2, form=None, change=False)
-        assert obj2.created_by == "bob"
-
-
 class TestPipelineRunAdminFilters(SimpleTestCase):
     """PipelineRunAdmin exposes node/origin/status for filtering and display."""
 
@@ -440,152 +306,6 @@ class TestPipelineRunChangePageRendersCrossLinks(TestCase):
         self.assertEqual(change.status_code, 200)
 
 
-class TestPipelineDefinitionStagesForm(TestCase):
-    """The Add form seeds ``stages``; the data model still means empty when empty."""
-
-    @classmethod
-    def setUpTestData(cls):
-        cls.user = User.objects.create_superuser("admin2", "admin2@test.com", "password")
-
-    def setUp(self):
-        self.client.login(username="admin2", password="password")
-
-    def test_add_form_arrives_prefilled_with_the_full_pipeline(self):
-        response = self.client.get("/admin/orchestration/pipelinedefinition/add/")
-        assert response.status_code == 200
-        form = response.context["adminform"].form
-        assert form.fields["stages"].initial == ["check", "analyze", "notify"]
-        # ...and that is the value the widget actually renders, not just an attribute
-        # on the field object. (Asserting on the page HTML would be vacuous: the
-        # fieldset's help text quotes the same list.)
-        assert form["stages"].value() == '["check", "analyze", "notify"]'
-
-    def test_explicitly_empty_stages_still_saves_as_empty(self):
-        """Seeding the form must not make an ingest-only lane inexpressible."""
-        from apps.orchestration.models import PipelineDefinition
-
-        response = self.client.post(
-            "/admin/orchestration/pipelinedefinition/add/",
-            {
-                "name": "ingest-only-lane",
-                "description": "",
-                "created_by": "",
-                "is_active": "on",
-                "match": "[]",
-                "priority": "100",
-                "stages": "[]",
-                "tags": "{}",
-            },
-        )
-        assert response.status_code == 302, getattr(
-            response.context.get("adminform"), "errors", response.status_code
-        )
-        assert PipelineDefinition.objects.get(name="ingest-only-lane").stages == []
-
-    def test_change_form_shows_the_saved_value_not_the_seed(self):
-        from apps.orchestration.models import PipelineDefinition
-
-        pd = PipelineDefinition.objects.create(name="emptied", match=[], stages=[])
-        response = self.client.get(f"/admin/orchestration/pipelinedefinition/{pd.pk}/change/")
-        assert response.status_code == 200
-        # The resolved bound value is what the operator sees; form.initial alone would
-        # only be asserting a Django invariant, not this admin's behaviour.
-        assert response.context["adminform"].form["stages"].value() == "[]"
-
-    def test_ingest_is_rejected_through_the_admin_form(self):
-        """The model-level design decision is enforced where operators actually type."""
-        response = self.client.post(
-            "/admin/orchestration/pipelinedefinition/add/",
-            {
-                "name": "bad-lane",
-                "description": "",
-                "created_by": "",
-                "is_active": "on",
-                "match": "[]",
-                "priority": "100",
-                "stages": '["ingest", "check"]',
-                "tags": "{}",
-            },
-        )
-        assert response.status_code == 200  # redisplayed with errors, not saved
-        assert "Unknown stage" in response.content.decode()
-
-
-class RoutingHelpTextDiscoverabilityTests(SimpleTestCase):
-    """Every routable fact must be discoverable where operators write ``match``."""
-
-    def _routing_description(self):
-        from django.contrib.admin.sites import site
-
-        from apps.orchestration.models import PipelineDefinition
-
-        fieldsets = dict(
-            (name, opts) for name, opts in site._registry[PipelineDefinition].fieldsets
-        )
-        return fieldsets["Routing"]["description"]
-
-    def test_all_routing_fact_names_are_documented(self):
-        from apps.alerts.models import Alert
-        from apps.orchestration.routing import facts_from_alert
-
-        description = self._routing_description()
-        facts = facts_from_alert(Alert(source="s", severity="critical", labels={}), "manual")
-        for fact in facts:
-            if fact == "labels":
-                continue  # exposed as the label:<k> prefix, not a bare field name
-            assert fact in description, f"routing fact {fact!r} is undocumented in the admin"
-        assert "label:<k>" in description
-
-    def test_origin_values_are_documented(self):
-        from apps.orchestration.models import PipelineOrigin
-
-        description = self._routing_description()
-        for value in PipelineOrigin.values:
-            assert value in description
-
-
-class TestChannelColumnLinksTheChannel(TestCase):
-    """The lane list names a channel; naming it is how you get to it."""
-
-    def setUp(self):
-        from django.contrib.admin.sites import AdminSite
-
-        from apps.orchestration.admin import PipelineDefinitionAdmin
-        from apps.orchestration.models import PipelineDefinition
-
-        self.admin = PipelineDefinitionAdmin(PipelineDefinition, AdminSite())
-
-    def _lane(self, channel):
-        from apps.orchestration.models import PipelineDefinition
-
-        return PipelineDefinition.objects.create(
-            name="l", priority=1, match=[], stages=["notify"], channel=channel
-        )
-
-    def test_an_active_channel_is_a_link(self):
-        from apps.notify.models import NotificationChannel
-
-        channel = NotificationChannel.objects.create(
-            name="ops", driver="email", is_active=True, config={}
-        )
-        html = str(self.admin.channel_name(self._lane(channel)))
-        assert f'<a href="/admin/notify/notificationchannel/{channel.pk}/change/">ops</a>' in html
-
-    def test_an_inactive_channel_is_a_link_and_still_marked(self):
-        from apps.notify.models import NotificationChannel
-
-        channel = NotificationChannel.objects.create(
-            name="dormant", driver="email", is_active=False, config={}
-        )
-        html = str(self.admin.channel_name(self._lane(channel)))
-        assert f"/admin/notify/notificationchannel/{channel.pk}/change/" in html
-        assert "(inactive)" in html
-
-    def test_a_lane_with_no_channel_offers_the_channel_list(self):
-        html = str(self.admin.channel_name(self._lane(None)))
-        assert '<a href="/admin/notify/notificationchannel/">' in html
-
-
 @pytest.mark.django_db
 @pytest.mark.parametrize("model", [PipelineRun, StageExecution, InboxItem])
 def test_run_admins_are_stock_and_read_only(model, rf, admin_user):
@@ -604,3 +324,17 @@ def test_a_run_change_page_still_opens(admin_client):
     run = PipelineRun.objects.create(trace_id="t", run_id="r-stock", status="failed")
     url = reverse("admin:orchestration_pipelinerun_change", args=[run.pk])
     assert admin_client.get(url).status_code == 200
+
+
+@pytest.mark.django_db
+def test_the_route_admin_is_stock_and_read_only(admin_client, rf, admin_user):
+    PipelineDefinition.objects.create(name="listed", match=[], priority=7)
+    model_admin = admin.site._registry[PipelineDefinition]
+    request = rf.get("/")
+    request.user = admin_user
+    assert not model_admin.has_add_permission(request)
+    assert not model_admin.has_change_permission(request)
+    assert not model_admin.has_delete_permission(request)
+    response = admin_client.get(reverse("admin:orchestration_pipelinedefinition_changelist"))
+    assert response.status_code == 200
+    assert "listed" in response.content.decode()
