@@ -66,6 +66,8 @@ Required tags/fields:
 - `apps/orchestration/intake.py` — **the front door for producers**: `enqueue_for(result, *, trace_id, origin, …, sync=False)` reads `result.material_alerts`, resolves the materially changed incidents, and enqueues one run each. `sync=True` drains them before returning.
 - `apps/orchestration/inbox.py` — **single source of truth** for the enqueue/drain/reclaim logic: `enqueue_incident_runs(incident_ids, …)`, `drain_runs(runs, orchestrator=…)` (the scoped synchronous drain `sync=True` uses), `claim` (atomic PENDING→PROCESSING CAS), `drain`, `drain_run`, `drain_each`, `pending_pks`, `requeue`, `abandon`, `reclaim_stuck`, `stuck`, `abandonable`, and `DEFAULT_STALE_MINUTES`. Both the `process_inbox` command and the console's run and inbox pages call these — never duplicate the claim.
 - `apps/orchestration/models.py` — `PipelineRun`, `StageExecution`. `PipelineRun.node` (FK → `alerts.Node`, the server the run concerns) and `PipelineRun.origin` (`incoming_webhook`/`checker_generated`/`manual`) power admin filtering by node+origin+status. `origin` is now passed by each producer into `enqueue_for`; `node` is passed only by `IncidentManager._announce`, so it is NULL on runs from the other producers — see "Known gaps" below. `InboxItem` is a proxy over `PipelineRun` filtered to PENDING/PROCESSING. It stays for its permissions, which the console's inbox page checks, and for a read-only admin list. See `docs/plans/2026-08-09-admin-hardening-design.md`.
+- `apps/orchestration/routing.py`: `resolve_pipeline` and the routing facts. It also holds what the console reads and edits routes with: `describe_condition` and `describe_match` word a match, `representable` says whether the console's condition rows reproduce it exactly, `save_route` writes a route only at the `version` the editor opened and raises `StaleRoute` otherwise, and `fallthrough` says where a deleted route's traffic goes.
+- `apps/orchestration/forms.py`: `RouteForm`, the console's route editor
 - `apps/orchestration/executors.py` / `dtos.py` — stage execution helpers and DTOs
 - `apps/orchestration/describing.py` — runs and stage outcomes in words: `describe_run`, `describe_stage_outcome`, `describe_stage_diagnosis`, the `REASONS` registry and `reason_code`
 - `apps/orchestration/errors.py` — `StageExecutionError`, `routing_gap`, `ROUTING_GAPS` and the `STAGE_FAILED` format
@@ -177,7 +179,7 @@ NOTIFY runs there and not on the run the operator invoked.
 `PipelineDefinition.ROUTABLE_STAGES`. It deliberately excludes `ingest`: the alert a
 lane is resolved *from* was written by a producer before the run existed, so there is
 nothing for a lane to control there. Read it via `PipelineDefinition.routable_stages()`, never the raw column —
-`clean()` only runs on admin forms, so fixtures and shell edits can persist junk.
+`clean()` only runs on the console's route form, so fixtures and shell edits can persist junk.
 
 **CHECK takes the incident as its subject.** For an incident run the diagnose stage
 derives its checkers from the distinct `checker` labels on that incident's alerts,
@@ -328,8 +330,10 @@ Each app must provide an **extensive** `admin.py` so operators can manage its mo
 For `apps.orchestration`, operators read and act on runs and the inbox in the console
 (`/console/runs/`, `/console/runs/<pk>/`, `/console/inbox/`). `PipelineRunAdmin`,
 `StageExecutionAdmin` and `InboxAdmin` are stock and read-only: filters and search, no add,
-change, delete or actions. `PipelineDefinitionAdmin` stays editable. Stored payloads and
-prompts are shown as refs, never secrets.
+change, delete or actions. Routes are read and edited in the console (`/console/routes/`),
+and `PipelineDefinitionAdmin` is stock and read-only too. Every console save bumps a
+route's `version`, and a new route starts at 1. Stored payloads and prompts are shown as
+refs, never secrets.
 
 ## Security standards (audit-enforced)
 

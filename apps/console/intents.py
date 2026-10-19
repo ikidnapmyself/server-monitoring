@@ -18,6 +18,14 @@ from config.describing import Action
 NODE_READ = ("alerts.view_node", "alerts.change_node")
 INCIDENT_READ = ("alerts.view_incident", "alerts.change_incident")
 RUN_READ = ("orchestration.view_pipelinerun", "orchestration.change_pipelinerun")
+ROUTE_READ = ("orchestration.view_pipelinedefinition", "orchestration.change_pipelinedefinition")
+ROUTE_CHANGE = "orchestration.change_pipelinedefinition"
+ROUTE_ADD = "orchestration.add_pipelinedefinition"
+ROUTE_DELETE = "orchestration.delete_pipelinedefinition"
+CHANNEL_READ = ("notify.view_notificationchannel", "notify.change_notificationchannel")
+CHANNEL_CHANGE = "notify.change_notificationchannel"
+CHANNEL_ADD = "notify.add_notificationchannel"
+CHANNEL_DELETE = "notify.delete_notificationchannel"
 
 
 @dataclass(frozen=True)
@@ -89,6 +97,18 @@ def _node_reeval(params: dict[str, Any]) -> str:
     return f"{url}?{urlencode({'checker': checker})}" if checker else url
 
 
+def _route(params: dict[str, Any]) -> str:
+    if params.get("pk"):
+        return reverse("console:route", args=[params["pk"]])
+    return reverse("console:routes")
+
+
+def _channel(params: dict[str, Any]) -> str:
+    if params.get("pk"):
+        return reverse("console:channel", args=[params["pk"]])
+    return _page("console:channels", "q", "name")(params)
+
+
 def _external(params: dict[str, Any]) -> str:
     url = str(params["url"])
     if urlsplit(url).scheme not in ("http", "https"):
@@ -98,16 +118,14 @@ def _external(params: dict[str, Any]) -> str:
 
 INTENTS: dict[str, Intent] = {
     "open_url": Intent(_external, "get", ""),
-    "edit_route": Intent(
-        _page("admin:orchestration_pipelinedefinition_changelist"),
-        "get",
-        "orchestration.change_pipelinedefinition",
-    ),
-    "edit_channel": Intent(
-        _page("admin:notify_notificationchannel_changelist", "q", "name"),
-        "get",
-        "notify.change_notificationchannel",
-    ),
+    "view_route": Intent(_route, "get", ROUTE_READ),
+    "edit_route": Intent(_route, "get", ROUTE_CHANGE),
+    "add_route": Intent(_page("console:route-new"), "get", ROUTE_ADD),
+    "delete_route": Intent(_record("console:route-delete"), "get", ROUTE_DELETE),
+    "view_channel": Intent(_channel, "get", CHANNEL_READ),
+    "edit_channel": Intent(_channel, "get", CHANNEL_CHANGE),
+    "add_channel": Intent(_page("console:channel-new"), "get", CHANNEL_ADD),
+    "delete_channel": Intent(_record("console:channel-delete"), "get", CHANNEL_DELETE),
     "edit_provider": Intent(
         _page("admin:intelligence_intelligenceprovider_changelist"),
         "get",

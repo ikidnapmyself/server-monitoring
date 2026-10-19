@@ -1,6 +1,6 @@
 <div class="c-field">
-  <label class="c-field__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-  {{ field }}
+  {% if field.widget_type == "checkbox" %}<div class="c-check">{{ field }}<label class="c-field__label" for="{{ field.id_for_label }}">{{ field.label }}</label></div>{% else %}<label class="c-field__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+  {{ field }}{% endif %}
   {% if field.help_text %}<p id="{{ field.auto_id }}_helptext" class="c-field__help">{{ field.help_text }}</p>{% endif %}
   {% for error in field.errors %}<p class="c-field__error c-tone-critical">{{ error }}</p>{% endfor %}
 </div>

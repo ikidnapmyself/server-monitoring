@@ -1,0 +1,51 @@
+{% load console %}{% if notice %}{% include "console/partials/_flash.html" with tone=notice.tone text=notice.text %}{% endif %}
+<a id="channel-back" class="c-crumb" href="{{ editor.back_url }}">{% include "console/partials/_octicon.html" with name="chevron-right" %}Back to channels</a>
+<div class="c-pagehead"><div class="c-pagehead__top"><h1 class="c-pagehead__title">{% if editor.pk %}Channel {{ editor.name }}{% else %}New channel{% endif %}</h1>{% resolved editor.delete as act %}{% if act.url %}{% include "console/partials/_action.html" with act=act id="channel-delete" cls="c-button--danger" %}{% endif %}</div></div>
+{% with form=editor.form %}
+<form method="post" action="{{ editor.url }}" data-disable-on-submit>
+  {% csrf_token %}
+  {% if editor.can_change %}{# Enter submits the first button in the form, so it must save, not switch drivers. #}<button id="channel-default" class="c-sr-only" type="submit" tabindex="-1" aria-hidden="true">Save channel</button>{% endif %}
+  <input type="hidden" name="digest" value="{{ editor.digest }}">
+  {% for error in form.non_field_errors %}<p class="c-field__error c-tone-critical">{{ error }}</p>{% endfor %}
+  <div id="channel-fields" class="c-box c-form__group"><div class="c-box__body">
+    {% include "console/partials/_field.html" with field=form.name %}
+    {% include "console/partials/_field.html" with field=form.description %}
+    {% include "console/partials/_field.html" with field=form.is_active %}
+    {% include "console/partials/_field.html" with field=form.driver %}
+    {% if editor.can_change %}<button id="channel-switch-driver" class="c-button c-button--sm" type="submit" name="switch_driver" value="1">Show this driver's settings</button>{% endif %}
+  </div></div>
+  {% for title, fields in form.groups %}{% if fields %}
+  {% if forloop.last %}
+  <details id="channel-templates" class="c-details c-form__group" data-details>
+    <summary id="channel-templates-summary">{{ title }}</summary>
+    {% for field in fields %}{% include "console/partials/_field.html" %}{% endfor %}
+  </details>
+  {% else %}
+  <fieldset id="channel-settings" class="c-box c-form__group">
+    <legend class="c-box__header c-box__title">{{ title }}</legend>
+    <div class="c-box__body">{% for field in fields %}{% include "console/partials/_field.html" %}{% endfor %}</div>
+  </fieldset>
+  {% endif %}
+  {% endif %}{% endfor %}
+  {% if form.unknown_keys %}<p id="channel-unknown" class="c-muted">Saving keeps the settings this driver doesn't declare. Details names them.</p>{% endif %}
+  {% if editor.can_change %}
+  <button id="channel-save" class="c-button c-button--primary" type="submit">Save channel</button>
+  {% endif %}
+  <a id="channel-cancel" class="c-button" href="{{ editor.back_url }}">{% if editor.can_change %}Cancel{% else %}Back to channels{% endif %}</a>
+</form>
+{% endwith %}
+{% if editor.pk %}<section id="channel-lanes" class="c-box c-section">
+  <div class="c-box__header"><h2 class="c-box__title">Routed here by</h2></div>
+  {% if editor.lanes %}<ul class="c-box__list">
+    {% for line in editor.lanes %}{% resolved line.action as act %}
+    <li class="c-box__row c-box__row--hover c-row">
+      <span class="c-row__icon c-tone-{% if line.gap_words %}critical{% else %}ok{% endif %}">{% if line.gap_words %}{% include "console/partials/_tone_icon.html" with tone="critical" %}{% else %}{% include "console/partials/_tone_icon.html" with tone="ok" %}{% endif %}</span>
+      <div class="c-row__main">
+        {% if act.url %}<a id="channel-lane-{{ forloop.counter }}" href="{{ act.url }}">{{ act.text }}</a>{% else %}<strong>{{ act.text }}</strong>{% endif %}
+        {% if line.gap_words %}<div class="c-row__meta c-tone-critical">Can't deliver: {{ line.gap_words }}</div>{% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>{% else %}<div class="c-blankslate c-blankslate--sm"><p>No route sends here.</p></div>{% endif %}
+</section>{% endif %}
+{% if editor.facts %}<div class="c-section">{% include "console/partials/_details.html" with facts=editor.facts raw="" id="channel-details" %}</div>{% endif %}

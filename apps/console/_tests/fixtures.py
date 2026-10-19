@@ -21,6 +21,7 @@ GAP_DETAILS = {
     "no_channel": "the matched lane names no active notification channel",
     "no_driver": "the channel's driver is not installed on this hub",
 }
+OPS_SLACK_WEBHOOK = "https://hooks.slack.com/services/T0/B0/ops-slack-stored-secret"
 FAILURE_STATUS = {
     "auth": 401,
     "rate_limit": 429,
@@ -92,6 +93,8 @@ class World:
     run_pks: tuple[int, ...]
     node_pks: tuple[int, ...]
     policy_node_pk: int
+    route_pks: tuple[int, ...]
+    channel_pks: tuple[int, ...]
 
 
 def _uuid() -> str:
@@ -385,6 +388,32 @@ def _delivery_failure(kind: str) -> dict:
     }
 
 
+def _routes() -> None:
+    """A route that delivers, one it shadows, and one switched off.
+
+    They sit ahead of the catch-all lanes below, so web-critical is the one that wins.
+    """
+    slack = NotificationChannel.objects.create(
+        name="ops-slack", driver="slack", config={"webhook_url": OPS_SLACK_WEBHOOK}
+    )
+    critical_webhook = [
+        {"field": "severity", "op": "is", "value": "critical"},
+        {"field": "origin", "op": "is", "value": "incoming_webhook"},
+    ]
+    PipelineDefinition.objects.create(
+        name="web-critical", priority=10, match=critical_webhook, stages=["notify"], channel=slack
+    )
+    PipelineDefinition.objects.create(
+        name="web-critical-grafana",
+        priority=20,
+        match=[*critical_webhook, {"field": "source", "op": "is", "value": "grafana"}],
+        stages=["analyze"],
+    )
+    PipelineDefinition.objects.create(
+        name="retired", priority=30, match=[], stages=["notify"], channel=slack, is_active=False
+    )
+
+
 def _readiness_faults() -> None:
     """Lanes that can't deliver, no provider, a failed preflight and a silent peer.
 
@@ -421,9 +450,12 @@ def build_world() -> World:
         _delivery_incident(DELIVERY_OK),
     ]
     _readiness_faults()
+    _routes()
     return World(
         incident_pks=tuple(i.pk for i in incidents),
         run_pks=tuple(PipelineRun.objects.values_list("pk", flat=True)),
         node_pks=tuple(Node.objects.values_list("pk", flat=True)),
         policy_node_pk=Node.objects.get(hostname="cache-1").pk,
+        route_pks=tuple(PipelineDefinition.objects.values_list("pk", flat=True)),
+        channel_pks=tuple(NotificationChannel.objects.values_list("pk", flat=True)),
     )

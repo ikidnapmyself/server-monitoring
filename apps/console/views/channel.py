@@ -1,0 +1,166 @@
+from django.contrib import messages
+from django.db import IntegrityError, OperationalError, transaction
+from django.http import HttpResponseForbidden, HttpResponseRedirect
+from django.shortcuts import render
+from django.urls import reverse
+
+from apps.console.intents import CHANNEL_ADD, CHANNEL_CHANGE, CHANNEL_READ
+from apps.console.queries.channels import (
+    ChannelEditor,
+    UnknownDriver,
+    build_channel_editor,
+    driver_choices,
+)
+from apps.console.views.base import ConsoleView, Notice
+from apps.notify.channels import StaleChannel, save_channel
+from apps.notify.forms import NAME_TAKEN
+from apps.notify.models import NotificationChannel
+
+STALE = "This channel changed since you opened it. Here it is now."
+BUSY = "Couldn't save just now. Here's the channel as it is."
+NO_SUCH_DRIVER = "This hub has no driver by that name. Pick one it has."
+SAVED = "Channel saved."
+ADDED = "Channel added."
+
+
+class ChannelView(ConsoleView):
+    """Edit one channel, or add one. The rules live in ``ChannelForm`` and ``save_channel``."""
+
+    template_name = "console/channel.html"
+    partial_template_name = "console/partials/_channel.html"
+    read_permissions = CHANNEL_READ
+
+    @property
+    def pk(self) -> int | None:
+        return self.kwargs.get("pk")
+
+    @property
+    def can_change(self) -> bool:
+        return self.request.user.has_perm(CHANNEL_ADD if self.pk is None else CHANNEL_CHANGE)
+
+    def landing_path(self) -> str:
+        if self.pk is None:
+            return reverse("console:channel-new")
+        return reverse("console:channel", args=[self.pk])
+
+    def forbidden(self):
+        return HttpResponseForbidden("Permission to change channels required.")
+
+    def not_found(self):
+        context = {"nav": "system", "section": "channels"}
+        return render(self.request, "console/not_found.html", context, status=404)
+
+    def picker(self, notice: Notice | None = None, status: int = 200):
+        context = self.get_context_data(
+            drivers=driver_choices(), nav="system", section="channels", notice=notice
+        )
+        return render(self.request, "console/channel_new.html", context, status=status)
+
+    def render_editor(
+        self, editor: ChannelEditor | None, notice: Notice | None = None, status: int = 200
+    ):
+        if editor is None:
+            return self.not_found()
+        context = self.get_context_data(
+            editor=editor, nav="system", section="channels", notice=notice
+        )
+        return self.render_to_response(context, status=status)
+
+    def unknown_driver(self):
+        notice = Notice(NO_SUCH_DRIVER, "warning")
+        if self.pk is None:
+            return self.picker(notice, 400)
+        editor = build_channel_editor(self.pk, can_change=self.can_change)
+        return self.render_editor(editor, notice, 400)
+
+    def landed(self, message: str, pk: int):
+        messages.success(self.request, message)
+        return HttpResponseRedirect(reverse("console:channel", args=[pk]), status=303)
+
+    def get(self, request, *args, **kwargs):
+        if self.pk is None and not self.can_change:
+            return self.forbidden()
+        driver = request.GET.get("driver")
+        if self.pk is None and not driver:
+            return self.picker()
+        try:
+            editor = build_channel_editor(self.pk, driver=driver, can_change=self.can_change)
+        except UnknownDriver:
+            return self.unknown_driver()
+        return self.render_editor(editor)
+
+    def post(self, request, *args, **kwargs):
+        if not self.can_change:
+            return self.forbidden()
+        digest = request.POST.get("digest", "")
+        shown = request.GET.get("driver")
+        try:
+            if "switch_driver" in request.POST:
+                return self.switch(request.POST.get("driver", ""), shown, digest)
+            editor = build_channel_editor(
+                self.pk, request.POST, driver=shown, can_change=True, digest=digest
+            )
+        except UnknownDriver:
+            return self.unknown_driver()
+        if editor is None or not editor.form.is_valid():
+            return self.render_editor(editor)
+        if self.pk is None:
+            return self.create(editor)
+        return self.update(editor, self.pk, digest)
+
+    def switch(self, target: str, shown: str | None, digest: str):
+        """Re-render for ``target`` and save nothing.
+
+        On the driver already shown, the posted edits stay. On another, the form opens on that
+        driver's defaults and only the name, description and active box carry over.
+        """
+        data = self.request.POST
+        if target and target == shown:
+            editor = build_channel_editor(
+                self.pk, data, driver=target, can_change=True, digest=digest
+            )
+            if editor is not None:
+                editor.form.errors.clear()
+            return self.render_editor(editor)
+        carried = {
+            "name": data.get("name", ""),
+            "description": data.get("description", ""),
+            "is_active": bool(data.get("is_active")),
+        }
+        editor = build_channel_editor(
+            self.pk, driver=target, can_change=True, digest=digest, carried=carried
+        )
+        return self.render_editor(editor)
+
+    def name_taken(self, editor: ChannelEditor):
+        editor.form.add_error("name", NAME_TAKEN)
+        return self.render_editor(editor)
+
+    def create(self, editor: ChannelEditor):
+        try:
+            # A savepoint, so the re-render can still read after a unique-name race.
+            with transaction.atomic():
+                channel = NotificationChannel.objects.create(**editor.form.channel_fields())
+        except IntegrityError:
+            return self.name_taken(editor)
+        return self.landed(ADDED, channel.pk)
+
+    def update(self, editor: ChannelEditor, pk: int, digest: str):
+        fields = editor.form.channel_fields()
+        try:
+            with transaction.atomic():
+                save_channel(pk, fields, expected=digest)
+        except IntegrityError:
+            others = NotificationChannel.objects.exclude(pk=pk)
+            if others.filter(name=fields["name"]).exists():
+                return self.name_taken(editor)
+            return self.refresh(pk, STALE)
+        except StaleChannel:
+            return self.refresh(pk, STALE)
+        except OperationalError:
+            return self.refresh(pk, BUSY)
+        return self.landed(SAVED, pk)
+
+    def refresh(self, pk: int, notice: str):
+        fresh = build_channel_editor(pk, can_change=True)
+        return self.render_editor(fresh, Notice(notice, "warning"), 409)

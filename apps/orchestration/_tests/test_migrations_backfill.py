@@ -929,3 +929,48 @@ def test_retire_backwards_leaves_an_edited_row_alone():
 
 def test_retire_migration_is_data_only():
     assert [type(op).__name__ for op in retire_migration.Migration.operations] == ["RunPython"]
+
+
+# --- 0020: reword the retired hub self-check route ----------------------------
+
+reword_migration = importlib.import_module(
+    "apps.orchestration.migrations.0020_hub_self_check_description"
+)
+
+
+def test_reword_freezes_the_text_0014_seeded():
+    assert reword_migration.SEEDED == hub_migration._LANES[0]["description"]
+
+
+def test_reword_says_it_plainly():
+    assert "_" not in reword_migration.PLAIN
+    assert "{" not in reword_migration.PLAIN
+    assert "—" not in reword_migration.PLAIN
+
+
+@pytest.mark.django_db
+def test_reword_rewrites_the_seeded_description():
+    lane = _seeded_hub_lane(is_active=False, description=reword_migration.SEEDED)
+    reword_migration.forwards(django_apps, None)
+    lane.refresh_from_db()
+    assert lane.description == reword_migration.PLAIN
+
+
+@pytest.mark.django_db
+def test_reword_keeps_an_operator_description():
+    lane = _seeded_hub_lane(description="Ours now.")
+    reword_migration.forwards(django_apps, None)
+    lane.refresh_from_db()
+    assert lane.description == "Ours now."
+
+
+@pytest.mark.django_db
+def test_reword_leaves_other_routes_alone():
+    from apps.orchestration.models import PipelineDefinition
+
+    other = PipelineDefinition.objects.create(
+        name="copy", priority=70, description=reword_migration.SEEDED
+    )
+    reword_migration.forwards(django_apps, None)
+    other.refresh_from_db()
+    assert other.description == reword_migration.SEEDED

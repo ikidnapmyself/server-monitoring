@@ -1,16 +1,15 @@
 """Tests for the network-map projection (config/netmap.py)."""
 
 import pytest
-from django.urls import reverse
 
 from apps.notify.models import NotificationChannel
 from apps.orchestration.models import PipelineDefinition
 from apps.orchestration.testing import clear_lanes
+from config.describing import Action
 from config.netmap import (
     _annotate_shadows,
     _cond_implied,
     _lane_shadows,
-    _never_matches,
     get_map_context,
 )
 
@@ -100,28 +99,6 @@ class TestLaneShadows:
         a = [cond("source", "is", "cluster")]
         b = [cond("source", "is", "cluster"), cond("sev", "is", "high")]
         assert _lane_shadows(a, b) is True
-
-
-class TestNeverMatches:
-    """Static mirror of matches() fail-closed rules."""
-
-    @pytest.mark.parametrize(
-        "match,expected",
-        [
-            ([], False),
-            ([cond("sev", "is", "high")], False),
-            (["not-a-dict"], True),
-            ([cond("sev", "frobnicate", "x")], True),
-            ([cond("sev", "in", "high")], True),  # membership needs a list
-            ([cond("sev", "not-in", "high")], True),
-            (None, False),  # falsy non-list → catch-all in matches()
-            ({}, False),  # falsy dict → catch-all
-            ("junk", True),  # truthy non-list iterates junk in matches() → fails closed
-            ({"a": 1}, True),  # truthy non-list
-        ],
-    )
-    def test_table(self, match, expected):
-        assert _never_matches(match) is expected
 
 
 def lane(name, match, active=True):
@@ -227,24 +204,43 @@ class TestGetMapContext:
             tags={"seed_shape": "record-only"},
         )
         card = get_map_context()["lanes"][0]
+        assert card["pk"] == lane_row.pk
+        assert "admin_url" not in card
         assert card["state"] == "ok"
-        assert card["conditions"] == ["source is cluster"]
-        assert card["stages"] == ["check", "analyze", "notify"]
+        assert card["state_words"] == ""
+        assert card["conditions"] == ["Source is cluster"]
+        assert card["stages"] == ["Diagnose", "Analyze", "Notify"]
         assert card["delivery"]["state"] == "bound"
         assert card["delivery"]["channel"] == "ops"
+        assert card["delivery"]["words"] == "Delivers to ops"
         assert card["seed_shaped"] is True
-        assert card["admin_url"].endswith(f"/{lane_row.pk}/change/")
+        assert card["seed_note"] == (
+            "Set up without delivery. It delivers once a channel is active."
+        )
+        assert card["edit"] == Action("Open route", "view_route", {"pk": lane_row.pk})
+
+    def test_a_lane_without_the_seed_tag_carries_no_note(self):
+        self._lane("plain", priority=1, match=[], stages=["check"])
+        card = get_map_context()["lanes"][0]
+        assert card["seed_shaped"] is False
+        assert card["seed_note"] == ""
+
+    def test_a_lane_with_no_stages_says_so_once(self):
+        self._lane("bare", priority=1, match=[], stages=[])
+        card = get_map_context()["lanes"][0]
+        assert card["stages"] == ["No downstream stages"]
+        assert card["delivery"]["words"] == "Records only, sends nothing"
 
     def test_no_channel_carries_inactive_channel_name(self):
         # A lane bound to an INACTIVE channel is a no_channel gap, but the card
-        # still names the bound channel so the map can say "bound to X (inactive)".
+        # still names the bound channel.
         ch = NotificationChannel.objects.create(
             name="dormant", driver="email", is_active=False, config={}
         )
         self._lane(
             "sleepy",
             priority=1,
-            match=[{"field": "s", "op": "is", "value": "z"}],
+            match=[{"field": "source", "op": "is", "value": "z"}],
             stages=["notify"],
             channel=ch,
         )
@@ -253,44 +249,60 @@ class TestGetMapContext:
         assert card["delivery"]["channel"] == "dormant"
 
     def test_delivery_states(self):
-        self._lane(
-            "rec", priority=1, match=[{"field": "s", "op": "is", "value": "a"}], stages=["check"]
-        )
-        self._lane(
-            "gap", priority=2, match=[{"field": "s", "op": "is", "value": "b"}], stages=["notify"]
-        )
+        self._lane("rec", priority=1, match=[cond("source", "is", "a")], stages=["check"])
+        self._lane("gap", priority=2, match=[cond("source", "is", "b")], stages=["notify"])
         ch = NotificationChannel.objects.create(
             name="ghost", driver="not-a-driver", is_active=True, config={}
         )
         self._lane(
             "bad",
             priority=3,
-            match=[{"field": "s", "op": "is", "value": "c"}],
+            match=[cond("source", "is", "c")],
             stages=["notify"],
             channel=ch,
         )
         by_name = {c["name"]: c for c in get_map_context()["lanes"]}
 
-        def state_and_channel(card):
-            return (card["delivery"]["state"], card["delivery"]["channel"])
+        def state_channel_words(card):
+            d = card["delivery"]
+            return (d["state"], d["channel"], d["words"])
 
-        assert state_and_channel(by_name["rec"]) == ("recording-only", None)
-        assert state_and_channel(by_name["gap"]) == ("no_channel", None)
-        assert state_and_channel(by_name["bad"]) == ("no_driver", "ghost")
+        assert state_channel_words(by_name["rec"]) == (
+            "recording-only",
+            None,
+            "Records only, sends nothing",
+        )
+        assert state_channel_words(by_name["gap"]) == (
+            "no_channel",
+            None,
+            "Can't deliver: the matched route has no active channel",
+        )
+        assert state_channel_words(by_name["bad"]) == (
+            "no_driver",
+            "ghost",
+            "Can't deliver: the channel uses a driver this hub doesn't have",
+        )
 
-    def test_states_precedence_and_catch_all_label(self):
+    def test_states_precedence_and_their_words(self):
         self._lane("all", priority=1, match=[])
-        self._lane("shadowed", priority=2, match=[{"field": "s", "op": "is", "value": "x"}])
+        self._lane("shadowed", priority=2, match=[cond("source", "is", "x")])
         self._lane("off", priority=3, match=[], is_active=False)
-        self._lane("broken", priority=4, match=[{"field": "s", "op": "zap", "value": 1}])
+        self._lane("broken", priority=4, match=[cond("source", "zap", 1)])
         by_name = {c["name"]: c for c in get_map_context()["lanes"]}
-        assert by_name["all"]["conditions"] == []
+        assert by_name["all"]["conditions"] == ["Matches everything"]
         assert by_name["all"]["catch_all"] is True
-        assert by_name["all"]["state"] == "ok"
+        assert (by_name["all"]["state"], by_name["all"]["state_words"]) == ("ok", "")
         assert by_name["shadowed"]["state"] == "shadowed"
         assert by_name["shadowed"]["shadowed_by"] == "all"
-        assert by_name["off"]["state"] == "inactive"
-        assert by_name["broken"]["state"] == "never-matches"
+        assert by_name["shadowed"]["state_words"] == (
+            "Never reached: all catches its traffic first"
+        )
+        assert (by_name["off"]["state"], by_name["off"]["state_words"]) == ("inactive", "Off")
+        assert (by_name["broken"]["state"], by_name["broken"]["state_words"]) == (
+            "never-matches",
+            "Never matches",
+        )
+        assert by_name["broken"]["conditions"] == ["A condition the console can't show"]
 
     def test_junk_columns_render_without_crashing(self):
         # Non-list match, non-dict conds, non-dict tags: objects.create() bypasses
@@ -299,146 +311,34 @@ class TestGetMapContext:
         self._lane("junk-cond", priority=2, match=["not-a-dict"])
         by_name = {c["name"]: c for c in get_map_context()["lanes"]}
         assert by_name["junk-match"]["state"] == "never-matches"
-        assert by_name["junk-match"]["conditions"] == []
+        assert by_name["junk-match"]["catch_all"] is False
+        assert by_name["junk-match"]["conditions"] == ["A condition the console can't show"]
         assert by_name["junk-match"]["seed_shaped"] is False
         assert by_name["junk-cond"]["state"] == "never-matches"
-        assert by_name["junk-cond"]["conditions"] == ["'not-a-dict'"]
+        assert by_name["junk-cond"]["conditions"] == ["A condition the console can't show"]
 
-    def test_list_valued_condition_renders_bracketed(self):
+    def test_a_falsy_non_list_match_is_a_catch_all(self):
+        self._lane("empty-dict", priority=1, match={})
+        card = get_map_context()["lanes"][0]
+        assert card["catch_all"] is True
+        assert card["conditions"] == ["Matches everything"]
+
+    def test_list_valued_condition_reads_as_words(self):
         self._lane(
-            "listy", priority=1, match=[{"field": "sev", "op": "in", "value": ["high", "crit"]}]
+            "listy",
+            priority=1,
+            match=[{"field": "severity", "op": "in", "value": ["critical", "warning"]}],
         )
         card = get_map_context()["lanes"][0]
-        assert card["conditions"] == ["sev in [high, crit]"]
+        assert card["conditions"] == ["Severity is one of Critical, Warning"]
 
     def test_empty_table(self):
         assert get_map_context()["lanes"] == []
 
 
 @pytest.mark.django_db
-class TestMapView:
-    @pytest.fixture(autouse=True)
-    def _empty_table(self):
-        clear_lanes()
-
-    def test_requires_staff(self, client):
-        assert client.get(reverse("admin:netmap")).status_code == 302  # redirected to login
-
-    def test_staff_without_view_pipelinedefinition_is_refused(self, client):
-        from django.contrib.auth import get_user_model
-
-        user = get_user_model().objects.create_user(username="plain", password="pw", is_staff=True)
-        client.force_login(user)
-        assert client.get(reverse("admin:netmap")).status_code == 403
-
-    def test_staff_with_view_pipelinedefinition_gets_the_page(self, client):
-        from django.contrib.auth import get_user_model
-        from django.contrib.auth.models import Permission
-
-        user = get_user_model().objects.create_user(username="viewer", password="pw", is_staff=True)
-        user.user_permissions.add(Permission.objects.get(codename="view_pipelinedefinition"))
-        client.force_login(user)
-        assert client.get(reverse("admin:netmap")).status_code == 200
-
-    def test_renders(self, admin_client):
-        PipelineDefinition.objects.create(name="catch-all", priority=100, match=[])
-        resp = admin_client.get(reverse("admin:netmap"))
-        assert resp.status_code == 200
-        assert b"catch-all" in resp.content
-        assert b"matches everything" in resp.content
-        assert b"Traffic takes the first matching lane." in resp.content
-
-    def test_empty_table_message(self, admin_client):
-        resp = admin_client.get(reverse("admin:netmap"))
-        assert b"No routing configured" in resp.content
-
-    def test_the_page_carries_no_style_block(self, admin_client):
-        """The map's styles live in ops.css, under the dashboard section."""
-        PipelineDefinition.objects.create(name="catch-all", priority=100, match=[])
-        body = admin_client.get(reverse("admin:netmap")).content.decode()
-        assert "<style>" not in body
-        assert "lane-card" in body
-        assert "admin/css/ops.css" in body
-
-    def test_template_branches_render_each_state(self, admin_client):
-        # Context tests cannot catch a typo'd key inside a template branch (it
-        # renders empty and stays green), so every non-happy branch is asserted
-        # against the actual HTML here.
-        active = NotificationChannel.objects.create(
-            name="ops", driver="email", is_active=True, config={}
-        )
-        dormant = NotificationChannel.objects.create(
-            name="dormant", driver="email", is_active=False, config={}
-        )
-        ghost = NotificationChannel.objects.create(
-            name="ghost", driver="not-a-driver", is_active=True, config={}
-        )
-
-        def lane(name, priority, **kw):
-            return PipelineDefinition.objects.create(name=name, priority=priority, **kw)
-
-        lane(
-            "bound-lane",
-            priority=1,
-            match=[{"field": "s", "op": "is", "value": "a"}],
-            stages=["check", "notify"],
-            channel=active,
-            tags={"seed_shape": "record-only"},
-        )
-        lane(
-            "shadowed-lane",
-            priority=2,
-            match=[{"field": "s", "op": "is", "value": "a"}],
-            stages=["check"],
-        )
-        lane("inactive-lane", priority=3, match=[], is_active=False)
-        lane("broken-lane", priority=4, match=[{"field": "s", "op": "zap", "value": 1}])
-        lane(
-            "no-channel-lane",
-            priority=5,
-            match=[{"field": "s", "op": "is", "value": "b"}],
-            stages=["notify"],
-        )
-        lane(
-            "dormant-lane",
-            priority=6,
-            match=[{"field": "s", "op": "is", "value": "c"}],
-            stages=["notify"],
-            channel=dormant,
-        )
-        lane(
-            "ghost-lane",
-            priority=7,
-            match=[{"field": "s", "op": "is", "value": "d"}],
-            stages=["notify"],
-            channel=ghost,
-        )
-
-        body = admin_client.get(reverse("admin:netmap")).content.decode()
-        # state banners
-        assert "shadowed by <em>bound-lane</em>" in body
-        # the rendered banner element, not the CSS rule or a delivery line
-        assert '<div class="lane-banner banner-inactive">(inactive)</div>' in body
-        assert "(inactive)" in body  # text, not color-only — survives screen readers
-        assert "never matches &mdash; malformed match" in body
-        # seed-shaped badge (shaping, not provenance)
-        assert "seed-shaped" in body
-        assert "delivery auto-restores with a channel" in body
-        # the four delivery lines
-        assert "&rarr; <a href=" in body and ">ops</a>" in body
-        assert "recording only" in body
-        assert "cannot deliver: <a href=" in body and ">no channel</a>" in body
-        assert "bound to <a href=" in body and ">dormant</a> (inactive)" in body
-        assert "driver not registered (<a href=" in body and ">ghost</a>)" in body
-
-
-@pytest.mark.django_db
-class TestDeliveryChannelUrl:
-    """A card that reports a delivery gap has to say where the gap is fixed.
-
-    ``channel_url`` is that destination: the bound channel when there is one,
-    and the channel list when there is none to bind.
-    """
+class TestDeliveryAction:
+    """A card that reports delivery says where it's changed, as an intent."""
 
     def setup_method(self):
         clear_lanes()
@@ -446,81 +346,44 @@ class TestDeliveryChannelUrl:
     def _lane(self, name, **kw):
         return PipelineDefinition.objects.create(name=name, priority=1, **kw)
 
-    def test_a_bound_channel_carries_its_change_url(self):
-        ch = NotificationChannel.objects.create(
-            name="ops", driver="email", is_active=True, config={}
-        )
-        self._lane("l", match=[cond("s", "is", "a")], stages=["notify"], channel=ch)
-        card = get_map_context()["lanes"][0]
-        assert card["delivery"]["channel_url"] == reverse(
-            "admin:notify_notificationchannel_change", args=[ch.pk]
-        )
+    def _channel(self, name, **kw):
+        return NotificationChannel.objects.create(name=name, config={}, **kw)
 
-    def test_an_inactive_channel_carries_its_change_url(self):
-        ch = NotificationChannel.objects.create(
-            name="dormant", driver="email", is_active=False, config={}
-        )
-        self._lane("l", match=[cond("s", "is", "a")], stages=["notify"], channel=ch)
-        card = get_map_context()["lanes"][0]
-        assert card["delivery"]["state"] == "no_channel"
-        assert card["delivery"]["channel_url"] == reverse(
-            "admin:notify_notificationchannel_change", args=[ch.pk]
-        )
+    def test_a_bound_channel_opens_the_channel(self):
+        ch = self._channel("ops", driver="email", is_active=True)
+        self._lane("l", match=[cond("source", "is", "a")], stages=["notify"], channel=ch)
+        action = get_map_context()["lanes"][0]["delivery"]["action"]
+        assert action == Action("Open ops", "view_channel", {"pk": ch.pk, "name": "ops"})
 
-    def test_an_unregistered_driver_carries_its_channel_url(self):
-        ch = NotificationChannel.objects.create(
-            name="ghost", driver="not-a-driver", is_active=True, config={}
-        )
-        self._lane("l", match=[cond("s", "is", "a")], stages=["notify"], channel=ch)
+    def test_an_inactive_channel_opens_the_channel(self):
+        ch = self._channel("dormant", driver="email", is_active=False)
+        self._lane("l", match=[cond("source", "is", "a")], stages=["notify"], channel=ch)
+        action = get_map_context()["lanes"][0]["delivery"]["action"]
+        assert action == Action("Open dormant", "view_channel", {"pk": ch.pk, "name": "dormant"})
+
+    def test_an_unregistered_driver_opens_the_channel(self):
+        ch = self._channel("ghost", driver="not-a-driver", is_active=True)
+        self._lane("l", match=[cond("source", "is", "a")], stages=["notify"], channel=ch)
         card = get_map_context()["lanes"][0]
         assert card["delivery"]["state"] == "no_driver"
-        assert card["delivery"]["channel_url"] == reverse(
-            "admin:notify_notificationchannel_change", args=[ch.pk]
-        )
+        assert card["delivery"]["action"].intent == "view_channel"
 
-    def test_a_lane_with_no_channel_points_at_the_channel_list(self):
-        self._lane("l", match=[cond("s", "is", "a")], stages=["notify"])
-        card = get_map_context()["lanes"][0]
-        assert card["delivery"]["state"] == "no_channel"
-        assert card["delivery"]["channel_url"] == reverse(
-            "admin:notify_notificationchannel_changelist"
-        )
+    def test_a_lane_with_no_channel_opens_the_route(self):
+        lane_row = self._lane("l", match=[cond("source", "is", "a")], stages=["notify"])
+        action = get_map_context()["lanes"][0]["delivery"]["action"]
+        assert action == Action("Give it an active channel", "edit_route", {"pk": lane_row.pk})
 
     def test_a_recording_only_lane_has_nothing_to_fix(self):
-        self._lane("l", match=[cond("s", "is", "a")], stages=["check"])
+        self._lane("l", match=[cond("source", "is", "a")], stages=["check"])
         card = get_map_context()["lanes"][0]
         assert card["delivery"]["state"] == "recording-only"
-        assert card["delivery"]["channel_url"] is None
+        assert card["delivery"]["action"] is None
 
 
-@pytest.mark.django_db
-class TestMapRendersDeliveryLinks:
-    """The gap text on a card is the operator's way into the channel."""
+def test_the_map_builds_no_urls():
+    import config.netmap as netmap
 
-    def setup_method(self):
-        clear_lanes()
-
-    def test_an_inactive_channel_is_a_link(self, admin_client):
-        ch = NotificationChannel.objects.create(
-            name="dormant", driver="email", is_active=False, config={}
-        )
-        PipelineDefinition.objects.create(
-            name="l", priority=1, match=[cond("s", "is", "a")], stages=["notify"], channel=ch
-        )
-        body = admin_client.get(reverse("admin:netmap")).content.decode()
-        url = reverse("admin:notify_notificationchannel_change", args=[ch.pk])
-        assert f'<a href="{url}">dormant</a>' in body
-
-    def test_a_missing_channel_links_the_channel_list(self, admin_client):
-        PipelineDefinition.objects.create(
-            name="l", priority=1, match=[cond("s", "is", "a")], stages=["notify"]
-        )
-        body = admin_client.get(reverse("admin:netmap")).content.decode()
-        url = reverse("admin:notify_notificationchannel_changelist")
-        assert f'<a href="{url}">no channel</a>' in body
-
-    def test_an_empty_map_offers_somewhere_to_add_a_lane(self, admin_client):
-        body = admin_client.get(reverse("admin:netmap")).content.decode()
-        assert "No routing configured" in body
-        url = reverse("admin:orchestration_pipelinedefinition_changelist")
-        assert f'<a href="{url}">Add a lane</a>' in body
+    source = open(netmap.__file__).read()
+    assert "reverse" not in source
+    assert "admin_links" not in source
+    assert "apps.console" not in source

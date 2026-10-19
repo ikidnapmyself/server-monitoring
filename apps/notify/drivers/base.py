@@ -14,9 +14,12 @@ import json
 import logging
 import urllib.error
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any
 
+from apps.notify.config_fields import COMMON_FIELDS, ConfigField
 from apps.notify.templating import NotificationTemplatingService, render_template
 from config.failures import classify_failure
 
@@ -50,6 +53,8 @@ class BaseNotifyDriver(ABC):
 
     name: str = "base"
     label: str = ""
+    config_fields: tuple[ConfigField, ...] = ()
+    credential_aliases: Mapping[str, str] = MappingProxyType({})
 
     _templating_service = NotificationTemplatingService()
 
@@ -74,6 +79,10 @@ class BaseNotifyDriver(ABC):
         "info": "3",
         "success": "3",
     }
+
+    @classmethod
+    def all_config_fields(cls) -> tuple[ConfigField, ...]:
+        return cls.config_fields + COMMON_FIELDS
 
     @abstractmethod
     def validate_config(self, config: dict[str, Any]) -> bool:

@@ -9,6 +9,10 @@
     <p class="c-section"><a id="not-found-back" href="{% url 'console:alerts' %}">Back to alerts</a></p>
     {% elif nav == "runs" %}<p>This run doesn't exist. It may have been deleted.</p>
     <p class="c-section"><a id="not-found-back" href="{% url 'console:runs' %}">Back to runs</a></p>
+    {% elif section == "routes" %}<p>This route doesn't exist. It may have been deleted.</p>
+    <p class="c-section"><a id="not-found-back" href="{% url 'console:routes' %}">Back to routes</a></p>
+    {% elif section == "channels" %}<p>This channel doesn't exist. It may have been deleted.</p>
+    <p class="c-section"><a id="not-found-back" href="{% url 'console:channels' %}">Back to channels</a></p>
     {% elif nav == "nodes" %}<p>This node doesn't exist. It may have been deleted.</p>
     <p class="c-section"><a id="not-found-back" href="{% url 'console:nodes' %}">Back to nodes</a></p>
     {% else %}<p>This incident doesn't exist. It may have been deleted.</p>

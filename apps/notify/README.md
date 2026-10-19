@@ -10,7 +10,7 @@ It abstracts the complexity of multiple notification backends (email, Slack, Pag
 
 ### Models
 
-- `NotificationChannel` — Persistent configuration for notification channels (managed via Django Admin)
+- `NotificationChannel`: persistent configuration for notification channels, managed in the console at `/console/channels/`
 - `NotificationSeverity` — Severity levels for notifications (`critical`, `warning`, `info`, `success`)
 
 ### Drivers (notification backends)
@@ -125,7 +125,7 @@ uv run python manage.py test_notify slack --non-interactive \
 
 ### Enabling/Disabling Drivers
 
-Notification channels are managed via the `NotificationChannel` model in Django Admin. Each channel has an `is_active` flag — set it to `False` to disable a channel without deleting its configuration.
+Notification channels are managed in the console at `/console/channels/`. Each channel has an `is_active` flag. Turn it off to disable a channel without deleting its configuration.
 
 A `PipelineDefinition` names **one** channel, through a single FK — delivery has never
 fanned out. `routed_channel()` is the one rule for whether a lane delivers: it returns the
@@ -143,14 +143,17 @@ The app exposes REST endpoints for sending notifications:
 - `GET /notify/drivers/` — List available drivers
 - `GET /notify/drivers/<driver>/` — Get specific driver info
 
-### Django Admin
+### Console
 
-Access the admin interface at `/admin/notify/` to manage notification channels:
+Channels live in the console at `/console/channels/`, under **System**:
 
-- **NotificationChannel** — Create, edit, and disable notification channels
-  - Configure driver type and settings
-  - Store webhook URLs, API keys (as references), and other driver-specific config
-  - Enable/disable channels without deleting them
+- Add a channel, pick its driver, and fill in the settings that driver declares
+- Edit or turn off a channel without deleting it. A secret is never shown again, and
+  leaving its box blank keeps the stored value
+- Delete a channel. The page names the routes that would stop delivering
+
+Routes pick a channel at `/console/routes/`. The `/admin/notify/` channel admin is
+read-only and never shows stored settings.
 
 ### Data model (high level)
 
@@ -160,17 +163,17 @@ Access the admin interface at `/admin/notify/` to manage notification channels:
 
 ## Using the notification system
 
-### 0) Configure channels via Admin
+### 0) Configure channels in the console
 
-The recommended approach is to configure channels via Django Admin:
+Configure channels in the console:
 
-1. Navigate to `/admin/notify/notificationchannel/`
-2. Add a new channel (e.g., "ops-slack")
-3. Select the driver type (e.g., "slack")
-4. Configure driver-specific settings in the JSON config field
-5. Set `is_active=True` to enable
+1. Open `/console/channels/` and choose "Add a channel"
+2. Pick the driver (e.g., Slack)
+3. Name the channel (e.g., "ops-slack") and fill in the driver's settings
+4. Keep it active and save
+5. Point a route at it in `/console/routes/`
 
-Example channel config for Slack:
+The settings each driver stores, shown as the stored JSON. For Slack:
 ```json
 {
   "webhook_url": "https://hooks.slack.com/services/T.../B.../XXX",

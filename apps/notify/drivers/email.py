@@ -7,6 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
 
+from apps.notify.config_fields import ConfigField, timeout_field
 from apps.notify.drivers.base import BaseNotifyDriver, NotificationMessage
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,29 @@ class EmailNotifyDriver(BaseNotifyDriver):
 
     name = "email"
     label = "Email"
+    config_fields = (
+        ConfigField("smtp_host", "SMTP host", "text", required=True),
+        ConfigField("smtp_port", "SMTP port", "int", default=587),
+        ConfigField("use_tls", "Use STARTTLS", "bool", default=True),
+        ConfigField(
+            "use_ssl",
+            "Use SSL",
+            "bool",
+            default=False,
+            help="Connect over SSL from the start. STARTTLS is skipped when this is on.",
+        ),
+        ConfigField("username", "Username", "text"),
+        ConfigField("password", "Password", "text", secret=True),
+        ConfigField("from_address", "From address", "text", required=True),
+        ConfigField(
+            "to_addresses",
+            "To addresses",
+            "list",
+            help="One address per line. Left empty, mail goes to the alert's destination "
+            "or else the from address.",
+        ),
+        timeout_field(),
+    )
 
     def validate_config(self, config: dict[str, Any]) -> bool:
         required_keys = {"smtp_host", "from_address"}

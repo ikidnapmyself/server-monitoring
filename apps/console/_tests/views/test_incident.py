@@ -581,7 +581,7 @@ def test_a_no_channel_failure_links_its_fix_for_a_superuser(client):
 
     body = client.get(_url(incident)).content.decode()
 
-    route = reverse("admin:orchestration_pipelinedefinition_changelist")
+    route = reverse("console:routes")
     assert re.search(
         rf'<a id="entry-stage-\d+-what-action" class="c-button c-button--sm" href="{route}">'
         r"Give the route an active channel</a>",
@@ -612,7 +612,7 @@ def test_a_failed_stage_shows_its_fix_in_the_sidebar(client):
 
     item = _stage_item(client.get(_url(incident)).content.decode(), "notify")
 
-    route = reverse("admin:orchestration_pipelinedefinition_changelist")
+    route = reverse("console:routes")
     assert (
         f'<a id="stage-notify-action" class="c-button c-button--sm" href="{route}">'
         "Give the route an active channel</a>"

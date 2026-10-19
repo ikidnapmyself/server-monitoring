@@ -7,7 +7,7 @@ or a file appears that this table does not list.
 | File | Version | Source | SHA-256 |
 |---|---|---|---|
 | `htmx.min.js` | 2.0.11 | https://unpkg.com/htmx.org@2.0.11/dist/htmx.min.js | `d6fdc75f204e6bdefa99b69bf1e6d4ac69b8a364f77929f45c13476b4000f717` |
-| `octicons.svg` | 19.15.1 | https://unpkg.com/@primer/octicons@19.15.1/build/svg/ | `3b1adecba43a3465ddebad832ccb88a2dd58d51a596c4743a38c267243b73c0e` |
+| `octicons.svg` | 19.15.1 | https://unpkg.com/@primer/octicons@19.15.1/build/svg/ | `281e6e2a606b53fa094d9417a4cabd9fdf8a629833ad974e7bd2227a300935b2` |
 | `LICENSE-octicons` | 19.15.1 | https://unpkg.com/@primer/octicons@19.15.1/LICENSE | `3d8b9d9254e7aa7517ed5abc8df3a4bc230081a613e8e872fb6558e8759c9040` |
 | `LICENSE-primer-primitives` | 10.3.4 | https://unpkg.com/@primer/primitives@10.3.4/LICENSE | `e63582a78dddebe610b6cb59f0e7f5f761c1bb6a1c9551443beddc64fe525c3a` |
 

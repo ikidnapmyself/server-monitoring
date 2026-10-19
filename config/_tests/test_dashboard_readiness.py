@@ -25,7 +25,7 @@ def test_channels_error_when_none_active_and_a_lane_promises_delivery():
     PipelineDefinition.objects.create(name="delivers", match=[], stages=["notify"], priority=1)
     r = _by_key(build_readiness())["channels"]
     assert r["status"] == "error"
-    assert r["url"] == reverse("admin:notify_notificationchannel_changelist")
+    assert r["url"] == reverse("console:channels")
 
 
 @pytest.mark.django_db
@@ -205,9 +205,9 @@ def test_lane_that_claims_to_deliver_but_cannot_is_an_error():
     entry = _by_key(build_readiness())["lane_channels"]
     assert entry["status"] == "error"
     assert "mute" in entry["detail"]
-    # A fault goes to the map, which names the gap per lane — see
+    # A fault goes to the routes page, which names the gap per lane. See
     # test_an_undeliverable_lane_points_at_the_map_which_names_the_gap.
-    assert entry["url"] == reverse("admin:netmap")
+    assert entry["url"] == reverse("console:routes")
 
 
 @pytest.mark.django_db
@@ -233,6 +233,7 @@ def test_every_delivering_lane_bound_is_ok():
 
     entry = _by_key(build_readiness())["lane_channels"]
     assert entry["status"] == "ok"
+    assert entry["url"] == reverse("console:routes")
     assert "1" in entry["detail"]
 
 
@@ -478,7 +479,7 @@ def test_an_undeliverable_lane_points_at_the_map_which_names_the_gap():
     )
     entry = _by_key(build_readiness())["lane_channels"]
     assert entry["status"] == "error"
-    assert entry["url"] == reverse("admin:netmap")
+    assert entry["url"] == reverse("console:routes")
 
 
 # ---------------------------------------------------------------------------

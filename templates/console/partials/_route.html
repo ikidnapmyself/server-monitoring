@@ -1,0 +1,47 @@
+{% load console %}{% if notice %}{% include "console/partials/_flash.html" with tone=notice.tone text=notice.text %}{% endif %}
+<a id="route-back" class="c-crumb" href="{{ editor.back_url }}">{% include "console/partials/_octicon.html" with name="chevron-right" %}Back to routes</a>
+<div class="c-pagehead"><div class="c-pagehead__top"><h1 class="c-pagehead__title">{% if editor.pk %}Route {{ editor.name }}{% else %}New route{% endif %}</h1>{% resolved editor.delete as act %}{% if act.url %}{% include "console/partials/_action.html" with act=act id="route-delete" cls="c-button--danger" %}{% endif %}</div></div>
+{% with form=editor.form %}
+<form method="post" action="{{ editor.url }}" data-disable-on-submit>
+  {% csrf_token %}
+  <input type="hidden" name="version" value="{{ editor.version }}">
+  {% for error in form.non_field_errors %}<p class="c-field__error c-tone-critical">{{ error }}</p>{% endfor %}
+  <div id="route-fields" class="c-box c-form__group"><div class="c-box__body">
+    {% include "console/partials/_field.html" with field=form.name %}
+    {% include "console/partials/_field.html" with field=form.description %}
+    {% include "console/partials/_field.html" with field=form.is_active %}
+    {% include "console/partials/_field.html" with field=form.priority %}
+    {% include "console/partials/_field.html" with field=form.channel %}
+    <fieldset id="route-stages" class="c-fieldset">
+      <legend class="c-field__label">Stages</legend>
+      {{ form.stages }}
+      {% for error in form.stages.errors %}<p class="c-field__error c-tone-critical">{{ error }}</p>{% endfor %}
+    </fieldset>
+  </div></div>
+  <fieldset id="route-conditions" class="c-box c-form__group">
+    <legend class="c-box__header c-box__title">Conditions</legend>
+    <div class="c-box__body">
+      <p class="c-muted c-form__note">All of these must hold. No conditions matches everything.</p>
+      {% if not editor.represented %}
+      {% include "console/partials/_flash.html" with tone="warning" text="These conditions use a shape the editor can't show. Saving keeps them." %}
+      <details id="route-stored" class="c-details" data-details>
+        <summary id="route-stored-summary">Stored conditions</summary>
+        <pre class="c-raw">{% for condition in editor.stored_conditions %}{{ condition }}
+{% endfor %}</pre>
+      </details>
+      {% include "console/partials/_field.html" with field=form.replace_match %}
+      {% endif %}
+      {{ form.conditions.management_form }}
+      {% for error in form.conditions.non_form_errors %}<p class="c-field__error c-tone-critical">{{ error }}</p>{% endfor %}
+      {% for row in form.conditions %}{% include "console/partials/_condition_row.html" %}{% endfor %}
+    </div>
+  </fieldset>
+  {% if editor.can_change %}
+  {# Enter submits the first button in the form, so Save comes before Add condition. #}
+  <button id="route-save" class="c-button c-button--primary" type="submit">Save route</button>
+  <button id="route-add-condition" class="c-button" type="submit" name="add_condition" value="1">Add condition</button>
+  {% endif %}
+  <a id="route-cancel" class="c-button" href="{{ editor.back_url }}">{% if editor.can_change %}Cancel{% else %}Back to routes{% endif %}</a>
+</form>
+{% endwith %}
+{% if editor.facts %}<div class="c-section">{% include "console/partials/_details.html" with facts=editor.facts raw="" id="route-details" %}</div>{% endif %}

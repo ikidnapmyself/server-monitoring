@@ -496,7 +496,7 @@ class PipelineDefinition(models.Model):
     )
     version = models.PositiveIntegerField(
         default=1,
-        help_text="Version number, bumped manually on significant edits.",
+        help_text="Bumped by every console save.",
     )
     tags = models.JSONField(
         default=dict,

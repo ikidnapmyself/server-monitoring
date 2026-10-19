@@ -149,6 +149,34 @@ pipeline stage and not an alert producer.
   registered nor on an open alert of the node gets the fixed title "Re-evaluate one
   checker's alerts on <node>", so a typed name never reaches the page. On both pages, an
   apply whose fresh report has no changes writes nothing and answers 409 with the preview.
+- **System holds routes and channels.** The header's System item opens `/console/routes/`
+  for a route reader, else `/console/channels/` for a channel reader, and is hidden for a
+  user who reads neither. `partials/_system_nav.html` switches between Routes and
+  Channels and shows each tab only to its readers. The lists, the editors and the delete
+  pages read with the admin's view or change permission (`ROUTE_READ` and
+  `CHANNEL_READ` in `intents.py`). Add, change and delete each need their own permission,
+  and a reader sees the editor disabled. Both admins are stock and read-only.
+- **The route pages.** `/console/routes/` lists every route in match order through
+  `build_route_list`, which reads `config.netmap.get_map_context()`, so each card says
+  when a route is off, never matches or is never reached, and whether it can deliver.
+  `/console/routes/<pk>/` and `/console/routes/new/` render `RouteForm`. Conditions are
+  rows, and "Add condition" (`add_condition`) re-renders and saves nothing. A save posts
+  the `version` it opened and goes through `save_route`, which refuses a stale one with a
+  409 and the fresh route. A stored match the rows can't reproduce (`representable`) is
+  shown as stored and kept unless "Replace them" is ticked. A save lands on the routes list
+  at the route's card. `/console/routes/<pk>/delete/` confirms first and states where the
+  traffic goes, from `routing.fallthrough`.
+- **The channel pages.** `/console/channels/` lists channels with the routes on each,
+  and `q` searches names. `/console/channels/new/` picks a driver first, then
+  `?driver=<key>` renders that driver's form. `/console/channels/<pk>/delete/` confirms
+  first and names the routes that stop delivering, from `lanes_cut_by_delete`.
+- **A channel page never renders a secret.** `/console/channels/<pk>/` renders
+  `ChannelForm`, whose secret inputs render empty and whose undeclared settings show by
+  name only, in Details. The page posts to its own URL with `?driver=`, the driver its
+  fields were built for. "Show this driver's settings" (`switch_driver`) re-renders and
+  saves nothing, and a driver key that's neither registered nor the channel's own is a 400.
+  A save posts `digest`, the `channel_digest` of the row it opened, and `save_channel`
+  refuses a stale one with a 409. A save lands on the channel page.
 - **Fleet policy** (`/console/policy/`) renders `build_policy_overview`. Its edit and
   re-evaluate links are intents, so a reader sees none.
 - **A missing record gets a console 404 page** with a link onward, returned with status
@@ -166,9 +194,14 @@ pipeline stage and not an alert producer.
 - **`intents.py` is the only place that builds an admin URL.** `INTENTS` maps each
   `Action.intent` to a URL builder, a method and a permission. `resolve_action` turns an
   `Action` into a link, a POST button, or plain text when the intent is unknown, the user
-  lacks its permission or the URL can't be built. Config intents such as `edit_route`,
-  `edit_channel` and `edit_provider` point at the admin until their domain gets a console
-  page, and then only their entry here changes. `admin_url()` covers the chrome's index,
+  lacks its permission or the URL can't be built. Config intents such as `edit_provider`
+  point at the admin until their domain gets a console page, and then only their entry
+  here changes. Routes and channels have theirs: `view_route`, `edit_route`, `add_route`,
+  `delete_route`, `view_channel`, `edit_channel`, `add_channel` and `delete_channel`. A
+  `view_*` intent opens the page, or the list when it has no `pk`, for anyone who can read
+  it. A name link uses it. An `edit_*` intent opens the same page but needs the change
+  permission, so a remedy such as "Give it an active channel" is plain text to a reader.
+  `admin_url()` covers the chrome's index,
   login and logout links. No template or query reverses an `admin:` name or writes
   `/admin/`, and `_tests/test_intents.py` scans for both. Templates resolve an action with
   `{% load console %}{% resolved action as act %}` and render it through

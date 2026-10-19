@@ -78,7 +78,7 @@ def build_readiness():
             "label": "Notification channels",
             "status": c_status,
             "detail": detail,
-            "url": reverse("admin:notify_notificationchannel_changelist"),
+            "url": reverse("console:channels"),
             "gaps": [],
             "counts": {"active": active, "total": total, "delivering": len(delivering)},
         }
@@ -117,15 +117,7 @@ def build_readiness():
             "label": "Lane delivery",
             "status": l_status,
             "detail": detail,
-            # A gap is per-lane and the changelist cannot filter on one, so a fault
-            # goes to the map, which names the gap on each card and links the
-            # channel behind it. With nothing wrong, the lane list is the place to
-            # edit routing.
-            "url": (
-                reverse("admin:netmap")
-                if l_status == "error"
-                else reverse("admin:orchestration_pipelinedefinition_changelist")
-            ),
+            "url": reverse("console:routes"),
             "gaps": undeliverable,
             "counts": {"delivering": len(delivering)},
         }

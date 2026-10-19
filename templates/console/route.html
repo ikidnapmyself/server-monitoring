@@ -1,0 +1,7 @@
+{% extends "console/base.html" %}
+{% block title %}{% if editor.pk %}Route · {{ editor.name }}{% else %}New route{% endif %} · Console{% endblock %}
+{% block content %}
+{% include "console/partials/_system_nav.html" %}
+{% include "console/partials/_messages.html" %}
+{% include "console/partials/_route.html" %}
+{% endblock %}

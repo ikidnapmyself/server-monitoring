@@ -28,6 +28,8 @@
       <a class="c-unav__item" href="{% url 'console:runs' %}"{% if nav == "runs" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="workflow" %}<span>Runs</span></a>
       <a class="c-unav__item" href="{% url 'console:inbox' %}"{% if nav == "inbox" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="clock" %}<span>Inbox</span></a>
       <a class="c-unav__item" href="{% url 'console:nodes' %}"{% if nav == "nodes" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="server" %}<span>Nodes</span></a>
+      {% if perms.orchestration.view_pipelinedefinition or perms.orchestration.change_pipelinedefinition %}{% url 'console:routes' as system_url %}{% elif perms.notify.view_notificationchannel or perms.notify.change_notificationchannel %}{% url 'console:channels' as system_url %}{% endif %}
+      {% if system_url %}<a class="c-unav__item" href="{{ system_url }}"{% if nav == "system" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="gear" %}<span>System</span></a>{% endif %}
     </div>
   </nav>
   <main class="c-main">

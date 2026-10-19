@@ -2,11 +2,14 @@
 
 import re
 from html.parser import HTMLParser
+from typing import cast
 
 import pytest
 
 from apps.alerts.models import Alert
-from apps.console._tests.fixtures import build_world
+from apps.console._tests.fixtures import OPS_SLACK_WEBHOOK, build_world
+from apps.notify._tests.test_forms import SECRETS, STORED
+from apps.notify.drivers import DRIVER_REGISTRY
 from apps.notify.models import NotificationChannel
 from apps.orchestration.describing import REASONS
 from config.failures import FAILURE_KINDS
@@ -20,7 +23,10 @@ VOID = {"br", "img", "input", "meta", "link", "hr", "use"}
 
 
 class VisibleText(HTMLParser):
-    """Text a reader sees without opening Details. Skips script, style and data-details."""
+    """Text a reader sees without opening Details. Skips script, style and data-details.
+
+    A textarea's text is a form value, stored as written, like an input's ``value``.
+    """
 
     def __init__(self):
         super().__init__()
@@ -32,7 +38,7 @@ class VisibleText(HTMLParser):
             return
         if self.hidden:
             self.hidden.append(tag)
-        elif tag in ("script", "style") or "data-details" in dict(attrs):
+        elif tag in ("script", "style", "textarea") or "data-details" in dict(attrs):
             self.hidden.append(tag)
 
     def handle_endtag(self, tag):
@@ -60,11 +66,24 @@ def test_visible_skips_script_and_style_but_not_void_tags():
     assert visible(html).split() == ["a", "b"]
 
 
+def test_visible_skips_a_textarea_value():
+    assert visible("<p>a<textarea>run_pipeline</textarea>b</p>").split() == ["a", "b"]
+
+
 def _assert_no_leak(url, text):
     assert not UUID.search(text), url
     assert not SNAKE.search(text), (url, SNAKE.findall(text))
     assert "{" not in text, url
     assert not CODES & set(re.findall(r"[a-z_]+", text)), url
+
+
+def _secret_values() -> list[str]:
+    """Every secret value the fixtures store, each string inside a dict on its own."""
+    values = [OPS_SLACK_WEBHOOK]
+    for config in cast(list[dict], list(STORED.values())):
+        for value in (config[key] for key in SECRETS if key in config):
+            values += list(value.values()) if isinstance(value, dict) else [value]
+    return values
 
 
 def _get(client, url, headers):
@@ -77,6 +96,12 @@ def _get(client, url, headers):
 @pytest.mark.parametrize("partial", [False, True])
 def test_no_page_leaks_identifiers(client, superuser, partial):
     world = build_world()
+    channel_pks = [
+        NotificationChannel.objects.create(
+            name=f"{driver}-off", driver=driver, config=config, is_active=False
+        ).pk
+        for driver, config in STORED.items()
+    ]
     client.force_login(superuser)
     headers = {"HX-Request": "true"} if partial else {}
     alert_pks = list(Alert.objects.values_list("pk", flat=True))
@@ -90,6 +115,15 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         + ["/console/runs/?status=all", "/console/inbox/", "/console/inbox/?status=processing"]
         + [f"/console/runs/{pk}/" for pk in world.run_pks]
         + ["/console/nodes/", "/console/nodes/?freshness=silent", "/console/policy/"]
+        + ["/console/routes/", "/console/routes/new/"]
+        + [f"/console/routes/{pk}/{page}" for pk in world.route_pks for page in ("", "delete/")]
+        + ["/console/channels/", "/console/channels/new/"]
+        + [f"/console/channels/new/?driver={key}" for key in DRIVER_REGISTRY]
+        + [
+            f"/console/channels/{pk}/{page}"
+            for pk in (*world.channel_pks, *channel_pks)
+            for page in ("", "delete/")
+        ]
         + [f"/console/nodes/{pk}/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/policy/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/reevaluate/" for pk in world.node_pks]
@@ -101,6 +135,11 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
     pages = {url: visible(page) for url, page in html.items()}
     for url, text in pages.items():
         _assert_no_leak(url, text)
+    secrets = _secret_values()
+    assert len(secrets) == 7
+    for url, page in html.items():
+        for secret in secrets:
+            assert secret not in page, (url, secret)
 
     overview = pages["/console/"]
     for fault in (
@@ -146,8 +185,17 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "would move this alert from critical to warning",
         "No open alerts need re-evaluation.",
         "Applying queues 1 pipeline run.",
+        "Severity is Critical",
+        "Started by is Incoming webhook",
+        "Never reached",
+        "Can't deliver",
+        "A driver this hub doesn't have",
+        "Set. Leave blank to keep it.",
+        "These routes will stop delivering",
     ):
         assert shown in everything, shown
+    # The templates group is a Details disclosure, so its summary is not visible text.
+    assert any("Message templates" in page for page in html.values())
 
 
 @pytest.mark.django_db
@@ -159,4 +207,4 @@ def test_overview_without_a_channel_leaks_nothing(client, superuser):
     text = visible(_get(client, "/console/", {}))
 
     _assert_no_leak("/console/", text)
-    assert "No active channel, 2 routes can't deliver" in text
+    assert "No active channel, 3 routes can't deliver" in text

@@ -1,0 +1,11 @@
+<a id="route-delete-back" class="c-crumb" href="{{ deletion.back_url }}">{% include "console/partials/_octicon.html" with name="chevron-right" %}Back to route {{ deletion.name }}</a>
+<div class="c-pagehead"><div class="c-pagehead__top"><h1 class="c-pagehead__title">Delete route {{ deletion.name }}?</h1></div></div>
+<section class="c-box c-comment">
+  <h2 class="c-box__header c-box__title">What deleting does</h2>
+  <div class="c-box__body"><p id="route-delete-consequence">{{ deletion.consequence }}</p></div>
+</section>
+<form method="post" action="{{ deletion.url }}" data-disable-on-submit>
+  {% csrf_token %}
+  <button id="route-delete-confirm" class="c-button c-button--danger" type="submit">Delete route</button>
+  <a id="route-delete-cancel" class="c-button" href="{{ deletion.back_url }}">Cancel</a>
+</form>

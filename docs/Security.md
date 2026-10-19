@@ -544,8 +544,9 @@ For Docker image vulnerabilities (trivy), rebuild with an updated base image or 
 
 ## Admin Interface
 
-Operators act on incidents, runs and the inbox in the console (`/console/`). The Django admin
-(`/admin/`) keeps configuration, and its incident, alert, run and inbox pages are read-only:
+Operators act on incidents, runs and the inbox, and edit routes and channels, in the console
+(`/console/`). The Django admin (`/admin/`) keeps the rest of the configuration, and its
+incident, alert, run, inbox, route and channel pages are read-only:
 
 - Both are protected by Django's built-in staff/superuser authentication
 - Custom `MonitoringAdminSite` inherits all default auth protections

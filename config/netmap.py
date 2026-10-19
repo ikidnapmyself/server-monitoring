@@ -8,12 +8,16 @@ normal lane (fail toward "not shadowed").
 Design: docs/plans/2026-08-23-network-map-design.md
 """
 
-from django.urls import reverse
-
-from apps.notify.models import NotificationChannel
+from apps.orchestration.describing import REASONS, STAGE_NAMES
 from apps.orchestration.models import PipelineDefinition
+from apps.orchestration.routing import describe_condition, describe_match, never_matches
 from apps.orchestration.seeding import SEED_SHAPE_KEY
-from config.admin_links import admin_url, changelist_url
+from config.describing import Action
+
+UNSHOWN_CONDITION = "A condition the console can't show"
+NO_STAGES = "No downstream stages"
+SEED_NOTE = "Set up without delivery. It delivers once a channel is active."
+STATE_WORDS = {"ok": "", "inactive": "Off", "never-matches": "Never matches"}
 
 
 def _as_set(value) -> set | None:
@@ -86,32 +90,6 @@ def _lane_shadows(a_match: list, b_match: list) -> bool:
     return all(_cond_implied(b_match, a_cond) for a_cond in a_match)
 
 
-_MATCH_OPS = ("is", "is-not", "in", "not-in")
-
-
-def _never_matches(match) -> bool:
-    """Static mirror of ``PipelineDefinition.matches()`` fail-closed rules.
-
-    A condition that can never hold — non-dict, unknown op, membership without a
-    list — makes the whole lane unmatchable. A falsy non-list ``match`` (None,
-    ``{}``) iterates as empty in ``matches()`` (catch-all), so it is NOT
-    never-matching; a truthy non-list iterates junk there and fails closed, so
-    it IS. Emptiness/contradiction (e.g. ``in []``) is deliberately not
-    checked — conservative toward drawing a normal lane.
-    """
-    if not isinstance(match, list):
-        return bool(match)  # falsy → catch-all in matches(); truthy → iterates junk, fails closed
-    for c in match:
-        if not isinstance(c, dict):
-            return True
-        op = c.get("op", "is")
-        if op not in _MATCH_OPS:
-            return True
-        if op in ("in", "not-in") and not isinstance(c.get("value"), (list, tuple)):
-            return True
-    return False
-
-
 def _annotate_shadows(lanes) -> dict[str, str]:
     """Map lane name → name of the earlier active lane that provably shadows it.
 
@@ -127,7 +105,7 @@ def _annotate_shadows(lanes) -> dict[str, str]:
     shadowed: dict[str, str] = {}
     candidates: list = []  # earlier lanes that can actually win traffic
     for b in lanes:
-        if b.is_active and not _never_matches(b.match):
+        if b.is_active and not never_matches(b.match):
             for a in candidates:
                 if _lane_shadows(a.match or [], b.match or []):
                     shadowed[b.name] = a.name
@@ -136,79 +114,97 @@ def _annotate_shadows(lanes) -> dict[str, str]:
     return shadowed
 
 
-def _render_condition(c: dict) -> str:
-    op, value = c.get("op", "is"), c.get("value")
-    if isinstance(value, (list, tuple)):
-        value = "[" + ", ".join(str(v) for v in value) + "]"
-    return f"{c.get('field')} {op} {value}"
+def _state_words(state: str, shadowed_by: str | None) -> str:
+    if state == "shadowed":
+        return f"Never reached: {shadowed_by} catches its traffic first"
+    return STATE_WORDS[state]
+
+
+def _conditions(match) -> list[str]:
+    if not match:
+        return [describe_match(match)]
+    if not isinstance(match, list):
+        return [UNSHOWN_CONDITION]
+    return [describe_condition(c) or UNSHOWN_CONDITION for c in match]
 
 
 def _delivery(lane) -> dict:
-    """Delivery state for one lane, asking the model helpers — never re-derived.
+    """Delivery state for one lane, asking the model helpers, never re-derived.
 
-    ``channel_url`` is where the state is changed: the bound channel's page when
-    there is one, the channel list when there is none to bind, and ``None`` for a
-    recording-only lane, which has nothing to fix.
+    ``action`` is where the state is changed: the bound channel when there is one,
+    the route itself when there is none to open, and ``None`` for a lane that
+    records only and has nothing to fix.
     """
     if "notify" not in lane.routable_stages():
-        return {"state": "recording-only", "channel": None, "channel_url": None}
-    channel_url = (
-        admin_url(lane.channel) if lane.channel_id else changelist_url(NotificationChannel)
-    )
+        return {
+            "state": "recording-only",
+            "channel": None,
+            "words": "Records only, sends nothing",
+            "action": None,
+        }
+    if lane.channel_id:
+        action = Action(
+            f"Open {lane.channel.name}",
+            "view_channel",
+            {"pk": lane.channel_id, "name": lane.channel.name},
+        )
+    else:
+        action = Action("Give it an active channel", "edit_route", {"pk": lane.pk})
     gap = lane.delivery_gap()
     if gap is None:
+        channel = lane.routed_channel().name
         return {
             "state": "bound",
-            "channel": lane.routed_channel().name,
-            "channel_url": channel_url,
+            "channel": channel,
+            "words": f"Delivers to {channel}",
+            "action": action,
         }
     return {
         "state": gap,
         "channel": lane.channel.name if lane.channel else None,
-        "channel_url": channel_url,
+        "words": "Can't deliver: " + REASONS[gap].headline,
+        "action": action,
     }
 
 
 def get_map_context() -> dict:
-    """Template context for the network map: one card per lane, in match order.
+    """One card per lane, in match order, in words and actions.
 
-    The ordering copies ``resolve_pipeline`` exactly — ``order_by("priority",
-    "id")`` — minus its ``is_active`` filter: the map shows every lane, active
+    The ordering copies ``resolve_pipeline`` exactly, ``order_by("priority",
+    "id")``, minus its ``is_active`` filter: the map shows every lane, active
     or not.
     """
     lanes = list(PipelineDefinition.objects.select_related("channel").order_by("priority", "id"))
     shadows = _annotate_shadows(lanes)
     cards = []
     for lane in lanes:
-        conds = lane.match if isinstance(lane.match, list) else []
         if not lane.is_active:
             state = "inactive"
-        elif _never_matches(lane.match):
+        elif never_matches(lane.match):
             state = "never-matches"
         elif lane.name in shadows:
             state = "shadowed"
         else:
             state = "ok"
+        # SEED_SHAPE_KEY means "the seed stripped notify from this lane on a channel-less
+        # hub; delivery auto-restores once a channel is configured", NOT "row created by
+        # the seed". The note must say that.
+        seed_shaped = isinstance(lane.tags, dict) and bool(lane.tags.get(SEED_SHAPE_KEY))
+        stages = [STAGE_NAMES[s] for s in lane.routable_stages()]
         cards.append(
             {
+                "pk": lane.pk,
                 "name": lane.name,
                 "state": state,
+                "state_words": _state_words(state, shadows.get(lane.name)),
                 "shadowed_by": shadows.get(lane.name),
-                "catch_all": not conds,
-                "conditions": [
-                    _render_condition(c) if isinstance(c, dict) else repr(c) for c in conds
-                ],
-                "stages": lane.routable_stages(),
+                "catch_all": not lane.match,
+                "conditions": _conditions(lane.match),
+                "stages": stages or [NO_STAGES],
                 "delivery": _delivery(lane),
-                # SEED_SHAPE_KEY means "the seed stripped `notify` from this lane on a
-                # channel-less hub; delivery auto-restores once a channel is configured"
-                # — NOT "row created by the seed". The badge must say that.
-                "seed_shaped": (
-                    bool(lane.tags.get(SEED_SHAPE_KEY)) if isinstance(lane.tags, dict) else False
-                ),
-                "admin_url": reverse(
-                    "admin:orchestration_pipelinedefinition_change", args=[lane.pk]
-                ),
+                "seed_shaped": seed_shaped,
+                "seed_note": SEED_NOTE if seed_shaped else "",
+                "edit": Action("Open route", "view_route", {"pk": lane.pk}),
             }
         )
     return {"lanes": cards}
