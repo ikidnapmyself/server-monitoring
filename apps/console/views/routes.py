@@ -1,4 +1,4 @@
-from apps.console.intents import ROUTE_READ
+from apps.console.intents import ROUTE_ADD, ROUTE_READ
 from apps.console.queries.routes import build_route_list
 from apps.console.views.base import ConsoleView
 
@@ -10,7 +10,8 @@ class RoutesView(ConsoleView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["routes"] = build_route_list()
+        can_add = self.request.user.has_perm(ROUTE_ADD)
+        context["routes"] = build_route_list(can_add=can_add)
         context["nav"] = "system"
         context["section"] = "routes"
         return context

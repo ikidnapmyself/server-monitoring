@@ -1,9 +1,16 @@
-"""Read model for the routes page: the routing map, one card per route. Returns dataclasses."""
+"""Read models for the routes page, one card per route, and for one route's editor."""
 
+import json
 from dataclasses import dataclass
 
-from apps.orchestration.routing import describe_match
-from config.describing import Action
+from django.urls import reverse
+from django.utils import timezone
+from django.utils.dateformat import format as date_format
+
+from apps.orchestration.forms import RouteForm
+from apps.orchestration.models import PipelineDefinition
+from apps.orchestration.routing import representable
+from config.describing import Action, Fact
 from config.netmap import get_map_context
 
 STATE_TONES = {"ok": "ok", "inactive": "muted", "never-matches": "critical", "shadowed": "warning"}
@@ -34,6 +41,11 @@ class RouteCard:
 class RouteList:
     cards: tuple[RouteCard, ...]
     summary: str
+    can_add: bool = False
+
+    @property
+    def add(self) -> Action:
+        return Action("Add a route", "add_route", {})
 
 
 def _card(lane: dict) -> RouteCard:
@@ -44,7 +56,7 @@ def _card(lane: dict) -> RouteCard:
         state_words=lane["state_words"],
         tone=STATE_TONES[lane["state"]],
         muted=lane["state"] in MUTED_STATES,
-        conditions=tuple(lane["conditions"]) or (describe_match([]),),
+        conditions=tuple(lane["conditions"]),
         stages=tuple(lane["stages"]),
         delivery=lane["delivery"]["words"],
         delivery_action=lane["delivery"]["action"],
@@ -53,7 +65,7 @@ def _card(lane: dict) -> RouteCard:
     )
 
 
-def build_route_list() -> RouteList:
+def build_route_list(*, can_add: bool = False) -> RouteList:
     cards = tuple(_card(lane) for lane in get_map_context()["lanes"])
     count = len(cards)
     summary = (
@@ -62,4 +74,82 @@ def build_route_list() -> RouteList:
         if cards
         else ""
     )
-    return RouteList(cards=cards, summary=summary)
+    return RouteList(cards=cards, summary=summary, can_add=can_add)
+
+
+@dataclass(frozen=True)
+class RouteEditor:
+    pk: int | None
+    name: str
+    form: RouteForm
+    version: int | str
+    url: str
+    back_url: str
+    represented: bool
+    stored_conditions: tuple[str, ...]
+    facts: tuple[Fact, ...]
+    can_change: bool
+
+
+def _when(moment) -> str:
+    return date_format(timezone.localtime(moment), "Y-m-d H:i")
+
+
+def _facts(lane: PipelineDefinition) -> tuple[Fact, ...]:
+    facts = [Fact("Created by", lane.created_by)] if lane.created_by else []
+    facts += [
+        Fact("Created", _when(lane.created_at)),
+        Fact("Updated", _when(lane.updated_at)),
+        Fact("Version", str(lane.version)),
+    ]
+    if lane.tags:
+        facts.append(Fact("Tags", json.dumps(lane.tags, sort_keys=True)))
+    return tuple(facts)
+
+
+def _stored(match) -> tuple[str, ...]:
+    if not isinstance(match, list):
+        return (json.dumps(match, sort_keys=True),)
+    return tuple(json.dumps(cond, sort_keys=True) for cond in match)
+
+
+def build_route_editor(
+    pk: int | None, data=None, *, can_change: bool, version: str | None = None
+) -> RouteEditor | None:
+    """The editor for route ``pk``, or for a new route when ``pk`` is None.
+
+    ``version`` keeps the one a re-rendered submit carried, so it can still be refused as stale.
+    """
+    lane = None
+    if pk is not None:
+        lane = PipelineDefinition.objects.filter(pk=pk).first()
+        if lane is None:
+            return None
+    form = RouteForm(data, instance=lane, disabled=not can_change)
+    routes = reverse("console:routes")
+    if lane is None:
+        return RouteEditor(
+            pk=None,
+            name="",
+            form=form,
+            version=1,
+            url=reverse("console:route-new"),
+            back_url=routes,
+            represented=True,
+            stored_conditions=(),
+            facts=(),
+            can_change=can_change,
+        )
+    represented = representable(lane.match)
+    return RouteEditor(
+        pk=lane.pk,
+        name=lane.name,
+        form=form,
+        version=lane.version if version is None else version,
+        url=reverse("console:route", args=[lane.pk]),
+        back_url=f"{routes}#route-{lane.pk}",
+        represented=represented,
+        stored_conditions=() if represented else _stored(lane.match),
+        facts=_facts(lane),
+        can_change=can_change,
+    )

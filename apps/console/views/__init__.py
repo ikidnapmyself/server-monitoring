@@ -12,6 +12,7 @@ from apps.console.views.node_reeval import NodeReevalView
 from apps.console.views.nodes import NodeListView
 from apps.console.views.overview import OverviewView
 from apps.console.views.policy import PolicyView
+from apps.console.views.route import RouteView
 from apps.console.views.routes import RoutesView
 from apps.console.views.run import RunActionView, RunDetailView
 from apps.console.views.runs import RunListView
@@ -32,6 +33,7 @@ __all__ = [
     "NodeReevalView",
     "OverviewView",
     "PolicyView",
+    "RouteView",
     "RoutesView",
     "RunActionView",
     "RunDetailView",

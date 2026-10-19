@@ -248,9 +248,11 @@ class TestGetMapContext:
         assert card["seed_shaped"] is False
         assert card["seed_note"] == ""
 
-    def test_a_lane_with_no_stages_records_only(self):
+    def test_a_lane_with_no_stages_says_so_once(self):
         self._lane("bare", priority=1, match=[], stages=[])
-        assert get_map_context()["lanes"][0]["stages"] == ["Records only"]
+        card = get_map_context()["lanes"][0]
+        assert card["stages"] == ["No downstream stages"]
+        assert card["delivery"]["words"] == "Records only, sends nothing"
 
     def test_no_channel_carries_inactive_channel_name(self):
         # A lane bound to an INACTIVE channel is a no_channel gap, but the card
@@ -310,7 +312,7 @@ class TestGetMapContext:
         self._lane("off", priority=3, match=[], is_active=False)
         self._lane("broken", priority=4, match=[cond("source", "zap", 1)])
         by_name = {c["name"]: c for c in get_map_context()["lanes"]}
-        assert by_name["all"]["conditions"] == []
+        assert by_name["all"]["conditions"] == ["Matches everything"]
         assert by_name["all"]["catch_all"] is True
         assert (by_name["all"]["state"], by_name["all"]["state_words"]) == ("ok", "")
         assert by_name["shadowed"]["state"] == "shadowed"
@@ -342,7 +344,7 @@ class TestGetMapContext:
         self._lane("empty-dict", priority=1, match={})
         card = get_map_context()["lanes"][0]
         assert card["catch_all"] is True
-        assert card["conditions"] == []
+        assert card["conditions"] == ["Matches everything"]
 
     def test_list_valued_condition_reads_as_words(self):
         self._lane(

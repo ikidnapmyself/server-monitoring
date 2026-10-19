@@ -9,6 +9,7 @@ from apps.alerts.models import Alert
 from apps.console._tests.fixtures import build_world
 from apps.notify.models import NotificationChannel
 from apps.orchestration.describing import REASONS
+from apps.orchestration.models import PipelineDefinition
 from config.failures import FAILURE_KINDS
 
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-")
@@ -20,7 +21,10 @@ VOID = {"br", "img", "input", "meta", "link", "hr", "use"}
 
 
 class VisibleText(HTMLParser):
-    """Text a reader sees without opening Details. Skips script, style and data-details."""
+    """Text a reader sees without opening Details. Skips script, style and data-details.
+
+    A textarea's text is a form value, stored as written, like an input's ``value``.
+    """
 
     def __init__(self):
         super().__init__()
@@ -32,7 +36,7 @@ class VisibleText(HTMLParser):
             return
         if self.hidden:
             self.hidden.append(tag)
-        elif tag in ("script", "style") or "data-details" in dict(attrs):
+        elif tag in ("script", "style", "textarea") or "data-details" in dict(attrs):
             self.hidden.append(tag)
 
     def handle_endtag(self, tag):
@@ -58,6 +62,10 @@ def test_visible_skips_details():
 def test_visible_skips_script_and_style_but_not_void_tags():
     html = '<style>p{}</style><script>x()</script><p>a<br>b<input name="c"></p>'
     assert visible(html).split() == ["a", "b"]
+
+
+def test_visible_skips_a_textarea_value():
+    assert visible("<p>a<textarea>run_pipeline</textarea>b</p>").split() == ["a", "b"]
 
 
 def _assert_no_leak(url, text):
@@ -90,7 +98,11 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         + ["/console/runs/?status=all", "/console/inbox/", "/console/inbox/?status=processing"]
         + [f"/console/runs/{pk}/" for pk in world.run_pks]
         + ["/console/nodes/", "/console/nodes/?freshness=silent", "/console/policy/"]
-        + ["/console/routes/"]
+        + ["/console/routes/", "/console/routes/new/"]
+        + [
+            f"/console/routes/{pk}/"
+            for pk in PipelineDefinition.objects.values_list("pk", flat=True)
+        ]
         + [f"/console/nodes/{pk}/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/policy/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/reevaluate/" for pk in world.node_pks]

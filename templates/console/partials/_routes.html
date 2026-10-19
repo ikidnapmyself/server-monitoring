@@ -1,4 +1,5 @@
 {% load console %}<div id="routes">
+  {% if routes.can_add %}<p>{% resolved routes.add as act %}{% include "console/partials/_action.html" with act=act id="routes-add" %}</p>{% endif %}
   {% if routes.cards %}
   <p class="c-muted">{{ routes.summary }}</p>
   <ol class="c-routes">
@@ -10,7 +11,7 @@
       </div>
       <div class="c-box__body">
         <ul class="c-lines">
-          <li><span class="c-muted">Matches</span><ul class="c-bullets">{% for condition in card.conditions %}<li>{{ condition }}</li>{% endfor %}</ul></li>
+          <li><span class="c-muted">Conditions</span><ul class="c-bullets">{% for condition in card.conditions %}<li>{{ condition }}</li>{% endfor %}</ul></li>
           <li><span class="c-muted">Stages</span><span>{{ card.stages|join:", " }}</span></li>
           <li><span class="c-muted">Delivery</span><span>{{ card.delivery }}{% resolved card.delivery_action as act %}{% if act %}{% include "console/partials/_action.html" with act=act id=card.anchor|add:"-delivery" %}{% endif %}</span></li>
         </ul>

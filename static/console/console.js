@@ -96,6 +96,16 @@
     if (!form.hasAttribute || !form.hasAttribute("data-disable-on-submit")) {
       return;
     }
+    // A disabled submitter drops out of the post, so its name and value ride a hidden copy.
+    var submitter = event.submitter;
+    if (submitter && submitter.name) {
+      var kept = document.createElement("input");
+      kept.type = "hidden";
+      kept.name = submitter.name;
+      kept.value = submitter.value;
+      kept.setAttribute("data-submitter", "");
+      form.appendChild(kept);
+    }
     form.querySelectorAll("button").forEach(function (button) {
       button.disabled = true;
     });
@@ -108,6 +118,10 @@
     }
     document.querySelectorAll("[data-disable-on-submit] button").forEach(function (button) {
       button.disabled = false;
+    });
+    var kept = document.querySelectorAll("[data-disable-on-submit] [data-submitter]");
+    kept.forEach(function (input) {
+      input.remove();
     });
   });
 

@@ -217,6 +217,14 @@ stage), or can't deliver (no active channel, or a driver this hub doesn't have).
 The map returns `Action`s, never URLs. A reader with `view_pipelinedefinition`
 sees the page. The edit links need `change_pipelinedefinition`.
 
+`/console/routes/<pk>/` edits one route and `/console/routes/new/` adds one (it needs
+`add_pipelinedefinition`). Conditions are rows: field, rule and value, all of which must
+hold. A save carries the version it opened, and `save_route` writes only if the route is
+still at that version, so a route changed in between answers 409 with its fresh values. A
+stored match the rows can't reproduce is kept as it is unless the operator ticks "Replace
+them". A reader with only `view_pipelinedefinition` sees the same form, disabled. Tags stay
+out of the form and show in Details.
+
 #### Fleet policy
 
 `/console/policy/` answers "which machines have I overridden, and is any of it doing

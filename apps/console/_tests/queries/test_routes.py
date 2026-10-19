@@ -39,6 +39,13 @@ def test_no_routes_has_no_summary():
     routes = build_route_list()
     assert routes.cards == ()
     assert routes.summary == ""
+    assert routes.can_add is False
+
+
+def test_an_adder_is_offered_the_new_route_page():
+    routes = build_route_list(can_add=True)
+    assert routes.can_add is True
+    assert routes.add == Action("Add a route", "add_route", {})
 
 
 def test_a_card_carries_the_map_in_words_and_actions():

@@ -10,12 +10,12 @@ Design: docs/plans/2026-08-23-network-map-design.md
 
 from apps.orchestration.describing import REASONS, STAGE_NAMES
 from apps.orchestration.models import PipelineDefinition
-from apps.orchestration.routing import describe_condition
+from apps.orchestration.routing import describe_condition, describe_match
 from apps.orchestration.seeding import SEED_SHAPE_KEY
 from config.describing import Action
 
 UNSHOWN_CONDITION = "A condition the console can't show"
-RECORDS_ONLY = "Records only"
+NO_STAGES = "No downstream stages"
 SEED_NOTE = "Set up without delivery. It delivers once a channel is active."
 STATE_WORDS = {"ok": "", "inactive": "Off", "never-matches": "Never matches"}
 
@@ -147,8 +147,10 @@ def _state_words(state: str, shadowed_by: str | None) -> str:
 
 
 def _conditions(match) -> list[str]:
+    if not match:
+        return [describe_match(match)]
     if not isinstance(match, list):
-        return [UNSHOWN_CONDITION] if match else []
+        return [UNSHOWN_CONDITION]
     return [describe_condition(c) or UNSHOWN_CONDITION for c in match]
 
 
@@ -224,7 +226,7 @@ def get_map_context() -> dict:
                 "shadowed_by": shadows.get(lane.name),
                 "catch_all": not lane.match,
                 "conditions": _conditions(lane.match),
-                "stages": stages or [RECORDS_ONLY],
+                "stages": stages or [NO_STAGES],
                 "delivery": _delivery(lane),
                 "seed_shaped": seed_shaped,
                 "seed_note": SEED_NOTE if seed_shaped else "",

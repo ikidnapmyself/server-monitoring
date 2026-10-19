@@ -106,11 +106,11 @@ def test_a_superuser_gets_the_links(client, superuser, url):
     bound_card = _card(body, bound)
     assert "Delivers to ops" in bound_card
     assert 'href="/admin/notify/notificationchannel/?q=ops">Open ops</a>' in bound_card
-    assert f'href="/console/routes/#route-{bound.pk}">Edit route</a>' in bound_card
+    assert f'href="/console/routes/{bound.pk}/">Edit route</a>' in bound_card
     assert "Set up without delivery. It delivers once a channel is active." in bound_card
     bare_card = _card(body, bare)
     assert "Can&#x27;t deliver: the matched route has no active channel" in bare_card
-    assert f'href="/console/routes/#route-{bare.pk}">Give it an active channel</a>' in bare_card
+    assert f'href="/console/routes/{bare.pk}/">Give it an active channel</a>' in bare_card
 
 
 def test_a_view_only_reader_sees_the_actions_as_text(client, route_viewer, url):
@@ -149,3 +149,35 @@ def test_the_page_carries_nothing_the_csp_blocks(client, superuser, url):
     body = client.get(url).content.decode()
 
     assert not [label for label, rule in FORBIDDEN.items() if rule.search(body)]
+
+
+def test_a_card_labels_its_conditions(client, superuser, url):
+    client.force_login(superuser)
+    lane = _lane("all", 1, match=[])
+
+    card = _card(client.get(url).content.decode(), lane)
+
+    assert '<span class="c-muted">Conditions</span>' in card
+    assert ">Matches<" not in card
+
+
+def test_a_lane_with_no_stages_says_records_only_once(client, superuser, url):
+    client.force_login(superuser)
+    lane = _lane("bare", 1, match=[], stages=[])
+
+    card = _card(client.get(url).content.decode(), lane)
+
+    assert card.count("Records only") == 1
+    assert "No downstream stages" in card
+
+
+def test_a_route_adder_gets_the_add_button(client, superuser, url):
+    client.force_login(superuser)
+
+    body = client.get(url).content.decode()
+
+    assert '<a id="routes-add" class="c-button c-button--sm" href="/console/routes/new/">' in body
+
+
+def test_a_view_only_reader_gets_no_add_button(client, route_viewer, url):
+    assert "Add a route" not in client.get(url).content.decode()

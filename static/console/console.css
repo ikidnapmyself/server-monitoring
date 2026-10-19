@@ -654,7 +654,8 @@ details[open] > .c-entry .c-entry__chevron { transform: rotate(90deg); }
 .c-field { display: grid; gap: var(--space-1); margin-bottom: var(--space-3); }
 .c-field__label { font-weight: 600; }
 .c-field input,
-.c-field select {
+.c-field select,
+.c-field textarea {
   max-width: 24rem;
   padding: 3px 12px;
   border: 1px solid var(--borderColor-default);
@@ -667,6 +668,8 @@ details[open] > .c-entry .c-entry__chevron { transform: rotate(90deg); }
 .c-field select:focus-visible { border-color: var(--focus-outlineColor); outline-offset: -1px; }
 .c-field__help { margin: 0; color: var(--fgColor-muted); font-size: 12px; }
 .c-field__error { margin: 0; }
+.c-condition { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: flex-end; }
+.c-condition .c-field { margin-bottom: var(--space-3); }
 
 .c-stages { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
 .c-stage { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 0 var(--space-2); }
