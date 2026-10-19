@@ -446,6 +446,12 @@ def test_the_list_intents_are_gone():
             "/console/providers/7/",
         ),
         ("add_provider", {}, "intelligence.add_intelligenceprovider", "/console/providers/new/"),
+        (
+            "delete_provider",
+            {"pk": 7},
+            "intelligence.delete_intelligenceprovider",
+            "/console/providers/7/delete/",
+        ),
     ],
 )
 def test_the_provider_intents_point_at_the_provider_pages(
@@ -459,7 +465,6 @@ def test_the_provider_intents_point_at_the_provider_pages(
 
 
 PROVIDER_AND_KEY_INTENTS = [
-    ("delete_provider", {"pk": 7}, "intelligence.delete_intelligenceprovider"),
     ("view_key", {}, "config_app.view_apikey"),
     ("view_key", {"pk": 7}, "config_app.view_apikey"),
     ("view_key", {"pk": 7}, "config_app.change_apikey"),

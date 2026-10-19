@@ -3,6 +3,7 @@ import pytest
 from apps.console.queries.providers import (
     FALLBACK,
     UnknownProvider,
+    build_provider_deletion,
     build_provider_editor,
     build_provider_list,
     provider_choices,
@@ -171,3 +172,39 @@ class TestTurningItOn:
         editor = build_provider_editor(spare.pk, can_change=True)
 
         assert editor.form.fields["is_active"].help_text == ""
+
+
+class TestTheDeletion:
+    def test_a_missing_provider_is_none(self):
+        assert build_provider_deletion(999) is None
+
+    def test_deleting_the_one_in_use_falls_back(self):
+        main = _provider("main", is_active=True)
+
+        deletion = build_provider_deletion(main.pk)
+
+        assert deletion.name == "main"
+        assert deletion.consequence == "Analysis falls back to the built-in local analyzer."
+        assert deletion.url == f"/console/providers/{main.pk}/delete/"
+        assert deletion.back_url == f"/console/providers/{main.pk}/"
+
+    def test_deleting_a_spare_keeps_the_one_in_use(self):
+        _provider("main", is_active=True)
+        spare = _provider("spare", kind="openai")
+
+        assert build_provider_deletion(spare.pk).consequence == "Analysis keeps using main."
+
+    def test_deleting_a_spare_with_none_on_falls_back(self):
+        spare = _provider("spare")
+
+        assert build_provider_deletion(spare.pk).consequence == (
+            "Analysis falls back to the built-in local analyzer."
+        )
+
+    def test_the_editor_offers_it_only_for_an_existing_provider(self):
+        p = _provider("main")
+
+        existing = build_provider_editor(p.pk, can_change=True)
+
+        assert existing.delete == Action("Delete provider", "delete_provider", {"pk": p.pk})
+        assert build_provider_editor(None, kind="claude", can_change=True).delete is None

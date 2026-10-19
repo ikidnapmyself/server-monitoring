@@ -133,7 +133,7 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         ]
         + ["/console/providers/", "/console/providers/new/"]
         + [f"/console/providers/new/?provider={key}" for key in PROVIDER_STORED]
-        + [f"/console/providers/{pk}/" for pk in provider_pks]
+        + [f"/console/providers/{pk}/{page}" for pk in provider_pks for page in ("", "delete/")]
         + [f"/console/nodes/{pk}/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/policy/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/reevaluate/" for pk in world.node_pks]

@@ -13,6 +13,7 @@ from apps.intelligence.saving import FIELDS, active_provider, provider_digest
 from config.describing import Action, Fact
 
 FALLBACK = "No provider is on, so analysis uses the built-in local analyzer."
+FALLS_BACK = "Analysis falls back to the built-in local analyzer."
 
 
 class UnknownProvider(Exception):
@@ -73,6 +74,39 @@ class ProviderEditor:
     back_url: str
     facts: tuple[Fact, ...]
     can_change: bool
+
+    @property
+    def delete(self) -> Action | None:
+        if self.pk is None:
+            return None
+        return Action("Delete provider", "delete_provider", {"pk": self.pk})
+
+
+@dataclass(frozen=True)
+class ProviderDeletion:
+    pk: int
+    name: str
+    consequence: str
+    url: str
+    back_url: str
+
+
+def build_provider_deletion(pk: int) -> ProviderDeletion | None:
+    provider = IntelligenceProvider.objects.filter(pk=pk).first()
+    if provider is None:
+        return None
+    active = active_provider()
+    if provider.is_active or active is None:
+        consequence = FALLS_BACK
+    else:
+        consequence = f"Analysis keeps using {active.name}."
+    return ProviderDeletion(
+        pk=provider.pk,
+        name=provider.name,
+        consequence=consequence,
+        url=reverse("console:provider-delete", args=[provider.pk]),
+        back_url=reverse("console:provider", args=[provider.pk]),
+    )
 
 
 def build_provider_list(*, can_add: bool = False) -> ProviderList:
