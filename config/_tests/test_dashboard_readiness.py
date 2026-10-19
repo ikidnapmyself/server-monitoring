@@ -205,7 +205,7 @@ def test_lane_that_claims_to_deliver_but_cannot_is_an_error():
     entry = _by_key(build_readiness())["lane_channels"]
     assert entry["status"] == "error"
     assert "mute" in entry["detail"]
-    # A fault goes to the routes page, which names the gap per lane — see
+    # A fault goes to the routes page, which names the gap per lane. See
     # test_an_undeliverable_lane_points_at_the_map_which_names_the_gap.
     assert entry["url"] == reverse("console:routes")
 

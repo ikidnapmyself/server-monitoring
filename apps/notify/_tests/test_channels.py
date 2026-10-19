@@ -119,3 +119,7 @@ def test_the_digest_is_keyed_so_the_page_cannot_be_brute_forced(channel):
 
     assert channel_digest(stored) != plain
     assert channel_digest(stored) == channel_digest(dict(stored))
+
+
+def test_the_digest_is_a_sha256_hmac(channel):
+    assert len(channel_digest(row(channel))) == 64

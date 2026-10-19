@@ -163,8 +163,9 @@ pipeline stage and not an alert producer.
   rows, and "Add condition" (`add_condition`) re-renders and saves nothing. A save posts
   the `version` it opened and goes through `save_route`, which refuses a stale one with a
   409 and the fresh route. A stored match the rows can't reproduce (`representable`) is
-  shown as stored and kept unless "Replace them" is ticked. `/console/routes/<pk>/delete/`
-  confirms first and states where the traffic goes, from `routing.fallthrough`.
+  shown as stored and kept unless "Replace them" is ticked. A save lands on the routes list
+  at the route's card. `/console/routes/<pk>/delete/` confirms first and states where the
+  traffic goes, from `routing.fallthrough`.
 - **The channel pages.** `/console/channels/` lists channels with the routes on each,
   and `q` searches names. `/console/channels/new/` picks a driver first, then
   `?driver=<key>` renders that driver's form. `/console/channels/<pk>/delete/` confirms
@@ -175,7 +176,7 @@ pipeline stage and not an alert producer.
   fields were built for. "Show this driver's settings" (`switch_driver`) re-renders and
   saves nothing, and a driver key that's neither registered nor the channel's own is a 400.
   A save posts `digest`, the `channel_digest` of the row it opened, and `save_channel`
-  refuses a stale one with a 409.
+  refuses a stale one with a 409. A save lands on the channel page.
 - **Fleet policy** (`/console/policy/`) renders `build_policy_overview`. Its edit and
   re-evaluate links are intents, so a reader sees none.
 - **A missing record gets a console 404 page** with a link onward, returned with status

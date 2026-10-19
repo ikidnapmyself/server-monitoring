@@ -23,7 +23,7 @@ def channel_digest(row: dict) -> str:
     """
     shown = {field: row[field] for field in FIELDS}
     payload = json.dumps(shown, sort_keys=True, default=str)
-    return salted_hmac("notify.channel", payload).hexdigest()
+    return salted_hmac("notify.channel", payload, algorithm="sha256").hexdigest()
 
 
 def _stored(pk: int) -> list[dict]:
