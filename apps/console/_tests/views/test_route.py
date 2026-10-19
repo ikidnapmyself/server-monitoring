@@ -184,6 +184,8 @@ def test_a_view_only_reader_sees_the_form_disabled(client, route_viewer, route):
     assert body.count(" disabled") >= 5
     assert 'id="route-save"' not in body
     assert 'id="route-add-condition"' not in body
+    assert '<a id="route-cancel" class="c-button" href="/console/routes/#route-' in body
+    assert ">Back to routes</a>\n</form>" in body
 
 
 def test_a_view_only_reader_is_refused_a_save(client, route_viewer, route):
@@ -255,15 +257,17 @@ def test_a_busy_database_is_a_409(client, superuser, route):
     ):
         resp = client.post(_url(route), _data(route, priority="60"))
 
+    body = resp.content.decode()
     assert resp.status_code == 409
-    assert "This route changed since you opened it." in resp.content.decode()
+    assert "Couldn&#x27;t save just now. Here&#x27;s the route as it is." in body
+    assert "changed since you opened it" not in body
 
 
 def test_a_name_taken_in_a_race_is_a_name_error(client, superuser, route):
     client.force_login(superuser)
-    with mock.patch(
-        "apps.console.views.route.save_route", side_effect=IntegrityError("UNIQUE constraint")
-    ):
+    PipelineDefinition.objects.create(name="db", priority=60)
+
+    with mock.patch("apps.orchestration.forms.RouteForm.validate_unique"):
         resp = client.post(_url(route), _data(route, name="db"))
 
     body = resp.content.decode()
@@ -273,14 +277,30 @@ def test_a_name_taken_in_a_race_is_a_name_error(client, superuser, route):
     assert route.name == "web"
 
 
+def test_an_integrity_error_without_a_clashing_name_is_a_stale_save(client, superuser, route):
+    client.force_login(superuser)
+    with mock.patch(
+        "apps.console.views.route.save_route", side_effect=IntegrityError("FOREIGN KEY constraint")
+    ):
+        resp = client.post(_url(route), _data(route, name="db"))
+
+    body = resp.content.decode()
+    assert resp.status_code == 409
+    assert "This route changed since you opened it. Here it is now." in body
+    assert "Another route already has this name." not in body
+
+
 def test_a_name_another_route_has_is_refused(client, superuser, route):
     client.force_login(superuser)
     PipelineDefinition.objects.create(name="db", priority=60)
 
     resp = client.post(_url(route), _data(route, name="db"))
 
+    body = resp.content.decode()
     assert resp.status_code == 200
-    assert "already exists" in resp.content.decode()
+    assert (
+        '<p class="c-field__error c-tone-critical">Another route already has this name.</p>' in body
+    )
     route.refresh_from_db()
     assert route.name == "web"
 
@@ -295,6 +315,9 @@ def test_add_condition_opens_a_row_and_saves_nothing(client, superuser, route):
     assert 'name="cond-1-value"' in body
     assert 'name="cond-TOTAL_FORMS" value="2"' in body
     assert 'name="priority" value="60"' in body
+    assert '<option value="source" selected>Source</option>' in body
+    assert "c-field__error" not in body
+    assert "aria-invalid" not in body
     route.refresh_from_db()
     assert (route.priority, route.version) == (50, 1)
 
@@ -445,10 +468,12 @@ class TestANewRoute:
         assert not PipelineDefinition.objects.exists()
 
     def test_add_condition_saves_nothing(self, client, route_adder):
-        resp = client.post(_url(), _data(add_condition="1"))
+        resp = client.post(_url(), _data(name="", add_condition="1"))
 
+        body = resp.content.decode()
         assert resp.status_code == 200
-        assert 'name="cond-1-value"' in resp.content.decode()
+        assert 'name="cond-1-value"' in body
+        assert "c-field__error" not in body
         assert not PipelineDefinition.objects.exists()
 
     def test_a_name_taken_in_a_race_is_a_name_error(self, client, route_adder):

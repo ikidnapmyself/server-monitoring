@@ -82,7 +82,7 @@ class RouteEditor:
     pk: int | None
     name: str
     form: RouteForm
-    version: int | str
+    version: str
     url: str
     back_url: str
     represented: bool
@@ -132,7 +132,7 @@ def build_route_editor(
             pk=None,
             name="",
             form=form,
-            version=1,
+            version="1",
             url=reverse("console:route-new"),
             back_url=routes,
             represented=True,
@@ -145,7 +145,7 @@ def build_route_editor(
         pk=lane.pk,
         name=lane.name,
         form=form,
-        version=lane.version if version is None else version,
+        version=str(lane.version) if version is None else version,
         url=reverse("console:route", args=[lane.pk]),
         back_url=f"{routes}#route-{lane.pk}",
         represented=represented,

@@ -41,7 +41,7 @@
   <button id="route-save" class="c-button c-button--primary" type="submit">Save route</button>
   <button id="route-add-condition" class="c-button" type="submit" name="add_condition" value="1">Add condition</button>
   {% endif %}
-  <a id="route-cancel" class="c-button" href="{{ editor.back_url }}">Cancel</a>
+  <a id="route-cancel" class="c-button" href="{{ editor.back_url }}">{% if editor.can_change %}Cancel{% else %}Back to routes{% endif %}</a>
 </form>
 {% endwith %}
 {% if editor.facts %}<div class="c-section">{% include "console/partials/_details.html" with facts=editor.facts raw="" id="route-details" %}</div>{% endif %}

@@ -21,6 +21,9 @@ from apps.orchestration.routing import (
 PREFIX = "cond"
 ROUTABLE_STAGES = PipelineDefinition.ROUTABLE_STAGES
 MODEL_FIELDS = ["name", "description", "is_active", "priority", "channel"]
+NAME_TAKEN = "Another route already has this name."
+DEFAULT_PRIORITY = PipelineDefinition._meta.get_field("priority").default
+CATCH_ALL_PRIORITY = 1000
 
 
 class ConditionForm(forms.Form):
@@ -95,12 +98,30 @@ class RouteForm(forms.ModelForm):
         choices=[(stage, STAGE_NAMES[stage]) for stage in ROUTABLE_STAGES],
     )
     channel = ChannelChoiceField(
-        queryset=NotificationChannel.objects.order_by("name"), required=False, label="Channel"
+        queryset=NotificationChannel.objects.order_by("name"),
+        required=False,
+        label="Channel",
+        empty_label="No channel",
     )
 
     class Meta:
         model = PipelineDefinition
         fields = MODEL_FIELDS
+        labels = {"is_active": "On"}
+        help_texts = {
+            "name": "No two routes share a name.",
+            "description": "What this route is for.",
+            "is_active": (
+                "A route that's off matches nothing. Its traffic goes to the next route "
+                "that matches."
+            ),
+            "priority": (
+                "Lower goes first, and the first route that matches wins. A new route "
+                f"starts at {DEFAULT_PRIORITY}, and the seeded catch-all sits at "
+                f"{CATCH_ALL_PRIORITY}, so it only takes what no other route matched."
+            ),
+        }
+        error_messages = {"name": {"unique": NAME_TAKEN}}
 
     def __init__(
         self,
@@ -133,11 +154,22 @@ class RouteForm(forms.ModelForm):
 
     @staticmethod
     def add_condition(data: QueryDict) -> QueryDict:
+        """``data`` with one more condition row, on the first field and rule."""
         bumped = data.copy()
         key = f"{PREFIX}-TOTAL_FORMS"
         count = data.get(key, "")
-        bumped[key] = str((int(count) if count.isdigit() else 0) + 1)
+        index = int(count) if count.isdigit() else 0
+        bumped[key] = str(index + 1)
+        bumped[f"{PREFIX}-{index}-field"] = next(iter(FIELDS))
+        bumped[f"{PREFIX}-{index}-op"] = next(iter(OPS))
         return bumped
+
+    def quiet(self) -> None:
+        """Keep the posted values but show no errors: adding a row isn't a save."""
+        self.errors.clear()
+        for row_errors in self.conditions.errors:
+            row_errors.clear()
+        self.conditions.non_form_errors().clear()
 
     def clean_stages(self) -> list[str]:
         chosen = self.cleaned_data["stages"]

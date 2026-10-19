@@ -7,12 +7,12 @@ from django.urls import reverse
 from apps.console.intents import ROUTE_ADD, ROUTE_CHANGE, ROUTE_READ
 from apps.console.queries.routes import RouteEditor, build_route_editor
 from apps.console.views.base import ConsoleView, Notice
-from apps.orchestration.forms import RouteForm
+from apps.orchestration.forms import NAME_TAKEN, RouteForm
 from apps.orchestration.models import PipelineDefinition
 from apps.orchestration.routing import StaleRoute, save_route
 
 STALE = "This route changed since you opened it. Here it is now."
-NAME_TAKEN = "Another route already has this name."
+BUSY = "Couldn't save just now. Here's the route as it is."
 SAVED = "Route saved."
 ADDED = "Route added."
 
@@ -70,7 +70,10 @@ class RouteView(ConsoleView):
         adding = "add_condition" in request.POST
         data = RouteForm.add_condition(request.POST) if adding else request.POST
         editor = build_route_editor(pk, data, can_change=True, version=version)
-        if adding or editor is None or not editor.form.is_valid():
+        if adding and editor is not None:
+            editor.form.quiet()
+            return self.render_editor(editor)
+        if editor is None or not editor.form.is_valid():
             return self.render_editor(editor)
         if pk is None:
             return self.create(editor)
@@ -98,8 +101,16 @@ class RouteView(ConsoleView):
             with transaction.atomic():
                 save_route(pk, fields, expected=int(version) if version.isdigit() else 0)
         except IntegrityError:
-            return self.name_taken(editor)
-        except (StaleRoute, OperationalError):
-            fresh = build_route_editor(pk, can_change=True)
-            return self.render_editor(fresh, Notice(STALE, "warning"), 409)
+            others = PipelineDefinition.objects.exclude(pk=pk)
+            if others.filter(name=fields["name"]).exists():
+                return self.name_taken(editor)
+            return self.refresh(pk, STALE)
+        except StaleRoute:
+            return self.refresh(pk, STALE)
+        except OperationalError:
+            return self.refresh(pk, BUSY)
         return self.landed(SAVED, pk)
+
+    def refresh(self, pk: int, notice: str):
+        fresh = build_route_editor(pk, can_change=True)
+        return self.render_editor(fresh, Notice(notice, "warning"), 409)

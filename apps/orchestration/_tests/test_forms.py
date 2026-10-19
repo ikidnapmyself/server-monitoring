@@ -262,10 +262,64 @@ def test_add_condition_bumps_the_count():
     assert data["cond-TOTAL_FORMS"] == "2"
 
 
+def test_add_condition_seeds_the_new_row():
+    bumped = RouteForm.add_condition(QueryDict("cond-TOTAL_FORMS=2"))
+    assert (bumped["cond-2-field"], bumped["cond-2-op"]) == ("source", "is")
+
+
 @pytest.mark.parametrize("raw", ["", "abc"])
 def test_add_condition_from_a_missing_or_bad_count(raw):
     query = f"cond-TOTAL_FORMS={raw}" if raw else ""
-    assert RouteForm.add_condition(QueryDict(query))["cond-TOTAL_FORMS"] == "1"
+    bumped = RouteForm.add_condition(QueryDict(query))
+    assert bumped["cond-TOTAL_FORMS"] == "1"
+    assert bumped["cond-0-field"] == "source"
+
+
+@pytest.mark.django_db
+def test_quiet_keeps_the_values_and_drops_the_errors():
+    data = RouteForm.add_condition(_data(name="", conditions=[{"value": ""}]))
+    form = RouteForm(data)
+    form.quiet()
+    assert not form.errors
+    assert not form.conditions.non_form_errors()
+    assert all(not row.errors for row in form.conditions.forms)
+    assert len(form.conditions.forms) == 2
+    assert form["priority"].value() == "50"
+
+
+@pytest.mark.django_db
+def test_a_taken_name_says_so_plainly():
+    _route(name="taken")
+    form = RouteForm(_data(name="taken"))
+    assert not form.is_valid()
+    assert form.errors["name"] == ["Another route already has this name."]
+
+
+@pytest.mark.django_db
+def test_the_route_fields_read_plainly():
+    form = RouteForm()
+    assert form["is_active"].label == "On"
+    assert form.fields["name"].help_text == "No two routes share a name."
+    assert form.fields["description"].help_text == "What this route is for."
+    assert form.fields["is_active"].help_text == (
+        "A route that's off matches nothing. Its traffic goes to the next route that matches."
+    )
+    assert form.fields["priority"].help_text == (
+        "Lower goes first, and the first route that matches wins. A new route starts at 100, "
+        "and the seeded catch-all sits at 1000, so it only takes what no other route matched."
+    )
+    assert form.fields["channel"].empty_label == "No channel"
+    for bound in form:
+        assert "_" not in str(bound.help_text) and "{" not in str(bound.help_text)
+
+
+def test_the_priority_help_names_the_real_numbers():
+    from apps.orchestration import seeding
+    from apps.orchestration.forms import CATCH_ALL_PRIORITY, DEFAULT_PRIORITY
+
+    catch_all = next(lane for lane in seeding._LANES if lane["name"] == "catch-all")
+    assert CATCH_ALL_PRIORITY == catch_all["priority"]
+    assert DEFAULT_PRIORITY == PipelineDefinition().priority
 
 
 @pytest.mark.django_db
