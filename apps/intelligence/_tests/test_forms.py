@@ -129,10 +129,38 @@ def test_switching_kind_drops_the_api_key():
 
 def test_switching_to_ollama_drops_the_api_key_it_does_not_take():
     provider = make("openai", STORED["openai"])
-    form = resubmit(provider, kind="ollama", cfg__host="")
+    form = resubmit(provider, kind="ollama", cfg__host="http://ollama.example.com:11434")
 
     assert form.is_valid(), form.errors
-    assert form.config() == {"model": "gpt-4o", "max_tokens": 2048, "timeout_s": 45}
+    assert form.config() == {
+        "model": "gpt-4o",
+        "max_tokens": 2048,
+        "timeout_s": 45,
+        "host": "http://ollama.example.com:11434",
+    }
+
+
+def test_switching_kind_drops_unused_and_credential_like_keys():
+    stored = dict(
+        STORED["ollama"],
+        api_key=KEY,
+        auth_token="tok-secret-value",
+        password="hunter2-value",
+        max_tokens=300,
+        keep_alive="5m",
+    )
+    form = resubmit(make("ollama", stored), kind="claude")
+
+    assert form.is_valid(), form.errors
+    assert form.config() == {
+        "host": "http://ollama.example.com:11434",
+        "model": "llama3.1",
+        "max_tokens": 300,
+        "keep_alive": "5m",
+    }
+    page = str(form)
+    for secret in ("tok-secret-value", "hunter2-value", KEY):
+        assert secret not in page
 
 
 def test_the_settings_shown_must_match_the_kind_submitted():
@@ -186,6 +214,25 @@ def test_an_unsafe_api_address_is_a_field_error():
 
     assert not form.is_valid()
     assert form.errors["cfg__base_url"] == [UNSAFE_URL]
+
+
+def test_a_blank_host_is_checked_as_the_default_the_provider_will_use():
+    form = resubmit(make("ollama", STORED["ollama"]), cfg__host="")
+
+    assert not form.is_valid()
+    assert form.errors["cfg__host"] == [UNSAFE_URL]
+
+    with override_settings(SSRF_ALLOWED_HOSTS=("localhost",)):
+        form = resubmit(make("ollama", STORED["ollama"], name="other"), cfg__host="")
+        assert form.is_valid(), form.errors
+    assert "host" not in form.config()
+
+
+def test_a_malformed_address_gets_only_its_format_error():
+    form = resubmit(make("grok", STORED["grok"]), cfg__base_url="ftp://proxy.example.com")
+
+    assert not form.is_valid()
+    assert UNSAFE_URL not in form.errors["cfg__base_url"]
 
 
 def test_a_blanked_address_drops_its_key():

@@ -8,6 +8,7 @@ from django.core.exceptions import ValidationError
 
 from apps.intelligence.models import IntelligenceProvider
 from apps.intelligence.providers import PROVIDERS
+from apps.intelligence.providers.base import SENSITIVE_PATTERNS
 from config.config_form import TypedConfigForm, clear_name, field_name
 from config.security.url_validation import URLNotAllowedError, validate_safe_url
 
@@ -22,6 +23,13 @@ LABELS = dict(IntelligenceProvider.PROVIDER_CHOICES)
 
 def provider_class(kind: str):
     return PROVIDERS.get(kind) if kind in LABELS else None
+
+
+def _carries_over(key: str, old_cls) -> bool:
+    secrets = {spec.key for spec in old_cls.all_config_fields() if spec.secret}
+    if key in secrets or key in old_cls.unused_config:
+        return False
+    return not SENSITIVE_PATTERNS & set(key.lower().split("_"))
 
 
 class ProviderForm(TypedConfigForm):
@@ -44,12 +52,7 @@ class ProviderForm(TypedConfigForm):
         base = dict(stored) if isinstance(stored, dict) else {}
         if provider and self.kind != provider.provider:
             old_cls = provider_class(provider.provider)
-            if old_cls is None:
-                base = {}
-            else:
-                for spec in old_cls.all_config_fields():
-                    if spec.secret:
-                        base.pop(spec.key, None)
+            base = {k: v for k, v in base.items() if old_cls and _carries_over(k, old_cls)}
         cls = provider_class(self.kind)
         self.provider_label = LABELS.get(self.kind, UNKNOWN_PROVIDER)
         super().__init__(
@@ -85,8 +88,8 @@ class ProviderForm(TypedConfigForm):
         cleaned = super().clean()
         for spec in self._specs:
             name = field_name(spec.key)
-            value = cleaned.get(name)
-            if spec.kind != "url" or not value:
+            value = cleaned.get(name) or spec.default
+            if spec.kind != "url" or not value or name in self.errors:
                 continue
             try:
                 validate_safe_url(value, allowed_hosts=settings.SSRF_ALLOWED_HOSTS)

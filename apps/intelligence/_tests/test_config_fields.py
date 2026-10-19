@@ -3,6 +3,7 @@
 import inspect
 
 import pytest
+from django.test import override_settings
 
 from apps.intelligence.models import IntelligenceProvider
 from apps.intelligence.providers import PROVIDERS
@@ -149,6 +150,21 @@ def test_openai_compatible_providers_take_an_api_address(kind, default):
     assert by_key["base_url"].default == default
 
 
-def test_openai_honours_the_timeout():
-    provider = PROVIDERS["openai"](api_key="k", timeout_s=7)
-    assert provider.timeout_s == 7
+STORED_SETTINGS = {
+    "api_key": "k",
+    "model": "stored-model",
+    "max_tokens": 111,
+    "timeout_s": 7,
+    "base_url": "https://proxy.example.com/v1",
+    "host": "http://ollama.example.com:11434",
+}
+
+
+@pytest.mark.parametrize("kind", [kind for kind in KINDS if kind in PROVIDERS])
+@override_settings(SSRF_ALLOWED_HOSTS=("proxy.example.com", "ollama.example.com"))
+def test_every_declared_setting_reaches_the_provider(kind):
+    cls = PROVIDERS[kind]
+    config = {spec.key: STORED_SETTINGS[spec.key] for spec in cls.all_config_fields()}
+    provider = cls(**config)
+
+    assert {key: getattr(provider, key) for key in config} == config
