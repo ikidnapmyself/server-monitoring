@@ -90,6 +90,7 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         + ["/console/runs/?status=all", "/console/inbox/", "/console/inbox/?status=processing"]
         + [f"/console/runs/{pk}/" for pk in world.run_pks]
         + ["/console/nodes/", "/console/nodes/?freshness=silent", "/console/policy/"]
+        + ["/console/routes/"]
         + [f"/console/nodes/{pk}/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/policy/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/reevaluate/" for pk in world.node_pks]

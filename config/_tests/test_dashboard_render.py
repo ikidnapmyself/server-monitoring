@@ -21,7 +21,7 @@ def test_dashboard_renders_readiness_and_sections(client):
     assert "readiness-ok" in body  # channel is active -> ok class
     assert "Operations" in body and "Configuration" in body  # grouped nav grid
     assert reverse("admin:alerts_incident_changelist") in body  # a model link in the grid
-    assert reverse("admin:netmap") in body  # readiness heading links to the network map
+    assert reverse("console:routes") in body
     assert reverse("console:policy") in body
     assert "Fleet policy" in body
     assert "<style>" not in body  # the dashboard's styles live in ops.css
@@ -96,7 +96,6 @@ def test_every_skinned_surface_renders(client):
         reverse("admin:alerts_node_changelist"),
         reverse("admin:alerts_node_change", args=[node.pk]),
         reverse("admin:orchestration_pipelinedefinition_add"),
-        reverse("admin:netmap"),
     ]
     for url in urls:
         resp = client.get(url)

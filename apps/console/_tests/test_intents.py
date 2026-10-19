@@ -120,7 +120,6 @@ def test_query_params_are_encoded(admin_user):
 @pytest.mark.parametrize(
     ("intent", "params", "url"),
     [
-        ("edit_route", {}, "/admin/orchestration/pipelinedefinition/"),
         ("edit_provider", {}, "/admin/intelligence/intelligenceprovider/"),
         ("view_preflight", {}, "/admin/checkers/preflightrun/"),
         ("view_check_run", {"pk": 7}, "/admin/checkers/checkrun/7/change/"),
@@ -158,6 +157,35 @@ def test_alert_intents_point_at_the_console(admin_user, intent, params, url):
 def test_run_intents_point_at_the_console(admin_user, intent, url, method):
     resolved = resolve_action(Action("Go", intent=intent, params={"pk": 7}), admin_user)
     assert resolved == ResolvedAction("Go", url, method)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("intent", "params", "url"),
+    [
+        ("view_routes", {}, "/console/routes/"),
+        ("edit_route", {}, "/console/routes/"),
+        ("edit_route", {"pk": 7}, "/console/routes/#route-7"),
+    ],
+)
+def test_route_intents_point_at_the_routes_page(admin_user, intent, params, url):
+    resolved = resolve_action(Action("Go", intent=intent, params=params), admin_user)
+    assert resolved == ResolvedAction("Go", url, "get")
+
+
+@pytest.mark.django_db
+def test_a_route_viewer_can_list_routes_but_not_edit_one(django_user_model):
+    user = _user_with(django_user_model, "orchestration.view_pipelinedefinition")
+
+    assert resolve_action(Action("Go", intent="view_routes"), user).url == "/console/routes/"
+    assert resolve_action(Action("Go", intent="edit_route", params={"pk": 7}), user).url == ""
+
+
+@pytest.mark.django_db
+def test_a_channel_named_by_pk_and_name_opens_its_admin_list(admin_user):
+    action = Action("Open ops", intent="edit_channel", params={"pk": 7, "name": "ops"})
+    resolved = resolve_action(action, admin_user)
+    assert resolved.url == "/admin/notify/notificationchannel/?q=ops"
 
 
 @pytest.mark.django_db
@@ -298,7 +326,7 @@ def _render(user, action):
 @pytest.mark.django_db
 def test_tag_resolves_for_the_request_user(admin_user):
     rendered = _render(admin_user, Action("Fix", intent="edit_route"))
-    assert rendered == "get|/admin/orchestration/pipelinedefinition/"
+    assert rendered == "get|/console/routes/"
 
 
 @pytest.mark.django_db

@@ -118,11 +118,11 @@ def build_readiness():
             "status": l_status,
             "detail": detail,
             # A gap is per-lane and the changelist cannot filter on one, so a fault
-            # goes to the map, which names the gap on each card and links the
-            # channel behind it. With nothing wrong, the lane list is the place to
-            # edit routing.
+            # goes to the console's routes page, which names the gap on each card and
+            # links the channel behind it. With nothing wrong, the lane list is the
+            # place to edit routing.
             "url": (
-                reverse("admin:netmap")
+                reverse("console:routes")
                 if l_status == "error"
                 else reverse("admin:orchestration_pipelinedefinition_changelist")
             ),

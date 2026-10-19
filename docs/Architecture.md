@@ -204,16 +204,18 @@ All apps register their models at `/admin/`:
 | `/admin/notify/` | NotificationChannel |
 | `/admin/orchestration/` | PipelineRun, StageExecution, PipelineDefinition |
 
-#### Network map
+#### Routes
 
-`/admin/map/` (staff-only) renders the routing table as a read-time projection —
-no models, no stored state, just `PipelineDefinition` rows in the exact order
-`resolve_pipeline` consults them. Each lane shows its match conditions, stage list,
-and a state banner: **ok**, **shadowed** (an earlier lane provably matches everything
-this one would, and is named), **inactive**, or **never matches** (malformed match).
-Below that, a delivery line mirrors `delivery_gap()` 1:1: bound to a channel,
-recording only (no `notify` stage), no channel (none configured, or the bound
-channel is inactive), or channel driver not registered.
+`/console/routes/` renders the routing table as a read-time projection
+(`config/netmap.py`). It stores nothing and lists `PipelineDefinition` rows in the
+exact order `resolve_pipeline` consults them, under the console's **System** item.
+Each route shows its conditions in words, its stages, and a state when it takes no
+traffic: **Off**, **Never matches** (a malformed match), or **Never reached** (an
+earlier route provably matches everything this one would, and is named). A delivery
+line mirrors `delivery_gap()` 1:1: delivers to a channel, records only (no `notify`
+stage), or can't deliver (no active channel, or a driver this hub doesn't have).
+The map returns `Action`s, never URLs. A reader with `view_pipelinedefinition`
+sees the page. The edit links need `change_pipelinedefinition`.
 
 #### Fleet policy
 

@@ -16,19 +16,7 @@ def _app_list(user):
 
 
 def _sections(su):
-    # Models only. The non-model pages a section also carries are asserted
-    # separately by _links, so a new link cannot quietly satisfy a model test.
-    return {
-        a["name"]: [m["object_name"] for m in a["models"] if not m.get("is_link")]
-        for a in _app_list(su)
-    }
-
-
-def _links(user):
-    links = {
-        a["name"]: [m["name"] for m in a["models"] if m.get("is_link")] for a in _app_list(user)
-    }
-    return {name: labels for name, labels in links.items() if labels}
+    return {a["name"]: [m["object_name"] for m in a["models"]] for a in _app_list(su)}
 
 
 @pytest.mark.django_db
@@ -90,8 +78,7 @@ def test_sections_respect_permissions_and_hide_empty():
     req = RequestFactory().get("/admin/")
     req.user = user
     sections = {
-        a["name"]: [m["object_name"] for m in a["models"] if not m.get("is_link")]
-        for a in admin.site.get_app_list(req)
+        a["name"]: [m["object_name"] for m in a["models"]] for a in admin.site.get_app_list(req)
     }
     # Only Configuration (with just NotificationChannel) should appear; others hidden.
     assert "Operations" not in sections
@@ -114,41 +101,3 @@ def test_unmapped_models_fall_into_other_section(su, monkeypatch):
     assert "Node" in sections["Other"]
     assert "NotificationChannel" in sections["Other"]
     assert "User" in sections["Other"]
-
-
-@pytest.mark.django_db
-def test_sections_carry_the_pages_that_are_not_changelists(su):
-    links = _links(su)
-    assert links == {"Configuration": ["Network map"]}
-
-
-@pytest.mark.django_db
-def test_a_link_points_at_its_page(su):
-    entry = next(
-        m
-        for a in _app_list(su)
-        for m in a["models"]
-        if m.get("is_link") and m["name"] == "Network map"
-    )
-    assert entry["admin_url"] == "/admin/map/"
-    # Nothing to add on a page that is not a changelist.
-    assert entry["add_url"] is None
-    assert entry["view_only"] is True
-
-
-@pytest.mark.django_db
-def test_a_link_is_hidden_from_a_user_who_cannot_open_it():
-    from django.contrib.auth.models import Permission
-
-    user = get_user_model().objects.create_user("staff2", "s2@b.co", "x", is_staff=True)
-    user.user_permissions.add(Permission.objects.get(codename="view_node"))
-    assert _links(user) == {}
-
-
-@pytest.mark.django_db
-def test_a_link_shows_to_a_user_who_can_open_it():
-    from django.contrib.auth.models import Permission
-
-    user = get_user_model().objects.create_user("staff3", "s3@b.co", "x", is_staff=True)
-    user.user_permissions.add(Permission.objects.get(codename="view_pipelinedefinition"))
-    assert _links(user) == {"Configuration": ["Network map"]}

@@ -1,0 +1,30 @@
+{% load console %}<div id="routes">
+  {% if routes.cards %}
+  <p class="c-muted">{{ routes.summary }}</p>
+  <ol class="c-routes">
+    {% for card in routes.cards %}
+    <li id="{{ card.anchor }}" class="c-box{% if card.muted %} c-box--muted{% endif %}">
+      <div class="c-box__header">
+        <h2 class="c-box__title">{{ card.name }}</h2>
+        {% if card.state_words %}<span class="c-label c-tone-{{ card.tone }}">{{ card.state_words }}</span>{% endif %}
+      </div>
+      <div class="c-box__body">
+        <ul class="c-lines">
+          <li><span class="c-muted">Matches</span><ul class="c-bullets">{% for condition in card.conditions %}<li>{{ condition }}</li>{% endfor %}</ul></li>
+          <li><span class="c-muted">Stages</span><span>{{ card.stages|join:", " }}</span></li>
+          <li><span class="c-muted">Delivery</span><span>{{ card.delivery }}{% resolved card.delivery_action as act %}{% if act %}{% include "console/partials/_action.html" with act=act id=card.anchor|add:"-delivery" %}{% endif %}</span></li>
+        </ul>
+        {% if card.seed_note %}<p class="c-muted">{{ card.seed_note }}</p>{% endif %}
+        {% resolved card.edit as act %}{% include "console/partials/_action.html" with act=act id=card.anchor|add:"-edit" %}
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <div class="c-blankslate">
+    {% include "console/partials/_octicon.html" with name="workflow" %}
+    <h2 class="c-blankslate__heading">No routes.</h2>
+    <p>Until one exists, every incident's run fails as unrouted.</p>
+  </div>
+  {% endif %}
+</div>

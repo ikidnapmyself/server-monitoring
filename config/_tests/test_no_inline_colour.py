@@ -66,7 +66,6 @@ SCANNED = _scanned()
 # of the scan. Every one of these has held a hex at some point in the sweep.
 MUST_BE_SCANNED = {
     "templates/admin/dashboard.html",
-    "templates/admin/map.html",
     "apps/alerts/admin.py",
     "apps/checkers/admin.py",
     "apps/checkers/admin_charts.py",
