@@ -1,0 +1,17 @@
+{% extends "console/base.html" %}
+{% block title %}API key · {{ key.name }} · Console{% endblock %}
+{% block content %}
+{% include "console/partials/_system_nav.html" %}
+<div class="c-pagehead"><div class="c-pagehead__top"><h1 class="c-pagehead__title">API key {{ key.name }} added</h1></div></div>
+<section id="key-token" class="c-box c-form__group">
+  <h2 class="c-box__header c-box__title">Copy this key now. It isn't shown again.</h2>
+  <div class="c-box__body">
+    <div class="c-field">
+      <label class="c-field__label" for="key-token-value">Key</label>
+      <input id="key-token-value" class="c-mono" type="text" value="{{ token }}" readonly autocomplete="off" spellcheck="false">
+      <p class="c-field__help">Nodes send it in the X-API-Key header. This hub keeps only its first characters and a hash.</p>
+    </div>
+  </div>
+</section>
+<a id="key-created-done" class="c-button c-button--primary" href="{{ key_url }}">Go to the key</a>
+{% endblock %}

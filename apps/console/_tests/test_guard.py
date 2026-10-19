@@ -16,6 +16,7 @@ from apps.notify.drivers import DRIVER_REGISTRY
 from apps.notify.models import NotificationChannel
 from apps.orchestration.describing import REASONS
 from config.failures import FAILURE_KINDS
+from config.models import APIKey
 
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-")
 SNAKE = re.compile(r"\b[a-z]+_[a-z_]+\b")
@@ -109,6 +110,10 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         IntelligenceProvider.objects.create(name=f"{kind}-off", provider=kind, config=config).pk
         for kind, config in PROVIDER_STORED.items()
     ]
+    keys = [
+        APIKey.objects.create(name="agent", allowed_endpoints=["/alerts/webhook/"]),
+        APIKey.objects.create(name="retired", is_active=False),
+    ]
     client.force_login(superuser)
     headers = {"HX-Request": "true"} if partial else {}
     alert_pks = list(Alert.objects.values_list("pk", flat=True))
@@ -134,6 +139,8 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         + ["/console/providers/", "/console/providers/new/"]
         + [f"/console/providers/new/?provider={key}" for key in PROVIDER_STORED]
         + [f"/console/providers/{pk}/{page}" for pk in provider_pks for page in ("", "delete/")]
+        + ["/console/keys/", "/console/keys/new/"]
+        + [f"/console/keys/{key.pk}/" for key in keys]
         + [f"/console/nodes/{pk}/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/policy/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/reevaluate/" for pk in world.node_pks]
@@ -148,6 +155,7 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
     secrets = _secret_values()
     assert len(secrets) == 7
     secrets.append(KEY)
+    secrets += [key._raw_key for key in keys] + [key.key for key in keys]
     for url, page in html.items():
         for secret in secrets:
             assert secret not in page, (url, secret)

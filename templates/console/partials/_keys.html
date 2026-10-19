@@ -1,0 +1,22 @@
+{% load console %}<div id="keys" class="c-box">
+  {% if keys.rows %}
+  <ul class="c-box__list">
+    {% for row in keys.rows %}
+    <li id="{{ row.anchor }}" class="c-box__row c-box__row--hover c-row">
+      <span class="c-row__icon c-tone-{{ row.tone }}">{% include "console/partials/_tone_icon.html" with tone=row.tone %}</span>
+      <div class="c-row__main">
+        {% resolved row.edit as act %}{% if act.url %}<a id="{{ row.anchor }}-edit" href="{{ act.url }}">{{ act.text }}</a>{% else %}<strong>{{ act.text }}</strong>{% endif %}
+        {% if row.active %}<span class="c-label c-tone-ok">On</span>{% else %}<span class="c-label c-tone-muted">Off</span>{% endif %}
+        <div class="c-row__meta"><span class="c-mono">{{ row.prefix }}…</span> · {{ row.endpoints }} · {% if row.last_used %}used {% include "console/partials/_time.html" with when=row.last_used %}{% else %}never used{% endif %}</div>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="c-blankslate">
+    {% include "console/partials/_octicon.html" with name="person" %}
+    <h2 class="c-blankslate__heading">No API keys.</h2>
+    <p>Until one exists, nodes and webhooks can't send to this hub.</p>
+  </div>
+  {% endif %}
+</div>

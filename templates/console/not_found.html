@@ -15,6 +15,8 @@
     <p class="c-section"><a id="not-found-back" href="{% url 'console:channels' %}">Back to channels</a></p>
     {% elif section == "providers" %}<p>This provider doesn't exist. It may have been deleted.</p>
     <p class="c-section"><a id="not-found-back" href="{% url 'console:providers' %}">Back to providers</a></p>
+    {% elif section == "keys" %}<p>This API key doesn't exist. It may have been deleted.</p>
+    <p class="c-section"><a id="not-found-back" href="{% url 'console:keys' %}">Back to API keys</a></p>
     {% elif nav == "nodes" %}<p>This node doesn't exist. It may have been deleted.</p>
     <p class="c-section"><a id="not-found-back" href="{% url 'console:nodes' %}">Back to nodes</a></p>
     {% else %}<p>This incident doesn't exist. It may have been deleted.</p>

@@ -464,12 +464,26 @@ def test_the_provider_intents_point_at_the_provider_pages(
     )
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("intent", "params", "permission", "url"),
+    [
+        ("view_key", {}, "config_app.view_apikey", "/console/keys/"),
+        ("view_key", {"pk": 7}, "config_app.view_apikey", "/console/keys/7/"),
+        ("view_key", {"pk": 7}, "config_app.change_apikey", "/console/keys/7/"),
+        ("edit_key", {"pk": 7}, "config_app.change_apikey", "/console/keys/7/"),
+        ("add_key", {}, "config_app.add_apikey", "/console/keys/new/"),
+    ],
+)
+def test_the_key_intents_point_at_the_key_pages(django_user_model, intent, params, permission, url):
+    user = _user_with(django_user_model, permission)
+
+    assert resolve_action(Action("Go", intent=intent, params=params), user) == ResolvedAction(
+        "Go", url, "get"
+    )
+
+
 PROVIDER_AND_KEY_INTENTS = [
-    ("view_key", {}, "config_app.view_apikey"),
-    ("view_key", {"pk": 7}, "config_app.view_apikey"),
-    ("view_key", {"pk": 7}, "config_app.change_apikey"),
-    ("edit_key", {"pk": 7}, "config_app.change_apikey"),
-    ("add_key", {}, "config_app.add_apikey"),
     ("delete_key", {"pk": 7}, "config_app.delete_apikey"),
 ]
 
@@ -545,8 +559,8 @@ SYSTEM_READERS = [
     ("notify.change_notificationchannel", ["Channels"], "/console/channels/"),
     ("intelligence.view_intelligenceprovider", ["Providers"], "/console/providers/"),
     ("intelligence.change_intelligenceprovider", ["Providers"], "/console/providers/"),
-    ("config_app.view_apikey", [], ""),
-    ("config_app.change_apikey", [], ""),
+    ("config_app.view_apikey", ["API keys"], "/console/keys/"),
+    ("config_app.change_apikey", ["API keys"], "/console/keys/"),
     ("intelligence.add_intelligenceprovider", [], ""),
     ("config_app.delete_apikey", [], ""),
 ]
@@ -563,5 +577,5 @@ def test_a_single_permission_reader_gets_only_its_tab(django_user_model, permiss
 
 @pytest.mark.django_db
 def test_a_reader_of_everything_gets_every_tab_in_order(admin_user):
-    assert _tabs(admin_user) == ["Routes", "Channels", "Providers"]
+    assert _tabs(admin_user) == ["Routes", "Channels", "Providers", "API keys"]
     assert _system_item(admin_user) == "/console/routes/"

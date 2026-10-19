@@ -679,6 +679,8 @@ details[open] > .c-entry .c-entry__chevron { transform: rotate(90deg); }
 .c-field input:focus-visible,
 .c-field select:focus-visible { border-color: var(--focus-outlineColor); outline-offset: -1px; }
 .c-field__help { margin: 0; color: var(--fgColor-muted); font-size: 12px; }
+.c-mono { font-family: var(--fontStack-mono); }
+.c-field input.c-mono { width: 100%; max-width: 28rem; box-sizing: border-box; font-family: var(--fontStack-mono); }
 .c-field input[type="checkbox"] { margin: 0; padding: 0; }
 .c-check { display: flex; align-items: center; gap: var(--space-2); }
 .c-check + .c-field__help { padding-left: calc(13px + var(--space-2)); }
