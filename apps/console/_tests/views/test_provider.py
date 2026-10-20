@@ -343,7 +343,7 @@ def test_a_name_taken_in_a_race_is_a_name_error(client, superuser, provider):
     assert provider.name == "main"
 
 
-def test_an_integrity_error_without_a_clashing_name_is_a_stale_save(client, superuser, provider):
+def test_an_integrity_error_without_a_clashing_name_is_a_busy_save(client, superuser, provider):
     client.force_login(superuser)
     with mock.patch(
         "apps.console.views.provider.save_provider", side_effect=IntegrityError("constraint")
@@ -352,7 +352,8 @@ def test_an_integrity_error_without_a_clashing_name_is_a_stale_save(client, supe
 
     body = resp.content.decode()
     assert resp.status_code == 409
-    assert STALE in body
+    assert "Couldn&#x27;t save just now. Here&#x27;s the provider as it is." in body
+    assert STALE not in body
     assert "Another provider already has this name." not in body
     _secrets_absent(body)
 
@@ -556,7 +557,9 @@ class TestANewProvider:
         assert not IntelligenceProvider.objects.exists()
 
     def test_without_add_permission_it_is_refused(self, client, provider_viewer):
-        assert client.get(_url()).status_code == 403
+        resp = client.get(_url())
+        assert resp.status_code == 403
+        assert resp.content.decode() == "Permission to add providers required."
         assert client.get(_url(kind="claude")).status_code == 403
         assert client.post(_url(kind="claude"), _data(name="spare")).status_code == 403
         assert not IntelligenceProvider.objects.exists()

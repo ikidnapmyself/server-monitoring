@@ -160,7 +160,7 @@ def _form(data, provider, kind: str, can_change: bool, carried: dict | None) -> 
         form = ProviderForm(provider=provider, kind=kind, disabled=not can_change)
         form.initial.update(carried)
     active = active_provider()
-    if active and (provider is None or active.pk != provider.pk):
+    if can_change and active and (provider is None or active.pk != provider.pk):
         form.fields["is_active"].help_text = f"Turning this on turns off {active.name}."
     return form
 

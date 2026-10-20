@@ -459,7 +459,9 @@ class TestANewRoute:
         assert 'id="route-details"' not in body
 
     def test_without_add_permission_it_is_refused(self, client, route_viewer):
-        assert client.get(_url()).status_code == 403
+        resp = client.get(_url())
+        assert resp.status_code == 403
+        assert resp.content.decode() == "Permission to add routes required."
         assert client.post(_url(), _data()).status_code == 403
         assert not PipelineDefinition.objects.exists()
 

@@ -166,6 +166,14 @@ class TestTurningItOn:
 
         assert editor.form.fields["is_active"].help_text == ""
 
+    def test_a_reader_who_cant_change_it_gets_no_note(self):
+        _provider("main", is_active=True)
+        spare = _provider("spare", kind="openai")
+
+        editor = build_provider_editor(spare.pk, can_change=False)
+
+        assert editor.form.fields["is_active"].help_text == ""
+
     def test_with_none_on_there_is_no_note(self):
         spare = _provider("spare")
 

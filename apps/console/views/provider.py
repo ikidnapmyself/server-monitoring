@@ -45,7 +45,8 @@ class ProviderView(ConsoleView):
         return reverse("console:provider", args=[self.pk])
 
     def forbidden(self):
-        return HttpResponseForbidden("Permission to change providers required.")
+        verb = "add" if self.pk is None else "change"
+        return HttpResponseForbidden(f"Permission to {verb} providers required.")
 
     def not_found(self):
         context = {"nav": "system", "section": "providers"}
@@ -163,7 +164,7 @@ class ProviderView(ConsoleView):
         except IntegrityError:
             if self.taken_by_another(fields["name"], pk):
                 return self.name_taken(editor)
-            return self.refresh(pk, STALE)
+            return self.refresh(pk, BUSY)
         except StaleProvider:
             return self.refresh(pk, STALE)
         except OperationalError:

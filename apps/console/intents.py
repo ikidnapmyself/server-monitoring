@@ -108,12 +108,6 @@ def _node_reeval(params: dict[str, Any]) -> str:
     return f"{url}?{urlencode({'checker': checker})}" if checker else url
 
 
-def _route(params: dict[str, Any]) -> str:
-    if params.get("pk"):
-        return reverse("console:route", args=[params["pk"]])
-    return reverse("console:routes")
-
-
 def _channel(params: dict[str, Any]) -> str:
     if params.get("pk"):
         return reverse("console:channel", args=[params["pk"]])
@@ -129,6 +123,7 @@ def _record_or_list(record: str, listing: str) -> Callable[[dict[str, Any]], str
     return build
 
 
+_route = _record_or_list("console:route", "console:routes")
 _provider = _record_or_list("console:provider", "console:providers")
 _key = _record_or_list("console:key", "console:keys")
 

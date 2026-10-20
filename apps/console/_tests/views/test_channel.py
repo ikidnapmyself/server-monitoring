@@ -574,7 +574,9 @@ class TestANewChannel:
         assert not NotificationChannel.objects.exists()
 
     def test_without_add_permission_it_is_refused(self, client, channel_viewer):
-        assert client.get(_url()).status_code == 403
+        resp = client.get(_url())
+        assert resp.status_code == 403
+        assert resp.content.decode() == "Permission to add channels required."
         assert client.get(_url(driver="slack")).status_code == 403
         assert client.post(_url(driver="slack"), _data(name="db")).status_code == 403
         assert not NotificationChannel.objects.exists()
@@ -615,14 +617,33 @@ class TestANewChannel:
         assert resp.templates[0].name == "console/channel_new.html"
 
     def test_a_name_taken_in_a_race_is_a_name_error(self, client, channel_adder):
-        with mock.patch(
-            "apps.console.views.channel.NotificationChannel.objects.create",
-            side_effect=IntegrityError("UNIQUE constraint"),
+        NotificationChannel.objects.create(name="db", driver="email")
+        with (
+            mock.patch("apps.notify.forms.ChannelForm.clean_name", lambda self: "db"),
+            mock.patch(
+                "apps.console.views.channel.NotificationChannel.objects.create",
+                side_effect=IntegrityError("UNIQUE constraint"),
+            ),
         ):
             resp = client.post(_url(driver="slack"), _data(name="db", cfg__webhook_url=SLACK_URL))
 
         assert resp.status_code == 200
         assert "Another channel already has this name." in resp.content.decode()
+
+    @pytest.mark.parametrize("error", [IntegrityError("other"), OperationalError("locked")])
+    def test_any_other_failure_is_a_409_that_saves_nothing(self, client, channel_adder, error):
+        with mock.patch(
+            "apps.console.views.channel.NotificationChannel.objects.create", side_effect=error
+        ):
+            resp = client.post(_url(driver="slack"), _data(name="db", cfg__webhook_url=SLACK_URL))
+
+        body = resp.content.decode()
+        assert resp.status_code == 409
+        assert "Couldn&#x27;t add the channel just now. Nothing was saved, so try again." in body
+        assert "Another channel already has this name." not in body
+        assert 'name="name" value="db"' in body
+        _secrets_absent(body)
+        assert not NotificationChannel.objects.exists()
 
     def test_adding_lands_with_a_message(self, client, channel_adder):
         _grant(channel_adder, "change_notificationchannel")
