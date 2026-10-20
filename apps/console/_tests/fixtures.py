@@ -10,11 +10,15 @@ from django.utils import timezone
 from apps.alerts.identity import local_instance_id
 from apps.alerts.models import Alert, AlertHistory, Incident, Node
 from apps.checkers.models import PreflightRun
+from apps.intelligence._tests.test_forms import KEY as PROVIDER_SECRET
+from apps.intelligence._tests.test_forms import STORED as PROVIDER_CONFIGS
+from apps.intelligence.models import IntelligenceProvider
 from apps.notify.models import NotificationChannel
 from apps.orchestration.errors import ROUTING_GAPS, StageExecutionError, routing_gap
 from apps.orchestration.inbox import DEFAULT_STALE_MINUTES, requeue
 from apps.orchestration.models import PipelineDefinition, PipelineRun, StageExecution
 from config.failures import FAILURE_KINDS
+from config.models import APIKey
 
 GAP_DETAILS = {
     "no_route": "nothing in the routing table matched this alert",
@@ -95,6 +99,9 @@ class World:
     policy_node_pk: int
     route_pks: tuple[int, ...]
     channel_pks: tuple[int, ...]
+    provider_pks: tuple[int, ...]
+    key_pks: tuple[int, ...]
+    key_tokens: tuple[str, ...]
 
 
 def _uuid() -> str:
@@ -415,7 +422,7 @@ def _routes() -> None:
 
 
 def _readiness_faults() -> None:
-    """Lanes that can't deliver, no provider, a failed preflight and a silent peer.
+    """Lanes that can't deliver, a failed preflight and a silent peer.
 
     The stuck run comes from the stalled incident. The channel is active, so the lane
     gaps are reported per lane rather than folded into "no active channel".
@@ -428,6 +435,34 @@ def _readiness_faults() -> None:
     PreflightRun.objects.create(passed=5, warnings=1, errors=2, overall_status="error")
     peer = Node.objects.create(instance_id=_uuid(), hostname="web-2")
     Node.objects.filter(pk=peer.pk).update(last_seen=timezone.now() - timedelta(hours=2))
+
+
+def _providers() -> list[IntelligenceProvider]:
+    """One provider per kind, Claude on, and one whose kind this hub doesn't have."""
+    providers = [
+        IntelligenceProvider.objects.create(
+            name=f"{kind}-ai", provider=kind, config=config, is_active=kind == "claude"
+        )
+        for kind, config in PROVIDER_CONFIGS.items()
+    ]
+    providers.append(
+        IntelligenceProvider.objects.create(
+            name="pigeon-ai", provider="carrier_pigeon", config={"api_key": PROVIDER_SECRET}
+        )
+    )
+    return providers
+
+
+def _keys() -> list[APIKey]:
+    """One key off and never used, one limited to endpoints and used."""
+    return [
+        APIKey.objects.create(name="retired", is_active=False),
+        APIKey.objects.create(
+            name="agent",
+            allowed_endpoints=["/alerts/webhook/"],
+            last_used_at=timezone.now() - timedelta(hours=1),
+        ),
+    ]
 
 
 def build_world() -> World:
@@ -451,6 +486,8 @@ def build_world() -> World:
     ]
     _readiness_faults()
     _routes()
+    providers = _providers()
+    keys = _keys()
     return World(
         incident_pks=tuple(i.pk for i in incidents),
         run_pks=tuple(PipelineRun.objects.values_list("pk", flat=True)),
@@ -458,4 +495,7 @@ def build_world() -> World:
         policy_node_pk=Node.objects.get(hostname="cache-1").pk,
         route_pks=tuple(PipelineDefinition.objects.values_list("pk", flat=True)),
         channel_pks=tuple(NotificationChannel.objects.values_list("pk", flat=True)),
+        provider_pks=tuple(p.pk for p in providers),
+        key_pks=tuple(k.pk for k in keys),
+        key_tokens=tuple(k._raw_key for k in keys),
     )

@@ -19,6 +19,7 @@ from apps.notify.models import NotificationChannel
 STALE = "This channel changed since you opened it. Here it is now."
 BUSY = "Couldn't save just now. Here's the channel as it is."
 NO_SUCH_DRIVER = "This hub has no driver by that name. Pick one it has."
+NOT_ADDED = "Couldn't add the channel just now. Nothing was saved, so try again."
 SAVED = "Channel saved."
 ADDED = "Channel added."
 
@@ -44,7 +45,8 @@ class ChannelView(ConsoleView):
         return reverse("console:channel", args=[self.pk])
 
     def forbidden(self):
-        return HttpResponseForbidden("Permission to change channels required.")
+        verb = "add" if self.pk is None else "change"
+        return HttpResponseForbidden(f"Permission to {verb} channels required.")
 
     def not_found(self):
         context = {"nav": "system", "section": "channels"}
@@ -136,13 +138,22 @@ class ChannelView(ConsoleView):
         editor.form.add_error("name", NAME_TAKEN)
         return self.render_editor(editor)
 
+    def taken_by_another(self, name: str, pk: int | None) -> bool:
+        others = NotificationChannel.objects.filter(name=name)
+        return (others if pk is None else others.exclude(pk=pk)).exists()
+
     def create(self, editor: ChannelEditor):
+        fields = editor.form.channel_fields()
         try:
             # A savepoint, so the re-render can still read after a unique-name race.
             with transaction.atomic():
-                channel = NotificationChannel.objects.create(**editor.form.channel_fields())
+                channel = NotificationChannel.objects.create(**fields)
         except IntegrityError:
-            return self.name_taken(editor)
+            if self.taken_by_another(fields["name"], None):
+                return self.name_taken(editor)
+            return self.render_editor(editor, Notice(NOT_ADDED, "warning"), 409)
+        except OperationalError:
+            return self.render_editor(editor, Notice(NOT_ADDED, "warning"), 409)
         return self.landed(ADDED, channel.pk)
 
     def update(self, editor: ChannelEditor, pk: int, digest: str):
@@ -151,8 +162,7 @@ class ChannelView(ConsoleView):
             with transaction.atomic():
                 save_channel(pk, fields, expected=digest)
         except IntegrityError:
-            others = NotificationChannel.objects.exclude(pk=pk)
-            if others.filter(name=fields["name"]).exists():
+            if self.taken_by_another(fields["name"], pk):
                 return self.name_taken(editor)
             return self.refresh(pk, STALE)
         except StaleChannel:

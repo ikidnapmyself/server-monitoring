@@ -33,6 +33,8 @@ was invented, so the describer hides it.
   - `__init__.py` — `PROVIDERS` registry, `get_provider()`, `get_active_provider()`
 - `apps/intelligence/describing.py` — `describe_analysis`, an analyze snapshot in words
 - `apps/intelligence/models.py` — `IntelligenceProvider` (DB-driven config), `AnalysisRun`
+- `apps/intelligence/forms.py`: `ProviderForm`, the console's provider editor
+- `apps/intelligence/saving.py`: `save_provider`, `provider_digest`, `StaleProvider`, `active_provider`
 - `apps/intelligence/management/commands/` — `get_recommendations`
 - `apps/intelligence/urls.py` — URL routing
 
@@ -45,6 +47,26 @@ was invented, so the describer hides it.
 - **Config**: Provider credentials stored in `IntelligenceProvider.config` JSONField
 - **Single active**: Only one provider can be `is_active=True` at a time (enforced by model + UniqueConstraint)
 
+## Provider settings
+
+**A provider declares every setting it reads.** Each provider lists its `ConfigField`s
+(`config/config_fields.py`) in `config_fields`, and `unused_config` names keys it accepts
+but ignores, such as Ollama's `api_key`. `_tests/test_config_fields.py` is the guard: it
+reads each provider's `__init__` through the MRO and fails on an undeclared parameter, a
+declared key that is no parameter, a credential not marked `secret=True`, or a default the
+provider doesn't use.
+
+**`ProviderForm` builds the console form from those declarations.** Secrets are
+write-only: the input renders empty, a blank submit keeps the stored value and Clear
+removes it. Switching kind drops the old kind's secrets and unused keys. Undeclared keys
+are kept and named in Details. A URL setting is checked with `validate_safe_url`, so a
+localhost Ollama host needs `localhost` in `SSRF_ALLOWED_HOSTS`.
+
+**`save_provider` is a conditional update.** It refuses a row whose `provider_digest`
+changed since the editor opened (`StaleProvider`). It skips `IntelligenceProvider.save()`,
+so it turns the other providers off itself, in the same transaction. A create goes through
+`.save()`, which does the same.
+
 ## Boundary rules
 
 - **Do not** dispatch notifications or advance stages directly.
@@ -55,7 +77,9 @@ was invented, so the describer hides it.
 
 ## Django Admin expectations
 
-Each app must provide an **extensive** `admin.py` so operators can manage its models and trace pipeline behavior.
+Operators add, edit and delete providers in the console (`/console/providers/`).
+`IntelligenceProviderAdmin` is stock and read-only and excludes `config`, so no stored
+secret renders there.
 
 For `apps.intelligence`, admin should make it easy to:
 - Inspect intelligence outputs for pipeline runs (typically via `apps.orchestration.StageExecution` with `stage="analyze"`)

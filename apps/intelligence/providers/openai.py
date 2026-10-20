@@ -36,6 +36,7 @@ class OpenAIRecommendationProvider(BaseAIProvider):
             api_key=api_key or "",
             model=model or "",
             max_tokens=max_tokens or 0,
+            **kwargs,
         )
         if not api_key:
             self.api_key = None  # type: ignore[assignment]

@@ -1,47 +1,26 @@
 """Saving a channel from the console, and the lanes a delete would cut."""
 
-import json
-
-from django.utils import timezone
-from django.utils.crypto import salted_hmac
-
 from apps.notify.models import NotificationChannel
 from apps.orchestration.models import PipelineDefinition
+from config.stale import Stale, row_digest, save_if_unchanged
 
 FIELDS = ("name", "driver", "is_active", "description", "config")
+SALT = "notify.channel"
 
 
-class StaleChannel(Exception):
+class StaleChannel(Stale):
     """The channel changed between the editor's render and its save."""
 
 
 def channel_digest(row: dict) -> str:
-    """The channel an editor was rendered from, as one value its form carries back.
-
-    Keyed on the secret key: the config holds credentials, and a plain hash on the page
-    would let anyone try passwords against it.
-    """
-    shown = {field: row[field] for field in FIELDS}
-    payload = json.dumps(shown, sort_keys=True, default=str)
-    return salted_hmac("notify.channel", payload, algorithm="sha256").hexdigest()
-
-
-def _stored(pk: int) -> list[dict]:
-    return list(NotificationChannel.objects.filter(pk=pk).values(*FIELDS))
+    return row_digest(SALT, row, FIELDS)
 
 
 def save_channel(pk: int, values: dict, *, expected: str) -> None:
-    """Write ``values`` iff the stored row still hashes to ``expected``."""
-    stored = _stored(pk)
-    if not stored or channel_digest(stored[0]) != expected:
-        raise StaleChannel
-    # SQLite ignores row locks. Matching the row just read means a save that landed in
-    # between wins, and this update matches no row.
-    updated = NotificationChannel.objects.filter(pk=pk, **stored[0]).update(
-        **values, updated_at=timezone.now()
-    )
-    if not updated:
-        raise StaleChannel
+    try:
+        save_if_unchanged(NotificationChannel, pk, FIELDS, values, salt=SALT, expected=expected)
+    except Stale as exc:
+        raise StaleChannel from exc
 
 
 def lanes_cut_by_delete(channel: NotificationChannel) -> list[PipelineDefinition]:

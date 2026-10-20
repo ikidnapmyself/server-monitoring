@@ -1,0 +1,7 @@
+{% extends "console/base.html" %}
+{% block title %}{% if editor.pk %}API key · {{ editor.name }}{% else %}New API key{% endif %} · Console{% endblock %}
+{% block content %}
+{% include "console/partials/_system_nav.html" %}
+{% include "console/partials/_messages.html" %}
+{% include "console/partials/_key.html" %}
+{% endblock %}

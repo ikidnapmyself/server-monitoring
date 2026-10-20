@@ -7,8 +7,9 @@ from django import forms
 
 from apps.notify.config_fields import ConfigField
 from apps.notify.drivers import DRIVER_REGISTRY, GenericNotifyDriver
-from apps.notify.forms import ALIAS_HELP, UNKNOWN_DRIVER, ChannelForm
+from apps.notify.forms import UNKNOWN_DRIVER, ChannelForm
 from apps.notify.models import NotificationChannel
+from config.config_form import ALIAS_HELP
 
 pytestmark = pytest.mark.django_db
 

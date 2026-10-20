@@ -8,11 +8,14 @@ import pytest
 
 from apps.alerts.models import Alert
 from apps.console._tests.fixtures import OPS_SLACK_WEBHOOK, build_world
+from apps.intelligence._tests.test_forms import KEY
+from apps.intelligence.models import IntelligenceProvider
 from apps.notify._tests.test_forms import SECRETS, STORED
 from apps.notify.drivers import DRIVER_REGISTRY
 from apps.notify.models import NotificationChannel
 from apps.orchestration.describing import REASONS
 from config.failures import FAILURE_KINDS
+from config.models import APIKey
 
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-")
 SNAKE = re.compile(r"\b[a-z]+_[a-z_]+\b")
@@ -124,6 +127,18 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
             for pk in (*world.channel_pks, *channel_pks)
             for page in ("", "delete/")
         ]
+        + ["/console/providers/", "/console/providers/new/"]
+        + [
+            f"/console/providers/new/?provider={key}"
+            for key, _ in IntelligenceProvider.PROVIDER_CHOICES
+        ]
+        + [
+            f"/console/providers/{pk}/{page}"
+            for pk in world.provider_pks
+            for page in ("", "delete/")
+        ]
+        + ["/console/keys/", "/console/keys/new/"]
+        + [f"/console/keys/{pk}/{page}" for pk in world.key_pks for page in ("", "delete/")]
         + [f"/console/nodes/{pk}/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/policy/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/reevaluate/" for pk in world.node_pks]
@@ -137,6 +152,9 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         _assert_no_leak(url, text)
     secrets = _secret_values()
     assert len(secrets) == 7
+    secrets.append(KEY)
+    secrets += list(world.key_tokens)
+    secrets += list(APIKey.objects.filter(pk__in=world.key_pks).values_list("key", flat=True))
     for url, page in html.items():
         for secret in secrets:
             assert secret not in page, (url, secret)
@@ -145,7 +163,6 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
     for fault in (
         "Route pager can't deliver: the channel uses a driver this hub doesn't have",
         "Route escalation can't deliver: the matched route has no active channel",
-        "No AI provider is active",
         "Preflight found 2 errors",
         "1 run is stuck",
         "No node reported in the last 15 minutes",
@@ -192,10 +209,30 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "A driver this hub doesn't have",
         "Set. Leave blank to keep it.",
         "These routes will stop delivering",
+        "Analysis uses claude-ai.",
+        "Turning this on turns off claude-ai.",
+        "All endpoints",
+        "never used",
+        "A provider this hub doesn't have",
+        "Analysis falls back to the built-in local analyzer.",
+        "Analysis keeps using claude-ai.",
+        "Anything still sending this key gets refused.",
     ):
         assert shown in everything, shown
     # The templates group is a Details disclosure, so its summary is not visible text.
     assert any("Message templates" in page for page in html.values())
+
+
+@pytest.mark.django_db
+def test_overview_without_a_provider_leaks_nothing(client, superuser):
+    build_world()
+    IntelligenceProvider.objects.update(is_active=False)
+    client.force_login(superuser)
+
+    text = visible(_get(client, "/console/", {}))
+
+    _assert_no_leak("/console/", text)
+    assert "No AI provider is active" in text
 
 
 @pytest.mark.django_db

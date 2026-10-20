@@ -505,7 +505,7 @@ errors.
 
 ### Intelligence providers
 
-Providers are configured via `manage.py setup_intelligence` or Django Admin (`IntelligenceProvider` model). API keys are stored in the DB, not environment variables.
+Providers are configured via `manage.py setup_intelligence` or the console at `/console/providers/`. API keys are stored in the DB, not environment variables. The Django admin lists providers read-only.
 
 | Provider | Notes |
 |---|---|

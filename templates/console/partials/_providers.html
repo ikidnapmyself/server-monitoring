@@ -1,0 +1,24 @@
+{% load console %}<div id="providers" class="c-box">
+  <div class="c-box__header"><h2 id="providers-uses" class="c-box__title">{{ providers.headline }}</h2></div>
+  {% if providers.rows %}
+  <ul class="c-box__list">
+    {% for row in providers.rows %}
+    <li id="{{ row.anchor }}" class="c-box__row c-box__row--hover c-row">
+      <span class="c-row__icon c-tone-{{ row.tone }}">{% include "console/partials/_tone_icon.html" with tone=row.tone %}</span>
+      <div class="c-row__main">
+        {% resolved row.edit as act %}{% if act.url %}<a id="{{ row.anchor }}-edit" href="{{ act.url }}">{{ act.text }}</a>{% else %}<strong>{{ act.text }}</strong>{% endif %}
+        <span class="c-label">{{ row.kind_label }}</span>
+        {% if row.active %}<span class="c-label c-tone-ok">In use</span>{% else %}<span class="c-label c-tone-muted">Off</span>{% endif %}
+        {% if row.description %}<div class="c-row__meta">{{ row.description }}</div>{% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="c-blankslate">
+    {% include "console/partials/_octicon.html" with name="pulse" %}
+    <h2 class="c-blankslate__heading">No providers.</h2>
+    <p>Add one to have an AI model analyze incidents.</p>
+  </div>
+  {% endif %}
+</div>

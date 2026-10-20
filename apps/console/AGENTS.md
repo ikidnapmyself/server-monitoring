@@ -149,13 +149,14 @@ pipeline stage and not an alert producer.
   registered nor on an open alert of the node gets the fixed title "Re-evaluate one
   checker's alerts on <node>", so a typed name never reaches the page. On both pages, an
   apply whose fresh report has no changes writes nothing and answers 409 with the preview.
-- **System holds routes and channels.** The header's System item opens `/console/routes/`
-  for a route reader, else `/console/channels/` for a channel reader, and is hidden for a
-  user who reads neither. `partials/_system_nav.html` switches between Routes and
-  Channels and shows each tab only to its readers. The lists, the editors and the delete
-  pages read with the admin's view or change permission (`ROUTE_READ` and
-  `CHANNEL_READ` in `intents.py`). Add, change and delete each need their own permission,
-  and a reader sees the editor disabled. Both admins are stock and read-only.
+- **System holds routes, channels, providers and API keys.** The header's System item
+  (`partials/_system_item.html`) opens the first of `/console/routes/`, `/console/channels/`,
+  `/console/providers/` and `/console/keys/` the user can read, and is hidden for a user who
+  reads none. `partials/_system_nav.html` shows each tab only to its readers. The lists, the
+  editors and the delete pages read with the admin's view or change permission
+  (`ROUTE_READ`, `CHANNEL_READ`, `PROVIDER_READ` and `KEY_READ` in `intents.py`). Add,
+  change and delete each need their own permission, a 403 names the one missing, and a
+  reader sees the editor disabled. All four admins are stock and read-only.
 - **The route pages.** `/console/routes/` lists every route in match order through
   `build_route_list`, which reads `config.netmap.get_map_context()`, so each card says
   when a route is off, never matches or is never reached, and whether it can deliver.
@@ -177,6 +178,21 @@ pipeline stage and not an alert producer.
   saves nothing, and a driver key that's neither registered nor the channel's own is a 400.
   A save posts `digest`, the `channel_digest` of the row it opened, and `save_channel`
   refuses a stale one with a 409. A save lands on the channel page.
+- **The provider pages mirror the channel pages.** `/console/providers/` lists the
+  provider in use first, and its header says which one analysis uses, or that the built-in
+  local analyzer does. `/console/providers/new/` picks a kind from
+  `IntelligenceProvider.PROVIDER_CHOICES`, then `?provider=<key>` renders `ProviderForm`.
+  `local` is the fallback, never a row, so it isn't offered. Secrets render empty, "Show
+  this provider's settings" (`switch_provider`) saves nothing, an unknown kind is a 400,
+  and `save_provider` refuses a stale `digest` with a 409. When another provider is on, a
+  changer sees "Turning this on turns off <name>." under Active. `/console/providers/<pk>/delete/`
+  says what analysis falls back to.
+- **An API key's token is shown once.** `/console/keys/` lists keys by name with the
+  prefix, the endpoints and the last use. `/console/keys/new/` validates `APIKeyForm` and
+  renders `key_created.html` with the raw token, status 200 and `Cache-Control: no-store`.
+  The token never goes to `messages`, and re-posting the form makes a second key. The
+  editor saves through `save_key` with a 409 when stale. `/console/keys/<pk>/delete/` says
+  that anything still sending the key gets refused, and when it was last used.
 - **Fleet policy** (`/console/policy/`) renders `build_policy_overview`. Its edit and
   re-evaluate links are intents, so a reader sees none.
 - **A missing record gets a console 404 page** with a link onward, returned with status
@@ -194,10 +210,12 @@ pipeline stage and not an alert producer.
 - **`intents.py` is the only place that builds an admin URL.** `INTENTS` maps each
   `Action.intent` to a URL builder, a method and a permission. `resolve_action` turns an
   `Action` into a link, a POST button, or plain text when the intent is unknown, the user
-  lacks its permission or the URL can't be built. Config intents such as `edit_provider`
+  lacks its permission or the URL can't be built. Config intents such as `view_preflight`
   point at the admin until their domain gets a console page, and then only their entry
-  here changes. Routes and channels have theirs: `view_route`, `edit_route`, `add_route`,
-  `delete_route`, `view_channel`, `edit_channel`, `add_channel` and `delete_channel`. A
+  here changes. Routes, channels, providers and keys have theirs: `view_route`,
+  `edit_route`, `add_route`, `delete_route`, `view_channel`, `edit_channel`,
+  `add_channel`, `delete_channel`, `view_provider`, `edit_provider`, `add_provider`,
+  `delete_provider`, `view_key`, `edit_key`, `add_key` and `delete_key`. A
   `view_*` intent opens the page, or the list when it has no `pk`, for anyone who can read
   it. A name link uses it. An `edit_*` intent opens the same page but needs the change
   permission, so a remedy such as "Give it an active channel" is plain text to a reader.

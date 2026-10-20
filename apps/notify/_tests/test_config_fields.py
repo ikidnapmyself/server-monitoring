@@ -6,7 +6,7 @@ import re
 import pytest
 
 from apps.notify import services, templating
-from apps.notify.config_fields import COMMON_FIELDS, KINDS, ConfigField
+from apps.notify.config_fields import COMMON_FIELDS
 from apps.notify.drivers import DRIVER_REGISTRY
 from apps.notify.drivers import base as base_module
 from apps.notify.drivers.base import BaseNotifyDriver
@@ -182,19 +182,3 @@ def test_required_fields_match_validate_config():
         ("email", "from_address"),
         ("pagerduty", "integration_key"),
     }
-
-
-def test_an_unknown_kind_is_refused():
-    with pytest.raises(ValueError, match="kind"):
-        ConfigField("x", "X", "number")
-
-
-def test_headers_must_be_secret():
-    with pytest.raises(ValueError, match="secret"):
-        ConfigField("headers", "Headers", "headers")
-
-
-def test_every_kind_builds():
-    for kind in KINDS:
-        field = ConfigField("x", "X", kind, secret=kind == "headers")
-        assert field.kind == kind

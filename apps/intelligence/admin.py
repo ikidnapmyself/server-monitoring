@@ -11,34 +11,19 @@ from config.dashboard import prettify_json
 
 @admin.register(IntelligenceProvider)
 class IntelligenceProviderAdmin(admin.ModelAdmin):
-    """Admin for IntelligenceProvider model."""
+    """Read-only. Operators edit providers in the console."""
 
     list_display = ["name", "provider", "is_active", "updated_at"]
-    list_filter = ["provider", "is_active"]
-    search_fields = ["name", "description"]
-    readonly_fields = ["created_at", "updated_at"]
-    formfield_overrides = {db_models.JSONField: {"widget": JSONEditorWidget}}
-    fieldsets = [
-        (
-            "General",
-            {
-                "fields": ["name", "provider", "is_active", "description"],
-            },
-        ),
-        (
-            "Configuration",
-            {
-                "fields": ["config"],
-                "classes": ["collapse"],
-            },
-        ),
-        (
-            "Timestamps",
-            {
-                "fields": ["created_at", "updated_at"],
-            },
-        ),
-    ]
+    exclude = ["config"]
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(AnalysisRun)

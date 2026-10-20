@@ -133,9 +133,9 @@ def build_readiness():
             "detail": (
                 "Active provider set"
                 if p_active
-                else "No active provider — analysis falls back to 'no AI'"
+                else "No active provider, so analysis uses the built-in local analyzer"
             ),
-            "url": reverse("admin:intelligence_intelligenceprovider_changelist"),
+            "url": reverse("console:providers"),
             "gaps": [],
             "counts": {"active": p_active},
         }
@@ -283,7 +283,7 @@ def _provider(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Descri
     return [
         _keyed(
             entry,
-            "No AI provider is active, analysis is skipped",
+            "No AI provider is active, so analysis uses the built-in local analyzer",
             tone,
             action=Action("Activate an AI provider", intent="edit_provider"),
         )

@@ -38,7 +38,8 @@ class RouteView(ConsoleView):
         return reverse("console:route", args=[self.pk])
 
     def forbidden(self):
-        return HttpResponseForbidden("Permission to change routes required.")
+        verb = "add" if self.pk is None else "change"
+        return HttpResponseForbidden(f"Permission to {verb} routes required.")
 
     def not_found(self):
         context = {"nav": "system", "section": "routes"}
