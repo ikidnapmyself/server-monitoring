@@ -200,11 +200,12 @@ All apps register their models at `/admin/`:
 |------------|--------|
 | `/admin/alerts/` | Alert, Incident, AlertHistory, Node |
 | `/admin/checkers/` | CheckRun |
-| `/admin/intelligence/` | AnalysisRun |
+| `/admin/intelligence/` | AnalysisRun, IntelligenceProvider, read-only. Manage providers at `/console/providers/` |
 | `/admin/notify/` | NotificationChannel, read-only. Manage it at `/console/channels/` |
 | `/admin/orchestration/` | PipelineRun, StageExecution, PipelineDefinition, read-only. Manage routes at `/console/routes/` |
+| `/admin/config_app/` | APIKey, read-only. Manage keys at `/console/keys/` |
 
-The run, stage, inbox, route and channel admins are stock and read-only. Their pages
+The run, stage, inbox, route, channel, provider and API key admins are stock and read-only. Their pages
 live in the console.
 
 #### Routes

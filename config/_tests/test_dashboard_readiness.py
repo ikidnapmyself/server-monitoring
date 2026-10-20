@@ -662,7 +662,9 @@ def test_no_provider_says_analysis_is_skipped():
     clear_lanes()
 
     (found,) = _described()
-    assert found.headline == "No AI provider is active, analysis is skipped"
+    assert (
+        found.headline == "No AI provider is active, so analysis uses the built-in local analyzer"
+    )
     assert found.tone == "critical"
     assert found.action.intent == "edit_provider"
 

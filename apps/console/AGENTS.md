@@ -185,7 +185,7 @@ pipeline stage and not an alert producer.
   `local` is the fallback, never a row, so it isn't offered. Secrets render empty, "Show
   this provider's settings" (`switch_provider`) saves nothing, an unknown kind is a 400,
   and `save_provider` refuses a stale `digest` with a 409. When another provider is on, a
-  changer sees "Turning this on turns off <name>." under On. `/console/providers/<pk>/delete/`
+  changer sees "Turning this on turns off <name>." under Active. `/console/providers/<pk>/delete/`
   says what analysis falls back to.
 - **An API key's token is shown once.** `/console/keys/` lists keys by name with the
   prefix, the endpoints and the last use. `/console/keys/new/` validates `APIKeyForm` and
