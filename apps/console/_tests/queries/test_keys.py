@@ -48,6 +48,13 @@ def test_the_list_carries_the_add_action():
     assert build_key_list().can_add is False
 
 
+@pytest.mark.parametrize("enabled", [True, False])
+def test_the_list_says_whether_key_checks_are_on(settings, enabled):
+    settings.API_KEY_AUTH_ENABLED = enabled
+
+    assert build_key_list().checks_on is enabled
+
+
 class TestTheEditor:
     def test_a_missing_key_is_none(self):
         assert build_key_editor(999, can_change=True) is None

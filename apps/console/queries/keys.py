@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 
+from django.conf import settings
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
@@ -34,6 +35,7 @@ class KeyRow:
 @dataclass(frozen=True)
 class KeyList:
     rows: tuple[KeyRow, ...]
+    checks_on: bool
     can_add: bool = False
 
     @property
@@ -94,7 +96,7 @@ def build_key_list(*, can_add: bool = False) -> KeyList:
         )
         for key in APIKey.objects.order_by("name", "pk")
     )
-    return KeyList(rows=rows, can_add=can_add)
+    return KeyList(rows=rows, checks_on=settings.API_KEY_AUTH_ENABLED, can_add=can_add)
 
 
 def _when(moment) -> str:

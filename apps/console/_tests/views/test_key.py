@@ -254,6 +254,12 @@ class TestANewKey:
         assert f'value="{token}" readonly' in body
         assert "Copy this key now. It isn't shown again." in body
         assert (
+            '<p class="c-field__help">Set it as HUB_API_KEY on each node that pushes here. '
+            "Webhooks send it as Authorization: Bearer or in the X-API-Key header.</p>"
+        ) in body
+        assert "Nodes send it in the X-API-Key header" not in body
+        assert "console/partials/_messages.html" in [t.name for t in resp.templates]
+        assert (
             f'<a id="key-created-done" class="c-button c-button--primary" href="/console/keys/{key.pk}/">'
             in body
         )

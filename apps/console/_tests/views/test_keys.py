@@ -4,6 +4,7 @@ from unittest import mock
 
 import pytest
 from django.contrib.auth.models import Permission
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -71,12 +72,25 @@ def test_keys_render_by_name_with_state_prefix_endpoints_and_use(client, superus
     assert not [label for label, rule in FORBIDDEN.items() if rule.search(body)]
 
 
-def test_no_keys_says_what_that_means(client, superuser, url):
+def test_no_keys_says_nothing_can_send(client, superuser, url):
     client.force_login(superuser)
 
     body = client.get(url).content.decode()
 
     assert "No API keys." in body
+    assert "Until one exists, nodes and webhooks can&#x27;t send to this hub." not in body
+    assert "Until one exists, nodes and webhooks can't send to this hub." in body
+
+
+@override_settings(API_KEY_AUTH_ENABLED=False)
+def test_no_keys_with_checks_off_says_anything_can_send(client, superuser, url):
+    client.force_login(superuser)
+
+    body = client.get(url).content.decode()
+
+    assert "No API keys." in body
+    assert "Key checks are off, so anything can send to this hub." in body
+    assert "can't send to this hub" not in body
 
 
 def test_a_viewer_gets_links_but_no_add(client, key_viewer, url):
