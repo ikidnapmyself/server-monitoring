@@ -3,7 +3,7 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from apps.console.queries.keys import build_key_editor, build_key_list
+from apps.console.queries.keys import build_key_deletion, build_key_editor, build_key_list
 from config.api_keys import KEY_FIELDS, key_digest
 from config.describing import Action
 from config.models import APIKey
@@ -83,3 +83,26 @@ class TestTheEditor:
         assert editor.url == "/console/keys/new/"
         assert editor.back_url == "/console/keys/"
         assert not editor.form.fields["name"].disabled
+
+
+class TestTheDeletion:
+    def test_a_missing_key_is_none(self):
+        assert build_key_deletion(999) is None
+
+    def test_it_names_the_key_and_its_last_use(self):
+        used = timezone.now()
+        key = _key("hub", last_used_at=used)
+
+        deletion = build_key_deletion(key.pk)
+
+        assert (deletion.name, deletion.last_used) == ("hub", used)
+        assert deletion.url == f"/console/keys/{key.pk}/delete/"
+        assert deletion.back_url == f"/console/keys/{key.pk}/"
+
+    def test_the_editor_offers_it_only_for_an_existing_key(self):
+        key = _key("hub")
+
+        assert build_key_editor(key.pk, can_change=True).delete == Action(
+            "Delete key", "delete_key", {"pk": key.pk}
+        )
+        assert build_key_editor(None, can_change=True).delete is None

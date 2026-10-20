@@ -10,6 +10,7 @@ from apps.console.views.incident_action import IncidentActionView
 from apps.console.views.incident_rerun import IncidentRerunView
 from apps.console.views.incidents import IncidentListView
 from apps.console.views.key import KeyView
+from apps.console.views.key_delete import KeyDeleteView
 from apps.console.views.keys import KeysView
 from apps.console.views.node import NodeDetailView
 from apps.console.views.node_policy import NodePolicyView
@@ -39,6 +40,7 @@ __all__ = [
     "IncidentDetailView",
     "IncidentListView",
     "IncidentRerunView",
+    "KeyDeleteView",
     "KeyView",
     "KeysView",
     "NodeDetailView",

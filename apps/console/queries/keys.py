@@ -52,6 +52,34 @@ class KeyEditor:
     facts: tuple[Fact, ...]
     can_change: bool
 
+    @property
+    def delete(self) -> Action | None:
+        if self.pk is None:
+            return None
+        return Action("Delete key", "delete_key", {"pk": self.pk})
+
+
+@dataclass(frozen=True)
+class KeyDeletion:
+    pk: int
+    name: str
+    last_used: datetime | None
+    url: str
+    back_url: str
+
+
+def build_key_deletion(pk: int) -> KeyDeletion | None:
+    key = APIKey.objects.filter(pk=pk).first()
+    if key is None:
+        return None
+    return KeyDeletion(
+        pk=key.pk,
+        name=key.name,
+        last_used=key.last_used_at,
+        url=reverse("console:key-delete", args=[key.pk]),
+        back_url=reverse("console:key", args=[key.pk]),
+    )
+
 
 def build_key_list(*, can_add: bool = False) -> KeyList:
     rows = tuple(

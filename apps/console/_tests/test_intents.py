@@ -473,6 +473,7 @@ def test_the_provider_intents_point_at_the_provider_pages(
         ("view_key", {"pk": 7}, "config_app.change_apikey", "/console/keys/7/"),
         ("edit_key", {"pk": 7}, "config_app.change_apikey", "/console/keys/7/"),
         ("add_key", {}, "config_app.add_apikey", "/console/keys/new/"),
+        ("delete_key", {"pk": 7}, "config_app.delete_apikey", "/console/keys/7/delete/"),
     ],
 )
 def test_the_key_intents_point_at_the_key_pages(django_user_model, intent, params, permission, url):
@@ -481,22 +482,6 @@ def test_the_key_intents_point_at_the_key_pages(django_user_model, intent, param
     assert resolve_action(Action("Go", intent=intent, params=params), user) == ResolvedAction(
         "Go", url, "get"
     )
-
-
-PROVIDER_AND_KEY_INTENTS = [
-    ("delete_key", {"pk": 7}, "config_app.delete_apikey"),
-]
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize(("intent", "params", "permission"), PROVIDER_AND_KEY_INTENTS)
-def test_a_provider_or_key_intent_is_text_until_its_page_exists(
-    django_user_model, intent, params, permission
-):
-    user = _user_with(django_user_model, permission)
-
-    assert INTENTS[intent].allows(user)
-    assert resolve_action(Action("Go", intent=intent, params=params), user) == ResolvedAction("Go")
 
 
 @pytest.mark.django_db
