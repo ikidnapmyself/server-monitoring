@@ -95,7 +95,7 @@ def test_every_skinned_surface_renders(client):
         reverse("admin:alerts_alert_changelist"),
         reverse("admin:alerts_node_changelist"),
         reverse("admin:alerts_node_change", args=[node.pk]),
-        reverse("admin:intelligence_intelligenceprovider_add"),
+        reverse("admin:intelligence_intelligenceprovider_changelist"),
     ]
     for url in urls:
         resp = client.get(url)
@@ -104,11 +104,15 @@ def test_every_skinned_surface_renders(client):
 
 
 @pytest.mark.django_db
-def test_the_json_editor_widget_still_reaches_the_add_form(client):
-    get_user_model().objects.create_superuser("admin6", "a6@b.co", "x")
-    client.login(username="admin6", password="x")
-    body = client.get(reverse("admin:intelligence_intelligenceprovider_add")).content.decode()
-    assert "jsoneditor" in body
+def test_the_analysis_run_admin_keeps_the_json_editor_widget():
+    from django.contrib import admin
+    from django.db import models
+    from django_json_widget.widgets import JSONEditorWidget
+
+    from apps.intelligence.models import AnalysisRun
+
+    overrides = admin.site._registry[AnalysisRun].formfield_overrides
+    assert overrides[models.JSONField]["widget"] is JSONEditorWidget
 
 
 @pytest.mark.django_db

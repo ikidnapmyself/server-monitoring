@@ -1,6 +1,6 @@
 """Custom admin site for the server monitoring ops console."""
 
-from django.contrib import admin, messages
+from django.contrib import admin
 from django.contrib.admin import AdminSite
 from django.utils.text import slugify
 
@@ -88,20 +88,20 @@ class MonitoringAdminSite(AdminSite):
 
 
 class APIKeyAdmin(admin.ModelAdmin):
+    """Read-only. Operators edit API keys in the console."""
+
     list_display = ["name", "masked_key", "is_active", "created_at", "last_used_at"]
-    list_filter = ["is_active"]
-    search_fields = ["name"]
-    readonly_fields = ["key", "created_at", "last_used_at"]
+    exclude = ["key"]
 
     @admin.display(description="Key")
     def masked_key(self, obj):
         return f"{obj.prefix}***"
 
-    def save_model(self, request, obj, form, change):
-        super().save_model(request, obj, form, change)
-        raw = getattr(obj, "_raw_key", "")
-        if not change and raw:
-            messages.warning(
-                request,
-                f"Raw token for '{obj.name}' (shown once — copy it now): {raw}",
-            )
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

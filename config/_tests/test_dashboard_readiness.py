@@ -75,6 +75,11 @@ def test_provider_error_when_none_active_else_ok():
 
 
 @pytest.mark.django_db
+def test_the_provider_row_opens_the_console():
+    assert _by_key(build_readiness())["provider"]["url"] == reverse("console:providers")
+
+
+@pytest.mark.django_db
 def test_preflight_neutral_then_maps_status():
     from apps.checkers.models import PreflightRun
 

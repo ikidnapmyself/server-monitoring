@@ -1,6 +1,9 @@
 """Tests for APIKey admin registration."""
 
+import pytest
+from django.contrib import admin
 from django.test import TestCase
+from django.urls import reverse
 
 from config.models import APIKey
 
@@ -28,34 +31,6 @@ class APIKeyAdminTests(TestCase):
         assert key.prefix in masked
         assert "***" in masked
 
-    def test_save_model_flashes_raw_token_once_on_create(self):
-        from unittest.mock import MagicMock, patch
-
-        from django.contrib import admin
-
-        model_admin = admin.site._registry[APIKey]
-        request = MagicMock()
-        obj = APIKey(name="agent web-03")
-        with patch("config.admin.messages") as messages:
-            model_admin.save_model(request, obj, form=MagicMock(), change=False)
-            # The raw token (40 hex chars) is surfaced exactly once via messages.
-            flashed = " ".join(str(c) for c in messages.mock_calls)
-            assert obj._raw_key in flashed
-            # The stored digest must never be surfaced.
-            assert obj.key not in flashed
-
-    def test_save_model_no_token_on_edit(self):
-        from unittest.mock import MagicMock, patch
-
-        from django.contrib import admin
-
-        model_admin = admin.site._registry[APIKey]
-        obj = APIKey.objects.create(name="existing")
-        request = MagicMock()
-        with patch("config.admin.messages") as messages:
-            model_admin.save_model(request, obj, form=MagicMock(), change=True)
-            assert not any("Raw token" in str(c) for c in messages.mock_calls)
-
     def test_ready_idempotent(self):
         """Calling ready() again doesn't double-register APIKey."""
         from django.contrib import admin
@@ -65,3 +40,28 @@ class APIKeyAdminTests(TestCase):
         app = ConfigAppConfig("config", __import__("config"))
         app.ready()  # second call — should not raise
         assert APIKey in admin.site._registry
+
+
+@pytest.mark.django_db
+def test_the_key_admin_is_stock_and_read_only(admin_client, rf, admin_user):
+    APIKey.objects.create(name="listed")
+    model_admin = admin.site._registry[APIKey]
+    request = rf.get("/")
+    request.user = admin_user
+    assert not model_admin.has_add_permission(request)
+    assert not model_admin.has_change_permission(request)
+    assert not model_admin.has_delete_permission(request)
+    assert model_admin.exclude == ["key"]
+    response = admin_client.get(reverse("admin:config_app_apikey_changelist"))
+    assert response.status_code == 200
+    assert "listed" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_the_key_admin_never_shows_the_digest(admin_client):
+    key = APIKey.objects.create(name="agent")
+    response = admin_client.get(reverse("admin:config_app_apikey_change", args=[key.pk]))
+    assert response.status_code == 200
+    body = response.content.decode()
+    assert key.key not in body
+    assert key._raw_key not in body

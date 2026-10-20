@@ -135,7 +135,7 @@ def build_readiness():
                 if p_active
                 else "No active provider — analysis falls back to 'no AI'"
             ),
-            "url": reverse("admin:intelligence_intelligenceprovider_changelist"),
+            "url": reverse("console:providers"),
             "gaps": [],
             "counts": {"active": p_active},
         }
