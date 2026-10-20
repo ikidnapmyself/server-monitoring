@@ -127,7 +127,7 @@ Nothing stores display text. Each app describes its own output when it's read, a
 Stage behavior is controlled through routing pipelines, the console and Django Admin, not environment variables:
 
 - **Routing**: `PipelineDefinition` (console, `/console/routes/`) matches the run's subject alert and its ordered `stages` list selects which downstream stages run; its single `channel` is the notify target. Unmatched traffic fails non-retryably as `no_route`. There is no implicit fallback.
-- **Intelligence**: The `IntelligenceProvider` model (Django Admin) controls which AI provider is active.
+- **Intelligence**: The `IntelligenceProvider` model (console, `/console/providers/`) controls which AI provider is active.
 - **Notify**: The `NotificationChannel` model (console, `/console/channels/`) controls which channels are active via `is_active`.
 
 ## Entry Points
@@ -364,7 +364,7 @@ Every pipeline run carries:
 
 ### Key Environment Variables
 
-Environment variables configure **infrastructure only**. Application behavior (which checkers to run, intelligence provider, notification channels) is managed through the console and Django Admin. Routes and notification channels live in the console at `/console/routes/` and `/console/channels/`.
+Environment variables configure **infrastructure only**. Application behavior (which checkers to run, intelligence provider, notification channels) is managed through the console and Django Admin. Routes, notification channels, AI providers and API keys live in the console at `/console/routes/`, `/console/channels/`, `/console/providers/` and `/console/keys/`.
 
 | Variable | Purpose | Default |
 |----------|---------|---------|

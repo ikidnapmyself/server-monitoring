@@ -58,7 +58,7 @@ driver absent from `DRIVER_REGISTRY` fails the same way as `no_driver`.
 ## Key modules
 
 - `apps/notify/drivers/` — notification drivers/backends
-- `apps/notify/config_fields.py`: `ConfigField`, one setting a driver reads from its channel config
+- `apps/notify/config_fields.py`: `COMMON_FIELDS` and the shared field builders. `ConfigField` itself, one setting a driver reads from its channel config, lives in `config/config_fields.py`
 - `apps/notify/forms.py`: `ChannelForm`, the console's channel editor
 - `apps/notify/channels.py`: `save_channel`, `channel_digest`, `StaleChannel` and `lanes_cut_by_delete`
 - `apps/notify/describing.py` — `describe_delivery`, `describe_notify`

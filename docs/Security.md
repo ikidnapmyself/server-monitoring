@@ -117,17 +117,17 @@ Each alert driver validates incoming payloads structurally via `validate()` and 
 
 ## API Key Authentication
 
-API endpoints require authentication via API key for non-GET requests. Keys are managed via the Django admin.
+API endpoints require authentication via API key for non-GET requests. Keys are managed in the console at `/console/keys/`. The Django admin lists them read-only.
 
 ### Setup
 
 1. API key authentication is **enabled by default**. To disable for local development, set `API_KEY_AUTH_ENABLED=0`.
-2. Create a key via admin (`/admin/config_app/apikey/`) or shell:
+2. Create a key in the console (`/console/keys/new/`), which shows the token once, or in a shell:
 
 ```python
 from config.models import APIKey
 key = APIKey.objects.create(name="my-client")
-print(key.key)  # 40-char hex token
+print(key._raw_key)  # 40-char hex token, shown only now
 ```
 
 ### Usage
