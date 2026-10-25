@@ -5,6 +5,7 @@ from apps.checkers.preflight_describing import (
     NO_MESSAGE,
     describe_preflight_check,
     describe_preflight_run,
+    preflight_headline,
 )
 from config.describing import Description
 
@@ -26,6 +27,7 @@ def test_a_run_is_worded_by_its_status_and_counts(status, counts, headline, tone
     run = PreflightRun(overall_status=status, **counts)
 
     assert describe_preflight_run(run) == Description(headline, tone)
+    assert preflight_headline(status, run.warnings, run.errors) == headline
 
 
 @pytest.mark.parametrize(

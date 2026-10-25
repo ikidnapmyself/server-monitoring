@@ -21,7 +21,7 @@ STATUS_CHIPS: tuple[Choice, ...] = (
     *((str(value), str(label), str(value)) for value, label in AnalysisRunStatus.choices),
     ("all", "All", ""),
 )
-STATUS_TONES = {"pending": "muted", "running": "muted", "succeeded": "info", "failed": "warning"}
+STATUS_TONES = {"pending": "info", "running": "info", "succeeded": "ok", "failed": "warning"}
 
 
 @dataclass(frozen=True)
@@ -53,7 +53,9 @@ class AnalysisList:
 
 
 def tokens(count: int | None) -> str:
-    return f"{count or 0:,} tokens"
+    if not count:
+        return ""
+    return f"{count:,} token{'' if count == 1 else 's'}"
 
 
 def provider_choices() -> tuple[tuple[str, str], ...]:

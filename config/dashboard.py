@@ -291,17 +291,13 @@ def _provider(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Descri
 
 
 def _preflight(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Description]]:
-    from apps.checkers.models import PreflightRun
-    from apps.checkers.preflight_describing import describe_preflight_run
+    from apps.checkers.preflight_describing import preflight_headline
 
     counts = entry["counts"]
-    latest = PreflightRun(
-        overall_status=entry["status"], warnings=counts["warnings"], errors=counts["errors"]
-    )
     return [
         _keyed(
             entry,
-            describe_preflight_run(latest).headline,
+            preflight_headline(entry["status"], counts["warnings"], counts["errors"]),
             tone,
             action=Action("Open the preflight report", intent="view_preflight"),
         )

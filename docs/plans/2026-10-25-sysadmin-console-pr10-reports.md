@@ -204,7 +204,7 @@ Commit `feat(console): preflight runs`.
 - Modify: `apps/intelligence/describing.py`
   - `provider_label(key) -> str`, per correction 5
   - `describe_analysis_run(run) -> Description`
-    - Pending and running rows read "AI analysis is still running", with tone muted.
+    - Pending and running rows read "AI analysis is still running", with tone info.
     - Failed rows follow correction 4.
     - Succeeded rows give `describe_analysis` a snapshot built from the row: `summary`,
       `probable_cause`, `confidence`, `fallback_used`, `failure: ""` and

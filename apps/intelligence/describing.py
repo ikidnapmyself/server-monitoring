@@ -5,6 +5,7 @@ raises on a shape it doesn't expect.
 """
 
 import math
+from dataclasses import replace
 from typing import Any
 
 from apps.intelligence.models import AnalysisRun, AnalysisRunStatus, IntelligenceProvider
@@ -104,8 +105,8 @@ def describe_analysis_run(run: AnalysisRun) -> Description:
             headline, "warning", action=action, facts=(Fact("Provider", label), *error)
         )
     if run.status != AnalysisRunStatus.SUCCEEDED:
-        return Description(RUNNING, "muted", facts=(Fact("Provider", label),))
-    return describe_analysis(
+        return Description(RUNNING, "info", facts=(Fact("Provider", label),))
+    described = describe_analysis(
         {
             "summary": run.summary,
             "probable_cause": run.probable_cause,
@@ -115,6 +116,8 @@ def describe_analysis_run(run: AnalysisRun) -> Description:
             "model_info": {"provider": label},
         }
     )
+    # The incident page reads "info" for a summary. Here it sits beside running rows.
+    return replace(described, tone="ok") if described.tone == "info" else described
 
 
 def describe_recommendations(items: Any) -> tuple[Description, ...]:

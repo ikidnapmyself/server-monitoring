@@ -3,6 +3,7 @@
 from apps.checkers.models import PreflightCheck, PreflightRun
 from config.describing import Description
 
+STATUS_TONES = {"ok": "ok", "warn": "warning", "error": "critical"}
 LEVEL_TONES = {"error": "critical", "warn": "warning", "info": "info", "ok": "ok"}
 NO_MESSAGE = "A check with no message"
 
@@ -11,18 +12,24 @@ def _plural(n: int, word: str) -> str:
     return f"{n} {word if n == 1 else word + 's'}"
 
 
-def describe_preflight_run(run: PreflightRun) -> Description:
-    if run.overall_status == "ok":
-        return Description("Preflight passed", "ok")
-    if run.overall_status == "error":
-        found, word, tone = run.errors, "error", "critical"
-    elif run.overall_status == "warn":
-        found, word, tone = run.warnings, "warning", "warning"
+def preflight_headline(status: str, warnings: int, errors: int) -> str:
+    """A run's outcome from its stored status and counts. The readiness panel words it too."""
+    if status == "ok":
+        return "Preflight passed"
+    if status == "error":
+        found, word = errors, "error"
+    elif status == "warn":
+        found, word = warnings, "warning"
     else:
-        return Description("Preflight stored a result this hub can't read", "muted")
-    if not found:
-        return Description("Preflight didn't pass", tone)
-    return Description(f"Preflight found {_plural(found, word)}", tone)
+        return "Preflight stored a result this hub can't read"
+    return f"Preflight found {_plural(found, word)}" if found else "Preflight didn't pass"
+
+
+def describe_preflight_run(run: PreflightRun) -> Description:
+    return Description(
+        preflight_headline(run.overall_status, run.warnings, run.errors),
+        STATUS_TONES.get(run.overall_status, "muted"),
+    )
 
 
 def describe_preflight_check(check: PreflightCheck) -> Description:

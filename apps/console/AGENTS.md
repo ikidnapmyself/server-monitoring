@@ -42,9 +42,10 @@ pipeline stage and not an alert producer.
   against the never-cache headers.
 - **Polling is paused in `console.js`, not in `hx-trigger`.** A `data-poll` element
   skips a poll while the tab is hidden, while it holds an open `<details>`, and while
-  its search form holds an edit not yet submitted or a focused `<select>`, since a swap
-  resets every filter control. Polls are otherwise never paused for focus or for a text
-  selection, because a page that stops
+  focus is inside its search form on a focused `<select>` or with an edit not yet
+  submitted, since a swap resets every filter control. Moving focus out of the form lets
+  polls resume, so an abandoned edit never freezes the page. Polls are otherwise never
+  paused for focus or for a text selection, because a page that stops
   updating without saying so is worse than a lost selection. Every focusable element
   in a polled region needs a stable unique `id` built from its record, such as
   `incident-<pk>`, `node-<pk>` or `readiness-<key>`. A readiness key comes from

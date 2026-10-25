@@ -2,9 +2,13 @@
   "use strict";
 
   // A swap puts every filter control back to what the server sent, so a poll waits while
-  // the filter form holds a change not yet submitted, or a select that may be open.
+  // someone is in the filter form with a change not yet submitted, or in a select that may
+  // be open. Leaving the form lets polls resume, so an abandoned edit never freezes a page.
   function editing(element) {
     return Array.prototype.some.call(element.querySelectorAll("form[role=search]"), function (form) {
+      if (!form.contains(document.activeElement)) {
+        return false;
+      }
       if (form.querySelector("select:focus")) {
         return true;
       }
@@ -18,6 +22,9 @@
             }
           });
           return Boolean(initial) && control.value !== initial.value;
+        }
+        if (control.type === "checkbox" || control.type === "radio") {
+          return control.checked !== control.defaultChecked;
         }
         if (control.tagName === "INPUT" && control.type !== "hidden") {
           return control.value !== control.defaultValue;

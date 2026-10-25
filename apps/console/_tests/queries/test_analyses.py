@@ -50,7 +50,7 @@ def test_rows_are_newest_first_and_described():
     assert (rows[0].incident, rows[0].provider, rows[0].tokens) == (
         None,
         UNKNOWN_PROVIDER,
-        "0 tokens",
+        "",
     )
     assert rows[1].incident == Action(
         describe_incident(incident).headline, "view_incident", {"pk": incident.pk}
@@ -60,7 +60,8 @@ def test_rows_are_newest_first_and_described():
 
 
 def test_tokens():
-    assert tokens(None) == "0 tokens"
+    assert tokens(None) == tokens(0) == ""
+    assert tokens(1) == "1 token"
     assert tokens(1500) == "1,500 tokens"
 
 
@@ -95,7 +96,13 @@ def test_status_chips_count_the_other_filters_and_carry_tones():
         "failed": 1,
         "all": 2,
     }
-    assert chips["failed"].tone == "warning" and chips["all"].tone == ""
+    assert {key: chip.tone for key, chip in chips.items()} == {
+        "pending": "info",
+        "running": "info",
+        "succeeded": "ok",
+        "failed": "warning",
+        "all": "",
+    }
     assert chips["failed"].url == "/console/analyses/?status=failed&provider=openai"
     assert listing.kept == ()
     assert listing.provider == "openai"

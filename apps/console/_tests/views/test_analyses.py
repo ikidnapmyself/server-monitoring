@@ -118,7 +118,7 @@ def test_rows_show_incident_provider_and_tokens(client, superuser):
     assert f'<a id="analysis-{run.pk}-incident" href="/console/incidents/{incident.pk}/">' in body
     assert re.search(r"</a> · OpenAI · 1,500 tokens · <time", body)
     assert f"analysis-{lone.pk}-incident" not in body
-    assert "Built-in local analyzer · 0 tokens · <time" in body
+    assert "Built-in local analyzer · <time" in body
 
 
 @pytest.mark.django_db

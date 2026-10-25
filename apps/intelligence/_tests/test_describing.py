@@ -211,7 +211,7 @@ def test_provider_label(key, label):
 def test_an_unfinished_run_is_still_running(status):
     described = describe_analysis_run(AnalysisRun(status=status, provider="openai"))
 
-    assert described == Description(RUNNING, "muted", facts=(Fact("Provider", "OpenAI"),))
+    assert described == Description(RUNNING, "info", facts=(Fact("Provider", "OpenAI"),))
 
 
 def test_a_failed_run_reads_as_an_unknown_failure_with_its_error():
@@ -242,6 +242,7 @@ def test_a_succeeded_run_reads_like_its_snapshot():
     described = describe_analysis_run(run)
 
     assert described.headline == "Disk filled by logs"
+    assert described.tone == "ok"
     assert described.detail == "Log rotation is off"
     assert ("Provider", LOCAL_ANALYZER) in facts(described)
     assert ("Confidence", "80%") in facts(described)
@@ -251,6 +252,13 @@ def test_a_succeeded_run_on_the_fallback_reads_as_failed():
     run = AnalysisRun(status="succeeded", provider="openai", summary="x", fallback_used=True)
 
     assert describe_analysis_run(run).headline == FAILURES["unknown"][0]
+    assert describe_analysis_run(run).tone == "warning"
+
+
+def test_a_succeeded_run_with_no_summary_stays_muted():
+    run = AnalysisRun(status="succeeded", provider="openai", summary="  ")
+
+    assert describe_analysis_run(run).tone == "muted"
 
 
 def test_recommendations_skip_what_they_cant_read():
