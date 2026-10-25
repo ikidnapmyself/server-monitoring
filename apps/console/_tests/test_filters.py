@@ -7,15 +7,21 @@ from django.db.models import Q
 from django.http import QueryDict
 
 from apps.alerts.models import AlertSeverity, IncidentStatus
+from apps.checkers.models import CheckRun, CheckStatus
 from apps.console.filters import (
     RUN_STATUS_CHOICES,
     AlertFilter,
+    AnalysisFilter,
+    CheckFilter,
     InboxFilter,
     IncidentFilter,
     NodeFilter,
+    PreflightFilter,
     RunFilter,
     checker_param,
 )
+from apps.intelligence.models import AnalysisRun, AnalysisRunStatus
+from apps.orchestration.models import PipelineRun, PipelineStatus
 
 NOW = datetime(2026, 10, 14, 12, 0, tzinfo=dt_timezone.utc)
 
@@ -369,3 +375,156 @@ def test_checker_param_is_the_trimmed_checker_or_none_for_the_whole_node():
     assert checker_param(QueryDict("checker=")) is None
     assert checker_param(QueryDict("checker=+")) == ""
     assert checker_param(QueryDict("checker=%00")) == ""
+
+
+def _params(**params):
+    query = QueryDict(mutable=True)
+    query.update(params)
+    return query
+
+
+def test_run_filter_takes_a_reason_code_or_other():
+    assert RunFilter().reason == ""
+    for code in ("no_route", "no_channel", "no_driver", "other"):
+        assert RunFilter.parse(_params(reason=code)) == RunFilter(reason=code)
+    assert RunFilter.parse(_params(reason="")) == RunFilter()
+    assert RunFilter.parse(_params(reason="StageExecutionError")) == RunFilter(dropped=("reason",))
+
+
+def test_run_filter_reason_round_trips_and_is_kept():
+    criteria = RunFilter(status="failed", reason="no_route", since="7d")
+    assert criteria.querystring() == "?status=failed&reason=no_route&since=7d"
+    assert RunFilter.parse(QueryDict(criteria.querystring().lstrip("?"))) == criteria
+    assert criteria.kept() == (("status", "failed"), ("reason", "no_route"), ("since", "7d"))
+
+
+@pytest.mark.django_db
+def test_run_filter_reason_selects_the_runs_it_names():
+    def run(name, message, status=PipelineStatus.FAILED):
+        return PipelineRun.objects.create(
+            run_id=name, trace_id=name, status=status, last_error_message=message
+        )
+
+    routed = run("routed", "no_route: nothing matched")
+    staged = run("staged", "Stage notify failed: no_channel: route has none")
+    driverless = run("driverless", "Stage notify failed: no_driver: gone")
+    crashed = run("crashed", "StageExecutionError: boom")
+    blank = run("blank", "")
+    buried = run("buried", "boom then no_route: later")
+    still_going = run("going", "no_route: x", status=PipelineStatus.RETRYING)
+
+    def picked(reason):
+        found = PipelineRun.objects.filter(RunFilter(reason=reason).matches())
+        return set(found.values_list("run_id", flat=True))
+
+    assert picked("no_route") == {routed.run_id, still_going.run_id}
+    assert picked("no_channel") == {staged.run_id}
+    assert picked("no_driver") == {driverless.run_id}
+    assert picked("other") == {crashed.run_id, blank.run_id, buried.run_id}
+    assert len(picked("")) == 7
+    failed_routes = PipelineRun.objects.filter(
+        RunFilter(status="failed", reason="no_route").matches()
+    )
+    assert list(failed_routes) == [routed]
+
+
+def test_check_filter_defaults_and_keeps_valid_values():
+    assert CheckFilter.parse(_params()) == CheckFilter()
+    assert CheckFilter().statuses() == ()
+    assert CheckFilter(status="failing").statuses() == ("warning", "critical", "unknown")
+    for status in CheckStatus.values:
+        criteria = CheckFilter.parse(_params(status=status))
+        assert criteria.status == status
+        assert criteria.statuses() == (status,)
+    criteria = CheckFilter.parse(_params(status="failing", checker="cpu", since="24h", page="2"))
+    assert criteria == CheckFilter(status="failing", checker="cpu", since="24h", page=2)
+
+
+@pytest.mark.django_db
+def test_check_filter_takes_a_checker_the_hub_has_or_one_already_stored():
+    CheckRun.objects.create(checker_name="gone_checker", status="ok", message="m")
+
+    assert CheckFilter.parse(_params(checker="gone_checker")).checker == "gone_checker"
+    assert CheckFilter.parse(_params(checker="")) == CheckFilter()
+    for bad in ("never_heard", "gone_checker\x00", "x" * 101, "CPU"):
+        assert CheckFilter.parse(_params(checker=bad)) == CheckFilter(dropped=("checker",))
+
+
+@pytest.mark.django_db
+def test_check_filter_drops_bad_values_in_field_order():
+    criteria = CheckFilter.parse(_params(page="0", since="1y", checker="nope", status="bad"))
+    assert criteria == CheckFilter(dropped=("status", "checker", "since", "page"))
+
+
+def test_check_filter_search_and_host_are_trimmed_capped_and_cleaned():
+    criteria = CheckFilter.parse(_params(q="  disk\x00 " + "x" * 300, host=" web-1 " + "y" * 200))
+    assert criteria.q.startswith("disk ")
+    assert len(criteria.q) == 255
+    assert criteria.host.startswith("web-1")
+    assert len(criteria.host) == 100
+    assert CheckFilter.parse(_params(host="   ")).host == ""
+
+
+def test_check_filter_querystring_round_trips_and_resets_the_page():
+    criteria = CheckFilter(
+        q="disk", status="failing", checker="cpu", host="web-1", since="7d", page=3
+    )
+    assert criteria.querystring() == (
+        "?q=disk&status=failing&checker=cpu&host=web-1&since=7d&page=3"
+    )
+    assert criteria.querystring(status="ok") == "?q=disk&status=ok&checker=cpu&host=web-1&since=7d"
+    assert CheckFilter().querystring() == ""
+    assert CheckFilter.parse(QueryDict(criteria.querystring().lstrip("?"))) == criteria
+
+
+def test_check_filter_cutoff_without_and_kept():
+    assert CheckFilter().cutoff(NOW) is None
+    assert CheckFilter(since="30d").cutoff(NOW) == NOW - timedelta(days=30)
+    criteria = CheckFilter(q="x", status="ok", checker="cpu", host="h", since="24h", page=2)
+    assert criteria.kept() == (("status", "ok"), ("since", "24h"))
+    assert CheckFilter(host="h", dropped=("since",)).without("host") == CheckFilter(
+        dropped=("host", "since")
+    )
+
+
+def test_preflight_filter_parses_status_since_and_page():
+    assert PreflightFilter.parse(_params()) == PreflightFilter()
+    for status in ("", "ok", "warn", "error"):
+        assert PreflightFilter.parse(_params(status=status)).status == status
+    criteria = PreflightFilter.parse(_params(status="fail", since="7d", page="x"))
+    assert criteria == PreflightFilter(since="7d", dropped=("status", "page"))
+    assert PreflightFilter(since="24h").cutoff(NOW) == NOW - timedelta(hours=24)
+    assert PreflightFilter().cutoff(NOW) is None
+
+
+def test_preflight_filter_querystring_round_trips():
+    criteria = PreflightFilter(status="error", since="30d", page=2)
+    assert criteria.querystring() == "?status=error&since=30d&page=2"
+    assert criteria.querystring(status="warn") == "?status=warn&since=30d"
+    assert PreflightFilter().querystring() == ""
+    assert PreflightFilter.parse(QueryDict(criteria.querystring().lstrip("?"))) == criteria
+
+
+@pytest.mark.django_db
+def test_analysis_filter_parses_status_provider_since_and_page():
+    AnalysisRun.objects.create(trace_id="t", pipeline_run_id="r", provider="retired_one")
+
+    assert AnalysisFilter.parse(_params()) == AnalysisFilter()
+    for status in AnalysisRunStatus.values:
+        assert AnalysisFilter.parse(_params(status=status)).status == status
+    for provider in ("", "openai", "claude", "local", "retired_one"):
+        assert AnalysisFilter.parse(_params(provider=provider)).provider == provider
+    criteria = AnalysisFilter.parse(
+        _params(status="done", provider="nobody", since="24h", page="-1")
+    )
+    assert criteria == AnalysisFilter(since="24h", dropped=("status", "provider", "page"))
+    assert AnalysisFilter.parse(_params(provider="x\x00")).dropped == ("provider",)
+
+
+def test_analysis_filter_querystring_round_trips_and_cutoff():
+    criteria = AnalysisFilter(status="failed", provider="openai", since="7d", page=4)
+    assert criteria.querystring() == "?status=failed&provider=openai&since=7d&page=4"
+    assert criteria.querystring(page=5) == "?status=failed&provider=openai&since=7d&page=5"
+    assert AnalysisFilter().querystring() == ""
+    assert AnalysisFilter(since="7d").cutoff(NOW) == NOW - timedelta(days=7)
+    assert AnalysisFilter().cutoff(NOW) is None
