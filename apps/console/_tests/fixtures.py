@@ -9,10 +9,10 @@ from django.utils import timezone
 
 from apps.alerts.identity import local_instance_id
 from apps.alerts.models import Alert, AlertHistory, Incident, Node
-from apps.checkers.models import PreflightRun
+from apps.checkers.models import CheckRun, CheckStatus, PreflightCheck, PreflightRun
 from apps.intelligence._tests.test_forms import KEY as PROVIDER_SECRET
 from apps.intelligence._tests.test_forms import STORED as PROVIDER_CONFIGS
-from apps.intelligence.models import IntelligenceProvider
+from apps.intelligence.models import AnalysisRun, IntelligenceProvider
 from apps.notify.models import NotificationChannel
 from apps.orchestration.errors import ROUTING_GAPS, StageExecutionError, routing_gap
 from apps.orchestration.inbox import DEFAULT_STALE_MINUTES, requeue
@@ -26,6 +26,7 @@ GAP_DETAILS = {
     "no_driver": "the channel's driver is not installed on this hub",
 }
 OPS_SLACK_WEBHOOK = "https://hooks.slack.com/services/T0/B0/ops-slack-stored-secret"
+PROVIDER_CONFIG = "https://llm.internal.example/v1"
 FAILURE_STATUS = {
     "auth": 401,
     "rate_limit": 429,
@@ -102,6 +103,9 @@ class World:
     provider_pks: tuple[int, ...]
     key_pks: tuple[int, ...]
     key_tokens: tuple[str, ...]
+    check_pks: tuple[int, ...]
+    preflight_pks: tuple[int, ...]
+    analysis_pks: tuple[int, ...]
 
 
 def _uuid() -> str:
@@ -465,6 +469,78 @@ def _keys() -> list[APIKey]:
     ]
 
 
+def _check_runs() -> list[CheckRun]:
+    """One run per status, the critical one with an alert and a trace, and a retired checker."""
+    runs = [
+        CheckRun.objects.create(
+            checker_name="cpu",
+            hostname="hub",
+            status=status,
+            message=f"CPU check came back {status}",
+            metrics={"cpu_percent": 97.0},
+            warning_threshold=80,
+            critical_threshold=90,
+            duration_ms=40,
+        )
+        for status in CheckStatus.values
+    ]
+    CheckRun.objects.filter(checker_name="cpu", status=CheckStatus.CRITICAL).update(
+        alert=Alert.objects.order_by("pk").first(),
+        trace_id=_uuid(),
+        error="sensor_read failed",
+    )
+    runs.append(
+        CheckRun.objects.create(
+            checker_name="gone_checker", hostname="", status="unknown", message="Something odd"
+        )
+    )
+    return runs
+
+
+def _preflight_runs() -> list[PreflightRun]:
+    """A failed run with an error, a warning and a level this hub can't read, and a pass.
+
+    Both are a day old, so the Overview still reads the readiness run.
+    """
+    failed = PreflightRun.objects.create(
+        instance_id=_uuid(), triggered_by="cli", overall_status="error", errors=1, warnings=1
+    )
+    for level, message in (("error", "DB unreachable"), ("warn", "DEBUG is on"), ("odd", "Hmm")):
+        PreflightCheck.objects.create(run=failed, level=level, message=message, hint="Fix it")
+    passed = PreflightRun.objects.create(triggered_by="cli", overall_status="ok", passed=2)
+    for level, message in (("ok", "Python 3.12"), ("info", "12 migrations applied")):
+        PreflightCheck.objects.create(run=passed, level=level, message=message)
+    runs = [failed, passed]
+    PreflightRun.objects.filter(pk__in=[run.pk for run in runs]).update(
+        created_at=timezone.now() - timedelta(days=1)
+    )
+    return runs
+
+
+def _analyses(incident_pk: int) -> list[AnalysisRun]:
+    """Succeeded with recommendations, failed, pending, local, and a provider this hub lacks."""
+    return [
+        AnalysisRun.objects.create(
+            trace_id=_uuid(),
+            pipeline_run_id=_uuid(),
+            provider=provider,
+            status=status,
+            summary="Disk filled by logs",
+            error_message="upstream_error: 500" if status == "failed" else "",
+            provider_config={"base_url": PROVIDER_CONFIG},
+            recommendations=[{"title": "Rotate logs", "priority": "high"}, "junk"],
+            incident_id=incident_pk if provider == "openai" else None,
+        )
+        for provider, status in (
+            ("openai", "succeeded"),
+            ("claude", "failed"),
+            ("gemini", "pending"),
+            ("local", "succeeded"),
+            ("retired_provider", "succeeded"),
+        )
+    ]
+
+
 def build_world() -> World:
     incidents = [
         _checker_incident(),
@@ -488,6 +564,7 @@ def build_world() -> World:
     _routes()
     providers = _providers()
     keys = _keys()
+    _preflight_runs()
     return World(
         incident_pks=tuple(i.pk for i in incidents),
         run_pks=tuple(PipelineRun.objects.values_list("pk", flat=True)),
@@ -498,4 +575,7 @@ def build_world() -> World:
         provider_pks=tuple(p.pk for p in providers),
         key_pks=tuple(k.pk for k in keys),
         key_tokens=tuple(k._raw_key for k in keys),
+        check_pks=tuple(run.pk for run in _check_runs()),
+        preflight_pks=tuple(PreflightRun.objects.values_list("pk", flat=True)),
+        analysis_pks=tuple(run.pk for run in _analyses(incidents[0].pk)),
     )

@@ -1,18 +1,22 @@
 """No page shows an identifier, a code or raw JSON outside a Details disclosure."""
 
 import re
-from datetime import timedelta
 from html.parser import HTMLParser
 from typing import cast
 
 import pytest
-from django.utils import timezone
 
 from apps.alerts.models import Alert
-from apps.checkers.models import CheckRun, PreflightCheck, PreflightRun
-from apps.console._tests.fixtures import OPS_SLACK_WEBHOOK, build_world
+from apps.console._tests.fixtures import OPS_SLACK_WEBHOOK, PROVIDER_CONFIG, build_world
+from apps.console.filters import (
+    ANALYSIS_STATUS_CHOICES,
+    CHECK_STATUS_CHOICES,
+    PREFLIGHT_STATUS_CHOICES,
+    REASON_CHOICES,
+    SINCE_CHOICES,
+)
 from apps.intelligence._tests.test_forms import KEY
-from apps.intelligence.models import AnalysisRun, IntelligenceProvider
+from apps.intelligence.models import IntelligenceProvider
 from apps.notify._tests.test_forms import SECRETS, STORED
 from apps.notify.drivers import DRIVER_REGISTRY
 from apps.notify.models import NotificationChannel
@@ -25,7 +29,22 @@ SNAKE = re.compile(r"\b[a-z]+_[a-z_]+\b")
 # "rejected", "timeout" and "unknown" are ordinary words a headline uses ("the provider
 # rejected the API key"), so only the codes no sentence would contain are checked.
 CODES = {code for code in (*REASONS, *FAILURE_KINDS) if "_" in code}
-PROVIDER_CONFIG = "https://llm.internal.example/v1"
+CHECK_FILTERS = {
+    "status": [key for key in CHECK_STATUS_CHOICES if key],
+    "checker": ["cpu", "gone_checker"],
+    "host": ["hub"],
+    "since": [key for key in SINCE_CHOICES if key],
+    "q": ["CPU"],
+}
+PREFLIGHT_FILTERS = {
+    "status": [key for key in PREFLIGHT_STATUS_CHOICES if key],
+    "since": [key for key in SINCE_CHOICES if key],
+}
+ANALYSIS_FILTERS = {
+    "status": [key for key in ANALYSIS_STATUS_CHOICES if key],
+    "provider": ["openai", "claude", "gemini", "local", "retired_provider"],
+    "since": [key for key in SINCE_CHOICES if key],
+}
 VOID = {"br", "img", "input", "meta", "link", "hr", "use"}
 
 
@@ -93,6 +112,13 @@ def _secret_values() -> list[str]:
     return values
 
 
+def _filtered(base: str, filters: dict[str, list[str]]) -> list[str]:
+    """The list unfiltered, then once per value of each filter."""
+    return [base] + [
+        f"{base}?{name}={value}" for name, values in filters.items() for value in values
+    ]
+
+
 def _get(client, url, headers):
     response = client.get(url, headers=headers)
     assert response.status_code == 200, url
@@ -108,52 +134,6 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
             name=f"{driver}-off", driver=driver, config=config, is_active=False
         ).pk
         for driver, config in STORED.items()
-    ]
-    check_pks = [
-        CheckRun.objects.create(
-            checker_name="cpu",
-            hostname="hub",
-            status="critical",
-            message="CPU at 97%",
-            metrics={"cpu_percent": 97.0},
-            error="sensor_read failed",
-            trace_id="0b9e6c1e-6f4a-4c43-9a59-5b3f1f2a7c11",
-            alert=Alert.objects.first(),
-        ).pk,
-        CheckRun.objects.create(
-            checker_name="gone_checker", hostname="", status="unknown", message="Something odd"
-        ).pk,
-    ]
-    checked = PreflightRun.objects.create(
-        instance_id="0b9e6c1e-6f4a-4c43-9a59-5b3f1f2a7c11",
-        triggered_by="cli",
-        overall_status="error",
-        errors=1,
-        warnings=1,
-    )
-    for level, message in (("error", "DB unreachable"), ("warn", "DEBUG is on"), ("odd", "Hmm")):
-        PreflightCheck.objects.create(run=checked, level=level, message=message, hint="Fix it")
-    # Older than the world's own run, so the Overview still reads that one.
-    PreflightRun.objects.filter(pk=checked.pk).update(created_at=timezone.now() - timedelta(days=1))
-    analysis_pks = [
-        AnalysisRun.objects.create(
-            trace_id="0b9e6c1e-6f4a-4c43-9a59-5b3f1f2a7c11",
-            pipeline_run_id="0b9e6c1e-6f4a-4c43-9a59-5b3f1f2a7c12",
-            provider=provider,
-            status=status,
-            summary="Disk filled by logs",
-            error_message="upstream_error: 500" if status == "failed" else "",
-            provider_config={"base_url": PROVIDER_CONFIG},
-            recommendations=[{"title": "Rotate logs", "priority": "high"}, "junk"],
-            incident_id=world.incident_pks[0] if provider == "openai" else None,
-        ).pk
-        for provider, status in (
-            ("openai", "succeeded"),
-            ("claude", "failed"),
-            ("gemini", "pending"),
-            ("local", "succeeded"),
-            ("retired_provider", "succeeded"),
-        )
     ]
     client.force_login(superuser)
     headers = {"HX-Request": "true"} if partial else {}
@@ -193,13 +173,14 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         + [f"/console/nodes/{pk}/policy/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/reevaluate/" for pk in world.node_pks]
         + [f"/console/nodes/{world.policy_node_pk}/reevaluate/?checker=listening_ports"]
+        + [f"/console/runs/?status=failed&reason={reason}" for reason in REASON_CHOICES if reason]
         + ["/console/reports/"]
-        + ["/console/checks/", "/console/checks/?status=failing&checker=gone_checker&host=hub"]
-        + [f"/console/checks/{pk}/" for pk in check_pks]
-        + ["/console/preflight/", "/console/preflight/?status=error&since=7d"]
-        + [f"/console/preflight/{pk}/" for pk in PreflightRun.objects.values_list("pk", flat=True)]
-        + ["/console/analyses/", "/console/analyses/?status=failed&provider=retired_provider"]
-        + [f"/console/analyses/{pk}/" for pk in analysis_pks]
+        + _filtered("/console/checks/", CHECK_FILTERS)
+        + [f"/console/checks/{pk}/" for pk in world.check_pks]
+        + _filtered("/console/preflight/", PREFLIGHT_FILTERS)
+        + [f"/console/preflight/{pk}/" for pk in world.preflight_pks]
+        + _filtered("/console/analyses/", ANALYSIS_FILTERS)
+        + [f"/console/analyses/{pk}/" for pk in world.analysis_pks]
     )
     html = {url: _get(client, url, headers) for url in urls}
     # The ids are on the page, inside Details, so the check below has something to catch.
@@ -278,6 +259,7 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "From the command line",
         "DB unreachable",
         "Built-in local analyzer",
+        "Python 3.12",
         "AI analysis is still running",
         "Rotate logs",
         "of runs finished",
