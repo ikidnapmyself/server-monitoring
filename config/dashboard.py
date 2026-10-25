@@ -4,27 +4,17 @@ Provides aggregated metrics for the ops console: active incidents,
 pipeline health, recent check runs, and 7-day trend data.
 """
 
-import json
 from dataclasses import dataclass
 from datetime import timedelta
 
 from django.db.models import Count, Q
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.html import format_html
 from django.utils.text import slugify
 
 from config.describing import Action, Description
 
 NODE_RECENT_MINUTES = 15
-
-
-def prettify_json(data):
-    """Render a JSON-serializable value as a syntax-highlighted <pre> block."""
-    if data is None:
-        return "-"
-    formatted = json.dumps(data, indent=2, ensure_ascii=False, default=str)
-    return format_html('<pre class="ops-pre">{}</pre>', formatted)
 
 
 def build_readiness():

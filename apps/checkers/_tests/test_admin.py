@@ -1,72 +1,42 @@
-"""Tests for checkers admin (PreflightRun)."""
-
 import pytest
 from django.contrib import admin
+from django.urls import reverse
 
-from apps.checkers.admin import CheckRunAdmin, PreflightCheckInline
-from apps.checkers.models import CheckRun, PreflightCheck, PreflightRun
+from apps.checkers.models import CheckRun, PreflightRun
 
-
-def test_preflight_run_registered():
-    assert PreflightRun in admin.site._registry
-
-
-def test_preflight_run_list_display():
-    model_admin = admin.site._registry[PreflightRun]
-    for field in ("overall_status", "passed", "warnings", "errors", "created_at"):
-        assert field in model_admin.list_display
-
-
-def test_preflight_run_date_hierarchy():
-    model_admin = admin.site._registry[PreflightRun]
-    assert model_admin.date_hierarchy == "created_at"
-
-
-def test_preflight_run_has_inline():
-    model_admin = admin.site._registry[PreflightRun]
-    assert PreflightCheckInline in model_admin.inlines
-
-
-def test_preflight_run_no_add_permission():
-    model_admin = admin.site._registry[PreflightRun]
-    assert model_admin.has_add_permission(request=None) is False
-
-
-def test_preflight_run_no_change_or_delete_permission():
-    # Audit history: view-only, no edits or deletion (matches CheckRunAdmin intent).
-    model_admin = admin.site._registry[PreflightRun]
-    assert model_admin.has_change_permission(request=None) is False
-    assert model_admin.has_delete_permission(request=None) is False
-
-
-def test_preflight_check_inline_readonly():
-    inline = PreflightCheckInline(PreflightCheck, admin.site)
-    for field in ("level", "message", "hint"):
-        assert field in inline.readonly_fields
-    assert inline.extra == 0
-    assert inline.has_add_permission(request=None) is False
-    assert inline.has_change_permission(request=None) is False
-    assert inline.has_delete_permission(request=None) is False
+pytestmark = pytest.mark.django_db
 
 
 @pytest.mark.parametrize(
-    ("status", "tone"),
+    ("model", "list_display", "changelist", "row"),
     [
-        ("ok", "ok"),
-        ("warning", "warning"),
-        ("critical", "critical"),
-        ("unknown", "muted"),
-        ("something-new", "muted"),
+        (
+            CheckRun,
+            ["checker_name", "hostname", "status", "executed_at"],
+            "admin:checkers_checkrun_changelist",
+            lambda: CheckRun.objects.create(checker_name="listed", status="ok", message="m"),
+        ),
+        (
+            PreflightRun,
+            ["created_at", "overall_status", "passed", "warnings", "errors"],
+            "admin:checkers_preflightrun_changelist",
+            lambda: PreflightRun.objects.create(overall_status="warn", warnings=1),
+        ),
     ],
 )
-def test_the_check_status_badge_carries_its_tone_class(status, tone):
-    model_admin = CheckRunAdmin(CheckRun, admin.site)
-    html = str(model_admin.status_badge(CheckRun(status=status)))
-    assert f"ops-badge--{tone}" in html
-    assert status.upper() in html
-
-
-def test_the_check_status_badge_hardcodes_no_colour():
-    model_admin = CheckRunAdmin(CheckRun, admin.site)
-    for status in ("ok", "warning", "critical", "unknown"):
-        assert "#" not in str(model_admin.status_badge(CheckRun(status=status)))
+def test_the_admin_is_stock_and_read_only(
+    admin_client, rf, admin_user, model, list_display, changelist, row
+):
+    created = row()
+    model_admin = admin.site._registry[model]
+    request = rf.get("/")
+    request.user = admin_user
+    assert not model_admin.has_add_permission(request)
+    assert not model_admin.has_change_permission(request)
+    assert not model_admin.has_delete_permission(request)
+    assert model_admin.list_display == list_display
+    assert not model_admin.inlines
+    response = admin_client.get(reverse(changelist))
+    assert response.status_code == 200
+    change = reverse(changelist.replace("changelist", "change"), args=[created.pk])
+    assert admin_client.get(change).status_code == 200

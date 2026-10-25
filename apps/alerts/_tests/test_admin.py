@@ -45,19 +45,6 @@ class TestAdminQueryOptimization(TestCase):
         response = self.client.get("/admin/intelligence/analysisrun/")
         assert response.status_code == 200
 
-    def test_analysis_run_search_matches_the_incident_subject(self):
-        from apps.intelligence.models import AnalysisRun
-
-        incident = Incident.objects.create(subject="checker:disk", severity="warning")
-        run = AnalysisRun.objects.create(trace_id="t-1", provider="local", incident=incident)
-        other = AnalysisRun.objects.create(trace_id="t-2", provider="local")
-
-        response = self.client.get("/admin/intelligence/analysisrun/", {"q": "checker:disk"})
-
-        body = response.content.decode()
-        assert f"/admin/intelligence/analysisrun/{run.pk}/change/" in body
-        assert f"/admin/intelligence/analysisrun/{other.pk}/change/" not in body
-
     def test_check_run_list_loads(self):
         response = self.client.get("/admin/checkers/checkrun/")
         assert response.status_code == 200

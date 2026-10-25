@@ -195,28 +195,6 @@ class TestPipelineTracing(TestCase):
         assert "trace-xyz" in content
 
 
-class TestPrettifyJson(SimpleTestCase):
-    def test_prettify_json_renders_formatted(self):
-        from config.dashboard import prettify_json
-
-        data = {"key": "value", "nested": {"a": 1}}
-        result = prettify_json(data)
-        assert "&quot;key&quot;" in result or '"key"' in result
-        assert "<pre" in result
-
-    def test_prettify_json_empty_dict(self):
-        from config.dashboard import prettify_json
-
-        result = prettify_json({})
-        assert "{}" in result
-
-    def test_prettify_json_none(self):
-        from config.dashboard import prettify_json
-
-        result = prettify_json(None)
-        assert "-" in result
-
-
 class TestPipelineRunAdminFilters(SimpleTestCase):
     """PipelineRunAdmin exposes node/origin/status for filtering and display."""
 

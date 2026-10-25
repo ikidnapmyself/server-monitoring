@@ -1,34 +1,10 @@
-"""Tests for config/dashboard.py — prettify_json and get_dashboard_context."""
+"""Tests for config/dashboard.py: get_dashboard_context and the fleet grid."""
 
 import pytest
-from django.test import SimpleTestCase, TestCase
+from django.test import TestCase
 from django.utils import timezone
 
-from config.dashboard import get_dashboard_context, prettify_json
-
-
-class TestPrettifyJson(SimpleTestCase):
-    def test_renders_dict_as_pre_block(self):
-        result = prettify_json({"key": "value"})
-        assert "<pre" in result
-        assert "key" in result
-
-    def test_renders_empty_dict(self):
-        result = prettify_json({})
-        assert "{}" in result
-
-    def test_none_returns_dash(self):
-        assert prettify_json(None) == "-"
-
-    def test_renders_nested_structure(self):
-        result = prettify_json({"a": {"b": [1, 2]}})
-        assert "<pre" in result
-
-    def test_the_block_is_styled_by_class_not_by_inline_colour(self):
-        result = prettify_json({"key": "value"})
-        assert 'class="ops-pre"' in result
-        assert "style=" not in result
-        assert "#" not in result
+from config.dashboard import get_dashboard_context
 
 
 @pytest.mark.django_db

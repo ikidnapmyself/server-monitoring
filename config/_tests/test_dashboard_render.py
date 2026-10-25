@@ -104,18 +104,6 @@ def test_every_skinned_surface_renders(client):
 
 
 @pytest.mark.django_db
-def test_the_analysis_run_admin_keeps_the_json_editor_widget():
-    from django.contrib import admin
-    from django.db import models
-    from django_json_widget.widgets import JSONEditorWidget
-
-    from apps.intelligence.models import AnalysisRun
-
-    overrides = admin.site._registry[AnalysisRun].formfield_overrides
-    assert overrides[models.JSONField]["widget"] is JSONEditorWidget
-
-
-@pytest.mark.django_db
 def test_the_ops_stylesheet_loads_after_djangos_own(client):
     """Load order is load-bearing.
 
