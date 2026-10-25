@@ -10,6 +10,7 @@ from apps.console._tests.test_guard import visible
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console._tests.views.test_checks import _grant, _nav
 from apps.console._tests.views.test_incident import focus_audit
+from apps.orchestration.models import PipelineRun
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
 MARKUP = "<img src=x onerror=alert(1)>"
@@ -44,6 +45,7 @@ def _busy():
         warning_threshold=80,
         critical_threshold=90,
     )
+    PipelineRun.objects.create(run_id="r-1", trace_id=run.trace_id)
     return run, node, alert
 
 

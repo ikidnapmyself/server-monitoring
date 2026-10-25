@@ -12,6 +12,7 @@ from apps.checkers.describing import check_status, describe_check
 from apps.checkers.models import CheckRun
 from apps.console.filters import CHECK_STATUS_CHOICES, CheckFilter
 from apps.console.queries.incidents import SINCE_CHIPS, ChipGroup, Choice, chip_group
+from config.admin_badges import CHECK_STATUS_TONES
 from config.describing import Action, Description, format_duration
 
 PAGE_SIZE = 50
@@ -25,6 +26,7 @@ STATUS_CHIPS: tuple[Choice, ...] = (
     ("skipped", "Skipped", "skipped"),
     ("all", "All", ""),
 )
+STATUS_TONES = {"failing": "critical", **CHECK_STATUS_TONES}
 
 
 @dataclass(frozen=True)
@@ -141,7 +143,7 @@ def build_check_list(criteria: CheckFilter) -> CheckList:
 
     counts = _status_counts(criteria)
     groups = (
-        chip_group("status", "Status", STATUS_CHIPS, criteria, base, counts),
+        chip_group("status", "Status", STATUS_CHIPS, criteria, base, counts, STATUS_TONES),
         chip_group("since", "Since", SINCE_CHIPS, criteria, base),
     )
     return CheckList(

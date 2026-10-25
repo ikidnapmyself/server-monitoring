@@ -4,13 +4,12 @@ import json
 from dataclasses import dataclass, replace
 from datetime import datetime
 
-from django.urls import reverse
-
 from apps.alerts.describing import node_name
 from apps.alerts.models import Node
 from apps.checkers.checkers import checker_label
 from apps.checkers.models import CheckRun
 from apps.console.queries.checks import describe_check_run, took
+from apps.orchestration.models import PipelineRun
 from config.describing import Action, Description, Fact
 
 
@@ -27,11 +26,10 @@ class CheckDetail:
     executed_at: datetime
     took: str
     raw: str
-    url: str
 
 
 def _number(value: float) -> str:
-    return f"{value:g}"
+    return f"{value:f}".rstrip("0").rstrip(".")
 
 
 def thresholds(warning: float | None, critical: float | None) -> str:
@@ -49,6 +47,13 @@ def _node(hostname: str) -> Action | None:
     if len(found) != 1:
         return None
     return Action(node_name(found[0].hostname), "view_node", {"pk": found[0].pk})
+
+
+def _run(trace_id: str) -> Action | None:
+    """A rerun with nothing new mints a trace but no run, so a trace alone proves nothing."""
+    if not trace_id or not PipelineRun.objects.filter(trace_id=trace_id).exists():
+        return None
+    return Action("Part of a run", "view_runs", {"q": trace_id})
 
 
 def _facts(run: CheckRun) -> tuple[Fact, ...]:
@@ -77,9 +82,8 @@ def build_check_detail(pk: int) -> CheckDetail | None:
             if run.alert_id
             else None
         ),
-        run=(Action("Part of a run", "view_runs", {"q": run.trace_id}) if run.trace_id else None),
+        run=_run(run.trace_id),
         executed_at=run.executed_at,
         took=took(run.duration_ms),
         raw=json.dumps(run.metrics, indent=2, sort_keys=True, default=str),
-        url=reverse("console:check", args=[run.pk]),
     )

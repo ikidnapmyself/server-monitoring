@@ -41,8 +41,10 @@ pipeline stage and not an alert producer.
   round trip. The snapshot also put page HTML with the CSRF token in `sessionStorage`,
   against the never-cache headers.
 - **Polling is paused in `console.js`, not in `hx-trigger`.** A `data-poll` element
-  skips a poll while the tab is hidden and while it holds an open `<details>`. Polls
-  are never paused for focus or for a text selection, because a page that stops
+  skips a poll while the tab is hidden, while it holds an open `<details>`, and while
+  its search form holds an edit not yet submitted or a focused `<select>`, since a swap
+  resets every filter control. Polls are otherwise never paused for focus or for a text
+  selection, because a page that stops
   updating without saying so is worse than a lost selection. Every focusable element
   in a polled region needs a stable unique `id` built from its record, such as
   `incident-<pk>`, `node-<pk>` or `readiness-<key>`. A readiness key comes from

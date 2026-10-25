@@ -7,9 +7,11 @@ from django.urls import reverse
 from apps.console._tests.queries.test_checks import _check
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console._tests.views.test_incident import focus_audit
+from config.admin_badges import CHECK_STATUS_TONES
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
 MARKUP = "<img src=x onerror=alert(1)>"
+TONE_ICONS = {"ok": "check-circle", "critical": "x-circle", "warning": "alert", "muted": "skip"}
 BOTH = pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
 
 
@@ -142,16 +144,27 @@ def test_the_form_carries_the_checker_and_host_and_resends_the_rest(client, chec
 
 
 @pytest.mark.django_db
-def test_the_status_chips_carry_their_icons(client, check_viewer, url):
+def test_the_status_chips_carry_the_icon_of_their_tone(client, check_viewer, url):
+    run = _check("gone_checker", "unknown")
+
     body = client.get(f"{url}?status=failing").content.decode()
 
     header = body[body.index('<nav class="c-states"') :]
     header = header[: header.index("</nav>")]
     assert 'aria-current="true"' in _tag(header, "chip-status-failing")
-    for key, icon in (("critical", "x-circle"), ("warning", "alert"), ("ok", "check-circle")):
-        chip = header[header.index(f'id="chip-status-{key}"') :]
-        assert chip[: chip.index("</a>")].count(f"octicon-{icon}") == 1, key
-    assert "octicon-skip" in header
+
+    def icons(html):
+        return re.findall(r"#octicon-([a-z-]+)", html)
+
+    def chip(key):
+        found = header[header.index(f'id="chip-status-{key}"') :]
+        return icons(found[: found.index("</a>")])
+
+    for key, tone in {"failing": "critical", **CHECK_STATUS_TONES}.items():
+        assert chip(key) == [TONE_ICONS[tone]], key
+    assert chip("all") == []
+    row = body[body.index(f'id="check-{run.pk}"') - 400 : body.index(f'id="check-{run.pk}"')]
+    assert icons(row)[-1] == chip("unknown")[0] == "skip"
     assert 'id="chip-since-24h"' in body
 
 

@@ -4,7 +4,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, ClassVar, Protocol, TypeVar
 from urllib.parse import urlencode
 
 from django.db.models import Q
@@ -50,6 +50,7 @@ ORIGIN_CHOICES: tuple[str, ...] = ("", *PipelineOrigin.values)
 REASON_CHOICES: tuple[str, ...] = ("", "other", *REASONS)
 CHECK_STATUS_CHOICES: dict[str, tuple[str, ...]] = {
     "": (),
+    "all": (),
     "failing": (CheckStatus.WARNING.value, CheckStatus.CRITICAL.value, CheckStatus.UNKNOWN.value),
     **{status: (status,) for status in CheckStatus.values},
 }
@@ -111,9 +112,13 @@ def _text(params: QueryDict, name: str, limit: int) -> str:
     return params.get(name, "").replace("\x00", "").strip()[:limit]
 
 
+def _max_length(model, field: str) -> int:
+    return model._meta.get_field(field).max_length
+
+
 def _known_or_stored(known: tuple[str, ...], model, field: str) -> Callable[[str], bool]:
     """Blank, a key this hub knows, or one a row already stores, such as a retired checker."""
-    limit = model._meta.get_field(field).max_length
+    limit = _max_length(model, field)
 
     def accepts(raw: str) -> bool:
         if raw in ("", *known):
@@ -127,12 +132,21 @@ def _known_or_stored(known: tuple[str, ...], model, field: str) -> Callable[[str
 
 def _reason_pattern(codes) -> str:
     """What ``reason_code`` reads: the code, after a stage's prefix if there is one."""
-    return rf"^({STAGE_FAILED_PREFIX.pattern})?({'|'.join(codes)}): "
+    return rf"^({STAGE_FAILED_PREFIX.pattern})?({'|'.join(map(re.escape, codes))}): "
+
+
+class _Filter(Protocol):
+    """A filter dataclass. ``_encode`` reads its fields by name."""
+
+    __dataclass_fields__: ClassVar[dict[str, Any]]
+
+
+_F = TypeVar("_F", bound=_Filter)
 
 
 def _encode(
-    target: Any,
-    default: Any,
+    target: _F,
+    default: _F,
     fields: tuple[str, ...],
     changes: dict[str, Any],
 ) -> str:
@@ -329,7 +343,9 @@ class CheckFilter:
                 ("page", None),
             ),
         )
-        for name, limit in (("q", SEARCH_LIMIT), ("host", SOURCE_LIMIT)):
+        if values.get("status") == "all":
+            values["status"] = ""
+        for name, limit in (("q", SEARCH_LIMIT), ("host", _max_length(CheckRun, "hostname"))):
             text = _text(params, name, limit)
             if text:
                 values[name] = text
@@ -344,11 +360,6 @@ class CheckFilter:
 
     def querystring(self, **changes: str | int | None) -> str:
         return _encode(self, CheckFilter(), CHECK_FIELDS, changes)
-
-    def without(self, *names: str) -> "CheckFilter":
-        default = CheckFilter()
-        dropped = tuple(n for n in CHECK_FIELDS if n in names or n in self.dropped)
-        return replace(self, **{n: getattr(default, n) for n in names}, dropped=dropped)
 
     def kept(self) -> tuple[tuple[str, str], ...]:
         """Filters the search form must resend. It carries the checker and host itself."""

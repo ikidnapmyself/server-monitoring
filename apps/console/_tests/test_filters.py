@@ -430,6 +430,7 @@ def test_run_filter_reason_selects_the_runs_it_names():
 
 def test_check_filter_defaults_and_keeps_valid_values():
     assert CheckFilter.parse(_params()) == CheckFilter()
+    assert CheckFilter.parse(_params(status="all")) == CheckFilter()
     assert CheckFilter().statuses() == ()
     assert CheckFilter(status="failing").statuses() == ("warning", "critical", "unknown")
     for status in CheckStatus.values:
@@ -457,11 +458,11 @@ def test_check_filter_drops_bad_values_in_field_order():
 
 
 def test_check_filter_search_and_host_are_trimmed_capped_and_cleaned():
-    criteria = CheckFilter.parse(_params(q="  disk\x00 " + "x" * 300, host=" web-1 " + "y" * 200))
+    criteria = CheckFilter.parse(_params(q="  disk\x00 " + "x" * 300, host=" web-1 " + "y" * 300))
     assert criteria.q.startswith("disk ")
     assert len(criteria.q) == 255
     assert criteria.host.startswith("web-1")
-    assert len(criteria.host) == 100
+    assert len(criteria.host) == 255
     assert CheckFilter.parse(_params(host="   ")).host == ""
 
 
@@ -477,14 +478,11 @@ def test_check_filter_querystring_round_trips_and_resets_the_page():
     assert CheckFilter.parse(QueryDict(criteria.querystring().lstrip("?"))) == criteria
 
 
-def test_check_filter_cutoff_without_and_kept():
+def test_check_filter_cutoff_and_kept():
     assert CheckFilter().cutoff(NOW) is None
     assert CheckFilter(since="30d").cutoff(NOW) == NOW - timedelta(days=30)
     criteria = CheckFilter(q="x", status="ok", checker="cpu", host="h", since="24h", page=2)
     assert criteria.kept() == (("status", "ok"), ("since", "24h"))
-    assert CheckFilter(host="h", dropped=("since",)).without("host") == CheckFilter(
-        dropped=("host", "since")
-    )
 
 
 def test_preflight_filter_parses_status_since_and_page():

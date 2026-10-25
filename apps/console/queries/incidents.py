@@ -68,6 +68,7 @@ class Chip:
     url: str
     active: bool
     count: int | None = None
+    tone: str = ""
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,7 @@ def chip_group(
     criteria: IncidentFilter | AlertFilter | RunFilter | InboxFilter | NodeFilter | CheckFilter,
     base: str,
     counts: dict[str, int] | None = None,
+    tones: dict[str, str] | None = None,
 ) -> ChipGroup:
     current = getattr(criteria, name)
     return ChipGroup(
@@ -110,6 +112,7 @@ def chip_group(
                 url=base + criteria.querystring(**{name: value}),
                 active=value == current,
                 count=None if counts is None else counts[key],
+                tone=(tones or {}).get(key, ""),
             )
             for key, text, value in choices
         ),

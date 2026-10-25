@@ -1,8 +1,35 @@
 (function () {
   "use strict";
 
+  // A swap puts every filter control back to what the server sent, so a poll waits while
+  // the filter form holds a change not yet submitted, or a select that may be open.
+  function editing(element) {
+    return Array.prototype.some.call(element.querySelectorAll("form[role=search]"), function (form) {
+      if (form.querySelector("select:focus")) {
+        return true;
+      }
+      return Array.prototype.some.call(form.elements, function (control) {
+        if (control.tagName === "SELECT") {
+          // With no option marked selected, the first one is the default.
+          var initial = control.options[0];
+          Array.prototype.forEach.call(control.options, function (option) {
+            if (option.defaultSelected) {
+              initial = option;
+            }
+          });
+          return Boolean(initial) && control.value !== initial.value;
+        }
+        if (control.tagName === "INPUT" && control.type !== "hidden") {
+          return control.value !== control.defaultValue;
+        }
+        return false;
+      });
+    });
+  }
+
   // htmx's own trigger filters need eval, which the CSP forbids, so polling is paused here.
-  // Focus is never a reason to pause: htmx refocuses the element with the same id after a swap.
+  // Focus alone is never a reason to pause: htmx refocuses the element with the same id
+  // after a swap.
   document.addEventListener("htmx:beforeRequest", function (event) {
     var element = event.detail.elt;
     if (!element.hasAttribute("data-poll")) {
@@ -16,7 +43,7 @@
       event.preventDefault();
       return;
     }
-    if (document.hidden || element.querySelector("details[open]")) {
+    if (document.hidden || element.querySelector("details[open]") || editing(element)) {
       event.preventDefault();
     }
   });

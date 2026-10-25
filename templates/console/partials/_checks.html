@@ -31,7 +31,7 @@
       {% for group in list.groups %}{% if group.name == "status" %}
       <nav class="c-states" aria-label="{{ group.label }}">
         {% for chip in group.chips %}
-        <a id="chip-{{ group.name }}-{{ chip.key }}" href="{{ chip.url }}" hx-get="{{ chip.url }}" hx-target="#checks" hx-swap="outerHTML" hx-push-url="true" hx-sync="#checks:replace"{% if chip.active %} aria-current="true"{% endif %}>{% if chip.key == "failing" or chip.key == "critical" %}{% include "console/partials/_octicon.html" with name="x-circle" %}{% elif chip.key == "warning" or chip.key == "unknown" %}{% include "console/partials/_octicon.html" with name="alert" %}{% elif chip.key == "ok" %}{% include "console/partials/_octicon.html" with name="check-circle" %}{% elif chip.key == "skipped" %}{% include "console/partials/_octicon.html" with name="skip" %}{% endif %}<span>{{ chip.label }}</span><span class="c-counter">{{ chip.count }}</span></a>
+        <a id="chip-{{ group.name }}-{{ chip.key }}" href="{{ chip.url }}" hx-get="{{ chip.url }}" hx-target="#checks" hx-swap="outerHTML" hx-push-url="true" hx-sync="#checks:replace"{% if chip.active %} aria-current="true"{% endif %}>{% if chip.tone %}{% include "console/partials/_tone_icon.html" with tone=chip.tone %}{% endif %}<span>{{ chip.label }}</span><span class="c-counter">{{ chip.count }}</span></a>
         {% endfor %}
       </nav>
       {% endif %}{% endfor %}
