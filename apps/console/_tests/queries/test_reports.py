@@ -210,6 +210,25 @@ def test_fleet_heads_columns_with_labels_and_names_nodes():
     assert by_pk[bare.pk].cells[1] == FleetCell("", "")
 
 
+def test_fleet_words_a_reading_it_cant_format():
+    node = Node.objects.create(instance_id="i-web", hostname="web")
+    Alert.objects.create(
+        fingerprint="i-web:cpu",
+        name="cpu",
+        severity="warning",
+        status="firing",
+        source="cluster",
+        node=node,
+        labels={"checker": "cpu", "instance_id": "i-web"},
+        annotations={"cpu_percent": ""},
+        started_at=timezone.now(),
+    )
+
+    (row,) = fleet().rows
+
+    assert row.cells == (FleetCell("Can't read", "warning"),)
+
+
 def _user(*codenames):
     user = get_user_model().objects.create_user("reader", is_staff=True)
     for codename in codenames:

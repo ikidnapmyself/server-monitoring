@@ -32,6 +32,8 @@ from config.describing import Action, Description, format_percent
 DAY = timedelta(hours=24)
 WEEK = timedelta(days=7)
 TOP = 5
+NO_VALUE = "—"
+UNREADABLE = "Can't read"
 HEALTH = (("finished", "Finished"), ("failed", "Failed"), ("active", "Still going"))
 
 
@@ -197,7 +199,10 @@ def fleet() -> Fleet:
                 link=Action(node_name(row.hostname), "view_node", {"pk": row.pk}),
                 cells=tuple(
                     (
-                        FleetCell(cell.value, CHECK_STATUS_TONES.get(cell.status, "muted"))
+                        FleetCell(
+                            UNREADABLE if cell.value == NO_VALUE else cell.value,
+                            CHECK_STATUS_TONES.get(cell.status, "muted"),
+                        )
                         if cell.status
                         else FleetCell("", "")
                     )

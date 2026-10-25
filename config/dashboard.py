@@ -352,15 +352,15 @@ def keyed_readiness() -> tuple[tuple[str, Description], ...]:
     )
 
 
-def _row(row) -> dict:
-    """A Reports row as the dashboard template reads it, linked to its console list."""
-    from apps.console.intents import INTENTS
+def _row(row, user) -> dict:
+    """A Reports row as the dashboard template reads it. No url when the user can't open it."""
+    from apps.console.intents import resolve_action
 
-    url = INTENTS[row.link.intent].url(row.link.params)
+    url = resolve_action(row.link, user).url
     return {"label": row.label, "count": row.count, "url": url}
 
 
-def get_dashboard_context():
+def get_dashboard_context(user):
     """Build template context dict for the admin dashboard."""
     from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
     from apps.checkers.models import CheckRun
@@ -387,7 +387,7 @@ def get_dashboard_context():
 
     # --- Pipeline Health (24h) ---
     health = pipeline_health(now)
-    health_card = {"headline": health.headline, "rows": [_row(row) for row in health.rows]}
+    health_card = {"headline": health.headline, "rows": [_row(row, user) for row in health.rows]}
 
     # --- Recent Check Runs (last 10) ---
     recent_check_runs = list(
@@ -412,9 +412,9 @@ def get_dashboard_context():
 
     # --- 7-Day Aggregations ---
     # The console's Reports summary reads the same rows, and each row opens its console list.
-    top_failing_checkers = [_row(row) for row in failing_checkers(now)]
-    top_failure_reasons = [_row(row) for row in failure_reasons(now)]
-    usage = [_row(row) for row in provider_usage(now)]
+    top_failing_checkers = [_row(row, user) for row in failing_checkers(now)]
+    top_failure_reasons = [_row(row, user) for row in failure_reasons(now)]
+    usage = [_row(row, user) for row in provider_usage(now)]
 
     return {
         "active_incidents": active_incidents,

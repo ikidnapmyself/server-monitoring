@@ -12,7 +12,6 @@ dependencies = [
     "psutil>=5.9.0",
     "python-dotenv>=1.2.2",
     "jinja2>=3.1.2",
-    "django-json-widget>=2.0.1",
     # CVE-2026-45409 floor — idna is transitive (requests/httpx/anyio);
     # pinned explicitly so future `uv lock --upgrade` cannot regress.
     "idna>=3.15",

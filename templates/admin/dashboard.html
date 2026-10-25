@@ -61,7 +61,7 @@
       {% if pipeline_health.rows %}
       <div class="metric-value compact">{{ pipeline_health.headline }}</div>
       <div class="stats-container">
-        {% for row in pipeline_health.rows %}<span><a href="{{ row.url }}">{{ row.label }}</a>: <strong>{{ row.count }}</strong></span>
+        {% for row in pipeline_health.rows %}<span>{% if row.url %}<a href="{{ row.url }}">{{ row.label }}</a>{% else %}{{ row.label }}{% endif %}: <strong>{{ row.count }}</strong></span>
         {% endfor %}
       </div>
       {% else %}
@@ -88,7 +88,7 @@
         <tbody>
           {% for run in recent_check_runs %}
           <tr>
-            <td><a href="{% url 'console:check' run.pk %}">{{ run.checker_name }}</a></td>
+            <td>{% if perms.checkers.view_checkrun or perms.checkers.change_checkrun %}<a href="{% url 'console:check' run.pk %}">{{ run.checker_name }}</a>{% else %}{{ run.checker_name }}{% endif %}</td>
             <td>{{ run.hostname }}</td>
             <td>
               <span class="ops-badge ops-badge--{% if run.status == 'ok' %}ok{% elif run.status == 'warning' %}warning{% elif run.status == 'critical' %}critical{% else %}muted{% endif %}">
@@ -100,7 +100,7 @@
           {% endfor %}
         </tbody>
       </table>
-      <div class="table-link"><a href="{% url 'console:checks' %}">View all &rarr;</a></div>
+      {% if perms.checkers.view_checkrun or perms.checkers.change_checkrun %}<div class="table-link"><a href="{% url 'console:checks' %}">View all &rarr;</a></div>{% endif %}
       {% else %}
       <div class="no-data-message">No check runs recorded</div>
       {% endif %}
@@ -183,7 +183,7 @@
         <table class="trends-table">
           {% for item in top_failing_checkers %}
           <tr>
-            <td><a href="{{ item.url }}">{{ item.label }}</a></td>
+            <td>{% if item.url %}<a href="{{ item.url }}">{{ item.label }}</a>{% else %}{{ item.label }}{% endif %}</td>
             <td>{{ item.count }}</td>
           </tr>
           {% endfor %}
@@ -199,7 +199,7 @@
         <table class="trends-table">
           {% for item in failure_reasons %}
           <tr>
-            <td><a href="{{ item.url }}">{{ item.label }}</a></td>
+            <td>{% if item.url %}<a href="{{ item.url }}">{{ item.label }}</a>{% else %}{{ item.label }}{% endif %}</td>
             <td>{{ item.count }}</td>
           </tr>
           {% endfor %}
@@ -215,7 +215,7 @@
         <table class="trends-table">
           {% for item in provider_usage %}
           <tr>
-            <td><a href="{{ item.url }}">{{ item.label }}</a></td>
+            <td>{% if item.url %}<a href="{{ item.url }}">{{ item.label }}</a>{% else %}{{ item.label }}{% endif %}</td>
             <td>{{ item.count }}</td>
           </tr>
           {% endfor %}

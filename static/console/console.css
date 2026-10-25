@@ -841,6 +841,7 @@ summary.c-entry:hover .c-entry__title { color: var(--fgColor-accent); }
 .c-table td { padding: var(--space-2) var(--space-3); border-top: 1px solid var(--borderColor-muted); text-align: left; vertical-align: top; }
 .c-table th { color: var(--fgColor-muted); font-weight: 600; }
 .c-table__num { text-align: right; font-variant-numeric: tabular-nums; }
+.c-table .c-table__num { text-align: right; }
 .c-scroll { overflow-x: auto; }
 .c-table th[scope="row"] { white-space: nowrap; }
 .c-reports {

@@ -124,8 +124,8 @@ def test_the_nodes_card_opens_the_console():
 
 
 @pytest.mark.django_db
-def test_readiness_in_dashboard_context():
-    ctx = get_dashboard_context()
+def test_readiness_in_dashboard_context(admin_user):
+    ctx = get_dashboard_context(admin_user)
     assert "readiness" in ctx
     readiness = ctx["readiness"]
     assert isinstance(readiness, list) and readiness
