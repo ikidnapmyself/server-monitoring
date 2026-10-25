@@ -1,0 +1,58 @@
+<div id="analyses" data-poll hx-get="{{ list.url }}" hx-trigger="every 30s, console:refresh" hx-swap="outerHTML">
+  {% if list.notice %}{% include "console/partials/_flash.html" with tone="warning" text=list.notice %}{% endif %}
+  <form class="c-search c-search--filters" role="search" method="get" action="{% url 'console:analyses' %}" hx-get="{% url 'console:analyses' %}" hx-target="#analyses" hx-swap="outerHTML" hx-push-url="true" hx-sync="#analyses:replace">
+    {% for name, value in list.kept %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+    <label class="c-sr-only" for="analyses-provider">Provider</label>
+    <select id="analyses-provider" class="c-search__select" name="provider">
+      <option value="">Any provider</option>
+      {% for key, label in list.providers %}<option value="{{ key }}"{% if key == list.provider %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <button id="analyses-filter" class="c-button c-button--sm" type="submit">Filter</button>
+  </form>
+  <div class="c-toolbar">
+    {% for group in list.groups %}{% if group.name != "status" %}
+    <nav class="c-seg" aria-label="{{ group.label }}">
+      {% for chip in group.chips %}
+      <a id="chip-{{ group.name }}-{{ chip.key }}" href="{{ chip.url }}" hx-get="{{ chip.url }}" hx-target="#analyses" hx-swap="outerHTML" hx-push-url="true" hx-sync="#analyses:replace" title="{{ chip.label }}"{% if chip.active %} aria-current="true"{% endif %}>{{ chip.label }}</a>
+      {% endfor %}
+    </nav>
+    {% endif %}{% endfor %}
+  </div>
+  <div class="c-box">
+    <div class="c-box__header">
+      <h2 class="c-sr-only">{{ list.total }} {% if list.total == 1 %}analysis{% else %}analyses{% endif %}</h2>
+      {% for group in list.groups %}{% if group.name == "status" %}
+      <nav class="c-states" aria-label="{{ group.label }}">
+        {% for chip in group.chips %}
+        <a id="chip-{{ group.name }}-{{ chip.key }}" href="{{ chip.url }}" hx-get="{{ chip.url }}" hx-target="#analyses" hx-swap="outerHTML" hx-push-url="true" hx-sync="#analyses:replace"{% if chip.active %} aria-current="true"{% endif %}>{% if chip.tone %}{% include "console/partials/_tone_icon.html" with tone=chip.tone %}{% endif %}<span>{{ chip.label }}</span><span class="c-counter">{{ chip.count }}</span></a>
+        {% endfor %}
+      </nav>
+      {% endif %}{% endfor %}
+    </div>
+    {% if list.rows %}
+    <ul class="c-box__list">
+      {% for row in list.rows %}{% include "console/partials/_analysis_row.html" %}{% endfor %}
+    </ul>
+    {% elif list.empty == "none" %}
+    <div class="c-blankslate">
+      {% include "console/partials/_octicon.html" with name="eye" %}
+      <h3 class="c-blankslate__heading">No analyses yet.</h3>
+      <p>Analyses appear here when a run reaches the analyze stage.</p>
+    </div>
+    {% else %}
+    {% url 'console:analyses' as clear_url %}
+    <div class="c-blankslate">
+      {% include "console/partials/_octicon.html" with name="eye" %}
+      <h3 class="c-blankslate__heading">No analyses match these filters.</h3>
+      <p><a id="filters-clear" href="{{ clear_url }}" hx-get="{{ clear_url }}" hx-target="#analyses" hx-swap="outerHTML" hx-push-url="true" hx-sync="#analyses:replace">Clear filters</a></p>
+    </div>
+    {% endif %}
+  </div>
+  {% if list.pages > 1 %}
+  <nav class="c-pagination" aria-label="Pages">
+    {% if list.prev_url %}<a id="page-prev" href="{{ list.prev_url }}" hx-get="{{ list.prev_url }}" hx-target="#analyses" hx-swap="outerHTML" hx-push-url="true" hx-sync="#analyses:replace">{% include "console/partials/_octicon.html" with name="chevron-right" cls="c-pagination__flip" %}Previous</a>{% else %}<span class="c-pagination__gap">{% include "console/partials/_octicon.html" with name="chevron-right" cls="c-pagination__flip" %}Previous</span>{% endif %}
+    <span class="c-pagination__gap">Page {{ list.page }} of {{ list.pages }}</span>
+    {% if list.next_url %}<a id="page-next" href="{{ list.next_url }}" hx-get="{{ list.next_url }}" hx-target="#analyses" hx-swap="outerHTML" hx-push-url="true" hx-sync="#analyses:replace">Next{% include "console/partials/_octicon.html" with name="chevron-right" %}</a>{% else %}<span class="c-pagination__gap">Next{% include "console/partials/_octicon.html" with name="chevron-right" %}</span>{% endif %}
+  </nav>
+  {% endif %}
+</div>

@@ -1,6 +1,8 @@
 from apps.console.views.alert import AlertDetailView
 from apps.console.views.alert_reeval import AlertReevalView
 from apps.console.views.alerts import AlertListView
+from apps.console.views.analyses import AnalysisListView
+from apps.console.views.analysis import AnalysisDetailView
 from apps.console.views.channel import ChannelView
 from apps.console.views.channel_delete import ChannelDeleteView
 from apps.console.views.channels import ChannelsView
@@ -35,6 +37,8 @@ __all__ = [
     "AlertDetailView",
     "AlertListView",
     "AlertReevalView",
+    "AnalysisDetailView",
+    "AnalysisListView",
     "ChannelDeleteView",
     "ChannelView",
     "ChannelsView",

@@ -12,7 +12,7 @@ from apps.alerts.models import Alert
 from apps.checkers.models import CheckRun, PreflightCheck, PreflightRun
 from apps.console._tests.fixtures import OPS_SLACK_WEBHOOK, build_world
 from apps.intelligence._tests.test_forms import KEY
-from apps.intelligence.models import IntelligenceProvider
+from apps.intelligence.models import AnalysisRun, IntelligenceProvider
 from apps.notify._tests.test_forms import SECRETS, STORED
 from apps.notify.drivers import DRIVER_REGISTRY
 from apps.notify.models import NotificationChannel
@@ -25,6 +25,7 @@ SNAKE = re.compile(r"\b[a-z]+_[a-z_]+\b")
 # "rejected", "timeout" and "unknown" are ordinary words a headline uses ("the provider
 # rejected the API key"), so only the codes no sentence would contain are checked.
 CODES = {code for code in (*REASONS, *FAILURE_KINDS) if "_" in code}
+PROVIDER_CONFIG = "https://llm.internal.example/v1"
 VOID = {"br", "img", "input", "meta", "link", "hr", "use"}
 
 
@@ -134,6 +135,26 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         PreflightCheck.objects.create(run=checked, level=level, message=message, hint="Fix it")
     # Older than the world's own run, so the Overview still reads that one.
     PreflightRun.objects.filter(pk=checked.pk).update(created_at=timezone.now() - timedelta(days=1))
+    analysis_pks = [
+        AnalysisRun.objects.create(
+            trace_id="0b9e6c1e-6f4a-4c43-9a59-5b3f1f2a7c11",
+            pipeline_run_id="0b9e6c1e-6f4a-4c43-9a59-5b3f1f2a7c12",
+            provider=provider,
+            status=status,
+            summary="Disk filled by logs",
+            error_message="upstream_error: 500" if status == "failed" else "",
+            provider_config={"base_url": PROVIDER_CONFIG},
+            recommendations=[{"title": "Rotate logs", "priority": "high"}, "junk"],
+            incident_id=world.incident_pks[0] if provider == "openai" else None,
+        ).pk
+        for provider, status in (
+            ("openai", "succeeded"),
+            ("claude", "failed"),
+            ("gemini", "pending"),
+            ("local", "succeeded"),
+            ("retired_provider", "succeeded"),
+        )
+    ]
     client.force_login(superuser)
     headers = {"HX-Request": "true"} if partial else {}
     alert_pks = list(Alert.objects.values_list("pk", flat=True))
@@ -176,6 +197,8 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         + [f"/console/checks/{pk}/" for pk in check_pks]
         + ["/console/preflight/", "/console/preflight/?status=error&since=7d"]
         + [f"/console/preflight/{pk}/" for pk in PreflightRun.objects.values_list("pk", flat=True)]
+        + ["/console/analyses/", "/console/analyses/?status=failed&provider=retired_provider"]
+        + [f"/console/analyses/{pk}/" for pk in analysis_pks]
     )
     html = {url: _get(client, url, headers) for url in urls}
     # The ids are on the page, inside Details, so the check below has something to catch.
@@ -253,8 +276,15 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "Preflight found 1 error",
         "From the command line",
         "DB unreachable",
+        "Built-in local analyzer",
+        "AI analysis is still running",
+        "Rotate logs",
     ):
         assert shown in everything, shown
+    analysis_pages = [page for url, page in html.items() if url.startswith("/console/analyses/")]
+    assert any(PROVIDER_CONFIG in page for page in analysis_pages)
+    for url, text in pages.items():
+        assert PROVIDER_CONFIG not in text, url
     # The templates group is a Details disclosure, so its summary is not visible text.
     assert any("Message templates" in page for page in html.values())
 

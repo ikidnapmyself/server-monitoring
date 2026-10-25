@@ -526,3 +526,5 @@ def test_analysis_filter_querystring_round_trips_and_cutoff():
     assert AnalysisFilter().querystring() == ""
     assert AnalysisFilter(since="7d").cutoff(NOW) == NOW - timedelta(days=7)
     assert AnalysisFilter().cutoff(NOW) is None
+    assert criteria.kept() == (("status", "failed"), ("since", "7d"))
+    assert AnalysisFilter(provider="openai").kept() == ()

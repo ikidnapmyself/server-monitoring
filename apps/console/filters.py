@@ -422,6 +422,15 @@ class AnalysisFilter:
     def querystring(self, **changes: str | int | None) -> str:
         return _encode(self, AnalysisFilter(), ANALYSIS_FIELDS, changes)
 
+    def kept(self) -> tuple[tuple[str, str], ...]:
+        """Filters the provider form must resend. It carries the provider itself."""
+        default = AnalysisFilter()
+        return tuple(
+            (name, str(getattr(self, name)))
+            for name in ("status", "since")
+            if getattr(self, name) != getattr(default, name)
+        )
+
 
 @dataclass(frozen=True)
 class InboxFilter:

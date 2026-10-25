@@ -9,7 +9,7 @@ from django.http import QueryDict
 from django.urls import NoReverseMatch, reverse
 
 from apps.alerts.node_policy import editor_anchor
-from apps.console.filters import CheckFilter, IncidentFilter, RunFilter
+from apps.console.filters import AnalysisFilter, CheckFilter, IncidentFilter, RunFilter
 from config.describing import Action
 
 NODE_READ = ("alerts.view_node", "alerts.change_node")
@@ -77,7 +77,8 @@ def _record(name: str) -> Callable[[dict[str, Any]], str]:
 
 
 def _filtered(
-    name: str, criteria: type[IncidentFilter] | type[RunFilter] | type[CheckFilter]
+    name: str,
+    criteria: type[IncidentFilter] | type[RunFilter] | type[CheckFilter] | type[AnalysisFilter],
 ) -> Callable[[dict[str, Any]], str]:
     def build(params: dict[str, Any]) -> str:
         query = QueryDict(mutable=True)
@@ -168,6 +169,8 @@ INTENTS: dict[str, Intent] = {
     "edit_node_policy": Intent(_node_policy, "get", "alerts.change_node"),
     "reevaluate_node": Intent(_node_reeval, "get", "alerts.change_node"),
     "view_run": Intent(_record("console:run"), "get", RUN_READ),
+    "view_analysis": Intent(_record("console:analysis"), "get", ANALYSIS_READ),
+    "view_analyses": Intent(_filtered("console:analyses", AnalysisFilter), "get", ANALYSIS_READ),
     "view_runs": Intent(_filtered("console:runs", RunFilter), "get", RUN_READ),
     "view_incident": Intent(_record("console:incident"), "get", INCIDENT_READ),
     "view_incidents": Intent(_filtered("console:incidents", IncidentFilter), "get", INCIDENT_READ),

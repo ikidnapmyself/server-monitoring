@@ -129,9 +129,10 @@ def test_query_params_are_encoded(admin_user):
     [
         ("view_preflight", {}, "/console/preflight/"),
         ("view_preflight_run", {"pk": 7}, "/console/preflight/7/"),
+        ("view_analysis", {"pk": 7}, "/console/analyses/7/"),
     ],
 )
-def test_preflight_intents_point_at_the_console(admin_user, intent, params, url):
+def test_report_intents_point_at_the_console(admin_user, intent, params, url):
     resolved = resolve_action(Action("Go", intent=intent, params=params), admin_user)
     assert resolved == ResolvedAction("Go", url, "get")
 
@@ -284,6 +285,11 @@ def test_node_intents_point_at_the_console(admin_user, intent, params, url, meth
             "/console/checks/?status=failing&checker=cpu",
         ),
         ("view_checks", {"checker": "never_heard"}, "/console/checks/"),
+        (
+            "view_analyses",
+            {"provider": "local", "since": "7d"},
+            "/console/analyses/?provider=local&since=7d",
+        ),
     ],
 )
 def test_list_intents_carry_only_valid_filters(admin_user, intent, params, url):
@@ -329,6 +335,8 @@ def _user_with(django_user_model, codename):
             ("view_checks", {}, "checkers", "checkrun"),
             ("view_preflight", {}, "checkers", "preflightrun"),
             ("view_preflight_run", {"pk": 7}, "checkers", "preflightrun"),
+            ("view_analysis", {"pk": 7}, "intelligence", "analysisrun"),
+            ("view_analyses", {}, "intelligence", "analysisrun"),
         )
         for verb in ("view", "change")
     ],
