@@ -661,6 +661,19 @@ details[open] > .c-entry .c-entry__chevron { transform: rotate(90deg); }
   font: 14px/20px var(--fontStack-sans);
 }
 .c-search__input:focus-visible { border-color: var(--focus-outlineColor); outline-offset: -1px; }
+.c-search--filters { flex-wrap: wrap; }
+.c-search--filters .c-search__input { flex-basis: 16rem; }
+.c-search__select {
+  min-width: 0;
+  max-width: 100%;
+  padding: 3px 12px;
+  border: 1px solid var(--borderColor-default);
+  border-radius: var(--radius);
+  background: var(--bgColor-default);
+  color: var(--fgColor-default);
+  font: 14px/20px var(--fontStack-sans);
+}
+.c-search__select:focus-visible { border-color: var(--focus-outlineColor); outline-offset: -1px; }
 .c-form__group { margin: 0 0 var(--space-3); padding: 0; min-width: 0; }
 .c-form__note { margin-bottom: var(--space-3); }
 .c-field { display: grid; gap: var(--space-1); margin-bottom: var(--space-3); }

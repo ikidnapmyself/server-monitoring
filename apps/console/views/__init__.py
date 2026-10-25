@@ -4,6 +4,8 @@ from apps.console.views.alerts import AlertListView
 from apps.console.views.channel import ChannelView
 from apps.console.views.channel_delete import ChannelDeleteView
 from apps.console.views.channels import ChannelsView
+from apps.console.views.check import CheckDetailView
+from apps.console.views.checks import CheckListView
 from apps.console.views.inbox import InboxActionView, InboxPageView
 from apps.console.views.incident import IncidentDetailView
 from apps.console.views.incident_action import IncidentActionView
@@ -34,6 +36,8 @@ __all__ = [
     "ChannelDeleteView",
     "ChannelView",
     "ChannelsView",
+    "CheckDetailView",
+    "CheckListView",
     "InboxActionView",
     "InboxPageView",
     "IncidentActionView",

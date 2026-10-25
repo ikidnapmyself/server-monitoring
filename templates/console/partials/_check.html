@@ -1,0 +1,43 @@
+{% load console %}<a id="check-back" class="c-crumb" href="{% url 'console:checks' %}">{% include "console/partials/_octicon.html" with name="chevron-right" %}Back to check runs</a>
+<div class="c-pagehead">
+  <div class="c-pagehead__top">
+    <h1 class="c-pagehead__title">{{ check.what.headline }} <span class="c-pagehead__number">#{{ check.pk }}</span></h1>
+  </div>
+  <div class="c-pagehead__meta">
+    <span>{{ check.checker }}</span>
+    <span class="c-host c-host--lg{% if not check.host %} c-host--unknown{% endif %}">{% include "console/partials/_octicon.html" with name="server" %}{{ check.host|default:"Unknown host" }}</span>
+    <span>Ran {% include "console/partials/_time.html" with when=check.executed_at %}</span>
+  </div>
+</div>
+
+<div class="c-layout">
+  <div>
+    <section class="c-box c-comment">
+      <h2 class="c-box__header c-box__title">What it found</h2>
+      <div class="c-box__body">{% include "console/partials/_description.html" with d=check.what id="check-what" raw=check.raw %}</div>
+    </section>
+  </div>
+
+  <aside class="c-sidebar" aria-label="Check run details">
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Node</h2>
+      <p class="c-sidebar__value">{% include "console/partials/_octicon.html" with name="server" %}{% if check.node %}{% resolved check.node as act %}{% if act.url %}<a id="check-node" href="{{ act.url }}">{{ act.text }}</a>{% else %}<span>{{ act.text }}</span>{% endif %}{% elif check.host %}<span>{{ check.host }}</span>{% else %}<span class="c-muted">Unknown host</span>{% endif %}</p>
+    </div>
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Thresholds</h2>
+      <p class="c-sidebar__value">{% if check.thresholds %}<span>{{ check.thresholds }}</span>{% else %}<span class="c-muted">None set</span>{% endif %}</p>
+    </div>
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Raised alert</h2>
+      <p class="c-sidebar__value">{% include "console/partials/_octicon.html" with name="bell" %}{% if check.alert %}{% resolved check.alert as act %}{% if act.url %}<a id="check-alert" href="{{ act.url }}">{{ act.text }}</a>{% else %}<span>{{ act.text }}</span>{% endif %}{% else %}<span class="c-muted">None</span>{% endif %}</p>
+    </div>
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Run</h2>
+      <p class="c-sidebar__value">{% include "console/partials/_octicon.html" with name="workflow" %}{% if check.run %}{% resolved check.run as act %}{% if act.url %}<a id="check-run" href="{{ act.url }}">{{ act.text }}</a>{% else %}<span>{{ act.text }}</span>{% endif %}{% else %}<span class="c-muted">Not part of a run</span>{% endif %}</p>
+    </div>
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Took</h2>
+      <p class="c-sidebar__value">{% include "console/partials/_octicon.html" with name="clock" %}<span>{{ check.took }}</span></p>
+    </div>
+  </aside>
+</div>

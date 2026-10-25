@@ -28,6 +28,7 @@
       <a class="c-unav__item" href="{% url 'console:runs' %}"{% if nav == "runs" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="workflow" %}<span>Runs</span></a>
       <a class="c-unav__item" href="{% url 'console:inbox' %}"{% if nav == "inbox" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="clock" %}<span>Inbox</span></a>
       <a class="c-unav__item" href="{% url 'console:nodes' %}"{% if nav == "nodes" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="server" %}<span>Nodes</span></a>
+      {% if perms.checkers.view_checkrun or perms.checkers.change_checkrun %}{% include "console/partials/_reports_item.html" with name="console:checks" %}{% endif %}
       {% if perms.orchestration.view_pipelinedefinition or perms.orchestration.change_pipelinedefinition %}{% include "console/partials/_system_item.html" with name="console:routes" %}{% elif perms.notify.view_notificationchannel or perms.notify.change_notificationchannel %}{% include "console/partials/_system_item.html" with name="console:channels" %}{% elif perms.intelligence.view_intelligenceprovider or perms.intelligence.change_intelligenceprovider %}{% include "console/partials/_system_item.html" with name="console:providers" %}{% elif perms.config_app.view_apikey or perms.config_app.change_apikey %}{% include "console/partials/_system_item.html" with name="console:keys" %}{% endif %}
     </div>
   </nav>

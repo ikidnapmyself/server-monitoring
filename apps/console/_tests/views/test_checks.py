@@ -1,0 +1,231 @@
+import re
+
+import pytest
+from django.contrib.auth.models import Permission
+from django.urls import reverse
+
+from apps.console._tests.queries.test_checks import _check
+from apps.console._tests.test_templates import FORBIDDEN
+from apps.console._tests.views.test_incident import focus_audit
+
+HTMX = {"HTTP_HX_REQUEST": "true"}
+MARKUP = "<img src=x onerror=alert(1)>"
+BOTH = pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
+
+
+@pytest.fixture
+def url():
+    return reverse("console:checks")
+
+
+def _grant(user, app_label, codename):
+    user.user_permissions.add(
+        Permission.objects.get(content_type__app_label=app_label, codename=codename)
+    )
+    return user
+
+
+@pytest.fixture
+def check_viewer(bare_staff):
+    return _grant(bare_staff, "checkers", "view_checkrun")
+
+
+def _tag(body, element_id):
+    return re.search(rf'<[a-z]+\b[^>]*\sid="{re.escape(element_id)}"[^>]*>', body).group()
+
+
+def _nav(body, label):
+    found = re.search(
+        rf'(<a class="c-unav__item" [^>]*>)(?:(?!</a>).)*<span>{label}</span></a>', body, re.S
+    )
+    return found.group(1) if found else None
+
+
+def test_the_list_route(url):
+    assert url == "/console/checks/"
+
+
+@pytest.mark.django_db
+def test_anonymous_is_sent_to_the_admin_login(client, url):
+    resp = client.get(url)
+
+    assert resp.status_code == 302
+    assert resp["Location"] == f"{reverse('admin:login')}?next=/console/checks/"
+
+
+@pytest.mark.django_db
+def test_staff_without_a_check_permission_is_refused(client, bare_staff, url):
+    resp = client.get(url)
+
+    assert resp.status_code == 403
+    assert resp.content.decode() == "Permission to view this page required."
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("codename", ["view_checkrun", "change_checkrun"])
+def test_view_or_change_permission_reads_the_list(client, bare_staff, url, codename):
+    _grant(bare_staff, "checkers", codename)
+
+    resp = client.get(url)
+
+    body = resp.content.decode()
+    assert resp.status_code == 200
+    assert resp.templates[0].name == "console/checks.html"
+    assert "<title>Check runs · Console</title>" in body
+    assert _nav(body, "Reports") == f'<a class="c-unav__item" href="{url}" aria-current="page">'
+    assert f'<a class="c-subnav__item" href="{url}" aria-current="page">Checks</a>' in body
+    assert "octicon-graph" in body
+
+
+@pytest.mark.django_db
+def test_the_reports_item_is_hidden_without_a_report_permission(client, run_viewer):
+    body = client.get(reverse("console:runs")).content.decode()
+
+    assert _nav(body, "Reports") is None
+    assert "/console/checks/" not in body
+
+
+@pytest.mark.django_db
+def test_other_pages_list_reports_without_marking_it(client, superuser, url):
+    client.force_login(superuser)
+
+    body = client.get(reverse("console:runs")).content.decode()
+
+    assert _nav(body, "Reports") == f'<a class="c-unav__item" href="{url}">'
+
+
+@pytest.mark.django_db
+def test_the_partial_is_the_polled_root(client, check_viewer, url):
+    resp = client.get(url, **HTMX)
+
+    body = resp.content.decode()
+    assert "<html" not in body
+    assert resp.templates[0].name == "console/partials/_checks.html"
+    assert body.lstrip().startswith('<div id="checks"')
+    root = _tag(body, "checks")
+    assert re.search(r"\sdata-poll[\s>]", root)
+    assert f'hx-get="{url}"' in root
+    assert 'hx-trigger="every 30s, console:refresh"' in root
+    assert 'hx-swap="outerHTML"' in root
+
+
+@pytest.mark.django_db
+def test_rows_link_to_the_check_run_with_its_meta(client, check_viewer, url):
+    run = _check(status="critical", hostname="web", duration_ms=40)
+    bare = _check(hostname="")
+
+    body = client.get(url).content.decode()
+
+    assert re.search(rf'<a id="check-{run.pk}" href="/console/checks/{run.pk}/">[^<]+</a>', body)
+    assert re.search(r"CPU usage · <span class=\"c-host\">.*?</svg>web</span> · <time", body)
+    assert "</time> · 40ms</div>" in body
+    assert f'id="check-{bare.pk}"' in body
+    assert "Unknown host</span>" in body
+    assert "octicon-x-circle" in body
+
+
+@pytest.mark.django_db
+def test_the_form_carries_the_checker_and_host_and_resends_the_rest(client, check_viewer, url):
+    _check(hostname="web")
+
+    body = client.get(f"{url}?status=failing&since=7d&checker=cpu&host=web&q=abc").content.decode()
+
+    form = body[body.index('<form class="c-search') :]
+    form = form[: form.index("</form>")]
+    assert '<input type="hidden" name="status" value="failing">' in form
+    assert '<input type="hidden" name="since" value="7d">' in form
+    assert 'type="hidden" name="checker"' not in form
+    assert 'value="abc"' in _tag(form, "checks-q")
+    assert '<option value="cpu" selected>CPU usage</option>' in form
+    assert '<option value="web" selected>web</option>' in form
+    assert 'hx-target="#checks"' in form and 'hx-sync="#checks:replace"' in form
+
+
+@pytest.mark.django_db
+def test_the_status_chips_carry_their_icons(client, check_viewer, url):
+    body = client.get(f"{url}?status=failing").content.decode()
+
+    header = body[body.index('<nav class="c-states"') :]
+    header = header[: header.index("</nav>")]
+    assert 'aria-current="true"' in _tag(header, "chip-status-failing")
+    for key, icon in (("critical", "x-circle"), ("warning", "alert"), ("ok", "check-circle")):
+        chip = header[header.index(f'id="chip-status-{key}"') :]
+        assert chip[: chip.index("</a>")].count(f"octicon-{icon}") == 1, key
+    assert "octicon-skip" in header
+    assert 'id="chip-since-24h"' in body
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("setup", "query", "heading"),
+    [
+        (False, "", "No check runs yet."),
+        (True, "?status=critical", "No check runs match these filters."),
+    ],
+)
+def test_each_blank_state(client, check_viewer, url, setup, query, heading):
+    if setup:
+        _check()
+
+    body = client.get(f"{url}{query}").content.decode()
+
+    assert heading in body
+    if setup:
+        clear = _tag(body, "filters-clear")
+        assert f'href="{url}"' in clear and 'hx-target="#checks"' in clear
+
+
+@pytest.mark.django_db
+def test_an_invalid_filter_is_named(client, check_viewer, url):
+    body = client.get(f"{url}?status=bogus&checker=nope").content.decode()
+
+    assert "Ignored invalid filter: status, checker." in body
+
+
+@pytest.mark.django_db
+def test_more_than_a_page_offers_the_pager(client, check_viewer, url, monkeypatch):
+    monkeypatch.setattr("apps.console.queries.checks.PAGE_SIZE", 1)
+    _check()
+    _check()
+
+    first = client.get(url).content.decode()
+    second = client.get(f"{url}?page=2").content.decode()
+
+    assert 'id="page-next"' in first and 'id="page-prev"' not in first
+    assert 'id="page-prev"' in second and 'id="page-next"' not in second
+    assert "Page 2 of 2" in second
+
+
+@pytest.mark.django_db
+@BOTH
+def test_hostile_text_is_escaped(client, check_viewer, url, headers):
+    _check("gone_checker", message=MARKUP, hostname=MARKUP)
+
+    body = client.get(url, **headers).content.decode()
+
+    assert "<img" not in body
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("label", sorted(FORBIDDEN))
+@BOTH
+def test_the_rendered_list_is_clean(client, check_viewer, url, label, headers):
+    _check(status="critical")
+
+    body = client.get(url, **headers).content.decode()
+
+    assert not FORBIDDEN[label].search(body), label
+
+
+@pytest.mark.django_db
+@BOTH
+def test_every_focusable_element_has_a_unique_id(client, check_viewer, url, headers):
+    _check(status="critical")
+    _check()
+
+    body = client.get(url, **headers).content.decode()
+    region = body if headers else body[body.index('<div id="checks"') : body.index("</main>")]
+
+    focusable, ids = focus_audit(region)
+    assert [tag for tag, element_id in focusable if not element_id] == []
+    assert len(ids) == len(set(ids))

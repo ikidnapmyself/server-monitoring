@@ -12,6 +12,7 @@ from apps.alerts.models import Alert, AlertSeverity, Incident, IncidentStatus
 from apps.console.filters import (
     STATUS_CHOICES,
     AlertFilter,
+    CheckFilter,
     InboxFilter,
     IncidentFilter,
     NodeFilter,
@@ -94,7 +95,7 @@ def chip_group(
     name: str,
     label: str,
     choices: tuple[Choice, ...],
-    criteria: IncidentFilter | AlertFilter | RunFilter | InboxFilter | NodeFilter,
+    criteria: IncidentFilter | AlertFilter | RunFilter | InboxFilter | NodeFilter | CheckFilter,
     base: str,
     counts: dict[str, int] | None = None,
 ) -> ChipGroup:

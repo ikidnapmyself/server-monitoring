@@ -154,6 +154,19 @@ def test_the_page_links_the_incident_the_counts_and_the_runs(client, node_viewer
 
 
 @pytest.mark.django_db
+def test_the_hub_checker_row_opens_its_check_run_in_the_console(client, node_viewer):
+    node = _hub()
+    newest = CheckRun.objects.order_by("-executed_at", "-pk").first()
+
+    assert 'id="checker-cpu"' not in client.get(_url(node)).content.decode()
+
+    _grant(node_viewer, ("checkers", "view_checkrun"))
+    body = client.get(_url(node)).content.decode()
+
+    assert re.search(rf'<a id="checker-cpu" href="/console/checks/{newest.pk}/">', body)
+
+
+@pytest.mark.django_db
 def test_a_node_only_viewer_sees_incidents_and_runs_as_text(client, node_viewer):
     node, incident = _busy()
     run = PipelineRun.objects.create(run_id="r-1", trace_id="t-1", node=node, incident=incident)

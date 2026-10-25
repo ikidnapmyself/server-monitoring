@@ -7,6 +7,7 @@ from typing import cast
 import pytest
 
 from apps.alerts.models import Alert
+from apps.checkers.models import CheckRun
 from apps.console._tests.fixtures import OPS_SLACK_WEBHOOK, build_world
 from apps.intelligence._tests.test_forms import KEY
 from apps.intelligence.models import IntelligenceProvider
@@ -105,6 +106,21 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         ).pk
         for driver, config in STORED.items()
     ]
+    check_pks = [
+        CheckRun.objects.create(
+            checker_name="cpu",
+            hostname="hub",
+            status="critical",
+            message="CPU at 97%",
+            metrics={"cpu_percent": 97.0},
+            error="sensor_read failed",
+            trace_id="0b9e6c1e-6f4a-4c43-9a59-5b3f1f2a7c11",
+            alert=Alert.objects.first(),
+        ).pk,
+        CheckRun.objects.create(
+            checker_name="gone_checker", hostname="", status="unknown", message="Something odd"
+        ).pk,
+    ]
     client.force_login(superuser)
     headers = {"HX-Request": "true"} if partial else {}
     alert_pks = list(Alert.objects.values_list("pk", flat=True))
@@ -143,6 +159,8 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         + [f"/console/nodes/{pk}/policy/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/reevaluate/" for pk in world.node_pks]
         + [f"/console/nodes/{world.policy_node_pk}/reevaluate/?checker=listening_ports"]
+        + ["/console/checks/", "/console/checks/?status=failing&checker=gone_checker&host=hub"]
+        + [f"/console/checks/{pk}/" for pk in check_pks]
     )
     html = {url: _get(client, url, headers) for url in urls}
     # The ids are on the page, inside Details, so the check below has something to catch.

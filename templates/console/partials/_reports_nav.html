@@ -1,0 +1,3 @@
+<nav class="c-subnav" aria-label="Reports">
+  {% if perms.checkers.view_checkrun or perms.checkers.change_checkrun %}<a class="c-subnav__item" href="{% url 'console:checks' %}"{% if section == "checks" %} aria-current="page"{% endif %}>Checks</a>{% endif %}
+</nav>

@@ -128,7 +128,6 @@ def test_query_params_are_encoded(admin_user):
     ("intent", "params", "url"),
     [
         ("view_preflight", {}, "/admin/checkers/preflightrun/"),
-        ("view_check_run", {"pk": 7}, "/admin/checkers/checkrun/7/change/"),
         ("view_preflight_run", {"pk": 7}, "/admin/checkers/preflightrun/7/change/"),
     ],
 )
@@ -155,6 +154,7 @@ def test_alert_intents_point_at_the_console(admin_user, intent, params, url):
     ("intent", "url", "method"),
     [
         ("view_run", "/console/runs/7/", "get"),
+        ("view_check_run", "/console/checks/7/", "get"),
         ("view_incident", "/console/incidents/7/", "get"),
         ("retry_run", "/console/runs/7/retry/", "post"),
         ("abandon_run", "/console/runs/7/abandon/", "post"),
@@ -278,6 +278,12 @@ def test_node_intents_point_at_the_console(admin_user, intent, params, url, meth
         ("view_incidents", {"severity": "loud"}, "/console/incidents/"),
         ("view_runs", {}, "/console/runs/"),
         ("view_runs", {"node": 7}, "/console/runs/?node=7"),
+        (
+            "view_checks",
+            {"checker": "cpu", "status": "failing"},
+            "/console/checks/?status=failing&checker=cpu",
+        ),
+        ("view_checks", {"checker": "never_heard"}, "/console/checks/"),
     ],
 )
 def test_list_intents_carry_only_valid_filters(admin_user, intent, params, url):
@@ -319,6 +325,8 @@ def _user_with(django_user_model, codename):
             ("view_nodes", {}, "alerts", "node"),
             ("view_node", {"pk": 7}, "alerts", "node"),
             ("view_policy", {}, "alerts", "node"),
+            ("view_check_run", {"pk": 7}, "checkers", "checkrun"),
+            ("view_checks", {}, "checkers", "checkrun"),
         )
         for verb in ("view", "change")
     ],

@@ -12,7 +12,7 @@ from django.http import QueryDict
 from django.urls import NoReverseMatch, reverse
 
 from apps.alerts.node_policy import editor_anchor
-from apps.console.filters import IncidentFilter, RunFilter
+from apps.console.filters import CheckFilter, IncidentFilter, RunFilter
 from config.describing import Action
 
 NODE_READ = ("alerts.view_node", "alerts.change_node")
@@ -34,6 +34,9 @@ PROVIDER_CHANGE = "intelligence.change_intelligenceprovider"
 PROVIDER_ADD = "intelligence.add_intelligenceprovider"
 PROVIDER_DELETE = "intelligence.delete_intelligenceprovider"
 KEY_READ = ("config_app.view_apikey", "config_app.change_apikey")
+CHECK_READ = ("checkers.view_checkrun", "checkers.change_checkrun")
+PREFLIGHT_READ = ("checkers.view_preflightrun", "checkers.change_preflightrun")
+ANALYSIS_READ = ("intelligence.view_analysisrun", "intelligence.change_analysisrun")
 KEY_CHANGE = "config_app.change_apikey"
 KEY_ADD = "config_app.add_apikey"
 KEY_DELETE = "config_app.delete_apikey"
@@ -77,7 +80,7 @@ def _record(name: str) -> Callable[[dict[str, Any]], str]:
 
 
 def _filtered(
-    name: str, criteria: type[IncidentFilter] | type[RunFilter]
+    name: str, criteria: type[IncidentFilter] | type[RunFilter] | type[CheckFilter]
 ) -> Callable[[dict[str, Any]], str]:
     def build(params: dict[str, Any]) -> str:
         query = QueryDict(mutable=True)
@@ -164,9 +167,8 @@ INTENTS: dict[str, Intent] = {
     "view_nodes": Intent(_page("console:nodes"), "get", NODE_READ),
     "view_policy": Intent(_page("console:policy"), "get", NODE_READ),
     "view_node": Intent(_record("console:node"), "get", NODE_READ),
-    "view_check_run": Intent(
-        _record("admin:checkers_checkrun_change"), "get", "checkers.view_checkrun"
-    ),
+    "view_check_run": Intent(_record("console:check"), "get", CHECK_READ),
+    "view_checks": Intent(_filtered("console:checks", CheckFilter), "get", CHECK_READ),
     "view_preflight_run": Intent(
         _record("admin:checkers_preflightrun_change"), "get", "checkers.view_preflightrun"
     ),
