@@ -58,24 +58,14 @@
     <!-- Pipeline Health (24h) -->
     <div class="module dashboard-card">
       <h2>Pipeline Health (24h)</h2>
-      {% if pipeline_health.total > 0 %}
-      <div class="metric-value compact">
-        {{ pipeline_health.success_rate }}%
-      </div>
-      <div class="metric-subtitle">
-        {{ pipeline_health.successful }}/{{ pipeline_health.total }} runs succeeded
-      </div>
-      <div class="progress-bar-container">
-        <div class="progress-bar {% if pipeline_health.success_rate >= 90 %}success{% elif pipeline_health.success_rate >= 70 %}warning{% else %}error{% endif %}"
-             style="width: {{ pipeline_health.success_rate }}%;"></div>
-      </div>
+      {% if pipeline_health.rows %}
+      <div class="metric-value compact">{{ pipeline_health.headline }}</div>
       <div class="stats-container">
-        <span>Failed: <strong>{{ pipeline_health.failed }}</strong></span>
-        <span>Retrying: <strong>{{ pipeline_health.retrying }}</strong></span>
-        <span>In-flight: <strong>{{ pipeline_health.in_flight }}</strong></span>
+        {% for row in pipeline_health.rows %}<span><a href="{{ row.url }}">{{ row.label }}</a>: <strong>{{ row.count }}</strong></span>
+        {% endfor %}
       </div>
       {% else %}
-      <div class="no-data-message">No pipeline runs in the last 24 hours</div>
+      <div class="no-data-message">{{ pipeline_health.headline }}</div>
       {% endif %}
     </div>
   </div>
@@ -98,7 +88,7 @@
         <tbody>
           {% for run in recent_check_runs %}
           <tr>
-            <td><a href="{% url 'admin:checkers_checkrun_change' run.pk %}">{{ run.checker_name }}</a></td>
+            <td><a href="{% url 'console:check' run.pk %}">{{ run.checker_name }}</a></td>
             <td>{{ run.hostname }}</td>
             <td>
               <span class="ops-badge ops-badge--{% if run.status == 'ok' %}ok{% elif run.status == 'warning' %}warning{% elif run.status == 'critical' %}critical{% else %}muted{% endif %}">
@@ -110,7 +100,7 @@
           {% endfor %}
         </tbody>
       </table>
-      <div class="table-link"><a href="/admin/checkers/checkrun/">View all &rarr;</a></div>
+      <div class="table-link"><a href="{% url 'console:checks' %}">View all &rarr;</a></div>
       {% else %}
       <div class="no-data-message">No check runs recorded</div>
       {% endif %}
@@ -193,7 +183,7 @@
         <table class="trends-table">
           {% for item in top_failing_checkers %}
           <tr>
-            <td><a href="{{ item.url }}">{{ item.checker_name }}</a></td>
+            <td><a href="{{ item.url }}">{{ item.label }}</a></td>
             <td>{{ item.count }}</td>
           </tr>
           {% endfor %}
@@ -204,12 +194,12 @@
       </div>
 
       <div class="trends-section">
-        <h3>Top Error Types</h3>
-        {% if top_error_types %}
+        <h3>Top Failure Reasons</h3>
+        {% if failure_reasons %}
         <table class="trends-table">
-          {% for item in top_error_types %}
+          {% for item in failure_reasons %}
           <tr>
-            <td><a href="{{ item.url }}">{{ item.last_error_type|default:"Unknown" }}</a></td>
+            <td><a href="{{ item.url }}">{{ item.label }}</a></td>
             <td>{{ item.count }}</td>
           </tr>
           {% endfor %}
@@ -223,18 +213,10 @@
         <h3>AI Provider Usage</h3>
         {% if provider_usage %}
         <table class="trends-table">
-          <thead>
-            <tr>
-              <th>Provider</th>
-              <th>Runs</th>
-              <th>Tokens</th>
-            </tr>
-          </thead>
           {% for item in provider_usage %}
           <tr>
-            <td><a href="{{ item.url }}">{{ item.provider }}</a></td>
-            <td>{{ item.runs }}</td>
-            <td>{{ item.tokens|default:0 }}</td>
+            <td><a href="{{ item.url }}">{{ item.label }}</a></td>
+            <td>{{ item.count }}</td>
           </tr>
           {% endfor %}
         </table>

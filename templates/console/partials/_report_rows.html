@@ -1,0 +1,5 @@
+{% load console %}<ul class="c-box__list">
+  {% for row in rows %}{% resolved row.link as act %}
+  <li class="c-box__row c-report">{% if act.url %}<a id="{{ prefix }}-{{ forloop.counter }}" href="{{ act.url }}">{{ row.label }}</a>{% else %}<span>{{ row.label }}</span>{% endif %}<span class="c-report__count">{{ row.count }}</span></li>
+  {% endfor %}
+</ul>

@@ -107,8 +107,12 @@ class TestDashboardContext(TestCase):
         response = self.client.get("/admin/")
         assert "pipeline_health" in response.context
         health = response.context["pipeline_health"]
-        assert health["total"] == 3
-        assert health["successful"] == 2
+        assert health["headline"] == "66.7% of runs finished"
+        assert [(row["label"], row["count"]) for row in health["rows"]] == [
+            ("Finished", "2"),
+            ("Failed", "1"),
+            ("Still going", "0"),
+        ]
 
     def test_dashboard_contains_recent_checks(self):
         response = self.client.get("/admin/")
@@ -123,7 +127,7 @@ class TestDashboardContext(TestCase):
     def test_dashboard_contains_aggregations(self):
         response = self.client.get("/admin/")
         assert "top_failing_checkers" in response.context
-        assert "top_error_types" in response.context
+        assert "failure_reasons" in response.context
         assert "provider_usage" in response.context
 
     def test_dashboard_renders_panels(self):

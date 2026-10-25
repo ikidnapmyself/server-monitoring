@@ -1,4 +1,5 @@
 <nav class="c-subnav" aria-label="Reports">
+  <a class="c-subnav__item" href="{% url 'console:reports' %}"{% if section == "summary" %} aria-current="page"{% endif %}>Summary</a>
   {% if perms.checkers.view_checkrun or perms.checkers.change_checkrun %}<a class="c-subnav__item" href="{% url 'console:checks' %}"{% if section == "checks" %} aria-current="page"{% endif %}>Checks</a>{% endif %}
   {% if perms.checkers.view_preflightrun or perms.checkers.change_preflightrun %}<a class="c-subnav__item" href="{% url 'console:preflight' %}"{% if section == "preflight" %} aria-current="page"{% endif %}>Preflight</a>{% endif %}
   {% if perms.intelligence.view_analysisrun or perms.intelligence.change_analysisrun %}<a class="c-subnav__item" href="{% url 'console:analyses' %}"{% if section == "analyses" %} aria-current="page"{% endif %}>Analyses</a>{% endif %}

@@ -7,7 +7,7 @@ from apps.alerts.models import Incident
 from apps.console._tests.queries.test_analyses import _analysis
 from apps.console._tests.test_guard import visible
 from apps.console._tests.test_templates import FORBIDDEN
-from apps.console._tests.views.test_checks import _grant, _nav, _tag
+from apps.console._tests.views.test_checks import REPORTS_CURRENT, _grant, _nav, _tag
 from apps.console._tests.views.test_incident import focus_audit
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
@@ -77,22 +77,21 @@ def test_view_or_change_permission_reads_both_pages(client, bare_staff, codename
     assert record.templates[0].name == "console/analysis.html"
     assert "<title>Analyses · Console</title>" in body
     assert "<title>Disk filled by logs · Console</title>" in record.content.decode()
-    assert _nav(body, "Reports") == f'<a class="c-unav__item" href="{LIST}" aria-current="page">'
+    assert _nav(body, "Reports") == REPORTS_CURRENT
     assert f'<a class="c-subnav__item" href="{LIST}" aria-current="page">Analyses</a>' in body
     assert "Checks</a>" not in body and "Preflight</a>" not in body
 
 
 @pytest.mark.django_db
-def test_the_reports_item_falls_through_to_the_first_readable_tab(client, bare_staff):
+def test_the_reports_item_opens_the_summary_with_the_readable_tabs(client, bare_staff):
     _grant(bare_staff, "checkers", "view_preflightrun")
     _grant(bare_staff, "intelligence", "view_analysisrun")
 
     body = client.get(LIST).content.decode()
 
-    assert _nav(body, "Reports") == (
-        f'<a class="c-unav__item" href="{reverse("console:preflight")}" aria-current="page">'
-    )
-    assert ">Preflight</a>" in body and ">Analyses</a>" in body
+    assert _nav(body, "Reports") == REPORTS_CURRENT
+    assert ">Summary</a>" in body and ">Preflight</a>" in body and ">Analyses</a>" in body
+    assert ">Checks</a>" not in body
 
 
 @pytest.mark.django_db

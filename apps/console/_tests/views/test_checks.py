@@ -10,6 +10,7 @@ from apps.console._tests.views.test_incident import focus_audit
 from config.admin_badges import CHECK_STATUS_TONES
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
+REPORTS_CURRENT = '<a class="c-unav__item" href="/console/reports/" aria-current="page">'
 MARKUP = "<img src=x onerror=alert(1)>"
 TONE_ICONS = {"ok": "check-circle", "critical": "x-circle", "warning": "alert", "muted": "skip"}
 BOTH = pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
@@ -74,14 +75,14 @@ def test_view_or_change_permission_reads_the_list(client, bare_staff, url, coden
     assert resp.status_code == 200
     assert resp.templates[0].name == "console/checks.html"
     assert "<title>Check runs · Console</title>" in body
-    assert _nav(body, "Reports") == f'<a class="c-unav__item" href="{url}" aria-current="page">'
+    assert _nav(body, "Reports") == REPORTS_CURRENT
     assert f'<a class="c-subnav__item" href="{url}" aria-current="page">Checks</a>' in body
     assert "octicon-graph" in body
 
 
 @pytest.mark.django_db
-def test_the_reports_item_is_hidden_without_a_report_permission(client, run_viewer):
-    body = client.get(reverse("console:runs")).content.decode()
+def test_the_reports_item_is_hidden_without_a_report_permission(client, node_viewer):
+    body = client.get(reverse("console:nodes")).content.decode()
 
     assert _nav(body, "Reports") is None
     assert "/console/checks/" not in body
@@ -93,7 +94,7 @@ def test_other_pages_list_reports_without_marking_it(client, superuser, url):
 
     body = client.get(reverse("console:runs")).content.decode()
 
-    assert _nav(body, "Reports") == f'<a class="c-unav__item" href="{url}">'
+    assert _nav(body, "Reports") == '<a class="c-unav__item" href="/console/reports/">'
 
 
 @pytest.mark.django_db

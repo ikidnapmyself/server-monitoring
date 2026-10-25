@@ -1,0 +1,58 @@
+{% load console %}<div class="c-reports">
+  {% if reports.health %}
+  <section class="c-box">
+    <h2 class="c-box__header c-box__title">Pipeline health, last 24 hours</h2>
+    <div class="c-box__body"><p class="c-report__headline">{{ reports.health.headline }}</p></div>
+    {% if reports.health.rows %}{% include "console/partials/_report_rows.html" with rows=reports.health.rows prefix="report-health" %}{% endif %}
+  </section>
+  {% endif %}
+  {% if reports.reasons is not None %}
+  <section class="c-box">
+    <h2 class="c-box__header c-box__title">Top failure reasons, last 7 days</h2>
+    {% if reports.reasons %}{% include "console/partials/_report_rows.html" with rows=reports.reasons prefix="report-reason" %}
+    {% else %}<div class="c-box__body"><p class="c-muted">No failed runs in the last 7 days.</p></div>{% endif %}
+  </section>
+  {% endif %}
+  {% if reports.checkers is not None %}
+  <section class="c-box">
+    <h2 class="c-box__header c-box__title">Top failing checkers, last 7 days</h2>
+    {% if reports.checkers %}{% include "console/partials/_report_rows.html" with rows=reports.checkers prefix="report-checker" %}
+    {% else %}<div class="c-box__body"><p class="c-muted">No failing results in the last 7 days.</p></div>{% endif %}
+  </section>
+  {% endif %}
+  {% if reports.providers is not None %}
+  <section class="c-box">
+    <h2 class="c-box__header c-box__title">Provider usage, last 7 days</h2>
+    {% if reports.providers %}{% include "console/partials/_report_rows.html" with rows=reports.providers prefix="report-provider" %}
+    {% else %}<div class="c-box__body"><p class="c-muted">No analyses in the last 7 days.</p></div>{% endif %}
+  </section>
+  {% endif %}
+  {% if reports.preflight %}
+  <section class="c-box">
+    <h2 class="c-box__header c-box__title">Latest preflight</h2>
+    <div class="c-box__body">{% include "console/partials/_description.html" with d=reports.preflight id="report-preflight" %}</div>
+  </section>
+  {% endif %}
+</div>
+{% if reports.fleet %}
+<section class="c-box c-section">
+  <h2 class="c-box__header c-box__title">Fleet metrics</h2>
+  {% if reports.fleet.rows %}
+  <div class="c-scroll">
+    <table class="c-table">
+      <thead><tr><th scope="col">Node</th>{% for column in reports.fleet.columns %}<th scope="col" class="c-table__num">{{ column }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for row in reports.fleet.rows %}{% resolved row.link as act %}
+        <tr>
+          <th scope="row">{% if act.url %}<a id="report-node-{{ row.pk }}" href="{{ act.url }}">{{ act.text }}</a>{% else %}{{ act.text }}{% endif %}</th>
+          {% for cell in row.cells %}<td class="c-table__num{% if cell.tone %} c-tone-{{ cell.tone }}{% endif %}">{{ cell.value }}</td>{% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="c-box__body"><p class="c-muted">No node has reported a headline metric yet.</p></div>
+  {% endif %}
+</section>
+{% endif %}

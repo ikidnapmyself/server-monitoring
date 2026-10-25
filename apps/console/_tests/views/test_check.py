@@ -8,7 +8,7 @@ from apps.alerts.models import Alert, Node
 from apps.console._tests.queries.test_checks import _check
 from apps.console._tests.test_guard import visible
 from apps.console._tests.test_templates import FORBIDDEN
-from apps.console._tests.views.test_checks import _grant, _nav
+from apps.console._tests.views.test_checks import REPORTS_CURRENT, _grant, _nav
 from apps.console._tests.views.test_incident import focus_audit
 from apps.orchestration.models import PipelineRun
 
@@ -80,9 +80,7 @@ def test_view_or_change_permission_reads_the_page(client, bare_staff, codename):
     assert resp.status_code == 200
     assert resp.templates[0].name == "console/check.html"
     assert re.search(r"<title>[^<]+ · Console</title>", body)
-    assert _nav(body, "Reports") == (
-        f'<a class="c-unav__item" href="{reverse("console:checks")}" aria-current="page">'
-    )
+    assert _nav(body, "Reports") == REPORTS_CURRENT
     assert 'id="check-back"' in body and "Back to check runs" in body
 
 

@@ -7,7 +7,7 @@ from apps.alerts.models import Node
 from apps.console._tests.queries.test_preflight import _preflight
 from apps.console._tests.test_guard import visible
 from apps.console._tests.test_templates import FORBIDDEN
-from apps.console._tests.views.test_checks import _grant, _nav, _tag
+from apps.console._tests.views.test_checks import REPORTS_CURRENT, _grant, _nav, _tag
 from apps.console._tests.views.test_incident import focus_audit
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
@@ -62,20 +62,18 @@ def test_view_or_change_permission_reads_both_pages(client, bare_staff, codename
     assert record.templates[0].name == "console/preflight_run.html"
     assert "<title>Preflight · Console</title>" in body
     assert "<title>Preflight found 2 warnings · Console</title>" in record.content.decode()
-    assert _nav(body, "Reports") == f'<a class="c-unav__item" href="{LIST}" aria-current="page">'
+    assert _nav(body, "Reports") == REPORTS_CURRENT
     assert f'<a class="c-subnav__item" href="{LIST}" aria-current="page">Preflight</a>' in body
     assert "Checks</a>" not in body
 
 
 @pytest.mark.django_db
-def test_a_reader_of_both_sees_both_tabs_and_reports_opens_checks(client, superuser):
+def test_a_full_reader_sees_every_tab_and_reports_opens_the_summary(client, superuser):
     client.force_login(superuser)
 
     body = client.get(LIST).content.decode()
 
-    assert _nav(body, "Reports") == (
-        f'<a class="c-unav__item" href="{reverse("console:checks")}" aria-current="page">'
-    )
+    assert _nav(body, "Reports") == REPORTS_CURRENT
     assert f'<a class="c-subnav__item" href="{reverse("console:checks")}">Checks</a>' in body
 
 

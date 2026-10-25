@@ -193,6 +193,7 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         + [f"/console/nodes/{pk}/policy/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/reevaluate/" for pk in world.node_pks]
         + [f"/console/nodes/{world.policy_node_pk}/reevaluate/?checker=listening_ports"]
+        + ["/console/reports/"]
         + ["/console/checks/", "/console/checks/?status=failing&checker=gone_checker&host=hub"]
         + [f"/console/checks/{pk}/" for pk in check_pks]
         + ["/console/preflight/", "/console/preflight/?status=error&since=7d"]
@@ -279,6 +280,9 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "Built-in local analyzer",
         "AI analysis is still running",
         "Rotate logs",
+        "of runs finished",
+        "Top failure reasons, last 7 days",
+        "Other failures",
     ):
         assert shown in everything, shown
     analysis_pages = [page for url, page in html.items() if url.startswith("/console/analyses/")]

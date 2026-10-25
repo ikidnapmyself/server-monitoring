@@ -27,6 +27,7 @@ from apps.console.views.preflight_run import PreflightRunView
 from apps.console.views.provider import ProviderView
 from apps.console.views.provider_delete import ProviderDeleteView
 from apps.console.views.providers import ProvidersView
+from apps.console.views.reports import ReportsView
 from apps.console.views.route import RouteView
 from apps.console.views.route_delete import RouteDeleteView
 from apps.console.views.routes import RoutesView
@@ -64,6 +65,7 @@ __all__ = [
     "ProviderDeleteView",
     "ProviderView",
     "ProvidersView",
+    "ReportsView",
     "RouteDeleteView",
     "RouteView",
     "RoutesView",

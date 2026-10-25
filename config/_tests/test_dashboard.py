@@ -41,25 +41,19 @@ class TestGetDashboardContext(TestCase):
             "recent_check_runs",
             "failed_pipelines",
             "top_failing_checkers",
-            "top_error_types",
+            "failure_reasons",
             "provider_usage",
             "readiness",
             "fleet_metrics",
         }
         assert set(ctx.keys()) == expected_keys
 
-    def test_pipeline_health_structure(self):
+    def test_empty_database_says_there_were_no_runs(self):
         ctx = get_dashboard_context()
-        health = ctx["pipeline_health"]
-        assert "total" in health
-        assert "successful" in health
-        assert "failed" in health
-        assert "success_rate" in health
-
-    def test_empty_database_returns_zeros(self):
-        ctx = get_dashboard_context()
-        assert ctx["pipeline_health"]["total"] == 0
-        assert ctx["pipeline_health"]["success_rate"] == 0
+        assert ctx["pipeline_health"] == {
+            "headline": "No runs in the last 24 hours.",
+            "rows": [],
+        }
         assert ctx["active_incidents"]["total"] == 0
 
     def test_with_data(self):
@@ -77,8 +71,13 @@ class TestGetDashboardContext(TestCase):
         ctx = get_dashboard_context()
         assert ctx["active_incidents"]["total"] == 1
         assert ctx["active_incidents"]["critical"] == 1
-        assert ctx["pipeline_health"]["total"] == 1
-        assert ctx["pipeline_health"]["success_rate"] == 100.0
+        health = ctx["pipeline_health"]
+        assert health["headline"] == "100% of runs finished"
+        assert health["rows"][0] == {
+            "label": "Finished",
+            "count": "1",
+            "url": "/console/runs/?status=finished&since=24h",
+        }
 
 
 @pytest.mark.django_db
@@ -164,52 +163,42 @@ class TestTrendRowsAreReachable:
     see that ``disk`` failed twelve times and has to rebuild the filter by hand.
     """
 
-    def test_a_failing_checker_links_its_own_check_runs(self, admin_client):
-        from django.urls import reverse
-
+    def test_a_failing_checker_links_its_console_check_runs(self, admin_client):
         from apps.checkers.models import CheckRun, CheckStatus
 
         CheckRun.objects.create(
             checker_name="disk", hostname="h", status=CheckStatus.CRITICAL, message="m"
         )
         row = get_dashboard_context()["top_failing_checkers"][0]
-        expected = reverse("admin:checkers_checkrun_changelist") + "?checker_name__exact=disk"
-        assert row["url"] == expected
+        expected = "/console/checks/?status=failing&checker=disk&since=7d"
+        assert row == {"label": "Disk space", "count": "1 failing result", "url": expected}
         assert admin_client.get(expected).status_code == 200
 
-    def test_an_error_type_links_the_failed_runs_that_raised_it(self, admin_client):
-        from django.urls import reverse
-
+    def test_a_failure_reason_links_the_console_runs_it_names(self, admin_client):
         from apps.orchestration.models import PipelineRun, PipelineStatus
 
         PipelineRun.objects.create(
             trace_id="t",
             run_id="r",
             status=PipelineStatus.FAILED,
-            last_error_type="TimeoutError",
+            last_error_message="no_route: nothing matched",
         )
-        row = get_dashboard_context()["top_error_types"][0]
-        expected = (
-            reverse("admin:orchestration_pipelinerun_changelist")
-            + "?last_error_type__exact=TimeoutError&status__exact=failed"
-        )
+        row = get_dashboard_context()["failure_reasons"][0]
+        expected = "/console/runs/?status=failed&reason=no_route&since=7d"
+        assert row["label"] == "No route matches this incident"
         assert row["url"] == expected
         assert admin_client.get(expected).status_code == 200
 
-    def test_a_provider_links_its_analysis_runs(self, admin_client):
-        from django.urls import reverse
-
+    def test_a_provider_links_its_console_analyses(self, admin_client):
         from apps.intelligence.models import AnalysisRun
 
-        AnalysisRun.objects.create(trace_id="t", provider="anthropic", status="succeeded")
+        AnalysisRun.objects.create(trace_id="t", provider="openai", status="succeeded")
         row = get_dashboard_context()["provider_usage"][0]
-        expected = (
-            reverse("admin:intelligence_analysisrun_changelist") + "?provider__exact=anthropic"
-        )
-        assert row["url"] == expected
+        expected = "/console/analyses/?provider=openai&since=7d"
+        assert row == {"label": "OpenAI", "count": "1 analysis, 0 tokens", "url": expected}
         assert admin_client.get(expected).status_code == 200
 
-    def test_a_recent_check_run_links_its_own_row(self, admin_client):
+    def test_a_recent_check_run_links_its_console_page(self, admin_client):
         from django.urls import reverse
 
         from apps.checkers.models import CheckRun, CheckStatus
@@ -218,5 +207,6 @@ class TestTrendRowsAreReachable:
             checker_name="cpu", hostname="h", status=CheckStatus.OK, message="m"
         )
         body = admin_client.get(reverse("admin:index")).content.decode()
-        url = reverse("admin:checkers_checkrun_change", args=[run.pk])
-        assert f'<a href="{url}">cpu</a>' in body
+        assert f'<a href="/console/checks/{run.pk}/">cpu</a>' in body
+        assert '<a href="/console/checks/">View all &rarr;</a>' in body
+        assert reverse("admin:checkers_checkrun_change", args=[run.pk]) not in body
