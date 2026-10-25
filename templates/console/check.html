@@ -1,0 +1,8 @@
+{% extends "console/base.html" %}
+{% block title %}{{ check.what.headline }} · Console{% endblock %}
+{% block content %}
+{% include "console/partials/_reports_nav.html" %}
+<div id="check">
+  {% include "console/partials/_check.html" %}
+</div>
+{% endblock %}

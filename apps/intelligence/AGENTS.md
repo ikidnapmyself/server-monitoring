@@ -31,7 +31,8 @@ was invented, so the describer hides it.
   - `local.py` — Local analysis provider (fallback/default)
   - `openai.py`, `claude.py`, `gemini.py`, `copilot.py`, `grok.py`, `ollama.py`, `mistral.py` — LLM providers
   - `__init__.py` — `PROVIDERS` registry, `get_provider()`, `get_active_provider()`
-- `apps/intelligence/describing.py` — `describe_analysis`, an analyze snapshot in words
+- `apps/intelligence/describing.py` — `describe_analysis`, an analyze snapshot in words;
+  `describe_analysis_run`, `describe_recommendations` and `provider_label` for stored rows
 - `apps/intelligence/models.py` — `IntelligenceProvider` (DB-driven config), `AnalysisRun`
 - `apps/intelligence/forms.py`: `ProviderForm`, the console's provider editor
 - `apps/intelligence/saving.py`: `save_provider`, `provider_digest`, `StaleProvider`, `active_provider`
@@ -79,12 +80,18 @@ so it turns the other providers off itself, in the same transaction. A create go
 
 Operators add, edit and delete providers in the console (`/console/providers/`).
 `IntelligenceProviderAdmin` is stock and read-only and excludes `config`, so no stored
-secret renders there.
+secret renders there. Operators read analyses at `/console/analyses/`. `AnalysisRunAdmin`
+is stock and read-only too and excludes `provider_config`.
 
-For `apps.intelligence`, admin should make it easy to:
-- Inspect intelligence outputs for pipeline runs (typically via `apps.orchestration.StageExecution` with `stage="analyze"`)
-- See provider/model metadata and token usage when captured
-- Correlate analysis with `Incident` and `trace_id/run_id`
+`AnalysisRun` rows are worded on read:
+- `provider_label(key)` gives the `PROVIDER_CHOICES` label. `local` reads "Built-in local
+  analyzer" and any other unknown key "A provider this hub doesn't have".
+- `describe_analysis_run(run)` reads pending and running rows as "AI analysis is still
+  running" in tone info, and a failed row as `FAILURES["unknown"]` with the stored error as
+  a fact. A succeeded row goes through `describe_analysis`, and a summary there reads ok.
+- `describe_recommendations(items)` turns each item's title and description into a
+  `Description`. Priority critical or high reads warning, anything else info. Items that
+  aren't a dict or have no title are skipped.
 
 ## App layout rules (required)
 

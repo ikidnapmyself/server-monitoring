@@ -1,0 +1,44 @@
+{% load console %}<a id="preflight-back" class="c-crumb" href="{% url 'console:preflight' %}">{% include "console/partials/_octicon.html" with name="chevron-right" %}Back to preflight</a>
+<div class="c-pagehead">
+  <div class="c-pagehead__top">
+    <h1 class="c-pagehead__title">{{ run.what.headline }} <span class="c-pagehead__number">#{{ run.pk }}</span></h1>
+  </div>
+  <div class="c-pagehead__meta">
+    {% if run.trigger %}<span>{{ run.trigger }}</span>{% endif %}
+    <span>Ran {% include "console/partials/_time.html" with when=run.created_at %}</span>
+  </div>
+</div>
+
+<div class="c-layout">
+  <div>
+    <section class="c-box c-comment">
+      <h2 class="c-box__header c-box__title">Result</h2>
+      <div class="c-box__body">{% include "console/partials/_description.html" with d=run.what id="preflight-what" %}</div>
+    </section>
+    {% for group in run.groups %}
+    <section class="c-box c-comment">
+      <h2 class="c-box__header c-box__title">{{ group.label }}</h2>
+      <ul class="c-box__list">
+        {% for check in group.checks %}
+        {% with n=forloop.counter|stringformat:"d" %}<li class="c-box__row">{% include "console/partials/_description.html" with d=check id="preflight-"|add:group.key|add:"-"|add:n %}</li>{% endwith %}
+        {% endfor %}
+      </ul>
+    </section>
+    {% empty %}
+    <section class="c-box c-comment">
+      <div class="c-box__body"><p class="c-muted">This run stored no checks.</p></div>
+    </section>
+    {% endfor %}
+  </div>
+
+  <aside class="c-sidebar" aria-label="Preflight details">
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Node</h2>
+      <p class="c-sidebar__value">{% include "console/partials/_octicon.html" with name="server" %}{% if run.node %}{% resolved run.node as act %}{% if act.url %}<a id="preflight-node" href="{{ act.url }}">{{ act.text }}</a>{% else %}<span>{{ act.text }}</span>{% endif %}{% else %}<span class="c-muted">Unknown node</span>{% endif %}</p>
+    </div>
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Checks</h2>
+      <p class="c-sidebar__value"><span>{{ run.counts }}</span></p>
+    </div>
+  </aside>
+</div>

@@ -4,28 +4,17 @@ Provides aggregated metrics for the ops console: active incidents,
 pipeline health, recent check runs, and 7-day trend data.
 """
 
-import json
 from dataclasses import dataclass
 from datetime import timedelta
 
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Q
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.html import format_html
 from django.utils.text import slugify
 
-from config.admin_links import changelist_url
 from config.describing import Action, Description
 
 NODE_RECENT_MINUTES = 15
-
-
-def prettify_json(data):
-    """Render a JSON-serializable value as a syntax-highlighted <pre> block."""
-    if data is None:
-        return "-"
-    formatted = json.dumps(data, indent=2, ensure_ascii=False, default=str)
-    return format_html('<pre class="ops-pre">{}</pre>', formatted)
 
 
 def build_readiness():
@@ -35,7 +24,6 @@ def build_readiness():
     ``gaps`` lists (lane name, reason code) and is empty except on lane_channels.
     Pure read-aggregation; safe on empty tables.
     """
-    from datetime import timedelta
 
     from django.urls import reverse
     from django.utils import timezone
@@ -157,7 +145,7 @@ def build_readiness():
             "label": "Preflight",
             "status": pf_status,
             "detail": detail,
-            "url": reverse("admin:checkers_preflightrun_changelist"),
+            "url": reverse("console:preflight"),
             "gaps": [],
             "counts": pf_counts,
         }
@@ -291,16 +279,13 @@ def _provider(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Descri
 
 
 def _preflight(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Description]]:
-    word = "error" if entry["status"] == "error" else "warning"
-    found = entry["counts"][word + "s"]
+    from apps.checkers.preflight_describing import preflight_headline
+
+    counts = entry["counts"]
     return [
         _keyed(
             entry,
-            (
-                f"Preflight found {_plural(found, word, word + 's')}"
-                if found
-                else "Preflight didn't pass"
-            ),
+            preflight_headline(entry["status"], counts["warnings"], counts["errors"]),
             tone,
             action=Action("Open the preflight report", intent="view_preflight"),
         )
@@ -367,16 +352,27 @@ def keyed_readiness() -> tuple[tuple[str, Description], ...]:
     )
 
 
-def get_dashboard_context():
+def _row(row, user) -> dict:
+    """A Reports row as the dashboard template reads it. No url when the user can't open it."""
+    from apps.console.intents import resolve_action
+
+    url = resolve_action(row.link, user).url
+    return {"label": row.label, "count": row.count, "url": url}
+
+
+def get_dashboard_context(user):
     """Build template context dict for the admin dashboard."""
     from apps.alerts.models import AlertSeverity, Incident, IncidentStatus
-    from apps.checkers.models import CheckRun, CheckStatus
-    from apps.intelligence.models import AnalysisRun
+    from apps.checkers.models import CheckRun
+    from apps.console.queries.reports import (
+        failing_checkers,
+        failure_reasons,
+        pipeline_health,
+        provider_usage,
+    )
     from apps.orchestration.models import PipelineRun, PipelineStatus
 
     now = timezone.now()
-    last_24h = now - timedelta(hours=24)
-    last_7d = now - timedelta(days=7)
 
     # --- Active Incidents ---
     active_qs = Incident.objects.filter(
@@ -390,26 +386,8 @@ def get_dashboard_context():
     )
 
     # --- Pipeline Health (24h) ---
-    pipeline_qs = PipelineRun.objects.filter(created_at__gte=last_24h)
-    status_counts = dict(
-        pipeline_qs.values_list("status").annotate(count=Count("id")).values_list("status", "count")
-    )
-    total_runs = sum(status_counts.values())
-    successful = status_counts.get(PipelineStatus.NOTIFIED, 0)
-    in_flight_statuses = [
-        PipelineStatus.PENDING,
-        PipelineStatus.INGESTED,
-        PipelineStatus.CHECKED,
-        PipelineStatus.ANALYZED,
-    ]
-    pipeline_health = {
-        "total": total_runs,
-        "successful": successful,
-        "failed": status_counts.get(PipelineStatus.FAILED, 0),
-        "retrying": status_counts.get(PipelineStatus.RETRYING, 0),
-        "in_flight": sum(status_counts.get(s, 0) for s in in_flight_statuses),
-        "success_rate": round(successful / total_runs * 100, 1) if total_runs else 0,
-    }
+    health = pipeline_health(now)
+    health_card = {"headline": health.headline, "rows": [_row(row, user) for row in health.rows]}
 
     # --- Recent Check Runs (last 10) ---
     recent_check_runs = list(
@@ -433,53 +411,19 @@ def get_dashboard_context():
     )
 
     # --- 7-Day Aggregations ---
-    # Each trend row names something the changelists can filter on, so each row
-    # carries the filtered URL rather than leaving an operator to rebuild it.
-    top_failing_checkers = [
-        dict(row, url=changelist_url(CheckRun, checker_name__exact=row["checker_name"]))
-        for row in CheckRun.objects.filter(
-            status__in=[CheckStatus.WARNING, CheckStatus.CRITICAL],
-            executed_at__gte=last_7d,
-        )
-        .values("checker_name")
-        .annotate(count=Count("id"))
-        .order_by("-count")[:5]
-    ]
-
-    top_error_types = [
-        dict(
-            row,
-            url=changelist_url(
-                PipelineRun,
-                status__exact=PipelineStatus.FAILED,
-                last_error_type__exact=row["last_error_type"],
-            ),
-        )
-        for row in PipelineRun.objects.filter(
-            status=PipelineStatus.FAILED,
-            created_at__gte=last_7d,
-        )
-        .values("last_error_type")
-        .annotate(count=Count("id"))
-        .order_by("-count")[:5]
-    ]
-
-    provider_usage = [
-        dict(row, url=changelist_url(AnalysisRun, provider__exact=row["provider"]))
-        for row in AnalysisRun.objects.filter(created_at__gte=last_7d)
-        .values("provider")
-        .annotate(runs=Count("id"), tokens=Sum("total_tokens"))
-        .order_by("-runs")
-    ]
+    # The console's Reports summary reads the same rows, and each row opens its console list.
+    top_failing_checkers = [_row(row, user) for row in failing_checkers(now)]
+    top_failure_reasons = [_row(row, user) for row in failure_reasons(now)]
+    usage = [_row(row, user) for row in provider_usage(now)]
 
     return {
         "active_incidents": active_incidents,
-        "pipeline_health": pipeline_health,
+        "pipeline_health": health_card,
         "recent_check_runs": recent_check_runs,
         "failed_pipelines": failed_pipelines,
         "top_failing_checkers": top_failing_checkers,
-        "top_error_types": top_error_types,
-        "provider_usage": provider_usage,
+        "failure_reasons": top_failure_reasons,
+        "provider_usage": usage,
         "readiness": build_readiness(),
         "fleet_metrics": build_fleet_metrics(),
     }
@@ -514,6 +458,7 @@ class MetricCell:
 
 @dataclass(frozen=True)
 class NodeMetrics:
+    pk: int
     instance_id: str
     hostname: str
     url: str
@@ -566,6 +511,7 @@ def build_fleet_metrics() -> FleetMetrics:
     checkers = [name for name in headline if any(name in r for r in readings.values())]
     rows = [
         NodeMetrics(
+            pk=node.pk,
             instance_id=node.instance_id,
             hostname=node.hostname,
             url=reverse("console:node", args=[node.pk]),

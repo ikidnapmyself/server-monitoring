@@ -5,9 +5,17 @@ raises on a shape it doesn't expect.
 """
 
 import math
+from dataclasses import replace
 from typing import Any
 
+from apps.intelligence.models import AnalysisRun, AnalysisRunStatus, IntelligenceProvider
 from config.describing import Action, Description, Fact, format_percent
+
+PROVIDER_LABELS = dict(IntelligenceProvider.PROVIDER_CHOICES)
+LOCAL_ANALYZER = "Built-in local analyzer"
+UNKNOWN_PROVIDER = "A provider this hub doesn't have"
+RUNNING = "AI analysis is still running"
+URGENT = ("critical", "high")
 
 _EDIT_PROVIDER = Action("Check the provider's settings", intent="edit_provider")
 
@@ -79,3 +87,48 @@ def describe_analysis(snapshot: Any) -> Description:
     if confidence:
         facts = (Fact("Confidence", confidence), *facts)
     return Description(summary, "info", detail=_text(snapshot.get("probable_cause")), facts=facts)
+
+
+def provider_label(key: str) -> str:
+    """A provider key in words. ``local`` is the fallback analyzer, never a provider row."""
+    if key == "local":
+        return LOCAL_ANALYZER
+    return str(PROVIDER_LABELS.get(key, UNKNOWN_PROVIDER))
+
+
+def describe_analysis_run(run: AnalysisRun) -> Description:
+    label = provider_label(run.provider)
+    if run.status == AnalysisRunStatus.FAILED:
+        headline, action = FAILURES["unknown"]
+        error = (Fact("Error", run.error_message),) if run.error_message else ()
+        return Description(
+            headline, "warning", action=action, facts=(Fact("Provider", label), *error)
+        )
+    if run.status != AnalysisRunStatus.SUCCEEDED:
+        return Description(RUNNING, "info", facts=(Fact("Provider", label),))
+    described = describe_analysis(
+        {
+            "summary": run.summary,
+            "probable_cause": run.probable_cause,
+            "confidence": run.confidence,
+            "fallback_used": run.fallback_used,
+            "failure": "",
+            "model_info": {"provider": label},
+        }
+    )
+    # The incident page reads "info" for a summary. Here it sits beside running rows.
+    return replace(described, tone="ok") if described.tone == "info" else described
+
+
+def describe_recommendations(items: Any) -> tuple[Description, ...]:
+    """Stored recommendations as descriptions. Anything without a title is skipped."""
+    found = []
+    for item in items if isinstance(items, list) else ():
+        if not isinstance(item, dict):
+            continue
+        title = _text(item.get("title")).strip()
+        if not title:
+            continue
+        tone = "warning" if item.get("priority") in URGENT else "info"
+        found.append(Description(title, tone, detail=_text(item.get("description")).strip()))
+    return tuple(found)

@@ -62,15 +62,10 @@ uv run python manage.py check_health cpu memory disk
 
 ### Django Admin
 
-Access the admin interface at `/admin/checkers/` to view check run history:
-
-- **CheckRun** — View all check executions (read-only)
-  - Colored status badges (ok/warning/critical/unknown)
-  - Duration display
-  - Link to created alert (if any)
-  - Filter by status, checker name, hostname
-  - Search by checker name, hostname, message, trace ID
-  - Date hierarchy by execution time
+Operators read check runs in the console at `/console/checks/` and preflight runs at
+`/console/preflight/`, both under Reports. The lists filter by status, checker, host and
+time, and each record page links its alert, its run and its node. `CheckRunAdmin` and
+`PreflightRunAdmin` are stock and read-only.
 
 > **Note:** Check runs are audit records and cannot be added/edited manually. They are created automatically when checks are run via management commands or the orchestration pipeline.
 

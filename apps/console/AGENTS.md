@@ -6,7 +6,8 @@ pipeline stage and not an alert producer.
 ## Rules
 
 - **Nothing imports from `apps.console`.** It imports from the other apps, never the
-  reverse.
+  reverse. Exception: `config/dashboard.py` until PR 11 deletes it. It reads the Reports
+  queries and resolves their links through `resolve_action`.
 - **Reads go through `queries/`.** Functions there return frozen dataclasses, never
   querysets, so a template can't trigger a query. Views don't touch the ORM.
 - **No new write paths.** Action views call the functions the admin calls, such as
@@ -41,8 +42,11 @@ pipeline stage and not an alert producer.
   round trip. The snapshot also put page HTML with the CSRF token in `sessionStorage`,
   against the never-cache headers.
 - **Polling is paused in `console.js`, not in `hx-trigger`.** A `data-poll` element
-  skips a poll while the tab is hidden and while it holds an open `<details>`. Polls
-  are never paused for focus or for a text selection, because a page that stops
+  skips a poll while the tab is hidden, while it holds an open `<details>`, and while
+  focus is inside its search form on a focused `<select>` or with an edit not yet
+  submitted, since a swap resets every filter control. Moving focus out of the form lets
+  polls resume, so an abandoned edit never freezes the page. Polls are otherwise never
+  paused for focus or for a text selection, because a page that stops
   updating without saying so is worse than a lost selection. Every focusable element
   in a polled region needs a stable unique `id` built from its record, such as
   `incident-<pk>`, `node-<pk>` or `readiness-<key>`. A readiness key comes from
@@ -149,6 +153,32 @@ pipeline stage and not an alert producer.
   registered nor on an open alert of the node gets the fixed title "Re-evaluate one
   checker's alerts on <node>", so a typed name never reaches the page. On both pages, an
   apply whose fresh report has no changes writes nothing and answers 409 with the preview.
+- **Reports hold the summary, check runs, preflight runs and analyses.** The header's
+  Reports item (`partials/_reports_item.html`) opens `/console/reports/` for anyone who
+  reads runs, check runs, preflight runs or analyses, and is hidden for everyone else.
+  `partials/_reports_nav.html` shows Summary to all of them and each other tab only to its
+  readers (`CHECK_READ`, `PREFLIGHT_READ` and `ANALYSIS_READ` in `intents.py`). Every page
+  is read-only.
+  - `/console/reports/` renders `build_reports(user, now)` from `queries/reports.py`. Each
+    card shows only to a reader of its model: pipeline health over 24 hours and the top
+    failure reasons over 7 days need `RUN_READ`, failing checkers `CHECK_READ`, provider
+    usage `ANALYSIS_READ`, the latest preflight `PREFLIGHT_READ` and the fleet grid
+    `NODE_READ`. Every row links a filtered console list, and a reason row lands on the
+    Runs `reason` chip worded the same way, through `reason_label` in `queries/runs.py`.
+  - `/console/checks/` filters on `CheckFilter` (`q` on message and host, `status`, where
+    failing means warning, critical or unknown, `checker`, `host`, `since`, `page`). Rows
+    are worded by `describe_check`. `/console/checks/<pk>/` shows the thresholds, the raised
+    alert, the run when a `PipelineRun` has that trace, and the node when exactly one has
+    that hostname. Metrics, the error, the trace and the raw status sit in Details.
+  - `/console/preflight/` filters on `PreflightFilter` (`status`, `since`, `page`).
+    `/console/preflight/<pk>/` groups the checks under Errors, Warnings, Info, Passed and
+    Other, worded by `apps/checkers/preflight_describing.py`. A node shows by name, never by
+    its instance ID.
+  - `/console/analyses/` filters on `AnalysisFilter` (`status`, `provider`, `since`,
+    `page`). `/console/analyses/<pk>/` shows the summary, recommendations, tokens and
+    duration. The stored `provider_config` renders only inside Details.
+  - The Runs list's `reason` filter (a `REASONS` code, or `other`) shows as a removable
+    chip.
 - **System holds routes, channels, providers and API keys.** The header's System item
   (`partials/_system_item.html`) opens the first of `/console/routes/`, `/console/channels/`,
   `/console/providers/` and `/console/keys/` the user can read, and is hidden for a user who
@@ -210,9 +240,9 @@ pipeline stage and not an alert producer.
 - **`intents.py` is the only place that builds an admin URL.** `INTENTS` maps each
   `Action.intent` to a URL builder, a method and a permission. `resolve_action` turns an
   `Action` into a link, a POST button, or plain text when the intent is unknown, the user
-  lacks its permission or the URL can't be built. Config intents such as `view_preflight`
-  point at the admin until their domain gets a console page, and then only their entry
-  here changes. Routes, channels, providers and keys have theirs: `view_route`,
+  lacks its permission or the URL can't be built. Every intent now opens a console page.
+  Reports have `view_checks`, `view_check_run`, `view_preflight`, `view_preflight_run`,
+  `view_analyses` and `view_analysis`. Routes, channels, providers and keys have theirs: `view_route`,
   `edit_route`, `add_route`, `delete_route`, `view_channel`, `edit_channel`,
   `add_channel`, `delete_channel`, `view_provider`, `edit_provider`, `add_provider`,
   `delete_provider`, `view_key`, `edit_key`, `add_key` and `delete_key`. A

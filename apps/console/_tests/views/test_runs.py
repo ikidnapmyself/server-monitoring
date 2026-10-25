@@ -247,3 +247,18 @@ def test_every_focusable_element_has_a_unique_id(client, run_viewer, url, header
     tags = re.findall(r"<(?:a|button|summary|input)\b(?![^>]*type=\"hidden\")[^>]*>", region)
     ids = [re.search(r'\sid="([^"]*)"', tag).group(1) for tag in tags]
     assert len(ids) == len(set(ids)) == len(tags)
+
+
+@pytest.mark.django_db
+def test_a_reason_filter_is_shown_and_removable(client, run_viewer, url):
+    body = client.get(f"{url}?status=failed&reason=no_route").content.decode()
+
+    toolbar = body[body.index('<div class="c-toolbar">') :]
+    toolbar = toolbar[: toolbar.index('<div class="c-box">')]
+    current = _tag(toolbar, "chip-reason-no_route")
+    assert 'aria-current="true"' in current
+    assert ">No route matches this incident</a>" in toolbar
+    remove = _tag(toolbar, "chip-reason-any")
+    assert 'href="/console/runs/?status=failed"' in remove
+    assert 'hx-target="#runs"' in remove
+    assert "chip-reason" not in client.get(url).content.decode()

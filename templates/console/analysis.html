@@ -1,0 +1,8 @@
+{% extends "console/base.html" %}
+{% block title %}{{ analysis.what.headline|truncatechars:80 }} · Console{% endblock %}
+{% block content %}
+{% include "console/partials/_reports_nav.html" %}
+<div id="analysis">
+  {% include "console/partials/_analysis.html" %}
+</div>
+{% endblock %}

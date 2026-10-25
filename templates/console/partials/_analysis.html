@@ -1,0 +1,60 @@
+{% load console %}<a id="analysis-back" class="c-crumb" href="{% url 'console:analyses' %}">{% include "console/partials/_octicon.html" with name="chevron-right" %}Back to analyses</a>
+<div class="c-pagehead">
+  <div class="c-pagehead__top">
+    <h1 class="c-pagehead__title">{{ analysis.what.headline }} <span class="c-pagehead__number">#{{ analysis.pk }}</span></h1>
+  </div>
+  <div class="c-pagehead__meta">
+    <span>{{ analysis.provider }}</span>
+    <span>Started {% include "console/partials/_time.html" with when=analysis.created_at %}</span>
+  </div>
+</div>
+
+<div class="c-layout">
+  <div>
+    <section class="c-box c-comment">
+      <h2 class="c-box__header c-box__title">What it found</h2>
+      <div class="c-box__body">{% include "console/partials/_description.html" with d=analysis.what id="analysis-what" raw=analysis.raw %}</div>
+    </section>
+    {% if analysis.recommendations %}
+    <section class="c-box c-comment">
+      <h2 class="c-box__header c-box__title">Recommendations</h2>
+      <ul class="c-box__list">
+        {% for item in analysis.recommendations %}
+        {% with n=forloop.counter|stringformat:"d" %}<li class="c-box__row">{% include "console/partials/_description.html" with d=item id="analysis-recommendation-"|add:n %}</li>{% endwith %}
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+    <section class="c-box c-comment">
+      <h2 class="c-box__header c-box__title">Incident</h2>
+      {% if analysis.incident %}
+      <ul class="c-box__list">
+        <li class="c-box__row c-box__row--hover c-row c-status--{{ analysis.incident.status }}">
+          <span class="c-row__icon" title="{{ analysis.incident.status|capfirst }}">{% include "console/partials/_status_icon.html" with status=analysis.incident.status %}<span class="c-sr-only">{{ analysis.incident.status }}</span></span>
+          <div class="c-row__main">
+            {% resolved analysis.incident.link as act %}{% if act.url %}<a id="analysis-incident" href="{{ act.url }}">{{ act.text }}</a>{% else %}<span>{{ act.text }}</span>{% endif %}
+            <div class="c-row__meta">#{{ analysis.incident.pk }} · {{ analysis.incident.status|capfirst }}</div>
+          </div>
+        </li>
+      </ul>
+      {% else %}
+      <div class="c-box__body"><p class="c-muted">Not part of an incident.</p></div>
+      {% endif %}
+    </section>
+  </div>
+
+  <aside class="c-sidebar" aria-label="Analysis details">
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Provider</h2>
+      <p class="c-sidebar__value"><span>{{ analysis.provider }}</span></p>
+    </div>
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Tokens</h2>
+      <p class="c-sidebar__value">{% if analysis.tokens %}<span>{{ analysis.tokens }}</span>{% else %}<span class="c-muted">None recorded</span>{% endif %}</p>
+    </div>
+    <div class="c-sidebar__item">
+      <h2 class="c-sidebar__heading">Took</h2>
+      <p class="c-sidebar__value">{% include "console/partials/_octicon.html" with name="clock" %}{% if analysis.took %}<span>{{ analysis.took }}</span>{% else %}<span class="c-muted">Not recorded</span>{% endif %}</p>
+    </div>
+  </aside>
+</div>

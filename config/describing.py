@@ -2,7 +2,8 @@
 
 Each app describes its own output with these types. The console and notifications render
 them and never decode raw rows themselves. Describers return an intent, never a URL, so
-nothing upstream imports ``apps.console``.
+nothing upstream imports ``apps.console``. Exception: ``config/dashboard.py`` until PR 11
+deletes it.
 """
 
 from collections.abc import Iterable, Mapping

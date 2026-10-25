@@ -30,7 +30,7 @@ the two. See `apps/orchestration/AGENTS.md`.
   - Some checkers (for example, `disk_macos`, `disk_linux`, `raid`, `disk_temp`, `cpu_temp`, `io_strain`, `listening_ports`) are OS-specific and may use platform gating — early return `SKIPPED` with a skip message on unsupported OSes (`raid` reads Linux `/proc/mdstat`; `disk_temp`/`cpu_temp` read Linux hwmon via `psutil.sensors_temperatures()`; `io_strain` samples `psutil.disk_io_counters` `busy_time`; `listening_ports` reads `psutil.net_connections` (`/proc/net`, no root on Linux only) — all return `SKIPPED` on non-linux / when the data is unavailable). `SKIPPED` resolves an alert like `OK` and never fires.
 - `apps/checkers/checks.py` — Django system checks (run with `manage.py check`)
 - `apps/checkers/management/commands/` — commands like `check_health`, `run_check`, `preflight`
-- `apps/checkers/models.py` — `CheckRun` (standalone mode audit trail); `PreflightRun` + `PreflightCheck` (node-local persisted history of `preflight` runs — counts, `overall_status`, and per-check `level`/`message`/`hint`; **no hub-push**). Browse under Checkers → Preflight runs (readonly, with a readonly check inline).
+- `apps/checkers/models.py` — `CheckRun` (standalone mode audit trail); `PreflightRun` + `PreflightCheck` (node-local persisted history of `preflight` runs — counts, `overall_status`, and per-check `level`/`message`/`hint`; **no hub-push**). Operators read both in the console, at `/console/checks/` and `/console/preflight/`.
 - `apps/checkers/admin_charts.py` — `render_sparkline(points, markers=…)`: self-contained inline SVG (no JS/CDN/`xmlns`, `currentColor` for theme). It draws the charts on the console node page. Reuse it for any trend chart.
 
 ## Describing results
@@ -59,10 +59,17 @@ Every checker describes its own result, so no consumer decodes `metrics`.
 
 Each app must provide an **extensive** `admin.py` so operators can manage its models and trace pipeline behavior.
 
-For `apps.checkers`, admin should make it easy to:
-- Inspect `CheckRun` history (filters by checker/status/hostname, search by trace_id)
-- Review checker outputs and errors (as stored in models or orchestration output snapshots)
-- Correlate standalone check runs vs pipeline stage executions (via trace/run identifiers)
+Operators read check runs at `/console/checks/` and preflight runs at
+`/console/preflight/`. `CheckRunAdmin` and `PreflightRunAdmin` are stock and read-only:
+plain `list_display`, and add, change and delete all refused.
+
+`apps/checkers/preflight_describing.py` words preflight output:
+- `preflight_headline(status, warnings, errors)` gives "Preflight passed", "Preflight found
+  <n> errors" or "<n> warnings", or "Preflight didn't pass" for a count of zero. The
+  readiness panel words its preflight fault with it too.
+- `describe_preflight_run(run)` pairs that headline with a tone from `overall_status`.
+- `describe_preflight_check(check)` reads the stored message and hint as written on that
+  machine, with a tone from the level. An unknown level reads muted.
 
 ## App layout rules (required)
 
@@ -111,7 +118,7 @@ manage.py preflight --json             # JSON output for CI
 manage.py preflight --no-save          # skip persistence (print only)
 ```
 
-**Persistence:** by default each run writes a `PreflightRun` (+ child `PreflightCheck`s) so history is visible in the admin; `--no-save` restores print-only behaviour (e.g. CI). Node-local only — no hub-push. Retention is unbounded for now (prune is a documented follow-up).
+**Persistence:** by default each run writes a `PreflightRun` (+ child `PreflightCheck`s) so history is visible in the console; `--no-save` restores print-only behaviour (e.g. CI). Node-local only — no hub-push. Retention is unbounded for now (prune is a documented follow-up).
 
 **Identity:** `PreflightRun.instance_id` is written with `local_instance_id()` (`apps/alerts/identity.py`), not raw `settings.INSTANCE_ID`, so it matches the key every `Node` row is registered under. A hub that never set the env var has an empty `INSTANCE_ID` and a hostname-fallback `Node`, so the raw value filed runs the node page could never find. Rows written before that was true are corrected by migration `0003_backfill_preflight_instance_id`, which carries a frozen copy of the identity rule. `get_profile()` (`apps/checkers/preflight/dashboard.py`) reports the same id, so what a run prints and what it is filed under agree.
 

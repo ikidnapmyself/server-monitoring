@@ -124,8 +124,8 @@ def test_the_nodes_card_opens_the_console():
 
 
 @pytest.mark.django_db
-def test_readiness_in_dashboard_context():
-    ctx = get_dashboard_context()
+def test_readiness_in_dashboard_context(admin_user):
+    ctx = get_dashboard_context(admin_user)
     assert "readiness" in ctx
     readiness = ctx["readiness"]
     assert isinstance(readiness, list) and readiness
@@ -887,3 +887,16 @@ def test_an_entry_is_keyed_by_its_own_key(monkeypatch):
     ((key, found),) = keyed_readiness()
     assert key == "certs"
     assert found.headline == "Certificates needs attention"
+
+
+@pytest.mark.django_db
+def test_the_preflight_entry_and_its_fix_open_the_console(admin_user):
+    from apps.checkers.models import PreflightRun
+    from apps.console.intents import resolve_action
+
+    _green_install()
+    PreflightRun.objects.create(overall_status="error", errors=1)
+
+    assert _by_key(build_readiness())["preflight"]["url"] == reverse("console:preflight")
+    (found,) = _described()
+    assert resolve_action(found.action, admin_user).url == reverse("console:preflight")

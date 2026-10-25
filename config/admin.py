@@ -40,7 +40,7 @@ class MonitoringAdminSite(AdminSite):
 
     def index(self, request, extra_context=None):
         extra_context = extra_context or {}
-        extra_context.update(get_dashboard_context())
+        extra_context.update(get_dashboard_context(request.user))
         return super().index(request, extra_context=extra_context)
 
     def get_app_list(self, request, app_label=None):

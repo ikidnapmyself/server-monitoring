@@ -267,3 +267,28 @@ def test_the_query_count_does_not_grow_with_the_rows():
     _seed(web, 27)
 
     assert _queries() == few
+
+
+def test_no_reason_chip_without_a_reason():
+    assert "reason" not in [g.name for g in build_run_list(RunFilter()).groups]
+
+
+@pytest.mark.parametrize(
+    ("reason", "label"),
+    [
+        ("no_route", "No route matches this incident"),
+        ("no_driver", "The channel uses a driver this hub doesn't have"),
+        ("other", "Other failures"),
+    ],
+)
+def test_a_reason_shows_as_a_chip_that_removes_only_the_reason(reason, label):
+    criteria = RunFilter(status="failed", reason=reason, since="7d")
+
+    chips = _group(build_run_list(criteria), "reason").chips
+
+    assert [(c.key, c.label, c.active) for c in chips] == [
+        ("any", "Any reason", False),
+        (reason, label, True),
+    ]
+    assert chips[0].url == "/console/runs/?status=failed&since=7d"
+    assert chips[1].url == f"/console/runs/?status=failed&reason={reason}&since=7d"

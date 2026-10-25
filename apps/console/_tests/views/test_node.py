@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from apps.alerts.identity import local_instance_id
 from apps.alerts.models import Alert, Incident, Node
-from apps.checkers.models import CheckRun
+from apps.checkers.models import CheckRun, PreflightRun
 from apps.console._tests.test_guard import visible
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console._tests.views.test_incident import focus_audit
@@ -151,6 +151,32 @@ def test_the_page_links_the_incident_the_counts_and_the_runs(client, node_viewer
     assert re.search(r'<a id="checker-cpu" href="/console/alerts/\d+/">', body)
     assert "Warning at 80" in body
     assert "1 stored setting no scorer reads." in body
+
+
+@pytest.mark.django_db
+def test_the_hub_checker_row_opens_its_check_run_in_the_console(client, node_viewer):
+    node = _hub()
+    newest = CheckRun.objects.order_by("-executed_at", "-pk").first()
+
+    assert 'id="checker-cpu"' not in client.get(_url(node)).content.decode()
+
+    _grant(node_viewer, ("checkers", "view_checkrun"))
+    body = client.get(_url(node)).content.decode()
+
+    assert re.search(rf'<a id="checker-cpu" href="/console/checks/{newest.pk}/">', body)
+
+
+@pytest.mark.django_db
+def test_the_hub_preflight_opens_in_the_console(client, node_viewer):
+    node = _hub()
+    run = PreflightRun.objects.create(instance_id=local_instance_id(), passed=4)
+
+    assert 'id="node-preflight"' not in client.get(_url(node)).content.decode()
+
+    _grant(node_viewer, ("checkers", "view_preflightrun"))
+    body = client.get(_url(node)).content.decode()
+
+    assert f'<a id="node-preflight" href="/console/preflight/{run.pk}/">' in body
 
 
 @pytest.mark.django_db

@@ -12,9 +12,12 @@ from apps.alerts.models import Alert, AlertSeverity, Incident, IncidentStatus
 from apps.console.filters import (
     STATUS_CHOICES,
     AlertFilter,
+    AnalysisFilter,
+    CheckFilter,
     InboxFilter,
     IncidentFilter,
     NodeFilter,
+    PreflightFilter,
     RunFilter,
 )
 from apps.console.queries.hosts import host_summary, incident_hosts, node_choices, on_node
@@ -67,6 +70,7 @@ class Chip:
     url: str
     active: bool
     count: int | None = None
+    tone: str = ""
 
 
 @dataclass(frozen=True)
@@ -94,9 +98,19 @@ def chip_group(
     name: str,
     label: str,
     choices: tuple[Choice, ...],
-    criteria: IncidentFilter | AlertFilter | RunFilter | InboxFilter | NodeFilter,
+    criteria: (
+        IncidentFilter
+        | AlertFilter
+        | RunFilter
+        | InboxFilter
+        | NodeFilter
+        | CheckFilter
+        | PreflightFilter
+        | AnalysisFilter
+    ),
     base: str,
     counts: dict[str, int] | None = None,
+    tones: dict[str, str] | None = None,
 ) -> ChipGroup:
     current = getattr(criteria, name)
     return ChipGroup(
@@ -109,6 +123,7 @@ def chip_group(
                 url=base + criteria.querystring(**{name: value}),
                 active=value == current,
                 count=None if counts is None else counts[key],
+                tone=(tones or {}).get(key, ""),
             )
             for key, text, value in choices
         ),

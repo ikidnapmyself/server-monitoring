@@ -7,7 +7,14 @@ from typing import cast
 import pytest
 
 from apps.alerts.models import Alert
-from apps.console._tests.fixtures import OPS_SLACK_WEBHOOK, build_world
+from apps.console._tests.fixtures import OPS_SLACK_WEBHOOK, PROVIDER_CONFIG, build_world
+from apps.console.filters import (
+    ANALYSIS_STATUS_CHOICES,
+    CHECK_STATUS_CHOICES,
+    PREFLIGHT_STATUS_CHOICES,
+    REASON_CHOICES,
+    SINCE_CHOICES,
+)
 from apps.intelligence._tests.test_forms import KEY
 from apps.intelligence.models import IntelligenceProvider
 from apps.notify._tests.test_forms import SECRETS, STORED
@@ -22,6 +29,22 @@ SNAKE = re.compile(r"\b[a-z]+_[a-z_]+\b")
 # "rejected", "timeout" and "unknown" are ordinary words a headline uses ("the provider
 # rejected the API key"), so only the codes no sentence would contain are checked.
 CODES = {code for code in (*REASONS, *FAILURE_KINDS) if "_" in code}
+CHECK_FILTERS = {
+    "status": [key for key in CHECK_STATUS_CHOICES if key],
+    "checker": ["cpu", "gone_checker"],
+    "host": ["hub"],
+    "since": [key for key in SINCE_CHOICES if key],
+    "q": ["CPU"],
+}
+PREFLIGHT_FILTERS = {
+    "status": [key for key in PREFLIGHT_STATUS_CHOICES if key],
+    "since": [key for key in SINCE_CHOICES if key],
+}
+ANALYSIS_FILTERS = {
+    "status": [key for key in ANALYSIS_STATUS_CHOICES if key],
+    "provider": ["openai", "claude", "gemini", "local", "retired_provider"],
+    "since": [key for key in SINCE_CHOICES if key],
+}
 VOID = {"br", "img", "input", "meta", "link", "hr", "use"}
 
 
@@ -89,6 +112,13 @@ def _secret_values() -> list[str]:
     return values
 
 
+def _filtered(base: str, filters: dict[str, list[str]]) -> list[str]:
+    """The list unfiltered, then once per value of each filter."""
+    return [base] + [
+        f"{base}?{name}={value}" for name, values in filters.items() for value in values
+    ]
+
+
 def _get(client, url, headers):
     response = client.get(url, headers=headers)
     assert response.status_code == 200, url
@@ -143,6 +173,14 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         + [f"/console/nodes/{pk}/policy/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/reevaluate/" for pk in world.node_pks]
         + [f"/console/nodes/{world.policy_node_pk}/reevaluate/?checker=listening_ports"]
+        + [f"/console/runs/?status=failed&reason={reason}" for reason in REASON_CHOICES if reason]
+        + ["/console/reports/"]
+        + _filtered("/console/checks/", CHECK_FILTERS)
+        + [f"/console/checks/{pk}/" for pk in world.check_pks]
+        + _filtered("/console/preflight/", PREFLIGHT_FILTERS)
+        + [f"/console/preflight/{pk}/" for pk in world.preflight_pks]
+        + _filtered("/console/analyses/", ANALYSIS_FILTERS)
+        + [f"/console/analyses/{pk}/" for pk in world.analysis_pks]
     )
     html = {url: _get(client, url, headers) for url in urls}
     # The ids are on the page, inside Details, so the check below has something to catch.
@@ -217,8 +255,22 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "Analysis falls back to the built-in local analyzer.",
         "Analysis keeps using claude-ai.",
         "Anything still sending this key gets refused.",
+        "Preflight found 1 error",
+        "From the command line",
+        "DB unreachable",
+        "Built-in local analyzer",
+        "Python 3.12",
+        "AI analysis is still running",
+        "Rotate logs",
+        "of runs finished",
+        "Top failure reasons, last 7 days",
+        "Other failures",
     ):
         assert shown in everything, shown
+    analysis_pages = [page for url, page in html.items() if url.startswith("/console/analyses/")]
+    assert any(PROVIDER_CONFIG in page for page in analysis_pages)
+    for url, text in pages.items():
+        assert PROVIDER_CONFIG not in text, url
     # The templates group is a Details disclosure, so its summary is not visible text.
     assert any("Message templates" in page for page in html.values())
 

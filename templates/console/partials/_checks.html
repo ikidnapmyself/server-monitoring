@@ -1,0 +1,65 @@
+<div id="checks" data-poll hx-get="{{ list.url }}" hx-trigger="every 30s, console:refresh" hx-swap="outerHTML">
+  {% if list.notice %}{% include "console/partials/_flash.html" with tone="warning" text=list.notice %}{% endif %}
+  <form class="c-search c-search--filters" role="search" method="get" action="{% url 'console:checks' %}" hx-get="{% url 'console:checks' %}" hx-target="#checks" hx-swap="outerHTML" hx-push-url="true" hx-sync="#checks:replace">
+    {% for name, value in list.kept %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+    <label class="c-sr-only" for="checks-q">Search check runs</label>
+    <input id="checks-q" class="c-search__input" type="search" name="q" value="{{ list.q }}" maxlength="255" placeholder="Message or host">
+    <label class="c-sr-only" for="checks-checker">Checker</label>
+    <select id="checks-checker" class="c-search__select" name="checker">
+      <option value="">Any checker</option>
+      {% for key, label in list.checkers %}<option value="{{ key }}"{% if key == list.checker %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <label class="c-sr-only" for="checks-host">Host</label>
+    <select id="checks-host" class="c-search__select" name="host">
+      <option value="">Any host</option>
+      {% for host in list.hosts %}<option value="{{ host }}"{% if host == list.host %} selected{% endif %}>{{ host }}</option>{% endfor %}
+    </select>
+    <button id="checks-search" class="c-button c-button--sm" type="submit">Search</button>
+  </form>
+  <div class="c-toolbar">
+    {% for group in list.groups %}{% if group.name != "status" %}
+    <nav class="c-seg" aria-label="{{ group.label }}">
+      {% for chip in group.chips %}
+      <a id="chip-{{ group.name }}-{{ chip.key }}" href="{{ chip.url }}" hx-get="{{ chip.url }}" hx-target="#checks" hx-swap="outerHTML" hx-push-url="true" hx-sync="#checks:replace" title="{{ chip.label }}"{% if chip.active %} aria-current="true"{% endif %}>{{ chip.label }}</a>
+      {% endfor %}
+    </nav>
+    {% endif %}{% endfor %}
+  </div>
+  <div class="c-box">
+    <div class="c-box__header">
+      <h2 class="c-sr-only">{{ list.total }} check run{{ list.total|pluralize }}</h2>
+      {% for group in list.groups %}{% if group.name == "status" %}
+      <nav class="c-states" aria-label="{{ group.label }}">
+        {% for chip in group.chips %}
+        <a id="chip-{{ group.name }}-{{ chip.key }}" href="{{ chip.url }}" hx-get="{{ chip.url }}" hx-target="#checks" hx-swap="outerHTML" hx-push-url="true" hx-sync="#checks:replace"{% if chip.active %} aria-current="true"{% endif %}>{% if chip.tone %}{% include "console/partials/_tone_icon.html" with tone=chip.tone %}{% endif %}<span>{{ chip.label }}</span><span class="c-counter">{{ chip.count }}</span></a>
+        {% endfor %}
+      </nav>
+      {% endif %}{% endfor %}
+    </div>
+    {% if list.rows %}
+    <ul class="c-box__list">
+      {% for row in list.rows %}{% include "console/partials/_check_row.html" %}{% endfor %}
+    </ul>
+    {% elif list.empty == "none" %}
+    <div class="c-blankslate">
+      {% include "console/partials/_octicon.html" with name="pulse" %}
+      <h3 class="c-blankslate__heading">No check runs yet.</h3>
+      <p>Check runs appear here when this hub runs its checks.</p>
+    </div>
+    {% else %}
+    {% url 'console:checks' as clear_url %}
+    <div class="c-blankslate">
+      {% include "console/partials/_octicon.html" with name="pulse" %}
+      <h3 class="c-blankslate__heading">No check runs match these filters.</h3>
+      <p><a id="filters-clear" href="{{ clear_url }}" hx-get="{{ clear_url }}" hx-target="#checks" hx-swap="outerHTML" hx-push-url="true" hx-sync="#checks:replace">Clear filters</a></p>
+    </div>
+    {% endif %}
+  </div>
+  {% if list.pages > 1 %}
+  <nav class="c-pagination" aria-label="Pages">
+    {% if list.prev_url %}<a id="page-prev" href="{{ list.prev_url }}" hx-get="{{ list.prev_url }}" hx-target="#checks" hx-swap="outerHTML" hx-push-url="true" hx-sync="#checks:replace">{% include "console/partials/_octicon.html" with name="chevron-right" cls="c-pagination__flip" %}Previous</a>{% else %}<span class="c-pagination__gap">{% include "console/partials/_octicon.html" with name="chevron-right" cls="c-pagination__flip" %}Previous</span>{% endif %}
+    <span class="c-pagination__gap">Page {{ list.page }} of {{ list.pages }}</span>
+    {% if list.next_url %}<a id="page-next" href="{{ list.next_url }}" hx-get="{{ list.next_url }}" hx-target="#checks" hx-swap="outerHTML" hx-push-url="true" hx-sync="#checks:replace">Next{% include "console/partials/_octicon.html" with name="chevron-right" %}</a>{% else %}<span class="c-pagination__gap">Next{% include "console/partials/_octicon.html" with name="chevron-right" %}</span>{% endif %}
+  </nav>
+  {% endif %}
+</div>

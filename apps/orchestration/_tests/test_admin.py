@@ -107,8 +107,12 @@ class TestDashboardContext(TestCase):
         response = self.client.get("/admin/")
         assert "pipeline_health" in response.context
         health = response.context["pipeline_health"]
-        assert health["total"] == 3
-        assert health["successful"] == 2
+        assert health["headline"] == "66.7% of runs finished"
+        assert [(row["label"], row["count"]) for row in health["rows"]] == [
+            ("Finished", "2"),
+            ("Failed", "1"),
+            ("Still going", "0"),
+        ]
 
     def test_dashboard_contains_recent_checks(self):
         response = self.client.get("/admin/")
@@ -123,7 +127,7 @@ class TestDashboardContext(TestCase):
     def test_dashboard_contains_aggregations(self):
         response = self.client.get("/admin/")
         assert "top_failing_checkers" in response.context
-        assert "top_error_types" in response.context
+        assert "failure_reasons" in response.context
         assert "provider_usage" in response.context
 
     def test_dashboard_renders_panels(self):
@@ -189,28 +193,6 @@ class TestPipelineTracing(TestCase):
         assert response.status_code == 200
         content = response.content.decode()
         assert "trace-xyz" in content
-
-
-class TestPrettifyJson(SimpleTestCase):
-    def test_prettify_json_renders_formatted(self):
-        from config.dashboard import prettify_json
-
-        data = {"key": "value", "nested": {"a": 1}}
-        result = prettify_json(data)
-        assert "&quot;key&quot;" in result or '"key"' in result
-        assert "<pre" in result
-
-    def test_prettify_json_empty_dict(self):
-        from config.dashboard import prettify_json
-
-        result = prettify_json({})
-        assert "{}" in result
-
-    def test_prettify_json_none(self):
-        from config.dashboard import prettify_json
-
-        result = prettify_json(None)
-        assert "-" in result
 
 
 class TestPipelineRunAdminFilters(SimpleTestCase):

@@ -17,7 +17,7 @@ from apps.console.queries.hosts import (
     on_node,
 )
 from apps.console.queries.incidents import SINCE_CHIPS, ChipGroup, Choice, chip_group
-from apps.orchestration.describing import STAGE_NAMES, describe_run
+from apps.orchestration.describing import REASONS, STAGE_NAMES, describe_run
 from apps.orchestration.models import PipelineOrigin, PipelineRun
 from config.describing import Action, Description
 
@@ -63,6 +63,14 @@ class RunList:
     notice: str
     empty: str
     url: str
+
+
+def reason_label(reason: str) -> str:
+    """A ``RunFilter.reason`` in words: its ``REASONS`` headline, or "Other failures"."""
+    if reason not in REASONS:
+        return "Other failures"
+    headline = REASONS[reason].headline
+    return headline[:1].upper() + headline[1:]
 
 
 def origin_label(origin: str) -> str:
@@ -177,6 +185,12 @@ def build_run_list(criteria: RunFilter) -> RunList:
         node_chips = tuple((str(pk), name, pk) for pk, name, _ in nodes)
         groups.append(chip_group("node", "Node", (any_node, *node_chips), criteria, base))
     groups.append(chip_group("since", "Since", SINCE_CHIPS, criteria, base))
+    if criteria.reason:
+        reasons: tuple[Choice, ...] = (
+            ("any", "Any reason", ""),
+            (criteria.reason, reason_label(criteria.reason), criteria.reason),
+        )
+        groups.append(chip_group("reason", "Reason", reasons, criteria, base))
 
     return RunList(
         rows=rows,
