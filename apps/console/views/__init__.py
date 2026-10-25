@@ -20,6 +20,8 @@ from apps.console.views.node_reeval import NodeReevalView
 from apps.console.views.nodes import NodeListView
 from apps.console.views.overview import OverviewView
 from apps.console.views.policy import PolicyView
+from apps.console.views.preflight import PreflightListView
+from apps.console.views.preflight_run import PreflightRunView
 from apps.console.views.provider import ProviderView
 from apps.console.views.provider_delete import ProviderDeleteView
 from apps.console.views.providers import ProvidersView
@@ -53,6 +55,8 @@ __all__ = [
     "NodeReevalView",
     "OverviewView",
     "PolicyView",
+    "PreflightListView",
+    "PreflightRunView",
     "ProviderDeleteView",
     "ProviderView",
     "ProvidersView",

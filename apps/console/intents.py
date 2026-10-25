@@ -1,7 +1,4 @@
-"""What each action intent does in the console: a link, a POST button, or text.
-
-Config intents point at the admin until each domain slice gives them a console page.
-"""
+"""What each action intent does in the console: a link, a POST button, or text."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -156,9 +153,7 @@ INTENTS: dict[str, Intent] = {
     "edit_key": Intent(_key, "get", KEY_CHANGE),
     "add_key": Intent(_page("console:key-new"), "get", KEY_ADD),
     "delete_key": Intent(_record("console:key-delete"), "get", KEY_DELETE),
-    "view_preflight": Intent(
-        _page("admin:checkers_preflightrun_changelist"), "get", "checkers.view_preflightrun"
-    ),
+    "view_preflight": Intent(_page("console:preflight"), "get", PREFLIGHT_READ),
     "view_inbox": Intent(
         _page("console:inbox", "status", "status"),
         "get",
@@ -169,9 +164,7 @@ INTENTS: dict[str, Intent] = {
     "view_node": Intent(_record("console:node"), "get", NODE_READ),
     "view_check_run": Intent(_record("console:check"), "get", CHECK_READ),
     "view_checks": Intent(_filtered("console:checks", CheckFilter), "get", CHECK_READ),
-    "view_preflight_run": Intent(
-        _record("admin:checkers_preflightrun_change"), "get", "checkers.view_preflightrun"
-    ),
+    "view_preflight_run": Intent(_record("console:preflight-run"), "get", PREFLIGHT_READ),
     "edit_node_policy": Intent(_node_policy, "get", "alerts.change_node"),
     "reevaluate_node": Intent(_node_reeval, "get", "alerts.change_node"),
     "view_run": Intent(_record("console:run"), "get", RUN_READ),

@@ -1,0 +1,8 @@
+{% extends "console/base.html" %}
+{% block title %}{{ run.what.headline }} · Console{% endblock %}
+{% block content %}
+{% include "console/partials/_reports_nav.html" %}
+<div id="preflight-run">
+  {% include "console/partials/_preflight_run.html" %}
+</div>
+{% endblock %}

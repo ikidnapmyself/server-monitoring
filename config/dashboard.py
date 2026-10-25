@@ -157,7 +157,7 @@ def build_readiness():
             "label": "Preflight",
             "status": pf_status,
             "detail": detail,
-            "url": reverse("admin:checkers_preflightrun_changelist"),
+            "url": reverse("console:preflight"),
             "gaps": [],
             "counts": pf_counts,
         }
@@ -291,16 +291,17 @@ def _provider(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Descri
 
 
 def _preflight(entry: dict, tone: str, fired: set[str]) -> list[tuple[str, Description]]:
-    word = "error" if entry["status"] == "error" else "warning"
-    found = entry["counts"][word + "s"]
+    from apps.checkers.models import PreflightRun
+    from apps.checkers.preflight_describing import describe_preflight_run
+
+    counts = entry["counts"]
+    latest = PreflightRun(
+        overall_status=entry["status"], warnings=counts["warnings"], errors=counts["errors"]
+    )
     return [
         _keyed(
             entry,
-            (
-                f"Preflight found {_plural(found, word, word + 's')}"
-                if found
-                else "Preflight didn't pass"
-            ),
+            describe_preflight_run(latest).headline,
             tone,
             action=Action("Open the preflight report", intent="view_preflight"),
         )

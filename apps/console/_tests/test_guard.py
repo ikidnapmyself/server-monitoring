@@ -1,13 +1,15 @@
 """No page shows an identifier, a code or raw JSON outside a Details disclosure."""
 
 import re
+from datetime import timedelta
 from html.parser import HTMLParser
 from typing import cast
 
 import pytest
+from django.utils import timezone
 
 from apps.alerts.models import Alert
-from apps.checkers.models import CheckRun
+from apps.checkers.models import CheckRun, PreflightCheck, PreflightRun
 from apps.console._tests.fixtures import OPS_SLACK_WEBHOOK, build_world
 from apps.intelligence._tests.test_forms import KEY
 from apps.intelligence.models import IntelligenceProvider
@@ -121,6 +123,17 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
             checker_name="gone_checker", hostname="", status="unknown", message="Something odd"
         ).pk,
     ]
+    checked = PreflightRun.objects.create(
+        instance_id="0b9e6c1e-6f4a-4c43-9a59-5b3f1f2a7c11",
+        triggered_by="cli",
+        overall_status="error",
+        errors=1,
+        warnings=1,
+    )
+    for level, message in (("error", "DB unreachable"), ("warn", "DEBUG is on"), ("odd", "Hmm")):
+        PreflightCheck.objects.create(run=checked, level=level, message=message, hint="Fix it")
+    # Older than the world's own run, so the Overview still reads that one.
+    PreflightRun.objects.filter(pk=checked.pk).update(created_at=timezone.now() - timedelta(days=1))
     client.force_login(superuser)
     headers = {"HX-Request": "true"} if partial else {}
     alert_pks = list(Alert.objects.values_list("pk", flat=True))
@@ -161,6 +174,8 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         + [f"/console/nodes/{world.policy_node_pk}/reevaluate/?checker=listening_ports"]
         + ["/console/checks/", "/console/checks/?status=failing&checker=gone_checker&host=hub"]
         + [f"/console/checks/{pk}/" for pk in check_pks]
+        + ["/console/preflight/", "/console/preflight/?status=error&since=7d"]
+        + [f"/console/preflight/{pk}/" for pk in PreflightRun.objects.values_list("pk", flat=True)]
     )
     html = {url: _get(client, url, headers) for url in urls}
     # The ids are on the page, inside Details, so the check below has something to catch.
@@ -235,6 +250,9 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "Analysis falls back to the built-in local analyzer.",
         "Analysis keeps using claude-ai.",
         "Anything still sending this key gets refused.",
+        "Preflight found 1 error",
+        "From the command line",
+        "DB unreachable",
     ):
         assert shown in everything, shown
     # The templates group is a Details disclosure, so its summary is not visible text.

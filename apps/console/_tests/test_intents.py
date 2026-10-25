@@ -127,11 +127,11 @@ def test_query_params_are_encoded(admin_user):
 @pytest.mark.parametrize(
     ("intent", "params", "url"),
     [
-        ("view_preflight", {}, "/admin/checkers/preflightrun/"),
-        ("view_preflight_run", {"pk": 7}, "/admin/checkers/preflightrun/7/change/"),
+        ("view_preflight", {}, "/console/preflight/"),
+        ("view_preflight_run", {"pk": 7}, "/console/preflight/7/"),
     ],
 )
-def test_config_intents_point_at_the_admin(admin_user, intent, params, url):
+def test_preflight_intents_point_at_the_console(admin_user, intent, params, url):
     resolved = resolve_action(Action("Go", intent=intent, params=params), admin_user)
     assert resolved == ResolvedAction("Go", url, "get")
 
@@ -327,6 +327,8 @@ def _user_with(django_user_model, codename):
             ("view_policy", {}, "alerts", "node"),
             ("view_check_run", {"pk": 7}, "checkers", "checkrun"),
             ("view_checks", {}, "checkers", "checkrun"),
+            ("view_preflight", {}, "checkers", "preflightrun"),
+            ("view_preflight_run", {"pk": 7}, "checkers", "preflightrun"),
         )
         for verb in ("view", "change")
     ],
