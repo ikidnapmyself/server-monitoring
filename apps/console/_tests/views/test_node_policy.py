@@ -2,10 +2,12 @@ import re
 from unittest import mock
 
 import pytest
+from django.contrib.auth.models import Permission
 from django.db import OperationalError
 from django.urls import reverse
+from django.utils import timezone
 
-from apps.alerts.models import Node
+from apps.alerts.models import Alert, Node
 from apps.alerts.node_policy import config_digest
 from apps.console._tests.test_guard import visible
 from apps.console._tests.test_templates import FORBIDDEN
@@ -224,3 +226,36 @@ def test_every_focusable_element_has_a_stable_id(client, node_operator, node):
     focusable, ids = focus_audit(region)
     assert [tag for tag, element_id in focusable if not element_id] == []
     assert len(ids) == len(set(ids))
+
+
+def _alert(node, checker, status="firing", **extra):
+    return Alert.objects.create(
+        fingerprint=f"check:{node.instance_id}:{checker}:{status}",
+        name=checker,
+        severity="critical",
+        status=status,
+        source="cluster",
+        node=node,
+        labels={"checker": checker, "instance_id": node.instance_id},
+        started_at=timezone.now(),
+        **extra,
+    )
+
+
+def test_a_checker_box_lists_its_open_alerts(client, node_operator, node):
+    node_operator.user_permissions.add(Permission.objects.get(codename="view_alert"))
+    alert = _alert(node, "cpu")
+    _alert(node, "memory")
+    _alert(node, "cpu", status="resolved")
+
+    body = client.get(_url(node)).content.decode()
+
+    group = body.split('id="policy-cpu"', 1)[1].split("</fieldset>", 1)[0]
+    assert reverse("console:alert", args=[alert.pk]) in group
+    assert group.count("c-description__headline") == 1
+
+
+def test_a_checker_box_without_open_alerts_has_no_hint(client, node_operator, node):
+    body = client.get(_url(node)).content.decode()
+
+    assert "c-description__headline" not in body

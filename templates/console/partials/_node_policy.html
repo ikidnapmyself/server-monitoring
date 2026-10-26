@@ -7,7 +7,7 @@
   {% for group in editor.groups %}
   <fieldset id="{{ group.anchor }}" class="c-box c-form__group">
     <legend class="c-box__header c-box__title">{{ group.label }}</legend>
-    <div class="c-box__body">{% for field in group.fields %}{% include "console/partials/_field.html" %}{% endfor %}</div>
+    <div class="c-box__body">{% for d in group.alerts %}{% include "console/partials/_description.html" with id=group.anchor|add:"-alert-"|add:forloop.counter %}{% endfor %}{% for field in group.fields %}{% include "console/partials/_field.html" %}{% endfor %}</div>
   </fieldset>
   {% empty %}
   <p class="c-muted">This node reports no checker that takes a policy yet.</p>
