@@ -2,11 +2,7 @@ import pytest
 from django.test import override_settings
 from django.urls import reverse
 
-from config.dashboard import (
-    build_readiness,
-    get_dashboard_context,
-    keyed_readiness,
-)
+from config.readiness import build_readiness, keyed_readiness
 
 
 def _by_key(readiness):
@@ -124,11 +120,8 @@ def test_the_nodes_card_opens_the_console():
 
 
 @pytest.mark.django_db
-def test_readiness_in_dashboard_context(admin_user):
-    ctx = get_dashboard_context(admin_user)
-    assert "readiness" in ctx
-    readiness = ctx["readiness"]
-    assert isinstance(readiness, list) and readiness
+def test_readiness_has_an_entry_per_panel_card():
+    readiness = build_readiness()
     for entry in readiness:
         assert {"key", "label", "status", "detail", "url"} <= set(entry)
     keys = {entry["key"] for entry in readiness}
@@ -747,7 +740,7 @@ def test_some_silent_peers_are_counted():
 @override_settings(INSTANCE_ID="hub-under-test")
 def test_every_peer_silent_names_the_window():
     from apps.alerts.models import Node
-    from config.dashboard import NODE_RECENT_MINUTES
+    from config.readiness import NODE_RECENT_MINUTES
 
     _green_install()
     _stale(Node.objects.create(instance_id="agent-a"))
@@ -814,7 +807,7 @@ def test_no_channel_at_all_is_said_once_not_per_lane():
 @pytest.mark.django_db
 def test_a_driver_gap_is_kept_when_the_channel_entry_fired(monkeypatch):
     from apps.orchestration.describing import REASONS
-    from config import dashboard
+    from config import readiness
 
     entries = [
         {
@@ -832,7 +825,7 @@ def test_a_driver_gap_is_kept_when_the_channel_entry_fired(monkeypatch):
             "counts": {"delivering": 2},
         },
     ]
-    monkeypatch.setattr(dashboard, "build_readiness", lambda: entries)
+    monkeypatch.setattr(readiness, "build_readiness", lambda: entries)
 
     assert _headlines(_described()) == [
         "No active channel, 2 routes can't deliver",
@@ -841,10 +834,10 @@ def test_a_driver_gap_is_kept_when_the_channel_entry_fired(monkeypatch):
 
 
 def test_an_unknown_entry_gets_a_generic_description(monkeypatch):
-    from config import dashboard
+    from config import readiness
 
     monkeypatch.setattr(
-        dashboard,
+        readiness,
         "build_readiness",
         lambda: [
             {"key": "backups", "label": "Backups", "status": "warn", "gaps": [], "counts": {}},
@@ -876,10 +869,10 @@ def test_a_lane_gap_is_keyed_by_its_lane_as_a_valid_id():
 
 
 def test_an_entry_is_keyed_by_its_own_key(monkeypatch):
-    from config import dashboard
+    from config import readiness
 
     monkeypatch.setattr(
-        dashboard,
+        readiness,
         "build_readiness",
         lambda: [{"key": "certs", "label": "Certificates", "status": "error", "gaps": []}],
     )

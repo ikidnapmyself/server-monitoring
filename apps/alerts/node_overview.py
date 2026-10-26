@@ -20,8 +20,8 @@ from apps.checkers.admin_charts import render_sparkline
 from apps.checkers.checkers import CheckStatus
 from apps.checkers.models import CheckRun, PreflightRun
 from config.admin_badges import tone_for
-from config.dashboard import NODE_RECENT_MINUTES
 from config.describing import Action
+from config.readiness import NODE_RECENT_MINUTES
 
 # The header chip's tone, derived from the freshness verdict rather than stored
 # beside it so the two cannot disagree. "info" is the local node, whose self-check
@@ -47,7 +47,7 @@ def build_identity(node) -> Identity:
     A peer reuses the dashboard's own window rather than restating a number, so a
     peer that reads amber on the dashboard reads amber here. This instance's own
     row is left out of that verdict for the reason spelled out above the nodes
-    card in ``config/dashboard.py``: its last_seen tracks local check runs, not a
+    card in ``config/readiness.py``: its last_seen tracks local check runs, not a
     machine still reaching us, so a window applied to it paints a healthy install
     amber forever. Its age is reported as information instead.
     """
