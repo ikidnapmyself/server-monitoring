@@ -17,8 +17,8 @@ from apps.alerts.node_overview import (
     checker_time_label,
 )
 from apps.checkers.models import CheckRun, PreflightRun
-from config.dashboard import NODE_RECENT_MINUTES
 from config.describing import Action
+from config.readiness import NODE_RECENT_MINUTES
 
 
 class IdentityHeaderTests(TestCase):
@@ -52,7 +52,7 @@ class IdentityHeaderTests(TestCase):
         self.assertIn("ago", build_identity(node).freshness_label)
 
     def test_the_local_node_stale_past_the_window_still_reads_informational(self):
-        # config/dashboard.py keeps this instance out of the freshness verdict: its
+        # config/readiness.py keeps this instance out of the freshness verdict: its
         # last_seen only says somebody ran a check here, so amber would be permanent.
         node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
         Node.objects.filter(pk=node.pk).update(

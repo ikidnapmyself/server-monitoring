@@ -8,8 +8,8 @@ from django.utils import timezone
 from apps.alerts.describing import describe_incident
 from apps.alerts.models import Alert, Incident, Node
 from apps.console.queries import overview
-from config.dashboard import NODE_RECENT_MINUTES
 from config.describing import Action, Description
+from config.readiness import NODE_RECENT_MINUTES
 
 
 def _incident(title, severity="warning", status="open", age_hours=0, created_at=None):

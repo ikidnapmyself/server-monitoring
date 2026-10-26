@@ -22,8 +22,8 @@ from apps.alerts.models import (
 )
 from apps.console.queries.hosts import host_summary, incident_hosts, node_name
 from config.admin_badges import INCIDENT_STATUS_TONES, SEVERITY_TONES, tone_for
-from config.dashboard import NODE_RECENT_MINUTES, keyed_readiness
 from config.describing import Action, Description
+from config.readiness import NODE_RECENT_MINUTES, keyed_readiness
 
 OPEN_STATUSES = [IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED]
 INCIDENT_LIMIT = 20
