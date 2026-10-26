@@ -20,13 +20,13 @@ from apps.console.intents import (
     PREFLIGHT_READ,
     RUN_READ,
 )
+from apps.console.queries.fleet import METRIC_UNITS, build_fleet_metrics
 from apps.console.queries.runs import reason_label
 from apps.intelligence.describing import provider_label
 from apps.intelligence.models import AnalysisRun
 from apps.orchestration.describing import REASONS
 from apps.orchestration.models import PipelineRun
 from config.admin_badges import CHECK_STATUS_TONES
-from config.dashboard import METRIC_UNITS, build_fleet_metrics
 from config.describing import Action, Description, format_percent
 
 DAY = timedelta(hours=24)
