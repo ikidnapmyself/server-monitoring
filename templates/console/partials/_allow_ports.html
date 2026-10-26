@@ -1,0 +1,24 @@
+{% if notice %}{% include "console/partials/_flash.html" with tone=notice.tone text=notice.text %}{% endif %}
+<a id="allow-back" class="c-crumb" href="{{ plan.back_url }}">{% include "console/partials/_octicon.html" with name="chevron-right" %}Back to the node</a>
+<div class="c-pagehead"><div class="c-pagehead__top"><h1 class="c-pagehead__title">Allow ports on {{ plan.name }}</h1></div></div>
+<section class="c-box c-comment">
+  <h2 class="c-box__header c-box__title">What allowing does</h2>
+  <div class="c-box__body">
+    {% if plan.ports %}
+    <p id="allow-ports">Adds {% for port in plan.ports %}<code>{{ port }}</code>{% if not forloop.last %}, {% endif %}{% endfor %} to this node's port allowlist.</p>
+    <p id="allow-after" class="c-description__detail">The allowlist becomes {% for port in plan.after %}<code>{{ port }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}.</p>
+    {% if plan.seeded %}<p id="allow-seeded" class="c-description__detail">This node has no allowlist yet, so every other port it listens on is listed too. Without them they would start firing.</p>{% endif %}
+    {% else %}
+    <p class="c-muted">No ports to allow.</p>
+    {% endif %}
+  </div>
+</section>
+{% if plan.ports and can_change %}
+<form method="post" action="{{ plan.url }}" data-disable-on-submit>
+  {% csrf_token %}
+  <input type="hidden" name="digest" value="{{ plan.digest }}">
+  <input type="hidden" name="ports" value="{% for port in plan.ports %}{{ port }}{% if not forloop.last %},{% endif %}{% endfor %}">
+  <button id="allow-apply" class="c-button c-button--primary" type="submit">Allow these ports</button>
+  <a id="allow-cancel" class="c-button" href="{{ plan.back_url }}">Cancel</a>
+</form>
+{% endif %}

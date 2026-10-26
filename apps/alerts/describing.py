@@ -8,6 +8,7 @@ the node and pass through as sent. Webhook alerts keep the name and text their s
 import json
 from collections import defaultdict
 from collections.abc import Iterable
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from django.utils.dateparse import parse_datetime
@@ -83,12 +84,34 @@ def alert_name(alert: Alert) -> str:
     return alert.name or "Unnamed alert"
 
 
+def _with_allow_ports(alert: Alert, described: Description, metrics: dict) -> Description:
+    """A listening-ports finding on a known node gets a way to allow the ports it names."""
+    ports = metrics.get("unexpected_ports")
+    if (
+        _checker_name(alert) != "listening_ports"
+        or alert.status != AlertStatus.FIRING
+        or not alert.node_id
+        or described.action is None
+        or not isinstance(ports, list)
+        or not ports
+    ):
+        return described
+    ports = sorted({p for p in ports if isinstance(p, int)})
+    action = Action(
+        f"Allow {', '.join(map(str, ports))} on this node",
+        intent="allow_node_ports",
+        params={"pk": alert.node_id, "ports": ports},
+    )
+    return replace(described, action=action)
+
+
 def describe_alert(alert: Alert) -> Description:
     name = _checker_name(alert)
     checker = CHECKER_REGISTRY.get(name)
     if checker is not None:
         metrics = _dict(_dict(alert.raw_payload).get("metrics"))
-        return checker().describe(check_status_of(alert), metrics, alert.description)
+        described = checker().describe(check_status_of(alert), metrics, alert.description)
+        return _with_allow_ports(alert, described, metrics)
     firing = alert.status == AlertStatus.FIRING
     tone = tone_for(SEVERITY_TONES, alert.severity) if firing else "ok"
     if name:

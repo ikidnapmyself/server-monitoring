@@ -193,7 +193,7 @@ class ListeningPortsChecker(BaseChecker):
                     "Close the ports this node shouldn't expose, or add them to its port allowlist."
                 ),
             )
-        ports = format_list(str(port) for port in unexpected)
+        ports = format_list((str(port) for port in unexpected), limit=len(unexpected))
         them = "them" if len(unexpected) > 1 else "it"
         return self._describe(
             status,

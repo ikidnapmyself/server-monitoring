@@ -13,6 +13,7 @@ from apps.alerts.node_policy import (
     PolicyField,
     StalePolicy,
     _reported_checkers,
+    allowlist_with,
     build_effective_policy,
     clean_int_list,
     clean_number,
@@ -847,3 +848,26 @@ def test_a_missing_node_is_stale():
 def test_the_editor_anchor_names_only_a_checker_with_boxes():
     assert editor_anchor("cpu") == "policy-cpu"
     assert editor_anchor("raid") == ""
+
+
+class TestAllowlistWith:
+    def test_adds_to_the_stored_list(self):
+        config = {"listening_ports": {"allowlist": [22]}, "cpu": {"warning_threshold": 80}}
+
+        allowed, new = allowlist_with(config, [443, 22], keep=[9000])
+
+        assert allowed == [22, 443]
+        assert new["listening_ports"]["allowlist"] == [22, 443]
+        assert new["cpu"] == {"warning_threshold": 80}
+        assert config["listening_ports"]["allowlist"] == [22]
+
+    def test_seeds_from_keep_when_there_is_no_list(self):
+        allowed, new = allowlist_with({}, [80], keep=[5432, 80])
+
+        assert allowed == [80, 5432]
+        assert new == {"listening_ports": {"allowlist": [80, 5432]}}
+
+    def test_a_corrupt_stored_list_is_replaced(self):
+        allowed, _ = allowlist_with({"listening_ports": "junk"}, [80], keep=[22])
+
+        assert allowed == [22, 80]

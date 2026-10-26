@@ -14,6 +14,7 @@ caught by ``apps/alerts/_tests/test_node_policy.py``, matching how
 
 import hashlib
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from apps.alerts.identity import local_hostname, local_instance_id
@@ -184,6 +185,27 @@ def clean_stored_allowlist(value) -> list[int]:
             "Every allowed port must be a number. Re-enter them in the box below, e.g. 22, 80."
         )
     return sorted(ports)
+
+
+def allowlist_with(
+    config, ports: Iterable[int], keep: Iterable[int] = ()
+) -> tuple[list[int], dict]:
+    """The allowlist after allowing ``ports``, and the whole config that carries it.
+
+    ``keep`` matters only when the node has no allowlist yet: the checker flags just the
+    exposed ports until one exists, then flags every port not on it. Seeding it with the
+    ports already tolerated keeps loopback listeners from becoming findings.
+    """
+    config = dict(_json_dict(config))
+    entry = dict(_json_dict(config.get("listening_ports")))
+    stored = entry.get("allowlist")
+    try:
+        base = clean_stored_allowlist(stored)
+    except PolicyError:
+        base = sorted({int(p) for p in keep})
+    allowed = sorted({*base, *(int(p) for p in ports)})
+    config["listening_ports"] = {**entry, "allowlist": allowed}
+    return allowed, config
 
 
 # The prefix keeps policy fields out of the way of the model form's own fields.
