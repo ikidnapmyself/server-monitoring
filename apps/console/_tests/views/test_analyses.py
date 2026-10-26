@@ -46,11 +46,11 @@ def test_the_routes():
 
 
 @pytest.mark.django_db
-def test_anonymous_is_sent_to_the_admin_login(client):
+def test_anonymous_is_sent_to_the_console_login(client):
     resp = client.get(LIST)
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next={LIST}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={LIST}"
 
 
 @pytest.mark.django_db

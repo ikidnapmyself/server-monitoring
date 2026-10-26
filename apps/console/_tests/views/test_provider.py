@@ -87,23 +87,23 @@ def test_the_editor_urls():
     assert reverse("console:provider", args=[7]) == "/console/providers/7/"
 
 
-def test_anonymous_is_sent_to_the_admin_login(client, provider):
+def test_anonymous_is_sent_to_the_console_login(client, provider):
     resp = client.get(_url(provider))
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next={_url(provider)}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={_url(provider)}"
 
 
 def test_an_anonymous_save_logs_in_back_to_the_editor(client, provider):
     resp = client.post(_url(provider), {})
 
-    assert resp["Location"] == f"{reverse('admin:login')}?next={_url(provider)}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={_url(provider)}"
 
 
 def test_an_anonymous_add_logs_in_back_to_the_new_provider_page(client):
     resp = client.post(_url(kind="claude"), {})
 
-    assert resp["Location"] == f"{reverse('admin:login')}?next={_url()}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={_url()}"
 
 
 def test_staff_without_a_provider_permission_is_refused(client, bare_staff, provider):

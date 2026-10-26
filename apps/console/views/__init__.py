@@ -16,6 +16,7 @@ from apps.console.views.incidents import IncidentListView
 from apps.console.views.key import KeyView
 from apps.console.views.key_delete import KeyDeleteView
 from apps.console.views.keys import KeysView
+from apps.console.views.login import ConsoleLoginView
 from apps.console.views.node import NodeDetailView
 from apps.console.views.node_policy import NodePolicyView
 from apps.console.views.node_reeval import NodeReevalView
@@ -45,6 +46,7 @@ __all__ = [
     "ChannelsView",
     "CheckDetailView",
     "CheckListView",
+    "ConsoleLoginView",
     "InboxActionView",
     "InboxPageView",
     "IncidentActionView",

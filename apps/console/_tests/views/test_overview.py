@@ -20,11 +20,11 @@ HTMX = {"HTTP_HX_REQUEST": "true"}
 
 
 @pytest.mark.django_db
-def test_anonymous_is_sent_to_the_admin_login(client):
+def test_anonymous_is_sent_to_the_console_login(client):
     resp = client.get(reverse("console:overview"))
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next=/console/"
+    assert resp["Location"] == f"{reverse('console:login')}?next=/console/"
 
 
 @pytest.mark.django_db
@@ -90,7 +90,7 @@ def test_anonymous_htmx_request_is_told_to_do_a_full_redirect(client):
     resp = client.get(reverse("console:overview"), **HTMX)
 
     assert resp.status_code == 204
-    assert resp["HX-Redirect"] == f"{reverse('admin:login')}?next=/console/"
+    assert resp["HX-Redirect"] == f"{reverse('console:login')}?next=/console/"
 
 
 def _next_after_login(client, current_url):
@@ -98,7 +98,7 @@ def _next_after_login(client, current_url):
 
     assert resp.status_code == 204
     target = urlsplit(resp["HX-Redirect"])
-    assert target.path == reverse("admin:login")
+    assert target.path == reverse("console:login")
     return parse_qs(target.query)["next"]
 
 
@@ -158,7 +158,7 @@ def test_non_htmx_login_ignores_the_current_url_header(client):
     )
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next=/console/"
+    assert resp["Location"] == f"{reverse('console:login')}?next=/console/"
 
 
 @pytest.mark.django_db
@@ -220,8 +220,17 @@ def test_page_polls_itself_and_links_onward(client, staff):
 
     assert f'hx-get="{reverse("console:overview")}"' in body
     assert 'hx-trigger="every 30s, console:refresh"' in body
-    assert reverse("admin:index") in body
-    assert reverse("admin:logout") in body
+    assert f'action="{reverse("console:logout")}"' in body
+    assert reverse("admin:index") not in body
+
+
+@pytest.mark.django_db
+def test_a_superuser_sees_the_admin_link(client, superuser):
+    client.force_login(superuser)
+
+    body = client.get(reverse("console:overview")).content.decode()
+
+    assert f'href="{reverse("admin:index")}"' in body
 
 
 def _readiness(monkeypatch, headline="3 runs are stuck"):
@@ -380,9 +389,9 @@ def test_anonymous_non_get_logs_in_to_the_overview_not_to_a_405(client, method):
     htmx = getattr(client, method)(f"{url}?x=1", **HTMX)
 
     assert plain.status_code == 302
-    assert plain["Location"] == f"{reverse('admin:login')}?next={url}"
+    assert plain["Location"] == f"{reverse('console:login')}?next={url}"
     assert htmx.status_code == 204
-    assert htmx["HX-Redirect"] == f"{reverse('admin:login')}?next={url}"
+    assert htmx["HX-Redirect"] == f"{reverse('console:login')}?next={url}"
 
 
 @pytest.mark.django_db
@@ -391,7 +400,7 @@ def test_anonymous_head_keeps_its_own_path(client):
 
     resp = client.head(f"{url}?x=1")
 
-    assert resp["Location"] == f"{reverse('admin:login')}?next={url}%3Fx%3D1"
+    assert resp["Location"] == f"{reverse('console:login')}?next={url}%3Fx%3D1"
 
 
 @pytest.mark.django_db

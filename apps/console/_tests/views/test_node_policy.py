@@ -75,17 +75,17 @@ def test_a_busy_database_is_a_409_with_the_fresh_boxes(client, node_operator, no
     assert node.config == CPU
 
 
-def test_anonymous_is_sent_to_the_admin_login(client, node):
+def test_anonymous_is_sent_to_the_console_login(client, node):
     resp = client.get(_url(node))
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next={_url(node)}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={_url(node)}"
 
 
 def test_an_anonymous_save_logs_in_back_to_the_editor(client, node):
     resp = client.post(_url(node), _boxes())
 
-    assert resp["Location"] == f"{reverse('admin:login')}?next={_url(node)}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={_url(node)}"
 
 
 def test_a_viewer_is_refused_on_get_and_on_post(client, node_viewer, node):

@@ -76,6 +76,8 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "config.urls"
+LOGIN_URL = "console:login"
+LOGIN_REDIRECT_URL = "console:overview"
 
 TEMPLATES = [
     {

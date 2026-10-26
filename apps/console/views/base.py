@@ -7,7 +7,6 @@ from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.generic import TemplateView
 
-from apps.console.intents import admin_url
 from apps.console.middleware import CONSOLE_PATH_PREFIX
 
 NOTHING_TO_APPLY = "Nothing here needs re-evaluating, so nothing was applied."
@@ -58,12 +57,11 @@ class ConsoleView(TemplateView):
 
     def _refusal(self, request):
         if not request.user.is_authenticated:
-            login_url = admin_url("login")
             if not self.is_htmx:
-                return redirect_to_login(self._return_path(request), login_url)
+                return redirect_to_login(self._return_path(request))
             # htmx would swap a followed redirect's login form into the page.
             response = HttpResponse(status=204)
-            response["HX-Redirect"] = redirect_to_login(self._page_path(request), login_url).url
+            response["HX-Redirect"] = redirect_to_login(self._page_path(request)).url
             return response
         if not (request.user.is_active and request.user.is_staff):
             return HttpResponseForbidden("Staff access required.")

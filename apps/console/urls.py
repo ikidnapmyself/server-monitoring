@@ -1,3 +1,4 @@
+from django.contrib.auth.views import LogoutView
 from django.urls import path
 
 from apps.console.views import (
@@ -11,6 +12,7 @@ from apps.console.views import (
     ChannelView,
     CheckDetailView,
     CheckListView,
+    ConsoleLoginView,
     InboxActionView,
     InboxPageView,
     IncidentActionView,
@@ -44,6 +46,8 @@ app_name = "console"
 
 urlpatterns = [
     path("", OverviewView.as_view(), name="overview"),
+    path("login/", ConsoleLoginView.as_view(), name="login"),
+    path("logout/", LogoutView.as_view(next_page="console:login"), name="logout"),
     path("alerts/", AlertListView.as_view(), name="alerts"),
     path("alerts/<int:pk>/", AlertDetailView.as_view(), name="alert"),
     path("alerts/<int:pk>/reevaluate/", AlertReevalView.as_view(), name="alert-reeval"),

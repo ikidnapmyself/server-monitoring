@@ -68,13 +68,13 @@ def test_the_page_lives_under_nodes():
 
 
 @pytest.mark.django_db
-def test_anonymous_is_sent_to_the_admin_login(client):
+def test_anonymous_is_sent_to_the_console_login(client):
     node, _ = _busy()
 
     resp = client.get(_url(node))
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next={_url(node)}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={_url(node)}"
 
 
 @pytest.mark.django_db

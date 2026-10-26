@@ -108,3 +108,11 @@ def test_collectstatic_hashes_every_console_asset(tmp_path, settings):
         assert stored != name
         assert (tmp_path / stored).is_file()
         assert staticfiles_storage.url(name) == f"/static/{stored}"
+
+
+def test_the_console_owns_sign_in():
+    from django.conf import settings
+    from django.shortcuts import resolve_url
+
+    assert resolve_url(settings.LOGIN_URL) == "/console/login/"
+    assert resolve_url(settings.LOGIN_REDIRECT_URL) == "/console/"

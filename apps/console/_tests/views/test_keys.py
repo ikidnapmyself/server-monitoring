@@ -31,11 +31,11 @@ def test_the_page_lives_at_keys(url):
     assert url == "/console/keys/"
 
 
-def test_anonymous_is_sent_to_the_admin_login(client, url):
+def test_anonymous_is_sent_to_the_console_login(client, url):
     resp = client.get(url)
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next=/console/keys/"
+    assert resp["Location"] == f"{reverse('console:login')}?next=/console/keys/"
 
 
 def test_staff_without_a_key_permission_is_refused(client, bare_staff, url):

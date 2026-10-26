@@ -88,23 +88,23 @@ def test_the_editor_urls():
     assert reverse("console:route", args=[7]) == "/console/routes/7/"
 
 
-def test_anonymous_is_sent_to_the_admin_login(client, route):
+def test_anonymous_is_sent_to_the_console_login(client, route):
     resp = client.get(_url(route))
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next={_url(route)}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={_url(route)}"
 
 
 def test_an_anonymous_save_logs_in_back_to_the_editor(client, route):
     resp = client.post(_url(route), _data(route))
 
-    assert resp["Location"] == f"{reverse('admin:login')}?next={_url(route)}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={_url(route)}"
 
 
 def test_an_anonymous_add_logs_in_back_to_the_new_route_page(client):
     resp = client.post(_url(), _data())
 
-    assert resp["Location"] == f"{reverse('admin:login')}?next={_url()}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={_url()}"
 
 
 def test_staff_without_a_route_permission_is_refused(client, bare_staff, route):

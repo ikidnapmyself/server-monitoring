@@ -60,17 +60,17 @@ def test_the_routes():
     assert reverse("console:inbox-drain", args=[7]) == POSTS[2]
 
 
-def test_anonymous_is_sent_to_the_admin_login(client):
+def test_anonymous_is_sent_to_the_console_login(client):
     resp = client.get(PAGE)
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next={PAGE}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={PAGE}"
 
 
 def test_an_anonymous_post_lands_on_the_inbox_after_login(client):
     resp = client.post(POSTS[0])
 
-    assert resp["Location"] == f"{reverse('admin:login')}?next={PAGE}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={PAGE}"
 
 
 def test_staff_without_inbox_permissions_is_refused(client, bare_staff):
