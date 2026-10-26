@@ -7,6 +7,7 @@ from datetime import datetime
 from django import forms
 from django.urls import reverse
 
+from apps.alerts.describing import alert_link, describe_alert
 from apps.alerts.forms import ADD_SECTION_FIELD, NodePolicyForm
 from apps.alerts.models import Incident, Node
 from apps.alerts.node_overview import (
@@ -24,13 +25,14 @@ from apps.alerts.node_policy import (
     config_digest,
     editor_anchor,
 )
+from apps.alerts.reeval_existing import ReevalScope
 from apps.checkers.checkers import checker_label
 from apps.console.queries.alert import IncidentCard, incident_cards
 from apps.console.queries.hosts import node_keys, node_name
 from apps.console.queries.nodes import SeverityCount, open_incidents_by_node, severity_counts
 from apps.console.queries.overview import SEVERITY_RANK, firing_by_node, node_badge
 from apps.console.queries.runs import RunListRow, recent_runs
-from config.describing import Action, Fact
+from config.describing import Action, Description, Fact, or_action
 
 RUN_LIMIT = 10
 
@@ -40,6 +42,7 @@ class EditorGroup:
     label: str
     anchor: str
     fields: tuple[forms.BoundField, ...]
+    alerts: tuple[Description, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -216,6 +219,11 @@ def build_node_detail(pk: int, *, can_change: bool = False) -> NodeDetail | None
     )
 
 
+def _open_alerts(node: Node, checker: str) -> tuple[Description, ...]:
+    alerts = ReevalScope.for_checker(node, checker).alerts.order_by("pk")
+    return tuple(or_action(describe_alert(alert), alert_link(alert.pk)) for alert in alerts)
+
+
 def build_policy_editor(pk: int, data=None, *, digest: str | None = None) -> PolicyEditor | None:
     """The editor for one node. ``digest`` keeps the one an invalid submit carried."""
     node = Node.objects.filter(pk=pk).first()
@@ -227,7 +235,12 @@ def build_policy_editor(pk: int, data=None, *, digest: str | None = None) -> Pol
         name=node_name(node.hostname),
         form=form,
         groups=tuple(
-            EditorGroup(checker_label(checker), editor_anchor(checker), tuple(fields))
+            EditorGroup(
+                checker_label(checker),
+                editor_anchor(checker),
+                tuple(fields),
+                _open_alerts(node, checker),
+            )
             for checker, fields in form.policy_groups()
         ),
         add=form[ADD_SECTION_FIELD] if ADD_SECTION_FIELD in form.fields else None,
