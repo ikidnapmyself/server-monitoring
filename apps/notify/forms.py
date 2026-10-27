@@ -26,7 +26,6 @@ class ChannelForm(TypedConfigForm):
         *,
         channel: NotificationChannel | None = None,
         driver: str | None = None,
-        disabled: bool = False,
     ):
         self.channel = channel
         self.driver_key = driver or (channel.driver if channel else "")
@@ -58,9 +57,6 @@ class ChannelForm(TypedConfigForm):
             is_active=channel.is_active if channel else True,
             description=channel.description if channel else "",
         )
-        if disabled:
-            for field in self.fields.values():
-                field.disabled = True
 
     @staticmethod
     def _credentials(driver_cls) -> list[str]:

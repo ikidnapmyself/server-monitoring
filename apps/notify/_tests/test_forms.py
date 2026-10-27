@@ -376,13 +376,6 @@ def test_validate_config_false_is_a_non_field_error():
     ]
 
 
-def test_disabled_disables_every_field():
-    form = ChannelForm(channel=make("email", STORED["email"]), disabled=True)
-
-    assert form.fields
-    assert all(field.disabled for field in form.fields.values())
-
-
 def test_a_name_another_channel_has_is_an_error():
     make("generic", {}, name="taken")
     form = resubmit(make("generic", {}), name="taken")

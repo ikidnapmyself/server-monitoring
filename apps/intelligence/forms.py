@@ -44,7 +44,6 @@ class ProviderForm(TypedConfigForm):
         *,
         provider: IntelligenceProvider | None = None,
         kind: str | None = None,
-        disabled: bool = False,
     ):
         self.instance = provider
         self.kind = kind or (provider.provider if provider else "")
@@ -69,9 +68,6 @@ class ProviderForm(TypedConfigForm):
             is_active=provider.is_active if provider else False,
             description=provider.description if provider else "",
         )
-        if disabled:
-            for field in self.fields.values():
-                field.disabled = True
 
     def clean_name(self) -> str:
         name = self.cleaned_data["name"]

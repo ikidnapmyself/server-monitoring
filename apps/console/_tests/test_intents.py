@@ -379,3 +379,18 @@ def test_the_key_intents_point_at_the_key_pages(intent, params, url):
     assert resolve_action(Action("Go", intent=intent, params=params)) == ResolvedAction(
         "Go", url, "get"
     )
+
+
+@pytest.mark.django_db
+def test_a_superuser_gets_every_system_tab_in_order(client, superuser):
+    body = client.get(reverse("console:channels")).content.decode()
+
+    nav = body[body.index('<nav class="c-subnav" aria-label="System">') :]
+    tabs = re.findall(r">([^<>]+)</a>", nav[: nav.index("</nav>")])
+    assert tabs == ["Routes", "Channels", "Providers", "API keys"]
+    system = re.search(
+        r'<a class="c-unav__item" href="([^"]+)"[^>]*>(?:(?!</a>).)*<span>System</span>',
+        body,
+        re.DOTALL,
+    )
+    assert system.group(1) == "/console/routes/"
