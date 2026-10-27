@@ -1,4 +1,4 @@
-"""Colour lives in ops.css. This is what keeps it there.
+"""Colour lives in the console stylesheet. This is what keeps it there.
 
 Without this, the next person adding a status column reaches for
 ``format_html('<span style="color:#dc3545">')``, because that is what the
@@ -7,7 +7,7 @@ neighbouring code used to look like.
 The boundary is every file that can paint an admin page: each template under
 ``templates/``, every admin module under ``apps/`` and ``config/``, and the
 projection modules those templates render. It stops at two places on purpose.
-``static/admin/css/ops.css`` is where the hexes are supposed to be. And
+``static/console/console.css`` is where the hexes are supposed to be. And
 ``apps/notify/drivers/`` holds hexes that are Slack attachment colours sent over
 the wire, not paint on a page this project renders.
 
@@ -56,7 +56,6 @@ def _scanned() -> list[Path]:
         *(ROOT / "apps").rglob("*_overview.py"),
         *(ROOT / "config").glob("admin*.py"),
         ROOT / "config" / "tones.py",
-        ROOT / "config" / "dashboard.py",
     }
     return sorted(path for path in paths if "_tests" not in path.parts)
 
@@ -66,7 +65,7 @@ SCANNED = _scanned()
 # Named so a rename or a move fails loudly here instead of silently dropping out
 # of the scan. Every one of these has held a hex at some point in the sweep.
 MUST_BE_SCANNED = {
-    "templates/admin/dashboard.html",
+    "templates/console/base.html",
     "apps/alerts/admin.py",
     "apps/checkers/admin.py",
     "apps/checkers/admin_charts.py",
@@ -77,7 +76,6 @@ MUST_BE_SCANNED = {
     "apps/alerts/policy_overview.py",
     "config/admin.py",
     "config/tones.py",
-    "config/dashboard.py",
 }
 
 
@@ -100,7 +98,7 @@ def _offenders() -> dict[str, list[str]]:
 
 
 def test_no_inline_colour_outside_the_stylesheet():
-    assert _offenders() == {}, f"inline colour belongs in ops.css: {_offenders()}"
+    assert _offenders() == {}, f"inline colour belongs in console.css: {_offenders()}"
 
 
 def test_the_guard_scans_the_files_it_names():

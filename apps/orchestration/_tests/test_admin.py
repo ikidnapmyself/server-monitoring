@@ -7,7 +7,6 @@ from django.utils import timezone
 
 from apps.alerts.models import Alert, AlertSeverity, AlertStatus, Incident, IncidentStatus
 from apps.checkers.models import CheckRun, CheckStatus
-from apps.intelligence.models import AnalysisRun
 from apps.orchestration.models import (
     InboxItem,
     PipelineDefinition,
@@ -16,125 +15,6 @@ from apps.orchestration.models import (
     StageExecution,
     StageStatus,
 )
-
-
-class TestMonitoringAdminSite(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
-
-    def setUp(self):
-        self.client.login(username="admin", password="password")
-
-    def test_custom_site_is_active(self):
-        """The default admin.site should be our custom MonitoringAdminSite."""
-        from config.admin import MonitoringAdminSite
-
-        assert isinstance(admin.site, MonitoringAdminSite)
-
-    def test_site_header(self):
-        assert admin.site.site_header == "Server Monitoring"
-
-    def test_site_title(self):
-        assert admin.site.site_title == "Server Monitoring"
-
-    def test_index_title(self):
-        assert admin.site.index_title == "Dashboard"
-
-    def test_admin_index_loads(self):
-        response = self.client.get("/admin/")
-        assert response.status_code == 200
-
-
-class TestDashboardContext(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
-        cls._create_dashboard_data()
-
-    def setUp(self):
-        self.client.login(username="admin", password="password")
-
-    @classmethod
-    def _create_dashboard_data(cls):
-        """Create sample data for dashboard tests."""
-        # Active incidents
-        Incident.objects.create(severity=AlertSeverity.CRITICAL, status=IncidentStatus.OPEN)
-        Incident.objects.create(severity=AlertSeverity.WARNING, status=IncidentStatus.OPEN)
-        Incident.objects.create(severity=AlertSeverity.INFO, status=IncidentStatus.CLOSED)
-
-        # Pipeline runs (within 24h)
-        now = timezone.now()
-        PipelineRun.objects.create(
-            trace_id="t1", run_id="r1", status=PipelineStatus.NOTIFIED, created_at=now
-        )
-        PipelineRun.objects.create(
-            trace_id="t2", run_id="r2", status=PipelineStatus.NOTIFIED, created_at=now
-        )
-        PipelineRun.objects.create(
-            trace_id="t3", run_id="r3", status=PipelineStatus.FAILED, created_at=now
-        )
-
-        # Check runs
-        CheckRun.objects.create(
-            checker_name="cpu",
-            hostname="srv1",
-            status=CheckStatus.CRITICAL,
-            message="CPU usage at 95%",
-        )
-        CheckRun.objects.create(
-            checker_name="disk",
-            hostname="srv1",
-            status=CheckStatus.WARNING,
-            message="Disk usage at 85%",
-        )
-
-        # Analysis runs
-        AnalysisRun.objects.create(
-            trace_id="t1",
-            pipeline_run_id="r1",
-            provider="openai",
-            total_tokens=500,
-            status="succeeded",
-        )
-
-    def test_dashboard_contains_active_incidents(self):
-        response = self.client.get("/admin/")
-        assert response.status_code == 200
-        assert "active_incidents" in response.context
-
-    def test_dashboard_contains_pipeline_health(self):
-        response = self.client.get("/admin/")
-        assert "pipeline_health" in response.context
-        health = response.context["pipeline_health"]
-        assert health["headline"] == "66.7% of runs finished"
-        assert [(row["label"], row["count"]) for row in health["rows"]] == [
-            ("Finished", "2"),
-            ("Failed", "1"),
-            ("Still going", "0"),
-        ]
-
-    def test_dashboard_contains_recent_checks(self):
-        response = self.client.get("/admin/")
-        assert "recent_check_runs" in response.context
-        assert len(response.context["recent_check_runs"]) == 2
-
-    def test_dashboard_contains_failed_pipelines(self):
-        response = self.client.get("/admin/")
-        assert "failed_pipelines" in response.context
-        assert len(response.context["failed_pipelines"]) == 1
-
-    def test_dashboard_contains_aggregations(self):
-        response = self.client.get("/admin/")
-        assert "top_failing_checkers" in response.context
-        assert "failure_reasons" in response.context
-        assert "provider_usage" in response.context
-
-    def test_dashboard_renders_panels(self):
-        response = self.client.get("/admin/")
-        content = response.content.decode()
-        assert "Active Incidents" in content
-        assert "Pipeline Health" in content
 
 
 class TestPipelineTracing(TestCase):

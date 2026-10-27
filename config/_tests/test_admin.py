@@ -1,37 +1,49 @@
-"""Tests for config/admin.py — MonitoringAdminSite delegates to dashboard."""
+"""The admin is stock Django for active superusers, and nothing else."""
 
-from unittest.mock import patch
-
+import pytest
 from django.contrib import admin
-from django.contrib.auth.models import User
-from django.test import SimpleTestCase, TestCase
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
+from django.urls import reverse
 
 from config.admin import MonitoringAdminSite
 
-
-class TestMonitoringAdminSiteConfig(SimpleTestCase):
-    def test_default_admin_is_monitoring_site(self):
-        assert isinstance(admin.site, MonitoringAdminSite)
-
-    def test_site_attributes(self):
-        assert admin.site.site_header == "Server Monitoring"
-        assert admin.site.site_title == "Server Monitoring"
-        assert admin.site.index_title == "Dashboard"
-        assert admin.site.index_template == "admin/dashboard.html"
+pytestmark = pytest.mark.django_db
 
 
-class TestMonitoringAdminSiteIndex(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        cls.user = User.objects.create_superuser("admin", "admin@test.com", "password")
+def test_the_default_site_is_the_break_glass_site():
+    assert isinstance(admin.site, MonitoringAdminSite)
+    assert admin.site.index_template is None
+    assert admin.site.site_url == "/console/"
 
-    def setUp(self):
-        self.client.login(username="admin", password="password")
 
-    @patch("config.admin.get_dashboard_context")
-    def test_index_delegates_to_get_dashboard_context(self, mock_ctx):
-        mock_ctx.return_value = {"test_key": "test_value"}
-        response = self.client.get("/admin/")
-        assert response.status_code == 200
-        mock_ctx.assert_called_once()
-        assert response.context["test_key"] == "test_value"
+def test_staff_with_every_permission_but_no_superuser_flag_is_turned_away(client):
+    user = get_user_model().objects.create_user("op", password="x", is_staff=True)
+    user.user_permissions.set(Permission.objects.all())
+    client.force_login(user)
+
+    for url in (
+        reverse("admin:index"),
+        reverse("admin:notify_notificationchannel_changelist"),
+    ):
+        resp = client.get(url)
+        assert resp.status_code == 302, url
+        assert resp["Location"].startswith(reverse("admin:login")), url
+
+
+def test_an_inactive_superuser_is_turned_away(rf):
+    request = rf.get("/admin/")
+    request.user = get_user_model()(username="gone", is_superuser=True, is_active=False)
+
+    assert not admin.site.has_permission(request)
+
+
+def test_a_superuser_gets_the_stock_index(admin_client):
+    resp = admin_client.get(reverse("admin:index"))
+
+    assert resp.status_code == 200
+    assert resp.templates[0].name == "admin/index.html"
+    body = resp.content.decode()
+    assert "ops.css" not in body
+    assert "Readiness" not in body
+    assert reverse("admin:alerts_incident_changelist") in body

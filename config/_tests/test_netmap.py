@@ -385,5 +385,5 @@ def test_the_map_builds_no_urls():
 
     source = open(netmap.__file__).read()
     assert "reverse" not in source
-    assert "admin_links" not in source
+    assert "admin" not in source
     assert "apps.console" not in source

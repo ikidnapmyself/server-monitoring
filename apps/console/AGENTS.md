@@ -6,8 +6,7 @@ pipeline stage and not an alert producer.
 ## Rules
 
 - **Nothing imports from `apps.console`.** It imports from the other apps, never the
-  reverse. Exception: `config/dashboard.py` until PR 11 deletes it. It reads the Reports
-  queries and resolves their links through `resolve_action`.
+  reverse.
 - **Reads go through `queries/`.** Functions there return frozen dataclasses, never
   querysets, so a template can't trigger a query. Views don't touch the ORM.
 - **No new write paths.** Action views call the functions the admin calls, such as

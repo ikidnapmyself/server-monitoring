@@ -102,7 +102,6 @@ def test_collectstatic_hashes_every_console_asset(tmp_path, settings):
         "console/console.css",
         "console/console.js",
         "console/vendor/htmx.min.js",
-        "admin/css/ops.css",
     ):
         stored = staticfiles_storage.stored_name(name)
         assert stored != name

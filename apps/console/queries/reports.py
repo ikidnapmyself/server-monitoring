@@ -1,7 +1,4 @@
-"""Read model for the Reports summary. Returns dataclasses, never querysets.
-
-The admin dashboard reads the same functions until PR 11 deletes it.
-"""
+"""Read model for the Reports summary. Returns dataclasses, never querysets."""
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
