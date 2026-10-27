@@ -1,4 +1,4 @@
-"""Custom Django admin and config app configuration."""
+"""The break-glass admin site and the config app."""
 
 from django.apps import AppConfig
 from django.contrib.admin.apps import AdminConfig

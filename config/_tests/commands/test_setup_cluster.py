@@ -131,6 +131,8 @@ class SetupClusterHubTests(TestCase):
         with tempfile.TemporaryDirectory() as d:
             out = self._run_hub(d, "--no-notify")
         self.assertIn("Notifications: NONE", out)
+        self.assertIn("/console/channels/new/", out)
+        self.assertNotIn("Django", out)
         self.assertEqual(NotificationChannel.objects.count(), 0)
 
     def test_hub_skips_when_channel_already_active(self):
@@ -169,7 +171,7 @@ class SetupClusterHubTests(TestCase):
             out = self._run_hub(d, "--no-notify")
 
         self.assertFalse(PipelineDefinition.objects.filter(channel__isnull=False).exists())
-        self.assertIn("Pipeline definitions", out)
+        self.assertIn("/console/routes/", out)
         self.assertIn("2 channels active", out)
 
     def test_several_channels_can_be_chosen_interactively(self):
@@ -214,6 +216,8 @@ class SetupClusterHubTests(TestCase):
 
         self.assertFalse(PipelineDefinition.objects.filter(channel__isnull=False).exists())
         self.assertIn("nothing bound", out)
+        self.assertIn("/console/routes/", out)
+        self.assertNotIn("Django", out)
 
     def test_hub_leaves_the_lane_shapes_alone_when_several_channels_are_active(self):
         """No binding means no enable_delivery either: the lanes stay as seeded."""

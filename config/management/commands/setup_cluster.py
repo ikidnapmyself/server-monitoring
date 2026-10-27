@@ -188,8 +188,7 @@ class Command(BaseCommand):
                 self.stdout.write(
                     self.style.WARNING(
                         f"Notifications: {len(active)} channels active — nothing bound. "
-                        "Pick one per lane in Django admin "
-                        "(Orchestration → Pipeline definitions)."
+                        "Pick one per route at /console/routes/."
                     )
                 )
                 return
@@ -218,7 +217,7 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.WARNING(
                     "Notifications: NONE — the hub accepts pushes but will not send anything. "
-                    "Add one in Django admin (Notify → Notification channels) or re-run with "
+                    "Add one at /console/channels/new/ or re-run with "
                     "--notify-driver slack --notify-webhook <url>."
                 )
             )

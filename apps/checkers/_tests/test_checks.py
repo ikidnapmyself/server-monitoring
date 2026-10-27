@@ -329,6 +329,8 @@ class PipelineChecksTests(TestCase):
         self.assertEqual(len(errors), 1)
         self.assertEqual(errors[0].id, "checkers.W014")
         self.assertIn("No active", errors[0].msg)
+        self.assertIn("/console/channels/new/", errors[0].hint)
+        self.assertNotIn("Django", errors[0].hint)
 
     def test_notification_channels_warns_on_empty_config(self):
         """Test notification channels check warns on empty config."""
@@ -339,6 +341,8 @@ class PipelineChecksTests(TestCase):
         self.assertEqual(len(errors), 1)
         self.assertEqual(errors[0].id, "checkers.W014")
         self.assertIn("empty config", errors[0].msg)
+        self.assertIn("/console/channels/", errors[0].hint)
+        self.assertNotIn("Django", errors[0].hint)
 
     def test_pipeline_status_handles_exception(self):
         """Test pipeline status handles database errors gracefully."""

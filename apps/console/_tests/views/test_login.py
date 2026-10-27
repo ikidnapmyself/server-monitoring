@@ -1,11 +1,13 @@
 import pytest
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.test import override_settings
 from django.urls import reverse
 
 from apps.console.forms import REFUSED
+from apps.console.views.login import ConsoleLoginView
 
 WINDOW = 1_800_000_040.0
 PASSWORD = "pw-correct-horse"
@@ -132,3 +134,13 @@ def test_sign_in_attempts_are_rate_limited_but_the_page_is_not(client, monkeypat
     assert 'name="password"' in body
     assert 'value="/console/runs/"' in body
     assert client.get(reverse("console:login")).status_code == 200
+
+
+@pytest.mark.parametrize(("retry_after", "wait"), [(1, "1 second"), (2, "2 seconds")])
+def test_the_wait_reads_in_plain_words(rf, retry_after, wait):
+    request = rf.post("/console/login/")
+    request.user = AnonymousUser()
+
+    body = ConsoleLoginView.rate_limited(request, retry_after).content.decode()
+
+    assert f"Try again in {wait}." in body

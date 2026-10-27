@@ -786,6 +786,8 @@ class CheckPipelineStateTests(TestCase):
         self.assertFalse([r for r in results if r.level in ("warn", "error")])
         infos = [r for r in results if r.level == "info"]
         self.assertTrue(any("recording only" in r.message.lower() for r in infos))
+        self.assertTrue(any("/console/channels/new/" in r.hint for r in infos))
+        self.assertFalse(any("Django" in r.hint for r in infos))
 
     def test_no_active_definitions_warns_that_routing_is_dead(self):
         """Zero lanes is not "optional" any more — it means every alert no_routes.
@@ -800,6 +802,8 @@ class CheckPipelineStateTests(TestCase):
         offender = [r for r in warns if "pipeline definition" in r.message.lower()]
         self.assertEqual(len(offender), 1)
         self.assertIn("no_route", offender[0].hint)
+        self.assertIn("/console/routes/new/", offender[0].hint)
+        self.assertNotIn("Django", offender[0].hint)
         self.assertNotIn("optional", offender[0].message.lower())
         # No info-level duplicate left behind saying the opposite.
         self.assertFalse(
@@ -834,6 +838,8 @@ class CheckPipelineStateTests(TestCase):
         errors = [r for r in results if r.level == "error" and "mute" in r.message]
         self.assertEqual(len(errors), 1)
         self.assertIn("no_channel", errors[0].hint)
+        self.assertIn("/console/routes/", errors[0].hint)
+        self.assertNotIn("Django", errors[0].hint)
 
     def test_a_lane_bound_to_an_unregistered_driver_is_an_error(self):
         """The third gap, invisible to preflight until now.
