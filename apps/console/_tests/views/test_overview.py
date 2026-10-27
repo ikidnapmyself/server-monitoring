@@ -8,11 +8,13 @@ from django.contrib.auth.models import Permission
 from django.test import RequestFactory
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import escape
 
 from apps.alerts.models import Alert, Incident, Node
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console._tests.views.test_incident import named_incident
 from apps.console.queries import overview as overview_queries
+from apps.console.views.base import NOT_STAFF
 from apps.console.views.overview import OverviewView
 from config.describing import Action, Description
 
@@ -35,7 +37,10 @@ def test_non_staff_is_refused(client):
     resp = client.get(reverse("console:overview"))
 
     assert resp.status_code == 403
-    assert "Staff access required." in resp.content.decode()
+    body = resp.content.decode()
+    assert escape(NOT_STAFF) in body
+    assert f'action="{reverse("console:logout")}"' in body
+    assert 'class="c-unav"' not in body
 
 
 def test_inactive_staff_is_refused_by_the_view_itself():
@@ -45,7 +50,7 @@ def test_inactive_staff_is_refused_by_the_view_itself():
     resp = OverviewView.as_view()(request)
 
     assert resp.status_code == 403
-    assert "Staff access required." in resp.content.decode()
+    assert escape(NOT_STAFF) in resp.content.decode()
 
 
 @pytest.mark.django_db

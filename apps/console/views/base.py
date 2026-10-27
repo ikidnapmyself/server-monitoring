@@ -3,12 +3,14 @@ from urllib.parse import unquote, urlsplit
 
 from django.contrib.auth.views import redirect_to_login
 from django.http import HttpResponse, HttpResponseForbidden
+from django.shortcuts import render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.generic import TemplateView
 
 from apps.console.middleware import CONSOLE_PATH_PREFIX
 
+NOT_STAFF = "This account isn't a staff account."
 NOTHING_TO_APPLY = "Nothing here needs re-evaluating, so nothing was applied."
 
 
@@ -64,7 +66,7 @@ class ConsoleView(TemplateView):
             response["HX-Redirect"] = redirect_to_login(self._page_path(request)).url
             return response
         if not (request.user.is_active and request.user.is_staff):
-            return HttpResponseForbidden("Staff access required.")
+            return render(request, "console/not_staff.html", {"message": NOT_STAFF}, status=403)
         if self.read_permissions and not any(map(request.user.has_perm, self.read_permissions)):
             return HttpResponseForbidden("Permission to view this page required.")
         return None

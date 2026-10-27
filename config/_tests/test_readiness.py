@@ -26,7 +26,7 @@ def test_channels_error_when_none_active_and_a_lane_promises_delivery():
 
 @pytest.mark.django_db
 def test_channels_info_when_no_channel_and_no_lane_delivers():
-    """A hub that reads the admin daily and notifies nobody is not broken.
+    """A hub that reads the console daily and notifies nobody is not broken.
 
     Painting it red is how a readiness panel becomes something operators learn to
     ignore, which costs them the entries that do matter.

@@ -16,6 +16,7 @@ from apps.console.filters import (
     SINCE_CHOICES,
 )
 from apps.console.forms import REFUSED
+from apps.console.views.base import NOT_STAFF
 from apps.intelligence._tests.test_forms import KEY
 from apps.intelligence.models import IntelligenceProvider
 from apps.notify._tests.test_forms import SECRETS, STORED
@@ -311,3 +312,14 @@ def test_the_login_page_leaks_nothing(client):
     _assert_no_leak("/console/login/ refused", refusal)
     assert "Sign in to the console" in page
     assert REFUSED in refusal
+
+
+@pytest.mark.django_db
+def test_the_non_staff_page_leaks_nothing(client, django_user_model):
+    client.force_login(django_user_model.objects.create_user("visitor", password="x"))
+    refused = client.get("/console/")
+    assert refused.status_code == 403
+    text = visible(refused.content.decode())
+
+    _assert_no_leak("/console/ not staff", text)
+    assert NOT_STAFF in text

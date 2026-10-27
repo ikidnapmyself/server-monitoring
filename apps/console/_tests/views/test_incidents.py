@@ -5,11 +5,13 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import escape
 
 from apps.alerts.models import Alert, Incident, Node
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console._tests.views.test_incident import named_incident
 from apps.console.queries import incidents as incident_queries
+from apps.console.views.base import NOT_STAFF
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
 MARKUP = "<img src=x onerror=alert(1)>"
@@ -72,7 +74,7 @@ def test_non_staff_is_refused(client, url):
     resp = client.get(url)
 
     assert resp.status_code == 403
-    assert "Staff access required." in resp.content.decode()
+    assert escape(NOT_STAFF) in resp.content.decode()
 
 
 @pytest.mark.django_db

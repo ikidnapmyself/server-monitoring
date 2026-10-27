@@ -16,6 +16,7 @@ DEFAULT_RATE_LIMITS = {
     "/orchestration/": 30,
     "/notify/": 30,
     "/intelligence/": 20,
+    "/console/login/": 10,
 }
 
 

@@ -1,5 +1,8 @@
 import pytest
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
+from django.test import override_settings
 from django.urls import reverse
 
 from apps.console.forms import REFUSED
@@ -87,3 +90,35 @@ def test_logout_signs_out_and_returns_to_the_login(client, staff):
 @pytest.mark.django_db
 def test_logout_refuses_a_get(client, staff):
     assert client.get(reverse("console:logout")).status_code == 405
+
+
+@pytest.mark.django_db
+def test_a_signed_in_operator_skips_the_login(client, staff):
+    resp = client.get(reverse("console:login"))
+
+    assert resp.status_code == 302
+    assert resp["Location"] == reverse("console:overview")
+
+
+@pytest.mark.django_db
+def test_the_refusal_is_announced(client):
+    _user()
+
+    body = _sign_in(client).content.decode()
+
+    assert f'<p class="c-field__error c-tone-critical" role="alert">{REFUSED}</p>' in body
+
+
+@override_settings(
+    RATE_LIMIT_ENABLED=True,
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
+)
+@pytest.mark.django_db
+def test_sign_in_attempts_are_rate_limited_but_the_page_is_not(client):
+    cache.clear()
+    limit = settings.RATE_LIMITS["/console/login/"]
+    for _ in range(limit):
+        assert _sign_in(client, password="wrong").status_code == 200
+
+    assert _sign_in(client, password="wrong").status_code == 429
+    assert client.get(reverse("console:login")).status_code == 200

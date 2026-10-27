@@ -8,3 +8,4 @@ class ConsoleLoginView(LoginView):
 
     template_name = "console/login.html"
     authentication_form = ConsoleLoginForm
+    redirect_authenticated_user = True

@@ -8,7 +8,7 @@
   <form method="post" action="{% url 'console:login' %}" data-disable-on-submit>
     {% csrf_token %}
     <input type="hidden" name="next" value="{{ next }}">
-    {% for error in form.non_field_errors %}<p class="c-field__error c-tone-critical">{{ error }}</p>{% endfor %}
+    {% for error in form.non_field_errors %}<p class="c-field__error c-tone-critical" role="alert">{{ error }}</p>{% endfor %}
     <div id="login-fields" class="c-box c-form__group"><div class="c-box__body">
       {% include "console/partials/_field.html" with field=form.username %}
       {% include "console/partials/_field.html" with field=form.password %}
