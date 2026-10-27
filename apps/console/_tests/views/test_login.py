@@ -7,7 +7,7 @@ from django.urls import reverse
 
 from apps.console.forms import REFUSED
 
-WINDOW = 1_800_000_000.0
+WINDOW = 1_800_000_040.0
 PASSWORD = "pw-correct-horse"
 
 
@@ -122,5 +122,13 @@ def test_sign_in_attempts_are_rate_limited_but_the_page_is_not(client, monkeypat
     for _ in range(limit):
         assert _sign_in(client, password="wrong").status_code == 200
 
-    assert _sign_in(client, password="wrong").status_code == 429
+    refused = _sign_in(client, password="wrong", next="/console/runs/")
+
+    assert refused.status_code == 429
+    assert refused["Retry-After"] == "20"
+    body = refused.content.decode()
+    assert "Too many sign-in attempts. Try again in 20 seconds." in body
+    assert 'role="alert"' in body
+    assert 'name="password"' in body
+    assert 'value="/console/runs/"' in body
     assert client.get(reverse("console:login")).status_code == 200

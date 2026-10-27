@@ -4,7 +4,7 @@ Without this, the next person adding a status column reaches for
 ``format_html('<span style="color:#dc3545">')``, because that is what the
 neighbouring code used to look like.
 
-The boundary is every file that can paint an admin page: each template under
+The boundary is every file that can paint a console or admin page: each template under
 ``templates/``, every admin module under ``apps/`` and ``config/``, and the
 projection modules those templates render. It stops at two places on purpose.
 ``static/console/console.css`` is where the hexes are supposed to be. And

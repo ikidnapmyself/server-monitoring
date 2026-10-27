@@ -6,6 +6,7 @@ import time
 from django.conf import settings
 from django.core.cache import cache
 from django.http import JsonResponse
+from django.urls import Resolver404, resolve
 
 logger = logging.getLogger(__name__)
 
@@ -77,14 +78,22 @@ class RateLimitMiddleware:
         # requests per window (count 1…limit pass; count limit+1 is rejected).
         if count > limit:
             retry_after = 60 - int(time.time() % 60)
-            response = JsonResponse(
-                {"error": "Rate limit exceeded. Try again later."},
-                status=429,
-            )
+            response = self._refusal(request, retry_after)
             response["Retry-After"] = str(retry_after)
             return response
 
         return self.get_response(request)
+
+    def _refusal(self, request, retry_after: int):
+        """A page whose view class defines ``rate_limited`` answers in its own words."""
+        try:
+            view_class = getattr(resolve(request.path_info).func, "view_class", None)
+        except Resolver404:
+            view_class = None
+        page = getattr(view_class, "rate_limited", None)
+        if page is not None:
+            return page(request, retry_after)
+        return JsonResponse({"error": "Rate limit exceeded. Try again later."}, status=429)
 
     def _get_identity(self, request) -> str:
         api_key = getattr(request, "api_key", None)

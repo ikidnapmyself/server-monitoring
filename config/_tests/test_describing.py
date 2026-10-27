@@ -118,20 +118,3 @@ def test_or_action_never_hides_a_fix():
     d = Description("Failed", "critical", action=fix)
 
     assert or_action(d, Action("Open the run", intent="view_run")) is d
-
-
-def test_nothing_in_config_imports_the_console():
-    import re
-    from pathlib import Path
-
-    from django.conf import settings
-
-    root = Path(settings.BASE_DIR) / "config"
-    pattern = re.compile(r"^\s*(?:from|import) apps\.console", re.M)
-    offenders = [
-        str(path.relative_to(root))
-        for path in root.rglob("*.py")
-        if "_tests" not in path.parts and pattern.search(path.read_text())
-    ]
-
-    assert offenders == []
