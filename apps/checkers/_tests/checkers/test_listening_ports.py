@@ -219,6 +219,12 @@ class ListeningPortsDescribeTests(TestCase):
             d.action.text, "Close 8080 and 9000, or add them to this node's port allowlist."
         )
 
+    def test_names_every_unexpected_port(self):
+        metrics = {"listening_count": 9, "unexpected_ports": [22, 80, 443, 3306, 5432, 6379, 8080]}
+        d = ListeningPortsChecker().describe(CheckStatus.WARNING, metrics)
+        self.assertIn("22, 80, 443, 3306, 5432, 6379 and 8080", d.headline)
+        self.assertIn("22, 80, 443, 3306, 5432, 6379 and 8080", d.action.text)
+
     def test_a_single_port_reads_as_it(self):
         metrics = {"listening_count": 3, "unexpected_ports": [8080]}
         d = ListeningPortsChecker().describe(CheckStatus.WARNING, metrics)

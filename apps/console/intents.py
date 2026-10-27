@@ -109,6 +109,11 @@ def _node_reeval(params: dict[str, Any]) -> str:
     return f"{url}?{urlencode({'checker': checker})}" if checker else url
 
 
+def _node_allow_ports(params: dict[str, Any]) -> str:
+    url = reverse("console:node-allow-ports", args=[params["pk"]])
+    return f"{url}?{urlencode({'ports': ','.join(str(p) for p in params['ports'])})}"
+
+
 def _channel(params: dict[str, Any]) -> str:
     if params.get("pk"):
         return reverse("console:channel", args=[params["pk"]])
@@ -167,6 +172,7 @@ INTENTS: dict[str, Intent] = {
     "view_checks": Intent(_filtered("console:checks", CheckFilter), "get", CHECK_READ),
     "view_preflight_run": Intent(_record("console:preflight-run"), "get", PREFLIGHT_READ),
     "edit_node_policy": Intent(_node_policy, "get", "alerts.change_node"),
+    "allow_node_ports": Intent(_node_allow_ports, "get", "alerts.change_node"),
     "reevaluate_node": Intent(_node_reeval, "get", "alerts.change_node"),
     "view_run": Intent(_record("console:run"), "get", RUN_READ),
     "view_analysis": Intent(_record("console:analysis"), "get", ANALYSIS_READ),

@@ -17,6 +17,7 @@ from apps.console.views.key import KeyView
 from apps.console.views.key_delete import KeyDeleteView
 from apps.console.views.keys import KeysView
 from apps.console.views.node import NodeDetailView
+from apps.console.views.node_allow_ports import NodeAllowPortsView
 from apps.console.views.node_policy import NodePolicyView
 from apps.console.views.node_reeval import NodeReevalView
 from apps.console.views.nodes import NodeListView
@@ -57,6 +58,7 @@ __all__ = [
     "NodeDetailView",
     "NodeListView",
     "NodePolicyView",
+    "NodeAllowPortsView",
     "NodeReevalView",
     "OverviewView",
     "PolicyView",
