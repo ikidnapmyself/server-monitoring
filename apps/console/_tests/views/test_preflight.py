@@ -7,18 +7,13 @@ from apps.alerts.models import Node
 from apps.console._tests.queries.test_preflight import _preflight
 from apps.console._tests.test_guard import visible
 from apps.console._tests.test_templates import FORBIDDEN
-from apps.console._tests.views.test_checks import REPORTS_CURRENT, _grant, _nav, _tag
+from apps.console._tests.views.test_checks import REPORTS_CURRENT, _nav, _tag
 from apps.console._tests.views.test_incident import focus_audit
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
 MARKUP = "<img src=x onerror=alert(1)>"
 BOTH = pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
 LIST = "/console/preflight/"
-
-
-@pytest.fixture
-def preflight_viewer(bare_staff):
-    return _grant(bare_staff, "checkers", "view_preflightrun")
 
 
 def _record(run):
@@ -39,18 +34,7 @@ def test_anonymous_is_sent_to_the_admin_login(client):
 
 
 @pytest.mark.django_db
-def test_staff_without_a_preflight_permission_is_refused(client, bare_staff):
-    _grant(bare_staff, "checkers", "view_checkrun")
-    run = _preflight()
-
-    assert client.get(LIST).status_code == 403
-    assert client.get(_record(run)).status_code == 403
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("codename", ["view_preflightrun", "change_preflightrun"])
-def test_view_or_change_permission_reads_both_pages(client, bare_staff, codename):
-    _grant(bare_staff, "checkers", codename)
+def test_a_superuser_reads_both_pages(client, superuser):
     run = _preflight("warn", warnings=2)
 
     listing = client.get(LIST)
@@ -64,12 +48,10 @@ def test_view_or_change_permission_reads_both_pages(client, bare_staff, codename
     assert "<title>Preflight found 2 warnings · Console</title>" in record.content.decode()
     assert _nav(body, "Reports") == REPORTS_CURRENT
     assert f'<a class="c-subnav__item" href="{LIST}" aria-current="page">Preflight</a>' in body
-    assert "Checks</a>" not in body
 
 
 @pytest.mark.django_db
 def test_a_full_reader_sees_every_tab_and_reports_opens_the_summary(client, superuser):
-    client.force_login(superuser)
 
     body = client.get(LIST).content.decode()
 
@@ -78,7 +60,7 @@ def test_a_full_reader_sees_every_tab_and_reports_opens_the_summary(client, supe
 
 
 @pytest.mark.django_db
-def test_the_partial_is_the_polled_root(client, preflight_viewer):
+def test_the_partial_is_the_polled_root(client, superuser):
     resp = client.get(LIST, **HTMX)
 
     body = resp.content.decode()
@@ -90,7 +72,7 @@ def test_the_partial_is_the_polled_root(client, preflight_viewer):
 
 
 @pytest.mark.django_db
-def test_rows_link_to_the_run_with_their_meta(client, preflight_viewer):
+def test_rows_link_to_the_run_with_their_meta(client, superuser):
     Node.objects.create(instance_id="i-hub", hostname="hub")
     run = _preflight("error", errors=1)
     bare = _preflight(instance_id="", triggered_by="")
@@ -112,7 +94,7 @@ def test_rows_link_to_the_run_with_their_meta(client, preflight_viewer):
         (True, "?status=error", "No preflight runs match these filters."),
     ],
 )
-def test_each_blank_state(client, preflight_viewer, setup, query, heading):
+def test_each_blank_state(client, superuser, setup, query, heading):
     if setup:
         _preflight()
 
@@ -120,12 +102,12 @@ def test_each_blank_state(client, preflight_viewer, setup, query, heading):
 
 
 @pytest.mark.django_db
-def test_an_invalid_filter_is_named(client, preflight_viewer):
+def test_an_invalid_filter_is_named(client, superuser):
     assert "Ignored invalid filter: status." in client.get(f"{LIST}?status=x").content.decode()
 
 
 @pytest.mark.django_db
-def test_more_than_a_page_offers_the_pager(client, preflight_viewer, monkeypatch):
+def test_more_than_a_page_offers_the_pager(client, superuser, monkeypatch):
     monkeypatch.setattr("apps.console.queries.preflight.PAGE_SIZE", 1)
     _preflight()
     _preflight()
@@ -138,7 +120,7 @@ def test_more_than_a_page_offers_the_pager(client, preflight_viewer, monkeypatch
 @pytest.mark.django_db
 @pytest.mark.parametrize("pk", ["404", "99999999999999999999999999"])
 @BOTH
-def test_a_missing_run_is_the_console_404_page(client, preflight_viewer, pk, headers):
+def test_a_missing_run_is_the_console_404_page(client, superuser, pk, headers):
     resp = client.get(f"{LIST}{pk}/", **headers)
 
     body = resp.content.decode()
@@ -149,7 +131,6 @@ def test_a_missing_run_is_the_console_404_page(client, preflight_viewer, pk, hea
 
 @pytest.mark.django_db
 def test_the_record_groups_checks_and_links_the_node(client, superuser):
-    client.force_login(superuser)
     node = Node.objects.create(instance_id="i-hub", hostname="hub")
     run = _preflight(
         "error",
@@ -169,25 +150,13 @@ def test_the_record_groups_checks_and_links_the_node(client, superuser):
 
 
 @pytest.mark.django_db
-def test_a_preflight_reader_sees_the_node_as_text(client, preflight_viewer):
-    Node.objects.create(instance_id="i-hub", hostname="hub")
-    run = _preflight()
-
-    body = client.get(_record(run), **HTMX).content.decode()
-
-    assert 'id="preflight-node"' not in body
-    assert "<span>hub</span>" in body
-    assert "This run stored no checks." in body
-
-
-@pytest.mark.django_db
-def test_an_unknown_node_says_so(client, preflight_viewer):
+def test_an_unknown_node_says_so(client, superuser):
     assert "Unknown node" in visible(client.get(_record(_preflight())).content.decode())
 
 
 @pytest.mark.django_db
 @BOTH
-def test_hostile_text_is_escaped(client, preflight_viewer, headers):
+def test_hostile_text_is_escaped(client, superuser, headers):
     run = _preflight("error", checks=[("error", MARKUP, MARKUP)], triggered_by=MARKUP)
 
     for url in (LIST, _record(run)):
@@ -197,7 +166,7 @@ def test_hostile_text_is_escaped(client, preflight_viewer, headers):
 @pytest.mark.django_db
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
 @BOTH
-def test_the_rendered_pages_are_clean(client, preflight_viewer, label, headers):
+def test_the_rendered_pages_are_clean(client, superuser, label, headers):
     run = _preflight("warn", checks=[("warn", "DEBUG is on", "Set DEBUG=0")])
 
     for url in (LIST, _record(run)):
@@ -207,7 +176,6 @@ def test_the_rendered_pages_are_clean(client, preflight_viewer, label, headers):
 @pytest.mark.django_db
 @BOTH
 def test_every_focusable_element_has_a_unique_id(client, superuser, headers):
-    client.force_login(superuser)
     Node.objects.create(instance_id="i-hub", hostname="hub")
     run = _preflight("warn", checks=[("warn", "A", "a"), ("warn", "B", "b"), ("ok", "C", "")])
     _preflight()

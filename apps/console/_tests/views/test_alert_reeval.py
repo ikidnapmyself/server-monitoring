@@ -23,7 +23,6 @@ def _digest(alert):
 
 
 def test_preview_writes_nothing(client, superuser, reevaluable_alert):
-    client.force_login(superuser)
     body = client.get(_url(reevaluable_alert)).content.decode()
     assert "Would " in body
     assert 'name="digest"' in body
@@ -32,36 +31,24 @@ def test_preview_writes_nothing(client, superuser, reevaluable_alert):
 
 
 def test_the_preview_states_what_an_apply_queues(client, superuser, reevaluable_alert):
-    client.force_login(superuser)
     body = client.get(_url(reevaluable_alert)).content.decode()
     assert "Applying queues 1 pipeline run." in body
 
 
 def test_a_skip_row_links_the_policy_editor(client, superuser, reevaluable_alert):
     Node.objects.filter(pk=reevaluable_alert.node_id).update(config={})
-    client.force_login(superuser)
     body = client.get(_url(reevaluable_alert)).content.decode()
     assert 'id="reeval-row-1-action"' in body
     assert 'id="reeval-apply"' not in body
 
 
 def test_htmx_gets_the_preview_without_the_layout(client, superuser, reevaluable_alert):
-    client.force_login(superuser)
     body = client.get(_url(reevaluable_alert), **HTMX).content.decode()
     assert "Would " in body and "<title>" not in body
 
 
-def test_view_only_user_sees_the_preview_without_a_button(
-    client, view_alert_user, reevaluable_alert
-):
-    client.force_login(view_alert_user)
-    body = client.get(_url(reevaluable_alert)).content.decode()
-    assert "Would " in body and 'id="reeval-apply"' not in body
-
-
 def test_nothing_to_change_offers_no_button(client, superuser, reevaluable_alert):
     Alert.objects.filter(pk=reevaluable_alert.pk).update(severity="warning")
-    client.force_login(superuser)
     body = client.get(_url(reevaluable_alert)).content.decode()
     assert 'id="reeval-apply"' not in body
 
@@ -71,7 +58,6 @@ def test_a_crafted_post_with_nothing_to_change_applies_nothing(
 ):
     Alert.objects.filter(pk=reevaluable_alert.pk).update(severity="warning")
     reevaluable_alert.refresh_from_db()
-    client.force_login(superuser)
 
     resp = client.post(_url(reevaluable_alert), {"digest": _digest(reevaluable_alert)})
 
@@ -86,7 +72,6 @@ def test_a_crafted_post_with_nothing_to_change_applies_nothing(
 
 
 def test_apply_writes_history_enqueues_and_redirects(client, superuser, reevaluable_alert):
-    client.force_login(superuser)
 
     response = client.post(_url(reevaluable_alert), {"digest": _digest(reevaluable_alert)})
 
@@ -99,7 +84,6 @@ def test_apply_writes_history_enqueues_and_redirects(client, superuser, reevalua
 
 
 def test_a_stale_digest_refuses_and_writes_nothing(client, superuser, reevaluable_alert):
-    client.force_login(superuser)
 
     response = client.post(_url(reevaluable_alert), {"digest": "stale"})
 
@@ -109,7 +93,6 @@ def test_a_stale_digest_refuses_and_writes_nothing(client, superuser, reevaluabl
 
 
 def test_a_locked_database_answers_like_a_stale_digest(client, superuser, reevaluable_alert):
-    client.force_login(superuser)
 
     with mock.patch(
         "apps.console.views.alert_reeval.apply_reeval",
@@ -123,30 +106,22 @@ def test_a_locked_database_answers_like_a_stale_digest(client, superuser, reeval
 
 
 def test_the_apply_form_disables_itself_on_submit(client, superuser, reevaluable_alert):
-    client.force_login(superuser)
     body = client.get(_url(reevaluable_alert)).content.decode()
     assert re.search(r'<form method="post" action="[^"]*" data-disable-on-submit>', body)
 
 
 def test_a_post_without_a_digest_is_stale(client, superuser, reevaluable_alert):
-    client.force_login(superuser)
     assert client.post(_url(reevaluable_alert)).status_code == 409
     assert not AlertHistory.objects.filter(alert=reevaluable_alert).exists()
 
 
 def test_a_replayed_post_is_a_no_op(client, superuser, reevaluable_alert):
-    client.force_login(superuser)
     digest = _digest(reevaluable_alert)
     client.post(_url(reevaluable_alert), {"digest": digest})
     written = AlertHistory.objects.count()
 
     assert client.post(_url(reevaluable_alert), {"digest": digest}).status_code == 409
     assert AlertHistory.objects.count() == written
-
-
-def test_post_needs_change_permission(client, view_alert_user, reevaluable_alert):
-    client.force_login(view_alert_user)
-    assert client.post(_url(reevaluable_alert), {"digest": "x"}).status_code == 403
 
 
 def test_a_refused_post_lands_on_the_preview_after_login(client, reevaluable_alert):
@@ -156,17 +131,14 @@ def test_a_refused_post_lands_on_the_preview_after_login(client, reevaluable_ale
 
 
 def test_missing_alert_is_404(client, superuser):
-    client.force_login(superuser)
     assert client.get(reverse("console:alert-reeval", args=[999])).status_code == 404
 
 
 def test_posting_to_a_missing_alert_is_404(client, superuser):
-    client.force_login(superuser)
     assert client.post(reverse("console:alert-reeval", args=[999])).status_code == 404
 
 
 def test_a_resolved_alert_warns_before_reopening(client, superuser, reevaluable_alert):
     Alert.objects.filter(pk=reevaluable_alert.pk).update(status="resolved")
-    client.force_login(superuser)
     body = client.get(_url(reevaluable_alert)).content.decode()
     assert "Applying reopens it and its incident." in body

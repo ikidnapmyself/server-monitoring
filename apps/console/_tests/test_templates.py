@@ -48,7 +48,6 @@ def test_every_icon_a_template_names_is_in_the_sprite():
 
 @pytest.mark.django_db
 def test_the_nav_has_a_system_item(client, superuser):
-    client.force_login(superuser)
     body = client.get("/console/").content.decode()
     assert 'href="/console/routes/"' in body
     assert "#octicon-gear" in body

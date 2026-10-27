@@ -9,7 +9,7 @@ HTMX = {"HTTP_HX_REQUEST": "true"}
 
 
 @pytest.mark.django_db
-def test_staff_page_carries_the_strict_csp(client, staff):
+def test_a_console_page_carries_the_strict_csp(client, superuser):
     resp = client.get(reverse("console:overview"))
 
     policy = resp["Content-Security-Policy"]
@@ -23,7 +23,7 @@ def test_staff_page_carries_the_strict_csp(client, staff):
 
 
 @pytest.mark.django_db
-def test_staff_page_is_never_cached_and_varies_on_htmx(client, staff):
+def test_a_console_page_is_never_cached_and_varies_on_htmx(client, superuser):
     resp = client.get(reverse("console:overview"))
 
     assert "no-store" in resp["Cache-Control"]
@@ -38,7 +38,7 @@ def test_staff_page_is_never_cached_and_varies_on_htmx(client, staff):
         (False, HTMX, 204),
         (True, {}, 403),
     ],
-    ids=["anonymous", "anonymous-htmx", "non-staff"],
+    ids=["anonymous", "anonymous-htmx", "non-superuser"],
 )
 def test_refusals_carry_the_headers(client, signed_in, extra, status):
     if signed_in:
@@ -53,7 +53,7 @@ def test_refusals_carry_the_headers(client, signed_in, extra, status):
 
 
 @pytest.mark.django_db
-def test_a_response_no_console_view_returned_still_carries_the_headers(client, staff):
+def test_a_response_no_console_view_returned_still_carries_the_headers(client, superuser):
     resp = client.get("/console/does-not-exist/")
 
     assert resp.status_code == 404

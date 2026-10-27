@@ -1,7 +1,6 @@
 from unittest import mock
 
 import pytest
-from django.contrib.auth.models import Permission
 from django.contrib.messages import get_messages
 from django.db import IntegrityError, OperationalError
 from django.urls import reverse
@@ -19,29 +18,6 @@ STALE = "This key changed since you opened it. Here it is now."
 @pytest.fixture
 def key():
     return APIKey.objects.create(name="hub", allowed_endpoints=["/alerts/webhook/"])
-
-
-def _grant(user, *codenames):
-    for codename in codenames:
-        user.user_permissions.add(
-            Permission.objects.get(content_type__app_label="config_app", codename=codename)
-        )
-    return user
-
-
-@pytest.fixture
-def key_viewer(bare_staff):
-    return _grant(bare_staff, "view_apikey")
-
-
-@pytest.fixture
-def key_editor(bare_staff):
-    return _grant(bare_staff, "change_apikey")
-
-
-@pytest.fixture
-def key_adder(bare_staff):
-    return _grant(bare_staff, "view_apikey", "add_apikey")
 
 
 def _url(key=None):
@@ -84,12 +60,7 @@ def test_an_anonymous_add_logs_in_back_to_the_new_key_page(client):
     assert resp["Location"] == f"{reverse('admin:login')}?next={_url()}"
 
 
-def test_staff_without_a_key_permission_is_refused(client, bare_staff, key):
-    assert client.get(_url(key)).status_code == 403
-
-
 def test_the_editor_renders_the_key(client, superuser, key):
-    client.force_login(superuser)
 
     resp = client.get(_url(key))
 
@@ -115,7 +86,6 @@ def test_the_editor_renders_the_key(client, superuser, key):
 
 
 def test_htmx_gets_the_editor_without_the_layout(client, superuser, key):
-    client.force_login(superuser)
 
     resp = client.get(_url(key), HTTP_HX_REQUEST="true")
 
@@ -123,31 +93,11 @@ def test_htmx_gets_the_editor_without_the_layout(client, superuser, key):
     assert "<html" not in resp.content.decode()
 
 
-def test_a_view_only_reader_sees_the_form_disabled(client, key_viewer, key):
-    resp = client.get(_url(key))
-
-    body = resp.content.decode()
-    assert resp.status_code == 200
-    assert body.count(" disabled") >= 3
-    assert 'id="key-save"' not in body
-    assert ">Back to API keys</a>\n</form>" in body
-
-
-def test_a_view_only_reader_is_refused_a_save(client, key_viewer, key):
-    resp = client.post(_url(key), _data(key, name="renamed"))
-
-    assert resp.status_code == 403
-    assert resp.content.decode() == "Permission to change API keys required."
-    key.refresh_from_db()
-    assert key.name == "hub"
-
-
-def test_a_change_only_user_opens_the_editor_enabled(client, key_editor, key):
+def test_the_editor_opens_enabled(client, superuser, key):
     assert 'id="key-save"' in client.get(_url(key)).content.decode()
 
 
 def test_a_save_writes_and_lands_with_a_message(client, superuser, key):
-    client.force_login(superuser)
 
     resp = client.post(_url(key), _data(key, name="hub-2", is_active="", allowed_endpoints=""))
 
@@ -159,7 +109,6 @@ def test_a_save_writes_and_lands_with_a_message(client, superuser, key):
 
 
 def test_an_invalid_save_re_renders(client, superuser, key):
-    client.force_login(superuser)
 
     resp = client.post(_url(key), _data(key, allowed_endpoints="alerts", digest="kept"))
 
@@ -172,7 +121,6 @@ def test_an_invalid_save_re_renders(client, superuser, key):
 
 
 def test_a_stale_save_is_a_409_with_the_fresh_values(client, superuser, key):
-    client.force_login(superuser)
     opened = _data(key, name="mine")
     APIKey.objects.filter(pk=key.pk).update(name="theirs")
 
@@ -188,7 +136,6 @@ def test_a_stale_save_is_a_409_with_the_fresh_values(client, superuser, key):
 
 @pytest.mark.parametrize("error", [OperationalError("locked"), IntegrityError("constraint")])
 def test_a_busy_database_is_a_409(client, superuser, key, error):
-    client.force_login(superuser)
     with mock.patch("apps.console.views.key.save_key", side_effect=error):
         resp = client.post(_url(key), _data(key, name="x"))
 
@@ -198,7 +145,6 @@ def test_a_busy_database_is_a_409(client, superuser, key, error):
 
 @pytest.mark.parametrize("method", ["get", "post"])
 def test_a_missing_key_is_the_console_404_page(client, superuser, method):
-    client.force_login(superuser)
 
     resp = getattr(client, method)(reverse("console:key", args=[999]))
 
@@ -209,7 +155,6 @@ def test_a_missing_key_is_the_console_404_page(client, superuser, method):
 
 
 def test_a_key_deleted_during_the_save_answers_the_404(client, superuser, key):
-    client.force_login(superuser)
     editors = [build_key_editor(key.pk, _data(key), can_change=True), None]
 
     with (
@@ -222,7 +167,7 @@ def test_a_key_deleted_during_the_save_answers_the_404(client, superuser, key):
 
 
 class TestANewKey:
-    def test_it_opens_an_empty_form(self, client, key_adder):
+    def test_it_opens_an_empty_form(self, client, superuser):
         resp = client.get(_url())
 
         body = resp.content.decode()
@@ -234,14 +179,7 @@ class TestANewKey:
         assert ">Create key</button>" in body
         assert 'id="key-details"' not in body
 
-    def test_without_add_permission_it_is_refused(self, client, key_viewer):
-        assert client.get(_url()).status_code == 403
-        resp = client.post(_url(), _data(name="new"))
-        assert resp.status_code == 403
-        assert resp.content.decode() == "Permission to add API keys required."
-        assert not APIKey.objects.exists()
-
-    def test_creating_shows_the_token_once(self, client, key_adder):
+    def test_creating_shows_the_token_once(self, client, superuser):
         resp = client.post(_url(), _data(name="agent", is_active="on", allowed_endpoints="/a/"))
 
         key = APIKey.objects.get()
@@ -270,11 +208,10 @@ class TestANewKey:
         assert all(token not in str(m) for m in get_messages(resp.wsgi_request))
         assert all(token not in morsel.value for morsel in resp.cookies.values())
         assert all(token not in morsel.value for morsel in client.cookies.values())
-        _grant(key_adder, "view_apikey")
         for later in (reverse("console:keys"), _url(key)):
             assert token not in client.get(later).content.decode()
 
-    def test_a_double_create_makes_two_keys(self, client, key_adder):
+    def test_a_double_create_makes_two_keys(self, client, superuser):
         data = _data(name="agent", is_active="on")
 
         client.post(_url(), data)
@@ -282,7 +219,7 @@ class TestANewKey:
 
         assert APIKey.objects.filter(name="agent").count() == 2
 
-    def test_an_invalid_one_saves_nothing(self, client, key_adder):
+    def test_an_invalid_one_saves_nothing(self, client, superuser):
         resp = client.post(_url(), _data(name=""))
 
         assert resp.status_code == 200
@@ -290,7 +227,7 @@ class TestANewKey:
         assert not APIKey.objects.exists()
 
     @pytest.mark.parametrize("error", [IntegrityError("x"), OperationalError("locked")])
-    def test_a_failed_create_is_a_409_that_saves_nothing(self, client, key_adder, error):
+    def test_a_failed_create_is_a_409_that_saves_nothing(self, client, superuser, error):
         with mock.patch("apps.console.views.key.APIKey.objects.create", side_effect=error):
             resp = client.post(_url(), _data(name="agent"))
 

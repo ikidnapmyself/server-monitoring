@@ -2,7 +2,6 @@ import socket
 from unittest import mock
 
 import pytest
-from django.contrib.auth.models import Permission
 from django.db import IntegrityError, OperationalError
 from django.urls import reverse
 
@@ -34,29 +33,6 @@ def provider():
     return IntelligenceProvider.objects.create(
         name="main", provider="claude", config={**STORED["claude"], "legacy": UNKNOWN_VALUE}
     )
-
-
-def _grant(user, *codenames):
-    for codename in codenames:
-        user.user_permissions.add(
-            Permission.objects.get(content_type__app_label="intelligence", codename=codename)
-        )
-    return user
-
-
-@pytest.fixture
-def provider_viewer(bare_staff):
-    return _grant(bare_staff, "view_intelligenceprovider")
-
-
-@pytest.fixture
-def provider_editor(bare_staff):
-    return _grant(bare_staff, "change_intelligenceprovider")
-
-
-@pytest.fixture
-def provider_adder(bare_staff):
-    return _grant(bare_staff, "view_intelligenceprovider", "add_intelligenceprovider")
 
 
 def _url(provider=None, kind=None):
@@ -106,12 +82,7 @@ def test_an_anonymous_add_logs_in_back_to_the_new_provider_page(client):
     assert resp["Location"] == f"{reverse('admin:login')}?next={_url()}"
 
 
-def test_staff_without_a_provider_permission_is_refused(client, bare_staff, provider):
-    assert client.get(_url(provider)).status_code == 403
-
-
 def test_the_editor_renders_the_provider(client, superuser, provider):
-    client.force_login(superuser)
 
     resp = client.get(_url(provider))
 
@@ -142,7 +113,6 @@ def test_the_editor_renders_the_provider(client, superuser, provider):
 def test_the_editor_reads_in_a_fixed_number_of_queries(
     client, superuser, provider, django_assert_num_queries
 ):
-    client.force_login(superuser)
     client.get(_url(provider))
 
     with django_assert_num_queries(4):
@@ -150,7 +120,6 @@ def test_the_editor_reads_in_a_fixed_number_of_queries(
 
 
 def test_no_secret_or_unknown_value_reaches_the_page(client, superuser, provider):
-    client.force_login(superuser)
 
     body = client.get(_url(provider)).content.decode()
 
@@ -160,7 +129,6 @@ def test_no_secret_or_unknown_value_reaches_the_page(client, superuser, provider
 
 @pytest.mark.parametrize("kind", sorted(STORED))
 def test_no_kind_shows_its_secrets(client, superuser, kind):
-    client.force_login(superuser)
     p = IntelligenceProvider.objects.create(name="x", provider=kind, config=STORED[kind])
 
     body = client.get(_url(p)).content.decode()
@@ -169,7 +137,6 @@ def test_no_kind_shows_its_secrets(client, superuser, kind):
 
 
 def test_the_details_hold_the_facts(client, superuser, provider):
-    client.force_login(superuser)
 
     body = client.get(_url(provider)).content.decode()
 
@@ -180,7 +147,6 @@ def test_the_details_hold_the_facts(client, superuser, provider):
 
 
 def test_htmx_gets_the_editor_without_the_layout(client, superuser, provider):
-    client.force_login(superuser)
 
     resp = client.get(_url(provider), HTTP_HX_REQUEST="true")
 
@@ -189,44 +155,19 @@ def test_htmx_gets_the_editor_without_the_layout(client, superuser, provider):
 
 
 def test_the_page_carries_nothing_the_csp_blocks(client, superuser, provider):
-    client.force_login(superuser)
 
     body = client.get(_url(provider)).content.decode()
 
     assert not [label for label, rule in FORBIDDEN.items() if rule.search(body)]
 
 
-def test_a_view_only_reader_sees_the_form_disabled(client, provider_viewer, provider):
-    resp = client.get(_url(provider))
-
-    body = resp.content.decode()
-    assert resp.status_code == 200
-    assert 'name="name" value="main"' in body
-    assert body.count(" disabled") >= 5
-    assert 'id="provider-save"' not in body
-    assert 'id="provider-default"' not in body
-    assert 'id="provider-switch"' not in body
-    assert ">Back to providers</a>\n</form>" in body
-    _secrets_absent(body)
-
-
-def test_a_view_only_reader_is_refused_a_save(client, provider_viewer, provider):
-    resp = client.post(_url(provider), _data(provider, name="renamed"))
-
-    assert resp.status_code == 403
-    assert resp.content.decode() == "Permission to change providers required."
-    provider.refresh_from_db()
-    assert provider.name == "main"
-
-
-def test_a_change_only_user_opens_the_editor_enabled(client, provider_editor, provider):
+def test_the_editor_opens_enabled(client, superuser, provider):
     body = client.get(_url(provider)).content.decode()
 
     assert 'id="provider-save"' in body
 
 
 def test_an_untouched_save_keeps_the_config(client, superuser, provider):
-    client.force_login(superuser)
     stored = dict(provider.config)
 
     resp = client.post(_url(provider), _data(provider, name="main-2"))
@@ -239,7 +180,6 @@ def test_an_untouched_save_keeps_the_config(client, superuser, provider):
 
 
 def test_a_new_secret_is_written(client, superuser, provider):
-    client.force_login(superuser)
 
     client.post(_url(provider), _data(provider, cfg__api_key="sk-new"))
 
@@ -248,7 +188,6 @@ def test_a_new_secret_is_written(client, superuser, provider):
 
 
 def test_an_invalid_save_re_renders_without_secrets(client, superuser, provider):
-    client.force_login(superuser)
 
     resp = client.post(_url(provider), _data(provider, name="", cfg__api_key=TYPED, digest="kept"))
 
@@ -262,7 +201,6 @@ def test_an_invalid_save_re_renders_without_secrets(client, superuser, provider)
 
 
 def test_an_unsafe_host_is_a_field_error(client, superuser):
-    client.force_login(superuser)
     grok = IntelligenceProvider.objects.create(name="grok", provider="grok", config=STORED["grok"])
 
     resp = client.post(_url(grok), _data(grok, cfg__base_url="http://internal.example.com/v1"))
@@ -276,7 +214,6 @@ def test_an_unsafe_host_is_a_field_error(client, superuser):
 
 
 def test_saving_with_on_ticked_turns_the_old_provider_off(client, superuser, provider):
-    client.force_login(superuser)
     old = IntelligenceProvider.objects.create(name="old", provider="openai", is_active=True)
 
     body = client.get(_url(provider)).content.decode()
@@ -291,7 +228,6 @@ def test_saving_with_on_ticked_turns_the_old_provider_off(client, superuser, pro
 
 
 def test_a_stale_save_is_a_409_with_the_fresh_values(client, superuser, provider):
-    client.force_login(superuser)
     opened = _data(provider, description="mine")
     IntelligenceProvider.objects.filter(pk=provider.pk).update(description="theirs")
 
@@ -307,7 +243,6 @@ def test_a_stale_save_is_a_409_with_the_fresh_values(client, superuser, provider
 
 
 def test_a_busy_database_is_a_409(client, superuser, provider):
-    client.force_login(superuser)
     with mock.patch(
         "apps.console.views.provider.save_provider",
         side_effect=OperationalError("database is locked"),
@@ -321,7 +256,6 @@ def test_a_busy_database_is_a_409(client, superuser, provider):
 
 
 def test_a_name_another_provider_has_is_refused(client, superuser, provider):
-    client.force_login(superuser)
     IntelligenceProvider.objects.create(name="spare", provider="openai")
 
     resp = client.post(_url(provider), _data(provider, name="spare"))
@@ -331,7 +265,6 @@ def test_a_name_another_provider_has_is_refused(client, superuser, provider):
 
 
 def test_a_name_taken_in_a_race_is_a_name_error(client, superuser, provider):
-    client.force_login(superuser)
     IntelligenceProvider.objects.create(name="spare", provider="openai")
 
     with mock.patch("apps.intelligence.forms.ProviderForm.clean_name", lambda self: "spare"):
@@ -344,7 +277,6 @@ def test_a_name_taken_in_a_race_is_a_name_error(client, superuser, provider):
 
 
 def test_an_integrity_error_without_a_clashing_name_is_a_busy_save(client, superuser, provider):
-    client.force_login(superuser)
     with mock.patch(
         "apps.console.views.provider.save_provider", side_effect=IntegrityError("constraint")
     ):
@@ -360,7 +292,6 @@ def test_an_integrity_error_without_a_clashing_name_is_a_busy_save(client, super
 
 class TestSwitchingKind:
     def test_it_re_renders_for_the_new_kind_and_saves_nothing(self, client, superuser, provider):
-        client.force_login(superuser)
         data = _data(provider, name="renamed", provider="ollama", switch_provider="1")
         data["cfg__max_tokens"] = "garbage"
 
@@ -379,7 +310,6 @@ class TestSwitchingKind:
         assert (provider.name, provider.provider) == ("main", "claude")
 
     def test_the_switched_form_saves_on_the_new_kind(self, client, superuser, provider):
-        client.force_login(superuser)
         switched = client.post(
             _url(provider), _data(provider, provider="openai", switch_provider="1")
         )
@@ -395,7 +325,6 @@ class TestSwitchingKind:
         assert provider.config["api_key"] == "sk-openai"
 
     def test_on_the_kind_shown_it_keeps_the_edits(self, client, superuser, provider):
-        client.force_login(superuser)
 
         resp = client.post(
             _url(provider, kind="claude"),
@@ -411,7 +340,6 @@ class TestSwitchingKind:
         assert provider.name == "main"
 
     def test_an_unknown_kind_is_a_400(self, client, superuser, provider):
-        client.force_login(superuser)
 
         resp = client.post(_url(provider), _data(provider, provider="nope", switch_provider="1"))
 
@@ -424,14 +352,12 @@ class TestSwitchingKind:
         assert provider.provider == "claude"
 
     def test_a_switch_on_a_deleted_provider_is_the_404(self, client, superuser, provider):
-        client.force_login(superuser)
         url, data = _url(provider), _data(provider, switch_provider="1")
         provider.delete()
 
         assert client.post(url, data).status_code == 404
 
     def test_a_same_kind_switch_on_a_deleted_provider_is_the_404(self, client, superuser, provider):
-        client.force_login(superuser)
         url, data = _url(provider, kind="claude"), _data(provider, switch_provider="1")
         provider.delete()
 
@@ -439,7 +365,6 @@ class TestSwitchingKind:
 
 
 def test_an_unknown_kind_in_the_url_is_a_400(client, superuser, provider):
-    client.force_login(superuser)
 
     resp = client.get(_url(provider, kind="nope"))
 
@@ -450,7 +375,6 @@ def test_an_unknown_kind_in_the_url_is_a_400(client, superuser, provider):
 
 
 def test_an_unknown_kind_on_a_save_saves_nothing(client, superuser, provider):
-    client.force_login(superuser)
 
     resp = client.post(_url(provider, kind="nope"), _data(provider, name="renamed"))
 
@@ -468,7 +392,6 @@ class TestAProviderOfAKindThisHubDoesntHave:
         )
 
     def test_it_renders_with_no_typed_fields(self, client, superuser, odd):
-        client.force_login(superuser)
 
         body = client.get(_url(odd)).content.decode()
 
@@ -479,7 +402,6 @@ class TestAProviderOfAKindThisHubDoesntHave:
         _secrets_absent(body)
 
     def test_saving_keeps_its_config(self, client, superuser, odd):
-        client.force_login(superuser)
 
         resp = client.post(_url(odd), _data(odd, description="kept"))
 
@@ -490,7 +412,6 @@ class TestAProviderOfAKindThisHubDoesntHave:
 
 @pytest.mark.parametrize("method", ["get", "post"])
 def test_a_missing_provider_is_the_console_404_page(client, superuser, method):
-    client.force_login(superuser)
 
     resp = getattr(client, method)(reverse("console:provider", args=[999]))
 
@@ -501,13 +422,11 @@ def test_a_missing_provider_is_the_console_404_page(client, superuser, method):
 
 
 def test_a_bad_kind_on_a_missing_provider_is_the_404(client, superuser):
-    client.force_login(superuser)
 
     assert client.get(_url(None) + "999/?provider=nope").status_code == 404
 
 
 def test_a_provider_deleted_during_the_save_answers_the_404(client, superuser, provider):
-    client.force_login(superuser)
     editors = [build_provider_editor(provider.pk, _data(provider), can_change=True), None]
 
     with (
@@ -520,7 +439,7 @@ def test_a_provider_deleted_during_the_save_answers_the_404(client, superuser, p
 
 
 class TestANewProvider:
-    def test_without_a_kind_it_lists_the_kinds(self, client, provider_adder):
+    def test_without_a_kind_it_lists_the_kinds(self, client, superuser):
         resp = client.get(_url())
 
         body = resp.content.decode()
@@ -532,7 +451,7 @@ class TestANewProvider:
         assert "?provider=local" not in body
         assert not [label for label, rule in FORBIDDEN.items() if rule.search(body)]
 
-    def test_a_kind_opens_its_form(self, client, provider_adder):
+    def test_a_kind_opens_its_form(self, client, superuser):
         resp = client.get(_url(kind="ollama"))
 
         body = resp.content.decode()
@@ -542,7 +461,7 @@ class TestANewProvider:
         assert 'name="cfg__host"' in body
         assert 'id="provider-details"' not in body
 
-    def test_an_unknown_kind_is_a_400_with_the_list(self, client, provider_adder):
+    def test_an_unknown_kind_is_a_400_with_the_list(self, client, superuser):
         resp = client.get(_url(kind="nope"))
 
         body = resp.content.decode()
@@ -550,21 +469,13 @@ class TestANewProvider:
         assert "This hub has no provider by that name. Pick one it has." in body
         assert 'href="/console/providers/new/?provider=claude"' in body
 
-    def test_a_save_without_a_kind_is_a_400(self, client, provider_adder):
+    def test_a_save_without_a_kind_is_a_400(self, client, superuser):
         resp = client.post(_url(), _data(name="spare"))
 
         assert resp.status_code == 400
         assert not IntelligenceProvider.objects.exists()
 
-    def test_without_add_permission_it_is_refused(self, client, provider_viewer):
-        resp = client.get(_url())
-        assert resp.status_code == 403
-        assert resp.content.decode() == "Permission to add providers required."
-        assert client.get(_url(kind="claude")).status_code == 403
-        assert client.post(_url(kind="claude"), _data(name="spare")).status_code == 403
-        assert not IntelligenceProvider.objects.exists()
-
-    def test_a_save_creates_it(self, client, provider_adder):
+    def test_a_save_creates_it(self, client, superuser):
         resp = client.post(
             _url(kind="claude"), _data(name="spare", cfg__api_key=TYPED, description="d")
         )
@@ -575,7 +486,7 @@ class TestANewProvider:
         assert (p.provider, p.description, p.is_active) == ("claude", "d", False)
         assert p.config == {"api_key": TYPED}
 
-    def test_creating_one_on_turns_the_old_one_off(self, client, provider_adder, provider):
+    def test_creating_one_on_turns_the_old_one_off(self, client, superuser, provider):
         IntelligenceProvider.objects.filter(pk=provider.pk).update(is_active=True)
 
         resp = client.post(_url(kind="openai"), _data(start="openai", name="new", is_active="on"))
@@ -585,7 +496,7 @@ class TestANewProvider:
             ("new",)
         ]
 
-    def test_an_invalid_one_saves_nothing(self, client, provider_adder):
+    def test_an_invalid_one_saves_nothing(self, client, superuser):
         resp = client.post(_url(kind="claude"), _data(name="", cfg__api_key=TYPED))
 
         body = resp.content.decode()
@@ -594,7 +505,7 @@ class TestANewProvider:
         _secrets_absent(body, TYPED)
         assert not IntelligenceProvider.objects.exists()
 
-    def test_a_switch_saves_nothing(self, client, provider_adder):
+    def test_a_switch_saves_nothing(self, client, superuser):
         resp = client.post(
             _url(kind="claude"), _data(name="spare", provider="openai", switch_provider="1")
         )
@@ -605,13 +516,13 @@ class TestANewProvider:
         assert 'name="name" value="spare"' in body
         assert not IntelligenceProvider.objects.exists()
 
-    def test_an_unknown_switch_is_a_400_with_the_list(self, client, provider_adder):
+    def test_an_unknown_switch_is_a_400_with_the_list(self, client, superuser):
         resp = client.post(_url(kind="claude"), _data(provider="nope", switch_provider="1"))
 
         assert resp.status_code == 400
         assert resp.templates[0].name == "console/provider_new.html"
 
-    def test_a_name_taken_in_a_race_is_a_name_error(self, client, provider_adder, provider):
+    def test_a_name_taken_in_a_race_is_a_name_error(self, client, superuser, provider):
         with (
             mock.patch("apps.intelligence.forms.ProviderForm.clean_name", lambda self: "main"),
             mock.patch(
@@ -625,7 +536,7 @@ class TestANewProvider:
         assert "Another provider already has this name." in resp.content.decode()
 
     @pytest.mark.parametrize("error", [IntegrityError("active"), OperationalError("locked")])
-    def test_any_other_failure_is_a_409_that_saves_nothing(self, client, provider_adder, error):
+    def test_any_other_failure_is_a_409_that_saves_nothing(self, client, superuser, error):
         with mock.patch(
             "apps.console.views.provider.IntelligenceProvider.objects.create", side_effect=error
         ):
@@ -638,7 +549,7 @@ class TestANewProvider:
         _secrets_absent(body, TYPED)
         assert not IntelligenceProvider.objects.exists()
 
-    def test_adding_lands_with_a_message(self, client, provider_adder):
+    def test_adding_lands_with_a_message(self, client, superuser):
         resp = client.post(_url(kind="claude"), _data(name="spare"))
 
         assert "Provider added." in client.get(resp["Location"]).content.decode()

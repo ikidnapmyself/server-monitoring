@@ -6,19 +6,13 @@ from django.urls import reverse
 from apps.checkers.models import CheckRun
 from apps.console._tests.test_guard import visible
 from apps.console._tests.test_templates import FORBIDDEN
-from apps.console._tests.views.test_checks import _grant, _nav, _tag
+from apps.console._tests.views.test_checks import _tag
 from apps.console._tests.views.test_incident import focus_audit
 from apps.orchestration.models import PipelineRun
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
 BOTH = pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
 URL = "/console/reports/"
-TABS = {
-    "Summary": ("orchestration", "view_pipelinerun"),
-    "Checks": ("checkers", "view_checkrun"),
-    "Preflight": ("checkers", "view_preflightrun"),
-    "Analyses": ("intelligence", "view_analysisrun"),
-}
 CARDS = {
     "Summary": ("Pipeline health, last 24 hours", "Top failure reasons, last 7 days"),
     "Checks": ("Top failing checkers, last 7 days",),
@@ -49,34 +43,7 @@ def test_anonymous_is_sent_to_the_admin_login(client):
 
 
 @pytest.mark.django_db
-def test_staff_without_a_report_permission_is_refused(client, bare_staff):
-    _grant(bare_staff, "alerts", "view_node")
-
-    assert client.get(URL).status_code == 403
-    assert _nav(client.get(reverse("console:nodes")).content.decode(), "Reports") is None
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("tab", sorted(TABS))
-def test_one_report_permission_shows_its_card_and_tabs_and_opens_the_summary(
-    client, bare_staff, tab
-):
-    _grant(bare_staff, *TABS[tab])
-
-    resp = client.get(URL)
-
-    body = resp.content.decode()
-    assert resp.status_code == 200
-    assert resp.templates[0].name == "console/reports.html"
-    assert "<title>Reports · Console</title>" in body
-    assert _nav(body, "Reports") == f'<a class="c-unav__item" href="{URL}" aria-current="page">'
-    assert _tabs(body) == (["Summary"] if tab == "Summary" else ["Summary", tab])
-    assert _cards(body) == list(CARDS[tab])
-
-
-@pytest.mark.django_db
 def test_a_full_reader_sees_every_tab_and_card_in_order(client, superuser):
-    client.force_login(superuser)
 
     body = client.get(URL).content.decode()
 
@@ -93,7 +60,6 @@ def test_a_full_reader_sees_every_tab_and_card_in_order(client, superuser):
 
 @pytest.mark.django_db
 def test_an_empty_install_says_so_in_every_card(client, superuser):
-    client.force_login(superuser)
 
     text = visible(client.get(URL).content.decode())
 
@@ -110,7 +76,6 @@ def test_an_empty_install_says_so_in_every_card(client, superuser):
 
 @pytest.mark.django_db
 def test_rows_link_the_filtered_lists(client, superuser):
-    client.force_login(superuser)
     PipelineRun.objects.create(
         run_id="r", trace_id="t", status="failed", last_error_message="no_route: x"
     )
@@ -129,7 +94,6 @@ def test_rows_link_the_filtered_lists(client, superuser):
 
 @pytest.mark.django_db
 def test_the_reason_row_lands_on_a_matching_chip(client, superuser):
-    client.force_login(superuser)
     PipelineRun.objects.create(
         run_id="r", trace_id="t", status="failed", last_error_message="no_route: x"
     )
@@ -142,7 +106,6 @@ def test_the_reason_row_lands_on_a_matching_chip(client, superuser):
 
 @pytest.mark.django_db
 def test_the_partial_is_the_polled_content(client, superuser):
-    client.force_login(superuser)
 
     page = client.get(URL).content.decode()
     partial = client.get(URL, **HTMX)
@@ -157,7 +120,6 @@ def test_the_partial_is_the_polled_content(client, superuser):
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
 @BOTH
 def test_the_rendered_page_is_clean(client, superuser, label, headers):
-    client.force_login(superuser)
 
     assert not FORBIDDEN[label].search(client.get(URL, **headers).content.decode()), label
 
@@ -165,7 +127,6 @@ def test_the_rendered_page_is_clean(client, superuser, label, headers):
 @pytest.mark.django_db
 @BOTH
 def test_every_focusable_element_has_a_unique_id(client, superuser, headers):
-    client.force_login(superuser)
     PipelineRun.objects.create(run_id="r", trace_id="t", status="failed")
     CheckRun.objects.create(checker_name="disk", status="critical", message="m")
 

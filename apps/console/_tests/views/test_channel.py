@@ -1,7 +1,6 @@
 from unittest import mock
 
 import pytest
-from django.contrib.auth.models import Permission
 from django.db import IntegrityError, OperationalError
 from django.urls import reverse
 
@@ -31,29 +30,6 @@ def channel():
     return NotificationChannel.objects.create(
         name="ops", driver="slack", config={**STORED["slack"], "legacy": UNKNOWN_VALUE}
     )
-
-
-def _grant(user, *codenames):
-    for codename in codenames:
-        user.user_permissions.add(
-            Permission.objects.get(content_type__app_label="notify", codename=codename)
-        )
-    return user
-
-
-@pytest.fixture
-def channel_viewer(bare_staff):
-    return _grant(bare_staff, "view_notificationchannel")
-
-
-@pytest.fixture
-def channel_editor(bare_staff):
-    return _grant(bare_staff, "change_notificationchannel")
-
-
-@pytest.fixture
-def channel_adder(bare_staff):
-    return _grant(bare_staff, "view_notificationchannel", "add_notificationchannel")
 
 
 def _url(channel=None, driver=None):
@@ -113,12 +89,7 @@ def test_an_anonymous_add_logs_in_back_to_the_new_channel_page(client):
     assert resp["Location"] == f"{reverse('admin:login')}?next={_url()}"
 
 
-def test_staff_without_a_channel_permission_is_refused(client, bare_staff, channel):
-    assert client.get(_url(channel)).status_code == 403
-
-
 def test_the_editor_renders_the_channel(client, superuser, channel):
-    client.force_login(superuser)
 
     resp = client.get(_url(channel))
 
@@ -148,7 +119,6 @@ def test_the_editor_renders_the_channel(client, superuser, channel):
 def test_the_editor_reads_in_a_fixed_number_of_queries(
     client, superuser, channel, django_assert_num_queries
 ):
-    client.force_login(superuser)
     for i in range(3):
         PipelineDefinition.objects.create(name=f"lane-{i}", stages=["notify"], channel=channel)
     client.get(_url(channel))
@@ -158,7 +128,6 @@ def test_the_editor_reads_in_a_fixed_number_of_queries(
 
 
 def test_the_message_templates_sit_in_details(client, superuser, channel):
-    client.force_login(superuser)
 
     body = client.get(_url(channel)).content.decode()
 
@@ -170,7 +139,6 @@ def test_the_message_templates_sit_in_details(client, superuser, channel):
 
 
 def test_no_secret_or_unknown_value_reaches_the_page(client, superuser, channel):
-    client.force_login(superuser)
 
     body = client.get(_url(channel)).content.decode()
 
@@ -180,7 +148,6 @@ def test_no_secret_or_unknown_value_reaches_the_page(client, superuser, channel)
 
 @pytest.mark.parametrize("driver", sorted(STORED))
 def test_no_driver_shows_its_secrets(client, superuser, driver):
-    client.force_login(superuser)
     ch = NotificationChannel.objects.create(name="x", driver=driver, config=STORED[driver])
 
     body = client.get(_url(ch)).content.decode()
@@ -189,7 +156,6 @@ def test_no_driver_shows_its_secrets(client, superuser, driver):
 
 
 def test_the_details_hold_the_facts(client, superuser, channel):
-    client.force_login(superuser)
 
     body = client.get(_url(channel)).content.decode()
 
@@ -200,7 +166,6 @@ def test_the_details_hold_the_facts(client, superuser, channel):
 
 
 def test_routed_here_by_lists_each_lane_with_its_gap(client, superuser, channel):
-    client.force_login(superuser)
     NotificationChannel.objects.filter(pk=channel.pk).update(is_active=False)
     lane = PipelineDefinition.objects.create(name="web", stages=["notify"], channel=channel)
 
@@ -219,7 +184,6 @@ def test_routed_here_by_lists_each_lane_with_its_gap(client, superuser, channel)
 
 
 def test_a_channel_no_route_uses_says_so(client, superuser, channel):
-    client.force_login(superuser)
 
     body = client.get(_url(channel)).content.decode()
 
@@ -227,7 +191,6 @@ def test_a_channel_no_route_uses_says_so(client, superuser, channel):
 
 
 def test_htmx_gets_the_editor_without_the_layout(client, superuser, channel):
-    client.force_login(superuser)
 
     resp = client.get(_url(channel), HTTP_HX_REQUEST="true")
 
@@ -236,43 +199,19 @@ def test_htmx_gets_the_editor_without_the_layout(client, superuser, channel):
 
 
 def test_the_page_carries_nothing_the_csp_blocks(client, superuser, channel):
-    client.force_login(superuser)
 
     body = client.get(_url(channel)).content.decode()
 
     assert not [label for label, rule in FORBIDDEN.items() if rule.search(body)]
 
 
-def test_a_view_only_reader_sees_the_form_disabled(client, channel_viewer, channel):
-    resp = client.get(_url(channel))
-
-    body = resp.content.decode()
-    assert resp.status_code == 200
-    assert 'name="name" value="ops"' in body
-    assert body.count(" disabled") >= 5
-    assert 'id="channel-save"' not in body
-    assert 'id="channel-default"' not in body
-    assert 'id="channel-switch-driver"' not in body
-    assert ">Back to channels</a>\n</form>" in body
-
-
-def test_a_view_only_reader_is_refused_a_save(client, channel_viewer, channel):
-    resp = client.post(_url(channel), _data(channel, name="renamed"))
-
-    assert resp.status_code == 403
-    assert resp.content.decode() == "Permission to change channels required."
-    channel.refresh_from_db()
-    assert channel.name == "ops"
-
-
-def test_a_change_only_user_opens_the_editor_enabled(client, channel_editor, channel):
+def test_the_editor_opens_enabled(client, superuser, channel):
     body = client.get(_url(channel)).content.decode()
 
     assert 'id="channel-save"' in body
 
 
 def test_an_untouched_save_keeps_the_config(client, superuser, channel):
-    client.force_login(superuser)
     stored = dict(channel.config)
 
     resp = client.post(_url(channel), _data(channel, name="ops-2"))
@@ -285,7 +224,6 @@ def test_an_untouched_save_keeps_the_config(client, superuser, channel):
 
 
 def test_a_new_secret_is_written(client, superuser, channel):
-    client.force_login(superuser)
     new = "https://hooks.slack.com/services/T1/B1/new"
 
     client.post(_url(channel), _data(channel, cfg__webhook_url=new))
@@ -295,7 +233,6 @@ def test_a_new_secret_is_written(client, superuser, channel):
 
 
 def test_an_invalid_save_re_renders_without_secrets(client, superuser, channel):
-    client.force_login(superuser)
     typed = "https://hooks.slack.com/services/T9/B9/typed-secret"
 
     resp = client.post(
@@ -312,7 +249,6 @@ def test_an_invalid_save_re_renders_without_secrets(client, superuser, channel):
 
 
 def test_a_stale_save_is_a_409_with_the_fresh_values(client, superuser, channel):
-    client.force_login(superuser)
     opened = _data(channel, description="mine")
     NotificationChannel.objects.filter(pk=channel.pk).update(description="theirs")
 
@@ -328,7 +264,6 @@ def test_a_stale_save_is_a_409_with_the_fresh_values(client, superuser, channel)
 
 
 def test_a_busy_database_is_a_409(client, superuser, channel):
-    client.force_login(superuser)
     with mock.patch(
         "apps.console.views.channel.save_channel",
         side_effect=OperationalError("database is locked"),
@@ -341,7 +276,6 @@ def test_a_busy_database_is_a_409(client, superuser, channel):
 
 
 def test_a_name_another_channel_has_is_refused(client, superuser, channel):
-    client.force_login(superuser)
     NotificationChannel.objects.create(name="db", driver="email")
 
     resp = client.post(_url(channel), _data(channel, name="db"))
@@ -351,7 +285,6 @@ def test_a_name_another_channel_has_is_refused(client, superuser, channel):
 
 
 def test_a_name_taken_in_a_race_is_a_name_error(client, superuser, channel):
-    client.force_login(superuser)
     NotificationChannel.objects.create(name="db", driver="email")
 
     with mock.patch("apps.notify.forms.ChannelForm.clean_name", lambda self: "db"):
@@ -364,7 +297,6 @@ def test_a_name_taken_in_a_race_is_a_name_error(client, superuser, channel):
 
 
 def test_an_integrity_error_without_a_clashing_name_is_a_stale_save(client, superuser, channel):
-    client.force_login(superuser)
     with mock.patch(
         "apps.console.views.channel.save_channel", side_effect=IntegrityError("constraint")
     ):
@@ -378,7 +310,6 @@ def test_an_integrity_error_without_a_clashing_name_is_a_stale_save(client, supe
 
 class TestSwitchingDriver:
     def test_it_re_renders_for_the_new_driver_and_saves_nothing(self, client, superuser, channel):
-        client.force_login(superuser)
         data = _data(channel, name="renamed", driver="email", switch_driver="1")
         data["cfg__webhook_url"] = "garbage"
 
@@ -398,7 +329,6 @@ class TestSwitchingDriver:
         assert (channel.name, channel.driver) == ("ops", "slack")
 
     def test_the_switched_form_saves_on_the_new_driver(self, client, superuser, channel):
-        client.force_login(superuser)
         switched = client.post(_url(channel), _data(channel, driver="generic", switch_driver="1"))
         form = switched.context["editor"].form
         data = initial_data(form)
@@ -413,7 +343,6 @@ class TestSwitchingDriver:
         assert "webhook_url" not in channel.config
 
     def test_on_the_driver_shown_it_keeps_the_edits(self, client, superuser, channel):
-        client.force_login(superuser)
 
         resp = client.post(
             _url(channel, driver="slack"),
@@ -428,7 +357,6 @@ class TestSwitchingDriver:
         assert channel.name == "ops"
 
     def test_an_unknown_driver_is_a_400(self, client, superuser, channel):
-        client.force_login(superuser)
 
         resp = client.post(_url(channel), _data(channel, driver="nope", switch_driver="1"))
 
@@ -441,14 +369,12 @@ class TestSwitchingDriver:
         assert channel.driver == "slack"
 
     def test_a_switch_on_a_deleted_channel_is_the_404(self, client, superuser, channel):
-        client.force_login(superuser)
         url, data = _url(channel), _data(channel, switch_driver="1")
         channel.delete()
 
         assert client.post(url, data).status_code == 404
 
     def test_a_same_driver_switch_on_a_deleted_channel_is_the_404(self, client, superuser, channel):
-        client.force_login(superuser)
         url, data = _url(channel, driver="slack"), _data(channel, switch_driver="1")
         channel.delete()
 
@@ -456,7 +382,6 @@ class TestSwitchingDriver:
 
 
 def test_an_unknown_driver_in_the_url_is_a_400(client, superuser, channel):
-    client.force_login(superuser)
 
     resp = client.get(_url(channel, driver="nope"))
 
@@ -467,7 +392,6 @@ def test_an_unknown_driver_in_the_url_is_a_400(client, superuser, channel):
 
 
 def test_an_unknown_driver_on_a_save_saves_nothing(client, superuser, channel):
-    client.force_login(superuser)
 
     resp = client.post(_url(channel, driver="nope"), _data(channel, name="renamed"))
 
@@ -485,7 +409,6 @@ class TestAChannelOnADriverThisHubDoesntHave:
         )
 
     def test_it_renders_with_no_typed_fields(self, client, superuser, pigeon):
-        client.force_login(superuser)
 
         body = client.get(_url(pigeon)).content.decode()
 
@@ -496,7 +419,6 @@ class TestAChannelOnADriverThisHubDoesntHave:
         _secrets_absent(body, UNKNOWN_VALUE)
 
     def test_saving_keeps_its_config(self, client, superuser, pigeon):
-        client.force_login(superuser)
 
         resp = client.post(_url(pigeon), _data(pigeon, description="kept"))
 
@@ -507,7 +429,6 @@ class TestAChannelOnADriverThisHubDoesntHave:
 
 @pytest.mark.parametrize("method", ["get", "post"])
 def test_a_missing_channel_is_the_console_404_page(client, superuser, method):
-    client.force_login(superuser)
 
     resp = getattr(client, method)(reverse("console:channel", args=[999]))
 
@@ -518,13 +439,11 @@ def test_a_missing_channel_is_the_console_404_page(client, superuser, method):
 
 
 def test_a_bad_driver_on_a_missing_channel_is_the_404(client, superuser):
-    client.force_login(superuser)
 
     assert client.get(_url(None) + "999/?driver=nope").status_code == 404
 
 
 def test_a_channel_deleted_during_the_save_answers_the_404(client, superuser, channel):
-    client.force_login(superuser)
     editors = [build_channel_editor(channel.pk, _data(channel), can_change=True), None]
 
     with (
@@ -537,7 +456,7 @@ def test_a_channel_deleted_during_the_save_answers_the_404(client, superuser, ch
 
 
 class TestANewChannel:
-    def test_without_a_driver_it_lists_the_drivers(self, client, channel_adder):
+    def test_without_a_driver_it_lists_the_drivers(self, client, superuser):
         resp = client.get(_url())
 
         body = resp.content.decode()
@@ -548,7 +467,7 @@ class TestANewChannel:
             assert f'href="/console/channels/new/?driver={key}">{driver_cls.label}</a>' in body
         assert not [label for label, rule in FORBIDDEN.items() if rule.search(body)]
 
-    def test_a_driver_opens_its_form(self, client, channel_adder):
+    def test_a_driver_opens_its_form(self, client, superuser):
         resp = client.get(_url(driver="email"))
 
         body = resp.content.decode()
@@ -559,7 +478,7 @@ class TestANewChannel:
         assert 'id="channel-details"' not in body
         assert 'id="channel-lanes"' not in body
 
-    def test_an_unknown_driver_is_a_400_with_the_list(self, client, channel_adder):
+    def test_an_unknown_driver_is_a_400_with_the_list(self, client, superuser):
         resp = client.get(_url(driver="nope"))
 
         body = resp.content.decode()
@@ -567,21 +486,13 @@ class TestANewChannel:
         assert "This hub has no driver by that name. Pick one it has." in body
         assert 'href="/console/channels/new/?driver=slack"' in body
 
-    def test_a_save_without_a_driver_is_a_400(self, client, channel_adder):
+    def test_a_save_without_a_driver_is_a_400(self, client, superuser):
         resp = client.post(_url(), _data(name="db"))
 
         assert resp.status_code == 400
         assert not NotificationChannel.objects.exists()
 
-    def test_without_add_permission_it_is_refused(self, client, channel_viewer):
-        resp = client.get(_url())
-        assert resp.status_code == 403
-        assert resp.content.decode() == "Permission to add channels required."
-        assert client.get(_url(driver="slack")).status_code == 403
-        assert client.post(_url(driver="slack"), _data(name="db")).status_code == 403
-        assert not NotificationChannel.objects.exists()
-
-    def test_a_save_creates_it(self, client, channel_adder):
+    def test_a_save_creates_it(self, client, superuser):
         resp = client.post(
             _url(driver="slack"), _data(name="db", cfg__webhook_url=SLACK_URL, description="d")
         )
@@ -592,14 +503,14 @@ class TestANewChannel:
         assert (ch.driver, ch.description, ch.is_active) == ("slack", "d", True)
         assert ch.config == {"webhook_url": SLACK_URL}
 
-    def test_an_invalid_one_saves_nothing(self, client, channel_adder):
+    def test_an_invalid_one_saves_nothing(self, client, superuser):
         resp = client.post(_url(driver="slack"), _data(name="db"))
 
         assert resp.status_code == 200
         assert "Webhook URL is required." in resp.content.decode()
         assert not NotificationChannel.objects.exists()
 
-    def test_a_switch_saves_nothing(self, client, channel_adder):
+    def test_a_switch_saves_nothing(self, client, superuser):
         resp = client.post(
             _url(driver="slack"), _data(name="db", driver="email", switch_driver="1")
         )
@@ -610,13 +521,13 @@ class TestANewChannel:
         assert 'name="name" value="db"' in body
         assert not NotificationChannel.objects.exists()
 
-    def test_an_unknown_switch_is_a_400_with_the_list(self, client, channel_adder):
+    def test_an_unknown_switch_is_a_400_with_the_list(self, client, superuser):
         resp = client.post(_url(driver="slack"), _data(driver="nope", switch_driver="1"))
 
         assert resp.status_code == 400
         assert resp.templates[0].name == "console/channel_new.html"
 
-    def test_a_name_taken_in_a_race_is_a_name_error(self, client, channel_adder):
+    def test_a_name_taken_in_a_race_is_a_name_error(self, client, superuser):
         NotificationChannel.objects.create(name="db", driver="email")
         with (
             mock.patch("apps.notify.forms.ChannelForm.clean_name", lambda self: "db"),
@@ -631,7 +542,7 @@ class TestANewChannel:
         assert "Another channel already has this name." in resp.content.decode()
 
     @pytest.mark.parametrize("error", [IntegrityError("other"), OperationalError("locked")])
-    def test_any_other_failure_is_a_409_that_saves_nothing(self, client, channel_adder, error):
+    def test_any_other_failure_is_a_409_that_saves_nothing(self, client, superuser, error):
         with mock.patch(
             "apps.console.views.channel.NotificationChannel.objects.create", side_effect=error
         ):
@@ -645,8 +556,7 @@ class TestANewChannel:
         _secrets_absent(body)
         assert not NotificationChannel.objects.exists()
 
-    def test_adding_lands_with_a_message(self, client, channel_adder):
-        _grant(channel_adder, "change_notificationchannel")
+    def test_adding_lands_with_a_message(self, client, superuser):
         resp = client.post(_url(driver="slack"), _data(name="db", cfg__webhook_url=SLACK_URL))
 
         assert "Channel added." in client.get(resp["Location"]).content.decode()

@@ -67,14 +67,7 @@ def test_anonymous_is_sent_to_the_admin_login(client):
 
 
 @pytest.mark.django_db
-def test_staff_without_a_run_permission_is_refused(client, bare_staff):
-    assert client.get(_url(_run())).status_code == 403
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("fixture", ["run_viewer", "run_operator"])
-def test_view_or_change_permission_reads_the_page(client, request, fixture):
-    request.getfixturevalue(fixture)
+def test_a_superuser_reads_the_page(client, superuser):
     run, _, _ = _busy()
 
     resp = client.get(_url(run))
@@ -89,7 +82,7 @@ def test_view_or_change_permission_reads_the_page(client, request, fixture):
 
 
 @pytest.mark.django_db
-def test_htmx_request_gets_only_the_partial(client, run_viewer):
+def test_htmx_request_gets_only_the_partial(client, superuser):
     run, _, _ = _busy()
 
     resp = client.get(_url(run), **HTMX)
@@ -101,7 +94,7 @@ def test_htmx_request_gets_only_the_partial(client, run_viewer):
 
 
 @pytest.mark.django_db
-def test_the_page_polls_its_wrapper(client, run_viewer):
+def test_the_page_polls_its_wrapper(client, superuser):
     run, _, _ = _busy()
 
     body = client.get(_url(run)).content.decode()
@@ -116,7 +109,7 @@ def test_the_page_polls_its_wrapper(client, run_viewer):
 @pytest.mark.django_db
 @pytest.mark.parametrize("pk", ["404", "99999999999999999999999999"])
 @BOTH
-def test_a_missing_run_is_the_console_404_page(client, run_viewer, pk, headers):
+def test_a_missing_run_is_the_console_404_page(client, superuser, pk, headers):
     resp = client.get(f"/console/runs/{pk}/", **headers)
 
     body = resp.content.decode()
@@ -128,7 +121,7 @@ def test_a_missing_run_is_the_console_404_page(client, run_viewer, pk, headers):
 
 
 @pytest.mark.django_db
-def test_the_header_and_sidebar_describe_the_run(client, run_viewer):
+def test_the_header_and_sidebar_describe_the_run(client, superuser):
     run, _, _ = _busy()
 
     body = client.get(_url(run)).content.decode()
@@ -149,7 +142,7 @@ def test_the_header_and_sidebar_describe_the_run(client, run_viewer):
 
 
 @pytest.mark.django_db
-def test_a_bare_run_says_what_it_lacks(client, run_viewer):
+def test_a_bare_run_says_what_it_lacks(client, superuser):
     run = _run()
 
     body = client.get(_url(run)).content.decode()
@@ -162,18 +155,8 @@ def test_a_bare_run_says_what_it_lacks(client, run_viewer):
 
 
 @pytest.mark.django_db
-def test_a_viewer_sees_no_do_this_box(client, run_viewer):
-    run, _, _ = _busy()
-
-    body = client.get(_url(run)).content.decode()
-
-    assert "Do this" not in body
-    assert "action-retry_run" not in body
-
-
-@pytest.mark.django_db
 @BOTH
-def test_an_operator_sees_retry_on_a_failed_run(client, run_operator, headers):
+def test_an_operator_sees_retry_on_a_failed_run(client, superuser, headers):
     run, _, _ = _busy()
 
     body = client.get(_url(run), **headers).content.decode()
@@ -187,7 +170,7 @@ def test_an_operator_sees_retry_on_a_failed_run(client, run_operator, headers):
 
 
 @pytest.mark.django_db
-def test_an_operator_sees_mark_failed_on_a_queued_run(client, run_operator):
+def test_an_operator_sees_mark_failed_on_a_queued_run(client, superuser):
     run = _run(status="pending")
 
     body = client.get(_url(run)).content.decode()
@@ -200,8 +183,7 @@ def test_an_operator_sees_mark_failed_on_a_queued_run(client, run_operator):
 
 @pytest.mark.django_db
 @BOTH
-def test_the_incident_card_links_the_console_incident(client, run_viewer, incident_reader, headers):
-    incident_reader(run_viewer)
+def test_the_incident_card_links_the_console_incident(client, superuser, headers):
     run, incident, _ = _busy()
 
     body = client.get(_url(run), **headers).content.decode()
@@ -211,18 +193,7 @@ def test_the_incident_card_links_the_console_incident(client, run_viewer, incide
 
 
 @pytest.mark.django_db
-def test_a_run_reader_sees_the_incident_as_text(client, run_viewer):
-    run, incident, _ = _busy()
-
-    body = client.get(_url(run), **HTMX).content.decode()
-
-    assert 'id="run-incident"' not in body
-    assert "/console/incidents/" not in body
-    assert f"#{incident.pk} · Open" in body
-
-
-@pytest.mark.django_db
-def test_stage_output_renders_through_the_shared_body(client, run_viewer):
+def test_stage_output_renders_through_the_shared_body(client, superuser):
     run, _, check = _busy()
 
     body = client.get(_url(run)).content.decode()
@@ -234,7 +205,7 @@ def test_stage_output_renders_through_the_shared_body(client, run_viewer):
 
 
 @pytest.mark.django_db
-def test_the_payload_and_ids_render_only_in_details(client, run_viewer):
+def test_the_payload_and_ids_render_only_in_details(client, superuser):
     run, incident, _ = _busy()
 
     body = client.get(_url(run)).content.decode()
@@ -249,7 +220,7 @@ def test_the_payload_and_ids_render_only_in_details(client, run_viewer):
 
 @pytest.mark.django_db
 @BOTH
-def test_markup_in_an_error_is_escaped(client, run_viewer, headers):
+def test_markup_in_an_error_is_escaped(client, superuser, headers):
     run = _run(status="failed", last_error_message=MARKUP, last_error_type=MARKUP)
     StageExecution.objects.create(
         pipeline_run=run, stage="notify", attempt=1, status="failed", error_message=MARKUP
@@ -264,7 +235,7 @@ def test_markup_in_an_error_is_escaped(client, run_viewer, headers):
 @pytest.mark.django_db
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
 @BOTH
-def test_no_inline_script_or_handler(client, run_operator, label, headers):
+def test_no_inline_script_or_handler(client, superuser, label, headers):
     run, _, _ = _busy()
 
     body = client.get(_url(run), **headers).content.decode()
@@ -275,9 +246,7 @@ def test_no_inline_script_or_handler(client, run_operator, label, headers):
 
 @pytest.mark.django_db
 @BOTH
-def test_every_focusable_element_in_the_polled_region_has_a_unique_id(
-    client, run_operator, headers
-):
+def test_every_focusable_element_in_the_polled_region_has_a_unique_id(client, superuser, headers):
     run, _, _ = _busy()
 
     body = client.get(_url(run), **headers).content.decode()

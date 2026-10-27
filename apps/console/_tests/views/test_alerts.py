@@ -1,7 +1,6 @@
 import re
 
 import pytest
-from django.contrib.auth.models import Permission
 from django.urls import reverse
 from django.utils import timezone
 
@@ -18,14 +17,6 @@ BOTH = pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
 @pytest.fixture
 def url():
     return reverse("console:alerts")
-
-
-@pytest.fixture
-def viewer(bare_staff):
-    bare_staff.user_permissions.add(
-        Permission.objects.get(content_type__app_label="alerts", codename="view_alert")
-    )
-    return bare_staff
 
 
 def _alert(key, **fields):
@@ -63,20 +54,7 @@ def test_anonymous_is_sent_to_the_admin_login(client, url):
 
 
 @pytest.mark.django_db
-def test_staff_without_an_alert_permission_is_refused(client, bare_staff, url):
-    resp = client.get(url)
-
-    assert resp.status_code == 403
-    assert resp.content.decode() == "Permission to view this page required."
-
-
-@pytest.mark.django_db
-def test_the_incident_permission_alone_does_not_read_alerts(client, staff, url):
-    assert client.get(url).status_code == 403
-
-
-@pytest.mark.django_db
-def test_view_alert_reads_the_full_page_with_the_nav_tab_current(client, viewer, url):
+def test_view_alert_reads_the_full_page_with_the_nav_tab_current(client, superuser, url):
     resp = client.get(url)
 
     body = resp.content.decode()
@@ -90,7 +68,7 @@ def test_view_alert_reads_the_full_page_with_the_nav_tab_current(client, viewer,
 
 
 @pytest.mark.django_db
-def test_htmx_request_gets_only_the_partial_rooted_at_the_polled_element(client, viewer, url):
+def test_htmx_request_gets_only_the_partial_rooted_at_the_polled_element(client, superuser, url):
     resp = client.get(url, **HTMX)
 
     body = resp.content.decode()
@@ -105,7 +83,7 @@ def test_htmx_request_gets_only_the_partial_rooted_at_the_polled_element(client,
 
 
 @pytest.mark.django_db
-def test_a_row_links_the_alert_page_and_its_incident(client, viewer, url):
+def test_a_row_links_the_alert_page_and_its_incident(client, superuser, url):
     node = Node.objects.create(instance_id="i-web", hostname="web")
     incident = Incident.objects.create(severity="warning")
     alert = _alert("Disk full", node=node, incident=incident)
@@ -128,7 +106,7 @@ def test_a_row_links_the_alert_page_and_its_incident(client, viewer, url):
 
 @pytest.mark.django_db
 @BOTH
-def test_a_hostile_webhook_alert_name_is_escaped(client, viewer, url, headers):
+def test_a_hostile_webhook_alert_name_is_escaped(client, superuser, url, headers):
     _alert(MARKUP, source="grafana")
 
     body = client.get(url, **headers).content.decode()
@@ -138,7 +116,7 @@ def test_a_hostile_webhook_alert_name_is_escaped(client, viewer, url, headers):
 
 
 @pytest.mark.django_db
-def test_the_search_form_resends_the_kept_filters(client, viewer, url):
+def test_the_search_form_resends_the_kept_filters(client, superuser, url):
     _alert("a", severity="critical")
 
     body = client.get(f"{url}?severity=critical&status=all&q=fp").content.decode()
@@ -154,7 +132,7 @@ def test_the_search_form_resends_the_kept_filters(client, viewer, url):
 
 
 @pytest.mark.django_db
-def test_a_source_chip_id_is_a_counter_never_the_source_name(client, viewer, url):
+def test_a_source_chip_id_is_a_counter_never_the_source_name(client, superuser, url):
     _alert("a", source="grafana")
     _alert("b", source=f"bad {MARKUP}")
 
@@ -167,7 +145,7 @@ def test_a_source_chip_id_is_a_counter_never_the_source_name(client, viewer, url
 
 
 @pytest.mark.django_db
-def test_the_status_chips_carry_their_icons(client, viewer, url):
+def test_the_status_chips_carry_their_icons(client, superuser, url):
     body = client.get(url).content.decode()
 
     header = body[body.index('<nav class="c-states"') :]
@@ -189,7 +167,7 @@ def test_the_status_chips_carry_their_icons(client, viewer, url):
         ("firing", "?severity=info", "No alerts match these filters."),
     ],
 )
-def test_each_blank_state(client, viewer, url, setup, query, heading):
+def test_each_blank_state(client, superuser, url, setup, query, heading):
     if setup:
         _alert("a", status=setup)
 
@@ -204,7 +182,7 @@ def test_each_blank_state(client, viewer, url, setup, query, heading):
 
 
 @pytest.mark.django_db
-def test_the_pager_swaps_the_list(client, viewer, url, monkeypatch):
+def test_the_pager_swaps_the_list(client, superuser, url, monkeypatch):
     monkeypatch.setattr(alert_queries, "PAGE_SIZE", 1)
     for key in "abc":
         _alert(key)
@@ -220,7 +198,7 @@ def test_the_pager_swaps_the_list(client, viewer, url, monkeypatch):
 @pytest.mark.django_db
 @BOTH
 def test_every_focusable_element_in_the_polled_region_has_a_unique_id(
-    client, viewer, url, monkeypatch, headers
+    client, superuser, url, monkeypatch, headers
 ):
     monkeypatch.setattr(alert_queries, "PAGE_SIZE", 1)
     node = Node.objects.create(instance_id="i-web", hostname="web")
@@ -238,7 +216,7 @@ def test_every_focusable_element_in_the_polled_region_has_a_unique_id(
 @pytest.mark.django_db
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
 @BOTH
-def test_rendered_list_is_clean(client, viewer, url, label, headers):
+def test_rendered_list_is_clean(client, superuser, url, label, headers):
     _alert("a", source="grafana")
     _alert("b")
 

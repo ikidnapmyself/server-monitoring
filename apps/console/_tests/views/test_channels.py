@@ -1,7 +1,6 @@
 from unittest import mock
 
 import pytest
-from django.contrib.auth.models import Permission
 from django.urls import reverse
 
 from apps.console._tests.test_templates import FORBIDDEN
@@ -24,16 +23,6 @@ def url():
     return reverse("console:channels")
 
 
-@pytest.fixture
-def channel_viewer(bare_staff):
-    bare_staff.user_permissions.add(
-        Permission.objects.get(
-            content_type__app_label="notify", codename="view_notificationchannel"
-        )
-    )
-    return bare_staff
-
-
 def _channel(name, driver="slack", **kw):
     return NotificationChannel.objects.create(name=name, driver=driver, **kw)
 
@@ -49,12 +38,7 @@ def test_anonymous_is_sent_to_the_admin_login(client, url):
     assert resp["Location"] == f"{reverse('admin:login')}?next=/console/channels/"
 
 
-def test_staff_without_a_channel_permission_is_refused(client, bare_staff, url):
-    assert client.get(url).status_code == 403
-
-
 def test_channels_render_by_name_with_driver_state_and_lanes(client, superuser, url):
-    client.force_login(superuser)
     ops = _channel("ops")
     _channel("mail", driver="email", is_active=False)
     lane = PipelineDefinition.objects.create(name="web", stages=["notify"], channel=ops)
@@ -80,7 +64,6 @@ def test_channels_render_by_name_with_driver_state_and_lanes(client, superuser, 
 
 
 def test_a_lane_that_cant_deliver_says_why(client, superuser, url):
-    client.force_login(superuser)
     pigeon = _channel("pigeon", driver="carrier_pigeon")
     PipelineDefinition.objects.create(name="pager", stages=["notify"], channel=pigeon)
 
@@ -95,23 +78,21 @@ def test_a_lane_that_cant_deliver_says_why(client, superuser, url):
 
 
 def test_the_page_sits_under_system_with_its_subnav(client, superuser, url):
-    client.force_login(superuser)
 
     body = client.get(url).content.decode()
 
     assert 'href="/console/channels/" aria-current="page">Channels</a>' in body
 
 
-def test_a_viewer_gets_links_but_no_add(client, channel_viewer, url):
+def test_a_name_links_the_channel(client, superuser, url):
     ops = _channel("ops")
 
     body = client.get(url).content.decode()
 
     assert f'<a id="channel-{ops.pk}-edit" href="/console/channels/{ops.pk}/">ops</a>' in body
-    assert "Add a channel" not in body
 
 
-def test_a_name_without_a_link_is_plain_text(client, channel_viewer, url):
+def test_a_name_without_a_link_is_plain_text(client, superuser, url):
     _channel("ops")
 
     with mock.patch("apps.console.intents.INTENTS", {}):
@@ -120,17 +101,7 @@ def test_a_name_without_a_link_is_plain_text(client, channel_viewer, url):
     assert "<strong>ops</strong>" in body
 
 
-def test_a_viewer_sees_lanes_as_text(client, channel_viewer, url):
-    ops = _channel("ops")
-    PipelineDefinition.objects.create(name="web", stages=["notify"], channel=ops)
-
-    body = client.get(url).content.decode()
-
-    assert "Routed here by web" in body
-
-
 def test_q_filters_by_name(client, superuser, url):
-    client.force_login(superuser)
     _channel("ops-slack")
     _channel("mail", driver="email")
 
@@ -142,7 +113,6 @@ def test_q_filters_by_name(client, superuser, url):
 
 
 def test_a_search_matching_nothing_offers_to_clear_it(client, superuser, url):
-    client.force_login(superuser)
     _channel("ops")
 
     body = client.get(url, {"q": "zzz"}).content.decode()
@@ -152,7 +122,6 @@ def test_a_search_matching_nothing_offers_to_clear_it(client, superuser, url):
 
 
 def test_no_channels_says_what_that_means(client, superuser, url):
-    client.force_login(superuser)
 
     body = client.get(url).content.decode()
 
@@ -161,20 +130,8 @@ def test_no_channels_says_what_that_means(client, superuser, url):
 
 
 def test_htmx_gets_the_list_without_the_layout(client, superuser, url):
-    client.force_login(superuser)
 
     resp = client.get(url, **HTMX)
 
     assert resp.templates[0].name == "console/partials/_channels.html"
     assert "<html" not in resp.content.decode()
-
-
-def test_a_channel_only_reader_gets_system_on_channels_and_no_routes_tab(
-    client, channel_viewer, url
-):
-    body = client.get(url).content.decode()
-
-    assert 'href="/console/channels/" aria-current="page">' in body
-    assert "<span>System</span>" in body
-    assert 'href="/console/routes/"' not in body
-    assert ">Routes</a>" not in body

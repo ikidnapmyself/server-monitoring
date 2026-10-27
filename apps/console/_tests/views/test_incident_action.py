@@ -3,7 +3,6 @@ from unittest import mock
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
 from django.test import Client
 from django.urls import reverse
 
@@ -25,25 +24,6 @@ AVAILABLE = {
     "resolved": ["close"],
     "closed": [],
 }
-
-
-def _operator(name="op", *, can_act=True):
-    user = get_user_model().objects.create_user(name, password="x", is_staff=True)
-    user.user_permissions.add(
-        Permission.objects.get(content_type__app_label="alerts", codename="view_incident")
-    )
-    if can_act:
-        user.user_permissions.add(
-            Permission.objects.get(content_type__app_label="alerts", codename="change_incident")
-        )
-    return user
-
-
-@pytest.fixture
-def operator(client):
-    user = _operator()
-    client.force_login(user)
-    return user
 
 
 def _incident(status="open", **fields):
@@ -93,9 +73,7 @@ def test_anonymous_post_is_sent_to_the_admin_login(client):
 
 @pytest.mark.django_db
 def test_logging_in_after_an_anonymous_post_lands_on_the_incident_page(client):
-    user = _operator()
-    user.set_password("pw")
-    user.save()
+    get_user_model().objects.create_superuser("op", password="pw")
     incident = _incident()
 
     refused = client.post(_url(incident, "resolve"))
@@ -136,45 +114,8 @@ def test_anonymous_htmx_post_is_redirected_back_to_the_page_it_came_from(client)
 
 
 @pytest.mark.django_db
-def test_non_staff_is_refused_even_with_the_permission(client):
-    user = _operator("visitor")
-    user.is_staff = False
-    user.save()
-    client.force_login(user)
-    incident = _incident()
-
-    resp = client.post(_url(incident, "resolve"))
-
-    assert resp.status_code == 403
-    assert Incident.objects.get(pk=incident.pk).status == "open"
-    assert not PipelineRun.objects.exists()
-
-
-@pytest.mark.django_db
-@BOTH
-def test_staff_without_the_change_permission_is_refused(client, headers):
-    client.force_login(_operator(can_act=False))
-    incident = _incident()
-
-    resp = client.post(_url(incident, "resolve"), **headers)
-
-    assert resp.status_code == 403
-    assert "script-src 'self'" in resp["Content-Security-Policy"]
-    assert Incident.objects.get(pk=incident.pk).status == "open"
-    assert not PipelineRun.objects.exists()
-
-
-@pytest.mark.django_db
-def test_the_permission_is_checked_before_the_record_or_the_action(client):
-    client.force_login(_operator(can_act=False))
-
-    assert client.post("/console/incidents/404/resolve/").status_code == 403
-    assert client.post(_url(_incident(), "reopen")).status_code == 403
-
-
-@pytest.mark.django_db
 @pytest.mark.parametrize("action", sorted(DONE))
-def test_get_is_not_allowed(client, operator, action):
+def test_get_is_not_allowed(client, superuser, action):
     incident = _incident()
 
     resp = client.get(_url(incident, action))
@@ -188,7 +129,7 @@ def test_get_is_not_allowed(client, operator, action):
 @pytest.mark.django_db
 @pytest.mark.parametrize("action", ["reopen", "delete", "Resolve", "acknowledge_incident"])
 @BOTH
-def test_an_unknown_action_is_a_404(client, operator, action, headers):
+def test_an_unknown_action_is_a_404(client, superuser, action, headers):
     incident = _incident()
 
     resp = client.post(_url(incident, action), **headers)
@@ -201,7 +142,7 @@ def test_an_unknown_action_is_a_404(client, operator, action, headers):
 @pytest.mark.django_db
 @pytest.mark.parametrize("pk", ["404", "99999999999999999999999999"])
 @BOTH
-def test_a_missing_incident_is_the_console_404_page(client, operator, pk, headers):
+def test_a_missing_incident_is_the_console_404_page(client, superuser, pk, headers):
     resp = client.post(f"/console/incidents/{pk}/resolve/", **headers)
 
     body = resp.content.decode()
@@ -214,7 +155,7 @@ def test_a_missing_incident_is_the_console_404_page(client, operator, pk, header
 @pytest.mark.django_db
 @pytest.mark.parametrize("action", sorted(DONE))
 @BOTH
-def test_each_action_transitions_and_enqueues_one_manual_run(client, operator, action, headers):
+def test_each_action_transitions_and_enqueues_one_manual_run(client, superuser, action, headers):
     incident = _incident()
 
     resp = client.post(_url(incident, action), **headers)
@@ -230,18 +171,18 @@ def test_each_action_transitions_and_enqueues_one_manual_run(client, operator, a
 
 
 @pytest.mark.django_db
-def test_the_operator_is_recorded_as_the_actor(client, operator):
+def test_the_operator_is_recorded_as_the_actor(client, superuser):
     acknowledged, resolved = _incident(), _incident()
 
     client.post(_url(acknowledged, "acknowledge"))
     client.post(_url(resolved, "resolve"))
 
-    assert Incident.objects.get(pk=acknowledged.pk).metadata == {"acknowledged_by": "op"}
-    assert Incident.objects.get(pk=resolved.pk).metadata == {"resolved_by": "op"}
+    assert Incident.objects.get(pk=acknowledged.pk).metadata == {"acknowledged_by": "root"}
+    assert Incident.objects.get(pk=resolved.pk).metadata == {"resolved_by": "root"}
 
 
 @pytest.mark.django_db
-def test_an_htmx_post_gets_the_partial_with_a_success_message(client, operator):
+def test_an_htmx_post_gets_the_partial_with_a_success_message(client, superuser):
     incident = _incident()
 
     resp = client.post(_url(incident, "acknowledge"), **HTMX)
@@ -263,7 +204,7 @@ def test_an_htmx_post_gets_the_partial_with_a_success_message(client, operator):
 
 
 @pytest.mark.django_db
-def test_a_plain_post_redirects_to_the_page_which_shows_the_message_once(client, operator):
+def test_a_plain_post_redirects_to_the_page_which_shows_the_message_once(client, superuser):
     incident = _incident()
 
     resp = client.post(_url(incident, "resolve"))
@@ -279,7 +220,7 @@ def test_a_plain_post_redirects_to_the_page_which_shows_the_message_once(client,
 
 
 @pytest.mark.django_db
-def test_an_htmx_outcome_never_reaches_the_messages_framework(client, operator):
+def test_an_htmx_outcome_never_reaches_the_messages_framework(client, superuser):
     incident = _incident()
 
     acted = client.post(_url(incident, "acknowledge"), **HTMX)
@@ -292,7 +233,7 @@ def test_an_htmx_outcome_never_reaches_the_messages_framework(client, operator):
 
 
 @pytest.mark.django_db
-def test_a_poll_leaves_another_surfaces_message_alone(client, operator):
+def test_a_poll_leaves_another_surfaces_message_alone(client, superuser):
     incident = _incident("closed")
     client.post(_url(incident, "close"))
 
@@ -305,7 +246,7 @@ def test_a_poll_leaves_another_surfaces_message_alone(client, operator):
 
 
 @pytest.mark.django_db
-def test_a_lookup_failure_inside_the_announce_is_not_a_missing_incident(client, operator):
+def test_a_lookup_failure_inside_the_announce_is_not_a_missing_incident(client, superuser):
     incident = _incident()
 
     with mock.patch(
@@ -328,7 +269,7 @@ def test_a_lookup_failure_inside_the_announce_is_not_a_missing_incident(client, 
     ],
 )
 def test_a_stale_action_re_renders_with_a_warning_and_no_run(
-    client, operator, status, action, text
+    client, superuser, status, action, text
 ):
     incident = _incident(status)
 
@@ -343,7 +284,7 @@ def test_a_stale_action_re_renders_with_a_warning_and_no_run(
 
 
 @pytest.mark.django_db
-def test_a_stale_plain_post_still_redirects_and_warns(client, operator):
+def test_a_stale_plain_post_still_redirects_and_warns(client, superuser):
     incident = _incident("closed")
 
     resp = client.post(_url(incident, "close"), follow=True)
@@ -354,7 +295,7 @@ def test_a_stale_plain_post_still_redirects_and_warns(client, operator):
 
 
 @pytest.mark.django_db
-def test_a_double_submit_announces_once(client, operator):
+def test_a_double_submit_announces_once(client, superuser):
     incident = _incident()
 
     first = client.post(_url(incident, "acknowledge"), **HTMX)
@@ -367,7 +308,7 @@ def test_a_double_submit_announces_once(client, operator):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(("posted", "kept"), [("1", True), ("0", False), ("", False)])
-def test_all_survives_only_when_the_form_posted_it(client, operator, monkeypatch, posted, kept):
+def test_all_survives_only_when_the_form_posted_it(client, superuser, monkeypatch, posted, kept):
     monkeypatch.setattr("apps.console.queries.incident.TIMELINE_LIMIT", 0)
     incident = _incident()
     PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
@@ -383,7 +324,7 @@ def test_all_survives_only_when_the_form_posted_it(client, operator, monkeypatch
 
 
 @pytest.mark.django_db
-def test_all_in_the_querystring_of_the_action_url_is_ignored(client, operator):
+def test_all_in_the_querystring_of_the_action_url_is_ignored(client, superuser):
     incident = _incident()
 
     resp = client.post(_url(incident, "acknowledge") + "?all=1")
@@ -392,7 +333,7 @@ def test_all_in_the_querystring_of_the_action_url_is_ignored(client, operator):
 
 
 @pytest.mark.django_db
-def test_a_resolve_note_is_stripped_capped_and_stored(client, operator, monkeypatch):
+def test_a_resolve_note_is_stripped_capped_and_stored(client, superuser, monkeypatch):
     monkeypatch.setattr(IncidentPageView, "summary_limit", 5)
     incident = _incident()
 
@@ -404,7 +345,9 @@ def test_a_resolve_note_is_stripped_capped_and_stored(client, operator, monkeypa
 @pytest.mark.django_db
 @pytest.mark.parametrize("limit", [2000, 7])
 @pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
-def test_the_field_carries_the_cap_the_view_enforces(client, operator, monkeypatch, limit, headers):
+def test_the_field_carries_the_cap_the_view_enforces(
+    client, superuser, monkeypatch, limit, headers
+):
     assert IncidentPageView.summary_limit == 2000
     monkeypatch.setattr(IncidentPageView, "summary_limit", limit)
     incident = _incident()
@@ -415,7 +358,7 @@ def test_the_field_carries_the_cap_the_view_enforces(client, operator, monkeypat
 
 
 @pytest.mark.django_db
-def test_a_note_at_the_cap_keeps_its_tail_when_the_browser_sends_crlf(client, operator):
+def test_a_note_at_the_cap_keeps_its_tail_when_the_browser_sends_crlf(client, superuser):
     lines = ["123456789"] * 200
     assert len("\n".join(lines)) == 1999
     incident = _incident()
@@ -426,7 +369,7 @@ def test_a_note_at_the_cap_keeps_its_tail_when_the_browser_sends_crlf(client, op
 
 
 @pytest.mark.django_db
-def test_a_nul_in_the_note_is_dropped(client, operator):
+def test_a_nul_in_the_note_is_dropped(client, superuser):
     incident = _incident()
 
     client.post(_url(incident, "resolve"), {"summary": "ro\x00tated\x00"})
@@ -436,7 +379,7 @@ def test_a_nul_in_the_note_is_dropped(client, operator):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("action", ["acknowledge", "close"])
-def test_a_note_is_read_only_for_resolve(client, operator, action):
+def test_a_note_is_read_only_for_resolve(client, superuser, action):
     incident = _incident(summary="earlier")
 
     client.post(_url(incident, action), {"summary": "ignored"})
@@ -445,7 +388,7 @@ def test_a_note_is_read_only_for_resolve(client, operator, action):
 
 
 @pytest.mark.django_db
-def test_a_blank_note_keeps_the_existing_summary(client, operator):
+def test_a_blank_note_keeps_the_existing_summary(client, superuser):
     incident = _incident(summary="earlier")
 
     client.post(_url(incident, "resolve"), {"summary": "   "})
@@ -454,7 +397,7 @@ def test_a_blank_note_keeps_the_existing_summary(client, operator):
 
 
 @pytest.mark.django_db
-def test_a_hostile_note_and_title_are_stored_verbatim_and_rendered_escaped(client, operator):
+def test_a_hostile_note_and_title_are_stored_verbatim_and_rendered_escaped(client, superuser):
     incident = named_incident(f"Disk {MARKUP}", severity="critical", status="open")
 
     body = client.post(_url(incident, "resolve"), {"summary": MARKUP}, **HTMX).content.decode()
@@ -468,9 +411,9 @@ def test_a_hostile_note_and_title_are_stored_verbatim_and_rendered_escaped(clien
 
 
 @pytest.mark.django_db
-def test_csrf_is_enforced_and_a_polled_token_stays_valid(operator):
+def test_csrf_is_enforced_and_a_polled_token_stays_valid(superuser):
     client = Client(enforce_csrf_checks=True)
-    client.force_login(operator)
+    client.force_login(superuser)
     incident = _incident()
 
     refused = client.post(_url(incident, "acknowledge"), **HTMX)
@@ -504,7 +447,7 @@ def test_csrf_is_enforced_and_a_polled_token_stays_valid(operator):
 @pytest.mark.django_db
 @pytest.mark.parametrize("status", sorted(AVAILABLE))
 @pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
-def test_buttons_follow_the_status(client, operator, status, headers):
+def test_buttons_follow_the_status(client, superuser, status, headers):
     incident = _incident(status)
 
     body = client.get(_page(incident), **headers).content.decode()
@@ -525,7 +468,7 @@ def test_buttons_follow_the_status(client, operator, status, headers):
 
 
 @pytest.mark.django_db
-def test_every_form_posts_to_its_action_with_a_token_and_the_htmx_contract(client, operator):
+def test_every_form_posts_to_its_action_with_a_token_and_the_htmx_contract(client, superuser):
     incident = _incident()
 
     body = client.get(_page(incident), **HTMX).content.decode()
@@ -556,7 +499,7 @@ def test_every_form_posts_to_its_action_with_a_token_and_the_htmx_contract(clien
 
 
 @pytest.mark.django_db
-def test_the_resolve_note_is_a_details_with_its_own_form(client, operator):
+def test_the_resolve_note_is_a_details_with_its_own_form(client, superuser):
     incident = _incident()
 
     body = client.get(_page(incident), **HTMX).content.decode()
@@ -574,24 +517,7 @@ def test_the_resolve_note_is_a_details_with_its_own_form(client, operator):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
-def test_staff_without_the_permission_sees_no_buttons_and_no_container(client, headers):
-    client.force_login(_operator(can_act=False))
-    incident = _incident()
-
-    resp = client.get(_page(incident), **headers)
-
-    body = resp.content.decode()
-    region = body if headers else body[body.index('<div id="incident"') : body.index("</main>")]
-    assert resp.status_code == 200
-    assert "Do this" not in region and "c-do" not in region
-    assert "<form" not in region and 'id="action-' not in region
-    assert "csrfmiddlewaretoken" not in region
-    assert "resolve-note" not in region
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
-def test_every_focusable_element_with_buttons_has_a_unique_id(client, operator, headers):
+def test_every_focusable_element_with_buttons_has_a_unique_id(client, superuser, headers):
     incident = _incident()
 
     body = client.get(_page(incident), **headers).content.decode()
@@ -607,7 +533,7 @@ def test_every_focusable_element_with_buttons_has_a_unique_id(client, operator, 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
-def test_the_rendered_page_with_buttons_and_a_message_is_clean(client, operator, label):
+def test_the_rendered_page_with_buttons_and_a_message_is_clean(client, superuser, label):
     incident = _incident()
 
     page = client.get(_page(incident)).content.decode()

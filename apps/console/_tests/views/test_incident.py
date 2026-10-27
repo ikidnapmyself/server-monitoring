@@ -165,7 +165,7 @@ def test_anonymous_htmx_request_is_told_to_do_a_full_redirect(client):
 
 
 @pytest.mark.django_db
-def test_non_staff_is_refused(client):
+def test_a_plain_user_is_refused(client):
     client.force_login(get_user_model().objects.create_user("visitor", password="x"))
     incident = Incident.objects.create()
 
@@ -178,7 +178,7 @@ def test_non_staff_is_refused(client):
 @pytest.mark.django_db
 @pytest.mark.parametrize("pk", ["404", "99999999999999999999999999"])
 @BOTH
-def test_a_missing_incident_is_a_console_404_that_links_onward(client, staff, pk, headers):
+def test_a_missing_incident_is_a_console_404_that_links_onward(client, superuser, pk, headers):
     resp = client.get(f"/console/incidents/{pk}/", **headers)
 
     body = resp.content.decode()
@@ -194,7 +194,7 @@ def test_a_missing_incident_is_a_console_404_that_links_onward(client, staff, pk
 
 
 @pytest.mark.django_db
-def test_staff_gets_the_full_page_with_incidents_current_in_the_nav(client, staff):
+def test_a_superuser_gets_the_full_page_with_incidents_current_in_the_nav(client, superuser):
     incident = named_incident("Disk full on web-1")
 
     resp = client.get(_url(incident))
@@ -214,7 +214,7 @@ def test_staff_gets_the_full_page_with_incidents_current_in_the_nav(client, staf
 
 
 @pytest.mark.django_db
-def test_htmx_request_gets_only_the_partial(client, staff):
+def test_htmx_request_gets_only_the_partial(client, superuser):
     incident = named_incident("Disk full on web-1")
 
     resp = client.get(_url(incident), **HTMX)
@@ -229,7 +229,7 @@ def test_htmx_request_gets_only_the_partial(client, staff):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("header", ["HTTP_HX_HISTORY_RESTORE_REQUEST", "HTTP_HX_BOOSTED"])
-def test_htmx_request_that_swaps_the_body_gets_the_full_page(client, staff, header):
+def test_htmx_request_that_swaps_the_body_gets_the_full_page(client, superuser, header):
     incident = Incident.objects.create()
 
     resp = client.get(_url(incident), **HTMX, **{header: "true"})
@@ -239,7 +239,7 @@ def test_htmx_request_that_swaps_the_body_gets_the_full_page(client, staff, head
 
 @pytest.mark.django_db
 @BOTH
-def test_the_header_describes_the_incident_and_links_onward(client, staff, headers):
+def test_the_header_describes_the_incident_and_links_onward(client, superuser, headers):
     incident, *_ = _busy()
 
     body = client.get(_url(incident), **headers).content.decode()
@@ -266,7 +266,7 @@ def test_the_header_describes_the_incident_and_links_onward(client, staff, heade
 
 @pytest.mark.django_db
 @BOTH
-def test_whats_wrong_renders_the_incident_description(client, staff, headers):
+def test_whats_wrong_renders_the_incident_description(client, superuser, headers):
     incident, *_ = _busy()
 
     body = client.get(_url(incident), **headers).content.decode()
@@ -281,7 +281,7 @@ def test_whats_wrong_renders_the_incident_description(client, staff, headers):
 
 @pytest.mark.django_db
 @BOTH
-def test_the_page_has_no_edit_raw_and_no_open_in_admin(client, staff, headers):
+def test_the_page_has_no_edit_raw_and_no_open_in_admin(client, superuser, headers):
     incident, *_ = _busy()
 
     body = client.get(_url(incident), **headers).content.decode()
@@ -293,7 +293,7 @@ def test_the_page_has_no_edit_raw_and_no_open_in_admin(client, staff, headers):
 
 @pytest.mark.django_db
 @BOTH
-def test_a_staff_user_without_admin_permissions_gets_no_admin_link(client, staff, headers):
+def test_the_page_links_no_admin_page(client, superuser, headers):
     incident, *_ = _busy()
 
     body = client.get(_url(incident), **headers).content.decode()
@@ -304,8 +304,7 @@ def test_a_staff_user_without_admin_permissions_gets_no_admin_link(client, staff
 
 
 @pytest.mark.django_db
-def test_a_superuser_gets_navigation_links_into_the_console(client):
-    client.force_login(get_user_model().objects.create_superuser("root", password="x"))
+def test_a_superuser_gets_navigation_links_into_the_console(client, superuser):
     incident, alert, _, run, *_ = _busy()
 
     body = client.get(_url(incident), **HTMX).content.decode()
@@ -315,7 +314,7 @@ def test_a_superuser_gets_navigation_links_into_the_console(client):
 
 
 @pytest.mark.django_db
-def test_a_finished_bare_incident_drops_the_optional_header_parts(client, staff):
+def test_a_finished_bare_incident_drops_the_optional_header_parts(client, superuser):
     now = timezone.now()
     incident = Incident.objects.create(status="resolved", resolved_at=now)
     Incident.objects.filter(pk=incident.pk).update(
@@ -337,7 +336,7 @@ def test_a_finished_bare_incident_drops_the_optional_header_parts(client, staff)
 
 @pytest.mark.django_db
 @BOTH
-def test_the_stage_strip_shows_each_stage_outcome(client, staff, headers):
+def test_the_stage_strip_shows_each_stage_outcome(client, superuser, headers):
     incident, *_ = _busy()
 
     body = client.get(_url(incident), **headers).content.decode()
@@ -356,7 +355,7 @@ def test_the_stage_strip_shows_each_stage_outcome(client, staff, headers):
 
 
 @pytest.mark.django_db
-def test_a_stage_with_no_execution_says_it_hasnt_run(client, staff):
+def test_a_stage_with_no_execution_says_it_hasnt_run(client, superuser):
     incident = Incident.objects.create()
 
     body = client.get(_url(incident)).content.decode()
@@ -368,7 +367,7 @@ def test_a_stage_with_no_execution_says_it_hasnt_run(client, staff):
 
 @pytest.mark.django_db
 @BOTH
-def test_the_timeline_entries_use_the_describer_wording(client, staff, headers):
+def test_the_timeline_entries_use_the_describer_wording(client, superuser, headers):
     incident, alert, history, run, stages, failed = _busy()
 
     body = client.get(_url(incident), **headers).content.decode()
@@ -406,7 +405,7 @@ def test_the_timeline_entries_use_the_describer_wording(client, staff, headers):
 
 
 @pytest.mark.django_db
-def test_entry_details_sit_directly_under_their_timeline_item(client, staff):
+def test_entry_details_sit_directly_under_their_timeline_item(client, superuser):
     incident, *_ = _busy()
 
     body = client.get(_url(incident), **HTMX).content.decode()
@@ -421,7 +420,7 @@ def test_entry_details_sit_directly_under_their_timeline_item(client, staff):
 
 @pytest.mark.django_db
 @BOTH
-def test_an_entry_with_output_holds_its_body_and_raw_json_in_details(client, staff, headers):
+def test_an_entry_with_output_holds_its_body_and_raw_json_in_details(client, superuser, headers):
     incident, _, _, _, stages, _ = _busy()
 
     body = client.get(_url(incident), **headers).content.decode()
@@ -447,7 +446,7 @@ def test_an_entry_with_output_holds_its_body_and_raw_json_in_details(client, sta
 
 
 @pytest.mark.django_db
-def test_each_stage_body_is_rendered(client, staff):
+def test_each_stage_body_is_rendered(client, superuser):
     incident, _, _, _, stages, _ = _busy()
 
     body = client.get(_url(incident)).content.decode()
@@ -467,7 +466,7 @@ def test_each_stage_body_is_rendered(client, staff):
 
 
 @pytest.mark.django_db
-def test_a_check_body_lists_problems_worst_first_and_counts_the_rest(client, staff):
+def test_a_check_body_lists_problems_worst_first_and_counts_the_rest(client, superuser):
     incident = Incident.objects.create()
     run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
     execution = StageExecution.objects.create(
@@ -499,7 +498,7 @@ def test_a_check_body_lists_problems_worst_first_and_counts_the_rest(client, sta
 
 
 @pytest.mark.django_db
-def test_a_check_body_with_only_skips_counts_them_alone(client, staff):
+def test_a_check_body_with_only_skips_counts_them_alone(client, superuser):
     incident = Incident.objects.create()
     run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
     StageExecution.objects.create(
@@ -517,7 +516,7 @@ def test_a_check_body_with_only_skips_counts_them_alone(client, staff):
 
 
 @pytest.mark.django_db
-def test_a_failed_analysis_shows_no_confidence_anywhere(client, staff):
+def test_a_failed_analysis_shows_no_confidence_anywhere(client, superuser):
     incident = Incident.objects.create()
     run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
     StageExecution.objects.create(
@@ -542,7 +541,7 @@ def test_a_failed_analysis_shows_no_confidence_anywhere(client, staff):
 
 
 @pytest.mark.django_db
-def test_a_successful_analysis_lists_its_recommendations(client, staff):
+def test_a_successful_analysis_lists_its_recommendations(client, superuser):
     incident = Incident.objects.create()
     run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
     StageExecution.objects.create(
@@ -575,8 +574,7 @@ def _no_channel_incident():
 
 
 @pytest.mark.django_db
-def test_a_no_channel_failure_links_its_fix_for_a_superuser(client):
-    client.force_login(get_user_model().objects.create_superuser("root", password="x"))
+def test_a_no_channel_failure_links_its_fix_for_a_superuser(client, superuser):
     incident = _no_channel_incident()
 
     body = client.get(_url(incident)).content.decode()
@@ -590,24 +588,13 @@ def test_a_no_channel_failure_links_its_fix_for_a_superuser(client):
     assert "Not delivered: the matched route has no active channel" in body
 
 
-@pytest.mark.django_db
-def test_a_no_channel_failure_is_text_for_staff_without_the_permission(client, staff):
-    incident = _no_channel_incident()
-
-    body = client.get(_url(incident)).content.decode()
-
-    assert '<p class="c-description__action">Give the route an active channel</p>' in body
-    assert "pipelinedefinition" not in body
-
-
 def _stage_item(body, stage):
     item = body[body.index(f'<li id="stage-{stage}" class="c-stage">') :]
     return item[: item.index("</li>")]
 
 
 @pytest.mark.django_db
-def test_a_failed_stage_shows_its_fix_in_the_sidebar(client):
-    client.force_login(get_user_model().objects.create_superuser("root", password="x"))
+def test_a_failed_stage_shows_its_fix_in_the_sidebar(client, superuser):
     incident = _no_channel_incident()
 
     item = _stage_item(client.get(_url(incident)).content.decode(), "notify")
@@ -621,17 +608,7 @@ def test_a_failed_stage_shows_its_fix_in_the_sidebar(client):
 
 
 @pytest.mark.django_db
-@BOTH
-def test_a_sidebar_fix_is_text_without_the_permission(client, staff, headers):
-    incident = _no_channel_incident()
-
-    item = _stage_item(client.get(_url(incident), **headers).content.decode(), "notify")
-
-    assert '<p class="c-description__action">Give the route an active channel</p>' in item
-
-
-@pytest.mark.django_db
-def test_a_stage_that_hasnt_run_offers_no_action(client, staff):
+def test_a_stage_that_hasnt_run_offers_no_action(client, superuser):
     incident = Incident.objects.create()
 
     body = client.get(_url(incident)).content.decode()
@@ -640,7 +617,7 @@ def test_a_stage_that_hasnt_run_offers_no_action(client, staff):
 
 
 @pytest.mark.django_db
-def test_sparse_stage_bodies_leave_their_optional_parts_out(client, staff):
+def test_sparse_stage_bodies_leave_their_optional_parts_out(client, superuser):
     incident = Incident.objects.create()
     run = PipelineRun.objects.create(trace_id="t", run_id="r", incident=incident)
     for name, snapshot in [
@@ -668,7 +645,7 @@ def test_sparse_stage_bodies_leave_their_optional_parts_out(client, staff):
 
 @pytest.mark.django_db
 @BOTH
-def test_hostile_strings_are_escaped_everywhere(client, staff, headers):
+def test_hostile_strings_are_escaped_everywhere(client, superuser, headers):
     incident, *_ = _busy(suffix=f" {MARKUP}")
 
     body = client.get(_url(incident), **headers).content.decode()
@@ -693,7 +670,7 @@ def test_hostile_strings_are_escaped_everywhere(client, staff, headers):
 
 @pytest.mark.django_db
 @BOTH
-def test_every_focusable_element_in_the_polled_region_has_a_unique_id(client, staff, headers):
+def test_every_focusable_element_in_the_polled_region_has_a_unique_id(client, superuser, headers):
     incident, *_ = _busy()
 
     body = client.get(_url(incident), **headers).content.decode()
@@ -707,8 +684,9 @@ def test_every_focusable_element_in_the_polled_region_has_a_unique_id(client, st
 
 @pytest.mark.django_db
 @BOTH
-def test_every_focusable_element_has_a_unique_id_for_an_operator_and_a_superuser(client, headers):
-    client.force_login(get_user_model().objects.create_superuser("root", password="x"))
+def test_every_focusable_element_has_a_unique_id_with_the_action_buttons(
+    client, superuser, headers
+):
     incident, _, _, run, *_ = _busy()
     StageExecution.objects.create(
         pipeline_run=run,
@@ -732,7 +710,7 @@ def test_every_focusable_element_has_a_unique_id_for_an_operator_and_a_superuser
 @pytest.mark.django_db
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
 @BOTH
-def test_the_rendered_page_is_clean(client, staff, label, headers):
+def test_the_rendered_page_is_clean(client, superuser, label, headers):
     incident, *_ = _busy()
 
     body = client.get(_url(incident), **headers).content.decode()
@@ -742,7 +720,7 @@ def test_the_rendered_page_is_clean(client, staff, label, headers):
 
 
 @pytest.mark.django_db
-def test_overview_and_list_rows_link_to_the_console_page(client, staff):
+def test_overview_and_list_rows_link_to_the_console_page(client, superuser):
     incident = named_incident("Disk full on web-1", severity="critical")
 
     for page in ("console:overview", "console:incidents"):
@@ -770,7 +748,7 @@ def _long_incident(monkeypatch):
 
 @pytest.mark.django_db
 @BOTH
-def test_a_long_timeline_is_capped_and_offers_the_rest(client, staff, monkeypatch, headers):
+def test_a_long_timeline_is_capped_and_offers_the_rest(client, superuser, monkeypatch, headers):
     incident = _long_incident(monkeypatch)
 
     body = client.get(_url(incident), **headers).content.decode()
@@ -787,7 +765,7 @@ def test_a_long_timeline_is_capped_and_offers_the_rest(client, staff, monkeypatc
 
 
 @pytest.mark.django_db
-def test_a_single_hidden_entry_reads_in_the_singular(client, staff, monkeypatch):
+def test_a_single_hidden_entry_reads_in_the_singular(client, superuser, monkeypatch):
     incident = _long_incident(monkeypatch)
     monkeypatch.setattr(incident_queries, "TIMELINE_LIMIT", 5)
 
@@ -799,7 +777,7 @@ def test_a_single_hidden_entry_reads_in_the_singular(client, staff, monkeypatch)
 @pytest.mark.django_db
 @BOTH
 def test_all_shows_every_entry_and_keeps_polling_with_the_parameter(
-    client, staff, monkeypatch, headers
+    client, superuser, monkeypatch, headers
 ):
     incident = _long_incident(monkeypatch)
 
@@ -818,7 +796,7 @@ def test_all_shows_every_entry_and_keeps_polling_with_the_parameter(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("query", ["?all=0", "?all=true", "?all=", "?all=1&all=2", "?other=1"])
-def test_any_other_all_value_is_off(client, staff, monkeypatch, query):
+def test_any_other_all_value_is_off(client, superuser, monkeypatch, query):
     incident = _long_incident(monkeypatch)
 
     body = client.get(f"{_url(incident)}{query}").content.decode()
@@ -828,7 +806,7 @@ def test_any_other_all_value_is_off(client, staff, monkeypatch, query):
 
 
 @pytest.mark.django_db
-def test_the_header_names_the_host_right_after_the_state(client, staff):
+def test_the_header_names_the_host_right_after_the_state(client, superuser):
     incident = Incident.objects.create(severity="critical")
     Alert.objects.create(
         fingerprint="f",

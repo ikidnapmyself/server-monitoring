@@ -3,7 +3,6 @@ import re
 from unittest import mock
 
 import pytest
-from django.contrib.auth.models import Permission
 from django.db import IntegrityError, OperationalError
 from django.urls import reverse
 
@@ -32,29 +31,6 @@ def route():
     return PipelineDefinition.objects.create(
         name="web", priority=50, stages=["check", "notify"], match=[CLUSTER]
     )
-
-
-def _grant(user, *codenames):
-    for codename in codenames:
-        user.user_permissions.add(
-            Permission.objects.get(content_type__app_label="orchestration", codename=codename)
-        )
-    return user
-
-
-@pytest.fixture
-def route_viewer(client, bare_staff):
-    return _grant(bare_staff, "view_pipelinedefinition")
-
-
-@pytest.fixture
-def route_editor(client, bare_staff):
-    return _grant(bare_staff, "change_pipelinedefinition")
-
-
-@pytest.fixture
-def route_adder(client, bare_staff):
-    return _grant(bare_staff, "view_pipelinedefinition", "add_pipelinedefinition")
 
 
 def _url(route=None):
@@ -107,12 +83,7 @@ def test_an_anonymous_add_logs_in_back_to_the_new_route_page(client):
     assert resp["Location"] == f"{reverse('admin:login')}?next={_url()}"
 
 
-def test_staff_without_a_route_permission_is_refused(client, bare_staff, route):
-    assert client.get(_url(route)).status_code == 403
-
-
 def test_the_editor_renders_the_route(client, superuser, route):
-    client.force_login(superuser)
 
     resp = client.get(_url(route))
 
@@ -137,7 +108,6 @@ def test_the_editor_renders_the_route(client, superuser, route):
 def test_the_editor_reads_in_a_fixed_number_of_queries(
     client, superuser, route, django_assert_num_queries
 ):
-    client.force_login(superuser)
     for i in range(3):
         NotificationChannel.objects.create(name=f"ch-{i}", driver="email", config={})
     client.get(_url(route))
@@ -147,7 +117,6 @@ def test_the_editor_reads_in_a_fixed_number_of_queries(
 
 
 def test_the_details_hold_the_facts(client, superuser, route):
-    client.force_login(superuser)
     PipelineDefinition.objects.filter(pk=route.pk).update(
         created_by="root", tags={"seed_shape": "record-only"}
     )
@@ -163,7 +132,6 @@ def test_the_details_hold_the_facts(client, superuser, route):
 
 
 def test_a_route_with_no_tags_or_author_leaves_them_out(client, superuser, route):
-    client.force_login(superuser)
 
     body = client.get(_url(route)).content.decode()
 
@@ -172,7 +140,6 @@ def test_a_route_with_no_tags_or_author_leaves_them_out(client, superuser, route
 
 
 def test_htmx_gets_the_editor_without_the_layout(client, superuser, route):
-    client.force_login(superuser)
 
     resp = client.get(_url(route), HTTP_HX_REQUEST="true")
 
@@ -181,43 +148,19 @@ def test_htmx_gets_the_editor_without_the_layout(client, superuser, route):
 
 
 def test_the_page_carries_nothing_the_csp_blocks(client, superuser, route):
-    client.force_login(superuser)
 
     body = client.get(_url(route)).content.decode()
 
     assert not [label for label, rule in FORBIDDEN.items() if rule.search(body)]
 
 
-def test_a_view_only_reader_sees_the_form_disabled(client, route_viewer, route):
-    resp = client.get(_url(route))
-
-    body = resp.content.decode()
-    assert resp.status_code == 200
-    assert 'name="name" value="web"' in body
-    assert body.count(" disabled") >= 5
-    assert 'id="route-save"' not in body
-    assert 'id="route-add-condition"' not in body
-    assert '<a id="route-cancel" class="c-button" href="/console/routes/#route-' in body
-    assert ">Back to routes</a>\n</form>" in body
-
-
-def test_a_view_only_reader_is_refused_a_save(client, route_viewer, route):
-    resp = client.post(_url(route), _data(route, name="renamed"))
-
-    assert resp.status_code == 403
-    assert resp.content.decode() == "Permission to change routes required."
-    route.refresh_from_db()
-    assert route.name == "web"
-
-
-def test_a_change_only_user_opens_the_editor_enabled(client, route_editor, route):
+def test_the_editor_opens_enabled(client, superuser, route):
     body = client.get(_url(route)).content.decode()
 
     assert 'id="route-save"' in body
 
 
 def test_a_save_writes_the_route_and_lands_on_the_routes_page(client, superuser, route):
-    client.force_login(superuser)
     ch = NotificationChannel.objects.create(name="ops", driver="email", is_active=True, config={})
     severity = {"field": "severity", "op": "in", "value": "critical, warning"}
 
@@ -238,7 +181,6 @@ def test_a_save_writes_the_route_and_lands_on_the_routes_page(client, superuser,
 
 
 def test_a_stale_save_is_a_409_with_the_fresh_values(client, superuser, route):
-    client.force_login(superuser)
     opened = _data(route, priority="60")
     PipelineDefinition.objects.filter(pk=route.pk).update(priority=70, version=2)
 
@@ -254,7 +196,6 @@ def test_a_stale_save_is_a_409_with_the_fresh_values(client, superuser, route):
 
 
 def test_a_mangled_version_is_a_stale_save(client, superuser, route):
-    client.force_login(superuser)
 
     resp = client.post(_url(route), _data(route, version="soon"))
 
@@ -264,7 +205,6 @@ def test_a_mangled_version_is_a_stale_save(client, superuser, route):
 
 
 def test_a_busy_database_is_a_409(client, superuser, route):
-    client.force_login(superuser)
     with mock.patch(
         "apps.console.views.route.save_route", side_effect=OperationalError("database is locked")
     ):
@@ -277,7 +217,6 @@ def test_a_busy_database_is_a_409(client, superuser, route):
 
 
 def test_a_name_taken_in_a_race_is_a_name_error(client, superuser, route):
-    client.force_login(superuser)
     PipelineDefinition.objects.create(name="db", priority=60)
 
     with mock.patch("apps.orchestration.forms.RouteForm.validate_unique"):
@@ -291,7 +230,6 @@ def test_a_name_taken_in_a_race_is_a_name_error(client, superuser, route):
 
 
 def test_an_integrity_error_without_a_clashing_name_is_a_stale_save(client, superuser, route):
-    client.force_login(superuser)
     with mock.patch(
         "apps.console.views.route.save_route", side_effect=IntegrityError("FOREIGN KEY constraint")
     ):
@@ -304,7 +242,6 @@ def test_an_integrity_error_without_a_clashing_name_is_a_stale_save(client, supe
 
 
 def test_a_name_another_route_has_is_refused(client, superuser, route):
-    client.force_login(superuser)
     PipelineDefinition.objects.create(name="db", priority=60)
 
     resp = client.post(_url(route), _data(route, name="db"))
@@ -319,7 +256,6 @@ def test_a_name_another_route_has_is_refused(client, superuser, route):
 
 
 def test_add_condition_opens_a_row_and_saves_nothing(client, superuser, route):
-    client.force_login(superuser)
 
     resp = client.post(_url(route), _data(route, priority="60", add_condition="1"))
 
@@ -336,7 +272,6 @@ def test_add_condition_opens_a_row_and_saves_nothing(client, superuser, route):
 
 
 def test_a_bad_severity_re_renders_with_the_error(client, superuser, route):
-    client.force_login(superuser)
     typo = {"field": "severity", "op": "is", "value": "critcal"}
 
     resp = client.post(_url(route), _data(route, conditions=(typo,)))
@@ -349,7 +284,6 @@ def test_a_bad_severity_re_renders_with_the_error(client, superuser, route):
 
 
 def test_an_invalid_save_keeps_the_posted_version(client, superuser, route):
-    client.force_login(superuser)
 
     PipelineDefinition.objects.filter(pk=route.pk).update(version=5)
 
@@ -360,7 +294,6 @@ def test_an_invalid_save_keeps_the_posted_version(client, superuser, route):
 
 
 def test_removing_a_condition_drops_it(client, superuser, route):
-    client.force_login(superuser)
 
     client.post(_url(route), _data(route, **{"cond-0-DELETE": "on"}))
 
@@ -370,7 +303,6 @@ def test_removing_a_condition_drops_it(client, superuser, route):
 
 @pytest.mark.parametrize("method", ["get", "post"])
 def test_a_missing_route_is_the_console_404_page(client, superuser, method):
-    client.force_login(superuser)
 
     resp = getattr(client, method)(reverse("console:route", args=[999]))
 
@@ -381,7 +313,6 @@ def test_a_missing_route_is_the_console_404_page(client, superuser, method):
 
 
 def test_a_route_deleted_while_open_answers_the_404(client, superuser, route):
-    client.force_login(superuser)
     url, opened = _url(route), _data(route, priority="60")
     route.delete()
 
@@ -391,7 +322,6 @@ def test_a_route_deleted_while_open_answers_the_404(client, superuser, route):
 
 
 def test_a_route_deleted_during_the_save_answers_the_404(client, superuser, route):
-    client.force_login(superuser)
     editors = [build_route_editor(route.pk, _data(route), can_change=True), None]
 
     with (
@@ -409,7 +339,6 @@ class TestAStoredMatchTheRowsCantShow:
         return PipelineDefinition.objects.create(name="odd", priority=50, match=[ODD])
 
     def test_it_warns_and_shows_them_in_details(self, client, superuser, odd):
-        client.force_login(superuser)
 
         body = client.get(_url(odd)).content.decode()
 
@@ -422,7 +351,6 @@ class TestAStoredMatchTheRowsCantShow:
         assert "zap" not in visible(body)
 
     def test_saving_keeps_them(self, client, superuser, odd):
-        client.force_login(superuser)
 
         resp = client.post(_url(odd), _data(odd, conditions=(), priority="60"))
 
@@ -431,7 +359,6 @@ class TestAStoredMatchTheRowsCantShow:
         assert (odd.match, odd.priority) == ([ODD], 60)
 
     def test_replacing_them_writes_the_rows(self, client, superuser, odd):
-        client.force_login(superuser)
 
         client.post(_url(odd), _data(odd, conditions=(CLUSTER,), replace_match="on"))
 
@@ -439,7 +366,6 @@ class TestAStoredMatchTheRowsCantShow:
         assert odd.match == [CLUSTER]
 
     def test_a_non_list_match_shows_whole(self, client, superuser):
-        client.force_login(superuser)
         junk = PipelineDefinition.objects.create(name="junk", priority=50, match={"zap": 1})
 
         body = client.get(_url(junk)).content.decode()
@@ -448,7 +374,7 @@ class TestAStoredMatchTheRowsCantShow:
 
 
 class TestANewRoute:
-    def test_it_renders_empty(self, client, route_adder):
+    def test_it_renders_empty(self, client, superuser):
         resp = client.get(_url())
 
         body = resp.content.decode()
@@ -458,31 +384,24 @@ class TestANewRoute:
         assert 'name="cond-TOTAL_FORMS" value="0"' in body
         assert 'id="route-details"' not in body
 
-    def test_without_add_permission_it_is_refused(self, client, route_viewer):
-        resp = client.get(_url())
-        assert resp.status_code == 403
-        assert resp.content.decode() == "Permission to add routes required."
-        assert client.post(_url(), _data()).status_code == 403
-        assert not PipelineDefinition.objects.exists()
-
-    def test_a_save_creates_it_with_its_author(self, client, route_adder):
+    def test_a_save_creates_it_with_its_author(self, client, superuser):
         resp = client.post(_url(), _data())
 
         route = PipelineDefinition.objects.get(name="db")
         assert resp.status_code == 303
         assert resp["Location"] == f"{reverse('console:routes')}#route-{route.pk}"
-        assert (route.created_by, route.version) == ("bare", 1)
+        assert (route.created_by, route.version) == ("root", 1)
         assert route.match == [CLUSTER]
         assert route.stages == ["check", "notify"]
         assert "Route added." in client.get(resp["Location"]).content.decode()
 
-    def test_an_invalid_one_saves_nothing(self, client, route_adder):
+    def test_an_invalid_one_saves_nothing(self, client, superuser):
         resp = client.post(_url(), _data(name=""))
 
         assert resp.status_code == 200
         assert not PipelineDefinition.objects.exists()
 
-    def test_add_condition_saves_nothing(self, client, route_adder):
+    def test_add_condition_saves_nothing(self, client, superuser):
         resp = client.post(_url(), _data(name="", add_condition="1"))
 
         body = resp.content.decode()
@@ -491,7 +410,7 @@ class TestANewRoute:
         assert "c-field__error" not in body
         assert not PipelineDefinition.objects.exists()
 
-    def test_a_name_taken_in_a_race_is_a_name_error(self, client, route_adder):
+    def test_a_name_taken_in_a_race_is_a_name_error(self, client, superuser):
         with mock.patch(
             "apps.console.views.route.PipelineDefinition.objects.create",
             side_effect=IntegrityError("UNIQUE constraint"),
@@ -503,7 +422,6 @@ class TestANewRoute:
 
 
 def test_a_checkbox_sits_before_its_label_and_the_description_is_short(client, superuser, route):
-    client.force_login(superuser)
 
     body = client.get(_url(route)).content.decode()
 

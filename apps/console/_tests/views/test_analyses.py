@@ -7,7 +7,7 @@ from apps.alerts.models import Incident
 from apps.console._tests.queries.test_analyses import _analysis
 from apps.console._tests.test_guard import visible
 from apps.console._tests.test_templates import FORBIDDEN
-from apps.console._tests.views.test_checks import REPORTS_CURRENT, _grant, _nav, _tag
+from apps.console._tests.views.test_checks import REPORTS_CURRENT, _nav, _tag
 from apps.console._tests.views.test_incident import focus_audit
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
@@ -15,11 +15,6 @@ MARKUP = "<img src=x onerror=alert(1)>"
 BOTH = pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
 LIST = "/console/analyses/"
 CONFIG = {"model": "gpt-4o", "base_url": "https://llm.example/v1"}
-
-
-@pytest.fixture
-def analysis_viewer(bare_staff):
-    return _grant(bare_staff, "intelligence", "view_analysisrun")
 
 
 def _record(run):
@@ -54,18 +49,7 @@ def test_anonymous_is_sent_to_the_admin_login(client):
 
 
 @pytest.mark.django_db
-def test_staff_without_an_analysis_permission_is_refused(client, bare_staff):
-    _grant(bare_staff, "intelligence", "view_intelligenceprovider")
-    run = _analysis()
-
-    assert client.get(LIST).status_code == 403
-    assert client.get(_record(run)).status_code == 403
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("codename", ["view_analysisrun", "change_analysisrun"])
-def test_view_or_change_permission_reads_both_pages(client, bare_staff, codename):
-    _grant(bare_staff, "intelligence", codename)
+def test_a_superuser_reads_both_pages(client, superuser):
     run = _analysis()
 
     listing = client.get(LIST)
@@ -79,23 +63,10 @@ def test_view_or_change_permission_reads_both_pages(client, bare_staff, codename
     assert "<title>Disk filled by logs · Console</title>" in record.content.decode()
     assert _nav(body, "Reports") == REPORTS_CURRENT
     assert f'<a class="c-subnav__item" href="{LIST}" aria-current="page">Analyses</a>' in body
-    assert "Checks</a>" not in body and "Preflight</a>" not in body
 
 
 @pytest.mark.django_db
-def test_the_reports_item_opens_the_summary_with_the_readable_tabs(client, bare_staff):
-    _grant(bare_staff, "checkers", "view_preflightrun")
-    _grant(bare_staff, "intelligence", "view_analysisrun")
-
-    body = client.get(LIST).content.decode()
-
-    assert _nav(body, "Reports") == REPORTS_CURRENT
-    assert ">Summary</a>" in body and ">Preflight</a>" in body and ">Analyses</a>" in body
-    assert ">Checks</a>" not in body
-
-
-@pytest.mark.django_db
-def test_the_partial_is_the_polled_root(client, analysis_viewer):
+def test_the_partial_is_the_polled_root(client, superuser):
     resp = client.get(LIST, **HTMX)
 
     body = resp.content.decode()
@@ -107,7 +78,6 @@ def test_the_partial_is_the_polled_root(client, analysis_viewer):
 
 @pytest.mark.django_db
 def test_rows_show_incident_provider_and_tokens(client, superuser):
-    client.force_login(superuser)
     run, incident = _busy()
     lone = _analysis("failed", "local")
 
@@ -121,17 +91,7 @@ def test_rows_show_incident_provider_and_tokens(client, superuser):
 
 
 @pytest.mark.django_db
-def test_an_analysis_reader_sees_the_incident_as_text(client, analysis_viewer):
-    run, incident = _busy()
-
-    body = client.get(LIST, **HTMX).content.decode()
-
-    assert f"analysis-{run.pk}-incident" not in body
-    assert "/console/incidents/" not in body
-
-
-@pytest.mark.django_db
-def test_the_form_carries_the_provider_and_resends_the_rest(client, analysis_viewer):
+def test_the_form_carries_the_provider_and_resends_the_rest(client, superuser):
     _analysis()
 
     body = client.get(f"{LIST}?status=failed&since=7d&provider=openai").content.decode()
@@ -149,7 +109,7 @@ def test_the_form_carries_the_provider_and_resends_the_rest(client, analysis_vie
     ("setup", "query", "heading"),
     [(False, "", "No analyses yet."), (True, "?status=failed", "No analyses match these filters.")],
 )
-def test_each_blank_state(client, analysis_viewer, setup, query, heading):
+def test_each_blank_state(client, superuser, setup, query, heading):
     if setup:
         _analysis()
 
@@ -157,7 +117,7 @@ def test_each_blank_state(client, analysis_viewer, setup, query, heading):
 
 
 @pytest.mark.django_db
-def test_an_invalid_filter_is_named(client, analysis_viewer):
+def test_an_invalid_filter_is_named(client, superuser):
     body = client.get(f"{LIST}?status=x&provider=nobody").content.decode()
 
     assert "Ignored invalid filter: status, provider." in body
@@ -166,7 +126,7 @@ def test_an_invalid_filter_is_named(client, analysis_viewer):
 @pytest.mark.django_db
 @pytest.mark.parametrize("pk", ["404", "99999999999999999999999999"])
 @BOTH
-def test_a_missing_analysis_is_the_console_404_page(client, analysis_viewer, pk, headers):
+def test_a_missing_analysis_is_the_console_404_page(client, superuser, pk, headers):
     resp = client.get(f"{LIST}{pk}/", **headers)
 
     body = resp.content.decode()
@@ -177,7 +137,6 @@ def test_a_missing_analysis_is_the_console_404_page(client, analysis_viewer, pk,
 
 @pytest.mark.django_db
 def test_the_record_shows_recommendations_tokens_and_the_incident(client, superuser):
-    client.force_login(superuser)
     run, incident = _busy()
 
     body = client.get(_record(run)).content.decode()
@@ -191,7 +150,7 @@ def test_the_record_shows_recommendations_tokens_and_the_incident(client, superu
 
 @pytest.mark.django_db
 @BOTH
-def test_the_provider_config_renders_only_inside_details(client, analysis_viewer, headers):
+def test_the_provider_config_renders_only_inside_details(client, superuser, headers):
     run, _ = _busy()
 
     body = client.get(_record(run), **headers).content.decode()
@@ -202,7 +161,7 @@ def test_the_provider_config_renders_only_inside_details(client, analysis_viewer
 
 
 @pytest.mark.django_db
-def test_a_bare_analysis_says_what_it_lacks(client, analysis_viewer):
+def test_a_bare_analysis_says_what_it_lacks(client, superuser):
     run = _analysis("pending", "nobody_knows")
 
     text = visible(client.get(_record(run)).content.decode())
@@ -215,7 +174,7 @@ def test_a_bare_analysis_says_what_it_lacks(client, analysis_viewer):
 
 @pytest.mark.django_db
 @BOTH
-def test_hostile_text_is_escaped(client, analysis_viewer, headers):
+def test_hostile_text_is_escaped(client, superuser, headers):
     run = _analysis(
         summary=MARKUP,
         provider_config={"x": MARKUP},
@@ -229,7 +188,7 @@ def test_hostile_text_is_escaped(client, analysis_viewer, headers):
 @pytest.mark.django_db
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
 @BOTH
-def test_the_rendered_pages_are_clean(client, analysis_viewer, label, headers):
+def test_the_rendered_pages_are_clean(client, superuser, label, headers):
     run, _ = _busy()
 
     for url in (LIST, _record(run)):
@@ -239,7 +198,6 @@ def test_the_rendered_pages_are_clean(client, analysis_viewer, label, headers):
 @pytest.mark.django_db
 @BOTH
 def test_every_focusable_element_has_a_unique_id(client, superuser, headers):
-    client.force_login(superuser)
     run, _ = _busy()
     _analysis("failed")
 

@@ -49,18 +49,18 @@ def test_every_emitted_intent_is_known():
 
 
 @pytest.mark.django_db
-def test_unknown_intent_is_text(staff):
-    assert resolve_action(Action("Do it", intent="nope"), staff) == ResolvedAction("Do it")
+def test_unknown_intent_is_text(active_staff):
+    assert resolve_action(Action("Do it", intent="nope"), active_staff) == ResolvedAction("Do it")
 
 
 @pytest.mark.django_db
-def test_no_intent_is_text(staff):
-    assert resolve_action(Action("Just words"), staff) == ResolvedAction("Just words")
+def test_no_intent_is_text(active_staff):
+    assert resolve_action(Action("Just words"), active_staff) == ResolvedAction("Just words")
 
 
 @pytest.mark.django_db
-def test_missing_permission_is_text(staff):
-    resolved = resolve_action(Action("Fix", intent="edit_channel"), staff)
+def test_missing_permission_is_text(active_staff):
+    resolved = resolve_action(Action("Fix", intent="edit_channel"), active_staff)
     assert (resolved.url, resolved.method) == ("", "")
 
 
@@ -87,18 +87,18 @@ def test_post_intent(admin_user, intent):
 
 
 @pytest.mark.django_db
-def test_open_url_needs_no_permission(staff):
+def test_open_url_needs_no_permission(active_staff):
     action = Action("Open the runbook", intent="open_url", params={"url": "https://x.test/rb"})
-    assert resolve_action(action, staff) == ResolvedAction(
+    assert resolve_action(action, active_staff) == ResolvedAction(
         "Open the runbook", "https://x.test/rb", "get"
     )
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("url", ["javascript:alert(1)", "//evil.test", "data:text/html,x"])
-def test_open_url_rejects_non_http(staff, url):
+def test_open_url_rejects_non_http(active_staff, url):
     action = Action("Open", intent="open_url", params={"url": url})
-    assert resolve_action(action, staff) == ResolvedAction("Open")
+    assert resolve_action(action, active_staff) == ResolvedAction("Open")
 
 
 @pytest.mark.django_db
@@ -348,8 +348,8 @@ def test_a_read_link_takes_view_or_change(django_user_model, intent, params, per
 
 
 @pytest.mark.django_db
-def test_a_tuple_permission_refuses_a_user_with_none_of_them(staff):
-    assert resolve_action(Action("Go", intent="view_run", params={"pk": 7}), staff).url == ""
+def test_a_tuple_permission_refuses_a_user_with_none_of_them(active_staff):
+    assert resolve_action(Action("Go", intent="view_run", params={"pk": 7}), active_staff).url == ""
 
 
 @pytest.mark.django_db

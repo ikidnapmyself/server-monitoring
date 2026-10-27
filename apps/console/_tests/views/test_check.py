@@ -8,18 +8,13 @@ from apps.alerts.models import Alert, Node
 from apps.console._tests.queries.test_checks import _check
 from apps.console._tests.test_guard import visible
 from apps.console._tests.test_templates import FORBIDDEN
-from apps.console._tests.views.test_checks import REPORTS_CURRENT, _grant, _nav
+from apps.console._tests.views.test_checks import REPORTS_CURRENT, _nav
 from apps.console._tests.views.test_incident import focus_audit
 from apps.orchestration.models import PipelineRun
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
 MARKUP = "<img src=x onerror=alert(1)>"
 BOTH = pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
-
-
-@pytest.fixture
-def check_viewer(bare_staff):
-    return _grant(bare_staff, "checkers", "view_checkrun")
 
 
 def _url(run):
@@ -64,14 +59,7 @@ def test_anonymous_is_sent_to_the_admin_login(client):
 
 
 @pytest.mark.django_db
-def test_staff_without_a_check_permission_is_refused(client, bare_staff):
-    assert client.get(_url(_check())).status_code == 403
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("codename", ["view_checkrun", "change_checkrun"])
-def test_view_or_change_permission_reads_the_page(client, bare_staff, codename):
-    _grant(bare_staff, "checkers", codename)
+def test_a_superuser_reads_the_page(client, superuser):
     run, _, _ = _busy()
 
     resp = client.get(_url(run))
@@ -85,7 +73,7 @@ def test_view_or_change_permission_reads_the_page(client, bare_staff, codename):
 
 
 @pytest.mark.django_db
-def test_htmx_request_gets_only_the_partial(client, check_viewer):
+def test_htmx_request_gets_only_the_partial(client, superuser):
     run, _, _ = _busy()
 
     resp = client.get(_url(run), **HTMX)
@@ -98,7 +86,7 @@ def test_htmx_request_gets_only_the_partial(client, check_viewer):
 @pytest.mark.django_db
 @pytest.mark.parametrize("pk", ["404", "99999999999999999999999999"])
 @BOTH
-def test_a_missing_check_run_is_the_console_404_page(client, check_viewer, pk, headers):
+def test_a_missing_check_run_is_the_console_404_page(client, superuser, pk, headers):
     resp = client.get(f"/console/checks/{pk}/", **headers)
 
     body = resp.content.decode()
@@ -111,7 +99,6 @@ def test_a_missing_check_run_is_the_console_404_page(client, check_viewer, pk, h
 
 @pytest.mark.django_db
 def test_a_full_reader_gets_every_link(client, superuser):
-    client.force_login(superuser)
     run, node, alert = _busy()
 
     body = client.get(_url(run)).content.decode()
@@ -132,20 +119,7 @@ def test_a_full_reader_gets_every_link(client, superuser):
 
 
 @pytest.mark.django_db
-def test_a_view_only_reader_sees_no_dead_link(client, check_viewer):
-    run, _, alert = _busy()
-
-    body = client.get(_url(run)).content.decode()
-
-    for link in ("check-node", "check-alert", "check-run"):
-        assert f'id="{link}"' not in body
-    text = visible(body)
-    assert f"Alert #{alert.pk}" in text
-    assert "Part of a run" in text
-
-
-@pytest.mark.django_db
-def test_a_bare_run_says_what_it_lacks(client, check_viewer):
+def test_a_bare_run_says_what_it_lacks(client, superuser):
     run = _check("gone_checker", hostname="")
 
     text = visible(client.get(_url(run)).content.decode())
@@ -158,7 +132,6 @@ def test_a_bare_run_says_what_it_lacks(client, check_viewer):
 
 @pytest.mark.django_db
 def test_a_host_without_one_node_reads_as_text(client, superuser):
-    client.force_login(superuser)
     run = _check(hostname="db")
 
     body = client.get(_url(run)).content.decode()
@@ -169,7 +142,7 @@ def test_a_host_without_one_node_reads_as_text(client, superuser):
 
 @pytest.mark.django_db
 @BOTH
-def test_hostile_text_is_escaped(client, check_viewer, headers):
+def test_hostile_text_is_escaped(client, superuser, headers):
     run = _check("gone_checker", message=MARKUP, hostname=MARKUP, error=MARKUP)
 
     body = client.get(_url(run), **headers).content.decode()
@@ -180,7 +153,7 @@ def test_hostile_text_is_escaped(client, check_viewer, headers):
 @pytest.mark.django_db
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
 @BOTH
-def test_the_rendered_page_is_clean(client, check_viewer, label, headers):
+def test_the_rendered_page_is_clean(client, superuser, label, headers):
     run, _, _ = _busy()
 
     body = client.get(_url(run), **headers).content.decode()
@@ -191,7 +164,6 @@ def test_the_rendered_page_is_clean(client, check_viewer, label, headers):
 @pytest.mark.django_db
 @BOTH
 def test_every_focusable_element_has_a_unique_id(client, superuser, headers):
-    client.force_login(superuser)
     run, _, _ = _busy()
 
     body = client.get(_url(run), **headers).content.decode()

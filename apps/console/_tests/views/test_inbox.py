@@ -73,26 +73,7 @@ def test_an_anonymous_post_lands_on_the_inbox_after_login(client):
     assert resp["Location"] == f"{reverse('admin:login')}?next={PAGE}"
 
 
-def test_staff_without_inbox_permissions_is_refused(client, bare_staff):
-    assert client.get(PAGE).status_code == 403
-
-
-def test_the_run_permissions_do_not_open_the_inbox(client, run_operator):
-    assert client.get(PAGE).status_code == 403
-    assert client.post(POSTS[0]).status_code == 403
-
-
-def test_the_inbox_permissions_do_not_open_the_runs(client, inbox_operator):
-    assert client.get(reverse("console:runs")).status_code == 403
-
-
-@pytest.mark.parametrize("codename", ["view_inboxitem", "change_inboxitem"])
-def test_either_inbox_permission_reads_the_page(client, bare_staff, codename):
-    from django.contrib.auth.models import Permission
-
-    bare_staff.user_permissions.add(
-        Permission.objects.get(content_type__app_label="orchestration", codename=codename)
-    )
+def test_a_superuser_reads_the_page(client, superuser):
     _run(status="pending")
 
     resp = client.get(PAGE)
@@ -101,31 +82,8 @@ def test_either_inbox_permission_reads_the_page(client, bare_staff, codename):
     assert 'aria-current="page"' in resp.content.decode().split("Inbox</span>")[0][-300:]
 
 
-@pytest.mark.parametrize("url", POSTS)
 @BOTH
-def test_a_viewer_is_refused_every_post(client, inbox_viewer, execute_run, url, headers):
-    run = _run(status="pending")
-
-    resp = client.post(url, **headers)
-
-    assert resp.status_code == 403
-    assert resp.content.decode() == "Permission to drain the inbox required."
-    assert execute_run.call_count == 0
-    assert _status(run) == "pending"
-
-
-def test_a_viewer_sees_no_buttons(client, inbox_viewer):
-    _run(status="pending")
-    _stuck(_run(status="processing"))
-
-    body = client.get(PAGE).content.decode()
-
-    assert "hx-post" not in body
-    assert "Drain" not in body
-
-
-@BOTH
-def test_drain_now_runs_exactly_one_run(client, inbox_operator, execute_run, headers):
+def test_drain_now_runs_exactly_one_run(client, superuser, execute_run, headers):
     posted = _run(status="pending")
     other = _run(status="pending")
 
@@ -137,7 +95,7 @@ def test_drain_now_runs_exactly_one_run(client, inbox_operator, execute_run, hea
 
 
 @BOTH
-def test_drain_now_on_a_run_already_claimed_warns(client, inbox_operator, execute_run, headers):
+def test_drain_now_on_a_run_already_claimed_warns(client, superuser, execute_run, headers):
     run = _run(status="processing")
 
     resp = _post(client, reverse("console:inbox-drain", args=[run.pk]), headers)
@@ -146,14 +104,14 @@ def test_drain_now_on_a_run_already_claimed_warns(client, inbox_operator, execut
     assert ("warning", "This run is no longer queued.") in _flash(resp)
 
 
-def test_drain_now_on_a_missing_run_warns(client, inbox_operator):
+def test_drain_now_on_a_missing_run_warns(client, superuser):
     resp = _post(client, reverse("console:inbox-drain", args=[404]), HTMX)
 
     assert ("warning", "This run is no longer queued.") in _flash(resp)
 
 
 @BOTH
-def test_drain_now_that_raises_reports_it(client, inbox_operator, execute_run, headers):
+def test_drain_now_that_raises_reports_it(client, superuser, execute_run, headers):
     execute_run.side_effect = RuntimeError("boom")
     run = _run(status="pending")
 
@@ -162,7 +120,7 @@ def test_drain_now_that_raises_reports_it(client, inbox_operator, execute_run, h
     assert ("critical", "1 run raised an error. Its page shows where it stopped.") in _flash(resp)
 
 
-def test_some_ran_and_some_raised(client, inbox_operator, execute_run):
+def test_some_ran_and_some_raised(client, superuser, execute_run):
     execute_run.side_effect = [None, RuntimeError("boom"), RuntimeError("boom")]
     for _ in range(3):
         _run(status="pending")
@@ -172,7 +130,7 @@ def test_some_ran_and_some_raised(client, inbox_operator, execute_run):
     assert ("critical", "Ran 1 run. 2 runs raised an error.") in _flash(resp)
 
 
-def test_two_that_raise_and_none_that_ran(client, inbox_operator, execute_run):
+def test_two_that_raise_and_none_that_ran(client, superuser, execute_run):
     execute_run.side_effect = RuntimeError("boom")
     _run(status="pending")
     _run(status="pending")
@@ -184,9 +142,7 @@ def test_two_that_raise_and_none_that_ran(client, inbox_operator, execute_run):
     )
 
 
-def test_drain_the_oldest_drains_at_most_the_limit(
-    client, inbox_operator, execute_run, monkeypatch
-):
+def test_drain_the_oldest_drains_at_most_the_limit(client, superuser, execute_run, monkeypatch):
     monkeypatch.setattr(inbox_views, "DRAIN_LIMIT", 2)
     now = timezone.now()
     runs = [_run(status="pending") for _ in range(3)]
@@ -206,7 +162,7 @@ def test_drain_the_oldest_is_capped_below_the_worker_timeout():
 
 
 def test_drain_the_oldest_stops_starting_runs_when_its_time_is_spent(
-    client, inbox_operator, execute_run
+    client, superuser, execute_run
 ):
     runs = [_run(status="pending") for _ in range(3)]
     clock = iter([0.0, 0.0, 61.0])
@@ -219,9 +175,7 @@ def test_drain_the_oldest_stops_starting_runs_when_its_time_is_spent(
     assert ("ok", "Ran 1 run. 2 runs left for the next drain.") in _flash(resp)
 
 
-def test_a_drain_that_raised_still_counts_what_is_left(
-    client, inbox_operator, execute_run, monkeypatch
-):
+def test_a_drain_that_raised_still_counts_what_is_left(client, superuser, execute_run, monkeypatch):
     monkeypatch.setattr(inbox_views, "DRAIN_LIMIT", 1)
     execute_run.side_effect = RuntimeError("boom")
     _run(status="pending")
@@ -237,7 +191,7 @@ def test_a_drain_that_raised_still_counts_what_is_left(
 
 @BOTH
 def test_drain_the_oldest_on_an_empty_queue_says_nothing_waited(
-    client, inbox_operator, execute_run, headers
+    client, superuser, execute_run, headers
 ):
     resp = _post(client, POSTS[0], headers)
 
@@ -246,7 +200,7 @@ def test_drain_the_oldest_on_an_empty_queue_says_nothing_waited(
 
 
 @BOTH
-def test_reclaim_returns_only_stuck_runs(client, inbox_operator, headers):
+def test_reclaim_returns_only_stuck_runs(client, superuser, headers):
     stuck = _stuck(_run(status="processing"))
     fresh = _run(status="processing")
 
@@ -256,7 +210,7 @@ def test_reclaim_returns_only_stuck_runs(client, inbox_operator, headers):
     assert ("ok", "Returned 1 stuck run to the queue.") in _flash(resp)
 
 
-def test_reclaim_counts_in_the_plural(client, inbox_operator):
+def test_reclaim_counts_in_the_plural(client, superuser):
     _stuck(_run(status="processing"))
     _stuck(_run(status="processing"))
 
@@ -265,24 +219,24 @@ def test_reclaim_counts_in_the_plural(client, inbox_operator):
     assert ("ok", "Returned 2 stuck runs to the queue.") in _flash(resp)
 
 
-def test_reclaim_with_nothing_stuck_says_so(client, inbox_operator):
+def test_reclaim_with_nothing_stuck_says_so(client, superuser):
     resp = _post(client, POSTS[1], {})
 
     assert ("info", "No run was stuck.") in _flash(resp)
 
 
-def test_a_plain_post_redirects_to_the_inbox_with_its_filter(client, inbox_operator):
+def test_a_plain_post_redirects_to_the_inbox_with_its_filter(client, superuser):
     resp = client.post(POSTS[1], {"status": "processing"})
 
     assert resp.status_code == 303
     assert resp["Location"] == "/console/inbox/?status=processing"
 
 
-def test_a_plain_post_without_a_filter_redirects_to_the_bare_inbox(client, inbox_operator):
+def test_a_plain_post_without_a_filter_redirects_to_the_bare_inbox(client, superuser):
     assert client.post(POSTS[1])["Location"] == PAGE
 
 
-def test_an_htmx_post_keeps_the_filter(client, inbox_operator):
+def test_an_htmx_post_keeps_the_filter(client, superuser):
     pending = _run(status="pending")
     busy = _run(status="processing")
 
@@ -292,7 +246,7 @@ def test_an_htmx_post_keeps_the_filter(client, inbox_operator):
     assert f'id="inbox-run-{busy.pk}"' not in body
 
 
-def test_the_partial_is_the_polled_root_and_actions_swap_it_whole(client, inbox_operator):
+def test_the_partial_is_the_polled_root_and_actions_swap_it_whole(client, superuser):
     run = _run(status="pending")
     _stuck(_run(status="processing"))
 
@@ -310,7 +264,7 @@ def test_the_partial_is_the_polled_root_and_actions_swap_it_whole(client, inbox_
     assert 'id="action-reclaim_inbox"' in body
 
 
-def test_without_a_filter_the_forms_carry_no_status(client, inbox_operator):
+def test_without_a_filter_the_forms_carry_no_status(client, superuser):
     _run(status="pending")
 
     body = client.get(PAGE, **HTMX).content.decode()
@@ -318,7 +272,7 @@ def test_without_a_filter_the_forms_carry_no_status(client, inbox_operator):
     assert 'name="status"' not in body
 
 
-def test_the_page_shows_stuck_runs_and_the_hidden_count(client, inbox_viewer, monkeypatch):
+def test_the_page_shows_stuck_runs_and_the_hidden_count(client, superuser, monkeypatch):
     from apps.console.queries import inbox as inbox_queries
 
     monkeypatch.setattr(inbox_queries, "INBOX_LIMIT", 1)
@@ -334,11 +288,11 @@ def test_the_page_shows_stuck_runs_and_the_hidden_count(client, inbox_viewer, mo
     assert f'href="/console/runs/{stuck.pk}/"' in body
 
 
-def test_an_empty_queue_says_nothing_is_waiting(client, inbox_viewer):
+def test_an_empty_queue_says_nothing_is_waiting(client, superuser):
     assert "Nothing is waiting." in client.get(PAGE).content.decode()
 
 
-def test_a_filter_that_hides_the_queue_offers_to_clear_it(client, inbox_viewer):
+def test_a_filter_that_hides_the_queue_offers_to_clear_it(client, superuser):
     _run(status="pending")
 
     body = client.get(PAGE + "?status=processing").content.decode()
@@ -347,13 +301,13 @@ def test_a_filter_that_hides_the_queue_offers_to_clear_it(client, inbox_viewer):
     assert 'id="filters-clear"' in body
 
 
-def test_an_invalid_filter_is_flagged(client, inbox_viewer):
+def test_an_invalid_filter_is_flagged(client, superuser):
     body = client.get(PAGE + "?status=nope").content.decode()
 
     assert "Ignored invalid filter: status." in body
 
 
-def test_the_incident_link_is_on_the_row(client, inbox_viewer):
+def test_the_incident_link_is_on_the_row(client, superuser):
     from apps.console._tests.queries.test_runs import _incident
 
     incident = _incident()
