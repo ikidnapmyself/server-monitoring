@@ -260,14 +260,13 @@ apps/intelligence/
 
 ### DB-Driven Provider Selection
 
-Providers are configured via Django Admin (`IntelligenceProvider` model):
+Providers are configured in the console (`IntelligenceProvider` model):
 
-1. Go to Admin > Intelligence > Intelligence Providers
-2. Create a provider with type, name, and config (JSON with api_key, model, etc.)
-3. Set `is_active=True` — only one can be active at a time (enforced by `UniqueConstraint`)
-4. The orchestrator calls `get_active_provider()` by default, which queries the DB
-5. If no active provider exists (or the DB is unavailable), falls back to `local`
-6. `AnalyzeExecutor` still honours an explicit `provider` key on the run payload, which
+1. Add a provider at `/console/providers/new/` and turn it on. Only one can be active at a
+   time, enforced by `UniqueConstraint`.
+2. The orchestrator calls `get_active_provider()` by default, which queries the DB
+3. If no active provider exists (or the DB is unavailable), falls back to `local`
+4. `AnalyzeExecutor` still honours an explicit `provider` key on the run payload, which
    calls `get_provider()` directly — but no producer writes one any more (an incident run's
    payload carries only `downstream_incident_id`), so in practice ANALYZE always takes
    `get_active_provider()`

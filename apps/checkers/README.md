@@ -60,14 +60,14 @@ checker") and `checker_names=[]` ("none") as different things. Never collapse th
 uv run python manage.py check_health cpu memory disk
 ```
 
-### Django Admin
+### Admin
 
 Operators read check runs in the console at `/console/checks/` and preflight runs at
 `/console/preflight/`, both under Reports. The lists filter by status, checker, host and
 time, and each record page links its alert, its run and its node. `CheckRunAdmin` and
-`PreflightRunAdmin` are stock and read-only.
+`PreflightRunAdmin` are plain and editable at `/admin/`, for active superusers only.
 
-> **Note:** Check runs are audit records and cannot be added/edited manually. They are created automatically when checks are run via management commands or the orchestration pipeline.
+> **Note:** Check runs are audit rows written by the checks, from management commands or the orchestration pipeline. Editing one in the admin changes history.
 
 ### Django System Checks
 

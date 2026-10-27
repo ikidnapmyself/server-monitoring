@@ -1,4 +1,4 @@
-"""Self-contained inline SVG charts for the Django admin.
+"""Self-contained inline SVG charts for the console node page.
 
 No JavaScript, no external assets (fonts/CDN/images), no ``xmlns`` — the markup
 is inlined directly into admin HTML5 pages, so it must not reference any external

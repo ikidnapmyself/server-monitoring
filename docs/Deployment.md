@@ -580,7 +580,7 @@ Notes:
   `/orchestration/pipeline/` honours a caller-supplied `trace_id` and mints one
   otherwise. Cluster-ingested
   alerts also link to their originating **`Node`** (resolved from the `instance_id`
-  label). `trace_id` and `node` are both searchable/visible in the `Alert` admin.
+  label). `trace_id` and `node` are both searchable in the console alert list (`/console/alerts/`).
 
 ### Agent setup
 
@@ -673,7 +673,7 @@ The registry holds every machine that reports on itself, **this one included**: 
 accepted cluster push **upserts a `Node`** (by `instance_id`, tracking hostname and
 last-seen) with `last_source: cluster`, and every local check run that records alerts
 upserts this machine with `last_source: local`. So a hub appears in its own registry
-alongside its agents. Browse them read-only in Django admin under **Alerts → Nodes**.
+alongside its agents. Browse them at `/console/nodes/`.
 
 `manage.py doctor` is the single read-only diagnostic — it runs the preflight
 checks and reports the node's derived role, whether it is **accepting pushes**

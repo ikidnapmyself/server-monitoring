@@ -109,13 +109,12 @@ Key contract:
 - Always set timeouts/retries/backoff for outbound HTTP calls.
 - Do not log secrets (tokens/webhook URLs). Prefer refs/redaction.
 
-## Django Admin expectations
+## Admin
 
-Each app must provide an **extensive** `admin.py` so operators can manage its models and trace pipeline behavior.
-
-For `apps.notify`, operators read and edit channels in the console
-(`/console/channels/`). `NotificationChannelAdmin` is stock and read-only: no add, change
-or delete. Deliveries are read on the console run page.
+Operators read and edit channels in the console (`/console/channels/`). At `/admin/`, which
+only active superusers reach, `NotificationChannelAdmin` excludes `config`, refuses add and
+shows `driver` read-only, so no stored setting renders or can be filtered on there.
+Deliveries are read on the console run page.
 
 ## App layout rules (required)
 

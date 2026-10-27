@@ -48,31 +48,12 @@ Driver selection:
 
 Business logic lives in `apps/alerts/services.py` (`AlertOrchestrator`, `IncidentManager`).
 
-### Django Admin
+### Admin
 
-Access the admin interface at `/admin/alerts/` to manage alerts and incidents:
-
-- **Alert** — View and manage individual alerts
-  - Colored severity badges (critical/warning/info)
-  - Colored status badges (firing/resolved)
-  - Link to parent incident
-  - Inline alert history (audit trail)
-  - Filter by status, severity, source
-  - Search by name, fingerprint, description
-
-- **Incident** — View and manage incidents
-  - Colored severity/status badges
-  - Alert count and firing alert count displays
-  - Pipeline runs count (orchestration integration)
-  - Inline alerts list
-  - Inline pipeline runs from orchestration layer
-  - Filter by status, severity
-
-- **AlertHistory** — Read-only audit trail
-  - View state transitions for alerts
-  - Cannot add/edit (audit records only)
-
-> **Note:** Incidents display related pipeline runs from the orchestration layer, providing full traceability from alert ingestion through the entire processing pipeline.
+Operators read and act on alerts and incidents at `/console/alerts/` and
+`/console/incidents/`. `/admin/alerts/` is superuser break-glass. An edit there writes the
+raw row: it skips `IncidentManager.transition`, writes no `AlertHistory` and enqueues no
+run.
 
 ## Using the webhook
 

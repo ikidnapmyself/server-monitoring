@@ -46,7 +46,7 @@ apps/<app_name>/
 ├── views/          # Package (not monolithic views.py), organized by endpoint
 ├── _tests/         # Package mirroring source structure
 ├── AGENTS.md       # App-specific AI/agent guidance
-├── admin.py        # Extensive admin for operations
+├── admin.py        # Plain registrations, superuser break-glass only
 ├── models.py
 ├── services.py     # Business logic
 └── drivers/ or providers/ or checkers/  # Integration implementations
@@ -54,7 +54,7 @@ apps/<app_name>/
 
 - **views/**: Must be a package directory, one module per endpoint (e.g., `views/webhook.py`, `views/health.py`).
 - **_tests/**: Must mirror the source tree (e.g., `drivers/grafana.py` → `_tests/drivers/test_grafana.py`).
-- **admin.py**: Every app must provide an extensive admin with filters, search, list displays, and pipeline tracing links.
+- **admin.py**: An app with models registers each in a plain `admin.py`, for superuser break-glass at `/admin/`. Operators work in the console at `/console/`.
 
 ## Code Conventions
 
@@ -159,7 +159,7 @@ Required tags: `trace_id/run_id`, `incident_id`, `stage`, `source`, `alert_finge
 - Code follows existing base class/module patterns
 - Config changes wired correctly (settings/env)
 - Tests exist in `_tests/` mirroring source structure
-- Admin updated if models changed
+- Admin registration added if models changed
 - Docs updated if behavior/config changed
 
 ## Key Documentation
@@ -182,4 +182,4 @@ Required tags: `trace_id/run_id`, `incident_id`, `stage`, `source`, `alert_finge
 - **Testing**: Mirror the source structure in `_tests/` (e.g., `views/webhook.py` → `_tests/views/test_webhook.py`)
 - **Pipeline work**: Always respect the orchestrator boundary—stages never call downstream stages
 - **External I/O**: Always use timeouts, handle retries, and redact secrets
-- **Admin**: Update admin.py with filters and search for new models
+- **Admin**: Register new models in a plain `admin.py`, and exclude any secret field

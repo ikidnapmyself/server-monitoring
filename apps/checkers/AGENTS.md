@@ -55,13 +55,12 @@ Every checker describes its own result, so no consumer decodes `metrics`.
 - Prefer small, deterministic checkers; isolate external I/O and enforce timeouts.
 - **Always use absolute paths**: Resolve all file/directory paths to absolute form via `pathlib.Path.resolve()` before use. Validate resolved paths against allowed directories when accepting user input.
 
-## Django Admin expectations
-
-Each app must provide an **extensive** `admin.py` so operators can manage its models and trace pipeline behavior.
+## Admin
 
 Operators read check runs at `/console/checks/` and preflight runs at
-`/console/preflight/`. `CheckRunAdmin` and `PreflightRunAdmin` are stock and read-only:
-plain `list_display`, and add, change and delete all refused.
+`/console/preflight/`. `CheckRunAdmin` and `PreflightRunAdmin` are plain and editable at
+`/admin/`, for active superusers only. Check and preflight runs are audit rows written by
+the checks, so editing one there changes history.
 
 `apps/checkers/preflight_describing.py` words preflight output:
 - `preflight_headline(status, warnings, errors)` gives "Preflight passed", "Preflight found

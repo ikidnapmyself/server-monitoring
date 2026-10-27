@@ -76,12 +76,13 @@ so it turns the other providers off itself, in the same transaction. A create go
   - Store **redacted refs** rather than raw content.
 - **Always use absolute paths**: Any user-supplied path (HTTP params, CLI args) must be resolved to absolute form via `pathlib.Path.resolve()` and validated against an allowlist before use. See `views/disk.py` for the reference implementation.
 
-## Django Admin expectations
+## Admin
 
-Operators add, edit and delete providers in the console (`/console/providers/`).
-`IntelligenceProviderAdmin` is stock and read-only and excludes `config`, so no stored
-secret renders there. Operators read analyses at `/console/analyses/`. `AnalysisRunAdmin`
-is stock and read-only too and excludes `provider_config`.
+Operators add, edit and delete providers in the console (`/console/providers/`), and read
+analyses at `/console/analyses/`. At `/admin/`, which only active superusers reach,
+`IntelligenceProviderAdmin` excludes `config`, refuses add and shows `provider` read-only,
+so no stored secret renders or can be filtered on there. `AnalysisRunAdmin` excludes
+`provider_config` the same way.
 
 `AnalysisRun` rows are worded on read:
 - `provider_label(key)` gives the `PROVIDER_CHOICES` label. `local` reads "Built-in local

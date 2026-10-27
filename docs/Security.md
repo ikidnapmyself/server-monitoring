@@ -117,7 +117,7 @@ Each alert driver validates incoming payloads structurally via `validate()` and 
 
 ## API Key Authentication
 
-API endpoints require authentication via API key for non-GET requests. Keys are managed in the console at `/console/keys/`. The Django admin lists them read-only.
+API endpoints require authentication via API key for non-GET requests. Keys are managed in the console at `/console/keys/`.
 
 ### Setup
 
@@ -152,13 +152,15 @@ The following paths do **not** require an API key:
 - `/admin/*` — Django session auth (not API key auth)
 - `/static/*`
 
+`/console/*` is not an API path. It uses Django session auth and signs in at `/console/login/`.
+
 All other `GET` and `POST` requests on API paths (`/alerts/`, `/orchestration/`, `/notify/`, `/intelligence/`) require a valid key. In particular, data-returning endpoints such as `/orchestration/pipelines/`, `/intelligence/providers/`, and `/intelligence/recommendations/` are **not** exempt.
 
 The two health-check paths (`/alerts/webhook/`, `/intelligence/health/`) use an exact-equality match (`path in HEALTH_CHECK_PATHS`), so a suffix like `/alerts/webhook/data` does not bypass auth. The admin and static prefixes use a `startswith` match; both assume admin lives at the default `/admin/` path. **If `ROOT_URLCONF` ever relocates admin to a non-default path, `EXEMPT_PATH_PREFIXES` (`config/middleware/constants.py`) must be updated in lockstep.**
 
 ### API Key Disclosure Model
 
-`APIKey.prefix` stores the first 8 hex characters of the raw key for safe admin display (`{prefix}***` in the list view). Remaining entropy after prefix disclosure is 128 bits — well outside brute-force range — but treat the admin list view as a trust-bearing surface (screenshots, logs).
+`APIKey.prefix` stores the first 8 hex characters of the raw key for safe display (`{prefix}***` in the console key list and the admin changelist). Remaining entropy after prefix disclosure is 128 bits — well outside brute-force range — but treat the admin list view as a trust-bearing surface (screenshots, logs).
 
 The raw key itself is **never** persisted: only its SHA-256 digest is stored (`APIKey.key`, 64 hex chars) and the digest field is `editable=False`. Operators see the raw key exactly once at creation time.
 
@@ -203,6 +205,12 @@ Default limits (configurable via `RATE_LIMITS` in settings):
 | `/orchestration/` | 30 req/min |
 | `/notify/` | 30 req/min |
 | `/intelligence/` | 20 req/min |
+| `/console/login/` | 10 sign-in attempts/min |
+| `/admin/login/` | 10 sign-in attempts/min |
+
+Only paths under a listed prefix are counted. The rest of `/admin/`, and every `GET`, is
+never limited. A limited console sign-in shows the login page with the wait. Everything
+else gets a JSON 429. Both carry `Retry-After`.
 
 ### Identity
 
@@ -210,9 +218,14 @@ Limits are tracked per API key name (if authenticated) or per client IP (`REMOTE
 
 **Reverse-proxy caveat:** `RateLimitMiddleware._get_identity` reads `request.META["REMOTE_ADDR"]` directly. Behind a proxy (nginx, Cloudflare, ALB), `REMOTE_ADDR` is the proxy's IP — every external client shares one bucket and the limiter becomes a global throttle. When deploying behind a proxy, either (a) configure a proxy-aware `REMOTE_ADDR` setter middleware **before** `RateLimitMiddleware`, or (b) rely solely on per-API-key bucketing (named keys side-step the IP collapse). Most operational deployments fall into (b).
 
+The two login limits can't use (b), because a sign-in carries no API key. Behind a proxy
+without a proxy-aware `REMOTE_ADDR`, every operator shares one sign-in bucket, so ten wrong
+passwords from anyone lock everyone out of the console and the admin for the rest of that
+minute.
+
 ### Scope: Mutating Requests Only
 
-`GET` requests are exempt from rate limiting (`RateLimitMiddleware.__call__` line 41). Read endpoints like `/orchestration/pipelines/`, `/notify/channels/`, `/intelligence/providers/` are not rate-paced by this middleware. Per-API-key `allowed_endpoints` already gate which read endpoints a key can hit; if you need read-side pacing (e.g., to bound enumeration cost), terminate that at the upstream proxy.
+`GET` requests are exempt from rate limiting (`RateLimitMiddleware.__call__`). Read endpoints like `/orchestration/pipelines/`, `/notify/channels/`, `/intelligence/providers/` are not rate-paced by this middleware. Per-API-key `allowed_endpoints` already gate which read endpoints a key can hit; if you need read-side pacing (e.g., to bound enumeration cost), terminate that at the upstream proxy.
 
 ### Cache Backend
 
@@ -542,16 +555,22 @@ For Docker image vulnerabilities (trivy), rebuild with an updated base image or 
 - **Tests**: pytest across Python 3.10, 3.11, 3.12
 - **Django checks**: `manage.py check` + migration consistency
 
-## Admin Interface
+## Console and admin
 
-Operators act on incidents, runs and the inbox, and edit routes and channels, in the console
-(`/console/`). The Django admin (`/admin/`) keeps the rest of the configuration, and its
-incident, alert, run, inbox, route and channel pages are read-only:
-
-- Both are protected by Django's built-in staff/superuser authentication
-- Custom `MonitoringAdminSite` inherits all default auth protections
-- Console actions (acknowledge, resolve, retry, drain) require active staff access plus the
-  model's change permission
+- The console signs in active staff at `/console/login/`. Each page needs the model's view
+  or change permission, and each action its change or add permission.
+- `/admin/` admits only active superusers, both at the site (`MonitoringAdminSite.has_permission`)
+  and at its login, whose form refuses any other account with the stock wrong-password
+  message. Use it to manage users, groups and their permissions, and as break-glass for a
+  raw row.
+- Secret fields never render in the admin, and can't be used as changelist filters, so a
+  count can't read one out a character at a time. A test renders every admin page against
+  stored secrets.
+- An admin edit skips the console's checks and writes no audit trail beyond Django's
+  `LogEntry`.
+- A legacy `PipelineRun.inbound_payload` can carry a `provider_config`, which the analyze
+  executor still honours (`apps/orchestration/executors.py`, `AnalyzeExecutor`). The
+  editable run admin shows that payload as stored.
 
 ## Reporting Vulnerabilities
 
@@ -563,11 +582,11 @@ Mapping derived from the [2026-05-12 ISO 27003 audit](plans/2026-05-12-iso-27003
 
 | Control | Title | Codebase mitigation |
 |---|---|---|
-| A.5.15 | Access control | `config/middleware/api_key_auth.py` (per-endpoint API keys, `allowed_endpoints` allowlists); Django staff/superuser auth on `/admin/` |
+| A.5.15 | Access control | `config/middleware/api_key_auth.py` (per-endpoint API keys, `allowed_endpoints` allowlists); Django session auth on `/console/` (active staff, per-model permissions) and `/admin/` (active superusers) |
 | A.5.17 | Authentication information | `APIKey` model: `secrets.token_hex(20)` raw, SHA-256 digest at rest, never re-displayed; `DJANGO_SECRET_KEY` env-only with startup check; agents authenticate to the hub with `HUB_API_KEY` (Bearer) |
 | A.5.23 | Information security for use of cloud services | `validate_safe_url` on intelligence-provider base URLs; `BLOCKED_CONFIG_KEYS` filter on API-callable provider config |
-| A.8.2 | Privileged access rights | `bin/` toolchain confirmed not to grant sudo or install setuid; Django admin actions gated by `is_staff` |
-| A.8.3 | Information access restriction | `APIKey.allowed_endpoints` path-prefix gating; admin actions outside webhook surface |
+| A.8.2 | Privileged access rights | `bin/` toolchain confirmed not to grant sudo or install setuid; `/admin/` admits only active superusers. Console actions need staff plus the model's change permission |
+| A.8.3 | Information access restriction | `APIKey.allowed_endpoints` path-prefix gating; admin and console outside the webhook surface |
 | A.8.5 | Secure authentication | Bearer / `X-API-Key` header model; constant-time digest comparison via DB lookup on hashed digest |
 | A.8.9 | Configuration management | `.env` / `.env.sample` split; `bin/check_security.sh` runtime posture check; Django system checks `config.W001`/`config.W002` |
 | A.8.11 | Data masking | Pipeline stores *references* (`normalized_payload_ref`, `checker_output_ref`, `intelligence_output_ref`, `notify_output_ref`) — not raw payloads |
@@ -576,7 +595,7 @@ Mapping derived from the [2026-05-12 ISO 27003 audit](plans/2026-05-12-iso-27003
 | A.8.21 | Security of network services | `safe_urlopen` with redirect re-validation; ruff `TID251` ban as compile-time gate |
 | A.8.24 | Use of cryptography | `hmac.compare_digest` on webhook signature verification; SHA-256 on API key digests; no TLS bypass anywhere |
 | A.8.25 | Secure development lifecycle | Ruff banned-API rule encodes the SSRF contract at lint time; SSTI regression tests under `apps/notify/_tests/`; ISO 27003 audit pass with per-module sinks review |
-| A.8.26 | Application security requirements | Central `config.security` package; admin uses `format_html` placeholders consistently; allowlist-by-omission patterns (`BLOCKED_CONFIG_KEYS`, `_PAYLOAD_TEMPLATE_KEYS`, `EXEMPT_PATH_PREFIXES`) |
+| A.8.26 | Application security requirements | Central `config.security` package; the console renders through autoescaped templates under a strict CSP; allowlist-by-omission patterns (`BLOCKED_CONFIG_KEYS`, `_PAYLOAD_TEMPLATE_KEYS`, `EXEMPT_PATH_PREFIXES`) |
 | A.8.28 | Secure coding | `secrets.token_hex` for key generation; `hashlib.sha256` for storage; no `mark_safe` on user data; HTML output via `format_html` placeholders; sandboxed Jinja for templates |
 
 This table is the input for any external ISO certification or internal security review. When adding a new control surface (e.g., field-level DB encryption), add the row here and link to the implementing plan in `docs/plans/`.

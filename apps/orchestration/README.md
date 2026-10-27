@@ -421,5 +421,5 @@ Operators read and act on orchestration in the console:
 - `/console/routes/` lists, edits, adds and deletes routes (`PipelineDefinition` rows)
 - `/console/channels/` holds the channels a route delivers to
 
-The orchestration admin at `/admin/orchestration/` is stock and read-only.
+The orchestration admin at `/admin/orchestration/` is superuser break-glass.
 

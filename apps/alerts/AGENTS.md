@@ -267,21 +267,16 @@ changed alert of its own, which earns no run. See
   - Only `apps.orchestration` advances the pipeline.
 - Never log/store secrets from inbound payloads. Prefer storing **redacted refs**.
 
-## Django Admin expectations
+## Admin
 
-Each app must provide an **extensive** `admin.py` so operators can manage its models and trace pipeline behavior.
-
-For `apps.alerts`, admin should make it easy to:
-- Browse incidents and linked alerts efficiently (filters, search, list displays)
-- Inspect alert lifecycle/audit trail (`AlertHistory`)
-
-`AlertAdmin`, `AlertHistoryAdmin` and `IncidentAdmin` are stock and read-only. Operators read
-alerts and their history on the console alert pages, and read and act on incidents on the
-console incident pages.
+Operators read alerts and their history on the console alert pages, and read and act on
+incidents on the console incident pages. `AlertAdmin`, `AlertHistoryAdmin`, `IncidentAdmin`
+and `NodeAdmin` are plain and editable at `/admin/`, which only active superusers reach, and
+their large foreign keys are raw ids. An edit there writes the raw row. It skips the console's version and digest checks and `IncidentManager.transition`, writes no `AlertHistory`, and enqueues no run. A node edit also bumps `last_seen`.
 
 ### Node detail page
 
-`NodeAdmin` is stock and read-only. The operator overview is the console node page
+The operator overview is the console node page
 (`/console/nodes/<pk>/`). `apps/alerts/node_overview.py` builds its panels as plain
 dataclasses, so they are testable without a request, and `apps/console/queries/node.py`
 reads them.
@@ -293,8 +288,8 @@ reads them.
 - **The per-checker state table is the one panel that works for every node.** It reads
   `CheckRun` for the local node and the node's `Alert` rows for a peer, which is exactly the
   truth each one has.
-- **The local node's freshness is informational, never amber**, mirroring the nodes card in
-  `config/dashboard.py`. This instance's own `Node` row is upserted by its own local check
+- **The local node's freshness is informational, never amber**, mirroring the nodes entry in
+  `config/readiness.py`. This instance's own `Node` row is upserted by its own local check
   runs, so scoring it like a peer would paint a healthy fleet permanently amber.
 
 ### Node policy form
@@ -308,8 +303,7 @@ bumps `last_seen` and skips the stale check.
 
 - **The field spec is derived, not restated.** `FIELD_SPECS` is built from
   `reevaluation.SCORERS` and `PRIMARY_METRIC`, so adding a scorer adds a form section with
-  no edit to the form. A completeness test in `_tests/test_node_policy.py` guards it, the
-  same way one guards `config/admin.py`'s `SECTION_MAP`.
+  no edit to the form. A completeness test in `_tests/test_node_policy.py` guards it.
 - **Strict at the keyboard, fail-open at ingest.** `reevaluation.py` must never raise on a
   node's push, so it silently passes through any policy it cannot use. The editor rejects
   those same shapes outright, as field errors. A policy the runtime ignores is
@@ -364,7 +358,7 @@ its own.
   a `scope_digest` of the alerts, their incidents' status and the node's policy, and
   `apply_reeval` refuses it with `StaleReeval` when any of that changed since the preview. Its
   row lock serializes submits only on databases that support it. On SQLite a concurrent submit
-  gets a busy `OperationalError`, which the console view also answers with a 409. `AlertAdmin` is stock and read-only and has no re-evaluate action.
+  gets a busy `OperationalError`, which the console view also answers with a 409. `AlertAdmin` has no re-evaluate action.
 - **`/console/policy/` answers "which machines have I overridden, and is any of it doing
   nothing?"** (`apps/alerts/policy_overview.py`, rendered by `apps/console/views/policy.py`). It rows on
   firing alerts as well as on config, so an alerting checker with no policy behind it still

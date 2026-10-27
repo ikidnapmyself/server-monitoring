@@ -44,10 +44,10 @@ class Identity:
 def build_identity(node) -> Identity:
     """Role and freshness for the header.
 
-    A peer reuses the dashboard's own window rather than restating a number, so a
-    peer that reads amber on the dashboard reads amber here. This instance's own
-    row is left out of that verdict for the reason spelled out above the nodes
-    card in ``config/readiness.py``: its last_seen tracks local check runs, not a
+    A peer reuses the readiness window rather than restating a number, so a peer
+    that reads amber on the Overview reads amber here. This instance's own row is
+    left out of that verdict for the reason spelled out above the nodes entry in
+    ``config/readiness.py``: its last_seen tracks local check runs, not a
     machine still reaching us, so a window applied to it paints a healthy install
     amber forever. Its age is reported as information instead.
     """

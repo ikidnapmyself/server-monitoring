@@ -9,13 +9,20 @@ pipeline stage and not an alert producer.
   reverse.
 - **Reads go through `queries/`.** Functions there return frozen dataclasses, never
   querysets, so a template can't trigger a query. Views don't touch the ORM.
-- **No new write paths.** Action views call the functions the admin calls, such as
-  `IncidentManager`. If the logic lives in a `ModelAdmin` method, lift it into the
-  owning app first and make both surfaces call it.
-- **Every view subclasses `ConsoleView`** (`views/base.py`). It enforces active staff
-  access. An anonymous page request is redirected to the admin login. An anonymous
-  htmx request gets a 204 with `HX-Redirect`, so htmx does a full redirect and never
-  swaps a login form into the page.
+- **No new write paths.** Action views call the functions the owning app exposes, such as
+  `IncidentManager`.
+- **Every view subclasses `ConsoleView`** (`views/base.py`), except `ConsoleLoginView` and
+  Django's `LogoutView`. It enforces active staff access. An anonymous page request is
+  redirected to `/console/login/` through `LOGIN_URL`. An anonymous htmx request gets a
+  204 with `HX-Redirect`, so htmx does a full redirect and never swaps a login form into
+  the page. A signed-in account that isn't active staff gets a 403 page with a Sign out
+  button, and one that lacks a page's read permission gets a 403 page that keeps the nav
+  and links to the Overview.
+- **The login admits active staff only.** `ConsoleLoginForm` (`forms.py`) words every
+  refusal the same, so it names no account. A signed-in operator who opens the login goes
+  to the Overview. Logout is POST-only and lands on the login. `RateLimitMiddleware`
+  counts sign-in POSTs, and past the limit it asks the view's `rate_limited` for the page,
+  which reads "Too many sign-in attempts" with the wait.
 - **One URL, two sizes.** `ConsoleView` serves `partial_template_name` only when
   `wants_partial` is true, which means an htmx request that swaps a fragment. Two htmx
   headers force the full page, because htmx swaps those responses into `<body>`:
@@ -49,7 +56,7 @@ pipeline stage and not an alert producer.
   updating without saying so is worse than a lost selection. Every focusable element
   in a polled region needs a stable unique `id` built from its record, such as
   `incident-<pk>`, `node-<pk>` or `readiness-<key>`. A readiness key comes from
-  `config.dashboard.keyed_readiness()`: the entry's key, plus the slugified lane name
+  `config.readiness.keyed_readiness()`: the entry's key, plus the slugified lane name
   for a per-lane gap. After a swap htmx puts focus back on the element with the same
   `id`. An element without one loses focus on every poll. When a hidden tab becomes visible, `console.js` dispatches
   `console:refresh` on every `data-poll` element, so list that event in the element's
@@ -74,8 +81,8 @@ pipeline stage and not an alert producer.
   only pages that exist.
 - **Reads use the admin's view permissions.** A view sets `read_permissions` and
   `ConsoleView._refusal` checks them after the anonymous and staff checks: any one
-  suffices, as in `ModelAdmin.has_view_permission`, and none is a 403 "Permission to view
-  this page required." The Overview, the incident list and the incident page all set
+  suffices, as in `ModelAdmin.has_view_permission`, and none is a 403 page reading "This
+  account lacks permission to view this page." The Overview, the incident list and the incident page all set
   `alerts.view_incident` or `alerts.change_incident`, and the action and rerun views
   inherit that from `IncidentPageView`. The alert list and the alert page set
   `alerts.view_alert` or `alerts.change_alert`. Action views add their own change or add
@@ -117,7 +124,7 @@ pipeline stage and not an alert producer.
 - **Stuck has one definition**, `inbox.stuck()`: in flight (`PROCESSING`, `INGESTED`,
   `CHECKED`, `ANALYZED` or `RETRYING`), `completed_at` unset, and untouched for
   `DEFAULT_STALE_MINUTES`. The inbox lists stuck runs of every such status and marks them,
-  its Stuck chip filters to them, and the dashboard counts them. Mark failed is offered,
+  its Stuck chip filters to them, and the Overview's readiness counts them. Mark failed is offered,
   and `inbox.abandon` acts, only on a `PENDING` or stuck run, so it never races a live
   drain.
 - **A confirm form carries a `scope_digest`.** `/console/alerts/<pk>/reevaluate/` previews
@@ -185,7 +192,7 @@ pipeline stage and not an alert producer.
   editors and the delete pages read with the admin's view or change permission
   (`ROUTE_READ`, `CHANNEL_READ`, `PROVIDER_READ` and `KEY_READ` in `intents.py`). Add,
   change and delete each need their own permission, a 403 names the one missing, and a
-  reader sees the editor disabled. All four admins are stock and read-only.
+  reader sees the editor disabled. Their admins are break-glass only.
 - **The route pages.** `/console/routes/` lists every route in match order through
   `build_route_list`, which reads `config.netmap.get_map_context()`, so each card says
   when a route is off, never matches or is never reached, and whether it can deliver.
@@ -248,8 +255,7 @@ pipeline stage and not an alert producer.
   `view_*` intent opens the page, or the list when it has no `pk`, for anyone who can read
   it. A name link uses it. An `edit_*` intent opens the same page but needs the change
   permission, so a remedy such as "Give it an active channel" is plain text to a reader.
-  `admin_url()` covers the chrome's index,
-  login and logout links. No template or query reverses an `admin:` name or writes
+  `admin_url()` builds the header's Admin link, shown only to superusers. No template or query reverses an `admin:` name or writes
   `/admin/`, and `_tests/test_intents.py` scans for both. Templates resolve an action with
   `{% load console %}{% resolved action as act %}` and render it through
   `partials/_action.html`.
@@ -277,8 +283,7 @@ pipeline stage and not an alert producer.
   `IncidentManager.transition`, which owns the status rules and locks the row. The view
   holds no rule of its own. It checks active staff first, then the page's read permissions,
   then `alerts.change_incident`.
-  The admin's own incident buttons sit behind `is_staff` alone, so the console is the
-  stricter surface. `IncidentPageView` (`views/incident.py`) is the one place that builds
+  `IncidentPageView` (`views/incident.py`) is the one place that builds
   the page context, so the page and the action response can't drift.
 - **Rerunning checks is its own POST-only view.** `IncidentRerunView`
   (`views/incident_rerun.py`) serves `incidents/<pk>/rerun/`, needs
