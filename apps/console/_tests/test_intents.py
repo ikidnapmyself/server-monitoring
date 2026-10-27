@@ -252,6 +252,12 @@ def test_inbox_intents_point_at_the_console(admin_user, intent, params, url, met
             "get",
         ),
         ("edit_node_policy", {"pk": 7, "checker": "raid"}, "/console/nodes/7/policy/", "get"),
+        (
+            "allow_node_ports",
+            {"pk": 7, "ports": [22, 80]},
+            "/console/nodes/7/allow-ports/?ports=22%2C80",
+            "get",
+        ),
         ("reevaluate_node", {"pk": 7}, "/console/nodes/7/reevaluate/", "get"),
         (
             "reevaluate_node",
