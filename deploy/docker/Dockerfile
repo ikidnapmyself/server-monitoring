@@ -27,6 +27,10 @@ RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
+# The app runs from /app/.venv, so the base image's own pip, setuptools and wheel are dead
+# weight. pip vendors a certifi that lags the CRITICAL advisories and fails the trivy scan.
+RUN python -m pip uninstall -y pip setuptools wheel
+
 # Create non-root user for running the application
 RUN groupadd --system appuser && useradd --system --gid appuser appuser
 

@@ -19,6 +19,10 @@ jobs:
   code-security:
     name: Code Security
     runs-on: ubuntu-latest
+    env:
+      # .python-version pins 3.10, which uv would otherwise pick over setup-python. filelock's
+      # fixes ship only for 3.11+, so the audit has to resolve on a newer interpreter.
+      UV_PYTHON: "3.12"
 
     steps:
       - uses: actions/checkout@v4
