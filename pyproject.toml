@@ -34,7 +34,7 @@ dependencies = [
     "cryptography>=50.0.0",
     "msgpack>=1.2.1",
     "pyasn1>=0.6.4",
-    "pip>=26.2",
+    "pip>=26.2.2",
     "sqlparse>=0.6.0",
 ]
 
