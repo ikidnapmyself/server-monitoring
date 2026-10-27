@@ -1,9 +1,8 @@
 from django.contrib import messages
-from django.http import HttpResponseForbidden, HttpResponseRedirect
+from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
-from apps.console.intents import KEY_DELETE, KEY_READ
 from apps.console.queries.keys import build_key_deletion
 from apps.console.views.base import ConsoleView
 from config.models import APIKey
@@ -14,21 +13,15 @@ class KeyDeleteView(ConsoleView):
 
     template_name = "console/key_delete.html"
     partial_template_name = "console/partials/_key_delete.html"
-    read_permissions = KEY_READ
 
     def landing_path(self) -> str:
         return reverse("console:key", args=[self.kwargs["pk"]])
-
-    def forbidden(self):
-        return HttpResponseForbidden("Permission to delete API keys required.")
 
     def not_found(self):
         context = {"nav": "system", "section": "keys"}
         return render(self.request, "console/not_found.html", context, status=404)
 
     def get(self, request, *args, **kwargs):
-        if not request.user.has_perm(KEY_DELETE):
-            return self.forbidden()
         deletion = build_key_deletion(kwargs["pk"])
         if deletion is None:
             return self.not_found()
@@ -36,8 +29,6 @@ class KeyDeleteView(ConsoleView):
         return self.render_to_response(context)
 
     def post(self, request, *args, **kwargs):
-        if not request.user.has_perm(KEY_DELETE):
-            return self.forbidden()
         key = APIKey.objects.filter(pk=kwargs["pk"]).first()
         if key is None:
             return self.not_found()

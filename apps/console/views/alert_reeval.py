@@ -1,6 +1,6 @@
 from django.contrib import messages
 from django.db import OperationalError
-from django.http import HttpResponseForbidden, HttpResponseRedirect
+from django.http import HttpResponseRedirect
 from django.urls import reverse
 
 from apps.alerts.describing import describe_reeval_applied
@@ -26,17 +26,13 @@ class AlertReevalView(AlertPageView):
         preview = build_reeval_preview(pk)
         if preview is None:
             return self.not_found()
-        context = self.get_context_data(
-            preview=preview, can_reeval=self.can_reeval, nav="alerts", notice=notice
-        )
+        context = self.get_context_data(preview=preview, nav="alerts", notice=notice)
         return self.render_to_response(context, status=status)
 
     def get(self, request, *args, **kwargs):
         return self.render_preview(kwargs["pk"])
 
     def post(self, request, *args, **kwargs):
-        if not self.can_reeval:
-            return HttpResponseForbidden("Permission to change alerts required.")
         alert = Alert.objects.filter(pk=kwargs["pk"]).first()
         if alert is None:
             return self.not_found()

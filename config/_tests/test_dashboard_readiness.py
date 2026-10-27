@@ -899,4 +899,4 @@ def test_the_preflight_entry_and_its_fix_open_the_console(admin_user):
 
     assert _by_key(build_readiness())["preflight"]["url"] == reverse("console:preflight")
     (found,) = _described()
-    assert resolve_action(found.action, admin_user).url == reverse("console:preflight")
+    assert resolve_action(found.action).url == reverse("console:preflight")

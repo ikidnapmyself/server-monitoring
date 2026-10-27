@@ -356,7 +356,7 @@ def _row(row, user) -> dict:
     """A Reports row as the dashboard template reads it. No url when the user can't open it."""
     from apps.console.intents import resolve_action
 
-    url = resolve_action(row.link, user).url
+    url = resolve_action(row.link).url if user.is_active and user.is_superuser else ""
     return {"label": row.label, "count": row.count, "url": url}
 
 

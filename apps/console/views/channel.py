@@ -1,10 +1,9 @@
 from django.contrib import messages
 from django.db import IntegrityError, OperationalError, transaction
-from django.http import HttpResponseForbidden, HttpResponseRedirect
+from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
-from apps.console.intents import CHANNEL_ADD, CHANNEL_CHANGE, CHANNEL_READ
 from apps.console.queries.channels import (
     ChannelEditor,
     UnknownDriver,
@@ -29,24 +28,15 @@ class ChannelView(ConsoleView):
 
     template_name = "console/channel.html"
     partial_template_name = "console/partials/_channel.html"
-    read_permissions = CHANNEL_READ
 
     @property
     def pk(self) -> int | None:
         return self.kwargs.get("pk")
 
-    @property
-    def can_change(self) -> bool:
-        return self.request.user.has_perm(CHANNEL_ADD if self.pk is None else CHANNEL_CHANGE)
-
     def landing_path(self) -> str:
         if self.pk is None:
             return reverse("console:channel-new")
         return reverse("console:channel", args=[self.pk])
-
-    def forbidden(self):
-        verb = "add" if self.pk is None else "change"
-        return HttpResponseForbidden(f"Permission to {verb} channels required.")
 
     def not_found(self):
         context = {"nav": "system", "section": "channels"}
@@ -72,7 +62,7 @@ class ChannelView(ConsoleView):
         notice = Notice(NO_SUCH_DRIVER, "warning")
         if self.pk is None:
             return self.picker(notice, 400)
-        editor = build_channel_editor(self.pk, can_change=self.can_change)
+        editor = build_channel_editor(self.pk)
         return self.render_editor(editor, notice, 400)
 
     def landed(self, message: str, pk: int):
@@ -80,28 +70,22 @@ class ChannelView(ConsoleView):
         return HttpResponseRedirect(reverse("console:channel", args=[pk]), status=303)
 
     def get(self, request, *args, **kwargs):
-        if self.pk is None and not self.can_change:
-            return self.forbidden()
         driver = request.GET.get("driver")
         if self.pk is None and not driver:
             return self.picker()
         try:
-            editor = build_channel_editor(self.pk, driver=driver, can_change=self.can_change)
+            editor = build_channel_editor(self.pk, driver=driver)
         except UnknownDriver:
             return self.unknown_driver()
         return self.render_editor(editor)
 
     def post(self, request, *args, **kwargs):
-        if not self.can_change:
-            return self.forbidden()
         digest = request.POST.get("digest", "")
         shown = request.GET.get("driver")
         try:
             if "switch_driver" in request.POST:
                 return self.switch(request.POST.get("driver", ""), shown, digest)
-            editor = build_channel_editor(
-                self.pk, request.POST, driver=shown, can_change=True, digest=digest
-            )
+            editor = build_channel_editor(self.pk, request.POST, driver=shown, digest=digest)
         except UnknownDriver:
             return self.unknown_driver()
         if editor is None or not editor.form.is_valid():
@@ -118,9 +102,7 @@ class ChannelView(ConsoleView):
         """
         data = self.request.POST
         if target and target == shown:
-            editor = build_channel_editor(
-                self.pk, data, driver=target, can_change=True, digest=digest
-            )
+            editor = build_channel_editor(self.pk, data, driver=target, digest=digest)
             if editor is not None:
                 editor.form.errors.clear()
             return self.render_editor(editor)
@@ -129,9 +111,7 @@ class ChannelView(ConsoleView):
             "description": data.get("description", ""),
             "is_active": bool(data.get("is_active")),
         }
-        editor = build_channel_editor(
-            self.pk, driver=target, can_change=True, digest=digest, carried=carried
-        )
+        editor = build_channel_editor(self.pk, driver=target, digest=digest, carried=carried)
         return self.render_editor(editor)
 
     def name_taken(self, editor: ChannelEditor):
@@ -172,5 +152,5 @@ class ChannelView(ConsoleView):
         return self.landed(SAVED, pk)
 
     def refresh(self, pk: int, notice: str):
-        fresh = build_channel_editor(pk, can_change=True)
+        fresh = build_channel_editor(pk)
         return self.render_editor(fresh, Notice(notice, "warning"), 409)

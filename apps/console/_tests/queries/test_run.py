@@ -121,13 +121,12 @@ def test_an_execution_that_never_started_sorts_last_and_uses_the_run_time():
     assert timeline[1].body is None
 
 
-@pytest.mark.parametrize("can_act", [True, False])
-def test_a_failed_run_offers_retry_only_to_a_user_who_may_act(can_act):
+def test_a_failed_run_offers_retry():
     run = _run(status="failed")
 
-    detail = build_run_detail(run.pk, can_act=can_act)
+    detail = build_run_detail(run.pk)
 
-    assert detail.do == ((Action("Retry", "retry_run", {"pk": run.pk}),) if can_act else ())
+    assert detail.do == (Action("Retry", "retry_run", {"pk": run.pk}),)
 
 
 def _stale(run):
@@ -144,27 +143,26 @@ def _mark_failed(run):
 def test_a_queued_run_offers_mark_failed():
     run = _run(status="pending")
 
-    assert build_run_detail(run.pk, can_act=True).do == _mark_failed(run)
-    assert build_run_detail(run.pk).do == ()
+    assert build_run_detail(run.pk).do == _mark_failed(run)
 
 
 @pytest.mark.parametrize("status", IN_FLIGHT_STATUSES)
 def test_a_stuck_run_offers_mark_failed(status):
     run = _stale(_run(status=status))
 
-    assert build_run_detail(run.pk, can_act=True).do == _mark_failed(run)
+    assert build_run_detail(run.pk).do == _mark_failed(run)
 
 
 @pytest.mark.parametrize("status", IN_FLIGHT_STATUSES)
 def test_a_run_a_drain_is_executing_offers_nothing(status):
-    assert build_run_detail(_run(status=status).pk, can_act=True).do == ()
+    assert build_run_detail(_run(status=status).pk).do == ()
 
 
 @pytest.mark.parametrize("status", ["notified", "analyzed", "checked", "ingested", "skipped"])
 def test_a_finished_run_offers_nothing(status):
     run = _stale(_run(status=status, completed_at=timezone.now()))
 
-    assert build_run_detail(run.pk, can_act=True).do == ()
+    assert build_run_detail(run.pk).do == ()
 
 
 def test_details_hold_the_ids_refs_error_and_payload():
@@ -221,7 +219,7 @@ def test_a_retryable_error_says_yes():
 
 def _queries(pk):
     with CaptureQueriesContext(connection) as captured:
-        build_run_detail(pk, can_act=True)
+        build_run_detail(pk)
     return len(captured)
 
 

@@ -4,7 +4,7 @@
 {% with form=editor.form %}
 <form method="post" action="{{ editor.url }}" data-disable-on-submit>
   {% csrf_token %}
-  {% if editor.can_change %}{# Enter submits the first button in the form, so it must save, not switch drivers. #}<button id="channel-default" class="c-sr-only" type="submit" tabindex="-1" aria-hidden="true">Save channel</button>{% endif %}
+  {# Enter submits the first button in the form, so it must save, not switch drivers. #}<button id="channel-default" class="c-sr-only" type="submit" tabindex="-1" aria-hidden="true">Save channel</button>
   <input type="hidden" name="digest" value="{{ editor.digest }}">
   {% for error in form.non_field_errors %}<p class="c-field__error c-tone-critical">{{ error }}</p>{% endfor %}
   <div id="channel-fields" class="c-box c-form__group"><div class="c-box__body">
@@ -12,7 +12,7 @@
     {% include "console/partials/_field.html" with field=form.description %}
     {% include "console/partials/_field.html" with field=form.is_active %}
     {% include "console/partials/_field.html" with field=form.driver %}
-    {% if editor.can_change %}<button id="channel-switch-driver" class="c-button c-button--sm" type="submit" name="switch_driver" value="1">Show this driver's settings</button>{% endif %}
+    <button id="channel-switch-driver" class="c-button c-button--sm" type="submit" name="switch_driver" value="1">Show this driver's settings</button>
   </div></div>
   {% for title, fields in form.groups %}{% if fields %}
   {% if forloop.last %}
@@ -28,10 +28,8 @@
   {% endif %}
   {% endif %}{% endfor %}
   {% if form.unknown_keys %}<p id="channel-unknown" class="c-muted">Saving keeps the settings this driver doesn't declare. Details names them.</p>{% endif %}
-  {% if editor.can_change %}
   <button id="channel-save" class="c-button c-button--primary" type="submit">Save channel</button>
-  {% endif %}
-  <a id="channel-cancel" class="c-button" href="{{ editor.back_url }}">{% if editor.can_change %}Cancel{% else %}Back to channels{% endif %}</a>
+  <a id="channel-cancel" class="c-button" href="{{ editor.back_url }}">Cancel</a>
 </form>
 {% endwith %}
 {% if editor.pk %}<section id="channel-lanes" class="c-box c-section">

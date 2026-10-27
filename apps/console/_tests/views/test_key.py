@@ -29,7 +29,7 @@ def _data(key=None, **overrides):
     data = {"name": key.name if key else "", "allowed_endpoints": "", "digest": ""}
     if key is not None:
         data["allowed_endpoints"] = "\r\n".join(key.allowed_endpoints)
-        data["digest"] = build_key_editor(key.pk, can_change=True).digest
+        data["digest"] = build_key_editor(key.pk).digest
         if key.is_active:
             data["is_active"] = "on"
     data.update(overrides)
@@ -155,7 +155,7 @@ def test_a_missing_key_is_the_console_404_page(client, superuser, method):
 
 
 def test_a_key_deleted_during_the_save_answers_the_404(client, superuser, key):
-    editors = [build_key_editor(key.pk, _data(key), can_change=True), None]
+    editors = [build_key_editor(key.pk, _data(key)), None]
 
     with (
         mock.patch("apps.console.views.key.build_key_editor", side_effect=editors),

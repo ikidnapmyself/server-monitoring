@@ -11,10 +11,8 @@
     {% include "console/partials/_field.html" with field=form.is_active %}
     {% include "console/partials/_field.html" with field=form.allowed_endpoints %}
   </div></div>
-  {% if editor.can_change %}
   <button id="key-save" class="c-button c-button--primary" type="submit">{% if editor.pk %}Save key{% else %}Create key{% endif %}</button>
-  {% endif %}
-  <a id="key-cancel" class="c-button" href="{{ editor.back_url }}">{% if editor.can_change %}Cancel{% else %}Back to API keys{% endif %}</a>
+  <a id="key-cancel" class="c-button" href="{{ editor.back_url }}">Cancel</a>
 </form>
 {% endwith %}
 {% if editor.facts %}<div class="c-section">{% include "console/partials/_details.html" with facts=editor.facts raw="" id="key-details" %}</div>{% endif %}

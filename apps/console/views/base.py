@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from urllib.parse import unquote, urlsplit
 
 from django.contrib.auth.views import redirect_to_login
-from django.http import HttpResponse, HttpResponseForbidden
+from django.http import HttpResponse
 from django.shortcuts import render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -32,7 +32,6 @@ class ConsoleView(TemplateView):
 
     template_name: str
     partial_template_name: str
-    read_permissions: tuple[str, ...] = ()
 
     def dispatch(self, request, *args, **kwargs):
         return self._refusal(request) or super().dispatch(request, *args, **kwargs)
@@ -68,8 +67,6 @@ class ConsoleView(TemplateView):
             return response
         if not (request.user.is_active and request.user.is_superuser):
             return render(request, "console/not_superuser.html", status=403)
-        if self.read_permissions and not any(map(request.user.has_perm, self.read_permissions)):
-            return HttpResponseForbidden("Permission to view this page required.")
         return None
 
     def landing_path(self) -> str:

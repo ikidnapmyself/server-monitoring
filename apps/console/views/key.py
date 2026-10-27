@@ -1,10 +1,9 @@
 from django.contrib import messages
 from django.db import IntegrityError, OperationalError, transaction
-from django.http import HttpResponseForbidden, HttpResponseRedirect
+from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
-from apps.console.intents import KEY_ADD, KEY_CHANGE, KEY_READ
 from apps.console.queries.keys import KeyEditor, build_key_editor
 from apps.console.views.base import ConsoleView, Notice
 from config.api_keys import KEY_FIELDS, StaleKey, save_key
@@ -21,24 +20,15 @@ class KeyView(ConsoleView):
 
     template_name = "console/key.html"
     partial_template_name = "console/partials/_key.html"
-    read_permissions = KEY_READ
 
     @property
     def pk(self) -> int | None:
         return self.kwargs.get("pk")
 
-    @property
-    def can_change(self) -> bool:
-        return self.request.user.has_perm(KEY_ADD if self.pk is None else KEY_CHANGE)
-
     def landing_path(self) -> str:
         if self.pk is None:
             return reverse("console:key-new")
         return reverse("console:key", args=[self.pk])
-
-    def forbidden(self):
-        verb = "add" if self.pk is None else "change"
-        return HttpResponseForbidden(f"Permission to {verb} API keys required.")
 
     def not_found(self):
         context = {"nav": "system", "section": "keys"}
@@ -53,15 +43,11 @@ class KeyView(ConsoleView):
         return self.render_to_response(context, status=status)
 
     def get(self, request, *args, **kwargs):
-        if self.pk is None and not self.can_change:
-            return self.forbidden()
-        return self.render_editor(build_key_editor(self.pk, can_change=self.can_change))
+        return self.render_editor(build_key_editor(self.pk))
 
     def post(self, request, *args, **kwargs):
-        if not self.can_change:
-            return self.forbidden()
         digest = request.POST.get("digest", "")
-        editor = build_key_editor(self.pk, request.POST, can_change=True, digest=digest)
+        editor = build_key_editor(self.pk, request.POST, digest=digest)
         if editor is None or not editor.form.is_valid():
             return self.render_editor(editor)
         values = {field: editor.form.cleaned_data[field] for field in KEY_FIELDS}
@@ -98,5 +84,5 @@ class KeyView(ConsoleView):
         return HttpResponseRedirect(reverse("console:key", args=[pk]), status=303)
 
     def refresh(self, pk: int, notice: str):
-        fresh = build_key_editor(pk, can_change=True)
+        fresh = build_key_editor(pk)
         return self.render_editor(fresh, Notice(notice, "warning"), 409)

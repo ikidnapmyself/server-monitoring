@@ -179,24 +179,19 @@ def test_the_policy_reads_in_effect_not_scoring_and_unread():
     assert detail.unread == (Fact(checker_label("cpu"), "cpu → warn_level"),)
 
 
-@pytest.mark.parametrize("can_change", [True, False])
-def test_only_a_changer_gets_actions(can_change):
+def test_the_node_offers_its_actions():
     node = _peer(config=POLICY)
     pk = node.pk
 
-    detail = build_node_detail(pk, can_change=can_change)
+    detail = build_node_detail(pk)
 
-    if can_change:
-        assert detail.do == (
-            Action("Edit policy", "edit_node_policy", {"pk": pk}),
-            Action("Re-evaluate open alerts", "reevaluate_node", {"pk": pk}),
-        )
-        assert detail.in_effect[0].edit == Action(
-            "Edit", "edit_node_policy", {"pk": pk, "checker": "cpu"}
-        )
-    else:
-        assert detail.do == ()
-        assert detail.in_effect[0].edit is None
+    assert detail.do == (
+        Action("Edit policy", "edit_node_policy", {"pk": pk}),
+        Action("Re-evaluate open alerts", "reevaluate_node", {"pk": pk}),
+    )
+    assert detail.in_effect[0].edit == Action(
+        "Edit", "edit_node_policy", {"pk": pk, "checker": "cpu"}
+    )
 
 
 def test_raw_holds_labels_and_config():

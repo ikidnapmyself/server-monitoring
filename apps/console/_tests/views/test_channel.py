@@ -45,7 +45,7 @@ def _data(channel=None, start="slack", **overrides):
     form = ChannelForm(channel=channel, driver=None if channel else start)
     data = initial_data(form)
     if channel is not None:
-        data["digest"] = build_channel_editor(channel.pk, can_change=True).digest
+        data["digest"] = build_channel_editor(channel.pk).digest
     data.update(overrides)
     return data
 
@@ -444,7 +444,7 @@ def test_a_bad_driver_on_a_missing_channel_is_the_404(client, superuser):
 
 
 def test_a_channel_deleted_during_the_save_answers_the_404(client, superuser, channel):
-    editors = [build_channel_editor(channel.pk, _data(channel), can_change=True), None]
+    editors = [build_channel_editor(channel.pk, _data(channel)), None]
 
     with (
         mock.patch("apps.console.views.channel.build_channel_editor", side_effect=editors),

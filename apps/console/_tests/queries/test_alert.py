@@ -53,20 +53,17 @@ def test_an_alert_outside_an_incident_has_no_card():
     assert build_alert_detail(_alert().pk).incident is None
 
 
-def test_reevaluate_is_offered_only_to_a_checker_alert_and_an_editor():
+def test_reevaluate_is_offered_only_to_a_checker_alert():
     checker = _alert()
     webhook = _alert(fingerprint="hook", labels={}, source="grafana")
 
-    assert [a.intent for a in build_alert_detail(checker.pk, can_reeval=True).do] == [
-        "reevaluate_alert"
-    ]
-    assert build_alert_detail(checker.pk).do == ()
-    assert build_alert_detail(webhook.pk, can_reeval=True).do == ()
+    assert [a.intent for a in build_alert_detail(checker.pk).do] == ["reevaluate_alert"]
+    assert build_alert_detail(webhook.pk).do == ()
 
 
 def test_labels_that_are_not_a_dict_offer_no_reevaluate():
     alert = _alert(labels=["checker"])
-    assert build_alert_detail(alert.pk, can_reeval=True).do == ()
+    assert build_alert_detail(alert.pk).do == ()
 
 
 def test_history_is_newest_first_and_capped(monkeypatch):

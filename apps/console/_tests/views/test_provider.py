@@ -48,7 +48,7 @@ def _data(row=None, start="claude", **overrides):
     form = ProviderForm(provider=row, kind=None if row else start)
     data = initial_data(form)
     if row is not None:
-        data["digest"] = build_provider_editor(row.pk, can_change=True).digest
+        data["digest"] = build_provider_editor(row.pk).digest
     data.update(overrides)
     return data
 
@@ -427,7 +427,7 @@ def test_a_bad_kind_on_a_missing_provider_is_the_404(client, superuser):
 
 
 def test_a_provider_deleted_during_the_save_answers_the_404(client, superuser, provider):
-    editors = [build_provider_editor(provider.pk, _data(provider), can_change=True), None]
+    editors = [build_provider_editor(provider.pk, _data(provider)), None]
 
     with (
         mock.patch("apps.console.views.provider.build_provider_editor", side_effect=editors),

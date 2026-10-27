@@ -179,21 +179,19 @@ def _stages(incident: Incident) -> tuple[StageSummary, ...]:
     )
 
 
-def _do(incident: Incident, *, can_act: bool, can_rerun_checks: bool) -> tuple[Action, ...]:
+def _do(incident: Incident) -> tuple[Action, ...]:
     params = {"pk": incident.pk}
     actions = [
         Action(ACTION_LABELS[key], intent=key, params=params)
-        for key in (available_incident_actions(incident.status) if can_act else ())
+        for key in available_incident_actions(incident.status)
     ]
-    if can_rerun_checks and can_rerun(incident):
+    if can_rerun(incident):
         actions.append(Action(RERUN, intent="rerun_check", params=params))
     return tuple(actions)
 
 
-def build_incident_detail(
-    pk: int, *, full: bool = False, can_act: bool = False, can_rerun: bool = False
-) -> IncidentDetail | None:
-    """One incident for its page. ``do`` holds only what the caller may do."""
+def build_incident_detail(pk: int, *, full: bool = False) -> IncidentDetail | None:
+    """One incident for its page."""
     incident = (
         Incident.objects.select_related("pipeline")
         .annotate(alerts_total=Count("alerts"))
@@ -211,7 +209,7 @@ def build_incident_detail(
     return IncidentDetail(
         pk=incident.pk,
         what=describe_incident(incident),
-        do=_do(incident, can_act=can_act, can_rerun_checks=can_rerun),
+        do=_do(incident),
         severity=incident.severity,
         severity_tone=tone_for(SEVERITY_TONES, incident.severity),
         status=incident.status,

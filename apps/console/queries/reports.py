@@ -13,13 +13,6 @@ from apps.checkers.checkers import checker_label
 from apps.checkers.models import CheckRun, PreflightRun
 from apps.checkers.preflight_describing import describe_preflight_run
 from apps.console.filters import CHECK_STATUS_CHOICES, RUN_STATUS_CHOICES, RunFilter
-from apps.console.intents import (
-    ANALYSIS_READ,
-    CHECK_READ,
-    NODE_READ,
-    PREFLIGHT_READ,
-    RUN_READ,
-)
 from apps.console.queries.runs import reason_label
 from apps.intelligence.describing import provider_label
 from apps.intelligence.models import AnalysisRun
@@ -71,12 +64,12 @@ class Fleet:
 
 @dataclass(frozen=True)
 class Reports:
-    health: PipelineHealth | None
-    reasons: tuple[ReportRow, ...] | None
-    checkers: tuple[ReportRow, ...] | None
-    providers: tuple[ReportRow, ...] | None
-    preflight: Description | None
-    fleet: Fleet | None
+    health: PipelineHealth
+    reasons: tuple[ReportRow, ...]
+    checkers: tuple[ReportRow, ...]
+    providers: tuple[ReportRow, ...]
+    preflight: Description
+    fleet: Fleet
 
 
 def _plural(n: int, one: str, many: str) -> str:
@@ -214,18 +207,12 @@ def fleet() -> Fleet:
     )
 
 
-def _reads(user, permissions: tuple[str, ...]) -> bool:
-    return any(user.has_perm(permission) for permission in permissions)
-
-
-def build_reports(user, now: datetime) -> Reports:
-    """Every card the user can read. A card for a model they can't read is None."""
-    runs = _reads(user, RUN_READ)
+def build_reports(now: datetime) -> Reports:
     return Reports(
-        health=pipeline_health(now) if runs else None,
-        reasons=failure_reasons(now) if runs else None,
-        checkers=failing_checkers(now) if _reads(user, CHECK_READ) else None,
-        providers=provider_usage(now) if _reads(user, ANALYSIS_READ) else None,
-        preflight=latest_preflight() if _reads(user, PREFLIGHT_READ) else None,
-        fleet=fleet() if _reads(user, NODE_READ) else None,
+        health=pipeline_health(now),
+        reasons=failure_reasons(now),
+        checkers=failing_checkers(now),
+        providers=provider_usage(now),
+        preflight=latest_preflight(),
+        fleet=fleet(),
     )

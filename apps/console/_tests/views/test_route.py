@@ -322,7 +322,7 @@ def test_a_route_deleted_while_open_answers_the_404(client, superuser, route):
 
 
 def test_a_route_deleted_during_the_save_answers_the_404(client, superuser, route):
-    editors = [build_route_editor(route.pk, _data(route), can_change=True), None]
+    editors = [build_route_editor(route.pk, _data(route)), None]
 
     with (
         mock.patch("apps.console.views.route.build_route_editor", side_effect=editors),

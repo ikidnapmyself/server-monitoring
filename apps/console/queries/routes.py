@@ -49,7 +49,6 @@ class RouteCard:
 class RouteList:
     cards: tuple[RouteCard, ...]
     summary: str
-    can_add: bool = False
 
     @property
     def add(self) -> Action:
@@ -74,7 +73,7 @@ def _card(lane: dict) -> RouteCard:
     )
 
 
-def build_route_list(*, can_add: bool = False) -> RouteList:
+def build_route_list() -> RouteList:
     cards = tuple(_card(lane) for lane in get_map_context()["lanes"])
     count = len(cards)
     summary = (
@@ -83,7 +82,7 @@ def build_route_list(*, can_add: bool = False) -> RouteList:
         if cards
         else ""
     )
-    return RouteList(cards=cards, summary=summary, can_add=can_add)
+    return RouteList(cards=cards, summary=summary)
 
 
 @dataclass(frozen=True)
@@ -97,7 +96,6 @@ class RouteEditor:
     represented: bool
     stored_conditions: tuple[str, ...]
     facts: tuple[Fact, ...]
-    can_change: bool
 
     @property
     def delete(self) -> Action | None:
@@ -151,7 +149,7 @@ def _stored(match) -> tuple[str, ...]:
 
 
 def build_route_editor(
-    pk: int | None, data=None, *, can_change: bool, version: str | None = None
+    pk: int | None, data=None, *, version: str | None = None
 ) -> RouteEditor | None:
     """The editor for route ``pk``, or for a new route when ``pk`` is None.
 
@@ -162,7 +160,7 @@ def build_route_editor(
         lane = PipelineDefinition.objects.filter(pk=pk).first()
         if lane is None:
             return None
-    form = RouteForm(data, instance=lane, disabled=not can_change)
+    form = RouteForm(data, instance=lane)
     routes = reverse("console:routes")
     if lane is None:
         return RouteEditor(
@@ -175,7 +173,6 @@ def build_route_editor(
             represented=True,
             stored_conditions=(),
             facts=(),
-            can_change=can_change,
         )
     represented = representable(lane.match)
     return RouteEditor(
@@ -188,5 +185,4 @@ def build_route_editor(
         represented=represented,
         stored_conditions=() if represented else _stored(lane.match),
         facts=_facts(lane),
-        can_change=can_change,
     )

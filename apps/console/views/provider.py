@@ -1,10 +1,9 @@
 from django.contrib import messages
 from django.db import IntegrityError, OperationalError, transaction
-from django.http import HttpResponseForbidden, HttpResponseRedirect
+from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
-from apps.console.intents import PROVIDER_ADD, PROVIDER_CHANGE, PROVIDER_READ
 from apps.console.queries.providers import (
     ProviderEditor,
     UnknownProvider,
@@ -29,24 +28,15 @@ class ProviderView(ConsoleView):
 
     template_name = "console/provider.html"
     partial_template_name = "console/partials/_provider.html"
-    read_permissions = PROVIDER_READ
 
     @property
     def pk(self) -> int | None:
         return self.kwargs.get("pk")
 
-    @property
-    def can_change(self) -> bool:
-        return self.request.user.has_perm(PROVIDER_ADD if self.pk is None else PROVIDER_CHANGE)
-
     def landing_path(self) -> str:
         if self.pk is None:
             return reverse("console:provider-new")
         return reverse("console:provider", args=[self.pk])
-
-    def forbidden(self):
-        verb = "add" if self.pk is None else "change"
-        return HttpResponseForbidden(f"Permission to {verb} providers required.")
 
     def not_found(self):
         context = {"nav": "system", "section": "providers"}
@@ -72,7 +62,7 @@ class ProviderView(ConsoleView):
         notice = Notice(NO_SUCH_PROVIDER, "warning")
         if self.pk is None:
             return self.picker(notice, 400)
-        editor = build_provider_editor(self.pk, can_change=self.can_change)
+        editor = build_provider_editor(self.pk)
         return self.render_editor(editor, notice, 400)
 
     def landed(self, message: str, pk: int):
@@ -80,28 +70,22 @@ class ProviderView(ConsoleView):
         return HttpResponseRedirect(reverse("console:provider", args=[pk]), status=303)
 
     def get(self, request, *args, **kwargs):
-        if self.pk is None and not self.can_change:
-            return self.forbidden()
         kind = request.GET.get("provider")
         if self.pk is None and not kind:
             return self.picker()
         try:
-            editor = build_provider_editor(self.pk, kind=kind, can_change=self.can_change)
+            editor = build_provider_editor(self.pk, kind=kind)
         except UnknownProvider:
             return self.unknown_provider()
         return self.render_editor(editor)
 
     def post(self, request, *args, **kwargs):
-        if not self.can_change:
-            return self.forbidden()
         digest = request.POST.get("digest", "")
         shown = request.GET.get("provider")
         try:
             if "switch_provider" in request.POST:
                 return self.switch(request.POST.get("provider", ""), shown, digest)
-            editor = build_provider_editor(
-                self.pk, request.POST, kind=shown, can_change=True, digest=digest
-            )
+            editor = build_provider_editor(self.pk, request.POST, kind=shown, digest=digest)
         except UnknownProvider:
             return self.unknown_provider()
         if editor is None or not editor.form.is_valid():
@@ -118,9 +102,7 @@ class ProviderView(ConsoleView):
         """
         data = self.request.POST
         if target and target == shown:
-            editor = build_provider_editor(
-                self.pk, data, kind=target, can_change=True, digest=digest
-            )
+            editor = build_provider_editor(self.pk, data, kind=target, digest=digest)
             if editor is not None:
                 editor.form.errors.clear()
             return self.render_editor(editor)
@@ -129,9 +111,7 @@ class ProviderView(ConsoleView):
             "description": data.get("description", ""),
             "is_active": bool(data.get("is_active")),
         }
-        editor = build_provider_editor(
-            self.pk, kind=target, can_change=True, digest=digest, carried=carried
-        )
+        editor = build_provider_editor(self.pk, kind=target, digest=digest, carried=carried)
         return self.render_editor(editor)
 
     def name_taken(self, editor: ProviderEditor):
@@ -172,5 +152,5 @@ class ProviderView(ConsoleView):
         return self.landed(SAVED, pk)
 
     def refresh(self, pk: int, notice: str):
-        fresh = build_provider_editor(pk, can_change=True)
+        fresh = build_provider_editor(pk)
         return self.render_editor(fresh, Notice(notice, "warning"), 409)

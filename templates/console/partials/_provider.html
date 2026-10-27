@@ -4,7 +4,7 @@
 {% with form=editor.form %}
 <form method="post" action="{{ editor.url }}" data-disable-on-submit>
   {% csrf_token %}
-  {% if editor.can_change %}{# Enter submits the first button in the form, so it must save, not switch providers. #}<button id="provider-default" class="c-sr-only" type="submit" tabindex="-1" aria-hidden="true">Save provider</button>{% endif %}
+  {# Enter submits the first button in the form, so it must save, not switch providers. #}<button id="provider-default" class="c-sr-only" type="submit" tabindex="-1" aria-hidden="true">Save provider</button>
   <input type="hidden" name="digest" value="{{ editor.digest }}">
   {% for error in form.non_field_errors %}<p class="c-field__error c-tone-critical">{{ error }}</p>{% endfor %}
   <div id="provider-fields" class="c-box c-form__group"><div class="c-box__body">
@@ -12,7 +12,7 @@
     {% include "console/partials/_field.html" with field=form.description %}
     {% include "console/partials/_field.html" with field=form.is_active %}
     {% include "console/partials/_field.html" with field=form.provider %}
-    {% if editor.can_change %}<button id="provider-switch" class="c-button c-button--sm" type="submit" name="switch_provider" value="1">Show this provider's settings</button>{% endif %}
+    <button id="provider-switch" class="c-button c-button--sm" type="submit" name="switch_provider" value="1">Show this provider's settings</button>
   </div></div>
   {% for title, fields in form.groups %}{% if fields %}
   <fieldset id="provider-settings" class="c-box c-form__group">
@@ -21,10 +21,8 @@
   </fieldset>
   {% endif %}{% endfor %}
   {% if form.unknown_keys %}<p id="provider-unknown" class="c-muted">Saving keeps the settings this provider doesn't declare. Details names them.</p>{% endif %}
-  {% if editor.can_change %}
   <button id="provider-save" class="c-button c-button--primary" type="submit">Save provider</button>
-  {% endif %}
-  <a id="provider-cancel" class="c-button" href="{{ editor.back_url }}">{% if editor.can_change %}Cancel{% else %}Back to providers{% endif %}</a>
+  <a id="provider-cancel" class="c-button" href="{{ editor.back_url }}">Cancel</a>
 </form>
 {% endwith %}
 {% if editor.facts %}<div class="c-section">{% include "console/partials/_details.html" with facts=editor.facts raw="" id="provider-details" %}</div>{% endif %}
