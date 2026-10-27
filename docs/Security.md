@@ -160,7 +160,7 @@ The two health-check paths (`/alerts/webhook/`, `/intelligence/health/`) use an 
 
 ### API Key Disclosure Model
 
-`APIKey.prefix` stores the first 8 hex characters of the raw key for safe display (`{prefix}***` in the console key list and the admin changelist). Remaining entropy after prefix disclosure is 128 bits — well outside brute-force range — but treat the admin list view as a trust-bearing surface (screenshots, logs).
+`APIKey.prefix` stores the first 8 hex characters of the raw key for safe display (`{prefix}***` in the console key list and the admin changelist). Remaining entropy after prefix disclosure is 128 bits, well outside brute-force range. Still, treat the console key list and the admin changelist as trust-bearing surfaces (screenshots, logs).
 
 The raw key itself is **never** persisted: only its SHA-256 digest is stored (`APIKey.key`, 64 hex chars) and the digest field is `editable=False`. Operators see the raw key exactly once at creation time.
 
@@ -208,7 +208,7 @@ Default limits (configurable via `RATE_LIMITS` in settings):
 | `/console/login/` | 10 sign-in attempts/min |
 | `/admin/login/` | 10 sign-in attempts/min |
 
-Only paths under a listed prefix are counted. The rest of `/admin/`, and every `GET`, is
+Only paths under a listed prefix are counted. The prefixes match `request.path`, so a deployment under a sub-path (`SCRIPT_NAME`) gets no login limiting. The rest of `/admin/`, and every `GET`, is
 never limited. A limited console sign-in shows the login page with the wait. Everything
 else gets a JSON 429. Both carry `Retry-After`.
 
@@ -225,7 +225,7 @@ minute.
 
 ### Scope: Mutating Requests Only
 
-`GET` requests are exempt from rate limiting (`RateLimitMiddleware.__call__`). Read endpoints like `/orchestration/pipelines/`, `/notify/channels/`, `/intelligence/providers/` are not rate-paced by this middleware. Per-API-key `allowed_endpoints` already gate which read endpoints a key can hit; if you need read-side pacing (e.g., to bound enumeration cost), terminate that at the upstream proxy.
+`GET` requests are exempt from rate limiting (`RateLimitMiddleware.__call__`). Read endpoints like `/orchestration/pipelines/`, `/notify/channels/`, `/intelligence/providers/` are not rate-paced by this middleware. Per-API-key `allowed_endpoints` already limit which read endpoints a key can hit. If you need read-side pacing, for example to bound enumeration cost, terminate that at the upstream proxy.
 
 ### Cache Backend
 

@@ -70,11 +70,23 @@ def test_an_action_needs_the_view_permission_first(client, bare_staff, name):
 
 
 @pytest.mark.django_db
-def test_a_permission_refusal_keeps_the_console_and_offers_a_way_on(client, bare_staff):
-    resp = client.get(reverse("console:incidents"))
+def test_a_permission_refusal_keeps_the_console_and_offers_a_way_on(client, staff):
+    resp = client.get(reverse("console:runs"))
 
     assert resp.status_code == 403
     body = resp.content.decode()
     assert 'class="c-unav"' in body
     assert f'id="no-permission-overview" href="{reverse("console:overview")}"' in body
+    assert f'action="{reverse("console:logout")}"' in body
+
+
+@pytest.mark.django_db
+def test_a_refusal_offers_no_overview_link_to_an_account_the_overview_would_refuse(
+    client, bare_staff
+):
+    resp = client.get(reverse("console:incidents"))
+
+    assert resp.status_code == 403
+    body = resp.content.decode()
+    assert "no-permission-overview" not in body
     assert f'action="{reverse("console:logout")}"' in body

@@ -16,7 +16,9 @@ class ConsoleLoginView(LoginView):
         """The page ``RateLimitMiddleware`` shows once sign-in attempts run out."""
         wait = f"{retry_after} second{'' if retry_after == 1 else 's'}"
         context = {
-            "form": cls.authentication_form(request),
+            "form": cls.authentication_form(
+                request, initial={"username": request.POST.get("username", "")}
+            ),
             "next": request.POST.get("next", ""),
             "refusal": f"Too many sign-in attempts. Try again in {wait}.",
         }

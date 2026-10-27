@@ -1,5 +1,7 @@
 """The admin is stock Django for active superusers, and nothing else."""
 
+from types import SimpleNamespace
+
 import pytest
 from django.conf import settings
 from django.contrib import admin
@@ -19,6 +21,7 @@ from apps.intelligence.models import AnalysisRun, IntelligenceProvider
 from apps.notify.models import NotificationChannel
 from apps.orchestration.models import InboxItem, PipelineDefinition
 from config.admin import MonitoringAdminSite
+from config.middleware import rate_limit
 from config.models import APIKey
 
 pytestmark = pytest.mark.django_db
@@ -189,7 +192,7 @@ def test_the_admin_login_admits_a_superuser(client):
     CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
 )
 def test_admin_sign_in_attempts_are_rate_limited(client, monkeypatch):
-    monkeypatch.setattr("config.middleware.rate_limit.time.time", lambda: WINDOW)
+    monkeypatch.setattr(rate_limit, "time", SimpleNamespace(time=lambda: WINDOW))
     cache.clear()
     url = reverse("admin:login")
     for _ in range(settings.RATE_LIMITS["/admin/login/"]):

@@ -580,7 +580,7 @@ Notes:
   `/orchestration/pipeline/` honours a caller-supplied `trace_id` and mints one
   otherwise. Cluster-ingested
   alerts also link to their originating **`Node`** (resolved from the `instance_id`
-  label). `trace_id` and `node` are both searchable in the console alert list (`/console/alerts/`).
+  label). In the console alert list (`/console/alerts/`), `trace_id` is searchable and `node` is a filter.
 
 ### Agent setup
 

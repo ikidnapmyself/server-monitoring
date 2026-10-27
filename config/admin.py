@@ -30,7 +30,7 @@ class HidesSecretsAdmin(admin.ModelAdmin):
     """An excluded field can't be filtered on, or a changelist count would read it out."""
 
     def lookup_allowed(self, lookup, value, request=None):
-        if lookup.split(LOOKUP_SEP)[0] in self.exclude:
+        if lookup.split(LOOKUP_SEP)[0] in (self.exclude or ()):
             return False
         return super().lookup_allowed(lookup, value, request)
 

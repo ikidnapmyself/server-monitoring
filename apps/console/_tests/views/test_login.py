@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -8,6 +10,7 @@ from django.urls import reverse
 
 from apps.console.forms import REFUSED
 from apps.console.views.login import ConsoleLoginView
+from config.middleware import rate_limit
 
 WINDOW = 1_800_000_040.0
 PASSWORD = "pw-correct-horse"
@@ -118,7 +121,7 @@ def test_the_refusal_is_announced(client):
 )
 @pytest.mark.django_db
 def test_sign_in_attempts_are_rate_limited_but_the_page_is_not(client, monkeypatch):
-    monkeypatch.setattr("config.middleware.rate_limit.time.time", lambda: WINDOW)
+    monkeypatch.setattr(rate_limit, "time", SimpleNamespace(time=lambda: WINDOW))
     cache.clear()
     limit = settings.RATE_LIMITS["/console/login/"]
     for _ in range(limit):
@@ -133,6 +136,7 @@ def test_sign_in_attempts_are_rate_limited_but_the_page_is_not(client, monkeypat
     assert 'role="alert"' in body
     assert 'name="password"' in body
     assert 'value="/console/runs/"' in body
+    assert 'name="username" value="op"' in body
     assert client.get(reverse("console:login")).status_code == 200
 
 

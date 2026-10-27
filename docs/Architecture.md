@@ -195,7 +195,7 @@ endpoint records one too); `manage.py process_inbox` claims and executes them
 ### Break-glass admin
 
 Operators sign in at `/console/login/` and work in the console. `/admin/` is stock Django
-for active superusers only, at the site and at its login. Every model is editable there,
+for active superusers only, at the site and at its login. Every registered model is editable there,
 except that channels, providers and API keys are added only in the console. The four
 secret fields, `NotificationChannel.config`, `IntelligenceProvider.config`,
 `AnalysisRun.provider_config` and `APIKey.key`, are excluded from every form and can't be

@@ -6,8 +6,8 @@
     {% include "console/partials/_octicon.html" with name="issue-opened" %}
     <h1 class="c-blankslate__heading">{{ message }}</h1>
     <p>Ask an administrator for access, or sign in with an account that has it.</p>
-    <p class="c-section"><a id="no-permission-overview" href="{% url 'console:overview' %}">Go to the overview</a></p>
-    <form method="post" action="{% url 'console:logout' %}">
+    {% if perms.alerts.view_incident or perms.alerts.change_incident %}<p class="c-section"><a id="no-permission-overview" href="{% url 'console:overview' %}">Go to the overview</a></p>{% endif %}
+    <form class="c-section" method="post" action="{% url 'console:logout' %}">
       {% csrf_token %}
       <button id="no-permission-sign-out" class="c-button" type="submit">Sign out</button>
     </form>
