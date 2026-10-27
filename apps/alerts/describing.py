@@ -18,8 +18,8 @@ from django.utils.timezone import is_aware, localtime
 from apps.alerts.models import Alert, AlertSeverity, AlertStatus, Incident, Node
 from apps.alerts.reevaluation import EDITOR_FIXABLE, format_value
 from apps.checkers.checkers import CHECKER_REGISTRY, CheckStatus, checker_label
-from config.admin_badges import SEVERITY_TONES, tone_for
 from config.describing import Action, Description, Fact
+from config.tones import SEVERITY_TONES, tone_for
 
 if TYPE_CHECKING:
     from apps.alerts.reeval_existing import AlertChange, AlertSkip, ReevalReport

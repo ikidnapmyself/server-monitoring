@@ -15,9 +15,9 @@ from apps.console.filters import NodeFilter
 from apps.console.queries.hosts import node_keys, node_name, on_node
 from apps.console.queries.incidents import ChipGroup, Choice, chip_group
 from apps.console.queries.overview import OPEN_STATUSES, firing_by_node, is_silent, node_badge
-from config.admin_badges import SEVERITY_TONES, tone_for
 from config.describing import Action
 from config.readiness import NODE_RECENT_MINUTES
+from config.tones import SEVERITY_TONES, tone_for
 
 SEVERITIES = (AlertSeverity.CRITICAL, AlertSeverity.WARNING, AlertSeverity.INFO)
 TONE_RANK = {"critical": 0, "warning": 1, "info": 2, "muted": 3, "ok": 4}

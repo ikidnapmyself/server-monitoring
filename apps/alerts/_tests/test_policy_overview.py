@@ -29,8 +29,8 @@ from apps.alerts.policy_overview import (
 )
 from apps.alerts.reeval_existing import ReevalScope, preview_reeval
 from apps.checkers.checkers import checker_label
-from config.admin_badges import TONES
 from config.describing import Action
+from config.tones import TONES
 
 
 class PolicyOverviewTestCase(TestCase):

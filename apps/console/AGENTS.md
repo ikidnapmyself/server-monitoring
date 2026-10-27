@@ -62,7 +62,7 @@ pipeline stage and not an alert producer.
   `c-counter`, `c-button`, `c-seg`, `c-flash`, `c-blankslate`, `c-pagination`,
   `c-timeline` and the issue-page `c-pagehead` and `c-sidebar`. Reuse one before writing
   a new rule. Colour is only ever a token: no hex outside the two token blocks.
-- **Tones come from `config/admin_badges.py`.** A `c-tone-<tone>` class sets the text
+- **Tones come from `config/tones.py`.** A `c-tone-<tone>` class sets the text
   colour and the `--tone-*` properties a component reads, so one tone class works on a
   label, a flash or a timeline badge. Incident states use `c-status--<status>` instead,
   because GitHub's colours for state differ from the tone table: open is green,

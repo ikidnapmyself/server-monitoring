@@ -7,7 +7,7 @@ from django.urls import reverse
 from apps.console._tests.queries.test_checks import _check
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console._tests.views.test_incident import focus_audit
-from config.admin_badges import CHECK_STATUS_TONES
+from config.tones import CHECK_STATUS_TONES
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
 REPORTS_CURRENT = '<a class="c-unav__item" href="/console/reports/" aria-current="page">'

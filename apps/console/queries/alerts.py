@@ -19,7 +19,7 @@ from apps.console.queries.incidents import (
     chip_group,
 )
 from apps.orchestration.models import PipelineRun
-from config.admin_badges import ALERT_STATUS_TONES, SEVERITY_TONES, tone_for
+from config.tones import ALERT_STATUS_TONES, SEVERITY_TONES, tone_for
 
 PAGE_SIZE = 50
 

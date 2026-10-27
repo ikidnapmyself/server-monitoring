@@ -26,8 +26,8 @@ from apps.intelligence.describing import provider_label
 from apps.intelligence.models import AnalysisRun
 from apps.orchestration.describing import REASONS
 from apps.orchestration.models import PipelineRun
-from config.admin_badges import CHECK_STATUS_TONES
 from config.describing import Action, Description, format_percent
+from config.tones import CHECK_STATUS_TONES
 
 DAY = timedelta(hours=24)
 WEEK = timedelta(days=7)

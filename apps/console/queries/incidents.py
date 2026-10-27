@@ -22,7 +22,7 @@ from apps.console.filters import (
 )
 from apps.console.queries.hosts import host_summary, incident_hosts, node_choices, on_node
 from apps.console.queries.overview import SEVERITY_RANK
-from config.admin_badges import INCIDENT_STATUS_TONES, SEVERITY_TONES, tone_for
+from config.tones import INCIDENT_STATUS_TONES, SEVERITY_TONES, tone_for
 
 PAGE_SIZE = 50
 

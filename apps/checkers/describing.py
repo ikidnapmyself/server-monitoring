@@ -8,8 +8,8 @@ from collections.abc import Mapping
 from typing import Any
 
 from apps.checkers.checkers import CHECKER_REGISTRY, CheckStatus, checker_label
-from config.admin_badges import CHECK_STATUS_TONES
 from config.describing import Description, Fact
+from config.tones import CHECK_STATUS_TONES
 
 PROBLEM_ORDER = (CheckStatus.CRITICAL, CheckStatus.UNKNOWN, CheckStatus.WARNING)
 

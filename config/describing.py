@@ -10,7 +10,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from config.admin_badges import TONES
+from config.tones import TONES
 
 
 @dataclass(frozen=True)
