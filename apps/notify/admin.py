@@ -3,10 +3,11 @@
 from django.contrib import admin
 
 from apps.notify.models import NotificationChannel
+from config.admin import HidesSecretsAdmin
 
 
 @admin.register(NotificationChannel)
-class NotificationChannelAdmin(admin.ModelAdmin):
+class NotificationChannelAdmin(HidesSecretsAdmin):
     """Its ``config`` holds secrets, so only the console adds a channel or sets it."""
 
     list_display = ["name", "driver", "is_active", "updated_at"]

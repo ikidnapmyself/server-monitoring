@@ -7,6 +7,7 @@ from django.urls import reverse
 from apps.console._tests.queries.test_checks import _check
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console._tests.views.test_incident import focus_audit
+from apps.console.views.base import NO_PERMISSION
 from config.tones import CHECK_STATUS_TONES
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
@@ -61,7 +62,7 @@ def test_staff_without_a_check_permission_is_refused(client, bare_staff, url):
     resp = client.get(url)
 
     assert resp.status_code == 403
-    assert resp.content.decode() == "Permission to view this page required."
+    assert NO_PERMISSION in resp.content.decode()
 
 
 @pytest.mark.django_db

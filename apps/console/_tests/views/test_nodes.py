@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from apps.alerts.models import Alert, Incident, Node
 from apps.console._tests.test_templates import FORBIDDEN
+from apps.console.views.base import NO_PERMISSION
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
 MARKUP = "<img src=x onerror=alert(1)>"
@@ -60,7 +61,7 @@ def test_staff_without_a_node_permission_is_refused(client, bare_staff, url):
     resp = client.get(url)
 
     assert resp.status_code == 403
-    assert resp.content.decode() == "Permission to view this page required."
+    assert NO_PERMISSION in resp.content.decode()
 
 
 @pytest.mark.parametrize("fixture", ["node_viewer", "node_operator"])

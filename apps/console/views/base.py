@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from urllib.parse import unquote, urlsplit
 
 from django.contrib.auth.views import redirect_to_login
-from django.http import HttpResponse, HttpResponseForbidden
+from django.http import HttpResponse
 from django.shortcuts import render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -11,6 +11,7 @@ from django.views.generic import TemplateView
 from apps.console.middleware import CONSOLE_PATH_PREFIX
 
 NOT_STAFF = "This account isn't a staff account."
+NO_PERMISSION = "This account lacks permission to view this page."
 NOTHING_TO_APPLY = "Nothing here needs re-evaluating, so nothing was applied."
 
 
@@ -68,7 +69,9 @@ class ConsoleView(TemplateView):
         if not (request.user.is_active and request.user.is_staff):
             return render(request, "console/not_staff.html", {"message": NOT_STAFF}, status=403)
         if self.read_permissions and not any(map(request.user.has_perm, self.read_permissions)):
-            return HttpResponseForbidden("Permission to view this page required.")
+            return render(
+                request, "console/no_permission.html", {"message": NO_PERMISSION}, status=403
+            )
         return None
 
     def landing_path(self) -> str:

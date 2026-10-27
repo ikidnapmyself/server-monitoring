@@ -3,9 +3,9 @@ from django.contrib.auth.models import Permission
 from django.urls import reverse
 
 from apps.alerts.models import Incident
+from apps.console.views.base import NO_PERMISSION
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
-REFUSAL = "Permission to view this page required."
 
 
 def _pages():
@@ -24,7 +24,7 @@ def test_staff_without_the_view_permission_is_refused_every_read(client, bare_st
         resp = client.get(url, **headers)
 
         assert resp.status_code == 403, url
-        assert resp.content.decode() == REFUSAL
+        assert NO_PERMISSION in resp.content.decode()
 
 
 @pytest.mark.django_db
@@ -49,7 +49,8 @@ def test_change_permission_alone_reads_every_page_as_the_admin_allows(client, ba
 def test_a_missing_incident_is_refused_before_it_is_looked_up(client, bare_staff):
     resp = client.get(reverse("console:incident", args=[999999]))
 
-    assert (resp.status_code, resp.content.decode()) == (403, REFUSAL)
+    assert resp.status_code == 403
+    assert NO_PERMISSION in resp.content.decode()
 
 
 @pytest.mark.django_db
@@ -62,6 +63,18 @@ def test_an_action_needs_the_view_permission_first(client, bare_staff, name):
 
     resp = client.post(reverse(name, args=args))
 
-    assert (resp.status_code, resp.content.decode()) == (403, REFUSAL)
+    assert resp.status_code == 403
+    assert NO_PERMISSION in resp.content.decode()
     incident.refresh_from_db()
     assert incident.status == "open"
+
+
+@pytest.mark.django_db
+def test_a_permission_refusal_keeps_the_console_and_offers_a_way_on(client, bare_staff):
+    resp = client.get(reverse("console:incidents"))
+
+    assert resp.status_code == 403
+    body = resp.content.decode()
+    assert 'class="c-unav"' in body
+    assert f'id="no-permission-overview" href="{reverse("console:overview")}"' in body
+    assert f'action="{reverse("console:logout")}"' in body

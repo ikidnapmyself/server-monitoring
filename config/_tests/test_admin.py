@@ -1,9 +1,12 @@
 """The admin is stock Django for active superusers, and nothing else."""
 
 import pytest
+from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
+from django.core.cache import cache
+from django.test import override_settings
 from django.urls import reverse
 
 from apps.console._tests.fixtures import (
@@ -19,6 +22,8 @@ from config.admin import MonitoringAdminSite
 from config.models import APIKey
 
 pytestmark = pytest.mark.django_db
+
+WINDOW = 1_800_000_000.0
 
 ADD_REFUSED = {APIKey, IntelligenceProvider, NotificationChannel}
 SECRET_FIELDS = {
@@ -124,3 +129,71 @@ def test_no_admin_page_shows_a_stored_secret(admin_client):
         body = resp.content.decode()
         for secret in secrets:
             assert secret not in body, (url, secret)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "config__icontains=x",
+        "config__webhook_url__startswith=h",
+    ],
+)
+def test_a_channel_secret_cannot_be_probed_by_a_filter(admin_client, query):
+    NotificationChannel.objects.create(
+        name="ops", driver="slack", config={"webhook_url": "https://hooks.example/x"}
+    )
+    url = reverse("admin:notify_notificationchannel_changelist")
+
+    assert admin_client.get(f"{url}?{query}").status_code == 400
+
+
+@pytest.mark.parametrize(("model", "field"), SECRET_FIELDS.items())
+def test_no_secret_field_can_filter_a_changelist(admin_client, model, field):
+    url = reverse(f"admin:{model._meta.app_label}_{model._meta.model_name}_changelist")
+
+    assert admin_client.get(f"{url}?{field}__icontains=x").status_code == 400
+
+
+def test_a_plain_field_still_filters(admin_client):
+    url = reverse("admin:notify_notificationchannel_changelist")
+
+    assert admin_client.get(f"{url}?name__icontains=x").status_code == 200
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [{"is_staff": True}, {"is_staff": True, "is_superuser": True, "is_active": False}],
+    ids=["staff", "inactive-superuser"],
+)
+def test_the_admin_login_refuses_anyone_but_an_active_superuser(client, flags):
+    get_user_model().objects.create_user("op", password="right", **flags)
+
+    resp = client.post(reverse("admin:login"), {"username": "op", "password": "right"})
+
+    assert resp.status_code == 200
+    assert "Please enter the correct username and password" in resp.content.decode()
+    assert "_auth_user_id" not in client.session
+
+
+def test_the_admin_login_admits_a_superuser(client):
+    get_user_model().objects.create_superuser("root", password="right")
+
+    resp = client.post(reverse("admin:login"), {"username": "root", "password": "right"})
+
+    assert resp.status_code == 302
+    assert "_auth_user_id" in client.session
+
+
+@override_settings(
+    RATE_LIMIT_ENABLED=True,
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
+)
+def test_admin_sign_in_attempts_are_rate_limited(client, monkeypatch):
+    monkeypatch.setattr("config.middleware.rate_limit.time.time", lambda: WINDOW)
+    cache.clear()
+    url = reverse("admin:login")
+    for _ in range(settings.RATE_LIMITS["/admin/login/"]):
+        assert client.post(url, {"username": "op", "password": "wrong"}).status_code == 200
+
+    assert client.post(url, {"username": "op", "password": "wrong"}).status_code == 429
+    assert client.get(url).status_code == 200

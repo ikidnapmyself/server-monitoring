@@ -7,8 +7,6 @@ from django.conf import settings
 from django.core.cache import cache
 from django.http import JsonResponse
 
-from config.middleware.constants import EXEMPT_PATH_PREFIXES
-
 logger = logging.getLogger(__name__)
 
 DEFAULT_RATE_LIMITS = {
@@ -17,6 +15,7 @@ DEFAULT_RATE_LIMITS = {
     "/notify/": 30,
     "/intelligence/": 20,
     "/console/login/": 10,
+    "/admin/login/": 10,
 }
 
 
@@ -24,7 +23,9 @@ class RateLimitMiddleware:
     """Fixed-window rate limiter using Django cache.
 
     Limits are per API key (if present) or per IP, per path prefix, per minute.
-    The window resets at the start of each UTC minute.
+    The window resets at the start of each UTC minute. Only a path under a
+    ``RATE_LIMITS`` prefix is counted, which is how ``/admin/login/`` is and the
+    rest of ``/admin/`` isn't.
     """
 
     def __init__(self, get_response):
@@ -35,9 +36,6 @@ class RateLimitMiddleware:
             return self.get_response(request)
 
         path = request.path
-
-        if any(path.startswith(p) for p in EXEMPT_PATH_PREFIXES):
-            return self.get_response(request)
 
         if request.method == "GET":
             return self.get_response(request)

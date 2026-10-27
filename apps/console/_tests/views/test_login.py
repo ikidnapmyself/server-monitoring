@@ -7,6 +7,7 @@ from django.urls import reverse
 
 from apps.console.forms import REFUSED
 
+WINDOW = 1_800_000_000.0
 PASSWORD = "pw-correct-horse"
 
 
@@ -114,7 +115,8 @@ def test_the_refusal_is_announced(client):
     CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
 )
 @pytest.mark.django_db
-def test_sign_in_attempts_are_rate_limited_but_the_page_is_not(client):
+def test_sign_in_attempts_are_rate_limited_but_the_page_is_not(client, monkeypatch):
+    monkeypatch.setattr("config.middleware.rate_limit.time.time", lambda: WINDOW)
     cache.clear()
     limit = settings.RATE_LIMITS["/console/login/"]
     for _ in range(limit):
