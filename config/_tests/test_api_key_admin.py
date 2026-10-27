@@ -43,18 +43,40 @@ class APIKeyAdminTests(TestCase):
 
 
 @pytest.mark.django_db
-def test_the_key_admin_is_stock_and_read_only(admin_client, rf, admin_user):
+def test_the_key_admin_edits_but_never_adds(admin_client, rf, admin_user):
     APIKey.objects.create(name="listed")
     model_admin = admin.site._registry[APIKey]
     request = rf.get("/")
     request.user = admin_user
     assert not model_admin.has_add_permission(request)
-    assert not model_admin.has_change_permission(request)
-    assert not model_admin.has_delete_permission(request)
+    assert model_admin.has_change_permission(request)
+    assert model_admin.has_delete_permission(request)
     assert model_admin.exclude == ["key"]
     response = admin_client.get(reverse("admin:config_app_apikey_changelist"))
     assert response.status_code == 200
     assert "listed" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_a_key_edit_keeps_its_digest(admin_client):
+    key = APIKey.objects.create(name="agent")
+    digest = key.key
+    url = reverse("admin:config_app_apikey_change", args=[key.pk])
+
+    response = admin_client.post(
+        url,
+        {
+            "name": "renamed",
+            "is_active": "on",
+            "allowed_endpoints": "[]",
+            "last_used_at_0": "",
+            "last_used_at_1": "",
+        },
+    )
+
+    assert response.status_code == 302
+    key.refresh_from_db()
+    assert (key.name, key.key) == ("renamed", digest)
 
 
 @pytest.mark.django_db

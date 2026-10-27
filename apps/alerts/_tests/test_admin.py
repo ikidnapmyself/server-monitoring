@@ -1,9 +1,8 @@
+import pytest
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import User
-from django.test import RequestFactory, TestCase
-from django.urls import reverse
-from django.utils import timezone
+from django.test import TestCase
 
 from apps.alerts.models import (
     Alert,
@@ -50,25 +49,28 @@ class TestAdminQueryOptimization(TestCase):
         assert response.status_code == 200
 
 
-class TestIncidentAdminIsStock(TestCase):
+@pytest.mark.django_db
+@pytest.mark.parametrize("model", [Alert, Incident, AlertHistory, Node])
+def test_the_alerts_admins_are_editable(model, rf, admin_user):
+    model_admin = admin.site._registry[model]
+    request = rf.get("/")
+    request.user = admin_user
+    assert model_admin.has_add_permission(request)
+    assert model_admin.has_change_permission(request)
+    assert model_admin.has_delete_permission(request)
+    assert "delete_selected" in model_admin.get_actions(request)
+
+
+def test_large_foreign_keys_are_raw_ids():
+    assert admin.site._registry[Alert].raw_id_fields == ["node", "incident"]
+    assert admin.site._registry[Incident].raw_id_fields == ["node"]
+    assert admin.site._registry[AlertHistory].raw_id_fields == ["alert"]
+
+
+class TestIncidentAdminSearch(TestCase):
     def setUp(self):
-        self.user = get_user_model().objects.create_superuser("root", password="x")
-        self.client.force_login(self.user)
+        self.client.force_login(get_user_model().objects.create_superuser("root", password="x"))
         self.incident = Incident.objects.create(subject="HighLatency", instance="db-1")
-
-    def test_incident_admin_is_read_only_with_no_actions(self):
-        model_admin = admin.site._registry[Incident]
-        request = RequestFactory().get("/")
-        request.user = self.user
-        assert not model_admin.has_add_permission(request)
-        assert not model_admin.has_change_permission(request, self.incident)
-        assert not model_admin.has_delete_permission(request, self.incident)
-        assert not model_admin.get_actions(request)
-        assert not hasattr(model_admin, "change_actions")
-
-    def test_change_page_still_opens_for_a_superuser(self):
-        url = reverse("admin:alerts_incident_change", args=[self.incident.pk])
-        assert self.client.get(url).status_code == 200
 
     def test_search_matches_subject_and_instance(self):
         other = Incident.objects.create(subject="DiskFull", instance="web-1")
@@ -79,63 +81,6 @@ class TestIncidentAdminIsStock(TestCase):
                 self.assertNotIn(f"/admin/alerts/incident/{other.pk}/change/", html)
 
 
-class TestAlertAdminIsStock(TestCase):
-    def setUp(self):
-        self.user = get_user_model().objects.create_superuser("root", password="x")
-        self.client.force_login(self.user)
-        self.alert = Alert.objects.create(
-            fingerprint="fp",
-            name="a",
-            severity="warning",
-            status="firing",
-            source="cluster",
-            started_at=timezone.now(),
-        )
-
-    def test_alert_admin_is_read_only_with_no_actions(self):
-        model_admin = admin.site._registry[Alert]
-        request = RequestFactory().get("/")
-        request.user = self.user
-        assert not model_admin.has_add_permission(request)
-        assert not model_admin.has_change_permission(request, self.alert)
-        assert not model_admin.has_delete_permission(request, self.alert)
-        assert "resolve_selected" not in model_admin.get_actions(request)
-        assert "delete_selected" not in model_admin.get_actions(request)
-        assert not hasattr(model_admin, "change_actions")
-
-    def test_history_admin_is_read_only(self):
-        model_admin = admin.site._registry[AlertHistory]
-        request = RequestFactory().get("/")
-        request.user = self.user
-        assert not model_admin.has_add_permission(request)
-        assert not model_admin.has_change_permission(request)
-        assert not model_admin.has_delete_permission(request)
-        assert "delete_selected" not in model_admin.get_actions(request)
-
-    def test_change_page_still_opens_for_a_superuser(self):
-        url = reverse("admin:alerts_alert_change", args=[self.alert.pk])
-        assert self.client.get(url).status_code == 200
-
-
-class TestNodeAdminIsStock(TestCase):
-    def setUp(self):
-        self.user = get_user_model().objects.create_superuser("root", password="x")
-        self.client.force_login(self.user)
-        self.node = Node.objects.create(instance_id="n1", hostname="n1")
-
-    def test_node_admin_is_read_only_with_no_actions(self):
-        model_admin = admin.site._registry[Node]
-        request = RequestFactory().get("/")
-        request.user = self.user
-        assert not model_admin.has_add_permission(request)
-        assert not model_admin.has_change_permission(request, self.node)
-        assert not model_admin.has_delete_permission(request, self.node)
-        assert not model_admin.get_actions(request)
-        assert not hasattr(model_admin, "change_actions")
-
-    def test_change_page_still_opens_for_a_superuser(self):
-        url = reverse("admin:alerts_node_change", args=[self.node.pk])
-        assert self.client.get(url).status_code == 200
-
-    def test_the_admin_policy_page_is_gone(self):
-        assert self.client.get("/admin/policy/").status_code == 404
+@pytest.mark.django_db
+def test_the_admin_policy_page_is_gone(admin_client):
+    assert admin_client.get("/admin/policy/").status_code == 404

@@ -1,4 +1,4 @@
-"""Admin configuration for intelligence app."""
+"""Break-glass admin for intelligence models. Operators work in the console."""
 
 from django.contrib import admin
 
@@ -7,33 +7,18 @@ from apps.intelligence.models import AnalysisRun, IntelligenceProvider
 
 @admin.register(IntelligenceProvider)
 class IntelligenceProviderAdmin(admin.ModelAdmin):
-    """Read-only. Operators edit providers in the console."""
+    """Its ``config`` holds secrets, so only the console adds a provider or sets it."""
 
     list_display = ["name", "provider", "is_active", "updated_at"]
     exclude = ["config"]
+    readonly_fields = ["provider"]
 
-    def has_add_permission(self, request, obj=None):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
+    def has_add_permission(self, request):
         return False
 
 
 @admin.register(AnalysisRun)
 class AnalysisRunAdmin(admin.ModelAdmin):
-    """Read-only. Operators read analyses in the console."""
-
     list_display = ["created_at", "provider", "status", "total_tokens"]
     exclude = ["provider_config"]
-
-    def has_add_permission(self, request, obj=None):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
+    raw_id_fields = ["incident"]

@@ -15,7 +15,7 @@ class MonitoringAdminSite(AdminSite):
 
 
 class APIKeyAdmin(admin.ModelAdmin):
-    """Read-only. Operators edit API keys in the console."""
+    """The raw token is shown once, by the console's create page, so only the console adds a key."""
 
     list_display = ["name", "masked_key", "is_active", "created_at", "last_used_at"]
     exclude = ["key"]
@@ -24,11 +24,5 @@ class APIKeyAdmin(admin.ModelAdmin):
     def masked_key(self, obj):
         return f"{obj.prefix}***"
 
-    def has_add_permission(self, request, obj=None):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
+    def has_add_permission(self, request):
         return False

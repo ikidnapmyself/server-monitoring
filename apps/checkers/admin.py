@@ -1,4 +1,4 @@
-"""Admin configuration for checkers models."""
+"""Break-glass admin for checkers models. Operators work in the console."""
 
 from django.contrib import admin
 
@@ -7,31 +7,10 @@ from apps.checkers.models import CheckRun, PreflightRun
 
 @admin.register(CheckRun)
 class CheckRunAdmin(admin.ModelAdmin):
-    """Read-only. Operators read check runs in the console."""
-
     list_display = ["checker_name", "hostname", "status", "executed_at"]
-
-    def has_add_permission(self, request, obj=None):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
+    raw_id_fields = ["alert"]
 
 
 @admin.register(PreflightRun)
 class PreflightRunAdmin(admin.ModelAdmin):
-    """Read-only. Operators read preflight runs in the console."""
-
     list_display = ["created_at", "overall_status", "passed", "warnings", "errors"]
-
-    def has_add_permission(self, request, obj=None):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False

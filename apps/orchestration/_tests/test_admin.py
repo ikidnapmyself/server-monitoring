@@ -97,48 +97,6 @@ class TestPipelineRunAdminFilters(SimpleTestCase):
         self.assertIn("status", list_display)
 
 
-class TestInboxAdmin(SimpleTestCase):
-    """InboxAdmin monitors PENDING/PROCESSING runs with drain/reclaim actions."""
-
-    def _admin(self):
-        from apps.orchestration.admin import InboxAdmin
-        from apps.orchestration.models import InboxItem
-
-        return InboxAdmin(InboxItem, admin.site)
-
-    def test_inbox_item_is_registered(self):
-        from apps.orchestration.models import InboxItem
-
-        self.assertTrue(admin.site.is_registered(InboxItem))
-
-    def test_no_add_permission(self):
-        self.assertFalse(self._admin().has_add_permission(request=None))
-
-    def test_ordering_is_oldest_first(self):
-        self.assertEqual(self._admin().ordering, ["created_at"])
-
-    def test_list_display_columns(self):
-        list_display = self._admin().list_display
-        for col in ("run_id", "status", "origin", "node", "created_at", "updated_at"):
-            self.assertIn(col, list_display)
-
-
-class TestInboxAdminQueryset(TestCase):
-    """InboxAdmin.get_queryset returns only inbox items (via the proxy manager)."""
-
-    def test_get_queryset_filters_to_inbox(self):
-        from unittest.mock import MagicMock
-
-        from apps.orchestration.admin import InboxAdmin
-        from apps.orchestration.models import InboxItem, PipelineRun, PipelineStatus
-
-        PipelineRun.objects.create(trace_id="t", run_id="pend", status=PipelineStatus.PENDING)
-        PipelineRun.objects.create(trace_id="t", run_id="done", status=PipelineStatus.NOTIFIED)
-        admin_obj = InboxAdmin(InboxItem, admin.site)
-        qs = admin_obj.get_queryset(MagicMock())
-        self.assertEqual(list(qs.values_list("run_id", flat=True)), ["pend"])
-
-
 class TestPipelineRunChangePageRendersCrossLinks(TestCase):
     """The PipelineRun change page actually renders the node + incident links."""
 
@@ -169,16 +127,24 @@ class TestPipelineRunChangePageRendersCrossLinks(TestCase):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("model", [PipelineRun, StageExecution, InboxItem])
-def test_run_admins_are_stock_and_read_only(model, rf, admin_user):
+@pytest.mark.parametrize("model", [PipelineRun, StageExecution, PipelineDefinition])
+def test_the_orchestration_admins_are_editable(model, rf, admin_user):
     model_admin = admin.site._registry[model]
     request = rf.get("/")
     request.user = admin_user
-    assert not model_admin.has_add_permission(request)
-    assert not model_admin.has_change_permission(request)
-    assert not model_admin.has_delete_permission(request)
-    assert not model_admin.get_actions(request)
-    assert not hasattr(model_admin, "change_actions")
+    assert model_admin.has_add_permission(request)
+    assert model_admin.has_change_permission(request)
+    assert model_admin.has_delete_permission(request)
+    assert "delete_selected" in model_admin.get_actions(request)
+
+
+def test_the_inbox_is_not_registered():
+    assert not admin.site.is_registered(InboxItem)
+
+
+def test_run_foreign_keys_are_raw_ids():
+    assert admin.site._registry[PipelineRun].raw_id_fields == ["node", "incident"]
+    assert admin.site._registry[StageExecution].raw_id_fields == ["pipeline_run"]
 
 
 @pytest.mark.django_db
@@ -189,14 +155,8 @@ def test_a_run_change_page_still_opens(admin_client):
 
 
 @pytest.mark.django_db
-def test_the_route_admin_is_stock_and_read_only(admin_client, rf, admin_user):
+def test_the_route_changelist_lists_routes(admin_client):
     PipelineDefinition.objects.create(name="listed", match=[], priority=7)
-    model_admin = admin.site._registry[PipelineDefinition]
-    request = rf.get("/")
-    request.user = admin_user
-    assert not model_admin.has_add_permission(request)
-    assert not model_admin.has_change_permission(request)
-    assert not model_admin.has_delete_permission(request)
     response = admin_client.get(reverse("admin:orchestration_pipelinedefinition_changelist"))
     assert response.status_code == 200
     assert "listed" in response.content.decode()
