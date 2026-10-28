@@ -30,7 +30,10 @@ def _refused(resp):
     assert resp.templates[0].name == "console/not_superuser.html"
     assert f">{HEADING}</h1>" in body
     assert 'class="c-unav"' not in body
-    assert f'<form id="not-superuser-sign-out" method="post" action="{logout}">' in body
+    assert (
+        f'<form id="not-superuser-sign-out" class="c-section" method="post" action="{logout}">'
+        in body
+    )
     assert body.count(f'action="{logout}"') == 2
 
 
