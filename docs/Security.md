@@ -548,10 +548,13 @@ Operators act on incidents, runs and the inbox, and edit routes and channels, in
 (`/console/`). The Django admin (`/admin/`) keeps the rest of the configuration, and its
 incident, alert, run, inbox, route and channel pages are read-only:
 
-- Both are protected by Django's built-in staff/superuser authentication
+- The console admits active superusers only (`admits()` in `apps/console/views/base.py`). A
+  signed-in user who isn't one gets a 403 page with a way to sign out, and every page and
+  action, including acknowledge, resolve, retry and drain, sits behind that one check.
+- `/admin/` is deprecated. It keeps Django's staff authentication as on main, so
+  non-superuser staff can still sign into it, but the console refuses them. It goes away
+  once the console takes over login and user management.
 - Custom `MonitoringAdminSite` inherits all default auth protections
-- Console actions (acknowledge, resolve, retry, drain) require active staff access plus the
-  model's change permission
 
 ## Reporting Vulnerabilities
 
@@ -563,7 +566,7 @@ Mapping derived from the [2026-05-12 ISO 27003 audit](plans/2026-05-12-iso-27003
 
 | Control | Title | Codebase mitigation |
 |---|---|---|
-| A.5.15 | Access control | `config/middleware/api_key_auth.py` (per-endpoint API keys, `allowed_endpoints` allowlists); Django staff/superuser auth on `/admin/` |
+| A.5.15 | Access control | `config/middleware/api_key_auth.py` (per-endpoint API keys, `allowed_endpoints` allowlists); Django staff/superuser auth on `/admin/`; superusers only on `/console/` |
 | A.5.17 | Authentication information | `APIKey` model: `secrets.token_hex(20)` raw, SHA-256 digest at rest, never re-displayed; `DJANGO_SECRET_KEY` env-only with startup check; agents authenticate to the hub with `HUB_API_KEY` (Bearer) |
 | A.5.23 | Information security for use of cloud services | `validate_safe_url` on intelligence-provider base URLs; `BLOCKED_CONFIG_KEYS` filter on API-callable provider config |
 | A.8.2 | Privileged access rights | `bin/` toolchain confirmed not to grant sudo or install setuid; Django admin actions gated by `is_staff` |

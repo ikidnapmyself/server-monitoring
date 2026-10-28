@@ -120,7 +120,7 @@ migration `0018`) so the hub can page about itself. See
 
 ### Describers
 
-Nothing stores display text. Each app describes its own output when it's read, as a `Description` from `config/describing.py`: a headline, a tone, an optional detail and action, and facts. Checkers describe their results through `BaseChecker.describe`, using each checker's `label` and `problem`. `apps/alerts/describing.py` describes alerts and incidents, so an incident's headline ("High CPU usage on web-1") comes from its lead alert and node, not from a column. Each stage describes what it stored: `apps/checkers/describing.py` for check results, `apps/orchestration/describing.py` for runs and stage outcomes, `apps/intelligence/describing.py` for analyses and `apps/notify/describing.py` for deliveries. A failed run leads with its reason from the `REASONS` registry, such as "no route matches this incident", and a failed call to an outside service leads with its kind from `config/failures.py`, such as an expired API key or a rate limit. Readiness faults come from `config/dashboard.py` the same way. The console, the admin and notifications render these descriptions and never decode raw rows. An action names an intent, and the console's `apps/console/intents.py` resolves it to a link or a button the viewer has permission for. It is the one place in the console that builds an admin URL. Identifiers, error text and raw JSON stay in a Details disclosure.
+Nothing stores display text. Each app describes its own output when it's read, as a `Description` from `config/describing.py`: a headline, a tone, an optional detail and action, and facts. Checkers describe their results through `BaseChecker.describe`, using each checker's `label` and `problem`. `apps/alerts/describing.py` describes alerts and incidents, so an incident's headline ("High CPU usage on web-1") comes from its lead alert and node, not from a column. Each stage describes what it stored: `apps/checkers/describing.py` for check results, `apps/orchestration/describing.py` for runs and stage outcomes, `apps/intelligence/describing.py` for analyses and `apps/notify/describing.py` for deliveries. A failed run leads with its reason from the `REASONS` registry, such as "no route matches this incident", and a failed call to an outside service leads with its kind from `config/failures.py`, such as an expired API key or a rate limit. Readiness faults come from `config/dashboard.py` the same way. The console, the admin and notifications render these descriptions and never decode raw rows. An action names an intent, and the console's `apps/console/intents.py` resolves it to a link or a button. It is the one place in the console that builds an admin URL. Only active superusers reach the console, so no link depends on the viewer's permissions. Identifiers, error text and raw JSON stay in a Details disclosure.
 
 ### Stage Configuration
 
@@ -218,16 +218,13 @@ traffic: **Off**, **Never matches** (a malformed match), or **Never reached** (a
 earlier route provably matches everything this one would, and is named). A delivery
 line mirrors `delivery_gap()` 1:1: delivers to a channel, records only (no `notify`
 stage), or can't deliver (no active channel, or a driver this hub doesn't have).
-The map returns `Action`s, never URLs. A reader with `view_pipelinedefinition`
-sees the page. The edit links need `change_pipelinedefinition`.
+The map returns `Action`s, never URLs.
 
-`/console/routes/<pk>/` edits one route and `/console/routes/new/` adds one (it needs
-`add_pipelinedefinition`). Conditions are rows: field, rule and value, all of which must
+`/console/routes/<pk>/` edits one route and `/console/routes/new/` adds one. Conditions are rows: field, rule and value, all of which must
 hold. A save carries the version it opened, and `save_route` writes only if the route is
 still at that version, so a route changed in between answers 409 with its fresh values. A
 stored match the rows can't reproduce is kept as it is unless the operator ticks "Replace
-them". A reader with only `view_pipelinedefinition` sees the same form, disabled. Tags stay
-out of the form and show in Details. `/console/routes/<pk>/delete/` confirms first and
+them". Tags stay out of the form and show in Details. `/console/routes/<pk>/delete/` confirms first and
 says where the route's traffic goes.
 
 #### Channels
@@ -260,9 +257,7 @@ A row that can be scored also carries a **Re-evaluate** button. It scopes the co
 re-evaluate page to that one checker. The page itself writes nothing: it reads `Node.config` through
 `apps.alerts.node_policy.build_effective_policy`, scores firing alerts with the same
 `_outcome_for` the confirm preview uses, and reads `AlertHistory` for the applied
-column, in three queries that do not grow with the node count. Access is
-`alerts.view_node` or `change_node`. Only `change_node` gets the edit and re-evaluate
-links.
+column, in three queries that do not grow with the node count.
 
 ## Pipeline Execution
 
