@@ -3,7 +3,6 @@ from datetime import timedelta
 from html.parser import HTMLParser
 
 import pytest
-from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
 
@@ -146,33 +145,6 @@ def _busy(suffix=""):
 
 def test_the_page_lives_under_the_list():
     assert reverse("console:incident", args=[7]) == "/console/incidents/7/"
-
-
-@pytest.mark.django_db
-def test_anonymous_is_sent_to_the_admin_login(client):
-    resp = client.get("/console/incidents/7/")
-
-    assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next=/console/incidents/7/"
-
-
-@pytest.mark.django_db
-def test_anonymous_htmx_request_is_told_to_do_a_full_redirect(client):
-    resp = client.get("/console/incidents/7/", **HTMX)
-
-    assert resp.status_code == 204
-    assert resp["HX-Redirect"] == f"{reverse('admin:login')}?next=/console/incidents/7/"
-
-
-@pytest.mark.django_db
-def test_a_plain_user_is_refused(client):
-    client.force_login(get_user_model().objects.create_user("visitor", password="x"))
-    incident = Incident.objects.create()
-
-    resp = client.get(_url(incident))
-
-    assert resp.status_code == 403
-    assert "secret" not in resp.content.decode()
 
 
 @pytest.mark.django_db

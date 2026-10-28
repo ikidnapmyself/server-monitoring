@@ -294,3 +294,13 @@ def test_overview_without_a_channel_leaks_nothing(client, superuser):
 
     _assert_no_leak("/console/", text)
     assert "No active channel, 3 routes can't deliver" in text
+
+
+@pytest.mark.django_db
+def test_the_refusal_page_leaks_nothing(client, active_staff):
+    build_world()
+
+    response = client.get("/console/")
+
+    assert response.status_code == 403
+    _assert_no_leak("/console/", visible(response.content.decode()))

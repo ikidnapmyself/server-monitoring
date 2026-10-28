@@ -20,7 +20,7 @@
       </form>
     </div>
   </header>
-  <nav class="c-unav" aria-label="Console">
+  {% block nav %}<nav class="c-unav" aria-label="Console">
     <div class="c-unav__list">
       <a class="c-unav__item" href="{% url 'console:overview' %}"{% if nav == "overview" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="pulse" %}<span>Overview</span></a>
       <a class="c-unav__item" href="{% url 'console:incidents' %}"{% if nav == "incidents" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="issue-opened" %}<span>Incidents</span></a>
@@ -28,10 +28,10 @@
       <a class="c-unav__item" href="{% url 'console:runs' %}"{% if nav == "runs" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="workflow" %}<span>Runs</span></a>
       <a class="c-unav__item" href="{% url 'console:inbox' %}"{% if nav == "inbox" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="clock" %}<span>Inbox</span></a>
       <a class="c-unav__item" href="{% url 'console:nodes' %}"{% if nav == "nodes" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="server" %}<span>Nodes</span></a>
-      {% include "console/partials/_reports_item.html" with name="console:reports" %}
-      {% include "console/partials/_system_item.html" with name="console:routes" %}
+      <a class="c-unav__item" href="{% url 'console:reports' %}"{% if nav == "reports" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="graph" %}<span>Reports</span></a>
+      <a class="c-unav__item" href="{% url 'console:routes' %}"{% if nav == "system" %} aria-current="page"{% endif %}>{% include "console/partials/_octicon.html" with name="gear" %}<span>System</span></a>
     </div>
-  </nav>
+  </nav>{% endblock %}
   <main class="c-main">
     <p id="c-banner" class="c-flash c-tone-warning" role="status" hidden data-refresh-text="Couldn't refresh. Showing the last data that loaded." data-action-text="That action may not have gone through. Reloading the current state.">
       Couldn't refresh. Showing the last data that loaded.

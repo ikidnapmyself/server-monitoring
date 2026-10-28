@@ -2,7 +2,6 @@ import re
 from datetime import timedelta
 
 import pytest
-from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
 
@@ -63,16 +62,6 @@ def test_anonymous_htmx_request_is_told_to_do_a_full_redirect(client, url):
 
     assert resp.status_code == 204
     assert resp["HX-Redirect"] == f"{reverse('admin:login')}?next=/console/incidents/"
-
-
-@pytest.mark.django_db
-def test_a_plain_user_is_refused(client, url):
-    client.force_login(get_user_model().objects.create_user("visitor", password="x"))
-
-    resp = client.get(url)
-
-    assert resp.status_code == 403
-    assert "Superusers only" in resp.content.decode()
 
 
 @pytest.mark.django_db

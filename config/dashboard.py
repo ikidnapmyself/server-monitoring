@@ -355,8 +355,9 @@ def keyed_readiness() -> tuple[tuple[str, Description], ...]:
 def _row(row, user) -> dict:
     """A Reports row as the dashboard template reads it. No url when the user can't open it."""
     from apps.console.intents import resolve_action
+    from apps.console.views.base import admits
 
-    url = resolve_action(row.link).url if user.is_active and user.is_superuser else ""
+    url = resolve_action(row.link).url if admits(user) else ""
     return {"label": row.label, "count": row.count, "url": url}
 
 

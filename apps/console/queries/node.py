@@ -110,19 +110,16 @@ def _plural(count: int, noun: str) -> str:
     return f"{count} {noun}{'s' if count != 1 else ''}"
 
 
-def _policy(
-    node: Node,
-) -> tuple[tuple[PolicyLine, ...], tuple[PolicyLine, ...], tuple[Fact, ...]]:
+def _policy(node: Node) -> tuple[tuple[PolicyLine, ...], tuple[PolicyLine, ...], tuple[Fact, ...]]:
     policy = build_effective_policy(node)
 
     def line(section: PolicySection, note: str) -> PolicyLine:
-        edit = Action("Edit", "edit_node_policy", {"pk": node.pk, "checker": section.checker})
         return PolicyLine(
             key=section.checker,
             label=section.title,
             values=tuple(f"{value.label} {value.value}" for value in section.values),
             note=note,
-            edit=edit,
+            edit=Action("Edit", "edit_node_policy", {"pk": node.pk, "checker": section.checker}),
         )
 
     return (

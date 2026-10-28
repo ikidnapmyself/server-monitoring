@@ -3,8 +3,6 @@ from datetime import timedelta
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from django.contrib.auth import get_user_model
-from django.test import RequestFactory
 from django.urls import reverse
 from django.utils import timezone
 
@@ -12,40 +10,9 @@ from apps.alerts.models import Alert, Incident, Node
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console._tests.views.test_incident import named_incident
 from apps.console.queries import overview as overview_queries
-from apps.console.views.overview import OverviewView
 from config.describing import Action, Description
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
-
-
-@pytest.mark.django_db
-def test_anonymous_is_sent_to_the_admin_login(client):
-    resp = client.get(reverse("console:overview"))
-
-    assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next=/console/"
-
-
-@pytest.mark.django_db
-def test_a_plain_user_is_refused(client):
-    user = get_user_model().objects.create_user("visitor", password="x")
-    client.force_login(user)
-
-    resp = client.get(reverse("console:overview"))
-
-    assert resp.status_code == 403
-    assert "Superusers only" in resp.content.decode()
-
-
-@pytest.mark.django_db
-def test_inactive_staff_is_refused_by_the_view_itself():
-    request = RequestFactory().get("/console/")
-    request.user = get_user_model()(username="gone", is_staff=True, is_active=False)
-
-    resp = OverviewView.as_view()(request)
-
-    assert resp.status_code == 403
-    assert "Superusers only" in resp.content.decode()
 
 
 @pytest.mark.django_db
@@ -83,14 +50,6 @@ def test_htmx_request_that_swaps_the_body_gets_the_full_page(client, superuser, 
     assert resp.status_code == 200
     assert "<html" in resp.content.decode()
     assert resp.templates[0].name == "console/overview.html"
-
-
-@pytest.mark.django_db
-def test_anonymous_htmx_request_is_told_to_do_a_full_redirect(client):
-    resp = client.get(reverse("console:overview"), **HTMX)
-
-    assert resp.status_code == 204
-    assert resp["HX-Redirect"] == f"{reverse('admin:login')}?next=/console/"
 
 
 def _next_after_login(client, current_url):

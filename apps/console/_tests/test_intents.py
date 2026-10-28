@@ -45,23 +45,19 @@ def test_every_emitted_intent_is_known():
     assert emitted_intents() <= set(INTENTS)
 
 
-@pytest.mark.django_db
 def test_unknown_intent_is_text():
     assert resolve_action(Action("Do it", intent="nope")) == ResolvedAction("Do it")
 
 
-@pytest.mark.django_db
 def test_no_intent_is_text():
     assert resolve_action(Action("Just words")) == ResolvedAction("Just words")
 
 
-@pytest.mark.django_db
 def test_a_known_intent_is_a_link():
     resolved = resolve_action(Action("Fix", intent="edit_channel"))
     assert resolved == ResolvedAction("Fix", "/console/channels/", "get")
 
 
-@pytest.mark.django_db
 def test_named_channel_is_searched():
     action = Action("Fix", intent="edit_channel", params={"name": "ops & on-call"})
     resolved = resolve_action(action)
@@ -77,25 +73,21 @@ def test_post_intent(intent):
     assert resolved.url == f"/console/incidents/{incident.pk}/{intent}/"
 
 
-@pytest.mark.django_db
 def test_open_url_is_a_link():
     action = Action("Open the runbook", intent="open_url", params={"url": "https://x.test/rb"})
     assert resolve_action(action) == ResolvedAction("Open the runbook", "https://x.test/rb", "get")
 
 
-@pytest.mark.django_db
 @pytest.mark.parametrize("url", ["javascript:alert(1)", "//evil.test", "data:text/html,x"])
 def test_open_url_rejects_non_http(url):
     action = Action("Open", intent="open_url", params={"url": url})
     assert resolve_action(action) == ResolvedAction("Open")
 
 
-@pytest.mark.django_db
 def test_missing_param_is_text():
     assert resolve_action(Action("Node", intent="view_node")) == ResolvedAction("Node")
 
 
-@pytest.mark.django_db
 def test_unreversible_is_text(monkeypatch):
     from django.urls import reverse
 
@@ -103,14 +95,12 @@ def test_unreversible_is_text(monkeypatch):
     assert resolve_action(Action("Gone", intent="gone")) == ResolvedAction("Gone")
 
 
-@pytest.mark.django_db
 def test_query_params_are_encoded():
     action = Action("Inbox", intent="view_inbox", params={"status": "a&b"})
     resolved = resolve_action(action)
     assert resolved.url == "/console/inbox/?status=a%26b"
 
 
-@pytest.mark.django_db
 @pytest.mark.parametrize(
     ("intent", "params", "url"),
     [
@@ -124,7 +114,6 @@ def test_report_intents_point_at_the_console(intent, params, url):
     assert resolved == ResolvedAction("Go", url, "get")
 
 
-@pytest.mark.django_db
 @pytest.mark.parametrize(
     ("intent", "params", "url"),
     [
@@ -137,7 +126,6 @@ def test_alert_intents_point_at_the_console(intent, params, url):
     assert resolved == ResolvedAction("Go", url, "get")
 
 
-@pytest.mark.django_db
 @pytest.mark.parametrize(
     ("intent", "url", "method"),
     [
@@ -153,7 +141,6 @@ def test_run_intents_point_at_the_console(intent, url, method):
     assert resolved == ResolvedAction("Go", url, method)
 
 
-@pytest.mark.django_db
 @pytest.mark.parametrize(
     ("intent", "params", "url"),
     [
@@ -170,14 +157,12 @@ def test_route_intents_point_at_the_route_pages(intent, params, url):
     assert resolved == ResolvedAction("Go", url, "get")
 
 
-@pytest.mark.django_db
 def test_a_channel_named_by_pk_and_name_opens_its_page():
     action = Action("Open ops", intent="edit_channel", params={"pk": 7, "name": "ops"})
     resolved = resolve_action(action)
     assert resolved.url == "/console/channels/7/"
 
 
-@pytest.mark.django_db
 def test_view_channel_opens_a_channel_by_name_or_pk():
     go = Action("Go", intent="view_channel", params={"name": "ops"})
     assert resolve_action(go).url == "/console/channels/?q=ops"
@@ -185,12 +170,10 @@ def test_view_channel_opens_a_channel_by_name_or_pk():
     assert resolve_action(view).url == "/console/channels/7/"
 
 
-@pytest.mark.django_db
 def test_add_channel_opens_the_driver_picker():
-    assert resolve_action(Action("Add", intent="add_channel")).url == ("/console/channels/new/")
+    assert resolve_action(Action("Add", intent="add_channel")).url == "/console/channels/new/"
 
 
-@pytest.mark.django_db
 @pytest.mark.parametrize(
     ("intent", "params", "url", "method"),
     [
@@ -205,7 +188,6 @@ def test_inbox_intents_point_at_the_console(intent, params, url, method):
     assert resolved == ResolvedAction("Go", url, method)
 
 
-@pytest.mark.django_db
 @pytest.mark.parametrize(
     ("intent", "params", "url", "method"),
     [
@@ -277,13 +259,11 @@ def _render(action):
     return template.render(Context({"action": action}))
 
 
-@pytest.mark.django_db
 def test_tag_resolves_the_action():
     rendered = _render(Action("Fix", intent="edit_route"))
     assert rendered == "get|/console/routes/"
 
 
-@pytest.mark.django_db
 def test_tag_passes_over_no_action():
     assert _render(None) == "none"
 
@@ -328,33 +308,15 @@ def test_the_list_intents_are_gone():
     assert not {"view_routes", "view_channels"} & set(INTENTS)
 
 
-@pytest.mark.django_db
 @pytest.mark.parametrize(
     ("intent", "params", "url"),
     [
         ("view_provider", {}, "/console/providers/"),
-        (
-            "view_provider",
-            {"pk": 7},
-            "/console/providers/7/",
-        ),
-        (
-            "view_provider",
-            {"pk": 7},
-            "/console/providers/7/",
-        ),
+        ("view_provider", {"pk": 7}, "/console/providers/7/"),
         ("edit_provider", {}, "/console/providers/"),
-        (
-            "edit_provider",
-            {"pk": 7},
-            "/console/providers/7/",
-        ),
+        ("edit_provider", {"pk": 7}, "/console/providers/7/"),
         ("add_provider", {}, "/console/providers/new/"),
-        (
-            "delete_provider",
-            {"pk": 7},
-            "/console/providers/7/delete/",
-        ),
+        ("delete_provider", {"pk": 7}, "/console/providers/7/delete/"),
     ],
 )
 def test_the_provider_intents_point_at_the_provider_pages(intent, params, url):
@@ -363,12 +325,10 @@ def test_the_provider_intents_point_at_the_provider_pages(intent, params, url):
     )
 
 
-@pytest.mark.django_db
 @pytest.mark.parametrize(
     ("intent", "params", "url"),
     [
         ("view_key", {}, "/console/keys/"),
-        ("view_key", {"pk": 7}, "/console/keys/7/"),
         ("view_key", {"pk": 7}, "/console/keys/7/"),
         ("edit_key", {"pk": 7}, "/console/keys/7/"),
         ("add_key", {}, "/console/keys/new/"),
