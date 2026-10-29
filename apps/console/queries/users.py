@@ -27,7 +27,7 @@ class UserRow:
     def label(self) -> str:
         if not self.active:
             return "Inactive"
-        return "Active" if self.superuser else "Can't sign in"
+        return "Active" if self.superuser else "Not a superuser"
 
     @property
     def tone(self) -> str:
@@ -37,7 +37,7 @@ class UserRow:
 
     @property
     def promote(self) -> Action | None:
-        if self.superuser:
+        if self.superuser or not self.active:
             return None
         return Action("Make superuser", "make_superuser", {"pk": self.pk})
 

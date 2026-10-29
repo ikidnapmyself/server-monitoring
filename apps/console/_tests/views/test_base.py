@@ -6,8 +6,8 @@ from django.contrib.auth.models import AnonymousUser
 from django.urls import reverse
 
 from apps.alerts.models import Incident, Node
+from apps.console.access import admits
 from apps.console.views import OverviewView
-from apps.console.views.base import admits
 from apps.orchestration.models import PipelineRun
 
 HTMX = {"HTTP_HX_REQUEST": "true"}

@@ -18,7 +18,12 @@ DEFAULT_RATE_LIMITS = {
     "/notify/": 30,
     "/intelligence/": 20,
     "/console/login/": 10,
+    "/admin/login/": 10,
 }
+
+# The admin login takes the same superuser credentials as the console's, so it is
+# counted although the rest of /admin/ is exempt.
+COUNTED_DESPITE_EXEMPTION = ("/admin/login/",)
 
 
 class RateLimitMiddleware:
@@ -37,7 +42,9 @@ class RateLimitMiddleware:
 
         path = request.path
 
-        if any(path.startswith(p) for p in EXEMPT_PATH_PREFIXES):
+        if any(path.startswith(p) for p in EXEMPT_PATH_PREFIXES) and not path.startswith(
+            COUNTED_DESPITE_EXEMPTION
+        ):
             return self.get_response(request)
 
         if request.method == "GET":

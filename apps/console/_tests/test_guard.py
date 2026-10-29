@@ -266,7 +266,7 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "of runs finished",
         "Top failure reasons, last 7 days",
         "Other failures",
-        "Can't sign in",
+        "Not a superuser",
         "Never signed in",
         "Make superuser",
     ):

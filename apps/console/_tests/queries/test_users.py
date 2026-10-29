@@ -59,22 +59,22 @@ def test_an_inactive_superuser_row():
     assert row.promote is None
 
 
-def test_a_user_who_isnt_a_superuser_cant_sign_in_and_can_be_promoted():
+def test_an_active_user_who_isnt_a_superuser_can_be_promoted():
     user = _user("staff", is_staff=True)
 
     (row,) = build_user_list().rows
 
-    assert (row.label, row.tone) == ("Can't sign in", "warning")
+    assert (row.label, row.tone) == ("Not a superuser", "warning")
     assert row.promote == Action("Make superuser", "make_superuser", {"pk": user.pk})
 
 
-def test_an_inactive_user_who_isnt_a_superuser_reads_inactive():
+def test_an_inactive_user_who_isnt_a_superuser_reads_inactive_and_isnt_promoted():
     _user("gone", is_active=False)
 
     (row,) = build_user_list().rows
 
     assert (row.label, row.tone) == ("Inactive", "muted")
-    assert row.promote is not None
+    assert row.promote is None
 
 
 def test_the_list_carries_the_add_action():

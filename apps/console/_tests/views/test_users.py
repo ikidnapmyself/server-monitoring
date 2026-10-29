@@ -57,7 +57,7 @@ def test_users_render_by_username_with_name_email_sign_in_and_state(client, supe
     assert "Never signed in" in body
     assert '<span class="c-label c-tone-ok">Active</span>' in body
     assert '<span class="c-label c-tone-muted">Inactive</span>' in body
-    assert '<span class="c-label c-tone-warning">Can&#x27;t sign in</span>' in body
+    assert '<span class="c-label c-tone-warning">Not a superuser</span>' in body
     assert body.count("Make superuser") == 1
     assert "Add a user" in body
     assert not [label for label, rule in FORBIDDEN.items() if rule.search(body)]
