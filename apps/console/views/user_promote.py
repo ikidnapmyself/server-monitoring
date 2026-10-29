@@ -8,7 +8,7 @@ from apps.console.views.user import user_not_found
 
 
 class UserPromoteView(ConsoleView):
-    """Make one user a superuser, so they can sign in to the console. POST only."""
+    """Make one active user a superuser, so they can sign in to the console. POST only."""
 
     http_method_names = ["post", "options"]
 
@@ -16,8 +16,12 @@ class UserPromoteView(ConsoleView):
         return reverse("console:user", args=[self.kwargs["pk"]])
 
     def post(self, request, *args, **kwargs):
-        username = make_superuser(kwargs["pk"])
-        if username is None:
+        outcome = make_superuser(kwargs["pk"])
+        if outcome is None:
             return user_not_found(request)
-        messages.success(request, f"{username} is now a superuser.")
+        username, refusal = outcome
+        if refusal:
+            messages.warning(request, refusal)
+        else:
+            messages.success(request, f"{username} is now a superuser.")
         return HttpResponseRedirect(self.landing_path(), status=303)

@@ -1,8 +1,9 @@
 from django.contrib import messages
+from django.db import IntegrityError, OperationalError
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 
-from apps.console.queries.users import build_user_deletion, delete_user
+from apps.console.queries.users import build_user_deletion, delete_user, user_name
 from apps.console.views.base import ConsoleView
 from apps.console.views.user import user_not_found
 
@@ -24,14 +25,21 @@ class UserDeleteView(ConsoleView):
         return self.render_to_response(context)
 
     def post(self, request, *args, **kwargs):
-        deletion = build_user_deletion(request.user, kwargs["pk"])
-        if deletion is None:
+        username = user_name(kwargs["pk"])
+        if username is None:
             return user_not_found(request)
-        refusal = delete_user(request.user, deletion.pk)
+        back = HttpResponseRedirect(self.landing_path(), status=303)
+        try:
+            refusal = delete_user(request.user, kwargs["pk"])
+        except (IntegrityError, OperationalError):
+            messages.warning(
+                request, f"Couldn't delete {username} just now. Nothing was deleted, so try again."
+            )
+            return back
         if refusal is None:
             return user_not_found(request)
         if refusal:
             messages.warning(request, refusal)
-            return HttpResponseRedirect(deletion.back_url, status=303)
-        messages.success(request, f"User {deletion.username} deleted.")
+            return back
+        messages.success(request, f"User {username} deleted.")
         return HttpResponseRedirect(reverse("console:users"), status=303)

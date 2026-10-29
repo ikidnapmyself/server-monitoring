@@ -231,7 +231,8 @@ pipeline stage and not an alert producer.
   and Active, and a successful save redirects back to the page with a message.
   `/console/users/<pk>/password/` sets a password, and setting your own keeps you signed
   in through `update_session_auth_hash`. `/console/users/<pk>/make-superuser/` is POST
-  only. `/console/users/<pk>/delete/` confirms first and says when the user last signed
+  only, and `make_superuser` refuses an inactive user or one already a superuser with a
+  warning and no write. `/console/users/<pk>/delete/` confirms first and says when the user last signed
   in.
 - **Two guards keep the console reachable.** `removal_refusal(actor, user, verb)` in
   `queries/users.py` is the one rule for deactivating and deleting, shared by
@@ -241,10 +242,14 @@ pipeline stage and not an alert producer.
   "You can't delete your own account.". The order matters, because the actor is always an
   active superuser, so checking self first would hide the last-superuser rule. It locks
   the other active superusers with `select_for_update()`, so the caller holds the lock
-  until its write commits and two removals can't both pass. A refused edit re-renders the
+  until its write commits and two removals can't both pass. Only that locked call, inside
+  the writing transaction, decides. The user page and the delete page call it with
+  `lock=False` to show or hide a button, take no lock and open no transaction, so their
+  answer is advisory. A refused edit re-renders the
   fresh user with the reason as a `Notice` and status 409. A refused delete shows the
   reason and no button on GET, and on POST gives a warning message and a 303 to the
-  user's page.
+  user's page. A busy or locked database on delete gets the same 303 with a warning that
+  nothing was deleted.
 - **Fleet policy** (`/console/policy/`) renders `build_policy_overview`. Its edit and
   re-evaluate links are intents.
 - **A missing record gets a console 404 page** with a link onward, returned with status

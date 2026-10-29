@@ -4,6 +4,7 @@ from unittest import mock
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
+from django.db import IntegrityError, OperationalError
 from django.urls import reverse
 from django.utils import timezone
 
@@ -122,3 +123,21 @@ def test_htmx_gets_the_confirmation_without_the_layout(client, superuser, amy):
     resp = client.get(_url(amy), HTTP_HX_REQUEST="true")
 
     assert resp.templates[0].name == "console/partials/_user_delete.html"
+
+
+@pytest.mark.parametrize("error", [OperationalError("locked"), IntegrityError("constraint")])
+def test_a_busy_database_deletes_nothing_and_says_so(client, superuser, amy, error):
+    with mock.patch("apps.console.views.user_delete.delete_user", side_effect=error):
+        resp = client.post(_url(amy))
+
+    assert resp.status_code == 303
+    assert resp["Location"] == reverse("console:user", args=[amy.pk])
+    assert _messages(resp) == ["Couldn't delete amy just now. Nothing was deleted, so try again."]
+    assert User.objects.filter(pk=amy.pk).exists()
+
+
+def test_a_post_checks_the_guard_once(client, superuser, amy):
+    with mock.patch("apps.console.queries.users.removal_refusal", return_value="") as refusal:
+        client.post(_url(amy))
+
+    assert refusal.call_count == 1

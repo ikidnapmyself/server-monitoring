@@ -160,7 +160,7 @@ def build_user_editor(pk: int | None, data=None, *, actor=None) -> UserEditor | 
             Fact("Last signed in", _when(user.last_login) if user.last_login else "Never"),
         ),
         promotable=user.is_active and not user.is_superuser,
-        deletable=actor is not None and not removal_refusal(actor, user, "delete"),
+        deletable=actor is not None and not removal_refusal(actor, user, "delete", lock=False),
     )
 
 
@@ -172,7 +172,7 @@ def build_user_deletion(actor, pk: int) -> UserDeletion | None:
         pk=user.pk,
         username=user.username,
         last_login=user.last_login,
-        refusal=removal_refusal(actor, user, "delete"),
+        refusal=removal_refusal(actor, user, "delete", lock=False),
         url=reverse("console:user-delete", args=[user.pk]),
         back_url=reverse("console:user", args=[user.pk]),
     )
@@ -191,22 +191,32 @@ def build_password_editor(pk: int, data=None) -> PasswordEditor | None:
     )
 
 
-def removal_refusal(actor, user, verb: str) -> str:
+def user_name(pk: int) -> str | None:
+    return get_user_model().objects.filter(pk=pk).values_list("username", flat=True).first()
+
+
+def removal_refusal(actor, user, verb: str, *, lock: bool = True) -> str:
     """Why ``actor`` can't ``verb`` ``user`` ("deactivate" or "delete"), or "" when they can.
 
-    Call it inside the transaction that writes, so the superuser rows stay locked until the
-    write lands and two removals can't both see another superuser left.
+    Only the locked call, inside the transaction that writes, decides. It keeps the other
+    superuser rows locked until the write lands, so two removals can't both see another
+    superuser left. A page that only shows or hides a button passes ``lock=False``, takes no
+    lock and opens no transaction, and its answer is advisory.
     """
     if admits(user):
-        with transaction.atomic():
-            others = (
-                get_user_model()
-                .objects.select_for_update()
-                .filter(is_active=True, is_superuser=True)
-                .exclude(pk=user.pk)
-            )
-            if not list(others.values_list("pk", flat=True)):
-                return LAST_SUPERUSER
+        others = (
+            get_user_model()
+            .objects.filter(is_active=True, is_superuser=True)
+            .exclude(pk=user.pk)
+            .values_list("pk", flat=True)
+        )
+        if lock:
+            with transaction.atomic():
+                remaining = bool(list(others.select_for_update()))
+        else:
+            remaining = others.exists()
+        if not remaining:
+            return LAST_SUPERUSER
     if user.pk == actor.pk:
         return f"You can't {verb} your own account."
     return ""
@@ -238,12 +248,20 @@ def delete_user(actor, pk: int) -> str | None:
     return refusal
 
 
-def make_superuser(pk: int) -> str | None:
-    """Make user ``pk`` a superuser. Returns their username, or None when they're gone."""
+def make_superuser(pk: int) -> tuple[str, str] | None:
+    """Make active user ``pk`` a superuser.
+
+    Returns their username and why it was refused, "" when it wasn't, or None when they're
+    gone.
+    """
     with transaction.atomic():
         user = get_user_model().objects.select_for_update().filter(pk=pk).first()
         if user is None:
             return None
+        if user.is_superuser:
+            return user.username, f"{user.username} is already a superuser."
+        if not user.is_active:
+            return user.username, f"{user.username} is inactive, so they can't be made a superuser."
         user.is_superuser = user.is_staff = True
         user.save(update_fields=["is_superuser", "is_staff"])
-    return user.username
+    return user.username, ""

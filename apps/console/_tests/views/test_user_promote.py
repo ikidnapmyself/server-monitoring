@@ -56,3 +56,26 @@ def test_a_missing_user_is_the_console_404_page(client, superuser):
 
     assert resp.status_code == 404
     assert "This user doesn't exist. It may have been deleted." in resp.content.decode()
+
+
+@pytest.mark.parametrize(
+    ("flags", "warning"),
+    [
+        ({"is_active": False}, "bob is inactive, so they can't be made a superuser."),
+        ({"is_superuser": True, "is_staff": True}, "bob is already a superuser."),
+    ],
+    ids=["inactive", "already"],
+)
+def test_a_refused_promotion_writes_nothing_and_says_why(client, superuser, flags, warning):
+    bob = User.objects.create_user("bob", password="x", **flags)
+
+    resp = client.post(_url(bob))
+
+    assert resp.status_code == 303
+    assert resp["Location"] == reverse("console:user", args=[bob.pk])
+    assert [str(m) for m in get_messages(resp.wsgi_request)] == [warning]
+    stored = User.objects.get(pk=bob.pk)
+    assert (stored.is_active, stored.is_superuser) == (
+        flags.get("is_active", True),
+        flags.get("is_superuser", False),
+    )

@@ -1,7 +1,9 @@
 from datetime import timedelta
+from unittest import mock
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from apps.console.queries.users import (
@@ -14,6 +16,7 @@ from apps.console.queries.users import (
     make_superuser,
     removal_refusal,
     update_user,
+    user_name,
 )
 from config.describing import Action
 
@@ -302,9 +305,64 @@ class TestMakeSuperuser:
     def test_it_sets_both_flags_and_names_the_user(self):
         bob = _user("bob")
 
-        assert make_superuser(bob.pk) == "bob"
+        assert make_superuser(bob.pk) == ("bob", "")
         bob.refresh_from_db()
         assert (bob.is_superuser, bob.is_staff) == (True, True)
 
+    def test_an_inactive_user_is_refused_and_unchanged(self):
+        gone = _user("gone", is_active=False)
+
+        assert make_superuser(gone.pk) == (
+            "gone",
+            "gone is inactive, so they can't be made a superuser.",
+        )
+        gone.refresh_from_db()
+        assert (gone.is_superuser, gone.is_staff) == (False, False)
+
+    def test_a_superuser_is_refused(self):
+        amy = _superuser("amy")
+
+        with mock.patch.object(type(amy), "save") as save:
+            assert make_superuser(amy.pk) == ("amy", "amy is already a superuser.")
+
+        save.assert_not_called()
+
     def test_a_missing_user_is_none(self):
         assert make_superuser(999) is None
+
+
+class TestDisplayCallsTakeNoLocks:
+    @pytest.fixture
+    def watched(self):
+        with (
+            mock.patch.object(QuerySet, "select_for_update") as lock,
+            mock.patch("apps.console.queries.users.transaction.atomic") as atomic,
+        ):
+            yield lock, atomic
+
+    def test_the_editor(self, watched):
+        actor = _superuser("root")
+        amy = _superuser("amy")
+
+        assert build_user_editor(amy.pk, actor=actor).delete is not None
+        assert [m.call_count for m in watched] == [0, 0]
+
+    def test_the_deletion(self, watched):
+        actor = _superuser("root")
+
+        assert build_user_deletion(actor, actor.pk).refusal == LAST_SUPERUSER
+        assert [m.call_count for m in watched] == [0, 0]
+
+    def test_the_lock_free_check_agrees(self):
+        actor = _superuser("root")
+        amy = _superuser("amy")
+
+        assert removal_refusal(actor, amy, "delete", lock=False) == ""
+        assert removal_refusal(actor, actor, "delete", lock=False) == (
+            "You can't delete your own account."
+        )
+
+
+def test_user_name():
+    assert user_name(_user("bob").pk) == "bob"
+    assert user_name(999) is None
