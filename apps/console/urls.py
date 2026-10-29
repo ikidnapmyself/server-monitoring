@@ -41,7 +41,9 @@ from apps.console.views import (
     RunActionView,
     RunDetailView,
     RunListView,
+    UserDeleteView,
     UserPasswordView,
+    UserPromoteView,
     UsersView,
     UserView,
 )
@@ -102,6 +104,12 @@ urlpatterns = [
     path("users/new/", UserView.as_view(), name="user-new"),
     path("users/<int:pk>/", UserView.as_view(), name="user"),
     path("users/<int:pk>/password/", UserPasswordView.as_view(), name="user-password"),
+    path("users/<int:pk>/delete/", UserDeleteView.as_view(), name="user-delete"),
+    path(
+        "users/<int:pk>/make-superuser/",
+        UserPromoteView.as_view(),
+        name="user-make-superuser",
+    ),
     path("incidents/", IncidentListView.as_view(), name="incidents"),
     path("incidents/<int:pk>/", IncidentDetailView.as_view(), name="incident"),
     path("incidents/<int:pk>/rerun/", IncidentRerunView.as_view(), name="incident-rerun"),

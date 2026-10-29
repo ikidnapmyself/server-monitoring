@@ -236,3 +236,21 @@ def test_htmx_gets_the_editor_without_the_layout(client, superuser, amy):
 
     assert resp.templates[0].name == "console/partials/_user.html"
     assert "<html" not in resp.content.decode()
+
+
+def test_the_user_page_offers_make_superuser_and_delete_for_a_non_superuser(client, superuser, amy):
+    body = client.get(_url(amy)).content.decode()
+
+    assert f'<form method="post" action="/console/users/{amy.pk}/make-superuser/">' in body
+    assert 'id="user-promote"' in body
+    assert (
+        f'<a id="user-delete" class="c-button c-button--sm c-button--danger" '
+        f'href="/console/users/{amy.pk}/delete/">Delete user</a>'
+    ) in body
+
+
+def test_your_own_page_offers_neither(client, superuser):
+    body = client.get(_url(superuser)).content.decode()
+
+    assert 'id="user-promote"' not in body
+    assert 'id="user-delete"' not in body

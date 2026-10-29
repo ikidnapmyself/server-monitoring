@@ -1,6 +1,6 @@
 {% load console %}{% if notice %}{% include "console/partials/_flash.html" with tone=notice.tone text=notice.text %}{% endif %}
 <a id="user-back" class="c-crumb" href="{{ editor.back_url }}">{% include "console/partials/_octicon.html" with name="chevron-right" %}Back to users</a>
-<div class="c-pagehead"><div class="c-pagehead__top"><h1 class="c-pagehead__title">{% if editor.pk %}User {{ editor.username }}{% else %}New user{% endif %}</h1>{% if editor.password %}{% resolved editor.password as act %}{% include "console/partials/_action.html" with act=act id="user-password" %}{% endif %}</div></div>
+<div class="c-pagehead"><div class="c-pagehead__top"><h1 class="c-pagehead__title">{% if editor.pk %}User {{ editor.username }}{% else %}New user{% endif %}</h1>{% if editor.password %}{% resolved editor.password as act %}{% include "console/partials/_action.html" with act=act id="user-password" %}{% endif %}{% if editor.promote %}{% resolved editor.promote as act %}{% include "console/partials/_action.html" with act=act id="user-promote" %}{% endif %}{% if editor.delete %}{% resolved editor.delete as act %}{% include "console/partials/_action.html" with act=act id="user-delete" cls="c-button--danger" %}{% endif %}</div></div>
 {% if not editor.pk %}<p class="c-field__help">A new user is an active superuser and can sign in to the console straight away.</p>{% endif %}
 <form method="post" action="{{ editor.url }}" data-disable-on-submit>
   {% csrf_token %}

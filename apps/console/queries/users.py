@@ -69,12 +69,36 @@ class UserEditor:
     url: str
     back_url: str
     facts: tuple[Fact, ...]
+    promotable: bool = False
+    deletable: bool = False
 
     @property
     def password(self) -> Action | None:
         if self.pk is None:
             return None
         return Action("Set password", "set_user_password", {"pk": self.pk})
+
+    @property
+    def promote(self) -> Action | None:
+        if not self.promotable:
+            return None
+        return Action("Make superuser", "make_superuser", {"pk": self.pk})
+
+    @property
+    def delete(self) -> Action | None:
+        if not self.deletable:
+            return None
+        return Action("Delete user", "delete_user", {"pk": self.pk})
+
+
+@dataclass(frozen=True)
+class UserDeletion:
+    pk: int
+    username: str
+    last_login: datetime | None
+    refusal: str
+    url: str
+    back_url: str
 
 
 @dataclass(frozen=True)
@@ -107,8 +131,11 @@ def _when(moment) -> str:
     return date_format(timezone.localtime(moment), "Y-m-d H:i")
 
 
-def build_user_editor(pk: int | None, data=None) -> UserEditor | None:
-    """The editor for user ``pk``, or the form for a new user when ``pk`` is None."""
+def build_user_editor(pk: int | None, data=None, *, actor=None) -> UserEditor | None:
+    """The editor for user ``pk``, or the form for a new user when ``pk`` is None.
+
+    Delete is offered only when ``actor`` is given and may delete this user.
+    """
     users = reverse("console:users")
     if pk is None:
         return UserEditor(
@@ -132,6 +159,22 @@ def build_user_editor(pk: int | None, data=None) -> UserEditor | None:
             Fact("Joined", _when(user.date_joined)),
             Fact("Last signed in", _when(user.last_login) if user.last_login else "Never"),
         ),
+        promotable=user.is_active and not user.is_superuser,
+        deletable=actor is not None and not removal_refusal(actor, user, "delete"),
+    )
+
+
+def build_user_deletion(actor, pk: int) -> UserDeletion | None:
+    user = get_user_model().objects.filter(pk=pk).first()
+    if user is None:
+        return None
+    return UserDeletion(
+        pk=user.pk,
+        username=user.username,
+        last_login=user.last_login,
+        refusal=removal_refusal(actor, user, "delete"),
+        url=reverse("console:user-delete", args=[user.pk]),
+        back_url=reverse("console:user", args=[user.pk]),
     )
 
 
@@ -181,3 +224,26 @@ def update_user(actor, form: ModelForm) -> str:
                 return refusal
         form.save()
     return ""
+
+
+def delete_user(actor, pk: int) -> str | None:
+    """Delete user ``pk`` unless they must stay. Returns why not, or None when they're gone."""
+    with transaction.atomic():
+        user = get_user_model().objects.select_for_update().filter(pk=pk).first()
+        if user is None:
+            return None
+        refusal = removal_refusal(actor, user, "delete")
+        if not refusal:
+            user.delete()
+    return refusal
+
+
+def make_superuser(pk: int) -> str | None:
+    """Make user ``pk`` a superuser. Returns their username, or None when they're gone."""
+    with transaction.atomic():
+        user = get_user_model().objects.select_for_update().filter(pk=pk).first()
+        if user is None:
+            return None
+        user.is_superuser = user.is_staff = True
+        user.save(update_fields=["is_superuser", "is_staff"])
+    return user.username

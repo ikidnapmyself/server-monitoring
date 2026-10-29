@@ -91,12 +91,16 @@ def test_names_link_their_page_and_add_opens_the_new_user_page(client, superuser
     ) in body
 
 
-def test_make_superuser_reads_as_text_until_its_action_exists(client, superuser, url):
-    get_user_model().objects.create_user("bob", password="x")
+def test_make_superuser_is_a_post_button(client, superuser, url):
+    bob = get_user_model().objects.create_user("bob", password="x")
 
     body = client.get(url).content.decode()
 
-    assert '<p class="c-description__action">Make superuser</p>' in body
+    assert f'<form method="post" action="/console/users/{bob.pk}/make-superuser/">' in body
+    assert (
+        f'<button id="user-{bob.pk}-promote" class="c-button c-button--sm" type="submit">'
+        "Make superuser</button>"
+    ) in body
 
 
 def test_a_name_without_a_link_is_plain_text(client, superuser, url):

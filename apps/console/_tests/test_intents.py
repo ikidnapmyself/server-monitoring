@@ -355,6 +355,7 @@ def test_the_key_intents_point_at_the_key_pages(intent, params, url):
         ("edit_user", {"pk": 7}, "/console/users/7/"),
         ("add_user", {}, "/console/users/new/"),
         ("set_user_password", {"pk": 7}, "/console/users/7/password/"),
+        ("delete_user", {"pk": 7}, "/console/users/7/delete/"),
     ],
 )
 def test_the_user_intents_point_at_the_user_pages(intent, params, url):
@@ -376,3 +377,8 @@ def test_a_superuser_gets_every_system_tab_in_order(client, superuser):
         re.DOTALL,
     )
     assert system.group(1) == "/console/routes/"
+
+
+def test_make_superuser_is_a_post():
+    resolved = resolve_action(Action("Go", intent="make_superuser", params={"pk": 7}))
+    assert resolved == ResolvedAction("Go", "/console/users/7/make-superuser/", "post")

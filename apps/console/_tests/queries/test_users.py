@@ -7,8 +7,11 @@ from django.utils import timezone
 from apps.console.queries.users import (
     LAST_SUPERUSER,
     build_password_editor,
+    build_user_deletion,
     build_user_editor,
     build_user_list,
+    delete_user,
+    make_superuser,
     removal_refusal,
     update_user,
 )
@@ -220,3 +223,88 @@ class TestUpdateUser:
 
         assert update_user(actor, form) != ""
         assert not get_user_model().objects.filter(username="amy").exists()
+
+
+class TestTheUserPageActions:
+    def test_a_non_superuser_can_be_promoted_and_deleted(self):
+        actor = _superuser("root")
+        bob = _user("bob")
+
+        editor = build_user_editor(bob.pk, actor=actor)
+
+        assert editor.promote == Action("Make superuser", "make_superuser", {"pk": bob.pk})
+        assert editor.delete == Action("Delete user", "delete_user", {"pk": bob.pk})
+
+    def test_a_superuser_has_no_promote(self):
+        actor = _superuser("root")
+
+        assert build_user_editor(_superuser("amy").pk, actor=actor).promote is None
+
+    def test_an_inactive_user_has_no_promote(self):
+        actor = _superuser("root")
+
+        assert build_user_editor(_user("gone", is_active=False).pk, actor=actor).promote is None
+
+    def test_you_cant_delete_yourself_so_there_is_no_delete(self):
+        actor = _superuser("root")
+        _superuser("amy")
+
+        assert build_user_editor(actor.pk, actor=actor).delete is None
+
+    def test_without_an_actor_there_is_no_delete(self):
+        assert build_user_editor(_user("bob").pk).delete is None
+
+    def test_a_new_user_has_neither(self):
+        editor = build_user_editor(None, actor=_superuser("root"))
+
+        assert (editor.promote, editor.delete) == (None, None)
+
+
+class TestDeletion:
+    def test_a_missing_user_is_none(self):
+        assert build_user_deletion(_superuser("root"), 999) is None
+
+    def test_the_deletion_says_when_they_last_signed_in(self):
+        seen = timezone.now()
+        bob = _user("bob", last_login=seen)
+
+        deletion = build_user_deletion(_superuser("root"), bob.pk)
+
+        assert (deletion.pk, deletion.username, deletion.last_login) == (bob.pk, "bob", seen)
+        assert deletion.refusal == ""
+        assert deletion.url == f"/console/users/{bob.pk}/delete/"
+        assert deletion.back_url == f"/console/users/{bob.pk}/"
+
+    def test_the_deletion_carries_the_refusal(self):
+        actor = _superuser("root")
+
+        assert build_user_deletion(actor, actor.pk).refusal == LAST_SUPERUSER
+
+    def test_delete_user_deletes(self):
+        actor = _superuser("root")
+        bob = _user("bob")
+
+        assert delete_user(actor, bob.pk) == ""
+        assert not get_user_model().objects.filter(pk=bob.pk).exists()
+
+    def test_delete_user_refuses_and_keeps_the_user(self):
+        actor = _superuser("root")
+        _superuser("amy")
+
+        assert delete_user(actor, actor.pk) == "You can't delete your own account."
+        assert get_user_model().objects.filter(pk=actor.pk).exists()
+
+    def test_delete_user_on_a_missing_user_is_none(self):
+        assert delete_user(_superuser("root"), 999) is None
+
+
+class TestMakeSuperuser:
+    def test_it_sets_both_flags_and_names_the_user(self):
+        bob = _user("bob")
+
+        assert make_superuser(bob.pk) == "bob"
+        bob.refresh_from_db()
+        assert (bob.is_superuser, bob.is_staff) == (True, True)
+
+    def test_a_missing_user_is_none(self):
+        assert make_superuser(999) is None

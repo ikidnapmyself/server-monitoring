@@ -40,10 +40,10 @@ class UserView(ConsoleView):
         return self.render_to_response(context, status=status)
 
     def get(self, request, *args, **kwargs):
-        return self.render_editor(build_user_editor(self.pk))
+        return self.render_editor(build_user_editor(self.pk, actor=request.user))
 
     def post(self, request, *args, **kwargs):
-        editor = build_user_editor(self.pk, request.POST)
+        editor = build_user_editor(self.pk, request.POST, actor=request.user)
         if editor is None or not editor.form.is_valid():
             return self.render_editor(editor)
         if self.pk is None:
@@ -65,6 +65,7 @@ class UserView(ConsoleView):
         except (IntegrityError, OperationalError):
             refusal = BUSY
         if refusal:
-            return self.render_editor(build_user_editor(pk), Notice(refusal, "warning"), 409)
+            fresh = build_user_editor(pk, actor=self.request.user)
+            return self.render_editor(fresh, Notice(refusal, "warning"), 409)
         messages.success(self.request, f"User {editor.form.instance.username} saved.")
         return HttpResponseRedirect(reverse("console:user", args=[pk]), status=303)

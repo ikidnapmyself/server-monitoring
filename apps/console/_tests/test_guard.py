@@ -170,7 +170,11 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         + ["/console/keys/", "/console/keys/new/"]
         + [f"/console/keys/{pk}/{page}" for pk in world.key_pks for page in ("", "delete/")]
         + ["/console/users/", "/console/users/new/"]
-        + [f"/console/users/{pk}/{page}" for pk in world.user_pks for page in ("", "password/")]
+        + [
+            f"/console/users/{pk}/{page}"
+            for pk in (*world.user_pks, superuser.pk)
+            for page in ("", "password/", "delete/")
+        ]
         + [f"/console/nodes/{pk}/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/policy/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/reevaluate/" for pk in world.node_pks]
@@ -271,6 +275,8 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "Never signed in",
         "Make superuser",
         "Set password",
+        "You can't delete your own account.",
+        "They never signed in.",
     ):
         assert shown in everything, shown
     analysis_pages = [page for url, page in html.items() if url.startswith("/console/analyses/")]
