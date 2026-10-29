@@ -433,6 +433,19 @@ http://<your-server>:8000/api/alerts/webhook/
 
 ---
 
+## Sign in to the console
+
+The operator console lives at `/console/`. Make the first account from a shell:
+
+```bash
+uv run python manage.py createsuperuser
+```
+
+Then sign in at `/console/login/`. Only active superusers can sign in. Add more accounts,
+set passwords and deactivate people at `/console/users/`. Every account made there is an
+active superuser. You can't deactivate or delete your own account, or the last active
+superuser.
+
 ## Monitoring Your Pipelines
 
 ### View recent pipeline runs
