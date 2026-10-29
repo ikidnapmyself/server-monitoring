@@ -106,7 +106,7 @@ def test_a_run_a_killed_drain_left_mid_lane_is_listed_and_stuck(status):
 
     assert [(row.pk, row.stuck) for row in inbox.rows] == [(stranded.pk, True)]
     assert (inbox.stuck, inbox.pending, inbox.processing) == (1, 0, 0)
-    assert build_inbox(InboxFilter(), can_drain=True).do == (RECLAIM,)
+    assert build_inbox(InboxFilter()).do == (RECLAIM,)
 
 
 def test_the_stuck_filter_shows_every_stuck_run():
@@ -132,31 +132,28 @@ def test_counts_cover_the_whole_queue_not_the_shown_rows(monkeypatch):
     assert (inbox.hidden, inbox.pending) == (1, 3)
 
 
-@pytest.mark.parametrize("can_drain", [True, False])
-def test_drain_now_is_offered_on_pending_rows_to_a_drainer_only(can_drain):
+def test_drain_now_is_offered_on_pending_rows():
     pending = _run(status="pending")
     busy = _run(status="processing")
 
-    rows = {row.pk: row for row in build_inbox(InboxFilter(), can_drain=can_drain).rows}
+    rows = {row.pk: row for row in build_inbox(InboxFilter()).rows}
 
-    expected = Action("Drain now", "drain_run", {"pk": pending.pk}) if can_drain else None
-    assert rows[pending.pk].drain == expected
+    assert rows[pending.pk].drain == Action("Drain now", "drain_run", {"pk": pending.pk})
     assert rows[busy.pk].drain is None
 
 
 def test_page_actions_drain_the_oldest_and_reclaim_only_when_stuck():
-    assert build_inbox(InboxFilter(), can_drain=True).do == ()
+    assert build_inbox(InboxFilter()).do == ()
     _run(status="pending")
-    assert build_inbox(InboxFilter(), can_drain=True).do == (DRAIN,)
+    assert build_inbox(InboxFilter()).do == (DRAIN,)
     _aged(_run(status="processing"), DEFAULT_STALE_MINUTES + 1)
-    assert build_inbox(InboxFilter(), can_drain=True).do == (DRAIN, RECLAIM)
-    assert build_inbox(InboxFilter(), can_drain=False).do == ()
+    assert build_inbox(InboxFilter()).do == (DRAIN, RECLAIM)
 
 
 def test_reclaim_is_offered_without_anything_pending():
     _aged(_run(status="processing"), DEFAULT_STALE_MINUTES + 1)
 
-    assert build_inbox(InboxFilter(), can_drain=True).do == (RECLAIM,)
+    assert build_inbox(InboxFilter()).do == (RECLAIM,)
 
 
 def test_the_status_chips_count_the_queue():

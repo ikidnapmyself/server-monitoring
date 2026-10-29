@@ -129,7 +129,6 @@ class RouteForm(forms.ModelForm):
         data: Any = None,
         *,
         instance: PipelineDefinition | None = None,
-        disabled: bool = False,
     ):
         super().__init__(data, instance=instance)
         self._stored_match = self.instance.match
@@ -146,12 +145,6 @@ class RouteForm(forms.ModelForm):
         self.conditions = ConditionFormSet(
             data, initial=initial, prefix=PREFIX, form_kwargs={"empty_permitted": False}
         )
-        if disabled:
-            for field in self.fields.values():
-                field.disabled = True
-            for row in self.conditions.forms:
-                for field in row.fields.values():
-                    field.disabled = True
 
     @staticmethod
     def add_condition(data: QueryDict) -> QueryDict:

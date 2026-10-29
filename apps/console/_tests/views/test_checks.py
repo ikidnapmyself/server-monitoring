@@ -1,7 +1,6 @@
 import re
 
 import pytest
-from django.contrib.auth.models import Permission
 from django.urls import reverse
 
 from apps.console._tests.queries.test_checks import _check
@@ -19,18 +18,6 @@ BOTH = pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
 @pytest.fixture
 def url():
     return reverse("console:checks")
-
-
-def _grant(user, app_label, codename):
-    user.user_permissions.add(
-        Permission.objects.get(content_type__app_label=app_label, codename=codename)
-    )
-    return user
-
-
-@pytest.fixture
-def check_viewer(bare_staff):
-    return _grant(bare_staff, "checkers", "view_checkrun")
 
 
 def _tag(body, element_id):
@@ -57,17 +44,7 @@ def test_anonymous_is_sent_to_the_admin_login(client, url):
 
 
 @pytest.mark.django_db
-def test_staff_without_a_check_permission_is_refused(client, bare_staff, url):
-    resp = client.get(url)
-
-    assert resp.status_code == 403
-    assert resp.content.decode() == "Permission to view this page required."
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("codename", ["view_checkrun", "change_checkrun"])
-def test_view_or_change_permission_reads_the_list(client, bare_staff, url, codename):
-    _grant(bare_staff, "checkers", codename)
+def test_a_superuser_reads_the_list(client, superuser, url):
 
     resp = client.get(url)
 
@@ -81,16 +58,7 @@ def test_view_or_change_permission_reads_the_list(client, bare_staff, url, coden
 
 
 @pytest.mark.django_db
-def test_the_reports_item_is_hidden_without_a_report_permission(client, node_viewer):
-    body = client.get(reverse("console:nodes")).content.decode()
-
-    assert _nav(body, "Reports") is None
-    assert "/console/checks/" not in body
-
-
-@pytest.mark.django_db
 def test_other_pages_list_reports_without_marking_it(client, superuser, url):
-    client.force_login(superuser)
 
     body = client.get(reverse("console:runs")).content.decode()
 
@@ -98,7 +66,7 @@ def test_other_pages_list_reports_without_marking_it(client, superuser, url):
 
 
 @pytest.mark.django_db
-def test_the_partial_is_the_polled_root(client, check_viewer, url):
+def test_the_partial_is_the_polled_root(client, superuser, url):
     resp = client.get(url, **HTMX)
 
     body = resp.content.decode()
@@ -113,7 +81,7 @@ def test_the_partial_is_the_polled_root(client, check_viewer, url):
 
 
 @pytest.mark.django_db
-def test_rows_link_to_the_check_run_with_its_meta(client, check_viewer, url):
+def test_rows_link_to_the_check_run_with_its_meta(client, superuser, url):
     run = _check(status="critical", hostname="web", duration_ms=40)
     bare = _check(hostname="")
 
@@ -128,7 +96,7 @@ def test_rows_link_to_the_check_run_with_its_meta(client, check_viewer, url):
 
 
 @pytest.mark.django_db
-def test_the_form_carries_the_checker_and_host_and_resends_the_rest(client, check_viewer, url):
+def test_the_form_carries_the_checker_and_host_and_resends_the_rest(client, superuser, url):
     _check(hostname="web")
 
     body = client.get(f"{url}?status=failing&since=7d&checker=cpu&host=web&q=abc").content.decode()
@@ -145,7 +113,7 @@ def test_the_form_carries_the_checker_and_host_and_resends_the_rest(client, chec
 
 
 @pytest.mark.django_db
-def test_the_status_chips_carry_the_icon_of_their_tone(client, check_viewer, url):
+def test_the_status_chips_carry_the_icon_of_their_tone(client, superuser, url):
     run = _check("gone_checker", "unknown")
 
     body = client.get(f"{url}?status=failing").content.decode()
@@ -177,7 +145,7 @@ def test_the_status_chips_carry_the_icon_of_their_tone(client, check_viewer, url
         (True, "?status=critical", "No check runs match these filters."),
     ],
 )
-def test_each_blank_state(client, check_viewer, url, setup, query, heading):
+def test_each_blank_state(client, superuser, url, setup, query, heading):
     if setup:
         _check()
 
@@ -190,14 +158,14 @@ def test_each_blank_state(client, check_viewer, url, setup, query, heading):
 
 
 @pytest.mark.django_db
-def test_an_invalid_filter_is_named(client, check_viewer, url):
+def test_an_invalid_filter_is_named(client, superuser, url):
     body = client.get(f"{url}?status=bogus&checker=nope").content.decode()
 
     assert "Ignored invalid filter: status, checker." in body
 
 
 @pytest.mark.django_db
-def test_more_than_a_page_offers_the_pager(client, check_viewer, url, monkeypatch):
+def test_more_than_a_page_offers_the_pager(client, superuser, url, monkeypatch):
     monkeypatch.setattr("apps.console.queries.checks.PAGE_SIZE", 1)
     _check()
     _check()
@@ -212,7 +180,7 @@ def test_more_than_a_page_offers_the_pager(client, check_viewer, url, monkeypatc
 
 @pytest.mark.django_db
 @BOTH
-def test_hostile_text_is_escaped(client, check_viewer, url, headers):
+def test_hostile_text_is_escaped(client, superuser, url, headers):
     _check("gone_checker", message=MARKUP, hostname=MARKUP)
 
     body = client.get(url, **headers).content.decode()
@@ -223,7 +191,7 @@ def test_hostile_text_is_escaped(client, check_viewer, url, headers):
 @pytest.mark.django_db
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
 @BOTH
-def test_the_rendered_list_is_clean(client, check_viewer, url, label, headers):
+def test_the_rendered_list_is_clean(client, superuser, url, label, headers):
     _check(status="critical")
 
     body = client.get(url, **headers).content.decode()
@@ -233,7 +201,7 @@ def test_the_rendered_list_is_clean(client, check_viewer, url, label, headers):
 
 @pytest.mark.django_db
 @BOTH
-def test_every_focusable_element_has_a_unique_id(client, check_viewer, url, headers):
+def test_every_focusable_element_has_a_unique_id(client, superuser, url, headers):
     _check(status="critical")
     _check()
 

@@ -1,10 +1,9 @@
 from django.contrib import messages
 from django.db import IntegrityError, OperationalError, transaction
-from django.http import HttpResponseForbidden, HttpResponseRedirect
+from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
-from apps.console.intents import ROUTE_ADD, ROUTE_CHANGE, ROUTE_READ
 from apps.console.queries.routes import RouteEditor, build_route_editor
 from apps.console.views.base import ConsoleView, Notice
 from apps.orchestration.forms import NAME_TAKEN, RouteForm
@@ -22,24 +21,15 @@ class RouteView(ConsoleView):
 
     template_name = "console/route.html"
     partial_template_name = "console/partials/_route.html"
-    read_permissions = ROUTE_READ
 
     @property
     def pk(self) -> int | None:
         return self.kwargs.get("pk")
 
-    @property
-    def can_change(self) -> bool:
-        return self.request.user.has_perm(ROUTE_ADD if self.pk is None else ROUTE_CHANGE)
-
     def landing_path(self) -> str:
         if self.pk is None:
             return reverse("console:route-new")
         return reverse("console:route", args=[self.pk])
-
-    def forbidden(self):
-        verb = "add" if self.pk is None else "change"
-        return HttpResponseForbidden(f"Permission to {verb} routes required.")
 
     def not_found(self):
         context = {"nav": "system", "section": "routes"}
@@ -60,17 +50,13 @@ class RouteView(ConsoleView):
         return HttpResponseRedirect(f"{reverse('console:routes')}#route-{pk}", status=303)
 
     def get(self, request, *args, **kwargs):
-        if self.pk is None and not self.can_change:
-            return self.forbidden()
-        return self.render_editor(build_route_editor(self.pk, can_change=self.can_change))
+        return self.render_editor(build_route_editor(self.pk))
 
     def post(self, request, *args, **kwargs):
-        if not self.can_change:
-            return self.forbidden()
         pk, version = self.pk, request.POST.get("version", "")
         adding = "add_condition" in request.POST
         data = RouteForm.add_condition(request.POST) if adding else request.POST
-        editor = build_route_editor(pk, data, can_change=True, version=version)
+        editor = build_route_editor(pk, data, version=version)
         if adding and editor is not None:
             editor.form.quiet()
             return self.render_editor(editor)
@@ -113,5 +99,5 @@ class RouteView(ConsoleView):
         return self.landed(SAVED, pk)
 
     def refresh(self, pk: int, notice: str):
-        fresh = build_route_editor(pk, can_change=True)
+        fresh = build_route_editor(pk)
         return self.render_editor(fresh, Notice(notice, "warning"), 409)

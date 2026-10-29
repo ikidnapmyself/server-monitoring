@@ -9,7 +9,7 @@
     {% if preview.warning %}{% include "console/partials/_flash.html" with tone="warning" text=preview.warning %}{% endif %}
   </div>
 </section>
-{% if preview.can_apply and can_reeval %}
+{% if preview.can_apply %}
 <form method="post" action="{{ preview.url }}" data-disable-on-submit>
   {% csrf_token %}
   <input type="hidden" name="digest" value="{{ preview.digest }}">

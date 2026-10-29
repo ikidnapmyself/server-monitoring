@@ -61,26 +61,8 @@ def test_anonymous_htmx_post_is_redirected_back_to_the_page_it_came_from(client)
 
 
 @pytest.mark.django_db
-@BOTH
-def test_a_viewer_is_refused_and_nothing_changes(client, run_viewer, headers):
-    run = _run(status="failed")
-
-    resp = client.post(_url(run, "retry"), **headers)
-
-    assert resp.status_code == 403
-    assert resp.content.decode() == "Permission to change runs required."
-    assert _status(run) == "failed"
-
-
-@pytest.mark.django_db
-def test_the_permission_is_checked_before_the_record_or_the_action(client, run_viewer):
-    assert client.post("/console/runs/404/retry/").status_code == 403
-    assert client.post(_url(_run(status="failed"), "drain")).status_code == 403
-
-
-@pytest.mark.django_db
 @pytest.mark.parametrize("action", ["retry", "abandon"])
-def test_get_is_not_allowed(client, run_operator, action):
+def test_get_is_not_allowed(client, superuser, action):
     run = _run(status="failed")
 
     resp = client.get(_url(run, action))
@@ -93,7 +75,7 @@ def test_get_is_not_allowed(client, run_operator, action):
 @pytest.mark.django_db
 @pytest.mark.parametrize("action", ["requeue", "Retry", "drain"])
 @BOTH
-def test_an_unknown_action_is_a_404(client, run_operator, action, headers):
+def test_an_unknown_action_is_a_404(client, superuser, action, headers):
     run = _run(status="failed")
 
     resp = client.post(_url(run, action), **headers)
@@ -106,7 +88,7 @@ def test_an_unknown_action_is_a_404(client, run_operator, action, headers):
 @pytest.mark.parametrize("pk", ["404", "99999999999999999999999999"])
 @pytest.mark.parametrize("action", ["retry", "abandon"])
 @BOTH
-def test_a_missing_run_is_the_console_404_page(client, run_operator, pk, action, headers):
+def test_a_missing_run_is_the_console_404_page(client, superuser, pk, action, headers):
     resp = client.post(f"/console/runs/{pk}/{action}/", **headers)
 
     assert resp.status_code == 404
@@ -116,7 +98,7 @@ def test_a_missing_run_is_the_console_404_page(client, run_operator, pk, action,
 
 @pytest.mark.django_db
 @BOTH
-def test_retry_requeues_a_failed_run(client, run_operator, headers):
+def test_retry_requeues_a_failed_run(client, superuser, headers):
     run = _run(status="failed", total_attempts=1)
 
     resp = client.post(_url(run, "retry"), **headers)
@@ -138,7 +120,7 @@ def test_retry_requeues_a_failed_run(client, run_operator, headers):
 
 @pytest.mark.django_db
 @BOTH
-def test_retry_on_a_run_that_is_no_longer_failed_warns(client, run_operator, headers):
+def test_retry_on_a_run_that_is_no_longer_failed_warns(client, superuser, headers):
     run = _run(status="pending", total_attempts=1)
 
     resp = client.post(_url(run, "retry"), follow=not headers, **headers)
@@ -149,7 +131,7 @@ def test_retry_on_a_run_that_is_no_longer_failed_warns(client, run_operator, hea
 
 
 @pytest.mark.django_db
-def test_a_double_retry_queues_once(client, run_operator):
+def test_a_double_retry_queues_once(client, superuser):
     run = _run(status="failed", total_attempts=1)
 
     first = client.post(_url(run, "retry"), **HTMX)
@@ -163,7 +145,7 @@ def test_a_double_retry_queues_once(client, run_operator):
 @pytest.mark.django_db
 @pytest.mark.parametrize(("status", "minutes"), [("pending", 0), ("checked", 60), ("retrying", 60)])
 @BOTH
-def test_mark_failed_fails_a_queued_or_stuck_run(client, run_operator, status, minutes, headers):
+def test_mark_failed_fails_a_queued_or_stuck_run(client, superuser, status, minutes, headers):
     run = _run(status=status)
     PipelineRun.objects.filter(pk=run.pk).update(
         updated_at=timezone.now() - timedelta(minutes=minutes)
@@ -182,9 +164,7 @@ def test_mark_failed_fails_a_queued_or_stuck_run(client, run_operator, status, m
     ("status", "completed"), [("notified", True), ("processing", False), ("retrying", False)]
 )
 @BOTH
-def test_mark_failed_on_a_live_or_finished_run_warns(
-    client, run_operator, status, completed, headers
-):
+def test_mark_failed_on_a_live_or_finished_run_warns(client, superuser, status, completed, headers):
     run = _run(status=status, completed_at=timezone.now() if completed else None)
 
     resp = client.post(_url(run, "abandon"), follow=not headers, **headers)
@@ -194,7 +174,7 @@ def test_mark_failed_on_a_live_or_finished_run_warns(
 
 
 @pytest.mark.django_db
-def test_a_plain_post_shows_its_message_once(client, run_operator):
+def test_a_plain_post_shows_its_message_once(client, superuser):
     run = _run(status="failed")
 
     resp = client.post(_url(run, "retry"), follow=True)
@@ -208,7 +188,7 @@ def test_a_plain_post_shows_its_message_once(client, run_operator):
 
 
 @pytest.mark.django_db
-def test_an_htmx_outcome_never_reaches_the_messages_framework(client, run_operator):
+def test_an_htmx_outcome_never_reaches_the_messages_framework(client, superuser):
     run = _run(status="failed")
 
     acted = client.post(_url(run, "retry"), **HTMX)
@@ -222,7 +202,7 @@ def test_an_htmx_outcome_never_reaches_the_messages_framework(client, run_operat
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(("status", "action"), [("failed", "retry"), ("pending", "abandon")])
-def test_the_button_posts_with_the_htmx_contract(client, run_operator, status, action):
+def test_the_button_posts_with_the_htmx_contract(client, superuser, status, action):
     run = _run(status=status)
 
     body = client.get(_page(run)).content.decode()

@@ -381,21 +381,6 @@ def test_new_route_validates_and_names_must_be_unique():
 
 
 @pytest.mark.django_db
-def test_disabled_disables_everything():
-    route = _route(
-        match=[{"field": "source", "op": "is", "value": "x"}, {"field": "bad"}],
-    )
-    form = RouteForm(instance=route, disabled=True)
-    assert all(f.disabled for f in form.fields.values())
-    assert "replace_match" in form.fields
-    route = _route(name="other", match=[{"field": "source", "op": "is", "value": "x"}])
-    form = RouteForm(instance=route, disabled=True)
-    rows = form.conditions.forms
-    assert rows
-    assert all(f.disabled for row in rows for f in row.fields.values())
-
-
-@pytest.mark.django_db
 def test_inactive_channel_reads_off():
     NotificationChannel.objects.create(name="ops", driver="slack")
     NotificationChannel.objects.create(name="old", driver="slack", is_active=False)

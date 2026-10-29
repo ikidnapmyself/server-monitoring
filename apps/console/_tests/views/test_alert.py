@@ -1,7 +1,6 @@
 import re
 
 import pytest
-from django.contrib.auth.models import Permission
 from django.urls import reverse
 from django.utils import timezone
 
@@ -13,14 +12,6 @@ HTMX = {"HTTP_HX_REQUEST": "true"}
 MARKUP = "<img src=x onerror=alert(1)>"
 ESCAPED = "&lt;img src=x onerror=alert(1)&gt;"
 BOTH = pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
-
-
-@pytest.fixture
-def viewer(bare_staff):
-    bare_staff.user_permissions.add(
-        Permission.objects.get(content_type__app_label="alerts", codename="view_alert")
-    )
-    return bare_staff
 
 
 def _url(alert):
@@ -65,15 +56,8 @@ def test_anonymous_is_sent_to_the_admin_login(client):
 
 
 @pytest.mark.django_db
-def test_staff_without_an_alert_permission_is_refused(client, bare_staff):
-    resp = client.get(_url(_checker_alert()))
-
-    assert resp.status_code == 403
-
-
-@pytest.mark.django_db
 @BOTH
-def test_a_missing_alert_is_a_console_404(client, viewer, headers):
+def test_a_missing_alert_is_a_console_404(client, superuser, headers):
     resp = client.get(reverse("console:alert", args=[999]), **headers)
 
     body = resp.content.decode()
@@ -84,7 +68,7 @@ def test_a_missing_alert_is_a_console_404(client, viewer, headers):
 
 
 @pytest.mark.django_db
-def test_view_alert_reads_the_page_with_the_nav_tab_current(client, viewer):
+def test_view_alert_reads_the_page_with_the_nav_tab_current(client, superuser):
     alert = _checker_alert()
 
     resp = client.get(_url(alert))
@@ -100,7 +84,7 @@ def test_view_alert_reads_the_page_with_the_nav_tab_current(client, viewer):
 
 
 @pytest.mark.django_db
-def test_htmx_request_gets_only_the_partial(client, viewer):
+def test_htmx_request_gets_only_the_partial(client, superuser):
     resp = client.get(_url(_checker_alert()), **HTMX)
 
     body = resp.content.decode()
@@ -110,8 +94,7 @@ def test_htmx_request_gets_only_the_partial(client, viewer):
 
 @pytest.mark.django_db
 @BOTH
-def test_the_incident_card_links_the_incident(client, viewer, incident_reader, headers):
-    incident_reader(viewer)
+def test_the_incident_card_links_the_incident(client, superuser, headers):
     incident = Incident.objects.create(severity="critical")
     alert = _checker_alert(incident=incident)
 
@@ -122,19 +105,7 @@ def test_the_incident_card_links_the_incident(client, viewer, incident_reader, h
 
 
 @pytest.mark.django_db
-def test_an_alert_reader_sees_the_incident_as_text(client, viewer):
-    incident = Incident.objects.create(severity="critical")
-    alert = _checker_alert(incident=incident)
-
-    body = client.get(_url(alert), **HTMX).content.decode()
-
-    assert 'id="alert-incident"' not in body
-    assert "/console/incidents/" not in body
-    assert f"#{incident.pk} · Open" in body
-
-
-@pytest.mark.django_db
-def test_an_alert_outside_an_incident_says_so(client, viewer):
+def test_an_alert_outside_an_incident_says_so(client, superuser):
     body = client.get(_url(_checker_alert())).content.decode()
 
     assert "Not part of an incident." in body
@@ -143,7 +114,6 @@ def test_an_alert_outside_an_incident_says_so(client, viewer):
 
 @pytest.mark.django_db
 def test_a_superuser_gets_the_reevaluate_button_on_a_checker_alert(client, superuser):
-    client.force_login(superuser)
     alert = _checker_alert()
 
     body = client.get(_url(alert)).content.decode()
@@ -156,15 +126,7 @@ def test_a_superuser_gets_the_reevaluate_button_on_a_checker_alert(client, super
 
 
 @pytest.mark.django_db
-def test_a_view_only_user_gets_no_reevaluate_button(client, viewer):
-    body = client.get(_url(_checker_alert())).content.decode()
-
-    assert "action-reevaluate_alert" not in body
-    assert "Do this" not in body
-
-
-@pytest.mark.django_db
-def test_details_hold_the_fingerprint_and_raw_json(client, viewer):
+def test_details_hold_the_fingerprint_and_raw_json(client, superuser):
     body = client.get(_url(_checker_alert())).content.decode()
 
     details = body[body.index('<details id="alert-details"') :]
@@ -174,7 +136,7 @@ def test_details_hold_the_fingerprint_and_raw_json(client, viewer):
 
 
 @pytest.mark.django_db
-def test_the_sidebar_names_severity_status_node_source_and_end(client, viewer):
+def test_the_sidebar_names_severity_status_node_source_and_end(client, superuser):
     node = Node.objects.create(instance_id="i-web", hostname="web")
     alert = _checker_alert(node=node, status="resolved", ended_at=timezone.now())
 
@@ -188,7 +150,7 @@ def test_the_sidebar_names_severity_status_node_source_and_end(client, viewer):
 
 
 @pytest.mark.django_db
-def test_a_firing_alert_has_no_end_in_the_sidebar(client, viewer):
+def test_a_firing_alert_has_no_end_in_the_sidebar(client, superuser):
     body = client.get(_url(_checker_alert())).content.decode()
 
     assert '<h2 class="c-sidebar__heading">Ended</h2>' not in body
@@ -196,7 +158,7 @@ def test_a_firing_alert_has_no_end_in_the_sidebar(client, viewer):
 
 
 @pytest.mark.django_db
-def test_history_is_listed_and_capped(client, viewer, monkeypatch):
+def test_history_is_listed_and_capped(client, superuser, monkeypatch):
     monkeypatch.setattr(alert_query, "HISTORY_LIMIT", 1)
     alert = _checker_alert()
     AlertHistory.objects.create(alert=alert, event="created", new_status="firing")
@@ -210,7 +172,7 @@ def test_history_is_listed_and_capped(client, viewer, monkeypatch):
 
 
 @pytest.mark.django_db
-def test_an_alert_with_no_history_shows_no_note(client, viewer):
+def test_an_alert_with_no_history_shows_no_note(client, superuser):
     body = client.get(_url(_checker_alert())).content.decode()
 
     assert "not shown." not in body
@@ -218,7 +180,7 @@ def test_an_alert_with_no_history_shows_no_note(client, viewer):
 
 
 @pytest.mark.django_db
-def test_reevaluation_records_are_listed(client, viewer):
+def test_reevaluation_records_are_listed(client, superuser):
     alert = _checker_alert(annotations={"severity_reevaluated": "not json"})
 
     body = client.get(_url(alert)).content.decode()
@@ -229,7 +191,7 @@ def test_reevaluation_records_are_listed(client, viewer):
 
 @pytest.mark.django_db
 @BOTH
-def test_a_hostile_webhook_alert_is_escaped(client, viewer, headers):
+def test_a_hostile_webhook_alert_is_escaped(client, superuser, headers):
     alert = _checker_alert(name=MARKUP, labels={}, source="grafana", description=MARKUP)
 
     body = client.get(_url(alert), **headers).content.decode()
@@ -242,7 +204,6 @@ def test_a_hostile_webhook_alert_is_escaped(client, viewer, headers):
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
 @BOTH
 def test_rendered_page_is_clean(client, superuser, label, headers):
-    client.force_login(superuser)
     alert = _checker_alert(incident=Incident.objects.create())
     AlertHistory.objects.create(alert=alert, event="created", new_status="firing")
 
@@ -254,7 +215,6 @@ def test_rendered_page_is_clean(client, superuser, label, headers):
 @pytest.mark.django_db
 @BOTH
 def test_every_focusable_element_in_the_polled_region_has_a_unique_id(client, superuser, headers):
-    client.force_login(superuser)
     alert = _checker_alert(incident=Incident.objects.create())
 
     body = client.get(_url(alert), **headers).content.decode()

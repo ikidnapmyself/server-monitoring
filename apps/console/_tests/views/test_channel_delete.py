@@ -1,5 +1,4 @@
 import pytest
-from django.contrib.auth.models import Permission
 from django.urls import reverse
 
 from apps.console._tests.test_guard import visible
@@ -20,24 +19,6 @@ def _empty_table():
 @pytest.fixture
 def channel():
     return NotificationChannel.objects.create(name="ops", driver="slack", config=STORED["slack"])
-
-
-def _grant(user, *codenames):
-    for codename in codenames:
-        user.user_permissions.add(
-            Permission.objects.get(content_type__app_label="notify", codename=codename)
-        )
-    return user
-
-
-@pytest.fixture
-def channel_editor(bare_staff):
-    return _grant(bare_staff, "change_notificationchannel")
-
-
-@pytest.fixture
-def channel_deleter(bare_staff):
-    return _grant(bare_staff, "change_notificationchannel", "delete_notificationchannel")
 
 
 def _url(channel):
@@ -71,7 +52,6 @@ def test_the_page_names_the_routes_it_cuts(client, superuser, channel):
         name="pager", priority=20, stages=["check", "notify"], channel=channel
     )
     PipelineDefinition.objects.create(name="quiet", priority=5, stages=["check"], channel=channel)
-    client.force_login(superuser)
 
     resp = client.get(_url(channel))
 
@@ -97,16 +77,7 @@ def test_the_page_names_the_routes_it_cuts(client, superuser, channel):
     assert NotificationChannel.objects.filter(pk=channel.pk).exists()
 
 
-def test_a_reader_without_route_access_sees_the_routes_as_text(client, channel_deleter, channel):
-    PipelineDefinition.objects.create(name="web", stages=["notify"], channel=channel)
-
-    body = client.get(_url(channel)).content.decode()
-
-    assert "<li>web</li>" in body
-
-
 def test_a_channel_no_route_delivers_through_says_so(client, superuser, channel):
-    client.force_login(superuser)
 
     text = visible(client.get(_url(channel)).content.decode())
 
@@ -115,7 +86,6 @@ def test_a_channel_no_route_delivers_through_says_so(client, superuser, channel)
 
 
 def test_htmx_gets_the_page_without_the_layout(client, superuser, channel):
-    client.force_login(superuser)
 
     resp = client.get(_url(channel), headers={"HX-Request": "true"})
 
@@ -127,7 +97,6 @@ def test_htmx_gets_the_page_without_the_layout(client, superuser, channel):
 
 def test_a_post_deletes_and_lands_on_the_channels_page(client, superuser, channel):
     lane = PipelineDefinition.objects.create(name="web", stages=["notify"], channel=channel)
-    client.force_login(superuser)
 
     resp = client.post(_url(channel))
 
@@ -140,23 +109,13 @@ def test_a_post_deletes_and_lands_on_the_channels_page(client, superuser, channe
     assert "Channel ops deleted." in client.get(resp.url).content.decode()
 
 
-def test_a_delete_permission_is_enough(client, channel_deleter, channel):
+def test_a_superuser_deletes(client, superuser, channel):
     assert client.get(_url(channel)).status_code == 200
     assert client.post(_url(channel)).status_code == 303
 
 
 @pytest.mark.parametrize("method", ["get", "post"])
-def test_a_change_only_user_is_refused(client, channel_editor, channel, method):
-    resp = getattr(client, method)(_url(channel))
-
-    assert resp.status_code == 403
-    assert resp.content.decode() == "Permission to delete channels required."
-    assert NotificationChannel.objects.filter(pk=channel.pk).exists()
-
-
-@pytest.mark.parametrize("method", ["get", "post"])
 def test_a_missing_channel_is_the_console_404_page(client, superuser, method):
-    client.force_login(superuser)
 
     resp = getattr(client, method)(reverse("console:channel-delete", args=[999]))
 
@@ -165,7 +124,7 @@ def test_a_missing_channel_is_the_console_404_page(client, superuser, method):
 
 
 class TestTheEditorLink:
-    def test_a_deleter_sees_it(self, client, channel_deleter, channel):
+    def test_a_superuser_sees_it(self, client, superuser, channel):
         body = client.get(reverse("console:channel", args=[channel.pk])).content.decode()
 
         assert (
@@ -173,24 +132,8 @@ class TestTheEditorLink:
             f'href="{_url(channel)}">Delete channel</a>'
         ) in body
 
-    def test_a_change_only_user_does_not(self, client, channel_editor, channel):
-        body = client.get(reverse("console:channel", args=[channel.pk])).content.decode()
-
-        assert 'id="channel-delete"' not in body
-
     def test_a_new_channel_has_none(self, client, superuser):
-        client.force_login(superuser)
 
         body = client.get(f"{reverse('console:channel-new')}?driver=slack").content.decode()
 
         assert 'id="channel-delete"' not in body
-
-
-@pytest.mark.parametrize("method", ["get", "post"])
-def test_a_delete_only_user_is_refused(client, bare_staff, channel, method):
-    _grant(bare_staff, "delete_notificationchannel")
-
-    resp = getattr(client, method)(_url(channel))
-
-    assert resp.status_code == 403
-    assert NotificationChannel.objects.filter(pk=channel.pk).exists()

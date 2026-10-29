@@ -6,7 +6,6 @@ from apps.console.views.base import ConsoleView
 class IncidentListView(ConsoleView):
     template_name = "console/incidents.html"
     partial_template_name = "console/partials/_incidents.html"
-    read_permissions = ("alerts.view_incident", "alerts.change_incident")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

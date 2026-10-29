@@ -36,13 +36,9 @@ class NodePolicyView(NodePageView):
         return self.render_to_response(context, status=status)
 
     def get(self, request, *args, **kwargs):
-        if not self.can_change:
-            return self.forbidden()
         return self.render_editor(build_policy_editor(kwargs["pk"]))
 
     def post(self, request, *args, **kwargs):
-        if not self.can_change:
-            return self.forbidden()
         pk = kwargs["pk"]
         digest = request.POST.get("digest", "")
         editor = build_policy_editor(pk, request.POST, digest=digest)

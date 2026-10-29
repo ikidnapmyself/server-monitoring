@@ -111,7 +111,7 @@ def test_header_fields_describe_the_incident():
     assert detail.full_url == f"/console/incidents/{incident.pk}/?all=1"
     assert detail.recent_url == ""
     assert detail.hidden == 0
-    assert detail.do == ()
+    assert [action.intent for action in detail.do] == ["resolve", "close"]
     assert isinstance(detail.stages, tuple)
     assert isinstance(detail.timeline, tuple)
     with pytest.raises(FrozenInstanceError):
@@ -570,15 +570,6 @@ def test_the_cap_does_not_change_the_query_count(monkeypatch):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("status", ["open", "acknowledged", "resolved", "closed"])
-def test_nothing_to_do_unless_the_caller_may_act(status):
-    incident = _incident(status=status)
-
-    assert build_incident_detail(incident.pk).do == ()
-    assert build_incident_detail(incident.pk, can_act=False).do == ()
-
-
-@pytest.mark.django_db
 @pytest.mark.parametrize(
     ("status", "keys"),
     [
@@ -588,10 +579,10 @@ def test_nothing_to_do_unless_the_caller_may_act(status):
         ("closed", ()),
     ],
 )
-def test_transitions_follow_the_status_when_the_caller_may_act(status, keys):
+def test_transitions_follow_the_status(status, keys):
     incident = _incident(status=status)
 
-    detail = build_incident_detail(incident.pk, can_act=True)
+    detail = build_incident_detail(incident.pk)
 
     assert detail.do == tuple(
         Action(key.capitalize(), intent=key, params={"pk": incident.pk}) for key in keys
@@ -601,16 +592,15 @@ def test_transitions_follow_the_status_when_the_caller_may_act(status, keys):
 @pytest.mark.django_db
 @override_settings(INSTANCE_ID="this-box")
 @pytest.mark.parametrize(
-    ("instance", "checker", "can_rerun", "offered"),
+    ("instance", "checker", "offered"),
     [
-        ("this-box", "cpu", True, True),
-        ("this-box", "cpu", False, False),
-        ("other-box", "cpu", True, False),
-        ("this-box", "no_such_checker", True, False),
+        ("this-box", "cpu", True),
+        ("other-box", "cpu", False),
+        ("this-box", "no_such_checker", False),
     ],
 )
 def test_rerun_is_offered_only_for_a_local_incident_with_a_known_checker(
-    instance, checker, can_rerun, offered
+    instance, checker, offered
 ):
     incident = _incident(instance=instance, status="closed")
     Alert.objects.create(
@@ -622,7 +612,7 @@ def test_rerun_is_offered_only_for_a_local_incident_with_a_known_checker(
         started_at=T0,
     )
 
-    detail = build_incident_detail(incident.pk, can_act=True, can_rerun=can_rerun)
+    detail = build_incident_detail(incident.pk)
 
     rerun = Action("Run the checks again", intent="rerun_check", params={"pk": incident.pk})
     assert detail.do == ((rerun,) if offered else ())
@@ -635,7 +625,7 @@ def test_rerun_follows_the_transitions():
     _alert(incident, key="x")
     Alert.objects.filter(incident=incident).update(labels={"checker": "cpu"})
 
-    detail = build_incident_detail(incident.pk, can_act=True, can_rerun=True)
+    detail = build_incident_detail(incident.pk)
 
     assert [a.intent for a in detail.do] == ["close", "rerun_check"]
 

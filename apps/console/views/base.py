@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from urllib.parse import unquote, urlsplit
 
 from django.contrib.auth.views import redirect_to_login
-from django.http import HttpResponse, HttpResponseForbidden
+from django.http import HttpResponse
+from django.shortcuts import render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.generic import TemplateView
@@ -11,6 +12,11 @@ from apps.console.intents import admin_url
 from apps.console.middleware import CONSOLE_PATH_PREFIX
 
 NOTHING_TO_APPLY = "Nothing here needs re-evaluating, so nothing was applied."
+
+
+def admits(user) -> bool:
+    """Whether ``user`` may use the console: an active superuser."""
+    return user.is_active and user.is_superuser
 
 
 @dataclass(frozen=True)
@@ -22,7 +28,7 @@ class Notice:
 
 
 class ConsoleView(TemplateView):
-    """Base for every console page. Active staff, plus any one of ``read_permissions`` when set.
+    """Base for every console page. Active superusers only.
 
     One URL serves two sizes: the full page, and only ``partial_template_name``
     when htmx asks for a fragment. Subclasses must set both template names.
@@ -31,7 +37,6 @@ class ConsoleView(TemplateView):
 
     template_name: str
     partial_template_name: str
-    read_permissions: tuple[str, ...] = ()
 
     def dispatch(self, request, *args, **kwargs):
         return self._refusal(request) or super().dispatch(request, *args, **kwargs)
@@ -65,10 +70,13 @@ class ConsoleView(TemplateView):
             response = HttpResponse(status=204)
             response["HX-Redirect"] = redirect_to_login(self._page_path(request), login_url).url
             return response
-        if not (request.user.is_active and request.user.is_staff):
-            return HttpResponseForbidden("Staff access required.")
-        if self.read_permissions and not any(map(request.user.has_perm, self.read_permissions)):
-            return HttpResponseForbidden("Permission to view this page required.")
+        if not admits(request.user):
+            if self.is_htmx:
+                # htmx swaps nothing on a 403, so reload into the full refusal page.
+                response = HttpResponse(status=403)
+                response["HX-Refresh"] = "true"
+                return response
+            return render(request, "console/not_superuser.html", status=403)
         return None
 
     def landing_path(self) -> str:

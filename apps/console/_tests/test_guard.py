@@ -135,7 +135,6 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         ).pk
         for driver, config in STORED.items()
     ]
-    client.force_login(superuser)
     headers = {"HX-Request": "true"} if partial else {}
     alert_pks = list(Alert.objects.values_list("pk", flat=True))
     assert alert_pks
@@ -279,7 +278,6 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
 def test_overview_without_a_provider_leaks_nothing(client, superuser):
     build_world()
     IntelligenceProvider.objects.update(is_active=False)
-    client.force_login(superuser)
 
     text = visible(_get(client, "/console/", {}))
 
@@ -291,9 +289,18 @@ def test_overview_without_a_provider_leaks_nothing(client, superuser):
 def test_overview_without_a_channel_leaks_nothing(client, superuser):
     build_world()
     NotificationChannel.objects.update(is_active=False)
-    client.force_login(superuser)
 
     text = visible(_get(client, "/console/", {}))
 
     _assert_no_leak("/console/", text)
     assert "No active channel, 3 routes can't deliver" in text
+
+
+@pytest.mark.django_db
+def test_the_refusal_page_leaks_nothing(client, active_staff):
+    build_world()
+
+    response = client.get("/console/")
+
+    assert response.status_code == 403
+    _assert_no_leak("/console/", visible(response.content.decode()))

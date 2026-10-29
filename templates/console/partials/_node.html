@@ -13,7 +13,6 @@
 
 <div class="c-layout">
   <div>
-    {% if node.do %}
     <section class="c-box c-comment c-do">
       <h2 class="c-box__header c-box__title">Do this</h2>
       <div class="c-box__body c-do__list">
@@ -23,7 +22,6 @@
         {% endfor %}
       </div>
     </section>
-    {% endif %}
     <section class="c-box c-comment">
       <h2 class="c-box__header c-box__title">Checker state</h2>
       {% if node.checkers %}
@@ -85,7 +83,7 @@
           {% for line in node.in_effect %}
           <li class="c-section">
             <strong>{{ line.label }}</strong> {{ line.values|join:", " }}
-            {% if line.edit %}{% resolved line.edit as act %}{% if act.url %} <a id="policy-edit-{{ line.key }}" href="{{ act.url }}">{{ act.text }}</a>{% endif %}{% endif %}
+            {% resolved line.edit as act %}{% if act.url %} <a id="policy-edit-{{ line.key }}" href="{{ act.url }}">{{ act.text }}</a>{% endif %}
             {% if line.note %}<p class="c-muted">Scoring as stored, but {{ line.note }}</p>{% endif %}
           </li>
           {% endfor %}
@@ -97,7 +95,7 @@
           {% for line in node.not_scoring %}
           <li class="c-section">
             <strong>{{ line.label }}</strong> {{ line.values|join:", " }}
-            {% if line.edit %}{% resolved line.edit as act %}{% if act.url %} <a id="policy-edit-{{ line.key }}" href="{{ act.url }}">{{ act.text }}</a>{% endif %}{% endif %}
+            {% resolved line.edit as act %}{% if act.url %} <a id="policy-edit-{{ line.key }}" href="{{ act.url }}">{{ act.text }}</a>{% endif %}
             <p class="c-tone-warning">{{ line.note }}</p>
           </li>
           {% endfor %}

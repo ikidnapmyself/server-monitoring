@@ -1,5 +1,5 @@
 from django.contrib import messages
-from django.http import HttpResponseForbidden, HttpResponseRedirect
+from django.http import HttpResponseRedirect
 from django.urls import reverse
 
 from apps.console.filters import InboxFilter
@@ -8,8 +8,6 @@ from apps.console.views.base import ConsoleView, Notice
 from apps.orchestration import inbox
 from apps.orchestration.models import PipelineRun, PipelineStatus
 
-INBOX_READ = ("orchestration.view_inboxitem", "orchestration.change_inboxitem")
-INBOX_CHANGE = "orchestration.change_inboxitem"
 DRAIN_LIMIT = 10
 DRAIN_SECONDS = 60
 LEVELS = {"ok": messages.SUCCESS, "info": messages.INFO, "critical": messages.ERROR}
@@ -41,17 +39,12 @@ def _outcome(ran: int, failed: int) -> Notice:
 class InboxPageView(ConsoleView):
     template_name = "console/inbox.html"
     partial_template_name = "console/partials/_inbox.html"
-    read_permissions = INBOX_READ
-
-    @property
-    def can_drain(self) -> bool:
-        return self.request.user.has_perm(INBOX_CHANGE)
 
     def get(self, request, *args, **kwargs):
         return self.render_inbox(InboxFilter.parse(request.GET))
 
     def render_inbox(self, criteria: InboxFilter, notice: Notice | None = None):
-        inbox_page = build_inbox(criteria, can_drain=self.can_drain)
+        inbox_page = build_inbox(criteria)
         return self.render_to_response(
             self.get_context_data(inbox=inbox_page, nav="inbox", notice=notice)
         )
@@ -86,8 +79,6 @@ class InboxActionView(InboxPageView):
         return Notice(f"Returned {count} stuck run{plural} to the queue.", "ok")
 
     def post(self, request, *args, **kwargs):
-        if not self.can_drain:
-            return HttpResponseForbidden("Permission to drain the inbox required.")
         notice = self.act()
         criteria = InboxFilter.parse(request.POST)
         if self.wants_partial:

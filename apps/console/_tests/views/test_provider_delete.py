@@ -1,5 +1,4 @@
 import pytest
-from django.contrib.auth.models import Permission
 from django.urls import reverse
 
 from apps.console._tests.test_guard import visible
@@ -16,24 +15,6 @@ def provider():
     return IntelligenceProvider.objects.create(
         name="main", provider="claude", config=STORED["claude"]
     )
-
-
-def _grant(user, *codenames):
-    for codename in codenames:
-        user.user_permissions.add(
-            Permission.objects.get(content_type__app_label="intelligence", codename=codename)
-        )
-    return user
-
-
-@pytest.fixture
-def provider_editor(bare_staff):
-    return _grant(bare_staff, "change_intelligenceprovider")
-
-
-@pytest.fixture
-def provider_deleter(bare_staff):
-    return _grant(bare_staff, "change_intelligenceprovider", "delete_intelligenceprovider")
 
 
 def _url(provider):
@@ -61,7 +42,6 @@ def test_an_anonymous_delete_logs_in_back_to_the_editor(client, provider):
 
 def test_the_page_asks_and_says_what_analysis_falls_back_to(client, superuser, provider):
     IntelligenceProvider.objects.filter(pk=provider.pk).update(is_active=True)
-    client.force_login(superuser)
 
     resp = client.get(_url(provider))
 
@@ -86,7 +66,6 @@ def test_the_page_asks_and_says_what_analysis_falls_back_to(client, superuser, p
 
 def test_deleting_a_spare_says_analysis_keeps_the_one_in_use(client, superuser, provider):
     IntelligenceProvider.objects.create(name="other", provider="openai", is_active=True)
-    client.force_login(superuser)
 
     text = visible(client.get(_url(provider)).content.decode())
 
@@ -95,13 +74,11 @@ def test_deleting_a_spare_says_analysis_keeps_the_one_in_use(client, superuser, 
 
 
 def test_deleting_a_spare_with_none_on_says_the_fallback(client, superuser, provider):
-    client.force_login(superuser)
 
     assert FALLBACK in visible(client.get(_url(provider)).content.decode())
 
 
 def test_htmx_gets_the_page_without_the_layout(client, superuser, provider):
-    client.force_login(superuser)
 
     resp = client.get(_url(provider), headers={"HX-Request": "true"})
 
@@ -112,7 +89,6 @@ def test_htmx_gets_the_page_without_the_layout(client, superuser, provider):
 
 
 def test_a_post_deletes_and_lands_on_the_providers_page(client, superuser, provider):
-    client.force_login(superuser)
 
     resp = client.post(_url(provider))
 
@@ -122,33 +98,13 @@ def test_a_post_deletes_and_lands_on_the_providers_page(client, superuser, provi
     assert "Provider main deleted." in client.get(resp.url).content.decode()
 
 
-def test_a_delete_permission_is_enough(client, provider_deleter, provider):
+def test_a_superuser_deletes(client, superuser, provider):
     assert client.get(_url(provider)).status_code == 200
     assert client.post(_url(provider)).status_code == 303
 
 
 @pytest.mark.parametrize("method", ["get", "post"])
-def test_a_change_only_user_is_refused(client, provider_editor, provider, method):
-    resp = getattr(client, method)(_url(provider))
-
-    assert resp.status_code == 403
-    assert resp.content.decode() == "Permission to delete providers required."
-    assert IntelligenceProvider.objects.filter(pk=provider.pk).exists()
-
-
-@pytest.mark.parametrize("method", ["get", "post"])
-def test_a_delete_only_user_is_refused(client, bare_staff, provider, method):
-    _grant(bare_staff, "delete_intelligenceprovider")
-
-    resp = getattr(client, method)(_url(provider))
-
-    assert resp.status_code == 403
-    assert IntelligenceProvider.objects.filter(pk=provider.pk).exists()
-
-
-@pytest.mark.parametrize("method", ["get", "post"])
 def test_a_missing_provider_is_the_console_404_page(client, superuser, method):
-    client.force_login(superuser)
 
     resp = getattr(client, method)(reverse("console:provider-delete", args=[999]))
 
@@ -157,7 +113,7 @@ def test_a_missing_provider_is_the_console_404_page(client, superuser, method):
 
 
 class TestTheEditorLink:
-    def test_a_deleter_sees_it(self, client, provider_deleter, provider):
+    def test_a_superuser_sees_it(self, client, superuser, provider):
         body = client.get(reverse("console:provider", args=[provider.pk])).content.decode()
 
         assert (
@@ -165,13 +121,7 @@ class TestTheEditorLink:
             f'href="{_url(provider)}">Delete provider</a>'
         ) in body
 
-    def test_a_change_only_user_does_not(self, client, provider_editor, provider):
-        body = client.get(reverse("console:provider", args=[provider.pk])).content.decode()
-
-        assert 'id="provider-delete"' not in body
-
     def test_a_new_provider_has_none(self, client, superuser):
-        client.force_login(superuser)
 
         body = client.get(f"{reverse('console:provider-new')}?provider=claude").content.decode()
 

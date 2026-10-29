@@ -1,9 +1,7 @@
-import re
 from datetime import timedelta
 from unittest import mock
 
 import pytest
-from django.contrib.auth.models import Permission
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -19,14 +17,6 @@ def url():
     return reverse("console:keys")
 
 
-@pytest.fixture
-def key_viewer(bare_staff):
-    bare_staff.user_permissions.add(
-        Permission.objects.get(content_type__app_label="config_app", codename="view_apikey")
-    )
-    return bare_staff
-
-
 def test_the_page_lives_at_keys(url):
     assert url == "/console/keys/"
 
@@ -38,12 +28,7 @@ def test_anonymous_is_sent_to_the_admin_login(client, url):
     assert resp["Location"] == f"{reverse('admin:login')}?next=/console/keys/"
 
 
-def test_staff_without_a_key_permission_is_refused(client, bare_staff, url):
-    assert client.get(url).status_code == 403
-
-
 def test_keys_render_by_name_with_state_prefix_endpoints_and_use(client, superuser, url):
-    client.force_login(superuser)
     hub = APIKey.objects.create(
         name="hub",
         allowed_endpoints=["/alerts/webhook/"],
@@ -73,7 +58,6 @@ def test_keys_render_by_name_with_state_prefix_endpoints_and_use(client, superus
 
 
 def test_no_keys_says_nothing_can_send(client, superuser, url):
-    client.force_login(superuser)
 
     body = client.get(url).content.decode()
 
@@ -84,7 +68,6 @@ def test_no_keys_says_nothing_can_send(client, superuser, url):
 
 @override_settings(API_KEY_AUTH_ENABLED=False)
 def test_no_keys_with_checks_off_says_anything_can_send(client, superuser, url):
-    client.force_login(superuser)
 
     body = client.get(url).content.decode()
 
@@ -93,16 +76,15 @@ def test_no_keys_with_checks_off_says_anything_can_send(client, superuser, url):
     assert "can't send to this hub" not in body
 
 
-def test_a_viewer_gets_links_but_no_add(client, key_viewer, url):
+def test_a_name_links_the_key(client, superuser, url):
     hub = APIKey.objects.create(name="hub")
 
     body = client.get(url).content.decode()
 
     assert f'href="/console/keys/{hub.pk}/">hub</a>' in body
-    assert "Add a key" not in body
 
 
-def test_a_name_without_a_link_is_plain_text(client, key_viewer, url):
+def test_a_name_without_a_link_is_plain_text(client, superuser, url):
     APIKey.objects.create(name="hub")
 
     with mock.patch("apps.console.intents.INTENTS", {}):
@@ -112,17 +94,8 @@ def test_a_name_without_a_link_is_plain_text(client, key_viewer, url):
 
 
 def test_htmx_gets_the_list_without_the_layout(client, superuser, url):
-    client.force_login(superuser)
 
     resp = client.get(url, HTTP_HX_REQUEST="true")
 
     assert resp.templates[0].name == "console/partials/_keys.html"
     assert "<html" not in resp.content.decode()
-
-
-def test_a_key_only_reader_gets_system_on_keys_and_only_its_tab(client, key_viewer, url):
-    body = client.get(url).content.decode()
-
-    assert re.search(r'href="/console/keys/" aria-current="page">.*?<span>System</span>', body)
-    assert 'href="/console/keys/" aria-current="page">API keys</a>' in body
-    assert ">Routes</a>" not in body and ">Providers</a>" not in body

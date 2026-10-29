@@ -1,5 +1,5 @@
 from django.contrib import messages
-from django.http import HttpResponseForbidden, HttpResponseRedirect
+from django.http import HttpResponseRedirect
 from django.urls import reverse
 
 from apps.alerts.check_integration import PipelineRunFailed, RerunRefused, rerun_incident_checks
@@ -22,8 +22,6 @@ class IncidentRerunView(IncidentPageView):
         return reverse("console:incident", args=[self.kwargs["pk"]])
 
     def post(self, request, *args, **kwargs):
-        if not self.can_rerun_checks:
-            return HttpResponseForbidden("Permission to run checks required.")
         pk = kwargs["pk"]
         try:
             rerun = rerun_incident_checks(pk)

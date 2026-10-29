@@ -73,7 +73,7 @@ class PolicyLine:
     label: str
     values: tuple[str, ...]
     note: str
-    edit: Action | None
+    edit: Action
 
 
 @dataclass(frozen=True)
@@ -110,19 +110,16 @@ def _plural(count: int, noun: str) -> str:
     return f"{count} {noun}{'s' if count != 1 else ''}"
 
 
-def _policy(
-    node: Node, can_change: bool
-) -> tuple[tuple[PolicyLine, ...], tuple[PolicyLine, ...], tuple[Fact, ...]]:
+def _policy(node: Node) -> tuple[tuple[PolicyLine, ...], tuple[PolicyLine, ...], tuple[Fact, ...]]:
     policy = build_effective_policy(node)
 
     def line(section: PolicySection, note: str) -> PolicyLine:
-        edit = Action("Edit", "edit_node_policy", {"pk": node.pk, "checker": section.checker})
         return PolicyLine(
             key=section.checker,
             label=section.title,
             values=tuple(f"{value.label} {value.value}" for value in section.values),
             note=note,
-            edit=edit if can_change else None,
+            edit=Action("Edit", "edit_node_policy", {"pk": node.pk, "checker": section.checker}),
         )
 
     return (
@@ -132,8 +129,8 @@ def _policy(
     )
 
 
-def build_node_detail(pk: int, *, can_change: bool = False) -> NodeDetail | None:
-    """One node for its page. ``do`` and the policy edit links hold only what the caller may do."""
+def build_node_detail(pk: int) -> NodeDetail | None:
+    """One node for its page."""
     node = Node.objects.filter(pk=pk).first()
     if node is None:
         return None
@@ -150,14 +147,10 @@ def build_node_detail(pk: int, *, can_change: bool = False) -> NodeDetail | None
     )
     preflight = build_preflight(node, identity)
     run = preflight.run
-    in_effect, not_scoring, unread = _policy(node, can_change)
+    in_effect, not_scoring, unread = _policy(node)
     do = (
-        (
-            Action("Edit policy", "edit_node_policy", {"pk": node.pk}),
-            Action("Re-evaluate open alerts", "reevaluate_node", {"pk": node.pk}),
-        )
-        if can_change
-        else ()
+        Action("Edit policy", "edit_node_policy", {"pk": node.pk}),
+        Action("Re-evaluate open alerts", "reevaluate_node", {"pk": node.pk}),
     )
     facts = tuple(
         Fact(label, value, copy=label == "Instance ID")

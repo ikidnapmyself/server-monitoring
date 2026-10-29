@@ -13,7 +13,7 @@
     {% endif %}
   </div>
 </section>
-{% if plan.ports and can_change %}
+{% if plan.ports %}
 <form method="post" action="{{ plan.url }}" data-disable-on-submit>
   {% csrf_token %}
   <input type="hidden" name="digest" value="{{ plan.digest }}">

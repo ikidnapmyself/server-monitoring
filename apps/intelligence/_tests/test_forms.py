@@ -269,13 +269,6 @@ def test_every_choice_is_offered_by_its_label():
     assert form["is_active"].value() is False
 
 
-def test_disabled_disables_every_field():
-    form = ProviderForm(provider=make("claude", STORED["claude"]), disabled=True)
-
-    assert form.fields
-    assert all(field.disabled for field in form.fields.values())
-
-
 def test_groups_put_each_clear_after_its_secret():
     form = ProviderForm(provider=make("claude", STORED["claude"]))
 

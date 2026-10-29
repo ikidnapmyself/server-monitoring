@@ -54,7 +54,7 @@ class Inbox:
     url: str
 
 
-def _row(run: PipelineRun, hosts, stuck_pks: set[int], can_drain: bool) -> InboxRow:
+def _row(run: PipelineRun, hosts, stuck_pks: set[int]) -> InboxRow:
     return InboxRow(
         pk=run.pk,
         what=describe_run(run),
@@ -66,14 +66,14 @@ def _row(run: PipelineRun, hosts, stuck_pks: set[int], can_drain: bool) -> Inbox
         stuck=run.pk in stuck_pks,
         drain=(
             Action("Drain now", "drain_run", {"pk": run.pk})
-            if can_drain and run.status == PipelineStatus.PENDING
+            if run.status == PipelineStatus.PENDING
             else None
         ),
         url=reverse("console:run", args=[run.pk]),
     )
 
 
-def build_inbox(criteria: InboxFilter, *, can_drain: bool = False) -> Inbox:
+def build_inbox(criteria: InboxFilter) -> Inbox:
     base = reverse("console:inbox")
     pending = Q(status=PipelineStatus.PENDING)
     processing = Q(status=PipelineStatus.PROCESSING)
@@ -101,9 +101,9 @@ def build_inbox(criteria: InboxFilter, *, can_drain: bool = False) -> Inbox:
     hosts = run_hosts(found)
 
     do: list[Action] = []
-    if can_drain and counts["pending"]:
+    if counts["pending"]:
         do.append(DRAIN_OLDEST)
-    if can_drain and counts["stuck"]:
+    if counts["stuck"]:
         do.append(RECLAIM)
 
     if found:
@@ -114,7 +114,7 @@ def build_inbox(criteria: InboxFilter, *, can_drain: bool = False) -> Inbox:
         empty = "drained"
 
     return Inbox(
-        rows=tuple(_row(run, hosts, stuck_pks, can_drain) for run in found),
+        rows=tuple(_row(run, hosts, stuck_pks) for run in found),
         pending=counts["pending"],
         processing=counts["processing"],
         stuck=counts["stuck"],

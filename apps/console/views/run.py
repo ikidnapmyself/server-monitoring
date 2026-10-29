@@ -1,7 +1,7 @@
 from collections.abc import Callable
 
 from django.contrib import messages
-from django.http import Http404, HttpResponseForbidden, HttpResponseRedirect
+from django.http import Http404, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
@@ -9,8 +9,6 @@ from apps.console.queries.run import build_run_detail, run_exists
 from apps.console.views.base import ConsoleView, Notice
 from apps.orchestration import inbox
 
-RUN_READ = ("orchestration.view_pipelinerun", "orchestration.change_pipelinerun")
-RUN_CHANGE = "orchestration.change_pipelinerun"
 RETRIED = "Run queued again. The next drain runs the stages that didn't finish."
 NOT_FAILED = "This run is no longer failed."
 ABANDONED = "Run marked failed. No drain will pick it up."
@@ -26,17 +24,12 @@ class RunPageView(ConsoleView):
 
     template_name = "console/run.html"
     partial_template_name = "console/partials/_run.html"
-    read_permissions = RUN_READ
-
-    @property
-    def can_act(self) -> bool:
-        return self.request.user.has_perm(RUN_CHANGE)
 
     def not_found(self):
         return render(self.request, "console/not_found.html", {"nav": "runs"}, status=404)
 
     def render_run(self, pk: int, notice: Notice | None = None):
-        run = build_run_detail(pk, can_act=self.can_act)
+        run = build_run_detail(pk)
         if run is None:
             return self.not_found()
         return self.render_to_response(self.get_context_data(run=run, nav="runs", notice=notice))
@@ -56,8 +49,6 @@ class RunActionView(RunPageView):
         return reverse("console:run", args=[self.kwargs["pk"]])
 
     def post(self, request, *args, **kwargs):
-        if not self.can_act:
-            return HttpResponseForbidden("Permission to change runs required.")
         if kwargs["action"] not in ACTIONS:
             raise Http404("Unknown run action.")
         pk = kwargs["pk"]

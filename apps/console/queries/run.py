@@ -42,9 +42,7 @@ class RunDetail:
     url: str
 
 
-def _do(run: PipelineRun, can_act: bool) -> tuple[Action, ...]:
-    if not can_act:
-        return ()
+def _do(run: PipelineRun) -> tuple[Action, ...]:
     params = {"pk": run.pk}
     if run.status == PipelineStatus.FAILED:
         return (Action(RETRY, "retry_run", params),)
@@ -85,8 +83,8 @@ def run_exists(pk: int) -> bool:
     return PipelineRun.objects.filter(pk=pk).exists()
 
 
-def build_run_detail(pk: int, *, can_act: bool = False) -> RunDetail | None:
-    """One run for its page. ``do`` holds only what the caller may do."""
+def build_run_detail(pk: int) -> RunDetail | None:
+    """One run for its page."""
     run = PipelineRun.objects.select_related("node", "incident").filter(pk=pk).first()
     if run is None:
         return None
@@ -103,7 +101,7 @@ def build_run_detail(pk: int, *, can_act: bool = False) -> RunDetail | None:
     return RunDetail(
         pk=run.pk,
         what=replace(what, facts=(*what.facts, *_facts(run))),
-        do=_do(run, can_act),
+        do=_do(run),
         incident=incident_card(run.incident),
         node=node,
         origin=origin_label(run.origin),

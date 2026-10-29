@@ -37,17 +37,13 @@ class NodeReevalView(NodePageView):
         preview = build_node_reeval_preview(self.kwargs["pk"], self.checker)
         if preview is None:
             return self.not_found()
-        context = self.get_context_data(
-            preview=preview, can_reeval=self.can_change, nav="nodes", notice=notice
-        )
+        context = self.get_context_data(preview=preview, nav="nodes", notice=notice)
         return self.render_to_response(context, status=status)
 
     def get(self, request, *args, **kwargs):
         return self.render_preview()
 
     def post(self, request, *args, **kwargs):
-        if not self.can_change:
-            return self.forbidden()
         node = Node.objects.filter(pk=kwargs["pk"]).first()
         if node is None:
             return self.not_found()

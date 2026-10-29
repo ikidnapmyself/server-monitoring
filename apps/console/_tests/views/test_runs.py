@@ -41,23 +41,7 @@ def test_anonymous_is_sent_to_the_admin_login(client, url):
 
 
 @pytest.mark.django_db
-def test_staff_without_a_run_permission_is_refused(client, bare_staff, url):
-    resp = client.get(url)
-
-    assert resp.status_code == 403
-    assert resp.content.decode() == "Permission to view this page required."
-
-
-@pytest.mark.django_db
-def test_the_incident_permission_alone_does_not_read_runs(client, staff, url):
-    assert client.get(url).status_code == 403
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("fixture", ["run_viewer", "run_operator"])
-def test_view_or_change_permission_reads_the_list(client, url, request, fixture):
-    request.getfixturevalue(fixture)
-
+def test_a_superuser_reads_the_list(client, superuser, url):
     resp = client.get(url)
 
     body = resp.content.decode()
@@ -67,7 +51,7 @@ def test_view_or_change_permission_reads_the_list(client, url, request, fixture)
 
 
 @pytest.mark.django_db
-def test_the_partial_is_the_polled_root(client, run_viewer, url):
+def test_the_partial_is_the_polled_root(client, superuser, url):
     resp = client.get(url, **HTMX)
 
     body = resp.content.decode()
@@ -82,8 +66,7 @@ def test_the_partial_is_the_polled_root(client, run_viewer, url):
 
 
 @pytest.mark.django_db
-def test_rows_link_to_the_run_and_its_incident(client, run_viewer, incident_reader, url):
-    incident_reader(run_viewer)
+def test_rows_link_to_the_run_and_its_incident(client, superuser, url):
     node = Node.objects.create(instance_id="i-web", hostname="web")
     incident = _incident()
     run = _run(
@@ -112,20 +95,7 @@ def test_rows_link_to_the_run_and_its_incident(client, run_viewer, incident_read
 
 
 @pytest.mark.django_db
-def test_a_run_reader_sees_the_incident_as_text(client, run_viewer, url):
-    incident = _incident()
-    run = _run(incident=incident)
-
-    body = client.get(url, **HTMX).content.decode()
-
-    assert f'id="run-{run.pk}" href="/console/runs/{run.pk}/"' in body
-    assert f"run-{run.pk}-incident" not in body
-    assert f"</time> · Incident #{incident.pk}</div>" in body
-    assert "octicon-x-circle" in body
-
-
-@pytest.mark.django_db
-def test_the_search_form_resends_the_kept_filters(client, run_viewer, url):
+def test_the_search_form_resends_the_kept_filters(client, superuser, url):
     body = client.get(f"{url}?status=failed&origin=manual&q=abc").content.decode()
 
     form = body[body.index('<form class="c-search"') :]
@@ -139,7 +109,7 @@ def test_the_search_form_resends_the_kept_filters(client, run_viewer, url):
 
 
 @pytest.mark.django_db
-def test_the_status_chips_carry_their_icons(client, run_viewer, url):
+def test_the_status_chips_carry_their_icons(client, superuser, url):
     body = client.get(url).content.decode()
 
     header = body[body.index('<nav class="c-states"') :]
@@ -162,7 +132,7 @@ def test_the_status_chips_carry_their_icons(client, run_viewer, url):
     ("setup", "query", "heading"),
     [(False, "", "No runs yet."), (True, "?status=failed", "No runs match these filters.")],
 )
-def test_each_blank_state(client, run_viewer, url, setup, query, heading):
+def test_each_blank_state(client, superuser, url, setup, query, heading):
     if setup:
         _run()
 
@@ -177,14 +147,14 @@ def test_each_blank_state(client, run_viewer, url, setup, query, heading):
 
 
 @pytest.mark.django_db
-def test_an_invalid_filter_is_named(client, run_viewer, url):
+def test_an_invalid_filter_is_named(client, superuser, url):
     body = client.get(f"{url}?status=bogus").content.decode()
 
     assert "Ignored invalid filter: status." in body
 
 
 @pytest.mark.django_db
-def test_more_than_a_page_offers_the_pager(client, run_viewer, url, monkeypatch):
+def test_more_than_a_page_offers_the_pager(client, superuser, url, monkeypatch):
     monkeypatch.setattr("apps.console.queries.runs.PAGE_SIZE", 1)
     _run()
     _run()
@@ -198,7 +168,7 @@ def test_more_than_a_page_offers_the_pager(client, run_viewer, url, monkeypatch)
 
 
 @pytest.mark.django_db
-def test_the_nav_marks_runs_current(client, run_viewer, url):
+def test_the_nav_marks_runs_current(client, superuser, url):
     body = client.get(url).content.decode()
 
     assert _nav(body, "Runs") == f'<a class="c-unav__item" href="{url}" aria-current="page">'
@@ -207,7 +177,6 @@ def test_the_nav_marks_runs_current(client, run_viewer, url):
 
 @pytest.mark.django_db
 def test_other_pages_list_runs_without_marking_it(client, superuser, url):
-    client.force_login(superuser)
 
     body = client.get(reverse("console:alerts")).content.decode()
 
@@ -216,7 +185,7 @@ def test_other_pages_list_runs_without_marking_it(client, superuser, url):
 
 @pytest.mark.django_db
 @BOTH
-def test_a_hostile_error_is_escaped(client, run_viewer, url, headers):
+def test_a_hostile_error_is_escaped(client, superuser, url, headers):
     _run(status="failed", last_error_message=MARKUP)
 
     body = client.get(url, **headers).content.decode()
@@ -227,7 +196,7 @@ def test_a_hostile_error_is_escaped(client, run_viewer, url, headers):
 @pytest.mark.django_db
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
 @BOTH
-def test_the_rendered_list_is_clean(client, run_viewer, url, label, headers):
+def test_the_rendered_list_is_clean(client, superuser, url, label, headers):
     _run(status="failed", incident=_incident())
 
     body = client.get(url, **headers).content.decode()
@@ -237,7 +206,7 @@ def test_the_rendered_list_is_clean(client, run_viewer, url, label, headers):
 
 @pytest.mark.django_db
 @BOTH
-def test_every_focusable_element_has_a_unique_id(client, run_viewer, url, headers):
+def test_every_focusable_element_has_a_unique_id(client, superuser, url, headers):
     _run(status="failed", incident=_incident())
     _run()
 
@@ -250,7 +219,7 @@ def test_every_focusable_element_has_a_unique_id(client, run_viewer, url, header
 
 
 @pytest.mark.django_db
-def test_a_reason_filter_is_shown_and_removable(client, run_viewer, url):
+def test_a_reason_filter_is_shown_and_removable(client, superuser, url):
     body = client.get(f"{url}?status=failed&reason=no_route").content.decode()
 
     toolbar = body[body.index('<div class="c-toolbar">') :]

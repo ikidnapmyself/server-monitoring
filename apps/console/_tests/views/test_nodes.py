@@ -56,16 +56,7 @@ def test_anonymous_is_sent_to_the_admin_login(client, url):
     assert resp["Location"] == f"{reverse('admin:login')}?next=/console/nodes/"
 
 
-def test_staff_without_a_node_permission_is_refused(client, bare_staff, url):
-    resp = client.get(url)
-
-    assert resp.status_code == 403
-    assert resp.content.decode() == "Permission to view this page required."
-
-
-@pytest.mark.parametrize("fixture", ["node_viewer", "node_operator"])
-def test_view_or_change_node_reads_the_list(client, request, url, fixture):
-    request.getfixturevalue(fixture)
+def test_a_superuser_reads_the_list(client, superuser, url):
 
     resp = client.get(url)
 
@@ -77,7 +68,7 @@ def test_view_or_change_node_reads_the_list(client, request, url, fixture):
     assert _nav(body, "Inbox") == f'<a class="c-unav__item" href="{reverse("console:inbox")}">'
 
 
-def test_htmx_request_gets_only_the_partial_rooted_at_the_polled_element(client, node_viewer, url):
+def test_htmx_request_gets_only_the_partial_rooted_at_the_polled_element(client, superuser, url):
     resp = client.get(url, **HTMX)
 
     body = resp.content.decode()
@@ -91,10 +82,7 @@ def test_htmx_request_gets_only_the_partial_rooted_at_the_polled_element(client,
     assert 'hx-swap="outerHTML"' in root
 
 
-def test_a_row_links_the_node_page_and_its_counts_the_incident_list(
-    client, node_viewer, incident_reader, url
-):
-    incident_reader(node_viewer)
+def test_a_row_links_the_node_page_and_its_counts_the_incident_list(client, superuser, url):
     node = Node.objects.create(instance_id="i-web", hostname="web")
     _open_critical(node)
 
@@ -107,18 +95,7 @@ def test_a_row_links_the_node_page_and_its_counts_the_incident_list(
     assert "This hub" not in body and "Peer · seen <time" in body
 
 
-def test_a_node_reader_sees_the_counts_as_text(client, node_viewer, url):
-    node = Node.objects.create(instance_id="i-web", hostname="web")
-    _open_critical(node)
-
-    body = client.get(url, **HTMX).content.decode()
-
-    assert f'id="node-{node.pk}-critical"' not in body
-    assert "/console/incidents/" not in body
-    assert '<span class="c-label c-tone-critical">1 critical</span>' in body
-
-
-def test_the_freshness_chips_swap_the_list(client, node_viewer, url):
+def test_the_freshness_chips_swap_the_list(client, superuser, url):
     Node.objects.create(instance_id="i-web", hostname="web")
 
     body = client.get(url).content.decode()
@@ -129,7 +106,7 @@ def test_the_freshness_chips_swap_the_list(client, node_viewer, url):
     assert 'aria-current="true"' in _tag(body, "chip-freshness-all")
 
 
-def test_the_search_form_resends_the_freshness(client, node_viewer, url):
+def test_the_search_form_resends_the_freshness(client, superuser, url):
     body = client.get(f"{url}?freshness=silent&q=web").content.decode()
 
     form = body[body.index('<form class="c-search"') :]
@@ -139,7 +116,7 @@ def test_the_search_form_resends_the_freshness(client, node_viewer, url):
     assert 'placeholder="Hostname or instance ID"' in _tag(form, "nodes-q")
 
 
-def test_the_header_links_the_fleet_policy(client, node_viewer, url):
+def test_the_header_links_the_fleet_policy(client, superuser, url):
     body = client.get(url).content.decode()
 
     assert 'id="nodes-policy"' in body
@@ -152,7 +129,7 @@ def test_the_header_links_the_fleet_policy(client, node_viewer, url):
         (True, "?q=nothing", "No nodes match these filters."),
     ],
 )
-def test_each_blank_state(client, node_viewer, url, setup, query, heading):
+def test_each_blank_state(client, superuser, url, setup, query, heading):
     if setup:
         Node.objects.create(instance_id="i-web", hostname="web")
 
@@ -166,14 +143,14 @@ def test_each_blank_state(client, node_viewer, url, setup, query, heading):
         assert "filters-clear" not in body
 
 
-def test_an_invalid_filter_is_named(client, node_viewer, url):
+def test_an_invalid_filter_is_named(client, superuser, url):
     body = client.get(f"{url}?freshness=gone").content.decode()
 
     assert "Ignored invalid filter: freshness." in body
 
 
 @BOTH
-def test_a_hostile_hostname_is_escaped(client, node_viewer, url, headers):
+def test_a_hostile_hostname_is_escaped(client, superuser, url, headers):
     Node.objects.create(instance_id="i-bad", hostname=MARKUP)
 
     body = client.get(url, **headers).content.decode()
@@ -184,7 +161,7 @@ def test_a_hostile_hostname_is_escaped(client, node_viewer, url, headers):
 
 @BOTH
 def test_every_focusable_element_in_the_polled_region_has_a_unique_id(
-    client, node_viewer, url, headers
+    client, superuser, url, headers
 ):
     for name in ("web", "db"):
         _open_critical(Node.objects.create(instance_id=f"i-{name}", hostname=name))
@@ -199,7 +176,7 @@ def test_every_focusable_element_in_the_polled_region_has_a_unique_id(
 
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
 @BOTH
-def test_rendered_list_is_clean(client, node_viewer, url, label, headers):
+def test_rendered_list_is_clean(client, superuser, url, label, headers):
     _open_critical(Node.objects.create(instance_id="i-web", hostname="web"))
 
     body = client.get(f"{url}?freshness=bogus", **headers).content.decode()

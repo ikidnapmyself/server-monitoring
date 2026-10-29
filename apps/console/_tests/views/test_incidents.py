@@ -2,7 +2,6 @@ import re
 from datetime import timedelta
 
 import pytest
-from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
 
@@ -66,17 +65,7 @@ def test_anonymous_htmx_request_is_told_to_do_a_full_redirect(client, url):
 
 
 @pytest.mark.django_db
-def test_non_staff_is_refused(client, url):
-    client.force_login(get_user_model().objects.create_user("visitor", password="x"))
-
-    resp = client.get(url)
-
-    assert resp.status_code == 403
-    assert "Staff access required." in resp.content.decode()
-
-
-@pytest.mark.django_db
-def test_staff_gets_the_full_page_with_the_nav_tab_current(client, staff, url):
+def test_a_superuser_gets_the_full_page_with_the_nav_tab_current(client, superuser, url):
     resp = client.get(url)
 
     body = resp.content.decode()
@@ -92,7 +81,7 @@ def test_staff_gets_the_full_page_with_the_nav_tab_current(client, staff, url):
 
 
 @pytest.mark.django_db
-def test_the_overview_nav_links_to_the_list_without_marking_it_current(client, staff, url):
+def test_the_overview_nav_links_to_the_list_without_marking_it_current(client, superuser, url):
     body = client.get(reverse("console:overview")).content.decode()
 
     overview = reverse("console:overview")
@@ -103,7 +92,7 @@ def test_the_overview_nav_links_to_the_list_without_marking_it_current(client, s
 
 
 @pytest.mark.django_db
-def test_htmx_request_gets_only_the_partial_rooted_at_the_polled_element(client, staff, url):
+def test_htmx_request_gets_only_the_partial_rooted_at_the_polled_element(client, superuser, url):
     resp = client.get(url, **HTMX)
 
     body = resp.content.decode()
@@ -119,7 +108,7 @@ def test_htmx_request_gets_only_the_partial_rooted_at_the_polled_element(client,
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("header", ["HTTP_HX_HISTORY_RESTORE_REQUEST", "HTTP_HX_BOOSTED"])
-def test_htmx_request_that_swaps_the_body_gets_the_full_page(client, staff, url, header):
+def test_htmx_request_that_swaps_the_body_gets_the_full_page(client, superuser, url, header):
     resp = client.get(url, **HTMX, **{header: "true"})
 
     assert "<html" in resp.content.decode()
@@ -128,7 +117,7 @@ def test_htmx_request_that_swaps_the_body_gets_the_full_page(client, staff, url,
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
-def test_the_polled_element_requests_the_current_filters(client, staff, url, headers):
+def test_the_polled_element_requests_the_current_filters(client, superuser, url, headers):
     body = client.get(f"{url}?severity=critical&status=all&q=x", **headers).content.decode()
 
     root = _tag(body, "incidents")
@@ -139,7 +128,7 @@ def test_the_polled_element_requests_the_current_filters(client, staff, url, hea
 
 
 @pytest.mark.django_db
-def test_rows_show_state_title_label_nodes_count_and_age(client, staff, url):
+def test_rows_show_state_title_label_nodes_count_and_age(client, superuser, url):
     incident = Incident.objects.create(instance="web-1", severity="critical")
     for name, key in [("web-1", "Swap low"), ("web-2", "Disk full")]:
         _alert(incident, Node.objects.create(instance_id=name, hostname=name), key=key)
@@ -168,7 +157,7 @@ def test_rows_show_state_title_label_nodes_count_and_age(client, staff, url):
 
 
 @pytest.mark.django_db
-def test_a_single_alert_and_a_single_incident_read_in_the_singular(client, staff, url):
+def test_a_single_alert_and_a_single_incident_read_in_the_singular(client, superuser, url):
     incident = Incident.objects.create(severity="info")
     _alert(incident, None)
 
@@ -189,7 +178,7 @@ def test_a_single_alert_and_a_single_incident_read_in_the_singular(client, staff
         ("?status=all&since=24h", {"open crit", "acked warn", "resolved info"}),
     ],
 )
-def test_each_filter_narrows_the_rows(client, staff, url, query, expected):
+def test_each_filter_narrows_the_rows(client, superuser, url, query, expected):
     named_incident("open crit", severity="critical")
     named_incident("acked warn", severity="warning", status="acknowledged")
     named_incident("resolved info", severity="info", status="resolved")
@@ -201,7 +190,7 @@ def test_each_filter_narrows_the_rows(client, staff, url, query, expected):
 
 
 @pytest.mark.django_db
-def test_the_node_filter_narrows_the_rows(client, staff, url):
+def test_the_node_filter_narrows_the_rows(client, superuser, url):
     node = Node.objects.create(instance_id="web-1", hostname="web-1")
     _alert(Incident.objects.create(severity="critical"), node, "on the node")
     named_incident("elsewhere", severity="critical")
@@ -215,7 +204,7 @@ def test_the_node_filter_narrows_the_rows(client, staff, url):
 
 
 @pytest.mark.django_db
-def test_the_since_filter_narrows_the_rows(client, staff, url):
+def test_the_since_filter_narrows_the_rows(client, superuser, url):
     old = named_incident("last month", severity="critical")
     Incident.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=20))
     named_incident("today", severity="critical")
@@ -227,7 +216,7 @@ def test_the_since_filter_narrows_the_rows(client, staff, url):
 
 
 @pytest.mark.django_db
-def test_chips_are_links_that_also_swap_the_list_in_place(client, staff, url):
+def test_chips_are_links_that_also_swap_the_list_in_place(client, superuser, url):
     node = Node.objects.create(instance_id="web-1", hostname="web-1")
 
     body = client.get(f"{url}?severity=critical").content.decode()
@@ -253,7 +242,7 @@ def test_chips_are_links_that_also_swap_the_list_in_place(client, staff, url):
 
 
 @pytest.mark.django_db
-def test_the_box_header_counts_each_status_under_the_other_filters(client, staff, url):
+def test_the_box_header_counts_each_status_under_the_other_filters(client, superuser, url):
     Incident.objects.create(severity="critical")
     Incident.objects.create(severity="critical", status="resolved")
     Incident.objects.create(severity="info", status="resolved")
@@ -277,7 +266,7 @@ def test_the_box_header_counts_each_status_under_the_other_filters(client, staff
 
 
 @pytest.mark.django_db
-def test_the_node_chips_are_left_out_when_no_node_exists(client, staff, url):
+def test_the_node_chips_are_left_out_when_no_node_exists(client, superuser, url):
     body = client.get(url).content.decode()
 
     assert "chip-node-" not in body
@@ -286,7 +275,7 @@ def test_the_node_chips_are_left_out_when_no_node_exists(client, staff, url):
 
 
 @pytest.mark.django_db
-def test_invalid_filters_are_named_in_a_notice(client, staff, url):
+def test_invalid_filters_are_named_in_a_notice(client, superuser, url):
     named_incident("still listed", severity="critical")
 
     body = client.get(f"{url}?status=bogus&node=999&page=x").content.decode()
@@ -301,7 +290,7 @@ def test_invalid_filters_are_named_in_a_notice(client, staff, url):
 
 
 @pytest.mark.django_db
-def test_valid_filters_show_no_notice(client, staff, url):
+def test_valid_filters_show_no_notice(client, superuser, url):
     body = client.get(f"{url}?status=all").content.decode()
 
     assert '<div class="c-flash' not in body
@@ -309,7 +298,7 @@ def test_valid_filters_show_no_notice(client, staff, url):
 
 
 @pytest.mark.django_db
-def test_an_install_with_no_incidents_says_so(client, staff, url):
+def test_an_install_with_no_incidents_says_so(client, superuser, url):
     body = client.get(f"{url}?severity=critical").content.decode()
 
     assert "No incidents yet." in body
@@ -319,7 +308,7 @@ def test_an_install_with_no_incidents_says_so(client, staff, url):
 
 
 @pytest.mark.django_db
-def test_filters_that_match_nothing_offer_a_way_to_clear_them(client, staff, url):
+def test_filters_that_match_nothing_offer_a_way_to_clear_them(client, superuser, url):
     Incident.objects.create(severity="critical")
 
     body = client.get(f"{url}?severity=info").content.decode()
@@ -335,7 +324,7 @@ def test_filters_that_match_nothing_offer_a_way_to_clear_them(client, staff, url
 
 
 @pytest.mark.django_db
-def test_default_filters_with_only_finished_incidents_say_none_are_active(client, staff, url):
+def test_default_filters_with_only_finished_incidents_say_none_are_active(client, superuser, url):
     Incident.objects.create(severity="critical", status="resolved")
 
     body = client.get(url).content.decode()
@@ -347,7 +336,7 @@ def test_default_filters_with_only_finished_incidents_say_none_are_active(client
 
 
 @pytest.mark.django_db
-def test_pager_links_keep_the_filters(client, staff, url, monkeypatch):
+def test_pager_links_keep_the_filters(client, superuser, url, monkeypatch):
     monkeypatch.setattr(incident_queries, "PAGE_SIZE", 1)
     for index in range(3):
         Incident.objects.create(severity="critical")
@@ -369,7 +358,7 @@ def test_pager_links_keep_the_filters(client, staff, url, monkeypatch):
 
 
 @pytest.mark.django_db
-def test_the_first_and_last_pages_link_one_way_only(client, staff, url, monkeypatch):
+def test_the_first_and_last_pages_link_one_way_only(client, superuser, url, monkeypatch):
     monkeypatch.setattr(incident_queries, "PAGE_SIZE", 1)
     for index in range(2):
         Incident.objects.create(severity="critical")
@@ -382,7 +371,7 @@ def test_the_first_and_last_pages_link_one_way_only(client, staff, url, monkeypa
 
 
 @pytest.mark.django_db
-def test_a_single_page_shows_no_pager(client, staff, url):
+def test_a_single_page_shows_no_pager(client, superuser, url):
     Incident.objects.create(severity="critical")
 
     body = client.get(url).content.decode()
@@ -401,7 +390,7 @@ SYNC = 'hx-sync="#incidents:replace"'
     ids=["chips-and-pager", "chips-and-clear"],
 )
 def test_every_swapping_link_replaces_the_request_in_flight(
-    client, staff, url, monkeypatch, query, count
+    client, superuser, url, monkeypatch, query, count
 ):
     _busy_list(monkeypatch)
 
@@ -431,7 +420,7 @@ def _busy_list(monkeypatch, suffix=""):
 @pytest.mark.django_db
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
 @pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
-def test_rendered_list_is_clean(client, staff, url, monkeypatch, label, headers):
+def test_rendered_list_is_clean(client, superuser, url, monkeypatch, label, headers):
     _busy_list(monkeypatch)
 
     body = client.get(f"{url}?page=2&since=bogus", **headers).content.decode()
@@ -444,7 +433,7 @@ def test_rendered_list_is_clean(client, staff, url, monkeypatch, label, headers)
 @pytest.mark.django_db
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
 @pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
-def test_rendered_empty_list_is_clean(client, staff, url, label, headers):
+def test_rendered_empty_list_is_clean(client, superuser, url, label, headers):
     Incident.objects.create(severity="critical")
 
     body = client.get(f"{url}?severity=info", **headers).content.decode()
@@ -455,7 +444,7 @@ def test_rendered_empty_list_is_clean(client, staff, url, label, headers):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
-def test_a_hostile_title_and_hostname_are_escaped(client, staff, url, monkeypatch, headers):
+def test_a_hostile_title_and_hostname_are_escaped(client, superuser, url, monkeypatch, headers):
     node, _ = _busy_list(monkeypatch, suffix=f" {MARKUP}")
 
     body = client.get(url, **headers).content.decode()
@@ -469,7 +458,9 @@ def test_a_hostile_title_and_hostname_are_escaped(client, staff, url, monkeypatc
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
-def test_every_link_in_the_polled_region_has_a_unique_id(client, staff, url, monkeypatch, headers):
+def test_every_link_in_the_polled_region_has_a_unique_id(
+    client, superuser, url, monkeypatch, headers
+):
     node, created = _busy_list(monkeypatch)
 
     body = client.get(f"{url}?page=2", **headers).content.decode()
@@ -506,7 +497,7 @@ def _labelled(incident, key, **labels):
 
 
 @pytest.mark.django_db
-def test_a_row_names_the_host_from_alert_labels_when_no_node_is_linked(client, staff, url):
+def test_a_row_names_the_host_from_alert_labels_when_no_node_is_linked(client, superuser, url):
     incident = Incident.objects.create(severity="critical")
     _labelled(incident, "a", hostname="db-7")
 
@@ -518,7 +509,7 @@ def test_a_row_names_the_host_from_alert_labels_when_no_node_is_linked(client, s
 @pytest.mark.django_db
 @pytest.mark.parametrize("label", ["instance_id", "instance", "hostname"])
 def test_the_node_filter_matches_alerts_that_name_the_node_only_in_labels(
-    client, staff, url, label
+    client, superuser, url, label
 ):
     node = Node.objects.create(instance_id="i-db7", hostname="db-7")
     name = "i-db7" if label != "hostname" else "db-7"
@@ -537,7 +528,7 @@ def test_the_node_filter_matches_alerts_that_name_the_node_only_in_labels(
 
 
 @pytest.mark.django_db
-def test_a_label_naming_the_node_does_not_override_a_link_to_another_node(client, staff, url):
+def test_a_label_naming_the_node_does_not_override_a_link_to_another_node(client, superuser, url):
     node = Node.objects.create(instance_id="db-7", hostname="db-7")
     other = Node.objects.create(instance_id="web-1", hostname="web-1")
     incident = Incident.objects.create()
@@ -557,7 +548,7 @@ def test_a_label_naming_the_node_does_not_override_a_link_to_another_node(client
 
 
 @pytest.mark.django_db
-def test_a_row_shows_the_describers_detail_escaped(client, staff, url):
+def test_a_row_shows_the_describers_detail_escaped(client, superuser, url):
     incident = Incident.objects.create(severity="critical")
     Alert.objects.create(
         fingerprint="d",

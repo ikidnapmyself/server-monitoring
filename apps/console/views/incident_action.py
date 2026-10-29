@@ -1,5 +1,5 @@
 from django.contrib import messages
-from django.http import Http404, HttpResponseForbidden, HttpResponseRedirect
+from django.http import Http404, HttpResponseRedirect
 from django.urls import reverse
 
 from apps.alerts.models import Incident
@@ -23,8 +23,6 @@ class IncidentActionView(IncidentPageView):
         return text.strip()[: self.summary_limit]
 
     def post(self, request, *args, **kwargs):
-        if not self.can_act:
-            return HttpResponseForbidden("Permission to change incidents required.")
         pk, action = kwargs["pk"], kwargs["action"]
         if action not in INCIDENT_ACTIONS:
             raise Http404("Unknown incident action.")

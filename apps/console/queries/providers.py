@@ -50,7 +50,6 @@ class ProviderRow:
 class ProviderList:
     rows: tuple[ProviderRow, ...]
     headline: str
-    can_add: bool = False
 
     @property
     def add(self) -> Action:
@@ -73,7 +72,6 @@ class ProviderEditor:
     url: str
     back_url: str
     facts: tuple[Fact, ...]
-    can_change: bool
 
     @property
     def delete(self) -> Action | None:
@@ -109,7 +107,7 @@ def build_provider_deletion(pk: int) -> ProviderDeletion | None:
     )
 
 
-def build_provider_list(*, can_add: bool = False) -> ProviderList:
+def build_provider_list() -> ProviderList:
     providers = list(IntelligenceProvider.objects.order_by("-is_active", "name"))
     rows = tuple(
         ProviderRow(
@@ -123,7 +121,7 @@ def build_provider_list(*, can_add: bool = False) -> ProviderList:
         for provider in providers
     )
     active = next((provider for provider in providers if provider.is_active), None)
-    return ProviderList(rows=rows, headline=analysis_uses(active), can_add=can_add)
+    return ProviderList(rows=rows, headline=analysis_uses(active))
 
 
 def new_provider_url(kind: str) -> str:
@@ -153,14 +151,14 @@ def _facts(provider: IntelligenceProvider, form: ProviderForm) -> tuple[Fact, ..
     return tuple(facts)
 
 
-def _form(data, provider, kind: str, can_change: bool, carried: dict | None) -> ProviderForm:
+def _form(data, provider, kind: str, carried: dict | None) -> ProviderForm:
     if carried is None:
-        form = ProviderForm(data, provider=provider, kind=kind, disabled=not can_change)
+        form = ProviderForm(data, provider=provider, kind=kind)
     else:
-        form = ProviderForm(provider=provider, kind=kind, disabled=not can_change)
+        form = ProviderForm(provider=provider, kind=kind)
         form.initial.update(carried)
     active = active_provider()
-    if can_change and active and (provider is None or active.pk != provider.pk):
+    if active and (provider is None or active.pk != provider.pk):
         form.fields["is_active"].help_text = f"Turning this on turns off {active.name}."
     return form
 
@@ -170,7 +168,6 @@ def build_provider_editor(
     data=None,
     *,
     kind: str | None = None,
-    can_change: bool,
     digest: str | None = None,
     carried: dict | None = None,
 ) -> ProviderEditor | None:
@@ -188,7 +185,7 @@ def build_provider_editor(
     key = kind or (provider.provider if provider else "")
     if key not in LABELS and not (provider and key == provider.provider):
         raise UnknownProvider(key)
-    form = _form(data, provider, key, can_change, carried)
+    form = _form(data, provider, key, carried)
     query = urlencode({"provider": key})
     providers = reverse("console:providers")
     if provider is None:
@@ -200,7 +197,6 @@ def build_provider_editor(
             url=f"{reverse('console:provider-new')}?{query}",
             back_url=providers,
             facts=(),
-            can_change=can_change,
         )
     stored = {field: getattr(provider, field) for field in FIELDS}
     return ProviderEditor(
@@ -211,5 +207,4 @@ def build_provider_editor(
         url=f"{reverse('console:provider', args=[provider.pk])}?{query}",
         back_url=f"{providers}#provider-{provider.pk}",
         facts=_facts(provider, form),
-        can_change=can_change,
     )

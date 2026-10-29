@@ -44,7 +44,7 @@ def test_a_row_names_its_driver_state_and_edit_action():
     ch = _channel("ops", is_active=False)
     pigeon = _channel("pigeon", driver="carrier_pigeon")
 
-    rows = {row.name: row for row in build_channel_list("", can_add=True).rows}
+    rows = {row.name: row for row in build_channel_list("").rows}
 
     assert rows["ops"].driver_label == "Slack"
     assert rows["ops"].active is False
@@ -55,11 +55,10 @@ def test_a_row_names_its_driver_state_and_edit_action():
 
 
 def test_the_list_carries_q_and_the_add_action():
-    channels = build_channel_list("ops", can_add=True)
+    channels = build_channel_list("ops")
 
-    assert (channels.q, channels.can_add) == ("ops", True)
+    assert channels.q == "ops"
     assert channels.add == Action("Add a channel", "add_channel", {})
-    assert build_channel_list("").can_add is False
 
 
 def test_lanes_name_their_gap_and_link_their_route():
@@ -111,16 +110,16 @@ def test_driver_choices_follow_the_registry():
 
 class TestTheEditor:
     def test_a_missing_channel_is_none(self):
-        assert build_channel_editor(999, can_change=True) is None
+        assert build_channel_editor(999) is None
 
     def test_a_missing_channel_wins_over_a_bad_driver(self):
-        assert build_channel_editor(999, driver="nope", can_change=True) is None
+        assert build_channel_editor(999, driver="nope") is None
 
     def test_an_existing_channel(self):
         ch = _channel("ops", config={"webhook_url": "https://hooks.example.com/x", "extra": 1})
         PipelineDefinition.objects.create(name="web", stages=["notify"], channel=ch)
 
-        editor = build_channel_editor(ch.pk, can_change=False)
+        editor = build_channel_editor(ch.pk)
 
         row = NotificationChannel.objects.filter(pk=ch.pk).values(
             "name", "driver", "is_active", "description", "config"
@@ -129,7 +128,6 @@ class TestTheEditor:
         assert editor.url == f"/console/channels/{ch.pk}/?driver=slack"
         assert editor.back_url == f"/console/channels/#channel-{ch.pk}"
         assert [line.name for line in editor.lanes] == ["web"]
-        assert editor.form.fields["name"].disabled
         labels = [fact.label for fact in editor.facts]
         assert labels == ["Driver", "Settings this driver doesn't declare", "Created", "Updated"]
         assert editor.facts[1].value == "extra"
@@ -137,7 +135,7 @@ class TestTheEditor:
     def test_no_unknown_settings_leaves_that_fact_out(self):
         ch = _channel("ops")
 
-        editor = build_channel_editor(ch.pk, can_change=True)
+        editor = build_channel_editor(ch.pk)
 
         assert [fact.label for fact in editor.facts] == ["Driver", "Created", "Updated"]
         assert editor.lanes == ()
@@ -145,10 +143,10 @@ class TestTheEditor:
     def test_a_carried_digest_is_kept(self):
         ch = _channel("ops")
 
-        assert build_channel_editor(ch.pk, can_change=True, digest="old").digest == "old"
+        assert build_channel_editor(ch.pk, digest="old").digest == "old"
 
     def test_a_new_channel(self):
-        editor = build_channel_editor(None, driver="email", can_change=True)
+        editor = build_channel_editor(None, driver="email")
 
         assert (editor.pk, editor.digest, editor.facts, editor.lanes) == (None, "", (), ())
         assert editor.url == "/console/channels/new/?driver=email"
@@ -158,27 +156,25 @@ class TestTheEditor:
     @pytest.mark.parametrize("driver", ["", "nope"])
     def test_a_new_channel_needs_a_registered_driver(self, driver):
         with pytest.raises(UnknownDriver):
-            build_channel_editor(None, driver=driver, can_change=True)
+            build_channel_editor(None, driver=driver)
 
     def test_an_existing_channel_refuses_a_driver_it_isnt_on(self):
         ch = _channel("ops")
 
         with pytest.raises(UnknownDriver):
-            build_channel_editor(ch.pk, driver="carrier_pigeon", can_change=True)
+            build_channel_editor(ch.pk, driver="carrier_pigeon")
 
     def test_a_channel_on_an_unknown_driver_keeps_it(self):
         ch = _channel("pigeon", driver="carrier_pigeon")
 
-        editor = build_channel_editor(ch.pk, driver="carrier_pigeon", can_change=True)
+        editor = build_channel_editor(ch.pk, driver="carrier_pigeon")
 
         assert editor.form.driver_label == "A driver this hub doesn't have"
 
     def test_carried_fields_open_the_form_unbound(self):
         ch = _channel("ops")
 
-        editor = build_channel_editor(
-            ch.pk, driver="email", can_change=True, carried={"name": "renamed"}
-        )
+        editor = build_channel_editor(ch.pk, driver="email", carried={"name": "renamed"})
 
         assert not editor.form.is_bound
         assert editor.form.initial["name"] == "renamed"
@@ -204,10 +200,10 @@ class TestTheDeletion:
     def test_the_editor_offers_it_only_for_an_existing_channel(self):
         ch = _channel("ops")
 
-        existing = build_channel_editor(ch.pk, can_change=True)
+        existing = build_channel_editor(ch.pk)
 
         assert existing.delete == Action("Delete channel", "delete_channel", {"pk": ch.pk})
-        assert build_channel_editor(None, driver="slack", can_change=True).delete is None
+        assert build_channel_editor(None, driver="slack").delete is None
 
 
 @pytest.mark.parametrize(

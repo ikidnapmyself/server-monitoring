@@ -112,8 +112,8 @@ def _history(alert: Alert, headline: str) -> tuple[tuple[HistoryEntry, ...], int
     return tuple(entries), max(0, total - HISTORY_LIMIT)
 
 
-def build_alert_detail(pk: int, *, can_reeval: bool = False) -> AlertDetail | None:
-    """One alert for its page. ``do`` holds only what the caller may do."""
+def build_alert_detail(pk: int) -> AlertDetail | None:
+    """One alert for its page."""
     alert = Alert.objects.select_related("node", "incident").filter(pk=pk).first()
     if alert is None:
         return None
@@ -122,7 +122,7 @@ def build_alert_detail(pk: int, *, can_reeval: bool = False) -> AlertDetail | No
     is_checker = isinstance(alert.labels, dict) and bool(alert.labels.get("checker"))
     do = (
         (Action("Re-evaluate against the node's policy", "reevaluate_alert", {"pk": alert.pk}),)
-        if can_reeval and is_checker
+        if is_checker
         else ()
     )
     facts = tuple(

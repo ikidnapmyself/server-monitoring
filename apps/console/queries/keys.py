@@ -36,7 +36,6 @@ class KeyRow:
 class KeyList:
     rows: tuple[KeyRow, ...]
     checks_on: bool
-    can_add: bool = False
 
     @property
     def add(self) -> Action:
@@ -52,7 +51,6 @@ class KeyEditor:
     url: str
     back_url: str
     facts: tuple[Fact, ...]
-    can_change: bool
 
     @property
     def delete(self) -> Action | None:
@@ -83,7 +81,7 @@ def build_key_deletion(pk: int) -> KeyDeletion | None:
     )
 
 
-def build_key_list(*, can_add: bool = False) -> KeyList:
+def build_key_list() -> KeyList:
     rows = tuple(
         KeyRow(
             pk=key.pk,
@@ -96,7 +94,7 @@ def build_key_list(*, can_add: bool = False) -> KeyList:
         )
         for key in APIKey.objects.order_by("name", "pk")
     )
-    return KeyList(rows=rows, checks_on=settings.API_KEY_AUTH_ENABLED, can_add=can_add)
+    return KeyList(rows=rows, checks_on=settings.API_KEY_AUTH_ENABLED)
 
 
 def _when(moment) -> str:
@@ -111,9 +109,7 @@ def _facts(key: APIKey) -> tuple[Fact, ...]:
     )
 
 
-def build_key_editor(
-    pk: int | None, data=None, *, can_change: bool, digest: str | None = None
-) -> KeyEditor | None:
+def build_key_editor(pk: int | None, data=None, *, digest: str | None = None) -> KeyEditor | None:
     """The editor for key ``pk``, or for a new key when ``pk`` is None.
 
     ``digest`` keeps the one a re-rendered submit carried, so it can still be refused as stale.
@@ -124,9 +120,6 @@ def build_key_editor(
         if key is None:
             return None
     form = APIKeyForm(data, instance=key)
-    if not can_change:
-        for field in form.fields.values():
-            field.disabled = True
     keys = reverse("console:keys")
     if key is None:
         return KeyEditor(
@@ -137,7 +130,6 @@ def build_key_editor(
             url=reverse("console:key-new"),
             back_url=keys,
             facts=(),
-            can_change=can_change,
         )
     stored = {field: getattr(key, field) for field in KEY_FIELDS}
     return KeyEditor(
@@ -148,5 +140,4 @@ def build_key_editor(
         url=reverse("console:key", args=[key.pk]),
         back_url=f"{keys}#key-{key.pk}",
         facts=_facts(key),
-        can_change=can_change,
     )

@@ -41,11 +41,7 @@ def test_a_row_names_its_state_prefix_endpoints_and_use():
 
 
 def test_the_list_carries_the_add_action():
-    keys = build_key_list(can_add=True)
-
-    assert keys.can_add is True
-    assert keys.add == Action("Add a key", "add_key", {})
-    assert build_key_list().can_add is False
+    assert build_key_list().add == Action("Add a key", "add_key", {})
 
 
 @pytest.mark.parametrize("enabled", [True, False])
@@ -57,18 +53,17 @@ def test_the_list_says_whether_key_checks_are_on(settings, enabled):
 
 class TestTheEditor:
     def test_a_missing_key_is_none(self):
-        assert build_key_editor(999, can_change=True) is None
+        assert build_key_editor(999) is None
 
     def test_an_existing_key(self):
         key = _key("hub", allowed_endpoints=["/a/"])
 
-        editor = build_key_editor(key.pk, can_change=False)
+        editor = build_key_editor(key.pk)
 
         row = APIKey.objects.filter(pk=key.pk).values(*KEY_FIELDS)[0]
         assert editor.digest == key_digest(row)
         assert editor.url == f"/console/keys/{key.pk}/"
         assert editor.back_url == f"/console/keys/#key-{key.pk}"
-        assert all(field.disabled for field in editor.form.fields.values())
         assert [(f.label, f.value) for f in editor.facts][0] == ("Prefix", f"{key.prefix}…")
         assert [f.label for f in editor.facts] == ["Prefix", "Created", "Last used"]
         assert editor.facts[2].value == "Never"
@@ -76,15 +71,15 @@ class TestTheEditor:
     def test_a_used_key_gives_the_time(self):
         key = _key("hub", last_used_at=timezone.now())
 
-        assert build_key_editor(key.pk, can_change=True).facts[2].value != "Never"
+        assert build_key_editor(key.pk).facts[2].value != "Never"
 
     def test_a_carried_digest_is_kept(self):
         key = _key("hub")
 
-        assert build_key_editor(key.pk, can_change=True, digest="old").digest == "old"
+        assert build_key_editor(key.pk, digest="old").digest == "old"
 
     def test_a_new_key(self):
-        editor = build_key_editor(None, can_change=True)
+        editor = build_key_editor(None)
 
         assert (editor.pk, editor.name, editor.digest, editor.facts) == (None, "", "", ())
         assert editor.url == "/console/keys/new/"
@@ -109,7 +104,5 @@ class TestTheDeletion:
     def test_the_editor_offers_it_only_for_an_existing_key(self):
         key = _key("hub")
 
-        assert build_key_editor(key.pk, can_change=True).delete == Action(
-            "Delete key", "delete_key", {"pk": key.pk}
-        )
-        assert build_key_editor(None, can_change=True).delete is None
+        assert build_key_editor(key.pk).delete == Action("Delete key", "delete_key", {"pk": key.pk})
+        assert build_key_editor(None).delete is None

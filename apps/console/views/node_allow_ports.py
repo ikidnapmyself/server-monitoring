@@ -28,17 +28,13 @@ class NodeAllowPortsView(NodePageView):
         plan = build_allow_ports(self.kwargs["pk"], ports)
         if plan is None:
             return self.not_found()
-        context = self.get_context_data(
-            plan=plan, can_change=self.can_change, nav="nodes", notice=notice
-        )
+        context = self.get_context_data(plan=plan, nav="nodes", notice=notice)
         return self.render_to_response(context, status=status)
 
     def get(self, request, *args, **kwargs):
         return self.render_confirm(self.ports(request.GET))
 
     def post(self, request, *args, **kwargs):
-        if not self.can_change:
-            return self.forbidden()
         ports = self.ports(request.POST)
         plan = build_allow_ports(kwargs["pk"], ports)
         if plan is None:

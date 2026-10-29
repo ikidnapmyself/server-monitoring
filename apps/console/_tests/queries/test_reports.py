@@ -1,8 +1,6 @@
 from datetime import timedelta
 
 import pytest
-from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
 from django.utils import timezone
 
 from apps.alerts.models import Alert, Node
@@ -229,43 +227,12 @@ def test_fleet_words_a_reading_it_cant_format():
     assert row.cells == (FleetCell("Can't read", "warning"),)
 
 
-def _user(*codenames):
-    user = get_user_model().objects.create_user("reader", is_staff=True)
-    for codename in codenames:
-        app_label, code = codename.split(".")
-        user.user_permissions.add(
-            Permission.objects.get(content_type__app_label=app_label, codename=code)
-        )
-    return get_user_model().objects.get(pk=user.pk)
-
-
-def test_build_reports_leaves_out_what_the_reader_cant_read():
-    now = timezone.now()
-
-    nothing = build_reports(_user(), now)
-    assert nothing == type(nothing)(None, None, None, None, None, None)
-
+def test_build_reports_builds_every_card():
     PipelineRun.objects.all().delete()
-    everything = build_reports(get_user_model().objects.create_superuser("root"), now)
-    assert everything.health == PipelineHealth("No runs in the last 24 hours.", ())
-    assert everything.reasons == everything.checkers == everything.providers == ()
-    assert everything.preflight.tone == "muted"
-    assert everything.fleet == Fleet((), ())
 
+    reports = build_reports(timezone.now())
 
-@pytest.mark.parametrize(
-    ("codename", "card"),
-    [
-        ("orchestration.view_pipelinerun", "health"),
-        ("checkers.view_checkrun", "checkers"),
-        ("intelligence.view_analysisrun", "providers"),
-        ("checkers.view_preflightrun", "preflight"),
-        ("alerts.view_node", "fleet"),
-    ],
-)
-def test_one_permission_shows_its_own_card(codename, card):
-    reports = build_reports(_user(codename), timezone.now())
-
-    shown = {name for name in reports.__dataclass_fields__ if getattr(reports, name) is not None}
-    expected = {"health", "reasons"} if card == "health" else {card}
-    assert shown == expected
+    assert reports.health == PipelineHealth("No runs in the last 24 hours.", ())
+    assert reports.reasons == reports.checkers == reports.providers == ()
+    assert reports.preflight.tone == "muted"
+    assert reports.fleet == Fleet((), ())

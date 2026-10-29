@@ -1,7 +1,6 @@
 import re
 
 import pytest
-from django.contrib.auth.models import Permission
 from django.urls import reverse
 from django.utils import timezone
 
@@ -78,14 +77,7 @@ def test_anonymous_is_sent_to_the_admin_login(client):
 
 
 @pytest.mark.django_db
-def test_staff_without_a_node_permission_is_refused(client, bare_staff):
-    node, _ = _busy()
-
-    assert client.get(_url(node)).status_code == 403
-
-
-@pytest.mark.django_db
-def test_a_viewer_reads_the_page_with_the_nav_tab_current(client, node_viewer):
+def test_a_superuser_reads_the_page_with_the_nav_tab_current(client, superuser):
     node, _ = _busy()
 
     resp = client.get(_url(node))
@@ -97,12 +89,10 @@ def test_a_viewer_reads_the_page_with_the_nav_tab_current(client, node_viewer):
     assert 'aria-current="page"' in _nav(body, "Nodes")
     assert 'id="node-back"' in body and "Back to nodes" in body
     assert re.search(rf'<div id="node" data-poll hx-get="{_url(node)}"', body)
-    assert "c-do" not in body
-    assert "policy-edit-cpu" not in body
 
 
 @pytest.mark.django_db
-def test_htmx_request_gets_only_the_partial(client, node_viewer):
+def test_htmx_request_gets_only_the_partial(client, superuser):
     node, _ = _busy()
 
     resp = client.get(_url(node), **HTMX)
@@ -113,7 +103,7 @@ def test_htmx_request_gets_only_the_partial(client, node_viewer):
 
 @pytest.mark.django_db
 @BOTH
-def test_a_missing_node_is_the_console_404_page(client, node_viewer, headers):
+def test_a_missing_node_is_the_console_404_page(client, superuser, headers):
     resp = client.get(reverse("console:node", args=[999]), **headers)
 
     body = resp.content.decode()
@@ -122,21 +112,8 @@ def test_a_missing_node_is_the_console_404_page(client, node_viewer, headers):
     assert f'<a id="not-found-back" href="{reverse("console:nodes")}">Back to nodes</a>' in body
 
 
-def _grant(user, *perms):
-    for app_label, codename in perms:
-        user.user_permissions.add(
-            Permission.objects.get(content_type__app_label=app_label, codename=codename)
-        )
-
-
 @pytest.mark.django_db
-def test_the_page_links_the_incident_the_counts_and_the_runs(client, node_viewer):
-    _grant(
-        node_viewer,
-        ("alerts", "view_alert"),
-        ("alerts", "view_incident"),
-        ("orchestration", "view_pipelinerun"),
-    )
+def test_the_page_links_the_incident_the_counts_and_the_runs(client, superuser):
     node, incident = _busy()
     run = PipelineRun.objects.create(run_id="r-1", trace_id="t-1", node=node, incident=incident)
 
@@ -154,51 +131,27 @@ def test_the_page_links_the_incident_the_counts_and_the_runs(client, node_viewer
 
 
 @pytest.mark.django_db
-def test_the_hub_checker_row_opens_its_check_run_in_the_console(client, node_viewer):
+def test_the_hub_checker_row_opens_its_check_run_in_the_console(client, superuser):
     node = _hub()
     newest = CheckRun.objects.order_by("-executed_at", "-pk").first()
 
-    assert 'id="checker-cpu"' not in client.get(_url(node)).content.decode()
-
-    _grant(node_viewer, ("checkers", "view_checkrun"))
     body = client.get(_url(node)).content.decode()
 
     assert re.search(rf'<a id="checker-cpu" href="/console/checks/{newest.pk}/">', body)
 
 
 @pytest.mark.django_db
-def test_the_hub_preflight_opens_in_the_console(client, node_viewer):
+def test_the_hub_preflight_opens_in_the_console(client, superuser):
     node = _hub()
     run = PreflightRun.objects.create(instance_id=local_instance_id(), passed=4)
 
-    assert 'id="node-preflight"' not in client.get(_url(node)).content.decode()
-
-    _grant(node_viewer, ("checkers", "view_preflightrun"))
     body = client.get(_url(node)).content.decode()
 
     assert f'<a id="node-preflight" href="/console/preflight/{run.pk}/">' in body
 
 
 @pytest.mark.django_db
-def test_a_node_only_viewer_sees_incidents_and_runs_as_text(client, node_viewer):
-    node, incident = _busy()
-    run = PipelineRun.objects.create(run_id="r-1", trace_id="t-1", node=node, incident=incident)
-
-    body = client.get(_url(node), **HTMX).content.decode()
-
-    assert "/console/incidents/" not in body
-    assert "/console/runs/" not in body
-    assert f'id="node-incident-{incident.pk}"' not in body
-    assert f'id="run-{run.pk}"' not in body
-    text = visible(body)
-    assert "1 critical" in text
-    assert "High CPU usage" in text
-    assert f"Incident #{incident.pk}" in text
-    assert "All runs on this node" in text
-
-
-@pytest.mark.django_db
-def test_an_operator_gets_the_policy_links(client, node_operator):
+def test_a_superuser_gets_the_policy_links(client, superuser):
     node, _ = _busy()
 
     body = client.get(_url(node)).content.decode()
@@ -211,7 +164,7 @@ def test_an_operator_gets_the_policy_links(client, node_operator):
 
 
 @pytest.mark.django_db
-def test_an_operator_sees_both_actions(client, node_operator):
+def test_a_superuser_sees_both_actions(client, superuser):
     node, _ = _busy()
 
     body = client.get(_url(node)).content.decode()
@@ -223,21 +176,19 @@ def test_an_operator_sees_both_actions(client, node_operator):
 
 
 @pytest.mark.django_db
-def test_a_node_with_no_policy_says_so(client, node_viewer):
+def test_a_node_with_no_policy_says_so(client, superuser):
     node = _busy()[0]
     Node.objects.filter(pk=node.pk).update(config={})
     Incident.objects.update(status="resolved")
 
     body = client.get(_url(node)).content.decode()
 
-    assert "checker-cpu" not in body
-
     assert "No policy set on this node." in body
     assert "Nothing open on this node." in body
 
 
 @pytest.mark.django_db
-def test_a_uuid_instance_id_stays_in_details(client, node_viewer):
+def test_a_uuid_instance_id_stays_in_details(client, superuser):
     node = Node.objects.create(instance_id=UUID, hostname="")
 
     body = client.get(_url(node)).content.decode()
@@ -249,7 +200,7 @@ def test_a_uuid_instance_id_stays_in_details(client, node_viewer):
 
 @pytest.mark.django_db
 @BOTH
-def test_hostile_text_is_escaped(client, node_viewer, headers):
+def test_hostile_text_is_escaped(client, superuser, headers):
     node, _ = _busy(hostname=MARKUP, labels={"role": MARKUP})
 
     body = client.get(_url(node), **headers).content.decode()
@@ -261,7 +212,7 @@ def test_hostile_text_is_escaped(client, node_viewer, headers):
 @pytest.mark.django_db
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
 @BOTH
-def test_the_rendered_page_has_no_inline_script_or_style(client, node_viewer, label, headers):
+def test_the_rendered_page_has_no_inline_script_or_style(client, superuser, label, headers):
     body = client.get(_url(_hub()), **headers).content.decode()
 
     assert "<svg" in body
@@ -270,7 +221,7 @@ def test_the_rendered_page_has_no_inline_script_or_style(client, node_viewer, la
 
 @pytest.mark.django_db
 @BOTH
-def test_every_focusable_element_has_a_stable_id(client, node_viewer, headers):
+def test_every_focusable_element_has_a_stable_id(client, superuser, headers):
     node, _ = _busy()
 
     body = client.get(_url(node), **headers).content.decode()

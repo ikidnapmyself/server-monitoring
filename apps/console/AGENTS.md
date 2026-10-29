@@ -6,17 +6,25 @@ pipeline stage and not an alert producer.
 ## Rules
 
 - **Nothing imports from `apps.console`.** It imports from the other apps, never the
-  reverse. Exception: `config/dashboard.py` until PR 11 deletes it. It reads the Reports
-  queries and resolves their links through `resolve_action`.
+  reverse. Exception: `config/dashboard.py` until the auth slice deletes `/admin/`. It
+  reads the Reports queries, resolves their links through `resolve_action` and gives a
+  link only to a user `admits` lets in.
 - **Reads go through `queries/`.** Functions there return frozen dataclasses, never
   querysets, so a template can't trigger a query. Views don't touch the ORM.
 - **No new write paths.** Action views call the functions the admin calls, such as
   `IncidentManager`. If the logic lives in a `ModelAdmin` method, lift it into the
   owning app first and make both surfaces call it.
-- **Every view subclasses `ConsoleView`** (`views/base.py`). It enforces active staff
-  access. An anonymous page request is redirected to the admin login. An anonymous
-  htmx request gets a 204 with `HX-Redirect`, so htmx does a full redirect and never
-  swaps a login form into the page.
+- **Every view subclasses `ConsoleView`** (`views/base.py`) and none overrides
+  `dispatch`, so `_refusal` guards every route. `_tests/test_urls.py` fails otherwise.
+- **The console is for active superusers only.** `admits(user)` in `views/base.py` is the
+  one rule: `user.is_active and user.is_superuser`. There are no per-model permission
+  checks, because a superuser passes every one. An anonymous page request is redirected
+  to the admin login. An anonymous htmx request gets a 204 with `HX-Redirect`, so htmx
+  does a full redirect and never swaps a login form into the page. A signed-in user
+  `admits` refuses gets `templates/console/not_superuser.html` with status 403. It has no
+  console nav, only the header and its own Sign out form. A refused htmx request gets an
+  empty 403 with `HX-Refresh: true`, since htmx swaps nothing on a 403, so the browser
+  reloads into the full refusal page. Non-superuser staff can still sign into `/admin/`.
 - **One URL, two sizes.** `ConsoleView` serves `partial_template_name` only when
   `wants_partial` is true, which means an htmx request that swaps a fragment. Two htmx
   headers force the full page, because htmx swaps those responses into `<body>`:
@@ -73,15 +81,6 @@ pipeline stage and not an alert producer.
   path. A name the sprite lacks fails `_tests/test_templates.py`.
 - **No dead ends.** Every page links onward. The underline nav under the header lists
   only pages that exist.
-- **Reads use the admin's view permissions.** A view sets `read_permissions` and
-  `ConsoleView._refusal` checks them after the anonymous and staff checks: any one
-  suffices, as in `ModelAdmin.has_view_permission`, and none is a 403 "Permission to view
-  this page required." The Overview, the incident list and the incident page all set
-  `alerts.view_incident` or `alerts.change_incident`, and the action and rerun views
-  inherit that from `IncidentPageView`. The alert list and the alert page set
-  `alerts.view_alert` or `alerts.change_alert`. Action views add their own change or add
-  permission on top. A link the page shows still goes through an intent, so it appears
-  only for a user who holds that intent's permission.
 - **Querystrings go through `filters.py`.** A filter object parses and validates every
   param. An invalid value falls back to the default and is named in a one-line notice.
   Only validated values reach a query or a URL, through `querystring()`.
@@ -102,12 +101,8 @@ pipeline stage and not an alert producer.
   `since`, `page`). `q` matches run ID, trace ID and fingerprint, and an alert fingerprint
   on the run's incident. A node matches the run's FK, or an unlinked run whose incident's
   alerts name it.
-- **Run and inbox pages hold separate permissions.** The runs list and the run page read
-  with `orchestration.view_pipelinerun` or `change_pipelinerun`. Retry and Mark failed need
-  `change_pipelinerun` and go through `RunActionView`. The inbox reads with
-  `orchestration.view_inboxitem` or `change_inboxitem`. Drain and reclaim need
-  `change_inboxitem`. Neither permission set opens the other page. Every write is a
-  function in `apps/orchestration/inbox.py`.
+- **Run and inbox writes live in `apps/orchestration/inbox.py`.** Retry and Mark failed go
+  through `RunActionView`. Drain and reclaim go through `InboxActionView`.
 - **An inbox action swaps the polled root whole** (`swap="outerHTML"`) and resends the
   filter as `kept` hidden inputs, since the POST URL doesn't carry the querystring. Drain
   now executes one run in the request. Drain the oldest executes up to `DRAIN_LIMIT` (10)
@@ -130,17 +125,15 @@ pipeline stage and not an alert producer.
   The view answers both with a 409 and a fresh preview, so a double submit or a replay
   writes nothing. The apply form carries `data-disable-on-submit`, which `console.js` reads
   to disable its button on submit. Any later confirm page reuses this guard.
-- **The node pages read with `alerts.view_node` or `change_node`.** `/console/nodes/`
+- **The node pages.** `/console/nodes/`
   filters on `NodeFilter` (`q` on hostname and instance ID, `freshness` all, silent or
   reporting) and sorts worst first by the Overview tile's rule. Its counts come from
   `open_incidents_by_node`, which follows `on_node`, so a count and the incident list it
   opens agree. A node with no hostname reads "Unnamed node" everywhere, incident headlines
   and host names included, through `node_name` in `apps/alerts/describing.py`. Its
   instance ID lives in Details. The counts, incident cards and runs on the node pages are
-  intents (`view_incidents`, `view_incident`, `view_run`, `view_runs`), so a node reader
-  without incident or run permissions sees them as plain text.
-- **The editor and re-evaluate need `alerts.change_node`.** A reader gets a 403 on the
-  editor, and the preview with no apply. The editor is a plain form that doesn't poll. It
+  intents (`view_incidents`, `view_incident`, `view_run`, `view_runs`).
+- **The node policy editor is a plain form that doesn't poll.** It
   carries the `config_digest` of the stored policy, and `node_policy.save_policy` refuses a
   stale one with a 409 and fresh boxes. A busy SQLite `OperationalError` gets the same
   answer. `NodePolicyForm.save()` raises `NotImplementedError`, because a model save bumps
@@ -154,17 +147,13 @@ pipeline stage and not an alert producer.
   checker's alerts on <node>", so a typed name never reaches the page. On both pages, an
   apply whose fresh report has no changes writes nothing and answers 409 with the preview.
 - **Reports hold the summary, check runs, preflight runs and analyses.** The header's
-  Reports item (`partials/_reports_item.html`) opens `/console/reports/` for anyone who
-  reads runs, check runs, preflight runs or analyses, and is hidden for everyone else.
-  `partials/_reports_nav.html` shows Summary to all of them and each other tab only to its
-  readers (`CHECK_READ`, `PREFLIGHT_READ` and `ANALYSIS_READ` in `intents.py`). Every page
-  is read-only.
-  - `/console/reports/` renders `build_reports(user, now)` from `queries/reports.py`. Each
-    card shows only to a reader of its model: pipeline health over 24 hours and the top
-    failure reasons over 7 days need `RUN_READ`, failing checkers `CHECK_READ`, provider
-    usage `ANALYSIS_READ`, the latest preflight `PREFLIGHT_READ` and the fleet grid
-    `NODE_READ`. Every row links a filtered console list, and a reason row lands on the
-    Runs `reason` chip worded the same way, through `reason_label` in `queries/runs.py`.
+  Reports link in `base.html` opens `/console/reports/`. `partials/_reports_nav.html` shows
+  the Summary, Checks, Preflight and Analyses tabs. Every page is read-only.
+  - `/console/reports/` renders `build_reports(now)` from `queries/reports.py`: pipeline
+    health over 24 hours, the top failure reasons over 7 days, failing checkers, provider
+    usage, the latest preflight and the fleet grid. Every row links a filtered console
+    list, and a reason row lands on the Runs `reason` chip worded the same way, through
+    `reason_label` in `queries/runs.py`.
   - `/console/checks/` filters on `CheckFilter` (`q` on message and host, `status`, where
     failing means warning, critical or unknown, `checker`, `host`, `since`, `page`). Rows
     are worded by `describe_check`. `/console/checks/<pk>/` shows the thresholds, the raised
@@ -179,14 +168,10 @@ pipeline stage and not an alert producer.
     duration. The stored `provider_config` renders only inside Details.
   - The Runs list's `reason` filter (a `REASONS` code, or `other`) shows as a removable
     chip.
-- **System holds routes, channels, providers and API keys.** The header's System item
-  (`partials/_system_item.html`) opens the first of `/console/routes/`, `/console/channels/`,
-  `/console/providers/` and `/console/keys/` the user can read, and is hidden for a user who
-  reads none. `partials/_system_nav.html` shows each tab only to its readers. The lists, the
-  editors and the delete pages read with the admin's view or change permission
-  (`ROUTE_READ`, `CHANNEL_READ`, `PROVIDER_READ` and `KEY_READ` in `intents.py`). Add,
-  change and delete each need their own permission, a 403 names the one missing, and a
-  reader sees the editor disabled. All four admins are stock and read-only.
+- **System holds routes, channels, providers and API keys.** The header's System link in
+  `base.html` opens `/console/routes/`. `partials/_system_nav.html` shows the Routes,
+  Channels, Providers and API keys tabs in that order. All four admins are stock and
+  read-only.
 - **The route pages.** `/console/routes/` lists every route in match order through
   `build_route_list`, which reads `config.netmap.get_map_context()`, so each card says
   when a route is off, never matches or is never reached, and whether it can deliver.
@@ -224,7 +209,7 @@ pipeline stage and not an alert producer.
   editor saves through `save_key` with a 409 when stale. `/console/keys/<pk>/delete/` says
   that anything still sending the key gets refused, and when it was last used.
 - **Fleet policy** (`/console/policy/`) renders `build_policy_overview`. Its edit and
-  re-evaluate links are intents, so a reader sees none.
+  re-evaluate links are intents.
 - **A missing record gets a console 404 page** with a link onward, returned with status
   404, as `IncidentDetailView` does. Don't raise a bare `Http404` from a page view.
 - **Stage output is untrusted in shape.** Every page reads stage output through
@@ -238,18 +223,17 @@ pipeline stage and not an alert producer.
   no admin URL. Navigation is an `Action` intent (`view_run`, `view_alert`), added only
   when the description has no action of its own, so a link never hides a fix.
 - **`intents.py` is the only place that builds an admin URL.** `INTENTS` maps each
-  `Action.intent` to a URL builder, a method and a permission. `resolve_action` turns an
-  `Action` into a link, a POST button, or plain text when the intent is unknown, the user
-  lacks its permission or the URL can't be built. Every intent now opens a console page.
+  `Action.intent` to a URL builder and a method. `resolve_action(action)` turns an
+  `Action` into a link, a POST button, or plain text when the intent is unknown or the URL
+  can't be built. Every intent now opens a console page.
   Reports have `view_checks`, `view_check_run`, `view_preflight`, `view_preflight_run`,
   `view_analyses` and `view_analysis`. Routes, channels, providers and keys have theirs: `view_route`,
   `edit_route`, `add_route`, `delete_route`, `view_channel`, `edit_channel`,
   `add_channel`, `delete_channel`, `view_provider`, `edit_provider`, `add_provider`,
   `delete_provider`, `view_key`, `edit_key`, `add_key` and `delete_key`. A
-  `view_*` intent opens the page, or the list when it has no `pk`, for anyone who can read
-  it. A name link uses it. An `edit_*` intent opens the same page but needs the change
-  permission, so a remedy such as "Give it an active channel" is plain text to a reader.
-  `admin_url()` covers the chrome's index,
+  `view_*` intent opens the page, or the list when it has no `pk`. A name link uses it. An
+  `edit_*` intent opens the same page, and a remedy such as "Give it an active channel"
+  uses it. `admin_url()` covers the chrome's index,
   login and logout links. No template or query reverses an `admin:` name or writes
   `/admin/`, and `_tests/test_intents.py` scans for both. Templates resolve an action with
   `{% load console %}{% resolved action as act %}` and render it through
@@ -276,14 +260,12 @@ pipeline stage and not an alert producer.
 - **Incident actions are one POST-only view.** `IncidentActionView`
   (`views/incident_action.py`) serves `incidents/<pk>/<action>/` and calls
   `IncidentManager.transition`, which owns the status rules and locks the row. The view
-  holds no rule of its own. It checks active staff first, then the page's read permissions,
-  then `alerts.change_incident`.
-  The admin's own incident buttons sit behind `is_staff` alone, so the console is the
-  stricter surface. `IncidentPageView` (`views/incident.py`) is the one place that builds
+  holds no rule of its own. The admin's own incident buttons sit behind `is_staff` alone,
+  so the console, which admits superusers only, is the stricter surface.
+  `IncidentPageView` (`views/incident.py`) is the one place that builds
   the page context, so the page and the action response can't drift.
 - **Rerunning checks is its own POST-only view.** `IncidentRerunView`
-  (`views/incident_rerun.py`) serves `incidents/<pk>/rerun/`, needs
-  `checkers.add_checkrun` on top of the read permissions, and calls
+  (`views/incident_rerun.py`) serves `incidents/<pk>/rerun/` and calls
   `apps.alerts.check_integration.rerun_incident_checks`, which owns the rules. It runs the
   incident's checkers only when the incident's node is this machine and names a checker
   this machine has, and otherwise refuses with a warning notice. The view catches only
@@ -313,10 +295,10 @@ pipeline stage and not an alert producer.
   anonymous GET or HEAD back to its own path. Anything else goes to `landing_path()`,
   which defaults to the Overview. An action view overrides it with the page it acts on.
 - **Buttons come from the read model.** `IncidentDetail.do` holds the transitions from
-  `available_incident_actions` only when the view passes `can_act=True`, and the rerun
-  only when it passes `can_rerun=True` and `can_rerun(incident)` holds. A user without
-  the permission gets no buttons and no "Do this" box. A button can still be stale by the
-  time it's clicked. `transition` then refuses it, and the operator sees a warning.
+  `available_incident_actions`, and the rerun when `can_rerun(incident)` holds. A closed
+  incident with nothing to rerun gets no buttons and no "Do this" box. A button can still
+  be stale by the time it's clicked. `transition` then refuses it, and the operator sees a
+  warning.
   Every action form disables every `.c-button` in `#incident` while its request runs. A
   second click would otherwise abort the first request in the browser only, and the
   server would run both.

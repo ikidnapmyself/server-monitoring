@@ -56,11 +56,7 @@ def test_with_none_on_the_headline_names_the_fallback():
 
 
 def test_the_list_carries_the_add_action():
-    providers = build_provider_list(can_add=True)
-
-    assert providers.can_add is True
-    assert providers.add == Action("Add a provider", "add_provider", {})
-    assert build_provider_list().can_add is False
+    assert build_provider_list().add == Action("Add a provider", "add_provider", {})
 
 
 def test_the_choices_follow_the_model_choices():
@@ -72,21 +68,20 @@ def test_the_choices_follow_the_model_choices():
 
 class TestTheEditor:
     def test_a_missing_provider_is_none(self):
-        assert build_provider_editor(999, can_change=True) is None
+        assert build_provider_editor(999) is None
 
     def test_a_missing_provider_wins_over_a_bad_kind(self):
-        assert build_provider_editor(999, kind="nope", can_change=True) is None
+        assert build_provider_editor(999, kind="nope") is None
 
     def test_an_existing_provider(self):
         p = _provider("main", config={"api_key": "sk-x", "extra": 1})
 
-        editor = build_provider_editor(p.pk, can_change=False)
+        editor = build_provider_editor(p.pk)
 
         row = IntelligenceProvider.objects.filter(pk=p.pk).values(*FIELDS)[0]
         assert editor.digest == provider_digest(row)
         assert editor.url == f"/console/providers/{p.pk}/?provider=claude"
         assert editor.back_url == f"/console/providers/#provider-{p.pk}"
-        assert editor.form.fields["name"].disabled
         labels = [fact.label for fact in editor.facts]
         assert labels == [
             "Provider",
@@ -100,17 +95,17 @@ class TestTheEditor:
     def test_no_unknown_settings_leaves_that_fact_out(self):
         p = _provider("main")
 
-        editor = build_provider_editor(p.pk, can_change=True)
+        editor = build_provider_editor(p.pk)
 
         assert [fact.label for fact in editor.facts] == ["Provider", "Created", "Updated"]
 
     def test_a_carried_digest_is_kept(self):
         p = _provider("main")
 
-        assert build_provider_editor(p.pk, can_change=True, digest="old").digest == "old"
+        assert build_provider_editor(p.pk, digest="old").digest == "old"
 
     def test_a_new_provider(self):
-        editor = build_provider_editor(None, kind="openai", can_change=True)
+        editor = build_provider_editor(None, kind="openai")
 
         assert (editor.pk, editor.name, editor.digest, editor.facts) == (None, "", "", ())
         assert editor.url == "/console/providers/new/?provider=openai"
@@ -120,27 +115,25 @@ class TestTheEditor:
     @pytest.mark.parametrize("kind", ["", "nope", "local"])
     def test_a_new_provider_needs_a_kind_the_hub_offers(self, kind):
         with pytest.raises(UnknownProvider):
-            build_provider_editor(None, kind=kind, can_change=True)
+            build_provider_editor(None, kind=kind)
 
     def test_an_existing_provider_refuses_a_kind_it_isnt(self):
         p = _provider("main")
 
         with pytest.raises(UnknownProvider):
-            build_provider_editor(p.pk, kind="carrier_pigeon", can_change=True)
+            build_provider_editor(p.pk, kind="carrier_pigeon")
 
     def test_a_provider_of_an_unknown_kind_keeps_it(self):
         p = _provider("odd", kind="carrier_pigeon")
 
-        editor = build_provider_editor(p.pk, kind="carrier_pigeon", can_change=True)
+        editor = build_provider_editor(p.pk, kind="carrier_pigeon")
 
         assert editor.form.provider_label == "A provider this hub doesn't have"
 
     def test_carried_fields_open_the_form_unbound(self):
         p = _provider("main")
 
-        editor = build_provider_editor(
-            p.pk, kind="openai", can_change=True, carried={"name": "renamed"}
-        )
+        editor = build_provider_editor(p.pk, kind="openai", carried={"name": "renamed"})
 
         assert not editor.form.is_bound
         assert editor.form.initial["name"] == "renamed"
@@ -153,8 +146,8 @@ class TestTurningItOn:
         spare = _provider("spare", kind="openai")
 
         for editor in (
-            build_provider_editor(spare.pk, can_change=True),
-            build_provider_editor(None, kind="openai", can_change=True),
+            build_provider_editor(spare.pk),
+            build_provider_editor(None, kind="openai"),
         ):
             help_text = editor.form.fields["is_active"].help_text
             assert help_text == "Turning this on turns off main."
@@ -162,22 +155,14 @@ class TestTurningItOn:
     def test_the_provider_in_use_gets_no_note(self):
         main = _provider("main", is_active=True)
 
-        editor = build_provider_editor(main.pk, can_change=True)
-
-        assert editor.form.fields["is_active"].help_text == ""
-
-    def test_a_reader_who_cant_change_it_gets_no_note(self):
-        _provider("main", is_active=True)
-        spare = _provider("spare", kind="openai")
-
-        editor = build_provider_editor(spare.pk, can_change=False)
+        editor = build_provider_editor(main.pk)
 
         assert editor.form.fields["is_active"].help_text == ""
 
     def test_with_none_on_there_is_no_note(self):
         spare = _provider("spare")
 
-        editor = build_provider_editor(spare.pk, can_change=True)
+        editor = build_provider_editor(spare.pk)
 
         assert editor.form.fields["is_active"].help_text == ""
 
@@ -212,7 +197,7 @@ class TestTheDeletion:
     def test_the_editor_offers_it_only_for_an_existing_provider(self):
         p = _provider("main")
 
-        existing = build_provider_editor(p.pk, can_change=True)
+        existing = build_provider_editor(p.pk)
 
         assert existing.delete == Action("Delete provider", "delete_provider", {"pk": p.pk})
-        assert build_provider_editor(None, kind="claude", can_change=True).delete is None
+        assert build_provider_editor(None, kind="claude").delete is None

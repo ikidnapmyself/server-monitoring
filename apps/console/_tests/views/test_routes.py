@@ -1,7 +1,6 @@
 import re
 
 import pytest
-from django.contrib.auth.models import Permission
 from django.urls import reverse
 
 from apps.console._tests.test_templates import FORBIDDEN
@@ -22,17 +21,6 @@ def _empty_table():
 @pytest.fixture
 def url():
     return reverse("console:routes")
-
-
-@pytest.fixture
-def route_viewer(client, bare_staff):
-    bare_staff.user_permissions.add(
-        Permission.objects.get(
-            content_type__app_label="orchestration", codename="view_pipelinedefinition"
-        )
-    )
-    client.force_login(bare_staff)
-    return bare_staff
 
 
 def _lane(name, priority, **kw):
@@ -56,12 +44,7 @@ def test_anonymous_is_sent_to_the_admin_login(client, url):
     assert resp["Location"] == f"{reverse('admin:login')}?next=/console/routes/"
 
 
-def test_staff_without_a_route_permission_is_refused(client, bare_staff, url):
-    assert client.get(url).status_code == 403
-
-
 def test_routes_render_in_match_order(client, superuser, url):
-    client.force_login(superuser)
     _lane("late", 20, match=[])
     _lane("early", 10, match=[{"field": "source", "op": "is", "value": "cluster"}])
 
@@ -74,7 +57,6 @@ def test_routes_render_in_match_order(client, superuser, url):
 
 
 def test_the_page_sits_under_system_with_its_subnav(client, superuser, url):
-    client.force_login(superuser)
 
     body = client.get(url).content.decode()
 
@@ -85,7 +67,6 @@ def test_the_page_sits_under_system_with_its_subnav(client, superuser, url):
 
 
 def test_the_shadowed_route_names_its_shadower_and_is_muted(client, superuser, url):
-    client.force_login(superuser)
     _lane("all", 1, match=[])
     later = _lane("later", 2, match=[{"field": "source", "op": "is", "value": "cluster"}])
 
@@ -97,7 +78,6 @@ def test_the_shadowed_route_names_its_shadower_and_is_muted(client, superuser, u
 
 
 def test_a_superuser_gets_the_links(client, superuser, url):
-    client.force_login(superuser)
     ch = NotificationChannel.objects.create(name="ops", driver="email", is_active=True, config={})
     bound = _lane("bound", 1, match=[], stages=["notify"], channel=ch, tags={"seed_shape": "x"})
     bare = _lane("bare", 2, match=[], stages=["notify"])
@@ -121,37 +101,16 @@ def test_a_superuser_gets_the_links(client, superuser, url):
     assert f'href="/console/routes/{bare.pk}/">Give it an active channel</a>' in bare_card
 
 
-def test_a_view_only_reader_can_open_a_route(client, route_viewer, url):
+def test_a_route_name_opens_the_route(client, superuser, url):
     lane = _lane("all", 1, match=[], stages=["check"])
 
     card = _card(client.get(url).content.decode(), lane)
 
     assert "Records only, sends nothing" in card
     assert f'href="/console/routes/{lane.pk}/">all</a>' in card
-    assert "Open route" not in card
-
-
-def test_a_view_only_reader_sees_the_route_fix_as_text(client, route_viewer, url):
-    lane = _lane("bare", 1, match=[], stages=["notify"])
-
-    card = _card(client.get(url).content.decode(), lane)
-
-    assert "Give it an active channel" in card
-    assert f'href="/console/routes/{lane.pk}/">Give it an active channel</a>' not in card
-
-
-def test_a_route_viewer_sees_the_channel_as_text(client, route_viewer, url):
-    ch = NotificationChannel.objects.create(name="ops", driver="email", is_active=True)
-    lane = _lane("bound", 1, match=[], stages=["notify"], channel=ch)
-
-    card = _card(client.get(url).content.decode(), lane)
-
-    assert "Delivers to ops · Open ops</div>" in card
-    assert f'href="/console/channels/{ch.pk}/"' not in card
 
 
 def test_no_routes_says_so(client, superuser, url):
-    client.force_login(superuser)
 
     body = client.get(url).content.decode()
 
@@ -160,7 +119,6 @@ def test_no_routes_says_so(client, superuser, url):
 
 
 def test_htmx_gets_the_fragment(client, superuser, url):
-    client.force_login(superuser)
     _lane("all", 1, match=[])
 
     body = client.get(url, **HTMX).content.decode()
@@ -170,7 +128,6 @@ def test_htmx_gets_the_fragment(client, superuser, url):
 
 
 def test_the_page_carries_nothing_the_csp_blocks(client, superuser, url):
-    client.force_login(superuser)
     _lane("all", 1, match=[])
 
     body = client.get(url).content.decode()
@@ -179,7 +136,6 @@ def test_the_page_carries_nothing_the_csp_blocks(client, superuser, url):
 
 
 def test_a_row_says_its_conditions_in_one_line(client, superuser, url):
-    client.force_login(superuser)
     lane = _lane(
         "web",
         1,
@@ -196,7 +152,6 @@ def test_a_row_says_its_conditions_in_one_line(client, superuser, url):
 
 
 def test_a_lane_with_no_stages_says_records_only_once(client, superuser, url):
-    client.force_login(superuser)
     lane = _lane("bare", 1, match=[], stages=[])
 
     card = _card(client.get(url).content.decode(), lane)
@@ -206,7 +161,6 @@ def test_a_lane_with_no_stages_says_records_only_once(client, superuser, url):
 
 
 def test_a_route_adder_gets_the_add_button(client, superuser, url):
-    client.force_login(superuser)
 
     body = client.get(url).content.decode()
 
@@ -215,24 +169,3 @@ def test_a_route_adder_gets_the_add_button(client, superuser, url):
         '<a id="routes-add" class="c-button c-button--sm c-button--primary" '
         'href="/console/routes/new/">'
     ) in head
-
-
-def test_a_view_only_reader_gets_no_add_button(client, route_viewer, url):
-    assert "Add a route" not in client.get(url).content.decode()
-
-
-def test_a_route_only_reader_gets_system_on_routes_and_no_channels_tab(client, route_viewer, url):
-    body = client.get(url).content.decode()
-
-    assert re.search(r'href="/console/routes/" aria-current="page">.*?<span>System</span>', body)
-    assert ">Routes</a>" in body
-    assert 'href="/console/channels/"' not in body
-    assert ">Channels</a>" not in body
-
-
-def test_a_reader_of_neither_sees_no_system_item(client, staff):
-    body = client.get(reverse("console:overview")).content.decode()
-
-    assert "<span>System</span>" not in body
-    assert 'href="/console/routes/"' not in body
-    assert 'href="/console/channels/"' not in body

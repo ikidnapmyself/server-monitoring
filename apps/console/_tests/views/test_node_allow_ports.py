@@ -61,7 +61,7 @@ def test_a_resolved_or_unlinked_alert_keeps_the_checker_text(node, alert):
     assert describe_alert(alert).action.intent == ""
 
 
-def test_confirm_page_shows_the_result_and_seeded_ports(client, node_operator, node, alert):
+def test_confirm_page_shows_the_result_and_seeded_ports(client, superuser, node, alert):
     body = client.get(_url(node), {"ports": "22,80"}).content.decode()
 
     assert 'id="allow-ports"' in body
@@ -70,24 +70,18 @@ def test_confirm_page_shows_the_result_and_seeded_ports(client, node_operator, n
     assert 'id="allow-apply"' in body
 
 
-def test_a_viewer_sees_no_apply_button(client, node_viewer, node, alert):
-    body = client.get(_url(node), {"ports": "22"}).content.decode()
-
-    assert 'id="allow-apply"' not in body
-
-
-def test_no_ports_has_nothing_to_apply(client, node_operator, node):
+def test_no_ports_has_nothing_to_apply(client, superuser, node):
     body = client.get(_url(node)).content.decode()
 
     assert "No ports to allow." in body
     assert 'id="allow-apply"' not in body
 
 
-def test_an_unknown_node_is_a_404(client, node_operator):
+def test_an_unknown_node_is_a_404(client, superuser):
     assert client.get(reverse("console:node-allow-ports", args=[999])).status_code == 404
 
 
-def test_applying_saves_and_sends_the_operator_to_the_preview(client, node_operator, node, alert):
+def test_applying_saves_and_sends_the_operator_to_the_preview(client, superuser, node, alert):
     response = client.post(_url(node), {"ports": "22,80", "digest": config_digest(node.config)})
 
     node.refresh_from_db()
@@ -96,7 +90,7 @@ def test_applying_saves_and_sends_the_operator_to_the_preview(client, node_opera
     assert response["Location"].startswith(reverse("console:node-reeval", args=[node.pk]))
 
 
-def test_applying_without_a_change_in_scoring_goes_back_to_the_node(client, node_operator, node):
+def test_applying_without_a_change_in_scoring_goes_back_to_the_node(client, superuser, node):
     node.config = {"listening_ports": {"allowlist": [22, 80]}}
     node.save()
 
@@ -105,7 +99,7 @@ def test_applying_without_a_change_in_scoring_goes_back_to_the_node(client, node
     assert response["Location"] == reverse("console:node", args=[node.pk])
 
 
-def test_a_stale_digest_is_a_409(client, node_operator, node):
+def test_a_stale_digest_is_a_409(client, superuser, node):
     response = client.post(_url(node), {"ports": "22", "digest": "old"})
 
     assert response.status_code == 409
@@ -113,25 +107,19 @@ def test_a_stale_digest_is_a_409(client, node_operator, node):
     assert node.config == {}
 
 
-def test_applying_nothing_is_a_409(client, node_operator, node):
+def test_applying_nothing_is_a_409(client, superuser, node):
     response = client.post(_url(node), {"ports": "", "digest": config_digest(node.config)})
 
     assert response.status_code == 409
 
 
-def test_a_viewer_cannot_apply(client, node_viewer, node):
-    response = client.post(_url(node), {"ports": "22", "digest": config_digest(node.config)})
-
-    assert response.status_code == 403
-
-
-def test_applying_to_an_unknown_node_is_a_404(client, node_operator):
+def test_applying_to_an_unknown_node_is_a_404(client, superuser):
     response = client.post(reverse("console:node-allow-ports", args=[999]), {"ports": "22"})
 
     assert response.status_code == 404
 
 
-def test_a_lost_race_on_the_database_is_a_409(client, node_operator, node, monkeypatch):
+def test_a_lost_race_on_the_database_is_a_409(client, superuser, node, monkeypatch):
     from django.db import OperationalError
 
     def locked(*args, **kwargs):

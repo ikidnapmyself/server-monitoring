@@ -57,11 +57,7 @@ def test_anonymous_is_sent_to_the_admin_login(client, url):
     assert resp["Location"] == f"{reverse('admin:login')}?next=/console/policy/"
 
 
-def test_staff_without_a_node_permission_is_refused(client, bare_staff, url):
-    assert client.get(url).status_code == 403
-
-
-def test_a_viewer_reads_the_page_with_nodes_current(client, node_viewer, url, node):
+def test_a_superuser_reads_the_page_with_nodes_current(client, superuser, url, node):
     resp = client.get(url)
 
     body = resp.content.decode()
@@ -75,21 +71,14 @@ def test_a_viewer_reads_the_page_with_nodes_current(client, node_viewer, url, no
     assert "data-poll" not in body
 
 
-def test_htmx_gets_the_partial(client, node_viewer, url, node):
+def test_htmx_gets_the_partial(client, superuser, url, node):
     resp = client.get(url, **HTMX)
 
     assert resp.templates[0].name == "console/partials/_policy.html"
     assert "<html" not in resp.content.decode()
 
 
-def test_a_reader_gets_no_edit_or_reevaluate_links(client, node_viewer, url, node):
-    body = client.get(url).content.decode()
-
-    assert f"/console/nodes/{node.pk}/policy/#policy-cpu" not in body
-    assert f"/console/nodes/{node.pk}/reevaluate/?checker=cpu" not in body
-
-
-def test_an_operator_gets_both_links(client, node_operator, url, node):
+def test_a_superuser_gets_both_links(client, superuser, url, node):
     body = client.get(url).content.decode()
 
     assert (
@@ -102,7 +91,7 @@ def test_an_operator_gets_both_links(client, node_operator, url, node):
     )
 
 
-def test_unread_keys_and_quiet_nodes(client, node_viewer, url):
+def test_unread_keys_and_quiet_nodes(client, superuser, url):
     Node.objects.create(
         instance_id="i-db", hostname="db", config={"listening_ports": {"extra_key": 1}}
     )
@@ -114,14 +103,14 @@ def test_unread_keys_and_quiet_nodes(client, node_viewer, url):
     assert "1 node holds no policy and fires nothing." in body
 
 
-def test_no_policy_anywhere_says_so(client, node_viewer, url):
+def test_no_policy_anywhere_says_so(client, superuser, url):
     body = client.get(url).content.decode()
 
     assert "No node holds a policy yet." in body
     assert "fires nothing" not in body
 
 
-def test_a_hostile_hostname_is_escaped(client, node_viewer, url):
+def test_a_hostile_hostname_is_escaped(client, superuser, url):
     Node.objects.create(
         instance_id="i-bad", hostname=MARKUP, config={"cpu": {"warning_threshold": 80}}
     )
@@ -131,7 +120,7 @@ def test_a_hostile_hostname_is_escaped(client, node_viewer, url):
     assert ESCAPED in body and "<img" not in body
 
 
-def test_every_focusable_element_has_a_stable_id(client, node_operator, url, node):
+def test_every_focusable_element_has_a_stable_id(client, superuser, url, node):
     body = client.get(url).content.decode()
     region = body[body.index("<main") : body.index("</main>")]
 
@@ -141,5 +130,5 @@ def test_every_focusable_element_has_a_stable_id(client, node_operator, url, nod
 
 
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
-def test_the_rendered_page_is_clean(client, node_operator, url, node, label):
+def test_the_rendered_page_is_clean(client, superuser, url, node, label):
     assert not FORBIDDEN[label].search(client.get(url).content.decode()), label

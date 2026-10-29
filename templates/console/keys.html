@@ -3,6 +3,6 @@
 {% block content %}
 {% include "console/partials/_system_nav.html" %}
 {% include "console/partials/_messages.html" %}
-<div class="c-pagehead"><div class="c-pagehead__top"><h1 class="c-pagehead__title">API keys</h1>{% if keys.can_add %}{% resolved keys.add as act %}{% include "console/partials/_action.html" with act=act id="keys-add" cls="c-button--primary" %}{% endif %}</div></div>
+<div class="c-pagehead"><div class="c-pagehead__top"><h1 class="c-pagehead__title">API keys</h1>{% resolved keys.add as act %}{% include "console/partials/_action.html" with act=act id="keys-add" cls="c-button--primary" %}</div></div>
 {% include "console/partials/_keys.html" %}
 {% endblock %}

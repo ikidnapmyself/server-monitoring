@@ -3,9 +3,6 @@ from datetime import timedelta
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
-from django.test import RequestFactory
 from django.urls import reverse
 from django.utils import timezone
 
@@ -13,43 +10,13 @@ from apps.alerts.models import Alert, Incident, Node
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console._tests.views.test_incident import named_incident
 from apps.console.queries import overview as overview_queries
-from apps.console.views.overview import OverviewView
 from config.describing import Action, Description
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
 
 
 @pytest.mark.django_db
-def test_anonymous_is_sent_to_the_admin_login(client):
-    resp = client.get(reverse("console:overview"))
-
-    assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next=/console/"
-
-
-@pytest.mark.django_db
-def test_non_staff_is_refused(client):
-    user = get_user_model().objects.create_user("visitor", password="x")
-    client.force_login(user)
-
-    resp = client.get(reverse("console:overview"))
-
-    assert resp.status_code == 403
-    assert "Staff access required." in resp.content.decode()
-
-
-def test_inactive_staff_is_refused_by_the_view_itself():
-    request = RequestFactory().get("/console/")
-    request.user = get_user_model()(username="gone", is_staff=True, is_active=False)
-
-    resp = OverviewView.as_view()(request)
-
-    assert resp.status_code == 403
-    assert "Staff access required." in resp.content.decode()
-
-
-@pytest.mark.django_db
-def test_staff_gets_the_page(client, staff):
+def test_a_superuser_gets_the_page(client, superuser):
     resp = client.get(reverse("console:overview"))
 
     assert resp.status_code == 200
@@ -65,7 +32,7 @@ def test_root_redirects_to_the_console(client):
 
 
 @pytest.mark.django_db
-def test_htmx_request_gets_only_the_partial(client, staff):
+def test_htmx_request_gets_only_the_partial(client, superuser):
     resp = client.get(reverse("console:overview"), **HTMX)
 
     assert resp.status_code == 200
@@ -77,20 +44,12 @@ def test_htmx_request_gets_only_the_partial(client, staff):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("header", ["HTTP_HX_HISTORY_RESTORE_REQUEST", "HTTP_HX_BOOSTED"])
-def test_htmx_request_that_swaps_the_body_gets_the_full_page(client, staff, header):
+def test_htmx_request_that_swaps_the_body_gets_the_full_page(client, superuser, header):
     resp = client.get(reverse("console:overview"), **HTMX, **{header: "true"})
 
     assert resp.status_code == 200
     assert "<html" in resp.content.decode()
     assert resp.templates[0].name == "console/overview.html"
-
-
-@pytest.mark.django_db
-def test_anonymous_htmx_request_is_told_to_do_a_full_redirect(client):
-    resp = client.get(reverse("console:overview"), **HTMX)
-
-    assert resp.status_code == 204
-    assert resp["HX-Redirect"] == f"{reverse('admin:login')}?next=/console/"
 
 
 def _next_after_login(client, current_url):
@@ -162,7 +121,7 @@ def test_non_htmx_login_ignores_the_current_url_header(client):
 
 
 @pytest.mark.django_db
-def test_empty_install_reads_as_calm(client, staff):
+def test_empty_install_reads_as_calm(client, superuser):
     body = client.get(reverse("console:overview")).content.decode()
 
     assert "No open incidents." in body
@@ -171,7 +130,7 @@ def test_empty_install_reads_as_calm(client, staff):
 
 
 @pytest.mark.django_db
-def test_page_shows_incidents_nodes_and_the_sparkline(client, staff):
+def test_page_shows_incidents_nodes_and_the_sparkline(client, superuser):
     incident = named_incident("Disk full on web-1", severity="critical")
     node = Node.objects.create(instance_id="web-1", hostname="web-1")
 
@@ -180,7 +139,7 @@ def test_page_shows_incidents_nodes_and_the_sparkline(client, staff):
     assert "1 open incident, 1 critical." in body
     assert "Disk full on web-1" in body
     assert reverse("console:incident", args=[incident.pk]) in body
-    assert f'id="node-{node.pk}"' not in body
+    assert f'id="node-{node.pk}"' in body
     assert "c-tone-critical" in body
     assert "<svg" in body
 
@@ -191,7 +150,7 @@ def test_page_shows_incidents_nodes_and_the_sparkline(client, staff):
     [((), "ok"), (("warning", "info"), "warning"), (("warning", "critical"), "critical")],
     ids=["none-open", "no-critical", "critical"],
 )
-def test_the_headline_flash_takes_the_tone_of_what_is_open(client, staff, severities, tone):
+def test_the_headline_flash_takes_the_tone_of_what_is_open(client, superuser, severities, tone):
     for severity in severities:
         Incident.objects.create(severity=severity)
 
@@ -201,7 +160,7 @@ def test_the_headline_flash_takes_the_tone_of_what_is_open(client, staff, severi
 
 
 @pytest.mark.django_db
-def test_page_loads_only_first_party_assets_and_disables_htmx_eval(client, staff):
+def test_page_loads_only_first_party_assets_and_disables_htmx_eval(client, superuser):
     body = client.get(reverse("console:overview")).content.decode()
 
     assert "console/vendor/htmx.min.js" in body
@@ -215,7 +174,7 @@ def test_page_loads_only_first_party_assets_and_disables_htmx_eval(client, staff
 
 
 @pytest.mark.django_db
-def test_page_polls_itself_and_links_onward(client, staff):
+def test_page_polls_itself_and_links_onward(client, superuser):
     body = client.get(reverse("console:overview")).content.decode()
 
     assert f'hx-get="{reverse("console:overview")}"' in body
@@ -238,13 +197,10 @@ def _readiness(monkeypatch, headline="3 runs are stuck"):
     monkeypatch.setattr(overview_queries, "keyed_readiness", lambda: found)
 
 
-def _superuser(client):
-    client.force_login(get_user_model().objects.create_superuser("root", password="x"))
-
-
 @pytest.mark.django_db
-def test_readiness_shows_the_describers_headline_and_fix_link_for_a_superuser(client, monkeypatch):
-    _superuser(client)
+def test_readiness_shows_the_describers_headline_and_fix_link_for_a_superuser(
+    client, superuser, monkeypatch
+):
     _readiness(monkeypatch)
 
     body = client.get(reverse("console:overview")).content.decode()
@@ -254,17 +210,6 @@ def test_readiness_shows_the_describers_headline_and_fix_link_for_a_superuser(cl
     inbox = reverse("console:inbox")
     assert fix.groups() == (f"{inbox}?status=processing", "Open the stuck runs")
     assert "System ready." not in body
-
-
-@pytest.mark.django_db
-def test_readiness_fix_is_plain_text_for_staff_without_the_permission(client, staff, monkeypatch):
-    _readiness(monkeypatch)
-
-    body = client.get(reverse("console:overview")).content.decode()
-
-    assert "3 runs are stuck" in body
-    assert '<p class="c-description__action">Open the stuck runs</p>' in body
-    assert 'id="readiness-inbox-action"' not in body
 
 
 def _keyed(*keys):
@@ -280,8 +225,9 @@ def _keyed(*keys):
 
 
 @pytest.mark.django_db
-def test_readiness_ids_come_from_their_keys_and_survive_a_row_clearing(client, monkeypatch):
-    _superuser(client)
+def test_readiness_ids_come_from_their_keys_and_survive_a_row_clearing(
+    client, superuser, monkeypatch
+):
     found = _keyed("channels", "lane_channels-paging", "nodes")
     monkeypatch.setattr(overview_queries, "keyed_readiness", lambda: found)
     pattern = r'id="readiness-([^"]+)-action"[^>]*>[^<]*</a>'
@@ -295,7 +241,7 @@ def test_readiness_ids_come_from_their_keys_and_survive_a_row_clearing(client, m
 
 
 @pytest.mark.django_db
-def test_an_all_green_system_reads_as_ready(client, staff, monkeypatch):
+def test_an_all_green_system_reads_as_ready(client, superuser, monkeypatch):
     monkeypatch.setattr(overview_queries, "keyed_readiness", lambda: ())
 
     body = client.get(reverse("console:overview")).content.decode()
@@ -305,7 +251,7 @@ def test_an_all_green_system_reads_as_ready(client, staff, monkeypatch):
 
 
 @pytest.mark.django_db
-def test_readiness_headline_is_escaped(client, staff, monkeypatch):
+def test_readiness_headline_is_escaped(client, superuser, monkeypatch):
     _readiness(monkeypatch, "<b>web-1</b> stuck")
 
     body = client.get(reverse("console:overview")).content.decode()
@@ -315,10 +261,7 @@ def test_readiness_headline_is_escaped(client, staff, monkeypatch):
 
 
 @pytest.mark.django_db
-def test_a_node_tile_links_to_the_node_for_a_user_who_can_view_nodes(client, staff):
-    staff.user_permissions.add(
-        Permission.objects.get(content_type__app_label="alerts", codename="view_node")
-    )
+def test_a_node_tile_links_to_the_node(client, superuser):
     node = Node.objects.create(instance_id="web-1", hostname="web-1")
 
     body = client.get(reverse("console:overview")).content.decode()
@@ -328,19 +271,7 @@ def test_a_node_tile_links_to_the_node_for_a_user_who_can_view_nodes(client, sta
 
 
 @pytest.mark.django_db
-def test_a_node_tile_is_not_a_link_for_a_user_who_cannot_view_nodes(client, staff):
-    node = Node.objects.create(instance_id="web-1", hostname="web-1")
-
-    body = client.get(reverse("console:overview")).content.decode()
-
-    assert '<div class="c-box c-tile">' in body
-    assert f'id="node-{node.pk}"' not in body
-    assert reverse("console:node", args=[node.pk]) not in body
-    assert "web-1" in body and "seen " in body
-
-
-@pytest.mark.django_db
-def test_an_open_incident_row_shows_its_detail_on_one_line(client, staff):
+def test_an_open_incident_row_shows_its_detail_on_one_line(client, superuser):
     incident = Incident.objects.create(severity="critical")
     Alert.objects.create(
         fingerprint="d",
@@ -357,7 +288,7 @@ def test_an_open_incident_row_shows_its_detail_on_one_line(client, staff):
 
 
 @pytest.mark.django_db
-def test_page_carries_the_hooks_console_js_binds_to(client, staff):
+def test_page_carries_the_hooks_console_js_binds_to(client, superuser):
     body = client.get(reverse("console:overview")).content.decode()
 
     polling = re.search(r"<div[^>]*\bhx-get=[^>]*>", body).group()
@@ -397,7 +328,7 @@ def test_anonymous_head_keeps_its_own_path(client):
 @pytest.mark.django_db
 @pytest.mark.parametrize("label", sorted(FORBIDDEN))
 @pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
-def test_rendered_overview_is_clean(client, staff, monkeypatch, label, headers):
+def test_rendered_overview_is_clean(client, superuser, monkeypatch, label, headers):
     monkeypatch.setattr(overview_queries, "INCIDENT_LIMIT", 1)
     _readiness(monkeypatch)
     Incident.objects.create(severity="critical")
@@ -411,7 +342,7 @@ def test_rendered_overview_is_clean(client, staff, monkeypatch, label, headers):
 
 
 @pytest.mark.django_db
-def test_a_silent_node_renders_as_quiet(client, staff, monkeypatch):
+def test_a_silent_node_renders_as_quiet(client, superuser, monkeypatch):
     monkeypatch.setattr(overview_queries, "local_instance_id", lambda: "this-hub")
     node = Node.objects.create(instance_id="web-1", hostname="web-1")
     Node.objects.filter(pk=node.pk).update(last_seen=timezone.now() - timedelta(days=3))
@@ -428,8 +359,7 @@ def _polled_region(body):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("headers", [{}, HTMX], ids=["page", "partial"])
-def test_every_link_in_the_polled_region_has_a_unique_id(client, monkeypatch, headers):
-    _superuser(client)
+def test_every_link_in_the_polled_region_has_a_unique_id(client, superuser, monkeypatch, headers):
     monkeypatch.setattr(overview_queries, "INCIDENT_LIMIT", 2)
     _readiness(monkeypatch)
     incidents = [Incident.objects.create(severity="warning") for index in range(3)]
@@ -454,7 +384,7 @@ MARKUP = "<img src=x onerror=alert(1)>"
 
 
 @pytest.mark.django_db
-def test_incident_title_is_escaped(client, staff):
+def test_incident_title_is_escaped(client, superuser):
     named_incident(f"disk {MARKUP}", severity="critical")
 
     body = client.get(reverse("console:overview")).content.decode()
@@ -464,7 +394,7 @@ def test_incident_title_is_escaped(client, staff):
 
 
 @pytest.mark.django_db
-def test_node_name_is_escaped(client, staff):
+def test_node_name_is_escaped(client, superuser):
     Node.objects.create(instance_id="n1", hostname=f"web {MARKUP}")
 
     body = client.get(reverse("console:overview")).content.decode()
@@ -474,7 +404,7 @@ def test_node_name_is_escaped(client, staff):
 
 
 @pytest.mark.django_db
-def test_an_unnamed_node_tile_keeps_its_instance_id_off_the_page(client, staff):
+def test_an_unnamed_node_tile_keeps_its_instance_id_off_the_page(client, superuser):
     Node.objects.create(instance_id=f"web {MARKUP}", hostname="")
 
     body = client.get(reverse("console:overview")).content.decode()
@@ -484,7 +414,7 @@ def test_an_unnamed_node_tile_keeps_its_instance_id_off_the_page(client, staff):
 
 
 @pytest.mark.django_db
-def test_incidents_past_the_cap_link_to_the_incident_list(client, staff, monkeypatch):
+def test_incidents_past_the_cap_link_to_the_incident_list(client, superuser, monkeypatch):
     monkeypatch.setattr(overview_queries, "INCIDENT_LIMIT", 2)
     for index in range(5):
         Incident.objects.create(severity="warning")
@@ -502,7 +432,7 @@ def test_incidents_past_the_cap_link_to_the_incident_list(client, staff, monkeyp
 
 
 @pytest.mark.django_db
-def test_one_incident_past_the_cap_reads_in_the_singular(client, staff, monkeypatch):
+def test_one_incident_past_the_cap_reads_in_the_singular(client, superuser, monkeypatch):
     monkeypatch.setattr(overview_queries, "INCIDENT_LIMIT", 1)
     Incident.objects.create(severity="warning")
     Incident.objects.create(severity="warning")
@@ -513,7 +443,7 @@ def test_one_incident_past_the_cap_reads_in_the_singular(client, staff, monkeypa
 
 
 @pytest.mark.django_db
-def test_incidents_within_the_cap_show_no_more_row(client, staff):
+def test_incidents_within_the_cap_show_no_more_row(client, superuser):
     Incident.objects.create(severity="warning")
 
     body = client.get(reverse("console:overview")).content.decode()
@@ -522,7 +452,7 @@ def test_incidents_within_the_cap_show_no_more_row(client, staff):
 
 
 @pytest.mark.django_db
-def test_the_more_link_opens_a_list_of_only_open_incidents(client, staff):
+def test_the_more_link_opens_a_list_of_only_open_incidents(client, superuser):
     named_incident("still open", severity="warning")
     named_incident("acked", severity="warning", status="acknowledged")
     named_incident("long gone", severity="warning", status="closed")
@@ -537,7 +467,7 @@ def test_the_more_link_opens_a_list_of_only_open_incidents(client, staff):
 
 
 @pytest.mark.django_db
-def test_a_quiet_day_shows_an_empty_state_instead_of_a_chart(client, staff):
+def test_a_quiet_day_shows_an_empty_state_instead_of_a_chart(client, superuser):
     body = client.get(reverse("console:overview")).content.decode()
 
     assert "No incidents opened in the last 24 hours." in body
@@ -545,7 +475,7 @@ def test_a_quiet_day_shows_an_empty_state_instead_of_a_chart(client, staff):
 
 
 @pytest.mark.django_db
-def test_a_busy_day_shows_one_bar_per_hour_with_its_count(client, staff):
+def test_a_busy_day_shows_one_bar_per_hour_with_its_count(client, superuser):
     Incident.objects.create()
 
     body = client.get(reverse("console:overview")).content.decode()
@@ -556,7 +486,7 @@ def test_a_busy_day_shows_one_bar_per_hour_with_its_count(client, staff):
 
 
 @pytest.mark.django_db
-def test_open_incident_rows_name_their_host(client, staff):
+def test_open_incident_rows_name_their_host(client, superuser):
     incident = Incident.objects.create(severity="critical")
     Alert.objects.create(
         fingerprint="f",

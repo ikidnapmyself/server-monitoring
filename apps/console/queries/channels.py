@@ -51,7 +51,6 @@ class ChannelRow:
 class ChannelList:
     rows: tuple[ChannelRow, ...]
     q: str
-    can_add: bool = False
 
     @property
     def add(self) -> Action:
@@ -75,7 +74,6 @@ class ChannelEditor:
     back_url: str
     lanes: tuple[LaneLine, ...]
     facts: tuple[Fact, ...]
-    can_change: bool
 
     @property
     def delete(self) -> Action | None:
@@ -135,7 +133,7 @@ def _lanes(channels) -> dict[int | None, list[LaneLine]]:
     return by_channel
 
 
-def build_channel_list(q: str, *, can_add: bool = False) -> ChannelList:
+def build_channel_list(q: str) -> ChannelList:
     channels = list(NotificationChannel.objects.filter(name__icontains=q).order_by("name"))
     lanes = _lanes(channels)
     rows = tuple(
@@ -149,7 +147,7 @@ def build_channel_list(q: str, *, can_add: bool = False) -> ChannelList:
         )
         for channel in channels
     )
-    return ChannelList(rows=rows, q=q, can_add=can_add)
+    return ChannelList(rows=rows, q=q)
 
 
 def new_channel_url(driver: str) -> str:
@@ -179,10 +177,10 @@ def _facts(channel: NotificationChannel, form: ChannelForm) -> tuple[Fact, ...]:
     return tuple(facts)
 
 
-def _form(data, channel, driver: str, can_change: bool, carried: dict | None) -> ChannelForm:
+def _form(data, channel, driver: str, carried: dict | None) -> ChannelForm:
     if carried is None:
-        return ChannelForm(data, channel=channel, driver=driver, disabled=not can_change)
-    form = ChannelForm(channel=channel, driver=driver, disabled=not can_change)
+        return ChannelForm(data, channel=channel, driver=driver)
+    form = ChannelForm(channel=channel, driver=driver)
     form.initial.update(carried)
     return form
 
@@ -192,7 +190,6 @@ def build_channel_editor(
     data=None,
     *,
     driver: str | None = None,
-    can_change: bool,
     digest: str | None = None,
     carried: dict | None = None,
 ) -> ChannelEditor | None:
@@ -210,7 +207,7 @@ def build_channel_editor(
     key = driver or (channel.driver if channel else "")
     if key not in DRIVER_REGISTRY and not (channel and key == channel.driver):
         raise UnknownDriver(key)
-    form = _form(data, channel, key, can_change, carried)
+    form = _form(data, channel, key, carried)
     query = urlencode({"driver": key})
     channels = reverse("console:channels")
     if channel is None:
@@ -223,7 +220,6 @@ def build_channel_editor(
             back_url=channels,
             lanes=(),
             facts=(),
-            can_change=can_change,
         )
     stored = {field: getattr(channel, field) for field in FIELDS}
     return ChannelEditor(
@@ -235,5 +231,4 @@ def build_channel_editor(
         back_url=f"{channels}#channel-{channel.pk}",
         lanes=tuple(_lanes([channel]).get(channel.pk, ())),
         facts=_facts(channel, form),
-        can_change=can_change,
     )
