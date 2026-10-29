@@ -37,11 +37,11 @@ def test_the_page_lives_at_routes(url):
     assert url == "/console/routes/"
 
 
-def test_anonymous_is_sent_to_the_admin_login(client, url):
+def test_anonymous_is_sent_to_the_console_login(client, url):
     resp = client.get(url)
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next=/console/routes/"
+    assert resp["Location"] == f"{reverse('console:login')}?next=/console/routes/"
 
 
 def test_routes_render_in_match_order(client, superuser, url):

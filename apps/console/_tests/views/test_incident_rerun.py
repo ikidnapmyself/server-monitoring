@@ -61,13 +61,13 @@ def test_the_rerun_lives_under_the_incident():
 
 
 @pytest.mark.django_db
-def test_anonymous_post_is_sent_to_the_admin_login(client, run_checks):
+def test_anonymous_post_is_sent_to_the_console_login(client, run_checks):
     incident = _incident()
 
     resp = client.post(_url(incident))
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next={_page(incident)}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={_page(incident)}"
     run_checks.assert_not_called()
 
 

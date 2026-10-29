@@ -25,11 +25,11 @@ def test_the_delete_url():
     assert reverse("console:key-delete", args=[7]) == "/console/keys/7/delete/"
 
 
-def test_anonymous_is_sent_to_the_admin_login(client, key):
+def test_anonymous_is_sent_to_the_console_login(client, key):
     resp = client.get(_url(key))
 
     assert resp.status_code == 302
-    assert resp.url.startswith(reverse("admin:login"))
+    assert resp.url.startswith(reverse("console:login"))
 
 
 def test_an_anonymous_delete_logs_in_back_to_the_editor(client, key):

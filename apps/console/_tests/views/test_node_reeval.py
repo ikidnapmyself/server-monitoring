@@ -79,7 +79,7 @@ def test_a_refused_post_lands_on_the_scoped_preview_after_login(client, node):
     resp = client.post(_url(node, "cpu"), {"digest": "x"})
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next={_url(node)}%3Fchecker%3Dcpu"
+    assert resp["Location"] == f"{reverse('console:login')}?next={_url(node)}%3Fchecker%3Dcpu"
 
 
 def test_apply_writes_history_enqueues_and_redirects(client, superuser, node):

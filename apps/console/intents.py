@@ -155,7 +155,7 @@ INTENTS: dict[str, Intent] = {
 
 
 def admin_url(name: str) -> str:
-    """The admin's own pages the console chrome links to: index, login, logout."""
+    """The admin page the console header links to, its index, until /admin/ goes."""
     return reverse(f"admin:{name}")
 
 

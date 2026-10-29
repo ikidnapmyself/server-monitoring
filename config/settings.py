@@ -76,6 +76,8 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "config.urls"
+LOGIN_URL = "console:login"
+LOGIN_REDIRECT_URL = "console:overview"
 
 TEMPLATES = [
     {
@@ -241,6 +243,7 @@ RATE_LIMITS = {
     "/orchestration/": 30,
     "/notify/": 30,
     "/intelligence/": 20,
+    "/console/login/": 10,
 }
 
 # ---------------------------------------------------------------------------

@@ -41,23 +41,23 @@ def test_the_editor_urls():
     assert reverse("console:key", args=[7]) == "/console/keys/7/"
 
 
-def test_anonymous_is_sent_to_the_admin_login(client, key):
+def test_anonymous_is_sent_to_the_console_login(client, key):
     resp = client.get(_url(key))
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next={_url(key)}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={_url(key)}"
 
 
 def test_an_anonymous_save_logs_in_back_to_the_editor(client, key):
     resp = client.post(_url(key), {})
 
-    assert resp["Location"] == f"{reverse('admin:login')}?next={_url(key)}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={_url(key)}"
 
 
 def test_an_anonymous_add_logs_in_back_to_the_new_key_page(client):
     resp = client.post(_url(), {})
 
-    assert resp["Location"] == f"{reverse('admin:login')}?next={_url()}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={_url()}"
 
 
 def test_the_editor_renders_the_key(client, superuser, key):

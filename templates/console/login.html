@@ -1,0 +1,20 @@
+{% extends "console/base.html" %}
+{% block title %}Sign in · Console{% endblock %}
+{% block links %}{% endblock %}
+{% block nav %}{% endblock %}
+{% block content %}
+<div class="c-login">
+  <h1 class="c-page-title">Sign in to the console</h1>
+  <form method="post" action="{% url 'console:login' %}" data-disable-on-submit>
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ next }}">
+    {% if refusal %}<p class="c-field__error c-tone-critical" role="alert">{{ refusal }}</p>{% endif %}
+    {% for error in form.non_field_errors %}<p class="c-field__error c-tone-critical" role="alert">{{ error }}</p>{% endfor %}
+    <div id="login-fields" class="c-box c-form__group"><div class="c-box__body">
+      {% include "console/partials/_field.html" with field=form.username %}
+      {% include "console/partials/_field.html" with field=form.password %}
+    </div></div>
+    <button id="login-submit" class="c-button c-button--primary" type="submit">Sign in</button>
+  </form>
+</div>
+{% endblock %}

@@ -314,6 +314,7 @@ button { font: inherit; }
   margin: 0 auto;
   padding: var(--space-6) var(--space-8) var(--space-8);
 }
+.c-login { max-width: 340px; margin: var(--space-8) auto 0; }
 .c-page-title { margin-bottom: var(--space-4); font-size: 24px; font-weight: 400; }
 .c-section { margin-top: var(--space-6); }
 .c-section-title { margin-bottom: var(--space-2); font-size: 16px; font-weight: 600; }

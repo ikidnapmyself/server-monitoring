@@ -15,6 +15,7 @@ from apps.console.filters import (
     REASON_CHOICES,
     SINCE_CHOICES,
 )
+from apps.console.forms import REFUSED
 from apps.intelligence._tests.test_forms import KEY
 from apps.intelligence.models import IntelligenceProvider
 from apps.notify._tests.test_forms import SECRETS, STORED
@@ -304,3 +305,16 @@ def test_the_refusal_page_leaks_nothing(client, active_staff):
 
     assert response.status_code == 403
     _assert_no_leak("/console/", visible(response.content.decode()))
+
+
+@pytest.mark.django_db
+def test_the_login_page_leaks_nothing(client):
+    page = visible(_get(client, "/console/login/", {}))
+    refused = client.post("/console/login/", {"username": "nobody", "password": "x"})
+    assert refused.status_code == 200
+    refusal = visible(refused.content.decode())
+
+    _assert_no_leak("/console/login/", page)
+    _assert_no_leak("/console/login/ refused", refusal)
+    assert "Sign in to the console" in page
+    assert REFUSED in refusal

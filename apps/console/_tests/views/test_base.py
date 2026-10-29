@@ -25,7 +25,7 @@ def _pages():
 
 def _refused(resp):
     body = resp.content.decode()
-    logout = reverse("admin:logout")
+    logout = reverse("console:logout")
     assert resp.status_code == 403
     assert resp.templates[0].name == "console/not_superuser.html"
     assert f">{HEADING}</h1>" in body
@@ -105,7 +105,7 @@ def test_an_inactive_superusers_session_is_sent_to_the_login(client):
     resp = client.get(reverse("console:overview"))
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next=/console/"
+    assert resp["Location"] == f"{reverse('console:login')}?next=/console/"
 
 
 @pytest.mark.django_db
@@ -113,7 +113,7 @@ def test_a_signed_out_page_request_is_sent_to_the_login(client):
     resp = client.get(reverse("console:overview"))
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next=/console/"
+    assert resp["Location"] == f"{reverse('console:login')}?next=/console/"
 
 
 @pytest.mark.django_db

@@ -306,8 +306,8 @@ def test_only_intents_builds_admin_urls():
     assert offenders == []
 
 
-def test_admin_url_names_the_admins_own_pages():
-    assert admin_url("login") == reverse("admin:login")
+def test_admin_url_names_the_admin_index():
+    assert admin_url("index") == reverse("admin:index")
 
 
 def test_the_list_intents_are_gone():
