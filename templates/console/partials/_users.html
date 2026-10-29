@@ -1,0 +1,15 @@
+{% load console %}<div id="users" class="c-box">
+  <ul class="c-box__list">
+    {% for row in users.rows %}
+    <li id="{{ row.anchor }}" class="c-box__row c-box__row--hover c-row">
+      <span class="c-row__icon c-tone-{{ row.tone }}">{% include "console/partials/_tone_icon.html" with tone=row.tone %}</span>
+      <div class="c-row__main">
+        {% resolved row.view as act %}{% if act.url %}<a id="{{ row.anchor }}-view" href="{{ act.url }}">{{ act.text }}</a>{% else %}<strong>{{ act.text }}</strong>{% endif %}
+        <span class="c-label c-tone-{{ row.tone }}">{{ row.label }}</span>
+        <div class="c-row__meta">{% if row.name %}{{ row.name }} · {% endif %}{% if row.email %}{{ row.email }} · {% endif %}{% if row.last_login %}signed in {% include "console/partials/_time.html" with when=row.last_login %}{% else %}Never signed in{% endif %}</div>
+      </div>
+      {% if row.promote %}{% resolved row.promote as promote %}{% with promote_id=row.anchor|add:"-promote" %}{% include "console/partials/_action.html" with act=promote id=promote_id %}{% endwith %}{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</div>

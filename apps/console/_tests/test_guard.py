@@ -169,6 +169,7 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         ]
         + ["/console/keys/", "/console/keys/new/"]
         + [f"/console/keys/{pk}/{page}" for pk in world.key_pks for page in ("", "delete/")]
+        + ["/console/users/"]
         + [f"/console/nodes/{pk}/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/policy/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/reevaluate/" for pk in world.node_pks]
@@ -265,6 +266,9 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "of runs finished",
         "Top failure reasons, last 7 days",
         "Other failures",
+        "Can't sign in",
+        "Never signed in",
+        "Make superuser",
     ):
         assert shown in everything, shown
     analysis_pages = [page for url, page in html.items() if url.startswith("/console/analyses/")]

@@ -41,6 +41,7 @@ from apps.console.views import (
     RunActionView,
     RunDetailView,
     RunListView,
+    UsersView,
 )
 
 app_name = "console"
@@ -95,6 +96,7 @@ urlpatterns = [
     path("keys/new/", KeyView.as_view(), name="key-new"),
     path("keys/<int:pk>/", KeyView.as_view(), name="key"),
     path("keys/<int:pk>/delete/", KeyDeleteView.as_view(), name="key-delete"),
+    path("users/", UsersView.as_view(), name="users"),
     path("incidents/", IncidentListView.as_view(), name="incidents"),
     path("incidents/<int:pk>/", IncidentDetailView.as_view(), name="incident"),
     path("incidents/<int:pk>/rerun/", IncidentRerunView.as_view(), name="incident-rerun"),
