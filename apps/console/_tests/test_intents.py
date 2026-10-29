@@ -347,9 +347,19 @@ def test_the_key_intents_point_at_the_key_pages(intent, params, url):
     )
 
 
-def test_view_user_without_a_pk_opens_the_users_page():
-    assert resolve_action(Action("Users", intent="view_user")) == ResolvedAction(
-        "Users", "/console/users/", "get"
+@pytest.mark.parametrize(
+    ("intent", "params", "url"),
+    [
+        ("view_user", {}, "/console/users/"),
+        ("view_user", {"pk": 7}, "/console/users/7/"),
+        ("edit_user", {"pk": 7}, "/console/users/7/"),
+        ("add_user", {}, "/console/users/new/"),
+        ("set_user_password", {"pk": 7}, "/console/users/7/password/"),
+    ],
+)
+def test_the_user_intents_point_at_the_user_pages(intent, params, url):
+    assert resolve_action(Action("Go", intent=intent, params=params)) == ResolvedAction(
+        "Go", url, "get"
     )
 
 

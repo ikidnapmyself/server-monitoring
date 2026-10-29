@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest import mock
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -78,8 +79,28 @@ def test_htmx_gets_the_list_without_the_layout(client, superuser, url):
     assert "<html" not in resp.content.decode()
 
 
-def test_names_and_actions_read_as_text_until_their_pages_exist(client, superuser, url):
+def test_names_link_their_page_and_add_opens_the_new_user_page(client, superuser, url):
     body = client.get(url).content.decode()
 
+    assert (
+        f'<a id="user-{superuser.pk}-view" href="/console/users/{superuser.pk}/">root</a>' in body
+    )
+    assert (
+        '<a id="users-add" class="c-button c-button--sm c-button--primary" '
+        'href="/console/users/new/">Add a user</a>'
+    ) in body
+
+
+def test_make_superuser_reads_as_text_until_its_action_exists(client, superuser, url):
+    get_user_model().objects.create_user("bob", password="x")
+
+    body = client.get(url).content.decode()
+
+    assert '<p class="c-description__action">Make superuser</p>' in body
+
+
+def test_a_name_without_a_link_is_plain_text(client, superuser, url):
+    with mock.patch("apps.console.intents.INTENTS", {}):
+        body = client.get(url).content.decode()
+
     assert "<strong>root</strong>" in body
-    assert '<p class="c-description__action">Add a user</p>' in body

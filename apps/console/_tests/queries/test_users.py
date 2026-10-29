@@ -4,7 +4,14 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from apps.console.queries.users import build_user_list
+from apps.console.queries.users import (
+    LAST_SUPERUSER,
+    build_password_editor,
+    build_user_editor,
+    build_user_list,
+    removal_refusal,
+    update_user,
+)
 from config.describing import Action
 
 pytestmark = pytest.mark.django_db
@@ -79,3 +86,137 @@ def test_an_inactive_user_who_isnt_a_superuser_reads_inactive_and_isnt_promoted(
 
 def test_the_list_carries_the_add_action():
     assert build_user_list().add == Action("Add a user", "add_user", {})
+
+
+def _superuser(username, **kw):
+    return get_user_model().objects.create_superuser(username, password="x", **kw)
+
+
+class TestRemovalRefusal:
+    def test_another_active_superuser_can_be_removed(self):
+        actor = _superuser("root")
+
+        assert removal_refusal(actor, _superuser("amy"), "delete") == ""
+
+    def test_you_cant_remove_yourself(self):
+        actor = _superuser("root")
+        _superuser("amy")
+
+        assert (
+            removal_refusal(actor, actor, "deactivate") == "You can't deactivate your own account."
+        )
+        assert removal_refusal(actor, actor, "delete") == "You can't delete your own account."
+
+    def test_the_last_active_superuser_must_remain(self):
+        actor = _superuser("root")
+        _superuser("gone", is_active=False)
+
+        assert removal_refusal(actor, actor, "deactivate") == LAST_SUPERUSER
+
+    def test_someone_who_isnt_an_active_superuser_can_always_be_removed(self):
+        actor = _superuser("root")
+
+        assert removal_refusal(actor, _user("bob", is_staff=True), "delete") == ""
+        assert removal_refusal(actor, _superuser("gone", is_active=False), "delete") == ""
+
+
+class TestTheEditor:
+    def test_a_missing_user_is_none(self):
+        assert build_user_editor(999) is None
+        assert build_password_editor(999) is None
+
+    def test_a_new_user(self):
+        editor = build_user_editor(None)
+
+        assert (editor.pk, editor.username, editor.facts) == (None, "", ())
+        assert editor.url == "/console/users/new/"
+        assert editor.back_url == "/console/users/"
+        assert editor.password is None
+        assert "password1" in editor.form.fields
+
+    def test_an_existing_user(self):
+        user = _user("amy", last_login=timezone.now())
+
+        editor = build_user_editor(user.pk)
+
+        assert (editor.pk, editor.username) == (user.pk, "amy")
+        assert editor.url == f"/console/users/{user.pk}/"
+        assert editor.back_url == f"/console/users/#user-{user.pk}"
+        assert [f.label for f in editor.facts] == ["Joined", "Last signed in"]
+        assert editor.facts[1].value != "Never"
+        assert editor.password == Action("Set password", "set_user_password", {"pk": user.pk})
+        assert "is_active" in editor.form.fields
+
+    def test_a_user_who_never_signed_in(self):
+        assert build_user_editor(_user("amy").pk).facts[1].value == "Never"
+
+    def test_the_password_editor(self):
+        user = _user("amy")
+
+        editor = build_password_editor(user.pk)
+
+        assert (editor.pk, editor.username) == (user.pk, "amy")
+        assert editor.url == f"/console/users/{user.pk}/password/"
+        assert editor.back_url == f"/console/users/{user.pk}/"
+        assert list(editor.form.fields) == ["new_password1", "new_password2"]
+
+
+def _edit(user, **changes):
+    data = {
+        "username": user.username,
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "is_active": "on" if user.is_active else "",
+        **changes,
+    }
+    editor = build_user_editor(user.pk, data)
+    assert editor.form.is_valid(), editor.form.errors
+    return editor.form
+
+
+class TestUpdateUser:
+    def test_a_change_is_saved(self):
+        actor = _superuser("root")
+        amy = _user("amy")
+
+        assert update_user(actor, _edit(amy, email="amy@example.com")) == ""
+
+        amy.refresh_from_db()
+        assert amy.email == "amy@example.com"
+
+    def test_deactivating_another_superuser_is_saved(self):
+        actor = _superuser("root")
+        amy = _superuser("amy")
+
+        assert update_user(actor, _edit(amy, is_active="")) == ""
+
+        amy.refresh_from_db()
+        assert amy.is_active is False
+
+    def test_deactivating_yourself_is_refused_and_changes_nothing(self):
+        actor = _superuser("root")
+        _superuser("amy")
+
+        refusal = update_user(actor, _edit(actor, is_active="", email="new@example.com"))
+
+        assert refusal == "You can't deactivate your own account."
+        actor.refresh_from_db()
+        assert (actor.is_active, actor.email) == (True, "")
+
+    def test_deactivating_the_last_active_superuser_is_refused(self):
+        actor = _superuser("root")
+        _superuser("gone", is_active=False)
+
+        assert update_user(actor, _edit(actor, is_active="")) == LAST_SUPERUSER
+        actor.refresh_from_db()
+        assert actor.is_active is True
+
+    def test_a_user_deleted_before_the_save_is_not_recreated(self):
+        actor = _superuser("root")
+        amy = _user("amy")
+        form = _edit(amy, email="amy@example.com")
+        get_user_model().objects.filter(pk=amy.pk).delete()
+
+        assert update_user(actor, form) != ""
+        assert not get_user_model().objects.filter(username="amy").exists()

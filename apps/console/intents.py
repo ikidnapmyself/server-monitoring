@@ -125,6 +125,8 @@ INTENTS: dict[str, Intent] = {
     "add_key": Intent(_page("console:key-new"), "get"),
     "delete_key": Intent(_record("console:key-delete"), "get"),
     "view_user": Intent(_user, "get"),
+    "edit_user": Intent(_user, "get"),
+    "set_user_password": Intent(_record("console:user-password"), "get"),
     "add_user": Intent(_page("console:user-new"), "get"),
     "make_superuser": Intent(_record("console:user-make-superuser"), "post"),
     "view_preflight": Intent(_page("console:preflight"), "get"),

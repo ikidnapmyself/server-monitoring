@@ -35,6 +35,8 @@ from apps.console.views.route_delete import RouteDeleteView
 from apps.console.views.routes import RoutesView
 from apps.console.views.run import RunActionView, RunDetailView
 from apps.console.views.runs import RunListView
+from apps.console.views.user import UserView
+from apps.console.views.user_password import UserPasswordView
 from apps.console.views.users import UsersView
 
 __all__ = [
@@ -77,5 +79,7 @@ __all__ = [
     "RunActionView",
     "RunDetailView",
     "RunListView",
+    "UserPasswordView",
+    "UserView",
     "UsersView",
 ]
