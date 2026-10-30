@@ -1,3 +1,4 @@
+import secrets
 from types import SimpleNamespace
 
 import pytest
@@ -13,7 +14,7 @@ from apps.console.views.login import ConsoleLoginView
 from config.middleware import rate_limit
 
 WINDOW = 1_800_000_040.0
-PASSWORD = "pw-correct-horse"
+PASSWORD = secrets.token_urlsafe(16)
 
 
 def _user(**flags):

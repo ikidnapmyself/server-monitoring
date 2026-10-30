@@ -1,3 +1,4 @@
+import secrets
 from unittest import mock
 
 import pytest
@@ -11,7 +12,7 @@ from apps.console.queries.users import make_superuser, set_password
 
 pytestmark = pytest.mark.django_db
 
-PASSWORD = "pw-correct-horse-9"
+PASSWORD = secrets.token_urlsafe(16)
 User = get_user_model()
 
 

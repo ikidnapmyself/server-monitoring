@@ -1,3 +1,5 @@
+import secrets
+
 import pytest
 from django.contrib.auth import get_user_model
 
@@ -5,7 +7,7 @@ from apps.console.forms import UserCreateForm, UserEditForm, UserPasswordForm
 
 pytestmark = pytest.mark.django_db
 
-PASSWORD = "pw-correct-horse-9"
+PASSWORD = secrets.token_urlsafe(16)
 
 
 def _create(**overrides):
