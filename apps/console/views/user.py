@@ -67,7 +67,6 @@ class UserView(ConsoleView):
         if refusal is None:
             return user_not_found(self.request)
         if refusal:
-            # The bound form keeps what the operator typed. None of it was saved.
             return self.render_editor(editor, Notice(refusal, "warning"), 409)
         messages.success(self.request, f"User {editor.form.cleaned_data['username']} saved.")
         return HttpResponseRedirect(reverse("console:user", args=[pk]), status=303)

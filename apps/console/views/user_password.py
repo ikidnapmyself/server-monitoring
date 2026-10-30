@@ -1,10 +1,10 @@
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
-from django.db import IntegrityError, OperationalError, transaction
+from django.db import IntegrityError, OperationalError
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 
-from apps.console.queries.users import PasswordEditor, build_password_editor
+from apps.console.queries.users import PasswordEditor, build_password_editor, set_password
 from apps.console.views.base import ConsoleView, Notice
 from apps.console.views.user import user_not_found
 
@@ -36,10 +36,11 @@ class UserPasswordView(ConsoleView):
         if editor is None or not editor.form.is_valid():
             return self.render_editor(editor)
         try:
-            with transaction.atomic():
-                user = editor.form.save()
+            user = set_password(editor.pk, editor.form.cleaned_data["new_password1"])
         except (IntegrityError, OperationalError):
             return self.render_editor(editor, Notice(BUSY, "warning"), 409)
+        if user is None:
+            return user_not_found(request)
         if user.pk == request.user.pk:
             update_session_auth_hash(request, user)
         messages.success(request, f"Password set for {user.username}.")

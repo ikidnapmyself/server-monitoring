@@ -15,6 +15,7 @@ from apps.console.queries.users import (
     delete_user,
     make_superuser,
     removal_refusal,
+    set_password,
     update_user,
     user_name,
 )
@@ -324,6 +325,42 @@ class TestDeletion:
 
     def test_delete_user_on_a_missing_user_is_none(self):
         assert delete_user(_superuser("root"), 999) is None
+
+
+class TestSetPassword:
+    def test_it_sets_only_the_password(self):
+        bob = _user("bob")
+        stale = get_user_model().objects.get(pk=bob.pk)
+        make_superuser(bob.pk)
+
+        user = set_password(stale.pk, "pw-correct-horse-9")
+
+        bob.refresh_from_db()
+        assert user.pk == bob.pk
+        assert bob.check_password("pw-correct-horse-9")
+        assert bob.is_superuser is True
+
+    def test_a_missing_user_stays_missing(self):
+        bob = _user("bob")
+        get_user_model().objects.filter(pk=bob.pk).delete()
+
+        assert set_password(bob.pk, "pw-correct-horse-9") is None
+        assert not get_user_model().objects.filter(pk=bob.pk).exists()
+
+
+def test_a_fullwidth_rename_stores_the_normalized_name():
+    actor = _superuser("root")
+    bob = _user("bob")
+    editor = build_user_editor(
+        bob.pk,
+        {"username": "\uff42\uff4f\uff42\uff42", "email": "b@EXAMPLE.COM", "is_active": "on"},
+    )
+    assert editor.form.is_valid(), editor.form.errors
+
+    assert update_user(actor, editor.form) == ""
+
+    bob.refresh_from_db()
+    assert (bob.username, bob.email) == ("bobb", "b@example.com")
 
 
 class TestMakeSuperuser:

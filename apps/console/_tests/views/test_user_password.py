@@ -7,6 +7,7 @@ from django.db import IntegrityError, OperationalError
 from django.urls import reverse
 
 from apps.console._tests.test_templates import FORBIDDEN
+from apps.console.queries.users import make_superuser, set_password
 
 pytestmark = pytest.mark.django_db
 
@@ -104,7 +105,7 @@ def test_htmx_gets_the_form_without_the_layout(client, superuser, amy):
 
 @pytest.mark.parametrize("error", [OperationalError("locked"), IntegrityError("constraint")])
 def test_a_busy_database_sets_nothing_and_says_so(client, superuser, amy, error):
-    with mock.patch("django.contrib.auth.forms.SetPasswordForm.save", side_effect=error):
+    with mock.patch("apps.console.views.user_password.set_password", side_effect=error):
         resp = client.post(_url(amy), _set())
 
     assert resp.status_code == 409
@@ -113,3 +114,29 @@ def test_a_busy_database_sets_nothing_and_says_so(client, superuser, amy, error)
     )
     amy.refresh_from_db()
     assert amy.check_password("old-password-9")
+
+
+def test_a_promotion_after_the_form_was_built_survives(client, superuser, amy):
+    def promote_then_set(pk, raw):
+        make_superuser(pk)
+        return set_password(pk, raw)
+
+    with mock.patch("apps.console.views.user_password.set_password", side_effect=promote_then_set):
+        resp = client.post(_url(amy), _set())
+
+    assert resp.status_code == 303
+    amy.refresh_from_db()
+    assert amy.is_superuser is True
+    assert amy.check_password(PASSWORD)
+
+
+def test_a_user_deleted_before_the_save_stays_deleted(client, superuser, amy):
+    def delete_then_set(pk, raw):
+        User.objects.filter(pk=pk).delete()
+        return set_password(pk, raw)
+
+    with mock.patch("apps.console.views.user_password.set_password", side_effect=delete_then_set):
+        resp = client.post(_url(amy), _set())
+
+    assert resp.status_code == 404
+    assert not User.objects.filter(pk=amy.pk).exists()

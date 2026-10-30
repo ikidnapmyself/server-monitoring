@@ -238,9 +238,20 @@ def update_user(actor, form: ModelForm) -> str | None:
             if refusal:
                 return refusal
         for field in fields:
-            setattr(stored, field, form.cleaned_data[field])
+            setattr(stored, field, getattr(form.instance, field))
         stored.save(update_fields=fields)
     return ""
+
+
+def set_password(pk: int, raw: str):
+    """Set user ``pk``'s password and nothing else. Returns the user, or None when they're gone."""
+    with transaction.atomic():
+        user = get_user_model().objects.select_for_update().filter(pk=pk).first()
+        if user is None:
+            return None
+        user.set_password(raw)
+        user.save(update_fields=["password"])
+    return user
 
 
 def delete_user(actor, pk: int) -> str | None:

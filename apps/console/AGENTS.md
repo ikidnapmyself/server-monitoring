@@ -230,10 +230,11 @@ pipeline stage and not an alert producer.
   `AUTH_PASSWORD_VALIDATORS` accepts. `/console/users/<pk>/` edits username, email, names
   and Active, and a successful save redirects back to the page with a message.
   `/console/users/<pk>/password/` sets a password, and setting your own keeps you signed
-  in through `update_session_auth_hash`. `/console/users/<pk>/make-superuser/` is POST
-  only, and `make_superuser` refuses an inactive user or one already a superuser with a
-  warning and no write. `/console/users/<pk>/delete/` confirms first and says when the
-  user last signed in.
+  in through `update_session_auth_hash`. `set_password` writes only the password, onto the
+  locked row, so a concurrent edit survives and a deleted user stays deleted.
+  `/console/users/<pk>/make-superuser/` is POST only, and `make_superuser` refuses an
+  inactive user or one already a superuser with a warning and no write.
+  `/console/users/<pk>/delete/` confirms first and says when the user last signed in.
 - **Two guards keep the console reachable.** `removal_refusal(actor, user, verb)` in
   `queries/users.py` is the one rule for deactivating and deleting, shared by
   `update_user` and `delete_user`. It checks the last active superuser first, then self:
@@ -280,8 +281,9 @@ pipeline stage and not an alert producer.
   `edit_*` intent opens the same page, and a remedy such as "Give it an active channel"
   uses it. `admin_url()` covers only the header's Admin link, until 12b removes `/admin/`.
   No template or query reverses an `admin:` name or writes `/admin/`, and
-  `_tests/test_intents.py` scans for both. Templates resolve an action with `{% load
-  console %}{% resolved action as act %}` and render it through `partials/_action.html`.
+  `_tests/test_intents.py` scans for both. Templates resolve an action with
+  `{% load console %}{% resolved action as act %}` and render it through
+  `partials/_action.html`.
 - **A `Description` renders through `partials/_description.html`.** It prints the
   headline with its tone icon, the detail, the resolved action and the facts. Pass a
   stable `id`, because the action and the Details derive theirs from it. Don't lay out a

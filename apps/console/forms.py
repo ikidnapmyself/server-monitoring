@@ -47,6 +47,7 @@ class UserEditForm(forms.ModelForm):
     class Meta:
         model = get_user_model()
         fields = ("username", "email", "first_name", "last_name", "is_active")
+        field_classes = {"username": UsernameField}
         labels = {"is_active": "Active"}
         help_texts = {"is_active": "An inactive account can't sign in."}
 
