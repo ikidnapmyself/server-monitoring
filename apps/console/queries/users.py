@@ -15,7 +15,6 @@ from apps.console.forms import UserCreateForm, UserEditForm, UserPasswordForm
 from config.describing import Action, Fact
 
 LAST_SUPERUSER = "At least one active superuser must remain."
-GONE = "This user was deleted."
 
 
 @dataclass(frozen=True)
@@ -222,17 +221,25 @@ def removal_refusal(actor, user, verb: str, *, lock: bool = True) -> str:
     return ""
 
 
-def update_user(actor, form: ModelForm) -> str:
-    """Save a valid edit form, unless it deactivates someone who must stay. Returns why not."""
+def update_user(actor, form: ModelForm) -> str | None:
+    """Save a valid edit form, unless it deactivates someone who must stay.
+
+    Returns why not, "" when saved, or None when the user is gone. Only the form's fields
+    are written, onto the locked row, so a password set or a promotion that landed after
+    the form was built survives.
+    """
+    fields = list(form._meta.fields or ())
     with transaction.atomic():
         stored = get_user_model().objects.select_for_update().filter(pk=form.instance.pk).first()
         if stored is None:
-            return GONE
+            return None
         if stored.is_active and not form.cleaned_data["is_active"]:
             refusal = removal_refusal(actor, stored, "deactivate")
             if refusal:
                 return refusal
-        form.save()
+        for field in fields:
+            setattr(stored, field, form.cleaned_data[field])
+        stored.save(update_fields=fields)
     return ""
 
 

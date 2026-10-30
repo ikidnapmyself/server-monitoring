@@ -16,30 +16,30 @@ pipeline stage and not an alert producer.
   owning app first and make both surfaces call it.
 - **Every view subclasses `ConsoleView`** (`views/base.py`) and none overrides
   `dispatch`, so `_refusal` guards every route. `_tests/test_urls.py` fails otherwise.
-- **The console is for active superusers only.** `admits(user)` in `access.py` is the
-  one rule: `user.is_active and user.is_superuser`. `views/base.py` and the login form
-  both import it from there. There are no per-model permission
-  checks, because a superuser passes every one. An anonymous page request is redirected
-  to `console:login`, which is `settings.LOGIN_URL`. An anonymous htmx request gets a 204 with `HX-Redirect`, so htmx
+- **The console is for active superusers only.** `admits(user)` in `access.py` is the one
+  rule: `user.is_active and user.is_superuser`. `views/base.py` and the login form both
+  import it from there. There are no per-model permission checks, because a superuser
+  passes every one. An anonymous page request is redirected to `console:login`, which is
+  `settings.LOGIN_URL`. An anonymous htmx request gets a 204 with `HX-Redirect`, so htmx
   does a full redirect and never swaps a login form into the page. A signed-in user
   `admits` refuses gets `templates/console/not_superuser.html` with status 403. It has no
   console nav, only the header and its own Sign out form. A refused htmx request gets an
   empty 403 with `HX-Refresh: true`, since htmx swaps nothing on a 403, so the browser
   reloads into the full refusal page. Non-superuser staff can still sign into `/admin/`.
-- **The console signs people in and out itself.** `/console/login/` is
-  `ConsoleLoginView`, Django's `LoginView` with `ConsoleLoginForm`. It admits only an
-  active superuser. Any other account, an inactive one, or a wrong password gets the
-  one `REFUSED` message, so the form never says which accounts exist. A signed-in user who
-  opens it goes to the Overview, and a `next` that points back at the login is dropped
-  for the same reason. `/console/logout/` is `LogoutView`, POST only, and lands on the
-  login. These two are the only routes that aren't a `ConsoleView`, because someone the
-  console refuses must still be able to sign in and out. `_tests/test_urls.py` exempts
-  them by name. With `RATE_LIMIT_ENABLED=1`, `RateLimitMiddleware` allows 10 sign-in
-  POSTs a minute per client to `/console/login/`, and to `/admin/login/`, which takes the
-  same credentials. On the 11th it calls the view class's `rate_limited` hook, so the
-  console answers with its own login page, status 429, the username kept and a `next`
-  kept only when it's local. The admin login has no hook and gets the JSON 429.
-  `manage.py createsuperuser` makes the first account.
+- **The console signs people in and out itself.** `/console/login/` is `ConsoleLoginView`,
+  Django's `LoginView` with `ConsoleLoginForm`. It admits only an active superuser. Any
+  other account, an inactive one, or a wrong password gets the one `REFUSED` message, so
+  the form never says which accounts exist. A signed-in user who opens it goes to the
+  Overview, and a `next` that points back at the login is dropped for the same reason.
+  `/console/logout/` is `LogoutView`, POST only, and lands on the login. These two are the
+  only routes that aren't a `ConsoleView`, because someone the console refuses must still
+  be able to sign in and out. `_tests/test_urls.py` exempts them by name. With
+  `RATE_LIMIT_ENABLED=1`, `RateLimitMiddleware` allows 10 sign-in POSTs a minute per
+  client to `/console/login/`, and to `/admin/login/`, which takes the same credentials.
+  On the 11th it calls the view class's `rate_limited` hook, so the console answers with
+  its own login page, status 429, the username kept and a `next` kept only when it's
+  local. The admin login has no hook and gets the JSON 429. `manage.py createsuperuser`
+  makes the first account.
 - **One URL, two sizes.** `ConsoleView` serves `partial_template_name` only when
   `wants_partial` is true, which means an htmx request that swaps a fragment. Two htmx
   headers force the full page, because htmx swaps those responses into `<body>`:
@@ -232,24 +232,26 @@ pipeline stage and not an alert producer.
   `/console/users/<pk>/password/` sets a password, and setting your own keeps you signed
   in through `update_session_auth_hash`. `/console/users/<pk>/make-superuser/` is POST
   only, and `make_superuser` refuses an inactive user or one already a superuser with a
-  warning and no write. `/console/users/<pk>/delete/` confirms first and says when the user last signed
-  in.
+  warning and no write. `/console/users/<pk>/delete/` confirms first and says when the
+  user last signed in.
 - **Two guards keep the console reachable.** `removal_refusal(actor, user, verb)` in
   `queries/users.py` is the one rule for deactivating and deleting, shared by
   `update_user` and `delete_user`. It checks the last active superuser first, then self:
   removing the last active superuser reads "At least one active superuser must remain.",
-  and otherwise removing yourself reads "You can't deactivate your own account." or
-  "You can't delete your own account.". The order matters, because the actor is always an
+  and otherwise removing yourself reads "You can't deactivate your own account." or "You
+  can't delete your own account.". The order matters, because the actor is always an
   active superuser, so checking self first would hide the last-superuser rule. It locks
   the other active superusers with `select_for_update()`, so the caller holds the lock
   until its write commits and two removals can't both pass. Only that locked call, inside
   the writing transaction, decides. The user page and the delete page call it with
   `lock=False` to show or hide a button, take no lock and open no transaction, so their
-  answer is advisory. A refused edit re-renders the
-  fresh user with the reason as a `Notice` and status 409. A refused delete shows the
-  reason and no button on GET, and on POST gives a warning message and a 303 to the
-  user's page. A busy or locked database on delete gets the same 303 with a warning that
-  nothing was deleted.
+  answer is advisory. A refused edit saves nothing and re-renders the form as the operator
+  submitted it, with the reason as a `Notice` and status 409, so their other changes
+  aren't lost. A save writes only the form's fields onto the locked row, so a password set
+  or a promotion that landed meanwhile survives. A busy database gets the same re-render
+  with its own notice. A refused delete shows the reason and no button on GET, and on POST
+  gives a warning message and a 303 to the user's page. A busy or locked database on
+  delete gets the same 303 with a warning that nothing was deleted.
 - **Fleet policy** (`/console/policy/`) renders `build_policy_overview`. Its edit and
   re-evaluate links are intents.
 - **A missing record gets a console 404 page** with a link onward, returned with status
@@ -267,20 +269,19 @@ pipeline stage and not an alert producer.
 - **`intents.py` is the only place that builds an admin URL.** `INTENTS` maps each
   `Action.intent` to a URL builder and a method. `resolve_action(action)` turns an
   `Action` into a link, a POST button, or plain text when the intent is unknown or the URL
-  can't be built. Every intent now opens a console page.
-  Reports have `view_checks`, `view_check_run`, `view_preflight`, `view_preflight_run`,
-  `view_analyses` and `view_analysis`. Routes, channels, providers and keys have theirs: `view_route`,
+  can't be built. Every intent now opens a console page. Reports have `view_checks`,
+  `view_check_run`, `view_preflight`, `view_preflight_run`, `view_analyses` and
+  `view_analysis`. Routes, channels, providers and keys have theirs: `view_route`,
   `edit_route`, `add_route`, `delete_route`, `view_channel`, `edit_channel`,
   `add_channel`, `delete_channel`, `view_provider`, `edit_provider`, `add_provider`,
   `delete_provider`, `view_key`, `edit_key`, `add_key`, `delete_key`, `view_user`,
   `edit_user`, `add_user`, `set_user_password`, `delete_user` and `make_superuser`. A
   `view_*` intent opens the page, or the list when it has no `pk`. A name link uses it. An
   `edit_*` intent opens the same page, and a remedy such as "Give it an active channel"
-  uses it. `admin_url()` covers only the header's
-  Admin link, until 12b removes `/admin/`. No template or query reverses an `admin:` name or writes
-  `/admin/`, and `_tests/test_intents.py` scans for both. Templates resolve an action with
-  `{% load console %}{% resolved action as act %}` and render it through
-  `partials/_action.html`.
+  uses it. `admin_url()` covers only the header's Admin link, until 12b removes `/admin/`.
+  No template or query reverses an `admin:` name or writes `/admin/`, and
+  `_tests/test_intents.py` scans for both. Templates resolve an action with `{% load
+  console %}{% resolved action as act %}` and render it through `partials/_action.html`.
 - **A `Description` renders through `partials/_description.html`.** It prints the
   headline with its tone icon, the detail, the resolved action and the facts. Pass a
   stable `id`, because the action and the Details derive theirs from it. Don't lay out a

@@ -50,5 +50,14 @@ class UserEditForm(forms.ModelForm):
         labels = {"is_active": "Active"}
         help_texts = {"is_active": "An inactive account can't sign in."}
 
+    def clean_username(self):
+        username = self.cleaned_data["username"]
+        others = self._meta.model.objects.exclude(pk=self.instance.pk)
+        if others.filter(username__iexact=username).exists():
+            raise ValidationError(
+                self.instance.unique_error_message(self._meta.model, ["username"])
+            )
+        return username
+
 
 UserPasswordForm = SetPasswordForm

@@ -1,6 +1,9 @@
+from unittest import mock
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
+from django.db import IntegrityError, OperationalError
 from django.urls import reverse
 
 from apps.console._tests.test_templates import FORBIDDEN
@@ -97,3 +100,16 @@ def test_htmx_gets_the_form_without_the_layout(client, superuser, amy):
     resp = client.get(_url(amy), HTTP_HX_REQUEST="true")
 
     assert resp.templates[0].name == "console/partials/_user_password.html"
+
+
+@pytest.mark.parametrize("error", [OperationalError("locked"), IntegrityError("constraint")])
+def test_a_busy_database_sets_nothing_and_says_so(client, superuser, amy, error):
+    with mock.patch("django.contrib.auth.forms.SetPasswordForm.save", side_effect=error):
+        resp = client.post(_url(amy), _set())
+
+    assert resp.status_code == 409
+    assert "Couldn&#x27;t set the password just now. Nothing changed, so try again." in (
+        resp.content.decode()
+    )
+    amy.refresh_from_db()
+    assert amy.check_password("old-password-9")

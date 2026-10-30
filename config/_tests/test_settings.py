@@ -8,6 +8,8 @@ import pytest
 from django.shortcuts import resolve_url
 from django.test import SimpleTestCase
 
+from config.middleware.rate_limit import DEFAULT_RATE_LIMITS
+
 
 class TestSecretKeyRequired(SimpleTestCase):
     def test_missing_secret_key_raises_runtime_error(self):
@@ -112,8 +114,6 @@ def test_collectstatic_hashes_every_console_asset(tmp_path, settings):
 
 
 def test_both_sign_in_pages_are_rate_limited(settings):
-    from config.middleware.rate_limit import DEFAULT_RATE_LIMITS
-
     for limits in (settings.RATE_LIMITS, DEFAULT_RATE_LIMITS):
         assert limits["/console/login/"] == 10
         assert limits["/admin/login/"] == 10

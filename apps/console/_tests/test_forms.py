@@ -78,3 +78,20 @@ def test_the_password_form_sets_a_validated_password():
 
     user.refresh_from_db()
     assert user.check_password(PASSWORD)
+
+
+@pytest.mark.parametrize("username", ["AMY", "amy"], ids=["other-case", "same"])
+def test_the_edit_form_refuses_another_users_name_in_any_case(username):
+    get_user_model().objects.create_user("amy", password="x")
+    bob = get_user_model().objects.create_user("bob", password="x")
+
+    form = UserEditForm({"username": username, "is_active": "on"}, instance=bob)
+
+    assert not form.is_valid()
+    assert form.errors["username"] == ["A user with that username already exists."]
+
+
+def test_the_edit_form_lets_a_user_keep_or_recase_their_own_name():
+    amy = get_user_model().objects.create_user("amy", password="x")
+
+    assert UserEditForm({"username": "Amy", "is_active": "on"}, instance=amy).is_valid()

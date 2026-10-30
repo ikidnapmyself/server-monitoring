@@ -7,7 +7,7 @@ from django.db import IntegrityError, OperationalError
 from django.urls import reverse
 
 from apps.console._tests.test_templates import FORBIDDEN
-from apps.console.queries.users import LAST_SUPERUSER, build_user_editor
+from apps.console.queries.users import LAST_SUPERUSER, update_user
 
 pytestmark = pytest.mark.django_db
 
@@ -182,12 +182,14 @@ class TestAnExistingUser:
     def test_deactivating_yourself_is_refused(self, client, superuser, amy):
         User.objects.create_superuser("other", password="x")
 
-        resp = client.post(_url(superuser), _edit(superuser, is_active=""))
+        resp = client.post(_url(superuser), _edit(superuser, is_active="", first_name="Ro"))
 
+        body = resp.content.decode()
         assert resp.status_code == 409
-        assert "You can&#x27;t deactivate your own account." in resp.content.decode()
+        assert "You can&#x27;t deactivate your own account." in body
+        assert 'name="first_name" value="Ro"' in body
         superuser.refresh_from_db()
-        assert superuser.is_active is True
+        assert (superuser.is_active, superuser.first_name) == (True, "")
 
     def test_deactivating_the_last_active_superuser_is_refused(self, client, superuser):
         User.objects.create_superuser("gone", password="x", is_active=False)
@@ -197,6 +199,7 @@ class TestAnExistingUser:
         body = resp.content.decode()
         assert resp.status_code == 409
         assert LAST_SUPERUSER in body
+        assert 'value="x@example.com"' in body
         superuser.refresh_from_db()
         assert (superuser.is_active, superuser.email) == (True, "")
 
@@ -205,19 +208,21 @@ class TestAnExistingUser:
         with mock.patch("apps.console.views.user.update_user", side_effect=error):
             resp = client.post(_url(amy), _edit(amy, email="x@example.com"))
 
+        body = resp.content.decode()
         assert resp.status_code == 409
-        assert "Couldn&#x27;t save just now." in resp.content.decode()
+        assert "Couldn&#x27;t save just now." in body
+        assert 'value="x@example.com"' in body
 
     def test_a_user_deleted_during_the_save_is_the_404(self, client, superuser, amy):
-        editors = [build_user_editor(amy.pk, _edit(amy)), None]
+        def delete_then_update(actor, form):
+            User.objects.filter(pk=amy.pk).delete()
+            return update_user(actor, form)
 
-        with (
-            mock.patch("apps.console.views.user.build_user_editor", side_effect=editors),
-            mock.patch("apps.console.views.user.update_user", return_value="gone"),
-        ):
-            resp = client.post(_url(amy), _edit(amy))
+        with mock.patch("apps.console.views.user.update_user", side_effect=delete_then_update):
+            resp = client.post(_url(amy), _edit(amy, email="x@example.com"))
 
         assert resp.status_code == 404
+        assert not User.objects.filter(pk=amy.pk).exists()
 
 
 @pytest.mark.parametrize("method", ["get", "post"])

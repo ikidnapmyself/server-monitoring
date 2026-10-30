@@ -224,8 +224,33 @@ class TestUpdateUser:
         form = _edit(amy, email="amy@example.com")
         get_user_model().objects.filter(pk=amy.pk).delete()
 
-        assert update_user(actor, form) != ""
+        assert update_user(actor, form) is None
         assert not get_user_model().objects.filter(username="amy").exists()
+
+    def test_a_promotion_after_the_form_was_built_survives_the_save(self):
+        actor = _superuser("root")
+        bob = _user("bob")
+        form = _edit(bob, email="bob@example.com")
+        make_superuser(bob.pk)
+
+        assert update_user(actor, form) == ""
+
+        bob.refresh_from_db()
+        assert (bob.email, bob.is_superuser, bob.is_staff) == ("bob@example.com", True, True)
+
+    def test_a_password_set_after_the_form_was_built_survives_the_save(self):
+        actor = _superuser("root")
+        bob = _user("bob")
+        form = _edit(bob, first_name="Bob")
+        stored = get_user_model().objects.get(pk=bob.pk)
+        stored.set_password("pw-correct-horse-9")
+        stored.save()
+
+        assert update_user(actor, form) == ""
+
+        bob.refresh_from_db()
+        assert bob.first_name == "Bob"
+        assert bob.check_password("pw-correct-horse-9")
 
 
 class TestTheUserPageActions:

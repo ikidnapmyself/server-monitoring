@@ -66,6 +66,10 @@ The page is `console:users`, a tab under System after API keys.
 
 ## 12b: remove /admin/
 
+- Before `/admin/` goes, a small PR makes the rate limiter read the client IP from
+  `X-Forwarded-For` only when the request comes from a configured trusted proxy. Until
+  then, behind a proxy every client shares one `/console/login/` bucket and one
+  `/admin/login/` bucket, so anyone's bad attempts lock every operator out for the minute.
 - Uninstall `django.contrib.admin`. Delete `MonitoringAdminConfig`, the `admin/` URLs,
   `config/admin.py`, every `apps/*/admin.py`, `config/admin_links.py`, `config/dashboard.py`,
   `templates/admin/` and `static/admin/css/ops.css`.

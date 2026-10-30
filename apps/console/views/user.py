@@ -8,7 +8,7 @@ from apps.console.queries.users import UserEditor, build_user_editor, update_use
 from apps.console.views.base import ConsoleView, Notice
 
 NOT_ADDED = "Couldn't add the user just now. Nothing was saved, so try again."
-BUSY = "Couldn't save just now. Here's the user as they are."
+BUSY = "Couldn't save just now. Nothing was saved, so try again."
 
 
 def user_not_found(request):
@@ -64,8 +64,10 @@ class UserView(ConsoleView):
             refusal = update_user(self.request.user, editor.form)
         except (IntegrityError, OperationalError):
             refusal = BUSY
+        if refusal is None:
+            return user_not_found(self.request)
         if refusal:
-            fresh = build_user_editor(pk, actor=self.request.user)
-            return self.render_editor(fresh, Notice(refusal, "warning"), 409)
-        messages.success(self.request, f"User {editor.form.instance.username} saved.")
+            # The bound form keeps what the operator typed. None of it was saved.
+            return self.render_editor(editor, Notice(refusal, "warning"), 409)
+        messages.success(self.request, f"User {editor.form.cleaned_data['username']} saved.")
         return HttpResponseRedirect(reverse("console:user", args=[pk]), status=303)

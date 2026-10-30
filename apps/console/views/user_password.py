@@ -1,11 +1,14 @@
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
+from django.db import IntegrityError, OperationalError, transaction
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 
 from apps.console.queries.users import PasswordEditor, build_password_editor
-from apps.console.views.base import ConsoleView
+from apps.console.views.base import ConsoleView, Notice
 from apps.console.views.user import user_not_found
+
+BUSY = "Couldn't set the password just now. Nothing changed, so try again."
 
 
 class UserPasswordView(ConsoleView):
@@ -17,11 +20,13 @@ class UserPasswordView(ConsoleView):
     def landing_path(self) -> str:
         return reverse("console:user-password", args=[self.kwargs["pk"]])
 
-    def render_editor(self, editor: PasswordEditor | None):
+    def render_editor(
+        self, editor: PasswordEditor | None, notice: Notice | None = None, status: int = 200
+    ):
         if editor is None:
             return user_not_found(self.request)
-        context = self.get_context_data(editor=editor, nav="system", section="users")
-        return self.render_to_response(context)
+        context = self.get_context_data(editor=editor, nav="system", section="users", notice=notice)
+        return self.render_to_response(context, status=status)
 
     def get(self, request, *args, **kwargs):
         return self.render_editor(build_password_editor(kwargs["pk"]))
@@ -30,7 +35,11 @@ class UserPasswordView(ConsoleView):
         editor = build_password_editor(kwargs["pk"], request.POST)
         if editor is None or not editor.form.is_valid():
             return self.render_editor(editor)
-        user = editor.form.save()
+        try:
+            with transaction.atomic():
+                user = editor.form.save()
+        except (IntegrityError, OperationalError):
+            return self.render_editor(editor, Notice(BUSY, "warning"), 409)
         if user.pk == request.user.pk:
             update_session_auth_hash(request, user)
         messages.success(request, f"Password set for {user.username}.")
