@@ -60,13 +60,13 @@ def test_the_action_lives_under_the_incident():
 
 
 @pytest.mark.django_db
-def test_anonymous_post_is_sent_to_the_admin_login(client):
+def test_anonymous_post_is_sent_to_the_console_login(client):
     incident = _incident()
 
     resp = client.post(_url(incident, "resolve"))
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next={_page(incident)}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={_page(incident)}"
     assert Incident.objects.get(pk=incident.pk).status == "open"
     assert not PipelineRun.objects.exists()
 
@@ -95,7 +95,7 @@ def test_anonymous_htmx_post_without_a_usable_page_falls_back_to_the_incident(cl
     )
 
     assert resp.status_code == 204
-    assert resp["HX-Redirect"] == f"{reverse('admin:login')}?next={_page(incident)}"
+    assert resp["HX-Redirect"] == f"{reverse('console:login')}?next={_page(incident)}"
 
 
 @pytest.mark.django_db
@@ -109,7 +109,7 @@ def test_anonymous_htmx_post_is_redirected_back_to_the_page_it_came_from(client)
     )
 
     assert resp.status_code == 204
-    assert resp["HX-Redirect"] == f"{reverse('admin:login')}?next={_page(incident)}"
+    assert resp["HX-Redirect"] == f"{reverse('console:login')}?next={_page(incident)}"
     assert not PipelineRun.objects.exists()
 
 

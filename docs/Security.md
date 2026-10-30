@@ -203,6 +203,24 @@ Default limits (configurable via `RATE_LIMITS` in settings):
 | `/orchestration/` | 30 req/min |
 | `/notify/` | 30 req/min |
 | `/intelligence/` | 20 req/min |
+| `/console/login/` | 10 req/min |
+| `/admin/login/` | 10 req/min |
+
+### Sign-in pages
+
+Both sign-in pages take the same superuser credentials, so both are limited to 10 POSTs a
+minute per client. The rest of `/admin/` stays exempt. Over the limit, the console login
+answers with its own page, status 429, saying how many seconds are left. It keeps the
+username, and keeps `next` only when it's a local URL. The admin login gets the JSON 429.
+
+**Behind a reverse proxy the two login buckets are shared by everyone.** The limiter keys
+an unauthenticated request on `REMOTE_ADDR`, and behind nginx, Cloudflare or an ALB that
+is the proxy's address. So every client shares one `/console/login/` bucket and one
+`/admin/login/` bucket, and 11 bad attempts in a minute from anyone block every
+operator's sign-in until the minute ends. A fix that reads the client IP from a trusted
+proxy is planned before `/admin/` is removed. Until then, either leave
+`RATE_LIMIT_ENABLED=0` behind a proxy and limit sign-in attempts at the proxy, or accept
+that one bad actor can hold sign-in shut a minute at a time.
 
 ### Identity
 
@@ -542,18 +560,28 @@ For Docker image vulnerabilities (trivy), rebuild with an updated base image or 
 - **Tests**: pytest across Python 3.10, 3.11, 3.12
 - **Django checks**: `manage.py check` + migration consistency
 
-## Admin Interface
+## Console and Admin Interface
 
-Operators act on incidents, runs and the inbox, and edit routes and channels, in the console
-(`/console/`). The Django admin (`/admin/`) keeps the rest of the configuration, and its
-incident, alert, run, inbox, route and channel pages are read-only:
+Operators act on incidents, runs and the inbox, edit routes, channels, providers and API
+keys, and manage users in the console (`/console/`). The Django admin (`/admin/`) is
+deprecated, and its model pages are read-only:
 
-- The console admits active superusers only (`admits()` in `apps/console/views/base.py`). A
+- The console admits active superusers only (`admits()` in `apps/console/access.py`). A
   signed-in user who isn't one gets a 403 page with a way to sign out, and every page and
   action, including acknowledge, resolve, retry and drain, sits behind that one check.
-- `/admin/` is deprecated. It keeps Django's staff authentication as on main, so
-  non-superuser staff can still sign into it, but the console refuses them. It goes away
-  once the console takes over login and user management.
+- The console has its own login at `/console/login/`. It signs in active superusers only,
+  and gives every refusal the same message, so it never says which accounts exist. Logout
+  is a POST to `/console/logout/`. Both login pages are rate limited, as described under
+  Rate Limiting.
+- Users are managed at `/console/users/`. Every account made there is an active
+  superuser with a password that passes `AUTH_PASSWORD_VALIDATORS`. Groups have no page.
+  `manage.py createsuperuser` makes the first account.
+- Two guards keep the console reachable. The last active superuser can't be deactivated
+  or deleted, and nobody can deactivate or delete their own account. The last-superuser
+  check runs first. Both run inside the write's transaction, with the other superuser
+  rows locked, so two concurrent removals can't both pass.
+- `/admin/` keeps Django's staff authentication as on main, so non-superuser staff can
+  still sign into it, but the console refuses them. It goes away in the next slice.
 - Custom `MonitoringAdminSite` inherits all default auth protections
 
 ## Reporting Vulnerabilities
@@ -566,7 +594,7 @@ Mapping derived from the [2026-05-12 ISO 27003 audit](plans/2026-05-12-iso-27003
 
 | Control | Title | Codebase mitigation |
 |---|---|---|
-| A.5.15 | Access control | `config/middleware/api_key_auth.py` (per-endpoint API keys, `allowed_endpoints` allowlists); Django staff/superuser auth on `/admin/`; superusers only on `/console/` |
+| A.5.15 | Access control | `config/middleware/api_key_auth.py` (per-endpoint API keys, `allowed_endpoints` allowlists); Django staff/superuser auth on `/admin/`; superusers only on `/console/`, with its own login and user management |
 | A.5.17 | Authentication information | `APIKey` model: `secrets.token_hex(20)` raw, SHA-256 digest at rest, never re-displayed; `DJANGO_SECRET_KEY` env-only with startup check; agents authenticate to the hub with `HUB_API_KEY` (Bearer) |
 | A.5.23 | Information security for use of cloud services | `validate_safe_url` on intelligence-provider base URLs; `BLOCKED_CONFIG_KEYS` filter on API-callable provider config |
 | A.8.2 | Privileged access rights | `bin/` toolchain confirmed not to grant sudo or install setuid; Django admin actions gated by `is_staff` |

@@ -50,11 +50,11 @@ def test_the_page_lives_at_policy(url):
     assert url == "/console/policy/"
 
 
-def test_anonymous_is_sent_to_the_admin_login(client, url):
+def test_anonymous_is_sent_to_the_console_login(client, url):
     resp = client.get(url)
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next=/console/policy/"
+    assert resp["Location"] == f"{reverse('console:login')}?next=/console/policy/"
 
 
 def test_a_superuser_reads_the_page_with_nodes_current(client, superuser, url, node):

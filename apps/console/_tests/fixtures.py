@@ -5,6 +5,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import timedelta
 
+from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 from apps.alerts.identity import local_instance_id
@@ -103,6 +104,7 @@ class World:
     provider_pks: tuple[int, ...]
     key_pks: tuple[int, ...]
     key_tokens: tuple[str, ...]
+    user_pks: tuple[int, ...]
     check_pks: tuple[int, ...]
     preflight_pks: tuple[int, ...]
     analysis_pks: tuple[int, ...]
@@ -469,6 +471,23 @@ def _keys() -> list[APIKey]:
     ]
 
 
+def _users() -> list:
+    """A superuser who signed in, an inactive superuser, and staff who aren't superusers."""
+    User = get_user_model()
+    return [
+        User.objects.create_superuser(
+            "amy",
+            email="amy@example.com",
+            password="x",
+            first_name="Amy",
+            last_name="Pond",
+            last_login=timezone.now() - timedelta(days=2),
+        ),
+        User.objects.create_superuser("gone", password="x", is_active=False),
+        User.objects.create_user("bob", password="x", is_staff=True),
+    ]
+
+
 def _check_runs() -> list[CheckRun]:
     """One run per status, the critical one with an alert and a trace, and a retired checker."""
     runs = [
@@ -564,6 +583,7 @@ def build_world() -> World:
     _routes()
     providers = _providers()
     keys = _keys()
+    users = _users()
     _preflight_runs()
     return World(
         incident_pks=tuple(i.pk for i in incidents),
@@ -575,6 +595,7 @@ def build_world() -> World:
         provider_pks=tuple(p.pk for p in providers),
         key_pks=tuple(k.pk for k in keys),
         key_tokens=tuple(k._raw_key for k in keys),
+        user_pks=tuple(u.pk for u in users),
         check_pks=tuple(run.pk for run in _check_runs()),
         preflight_pks=tuple(PreflightRun.objects.values_list("pk", flat=True)),
         analysis_pks=tuple(run.pk for run in _analyses(incidents[0].pk)),

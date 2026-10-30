@@ -96,6 +96,7 @@ def _record_or_list(record: str, listing: str) -> Callable[[dict[str, Any]], str
 _route = _record_or_list("console:route", "console:routes")
 _provider = _record_or_list("console:provider", "console:providers")
 _key = _record_or_list("console:key", "console:keys")
+_user = _record_or_list("console:user", "console:users")
 
 
 def _external(params: dict[str, Any]) -> str:
@@ -123,6 +124,12 @@ INTENTS: dict[str, Intent] = {
     "edit_key": Intent(_key, "get"),
     "add_key": Intent(_page("console:key-new"), "get"),
     "delete_key": Intent(_record("console:key-delete"), "get"),
+    "view_user": Intent(_user, "get"),
+    "edit_user": Intent(_user, "get"),
+    "set_user_password": Intent(_record("console:user-password"), "get"),
+    "delete_user": Intent(_record("console:user-delete"), "get"),
+    "add_user": Intent(_page("console:user-new"), "get"),
+    "make_superuser": Intent(_record("console:user-make-superuser"), "post"),
     "view_preflight": Intent(_page("console:preflight"), "get"),
     "view_inbox": Intent(_page("console:inbox", "status", "status"), "get"),
     "view_nodes": Intent(_page("console:nodes"), "get"),
@@ -155,7 +162,7 @@ INTENTS: dict[str, Intent] = {
 
 
 def admin_url(name: str) -> str:
-    """The admin's own pages the console chrome links to: index, login, logout."""
+    """The admin page the console header links to, its index, until /admin/ goes."""
     return reverse(f"admin:{name}")
 
 

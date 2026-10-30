@@ -1,0 +1,7 @@
+{% extends "console/base.html" %}
+{% block title %}{% if editor.pk %}User {{ editor.username }}{% else %}New user{% endif %} · Console{% endblock %}
+{% block content %}
+{% include "console/partials/_system_nav.html" %}
+{% include "console/partials/_messages.html" %}
+{% include "console/partials/_user.html" %}
+{% endblock %}

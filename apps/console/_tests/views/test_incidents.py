@@ -49,11 +49,11 @@ def test_the_list_lives_at_incidents(url):
 
 
 @pytest.mark.django_db
-def test_anonymous_is_sent_to_the_admin_login(client, url):
+def test_anonymous_is_sent_to_the_console_login(client, url):
     resp = client.get(f"{url}?status=all")
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next=/console/incidents/%3Fstatus%3Dall"
+    assert resp["Location"] == f"{reverse('console:login')}?next=/console/incidents/%3Fstatus%3Dall"
 
 
 @pytest.mark.django_db
@@ -61,7 +61,7 @@ def test_anonymous_htmx_request_is_told_to_do_a_full_redirect(client, url):
     resp = client.get(url, **HTMX)
 
     assert resp.status_code == 204
-    assert resp["HX-Redirect"] == f"{reverse('admin:login')}?next=/console/incidents/"
+    assert resp["HX-Redirect"] == f"{reverse('console:login')}?next=/console/incidents/"
 
 
 @pytest.mark.django_db

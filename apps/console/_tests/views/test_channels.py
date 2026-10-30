@@ -31,11 +31,11 @@ def test_the_page_lives_at_channels(url):
     assert url == "/console/channels/"
 
 
-def test_anonymous_is_sent_to_the_admin_login(client, url):
+def test_anonymous_is_sent_to_the_console_login(client, url):
     resp = client.get(url)
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next=/console/channels/"
+    assert resp["Location"] == f"{reverse('console:login')}?next=/console/channels/"
 
 
 def test_channels_render_by_name_with_driver_state_and_lanes(client, superuser, url):

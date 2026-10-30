@@ -5,7 +5,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from django.shortcuts import resolve_url
 from django.test import SimpleTestCase
+
+from config.middleware.rate_limit import DEFAULT_RATE_LIMITS
 
 
 class TestSecretKeyRequired(SimpleTestCase):
@@ -108,3 +111,14 @@ def test_collectstatic_hashes_every_console_asset(tmp_path, settings):
         assert stored != name
         assert (tmp_path / stored).is_file()
         assert staticfiles_storage.url(name) == f"/static/{stored}"
+
+
+def test_both_sign_in_pages_are_rate_limited(settings):
+    for limits in (settings.RATE_LIMITS, DEFAULT_RATE_LIMITS):
+        assert limits["/console/login/"] == 10
+        assert limits["/admin/login/"] == 10
+
+
+def test_the_console_owns_sign_in(settings):
+    assert resolve_url(settings.LOGIN_URL) == "/console/login/"
+    assert resolve_url(settings.LOGIN_REDIRECT_URL) == "/console/"

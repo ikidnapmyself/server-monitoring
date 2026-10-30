@@ -70,23 +70,23 @@ def test_the_editor_urls():
     assert reverse("console:channel", args=[7]) == "/console/channels/7/"
 
 
-def test_anonymous_is_sent_to_the_admin_login(client, channel):
+def test_anonymous_is_sent_to_the_console_login(client, channel):
     resp = client.get(_url(channel))
 
     assert resp.status_code == 302
-    assert resp["Location"] == f"{reverse('admin:login')}?next={_url(channel)}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={_url(channel)}"
 
 
 def test_an_anonymous_save_logs_in_back_to_the_editor(client, channel):
     resp = client.post(_url(channel), {})
 
-    assert resp["Location"] == f"{reverse('admin:login')}?next={_url(channel)}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={_url(channel)}"
 
 
 def test_an_anonymous_add_logs_in_back_to_the_new_channel_page(client):
     resp = client.post(_url(driver="slack"), {})
 
-    assert resp["Location"] == f"{reverse('admin:login')}?next={_url()}"
+    assert resp["Location"] == f"{reverse('console:login')}?next={_url()}"
 
 
 def test_the_editor_renders_the_channel(client, superuser, channel):

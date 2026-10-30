@@ -306,8 +306,8 @@ def test_only_intents_builds_admin_urls():
     assert offenders == []
 
 
-def test_admin_url_names_the_admins_own_pages():
-    assert admin_url("login") == reverse("admin:login")
+def test_admin_url_names_the_admin_index():
+    assert admin_url("index") == reverse("admin:index")
 
 
 def test_the_list_intents_are_gone():
@@ -347,16 +347,38 @@ def test_the_key_intents_point_at_the_key_pages(intent, params, url):
     )
 
 
+@pytest.mark.parametrize(
+    ("intent", "params", "url"),
+    [
+        ("view_user", {}, "/console/users/"),
+        ("view_user", {"pk": 7}, "/console/users/7/"),
+        ("edit_user", {"pk": 7}, "/console/users/7/"),
+        ("add_user", {}, "/console/users/new/"),
+        ("set_user_password", {"pk": 7}, "/console/users/7/password/"),
+        ("delete_user", {"pk": 7}, "/console/users/7/delete/"),
+    ],
+)
+def test_the_user_intents_point_at_the_user_pages(intent, params, url):
+    assert resolve_action(Action("Go", intent=intent, params=params)) == ResolvedAction(
+        "Go", url, "get"
+    )
+
+
 @pytest.mark.django_db
 def test_a_superuser_gets_every_system_tab_in_order(client, superuser):
     body = client.get(reverse("console:channels")).content.decode()
 
     nav = body[body.index('<nav class="c-subnav" aria-label="System">') :]
     tabs = re.findall(r">([^<>]+)</a>", nav[: nav.index("</nav>")])
-    assert tabs == ["Routes", "Channels", "Providers", "API keys"]
+    assert tabs == ["Routes", "Channels", "Providers", "API keys", "Users"]
     system = re.search(
         r'<a class="c-unav__item" href="([^"]+)"[^>]*>(?:(?!</a>).)*<span>System</span>',
         body,
         re.DOTALL,
     )
     assert system.group(1) == "/console/routes/"
+
+
+def test_make_superuser_is_a_post():
+    resolved = resolve_action(Action("Go", intent="make_superuser", params={"pk": 7}))
+    assert resolved == ResolvedAction("Go", "/console/users/7/make-superuser/", "post")

@@ -6,6 +6,7 @@ import time
 from django.conf import settings
 from django.core.cache import cache
 from django.http import JsonResponse
+from django.urls import Resolver404, resolve
 
 from config.middleware.constants import EXEMPT_PATH_PREFIXES
 
@@ -16,7 +17,13 @@ DEFAULT_RATE_LIMITS = {
     "/orchestration/": 30,
     "/notify/": 30,
     "/intelligence/": 20,
+    "/console/login/": 10,
+    "/admin/login/": 10,
 }
+
+# The admin login takes the same superuser credentials as the console's, so it is
+# counted although the rest of /admin/ is exempt.
+COUNTED_DESPITE_EXEMPTION = ("/admin/login/",)
 
 
 class RateLimitMiddleware:
@@ -35,7 +42,9 @@ class RateLimitMiddleware:
 
         path = request.path
 
-        if any(path.startswith(p) for p in EXEMPT_PATH_PREFIXES):
+        if any(path.startswith(p) for p in EXEMPT_PATH_PREFIXES) and not path.startswith(
+            COUNTED_DESPITE_EXEMPTION
+        ):
             return self.get_response(request)
 
         if request.method == "GET":
@@ -78,14 +87,22 @@ class RateLimitMiddleware:
         # requests per window (count 1…limit pass; count limit+1 is rejected).
         if count > limit:
             retry_after = 60 - int(time.time() % 60)
-            response = JsonResponse(
-                {"error": "Rate limit exceeded. Try again later."},
-                status=429,
-            )
+            response = self._refusal(request, retry_after)
             response["Retry-After"] = str(retry_after)
             return response
 
         return self.get_response(request)
+
+    def _refusal(self, request, retry_after: int):
+        """A page whose view class defines ``rate_limited`` answers in its own words."""
+        try:
+            view_class = getattr(resolve(request.path_info).func, "view_class", None)
+        except Resolver404:
+            view_class = None
+        page = getattr(view_class, "rate_limited", None)
+        if page is not None:
+            return page(request, retry_after)
+        return JsonResponse({"error": "Rate limit exceeded. Try again later."}, status=429)
 
     def _get_identity(self, request) -> str:
         api_key = getattr(request, "api_key", None)

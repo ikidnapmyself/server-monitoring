@@ -1,3 +1,4 @@
+from django.contrib.auth.views import LogoutView
 from django.urls import path
 
 from apps.console.views import (
@@ -11,6 +12,7 @@ from apps.console.views import (
     ChannelView,
     CheckDetailView,
     CheckListView,
+    ConsoleLoginView,
     InboxActionView,
     InboxPageView,
     IncidentActionView,
@@ -39,12 +41,19 @@ from apps.console.views import (
     RunActionView,
     RunDetailView,
     RunListView,
+    UserDeleteView,
+    UserPasswordView,
+    UserPromoteView,
+    UsersView,
+    UserView,
 )
 
 app_name = "console"
 
 urlpatterns = [
     path("", OverviewView.as_view(), name="overview"),
+    path("login/", ConsoleLoginView.as_view(), name="login"),
+    path("logout/", LogoutView.as_view(next_page="console:login"), name="logout"),
     path("alerts/", AlertListView.as_view(), name="alerts"),
     path("alerts/<int:pk>/", AlertDetailView.as_view(), name="alert"),
     path("alerts/<int:pk>/reevaluate/", AlertReevalView.as_view(), name="alert-reeval"),
@@ -91,6 +100,16 @@ urlpatterns = [
     path("keys/new/", KeyView.as_view(), name="key-new"),
     path("keys/<int:pk>/", KeyView.as_view(), name="key"),
     path("keys/<int:pk>/delete/", KeyDeleteView.as_view(), name="key-delete"),
+    path("users/", UsersView.as_view(), name="users"),
+    path("users/new/", UserView.as_view(), name="user-new"),
+    path("users/<int:pk>/", UserView.as_view(), name="user"),
+    path("users/<int:pk>/password/", UserPasswordView.as_view(), name="user-password"),
+    path("users/<int:pk>/delete/", UserDeleteView.as_view(), name="user-delete"),
+    path(
+        "users/<int:pk>/make-superuser/",
+        UserPromoteView.as_view(),
+        name="user-make-superuser",
+    ),
     path("incidents/", IncidentListView.as_view(), name="incidents"),
     path("incidents/<int:pk>/", IncidentDetailView.as_view(), name="incident"),
     path("incidents/<int:pk>/rerun/", IncidentRerunView.as_view(), name="incident-rerun"),

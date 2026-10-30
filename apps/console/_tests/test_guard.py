@@ -15,6 +15,7 @@ from apps.console.filters import (
     REASON_CHOICES,
     SINCE_CHOICES,
 )
+from apps.console.forms import REFUSED
 from apps.intelligence._tests.test_forms import KEY
 from apps.intelligence.models import IntelligenceProvider
 from apps.notify._tests.test_forms import SECRETS, STORED
@@ -168,6 +169,12 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         ]
         + ["/console/keys/", "/console/keys/new/"]
         + [f"/console/keys/{pk}/{page}" for pk in world.key_pks for page in ("", "delete/")]
+        + ["/console/users/", "/console/users/new/"]
+        + [
+            f"/console/users/{pk}/{page}"
+            for pk in (*world.user_pks, superuser.pk)
+            for page in ("", "password/", "delete/")
+        ]
         + [f"/console/nodes/{pk}/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/policy/" for pk in world.node_pks]
         + [f"/console/nodes/{pk}/reevaluate/" for pk in world.node_pks]
@@ -264,6 +271,12 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "of runs finished",
         "Top failure reasons, last 7 days",
         "Other failures",
+        "Not a superuser",
+        "Never signed in",
+        "Make superuser",
+        "Set password",
+        "You can't delete your own account.",
+        "They never signed in.",
     ):
         assert shown in everything, shown
     analysis_pages = [page for url, page in html.items() if url.startswith("/console/analyses/")]
@@ -304,3 +317,16 @@ def test_the_refusal_page_leaks_nothing(client, active_staff):
 
     assert response.status_code == 403
     _assert_no_leak("/console/", visible(response.content.decode()))
+
+
+@pytest.mark.django_db
+def test_the_login_page_leaks_nothing(client):
+    page = visible(_get(client, "/console/login/", {}))
+    refused = client.post("/console/login/", {"username": "nobody", "password": "x"})
+    assert refused.status_code == 200
+    refusal = visible(refused.content.decode())
+
+    _assert_no_leak("/console/login/", page)
+    _assert_no_leak("/console/login/ refused", refusal)
+    assert "Sign in to the console" in page
+    assert REFUSED in refusal

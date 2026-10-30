@@ -17,6 +17,8 @@
     <p class="c-section"><a id="not-found-back" href="{% url 'console:providers' %}">Back to providers</a></p>
     {% elif section == "keys" %}<p>This API key doesn't exist. It may have been deleted.</p>
     <p class="c-section"><a id="not-found-back" href="{% url 'console:keys' %}">Back to API keys</a></p>
+    {% elif section == "users" %}<p>This user doesn't exist. It may have been deleted.</p>
+    <p class="c-section"><a id="not-found-back" href="{% url 'console:users' %}">Back to users</a></p>
     {% elif section == "checks" %}<p>This check run doesn't exist. It may have been deleted.</p>
     <p class="c-section"><a id="not-found-back" href="{% url 'console:checks' %}">Back to check runs</a></p>
     {% elif section == "preflight" %}<p>This preflight run doesn't exist. It may have been deleted.</p>

@@ -330,6 +330,17 @@ per-driver HMAC scheme — one credential type gates every entrypoint.
 
 ---
 
+## The Operator Console
+
+Make the first account with `manage.py createsuperuser` (prefix it with
+`docker compose -f deploy/docker/docker-compose.yml exec web` on Docker), then sign in at
+`/console/login/`. Manage further accounts at `/console/users/`.
+
+With `RATE_LIMIT_ENABLED=1`, `/console/login/` and `/admin/login/` each allow 10 sign-in
+attempts a minute per client IP. Behind the nginx proxy every client shares the proxy's IP,
+so 11 bad attempts in a minute from anyone block every operator's sign-in until the minute
+ends. See `docs/Security.md` under Rate Limiting before turning it on behind a proxy.
+
 ## Monitoring the Deployment
 
 ### System preflight
