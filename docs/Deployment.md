@@ -35,6 +35,7 @@ Create `/etc/server-monitoring/env` (systemd) or `.env` (Docker) with these valu
 | `INBOX_DEPTH_WARN` | `500` | No | doctor warns once the PENDING drain backlog exceeds this |
 | `API_KEY_AUTH_ENABLED` | `1` | No | API key auth (enabled by default; set `0` to disable for dev) |
 | `RATE_LIMIT_ENABLED` | `0` | No | Enable rate limiting middleware |
+| `TRUSTED_PROXIES` | empty | Behind a proxy | Comma-separated proxies whose `X-Forwarded-For` the rate limiter trusts: `unix` for the gunicorn socket, or IPs and CIDR ranges |
 | `HUB_API_KEY` | — | Agent only | Bearer token an agent uses to authenticate `push_to_hub` to the hub |
 
 Minimal production `.env`:
@@ -142,6 +143,7 @@ sudo tee /etc/server-monitoring/env << 'EOF'
 DJANGO_SECRET_KEY=your-random-secret-key-here
 DJANGO_DEBUG=0
 DJANGO_ALLOWED_HOSTS=monitoring.example.com
+TRUSTED_PROXIES=unix
 EOF
 sudo chown root:www-data /etc/server-monitoring/env
 sudo chmod 640 /etc/server-monitoring/env
@@ -337,9 +339,9 @@ Make the first account with `manage.py createsuperuser` (prefix it with
 `/console/login/`. Manage further accounts at `/console/users/`.
 
 With `RATE_LIMIT_ENABLED=1`, `/console/login/` and `/admin/login/` each allow 10 sign-in
-attempts a minute per client IP. Behind the nginx proxy every client shares the proxy's IP,
-so 11 bad attempts in a minute from anyone block every operator's sign-in until the minute
-ends. See `docs/Security.md` under Rate Limiting before turning it on behind a proxy.
+attempts a minute per client IP. Behind the shipped nginx config, set
+`TRUSTED_PROXIES=unix` so each client gets its own bucket. See `docs/Security.md` under
+Rate Limiting.
 
 ## Monitoring the Deployment
 

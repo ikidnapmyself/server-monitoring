@@ -10,7 +10,7 @@ and the web server.** Do not script the parts the panel already manages.
 
 | Concern | Where |
 |---|---|
-| Environment variables | Panel's environment/`.env` editor — `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_ENV=prod`, `DJANGO_DEBUG=0`, `DATABASE_PATH` |
+| Environment variables | Panel's environment/`.env` editor: `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_ENV=prod`, `DJANGO_DEBUG=0`, `DATABASE_PATH`, `TRUSTED_PROXIES=unix` |
 | gunicorn process | Panel's **Daemons** feature (see command below) — the panel keeps it running and restarts it after each deploy |
 | nginx site config | Panel's nginx editor — apply the 3 edits from `nginx-site.conf` inside the generated `server {}` block (replace the default `location /`, add `location /static/`, add `client_max_body_size`) |
 | SSL / Let's Encrypt | Panel's SSL tab |

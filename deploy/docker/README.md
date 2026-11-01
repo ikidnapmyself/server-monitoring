@@ -28,6 +28,7 @@ here too** — a mismatch means CI and production run different interpreters.
 | `PORT` | Injected by most platforms. Defaults to `8000` if unset. |
 | `WEB_CONCURRENCY` | Gunicorn workers. Defaults to `3`. |
 | `DATABASE_PATH` | Defaults to `/app/data/db.sqlite3`. See the persistence warning below. |
+| `TRUSTED_PROXIES` | Set it to the platform proxy's address or CIDR range so the rate limiter sees each client. Unset, every client shares one bucket. |
 
 ## Persistence warning — read this first
 
