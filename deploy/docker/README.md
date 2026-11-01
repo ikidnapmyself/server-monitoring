@@ -28,7 +28,12 @@ here too** — a mismatch means CI and production run different interpreters.
 | `PORT` | Injected by most platforms. Defaults to `8000` if unset. |
 | `WEB_CONCURRENCY` | Gunicorn workers. Defaults to `3`. |
 | `DATABASE_PATH` | Defaults to `/app/data/db.sqlite3`. See the persistence warning below. |
-| `TRUSTED_PROXIES` | Set it to the platform proxy's address or CIDR range so the rate limiter sees each client. Unset, every client shares one bucket. |
+| `TRUSTED_PROXIES` | The platform proxy's address or range, so the rate limiter sees each client. Unset, every client shares one bucket. See below. |
+
+List only the proxy's own address, or the narrowest range it uses. Anything else that can
+reach gunicorn from a listed address can choose its own rate-limit bucket by sending
+`X-Forwarded-For`. So when you trust a range, don't publish gunicorn's port to the world.
+Bind it to loopback (`127.0.0.1:8000:8000`) or reach it over the compose network only.
 
 ## Persistence warning — read this first
 

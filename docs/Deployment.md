@@ -339,8 +339,9 @@ Make the first account with `manage.py createsuperuser` (prefix it with
 `/console/login/`. Manage further accounts at `/console/users/`.
 
 With `RATE_LIMIT_ENABLED=1`, `/console/login/` and `/admin/login/` each allow 10 sign-in
-attempts a minute per client IP. Behind the shipped nginx config, set
-`TRUSTED_PROXIES=unix` so each client gets its own bucket. See `docs/Security.md` under
+attempts a minute per client IP. Behind the shipped nginx config with its unix-socket
+upstream, set `TRUSTED_PROXIES=unix` so each client gets its own bucket. With the Docker
+`web:8000` upstream, set the compose network's range instead. See `docs/Security.md` under
 Rate Limiting.
 
 ## Monitoring the Deployment
