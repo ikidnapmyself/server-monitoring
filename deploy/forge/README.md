@@ -23,15 +23,15 @@ that `nginx-site.conf` proxies to:
 ```
 /home/forge/.local/bin/uv run gunicorn config.wsgi:application \
     --bind unix:/home/forge/server/gunicorn.sock \
-    --workers 2 --timeout 120
+    --workers 2 --timeout 120 --umask 007
 ```
 
 Directory: `/home/forge/server`. Adjust the path if your site directory differs.
 
 With `TRUSTED_PROXIES=unix`, every process that can open `gunicorn.sock` can choose its
-own rate-limit bucket. gunicorn creates the socket with mode 0777, so make sure only
-nginx's user can reach it under `/home/forge/server/`. Don't let other users traverse that
-directory.
+own rate-limit bucket. gunicorn creates the socket with mode 0777 by default, so the
+command above passes `--umask 007`. Forge runs gunicorn and nginx as `forge`, so only that
+user and its group can open the socket.
 
 `gunicorn` comes from the `prod` extra, so the deploy must run `uv sync --extra prod`
 (the update script does — see below).

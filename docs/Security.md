@@ -220,8 +220,9 @@ themselves out. Behind the shipped nginx config with its unix-socket upstream, t
 shares the proxy's bucket: 11 bad attempts in a minute from anyone block every operator's
 sign-in until the minute ends.
 
-With Cloudflare or a load balancer in front of nginx, list its ranges too, for example
-`TRUSTED_PROXIES=unix,173.245.48.0/20,...`. Otherwise every client behind one edge address
+With Cloudflare or a load balancer in front of nginx, list each of its published ranges
+too, for example `TRUSTED_PROXIES=unix,173.245.48.0/20` plus the rest of Cloudflare's list.
+Otherwise every client behind one edge address
 shares that address's bucket.
 
 ### Identity
