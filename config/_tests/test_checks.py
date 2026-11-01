@@ -68,3 +68,22 @@ class AuthDisabledCheckTests(SimpleTestCase):
 
         errors = check_auth_enabled(None)
         assert len(errors) == 0
+
+
+class TrustedProxiesCheckTests(SimpleTestCase):
+    @override_settings(TRUSTED_PROXIES=("unix", "10.0.0.1", "10.0.0.0/8", "::1"))
+    def test_valid_entries_pass(self):
+        from config.checks import check_trusted_proxies
+
+        assert check_trusted_proxies(None) == []
+
+    @override_settings(TRUSTED_PROXIES=("unix", "nginx", "10.0.0.0/33"))
+    def test_entries_that_dont_parse_are_named(self):
+        from config.checks import check_trusted_proxies
+
+        errors = check_trusted_proxies(None)
+        assert len(errors) == 1
+        assert errors[0].id == "config.E001"
+        assert "nginx" in errors[0].msg
+        assert "10.0.0.0/33" in errors[0].msg
+        assert "unix" not in errors[0].msg.split(":", 1)[1]

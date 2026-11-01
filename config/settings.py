@@ -238,6 +238,10 @@ API_KEY_AUTH_ENABLED = os.environ.get("API_KEY_AUTH_ENABLED", "1") == "1"
 # ---------------------------------------------------------------------------
 RATE_LIMIT_ENABLED = os.environ.get("RATE_LIMIT_ENABLED", "0") == "1"
 
+TRUSTED_PROXIES: tuple[str, ...] = tuple(
+    p.strip() for p in os.environ.get("TRUSTED_PROXIES", "").split(",") if p.strip()
+)
+
 RATE_LIMITS = {
     "/alerts/": 120,
     "/orchestration/": 30,

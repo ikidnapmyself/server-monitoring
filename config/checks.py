@@ -3,6 +3,8 @@
 from django.conf import settings
 from django.core import checks
 
+from config.client_ip import invalid_entries
+
 
 @checks.register()
 def check_rate_limit_cache(app_configs, **kwargs):
@@ -37,3 +39,17 @@ def check_auth_enabled(app_configs, **kwargs):
                 )
             )
     return errors
+
+
+@checks.register()
+def check_trusted_proxies(app_configs, **kwargs):
+    bad = invalid_entries(getattr(settings, "TRUSTED_PROXIES", ()))
+    if not bad:
+        return []
+    return [
+        checks.Error(
+            f"TRUSTED_PROXIES has entries that aren't unix, an IP or a CIDR range: "
+            f"{', '.join(bad)}.",
+            id="config.E001",
+        )
+    ]
