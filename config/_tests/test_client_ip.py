@@ -60,3 +60,19 @@ def test_a_request_without_a_peer_address_is_unknown():
     request = RequestFactory().get("/")
     del request.META["REMOTE_ADDR"]
     assert client_ip(request) == "unknown"
+
+
+@override_settings(TRUSTED_PROXIES=("::1", "10.0.0.0/8"))
+def test_mixed_family_entries_trust_a_v4_peer():
+    assert client_ip(_request("10.0.0.1", "1.2.3.4")) == "1.2.3.4"
+
+
+@override_settings(TRUSTED_PROXIES=("10.0.0.0/8",))
+def test_an_ipv4_mapped_peer_isnt_trusted_by_a_v4_range():
+    assert client_ip(_request("::ffff:10.0.0.1", "1.2.3.4")) == "::ffff:10.0.0.1"
+
+
+@pytest.mark.parametrize("hop", ["1.2.3.4:5678", "fe80::1%eth0"])
+@override_settings(TRUSTED_PROXIES=("10.0.0.0/8",))
+def test_a_hop_that_isnt_a_bare_ip_falls_back_to_the_peer(hop):
+    assert client_ip(_request("10.0.0.1", hop)) == "10.0.0.1"

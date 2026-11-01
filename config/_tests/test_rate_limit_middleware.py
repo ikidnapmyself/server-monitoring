@@ -14,6 +14,7 @@ from config.models import APIKey
     API_KEY_AUTH_ENABLED=False,
     CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
     RATE_LIMITS={"/alerts/": 5, "/notify/": 3},
+    TRUSTED_PROXIES=(),
 )
 class RateLimitMiddlewareTests(TestCase):
     def setUp(self):

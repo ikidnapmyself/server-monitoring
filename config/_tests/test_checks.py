@@ -84,6 +84,10 @@ class TrustedProxiesCheckTests(SimpleTestCase):
         errors = check_trusted_proxies(None)
         assert len(errors) == 1
         assert errors[0].id == "config.E001"
-        assert "nginx" in errors[0].msg
-        assert "10.0.0.0/33" in errors[0].msg
-        assert "unix" not in errors[0].msg.split(":", 1)[1]
+        assert errors[0].msg.endswith("a CIDR range: nginx, 10.0.0.0/33.")
+
+
+def test_invalid_entries_names_only_the_entries_that_dont_parse():
+    from config.client_ip import invalid_entries
+
+    assert invalid_entries(("unix", "nginx", "::1", "10.0.0.0/33")) == ["nginx", "10.0.0.0/33"]
