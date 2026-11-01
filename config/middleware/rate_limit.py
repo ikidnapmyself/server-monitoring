@@ -8,6 +8,7 @@ from django.core.cache import cache
 from django.http import JsonResponse
 from django.urls import Resolver404, resolve
 
+from config.client_ip import client_ip
 from config.middleware.constants import EXEMPT_PATH_PREFIXES
 
 logger = logging.getLogger(__name__)
@@ -109,5 +110,5 @@ class RateLimitMiddleware:
         if api_key:
             parts = ("key", api_key.name)
         else:
-            parts = ("ip", request.META.get("REMOTE_ADDR", "unknown"))
+            parts = ("ip", client_ip(request))
         return ":".join(parts)

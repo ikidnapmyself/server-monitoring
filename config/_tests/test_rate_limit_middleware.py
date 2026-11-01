@@ -134,6 +134,35 @@ class RateLimitMiddlewareTests(TestCase):
         )
         assert response.status_code == 429
 
+    def _post_alert(self, forwarded, **extra):
+        return self.client.post(
+            "/alerts/webhook/",
+            data=json.dumps({"name": "Test", "status": "firing"}),
+            content_type="application/json",
+            HTTP_X_FORWARDED_FOR=forwarded,
+            **extra,
+        )
+
+    @override_settings(TRUSTED_PROXIES=("127.0.0.1",))
+    def test_a_trusted_proxy_gives_each_client_its_own_bucket(self):
+        for _ in range(5):
+            self._post_alert("1.2.3.4")
+        assert self._post_alert("9.9.9.9").status_code != 429
+        assert self._post_alert("1.2.3.4").status_code == 429
+
+    @override_settings(TRUSTED_PROXIES=("unix",))
+    def test_a_trusted_unix_socket_gives_each_client_its_own_bucket(self):
+        for _ in range(5):
+            self._post_alert("1.2.3.4", REMOTE_ADDR="")
+        assert self._post_alert("9.9.9.9", REMOTE_ADDR="").status_code != 429
+        assert self._post_alert("1.2.3.4", REMOTE_ADDR="").status_code == 429
+
+    @override_settings(TRUSTED_PROXIES=("10.0.0.0/8",))
+    def test_an_untrusted_peer_still_shares_one_bucket(self):
+        for _ in range(5):
+            self._post_alert("1.2.3.4")
+        assert self._post_alert("9.9.9.9").status_code == 429
+
     def test_unmatched_path_not_limited(self):
         for _ in range(20):
             response = self.client.post(
