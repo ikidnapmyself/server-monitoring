@@ -16,7 +16,7 @@ from apps.alerts.check_integration import STATUS_TO_SEVERITY
 from apps.alerts.describing import alert_link
 from apps.alerts.identity import local_hostname, local_instance_id
 from apps.alerts.reevaluation import PRIMARY_METRIC
-from apps.checkers.admin_charts import render_sparkline
+from apps.checkers.charts import render_sparkline
 from apps.checkers.checkers import CheckStatus
 from apps.checkers.models import CheckRun, PreflightRun
 from config.describing import Action

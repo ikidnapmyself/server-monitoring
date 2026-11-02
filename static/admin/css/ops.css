@@ -654,7 +654,7 @@ select,
   height: auto;
 }
 
-/* The alert marker on a sparkline (apps/checkers/admin_charts.py). */
+/* The alert marker on a sparkline (apps/checkers/charts.py). */
 .spark-marker {
   fill: var(--ops-critical-fg);
 }
