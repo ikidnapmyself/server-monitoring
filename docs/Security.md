@@ -611,7 +611,7 @@ Mapping derived from the [2026-05-12 ISO 27003 audit](plans/2026-05-12-iso-27003
 | A.5.17 | Authentication information | `APIKey` model: `secrets.token_hex(20)` raw, SHA-256 digest at rest, never re-displayed; `DJANGO_SECRET_KEY` env-only with startup check; agents authenticate to the hub with `HUB_API_KEY` (Bearer) |
 | A.5.23 | Information security for use of cloud services | `validate_safe_url` on intelligence-provider base URLs; `BLOCKED_CONFIG_KEYS` filter on API-callable provider config |
 | A.8.2 | Privileged access rights | `bin/` toolchain confirmed not to grant sudo or install setuid; console actions limited to active superusers |
-| A.8.3 | Information access restriction | `APIKey.allowed_endpoints` path-prefix gating; console actions outside webhook surface |
+| A.8.3 | Information access restriction | `APIKey.allowed_endpoints` path-prefix allowlists; console actions outside webhook surface |
 | A.8.5 | Secure authentication | Bearer / `X-API-Key` header model; constant-time digest comparison via DB lookup on hashed digest |
 | A.8.9 | Configuration management | `.env` / `.env.sample` split; `bin/check_security.sh` runtime posture check; Django system checks `config.W001`/`config.W002` |
 | A.8.11 | Data masking | Pipeline stores *references* (`normalized_payload_ref`, `checker_output_ref`, `intelligence_output_ref`, `notify_output_ref`) — not raw payloads |
