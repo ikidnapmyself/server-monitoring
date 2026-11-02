@@ -468,9 +468,9 @@ def check_pipeline_state() -> list[CheckResult]:
                 level="warn",
                 message="No active pipeline definitions — every alert will fail to route",
                 hint=(
-                    "Routing has no fallback: an alert no lane matches fails as "
+                    "Routing has no fallback: an alert no route matches fails as "
                     "no_route and nothing is checked, analysed or notified. Migration "
-                    "0012 seeds a catch-all lane. Re-add one at /console/routes/new/ "
+                    "0012 seeds a catch-all route. Re-add one at /console/routes/new/ "
                     "with no conditions."
                 ),
             )
@@ -500,7 +500,7 @@ def check_pipeline_state() -> list[CheckResult]:
                     + ", ".join(f"{name} ({gap})" for name, gap in undeliverable)
                 ),
                 hint=(
-                    "Such a run now fails non-retryably \u2014 no_channel when the lane "
+                    "Such a run now fails non-retryably \u2014 no_channel when the route "
                     "names no active channel, no_driver when it names one whose driver "
                     "is not registered. Fix the route at /console/routes/, or drop notify "
                     "from its stages if this hub only records."

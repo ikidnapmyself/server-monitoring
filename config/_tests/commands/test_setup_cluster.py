@@ -140,7 +140,7 @@ class SetupClusterHubTests(TestCase):
 
         text = Command().create_parser("manage.py", "setup_cluster").format_help()
         self.assertIn("/console/channels/new/", text)
-        self.assertNotIn("admin", text)
+        self.assertNotIn("admin", text.lower())
 
     def test_hub_skips_when_channel_already_active(self):
         from apps.notify.models import NotificationChannel

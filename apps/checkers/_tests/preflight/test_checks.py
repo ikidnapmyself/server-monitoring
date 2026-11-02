@@ -803,6 +803,7 @@ class CheckPipelineStateTests(TestCase):
         self.assertEqual(len(offender), 1)
         self.assertIn("no_route", offender[0].hint)
         self.assertIn("/console/routes/new/", offender[0].hint)
+        self.assertNotIn("lane", offender[0].hint)
         self.assertNotIn("Django", offender[0].hint)
         self.assertNotIn("optional", offender[0].message.lower())
         # No info-level duplicate left behind saying the opposite.
@@ -839,6 +840,7 @@ class CheckPipelineStateTests(TestCase):
         self.assertEqual(len(errors), 1)
         self.assertIn("no_channel", errors[0].hint)
         self.assertIn("/console/routes/", errors[0].hint)
+        self.assertNotIn("lane", errors[0].hint)
         self.assertNotIn("Django", errors[0].hint)
 
     def test_a_lane_bound_to_an_unregistered_driver_is_an_error(self):
