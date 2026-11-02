@@ -470,8 +470,8 @@ def check_pipeline_state() -> list[CheckResult]:
                 hint=(
                     "Routing has no fallback: an alert no lane matches fails as "
                     "no_route and nothing is checked, analysed or notified. Migration "
-                    "0012 seeds a catch-all lane; re-add one in Django Admin "
-                    "(Orchestration → Pipeline definitions) with an empty match."
+                    "0012 seeds a catch-all lane. Re-add one at /console/routes/new/ "
+                    "with no conditions."
                 ),
             )
         )
@@ -502,9 +502,8 @@ def check_pipeline_state() -> list[CheckResult]:
                 hint=(
                     "Such a run now fails non-retryably \u2014 no_channel when the lane "
                     "names no active channel, no_driver when it names one whose driver "
-                    "is not registered. Fix the lane in Django Admin (Orchestration "
-                    "\u2192 Pipeline definitions), or drop notify from its stages if "
-                    "this hub only records."
+                    "is not registered. Fix the route at /console/routes/, or drop notify "
+                    "from its stages if this hub only records."
                 ),
             )
         )
@@ -518,8 +517,8 @@ def check_pipeline_state() -> list[CheckResult]:
                 level="info",
                 message="Recording only \u2014 no lane delivers, no channel configured",
                 hint=(
-                    "Add a channel and point a lane at it in Django Admin if this hub "
-                    "should notify."
+                    "Add a channel at /console/channels/new/ and point a route at it if this "
+                    "hub should notify."
                 ),
             )
         )
