@@ -33,8 +33,8 @@ from apps.alerts.node_policy import (
 from apps.alerts.reeval_existing import _outcome_for
 from apps.alerts.reevaluation import SCORERS, Verdict
 from apps.checkers.checkers import checker_label
-from config.admin_badges import tone_for
 from config.describing import Action
+from config.tones import tone_for
 
 # The badge wording follows the node page's policy panel vocabulary, so one
 # state does not get two names across the two surfaces.

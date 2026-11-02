@@ -55,6 +55,7 @@ def _scanned() -> list[Path]:
         *(ROOT / "apps").rglob("admin*.py"),
         *(ROOT / "apps").rglob("*_overview.py"),
         *(ROOT / "config").glob("admin*.py"),
+        ROOT / "config" / "tones.py",
         ROOT / "config" / "dashboard.py",
     }
     return sorted(path for path in paths if "_tests" not in path.parts)
@@ -75,7 +76,7 @@ MUST_BE_SCANNED = {
     "apps/alerts/node_overview.py",
     "apps/alerts/policy_overview.py",
     "config/admin.py",
-    "config/admin_badges.py",
+    "config/tones.py",
     "config/dashboard.py",
 }
 

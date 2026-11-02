@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from django.conf import settings
 
-from config.admin_badges import TONES
+from config.tones import TONES
 
 CSS = Path(settings.BASE_DIR) / "static" / "console" / "console.css"
 DARK_MARKER = "@media (prefers-color-scheme: dark)"

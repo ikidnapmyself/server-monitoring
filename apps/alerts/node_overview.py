@@ -19,9 +19,9 @@ from apps.alerts.reevaluation import PRIMARY_METRIC
 from apps.checkers.admin_charts import render_sparkline
 from apps.checkers.checkers import CheckStatus
 from apps.checkers.models import CheckRun, PreflightRun
-from config.admin_badges import tone_for
 from config.describing import Action
 from config.readiness import NODE_RECENT_MINUTES
+from config.tones import tone_for
 
 # The header chip's tone, derived from the freshness verdict rather than stored
 # beside it so the two cannot disagree. "info" is the local node, whose self-check

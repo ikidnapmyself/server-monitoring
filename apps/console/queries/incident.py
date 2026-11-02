@@ -23,8 +23,8 @@ from apps.orchestration.describing import (
     describe_stage_outcome,
     run_link,
 )
-from config.admin_badges import INCIDENT_STATUS_TONES, SEVERITY_TONES, tone_for
 from config.describing import Action, Description, format_duration, or_action
+from config.tones import INCIDENT_STATUS_TONES, SEVERITY_TONES, tone_for
 
 ACTION_LABELS = {"acknowledge": "Acknowledge", "resolve": "Resolve", "close": "Close"}
 RERUN = "Run the checks again"
