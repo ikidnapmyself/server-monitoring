@@ -205,7 +205,6 @@ class TestGetMapContext:
         )
         card = get_map_context()["lanes"][0]
         assert card["pk"] == lane_row.pk
-        assert "admin_url" not in card
         assert card["state"] == "ok"
         assert card["state_words"] == ""
         assert card["conditions"] == ["Source is cluster"]

@@ -55,7 +55,7 @@ class RunActionView(RunPageView):
         write, won, lost = ACTIONS[kwargs["action"]]
         notice = Notice(won, "ok") if write(pk) else Notice(lost, "warning")
         if self.wants_partial:
-            # Not the messages framework: the next poll, or an admin page, would eat it.
+            # Not the messages framework: the next poll, or another page, would eat it.
             return self.render_run(pk, notice=notice)
         if not run_exists(pk):
             return self.not_found()

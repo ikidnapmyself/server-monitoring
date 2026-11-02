@@ -105,7 +105,6 @@ def test_collectstatic_hashes_every_console_asset(tmp_path, settings):
         "console/console.css",
         "console/console.js",
         "console/vendor/htmx.min.js",
-        "admin/css/ops.css",
     ):
         stored = staticfiles_storage.stored_name(name)
         assert stored != name
@@ -113,10 +112,9 @@ def test_collectstatic_hashes_every_console_asset(tmp_path, settings):
         assert staticfiles_storage.url(name) == f"/static/{stored}"
 
 
-def test_both_sign_in_pages_are_rate_limited(settings):
+def test_the_sign_in_page_is_rate_limited(settings):
     for limits in (settings.RATE_LIMITS, DEFAULT_RATE_LIMITS):
         assert limits["/console/login/"] == 10
-        assert limits["/admin/login/"] == 10
 
 
 def test_the_console_owns_sign_in(settings):

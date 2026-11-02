@@ -47,7 +47,6 @@ ALLOWED_HOSTS: list[str] = [h.strip() for h in _allowed_hosts.split(",") if h.st
 # Application definition
 
 INSTALLED_APPS = [
-    "config.apps.MonitoringAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -248,7 +247,6 @@ RATE_LIMITS = {
     "/notify/": 30,
     "/intelligence/": 20,
     "/console/login/": 10,
-    "/admin/login/": 10,
 }
 
 # ---------------------------------------------------------------------------

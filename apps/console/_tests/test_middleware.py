@@ -64,7 +64,7 @@ def test_a_response_no_console_view_returned_still_carries_the_headers(client, s
 
 @pytest.mark.django_db
 def test_paths_outside_the_console_are_left_alone(client):
-    resp = client.get(reverse("admin:login"))
+    resp = client.get("/alerts/webhook/")
 
     assert resp.status_code == 200
     assert resp.get("Content-Security-Policy") != CSP

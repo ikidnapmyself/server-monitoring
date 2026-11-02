@@ -67,24 +67,14 @@ class RateLimitMiddlewareTests(TestCase):
         assert response.status_code == 429
         assert "Rate limit exceeded" in response.json()["error"]
 
-    @override_settings(RATE_LIMITS={"/admin/login/": 3})
-    def test_the_admin_login_is_limited_but_the_rest_of_admin_is_not(self):
-        for _ in range(5):
-            assert self.client.post("/admin/logout/").status_code != 429
+    @override_settings(RATE_LIMITS={"/static/": 1})
+    def test_static_paths_are_never_counted(self):
         for _ in range(3):
-            assert self.client.post("/admin/login/").status_code != 429
-        response = self.client.post("/admin/login/")
-        assert response.status_code == 429
-        assert "Rate limit exceeded" in response.json()["error"]
+            assert self.client.post("/static/missing.css").status_code != 429
 
     def test_get_requests_exempt(self):
         for _ in range(10):
             response = self.client.get("/alerts/webhook/")
-            assert response.status_code != 429
-
-    def test_admin_paths_exempt(self):
-        for _ in range(10):
-            response = self.client.get("/admin/login/")
             assert response.status_code != 429
 
     @override_settings(RATE_LIMIT_ENABLED=False)

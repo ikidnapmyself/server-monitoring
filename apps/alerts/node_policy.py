@@ -8,8 +8,7 @@ and can simply be told they are wrong.
 
 The spec is derived from ``SCORERS`` rather than restated, so adding a scorer
 adds a form section with no edit here. A scorer added without a matching spec is
-caught by ``apps/alerts/_tests/test_node_policy.py``, matching how
-``config.SECTION_MAP`` completeness is guarded.
+caught by ``apps/alerts/_tests/test_node_policy.py``.
 """
 
 import hashlib
@@ -420,7 +419,7 @@ def _reported_checkers(node) -> set[str]:
 
     ``node_overview.build_checker_rows`` answers the same question and is
     deliberately not reused. Importing it here would point ``node_policy`` at a
-    module that pulls in the sparkline renderer and ``config.dashboard``, which
+    module that pulls in the sparkline renderer and ``config.readiness``, which
     closes the loop into a real import cycle.
     The same reasoning already kept ``_json_dict`` duplicated above. What is
     needed here is also far less than that function returns: names only, so one

@@ -265,13 +265,12 @@ def test_the_page_has_no_edit_raw_and_no_open_in_admin(client, superuser, header
 
 @pytest.mark.django_db
 @BOTH
-def test_the_page_links_no_admin_page(client, superuser, headers):
+def test_the_page_links_its_run_and_alert(client, superuser, headers):
     incident, *_ = _busy()
 
     body = client.get(_url(incident), **headers).content.decode()
     region = body if headers else body[body.index('<div id="incident"') : body.index("</main>")]
 
-    assert 'href="/admin/' not in region
     assert "Open the run" in region and "Open the alert" in region
 
 
@@ -700,7 +699,6 @@ def test_overview_and_list_rows_link_to_the_console_page(client, superuser):
 
         link = f'<a id="incident-{incident.pk}" href="{_url(incident)}">Disk full on web-1</a>'
         assert link in body
-        assert reverse("admin:alerts_incident_change", args=[incident.pk]) not in body
 
 
 def _long_incident(monkeypatch):

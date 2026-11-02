@@ -2,8 +2,6 @@
 
 from dataclasses import dataclass
 
-from django.urls import reverse
-
 from apps.alerts.models import Node
 from apps.alerts.node_overview import build_checker_rows
 from apps.alerts.reevaluation import PRIMARY_METRIC
@@ -40,7 +38,6 @@ class NodeMetrics:
     pk: int
     instance_id: str
     hostname: str
-    url: str
     cells: list[MetricCell]
 
 
@@ -88,7 +85,6 @@ def build_fleet_metrics() -> FleetMetrics:
             pk=node.pk,
             instance_id=node.instance_id,
             hostname=node.hostname,
-            url=reverse("console:node", args=[node.pk]),
             cells=[
                 (
                     MetricCell(value=found.value, status=found.status)

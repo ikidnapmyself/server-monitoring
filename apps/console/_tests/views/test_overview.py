@@ -84,13 +84,13 @@ def test_anonymous_htmx_login_returns_to_the_page_the_operator_was_on(
         "http://testserver//evil.example/x",
         "javascript:alert(1)",
         "",
-        "http://testserver/admin/logout/",
+        "http://testserver/alerts/webhook/",
         "http://testserver/consolex/",
         "http://testserver",
-        "http://testserver/console/../admin/logout/",
-        "http://testserver/console/%2e%2e/admin/logout/",
-        "http://testserver/console/..\\admin/logout/",
-        "http://testserver/console/\t../admin/",
+        "http://testserver/console/../alerts/webhook/",
+        "http://testserver/console/%2e%2e/alerts/webhook/",
+        "http://testserver/console/..\\alerts/webhook/",
+        "http://testserver/console/\t../alerts/",
     ],
     ids=[
         "foreign-host",
@@ -179,7 +179,6 @@ def test_page_polls_itself_and_links_onward(client, superuser):
 
     assert f'hx-get="{reverse("console:overview")}"' in body
     assert 'hx-trigger="every 30s, console:refresh"' in body
-    assert reverse("admin:index") in body
     assert reverse("console:logout") in body
 
 

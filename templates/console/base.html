@@ -13,7 +13,6 @@
   <header class="c-header">
     <a class="c-header__brand" href="{% url 'console:overview' %}">{% include "console/partials/_octicon.html" with name="pulse" %}<span>Ops console</span></a>
     {% block links %}<div class="c-header__links">
-      <a class="c-header__link" href="{% admin_url 'index' %}">Admin</a>
       <form method="post" action="{% url 'console:logout' %}">
         {% csrf_token %}
         <button class="c-header__link" type="submit">Sign out</button>

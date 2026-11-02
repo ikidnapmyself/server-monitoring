@@ -23,7 +23,6 @@ HEALTH_CHECK_PATHS = (
 class APIKeyAuthMiddleware:
     """Stateless API key auth. Checks Bearer/X-API-Key header on API paths.
 
-    Admin paths use Django session auth.
     Health-check GET paths are exempt; all other requests on API paths require a key.
     """
 

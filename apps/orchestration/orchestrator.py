@@ -546,7 +546,7 @@ class PipelineOrchestrator:
                     # INGEST succeeded BEFORE fan-out shipped recorded no material
                     # list, and it can still be re-executed after the upgrade: it
                     # is resumable while FAILED/RETRYING (the resume endpoint, the
-                    # admin's "Mark for Retry") and reclaimable while PROCESSING.
+                    # console's retry) and reclaimable while PROCESSING.
                     # Without this its downstream work would vanish silently — no
                     # lane, no analysis, no message for the one incident the old
                     # model would have carried. Filtered to incidents that still

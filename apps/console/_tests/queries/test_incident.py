@@ -1,4 +1,3 @@
-import inspect
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
@@ -116,14 +115,8 @@ def test_header_fields_describe_the_incident():
     assert isinstance(detail.timeline, tuple)
     with pytest.raises(FrozenInstanceError):
         detail.what = None
-    for gone in ("title", "description", "admin_url", "actions"):
+    for gone in ("title", "description", "actions"):
         assert not hasattr(detail, gone)
-
-
-def test_the_read_model_builds_no_admin_url():
-    source = inspect.getsource(incident_queries)
-
-    assert "admin:" not in source
 
 
 @pytest.mark.django_db
