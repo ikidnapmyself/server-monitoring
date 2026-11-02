@@ -26,7 +26,7 @@ def test_channels_error_when_none_active_and_a_lane_promises_delivery():
 
 @pytest.mark.django_db
 def test_channels_info_when_no_channel_and_no_lane_delivers():
-    """A hub that reads the admin daily and notifies nobody is not broken.
+    """A hub that reads the console daily and notifies nobody is not broken.
 
     Painting it red is how a readiness panel becomes something operators learn to
     ignore, which costs them the entries that do matter.
@@ -212,7 +212,7 @@ def test_lane_that_claims_to_deliver_but_cannot_is_an_error():
 def test_a_recording_hub_is_not_an_error():
     """No channel and no delivering lane is a supported setup, not a fault.
 
-    An operator who reads the admin daily and runs no Slack must not see red.
+    An operator who reads the console daily and runs no Slack must not see red.
     """
     from apps.orchestration.testing import clear_lanes
 

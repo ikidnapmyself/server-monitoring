@@ -1,6 +1,6 @@
 """Seed the routing table to match how this hub is actually configured.
 
-This is the LIVE version, for the callers that must track today's design:
+This is the LIVE version, for the caller that must track today's design,
 ``setup_cluster``. Migration ``0017`` carries a frozen copy of the
 lane constants and the create/repair body, and that duplication is deliberate —
 if the migration imported this module, replaying it on a fresh database would run

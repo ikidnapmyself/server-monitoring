@@ -562,8 +562,8 @@ class PeerObservedSemanticsTests(TestCase):
     """What the peer table's timestamp column is allowed to claim.
 
     A peer has no CheckRun here, so the row is an Alert. ``Alert.updated_at`` is
-    auto_now, so it bumps on every hub-side write: the re-evaluate action, an
-    admin save, an incident relink. Reading it as "when this machine last told
+    auto_now, so it bumps on every hub-side write: the re-evaluate action, a
+    policy save, an incident relink. Reading it as "when this machine last told
     us this" makes a node that went quiet hours ago look freshly observed the
     moment an operator touched it.
     """
@@ -589,7 +589,7 @@ class PeerObservedSemanticsTests(TestCase):
     def test_a_hub_side_write_does_not_make_the_row_look_freshly_observed(self):
         node = Node.objects.create(instance_id="web-03", hostname="web-03")
         alert = self._peer_alert(node)
-        alert.save()  # any hub-side write: re-evaluate, admin save, incident relink
+        alert.save()  # any hub-side write: re-evaluate, policy save, incident relink
         alert.refresh_from_db()
         row = build_checker_rows(node)[0]
         self.assertLess(row.observed_at, alert.updated_at)

@@ -500,7 +500,7 @@ def check_pipeline_state() -> list[CheckResult]:
                     + ", ".join(f"{name} ({gap})" for name, gap in undeliverable)
                 ),
                 hint=(
-                    "Such a run now fails non-retryably \u2014 no_channel when the route "
+                    "Such a run now fails non-retryably, no_channel when the route "
                     "names no active channel, no_driver when it names one whose driver "
                     "is not registered. Fix the route at /console/routes/, or drop notify "
                     "from its stages if this hub only records."

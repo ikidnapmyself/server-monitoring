@@ -332,7 +332,7 @@ class SetupClusterHubTests(TestCase):
     def test_a_malformed_stages_column_is_repaired_not_skipped(self):
         """A bare string in ``stages`` must not fool the repair check.
 
-        ``clean()`` only runs on admin forms, so a fixture or shell edit can persist
+        ``clean()`` only runs on form validation, so a fixture or shell edit can persist
         ``stages="notify"``. Testing membership against the raw column would substring
         -match (``"notify" in "notify"`` is True) and skip the repair, leaving a lane
         that ``routable_stages()`` normalises to ``[]`` — configured, matched, and

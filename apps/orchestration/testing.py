@@ -1,7 +1,7 @@
 """Test helpers for routing state owned by this app.
 
 Not imported by production code. It lives beside the models rather than under
-``_tests/`` because tests in other apps (checkers preflight, alerts admin) need
+``_tests/`` because tests in other apps (checkers preflight, the console) need
 it too, and importing another app's private test package would be worse coupling
 than one small public helper.
 """

@@ -84,7 +84,7 @@ def test_incidents_created_at_the_same_instant_keep_a_stable_order():
 
 
 @pytest.mark.django_db
-def test_a_row_carries_tones_count_and_the_admin_link():
+def test_a_row_carries_tones_count_and_its_link():
     incident = _incident("disk full", "critical", status="acknowledged")
     _alert(incident, key="a")
     _alert(incident, key="b")

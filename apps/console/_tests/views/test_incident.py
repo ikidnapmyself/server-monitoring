@@ -253,14 +253,12 @@ def test_whats_wrong_renders_the_incident_description(client, superuser, headers
 
 @pytest.mark.django_db
 @BOTH
-def test_the_page_has_no_edit_raw_and_no_open_in_admin(client, superuser, headers):
+def test_the_page_has_no_edit_raw(client, superuser, headers):
     incident, *_ = _busy()
 
     body = client.get(_url(incident), **headers).content.decode()
 
     assert "Edit raw" not in body
-    assert "Open in admin" not in body
-    assert "incident-admin" not in body
 
 
 @pytest.mark.django_db

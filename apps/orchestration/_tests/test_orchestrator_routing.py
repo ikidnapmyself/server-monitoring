@@ -518,7 +518,7 @@ class LegacySnapshotResumeTests(TestCase):
     """A run whose INGEST snapshot predates ``alert_id`` must still drain.
 
     33 such runs existed on the dev database when this was written — all FAILED,
-    all resumable via the resume endpoint or the admin's "Mark for Retry". Without
+    all resumable via the resume endpoint or a retry from the console. Without
     the fallback they resume to a COMPLETED run that executed nothing, leaving the
     incident unstamped and the diagnosis strip reporting ``never_ran``.
     """

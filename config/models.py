@@ -11,7 +11,7 @@ class APIKey(models.Model):
 
     The raw token is never persisted. ``key`` stores its SHA-256 hex digest
     (64 chars). ``prefix`` stores the first 8 chars of the raw token for safe
-    admin display.
+    console display.
 
     ``_raw_key`` (str) — Transient instance attribute set only during initial
     ``save()`` when a key is first generated. Not persisted to the database.
