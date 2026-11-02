@@ -117,7 +117,7 @@ Each alert driver validates incoming payloads structurally via `validate()` and 
 
 ## API Key Authentication
 
-API endpoints require authentication via API key for non-GET requests. Keys are managed in the console at `/console/keys/`. The Django admin lists them read-only.
+API endpoints require authentication via API key for non-GET requests. Keys are managed in the console at `/console/keys/`.
 
 ### Setup
 
@@ -149,16 +149,15 @@ The following paths do **not** require an API key:
 
 - `/alerts/webhook/` — `GET` health check for the webhook endpoint
 - `/intelligence/health/` — `GET` service health status
-- `/admin/*` — Django session auth (not API key auth)
-- `/static/*`
+- any path outside the API prefixes, such as `/console/` (session auth) and `/static/`
 
 All other `GET` and `POST` requests on API paths (`/alerts/`, `/orchestration/`, `/notify/`, `/intelligence/`) require a valid key. In particular, data-returning endpoints such as `/orchestration/pipelines/`, `/intelligence/providers/`, and `/intelligence/recommendations/` are **not** exempt.
 
-The two health-check paths (`/alerts/webhook/`, `/intelligence/health/`) use an exact-equality match (`path in HEALTH_CHECK_PATHS`), so a suffix like `/alerts/webhook/data` does not bypass auth. The admin and static prefixes use a `startswith` match; both assume admin lives at the default `/admin/` path. **If `ROOT_URLCONF` ever relocates admin to a non-default path, `EXEMPT_PATH_PREFIXES` (`config/middleware/constants.py`) must be updated in lockstep.**
+The two health-check paths (`/alerts/webhook/`, `/intelligence/health/`) use an exact-equality match (`path in HEALTH_CHECK_PATHS`), so a suffix like `/alerts/webhook/data` does not bypass auth.
 
 ### API Key Disclosure Model
 
-`APIKey.prefix` stores the first 8 hex characters of the raw key for safe admin display (`{prefix}***` in the list view). Remaining entropy after prefix disclosure is 128 bits — well outside brute-force range — but treat the admin list view as a trust-bearing surface (screenshots, logs).
+`APIKey.prefix` stores the first 8 hex characters of the raw key for safe display in the console. Remaining entropy after prefix disclosure is 128 bits, well outside brute-force range, but treat the console's key list as a trust-bearing surface (screenshots, logs).
 
 The raw key itself is **never** persisted: only its SHA-256 digest is stored (`APIKey.key`, 64 hex chars) and the digest field is `editable=False`. Operators see the raw key exactly once at creation time.
 
@@ -175,7 +174,7 @@ and `/intelligence/` when `API_KEY_AUTH_ENABLED=1`.
 - The middleware resolves the token against the `APIKey` model (SHA-256 digest at
   rest) and compares with `hmac.compare_digest` (constant-time).
 - Missing or invalid token → `401 Unauthorized`.
-- Admin (`/admin/`) uses Django session auth; `/static/` and GET health checks are exempt.
+- The console uses Django session auth. `/static/` and GET health checks are exempt.
 
 ### Cluster (agent → hub)
 
@@ -204,14 +203,12 @@ Default limits (configurable via `RATE_LIMITS` in settings):
 | `/notify/` | 30 req/min |
 | `/intelligence/` | 20 req/min |
 | `/console/login/` | 10 req/min |
-| `/admin/login/` | 10 req/min |
 
-### Sign-in pages
+### Sign-in page
 
-Both sign-in pages take the same superuser credentials, so both are limited to 10 POSTs a
-minute per client. The rest of `/admin/` stays exempt. Over the limit, the console login
-answers with its own page, status 429, saying how many seconds are left. It keeps the
-username, and keeps `next` only when it's a local URL. The admin login gets the JSON 429.
+The console login is the only sign-in page. It's limited to 10 POSTs a minute per client.
+Over the limit it answers with its own page, status 429, saying how many seconds are left.
+It keeps the username, and keeps `next` only when it's a local URL.
 
 **Behind a reverse proxy, set `TRUSTED_PROXIES`.** With the proxy listed, the limiter
 keys each sign-in attempt on the client's own address, so one bad actor only locks
@@ -222,8 +219,7 @@ sign-in until the minute ends.
 
 With Cloudflare or a load balancer in front of nginx, list each of its published ranges
 too, for example `TRUSTED_PROXIES=unix,173.245.48.0/20` plus the rest of Cloudflare's list.
-Otherwise every client behind one edge address
-shares that address's bucket.
+Otherwise every client behind one edge address shares that address's bucket.
 
 ### Identity
 
@@ -332,7 +328,7 @@ except PathNotAllowedError:
 
 ### Pipeline Stat-Only Sinks
 
-`apps/intelligence/providers/local.py` walks the configured `scan_paths` via `Path.rglob("*")` and reports filename / size / mtime metadata only — no file contents are returned. The path validation contract still requires every entry in `scan_paths` to originate from admin-controlled DB config (the API caller cannot supply `scan_paths` because it is in `BLOCKED_CONFIG_KEYS`). Symlink following is the default behaviour of `rglob`, which compounds the impact of any path-validation gap; this is intentional for cleanup-recommendation use cases but means any future code reading file *contents* from these walks must add per-entry `resolve_safe_path` validation.
+`apps/intelligence/providers/local.py` walks the configured `scan_paths` via `Path.rglob("*")` and reports filename / size / mtime metadata only. No file contents are returned. The path validation contract still requires every entry in `scan_paths` to originate from operator-controlled DB config (the API caller cannot supply `scan_paths` because it is in `BLOCKED_CONFIG_KEYS`). Symlink following is the default behaviour of `rglob`, which compounds the impact of any path-validation gap; this is intentional for cleanup-recommendation use cases but means any future code reading file *contents* from these walks must add per-entry `resolve_safe_path` validation.
 
 ### Resolve-vs-Open TOCTOU
 
@@ -416,9 +412,9 @@ A ruff lint rule (`TID251`) bans direct `urllib.request.urlopen` imports. Violat
 
 `validate_safe_url` resolves DNS once at validation time; the actual `urlopen` later re-resolves DNS at connect time. An attacker who controls a DNS record (TTL=0) could serve a public IP on the validation lookup and a private/internal IP on the connect lookup, bypassing the private-IP check. `_SSRFRedirectHandler` closes this for redirects but **not** for the initial connection.
 
-**In the current codebase, no API path lets the caller choose the URL** — every reachable outbound HTTP destination originates from admin-controlled DB config (`NotificationChannel.config`, `IntelligenceProvider.config`) or a hardcoded constant (PagerDuty). The practical attack therefore requires either:
+**In the current codebase, no API path lets the caller choose the URL.** Every reachable outbound HTTP destination originates from operator-controlled DB config (`NotificationChannel.config`, `IntelligenceProvider.config`) or a hardcoded constant (PagerDuty). The practical attack therefore requires either:
 
-1. An attacker who has compromised DNS for a hostname the admin already configured (e.g., `hooks.slack.com`), or
+1. An attacker who has compromised DNS for a hostname an operator already configured (e.g., `hooks.slack.com`), or
 2. `SSRF_ALLOWED_HOSTS` to include a hostname whose DNS the attacker controls.
 
 Both are extreme scenarios for single-tenant deployments. If the deployment ever permits caller-supplied URLs to flow into `safe_urlopen` / `validate_safe_url`, harden by either pinning the resolved IP through to connect time, or routing outbound traffic through an egress proxy that re-validates at the network layer. See the ISO 27003 audit, [`config` Sub-threshold #3](plans/2026-05-12-iso-27003-security-audit-notes.html#sub-threshold-observations-3).
@@ -447,7 +443,7 @@ The pipeline trigger endpoint accepts `incident_id` from the request body and wr
 
 ### Routing `match` Discipline
 
-`PipelineDefinition.matches()` evaluates admin-editable `match` conditions with a **fixed operator set** (`is`/`is-not`/`in`/`not-in`) and **fails closed** on unknown ops or bad shapes. Do not extend it into an expression language using `eval`, `exec`, `compile`, `ast.literal_eval`, or Jinja2 — the `match` JSON is admin-controlled, but admin-trust is not arbitrary-code-execution trust.
+`PipelineDefinition.matches()` evaluates operator-editable `match` conditions with a **fixed operator set** (`is`/`is-not`/`in`/`not-in`) and **fails closed** on unknown ops or bad shapes. Do not extend it into an expression language using `eval`, `exec`, `compile`, `ast.literal_eval`, or Jinja2. The `match` JSON is operator-controlled, but operator trust is not arbitrary-code-execution trust.
 
 ## Operator Tooling (`bin/`)
 
@@ -580,19 +576,19 @@ For Docker image vulnerabilities (trivy), rebuild with an updated base image or 
 - **Tests**: pytest across Python 3.10, 3.11, 3.12
 - **Django checks**: `manage.py check` + migration consistency
 
-## Console and Admin Interface
+## Console
 
 Operators act on incidents, runs and the inbox, edit routes, channels, providers and API
-keys, and manage users in the console (`/console/`). The Django admin (`/admin/`) is
-deprecated, and its model pages are read-only:
+keys, and manage users in the console (`/console/`). It is the only UI. Django's admin is
+removed and `django.contrib.admin` is not installed:
 
 - The console admits active superusers only (`admits()` in `apps/console/access.py`). A
   signed-in user who isn't one gets a 403 page with a way to sign out, and every page and
   action, including acknowledge, resolve, retry and drain, sits behind that one check.
 - The console has its own login at `/console/login/`. It signs in active superusers only,
   and gives every refusal the same message, so it never says which accounts exist. Logout
-  is a POST to `/console/logout/`. Both login pages are rate limited, as described under
-  Rate Limiting.
+  is a POST to `/console/logout/`. The login is rate limited, as described under Rate
+  Limiting.
 - Users are managed at `/console/users/`. Every account made there is an active
   superuser with a password that passes `AUTH_PASSWORD_VALIDATORS`. Groups have no page.
   `manage.py createsuperuser` makes the first account.
@@ -600,9 +596,6 @@ deprecated, and its model pages are read-only:
   or deleted, and nobody can deactivate or delete their own account. The last-superuser
   check runs first. Both run inside the write's transaction, with the other superuser
   rows locked, so two concurrent removals can't both pass.
-- `/admin/` keeps Django's staff authentication as on main, so non-superuser staff can
-  still sign into it, but the console refuses them. It goes away in the next slice.
-- Custom `MonitoringAdminSite` inherits all default auth protections
 
 ## Reporting Vulnerabilities
 
@@ -614,11 +607,11 @@ Mapping derived from the [2026-05-12 ISO 27003 audit](plans/2026-05-12-iso-27003
 
 | Control | Title | Codebase mitigation |
 |---|---|---|
-| A.5.15 | Access control | `config/middleware/api_key_auth.py` (per-endpoint API keys, `allowed_endpoints` allowlists); Django staff/superuser auth on `/admin/`; superusers only on `/console/`, with its own login and user management |
+| A.5.15 | Access control | `config/middleware/api_key_auth.py` (per-endpoint API keys, `allowed_endpoints` allowlists); superusers only on `/console/`, with its own login and user management |
 | A.5.17 | Authentication information | `APIKey` model: `secrets.token_hex(20)` raw, SHA-256 digest at rest, never re-displayed; `DJANGO_SECRET_KEY` env-only with startup check; agents authenticate to the hub with `HUB_API_KEY` (Bearer) |
 | A.5.23 | Information security for use of cloud services | `validate_safe_url` on intelligence-provider base URLs; `BLOCKED_CONFIG_KEYS` filter on API-callable provider config |
-| A.8.2 | Privileged access rights | `bin/` toolchain confirmed not to grant sudo or install setuid; Django admin actions gated by `is_staff` |
-| A.8.3 | Information access restriction | `APIKey.allowed_endpoints` path-prefix gating; admin actions outside webhook surface |
+| A.8.2 | Privileged access rights | `bin/` toolchain confirmed not to grant sudo or install setuid; console actions limited to active superusers |
+| A.8.3 | Information access restriction | `APIKey.allowed_endpoints` path-prefix gating; console actions outside webhook surface |
 | A.8.5 | Secure authentication | Bearer / `X-API-Key` header model; constant-time digest comparison via DB lookup on hashed digest |
 | A.8.9 | Configuration management | `.env` / `.env.sample` split; `bin/check_security.sh` runtime posture check; Django system checks `config.W001`/`config.W002` |
 | A.8.11 | Data masking | Pipeline stores *references* (`normalized_payload_ref`, `checker_output_ref`, `intelligence_output_ref`, `notify_output_ref`) — not raw payloads |
@@ -627,7 +620,7 @@ Mapping derived from the [2026-05-12 ISO 27003 audit](plans/2026-05-12-iso-27003
 | A.8.21 | Security of network services | `safe_urlopen` with redirect re-validation; ruff `TID251` ban as compile-time gate |
 | A.8.24 | Use of cryptography | `hmac.compare_digest` on webhook signature verification; SHA-256 on API key digests; no TLS bypass anywhere |
 | A.8.25 | Secure development lifecycle | Ruff banned-API rule encodes the SSRF contract at lint time; SSTI regression tests under `apps/notify/_tests/`; ISO 27003 audit pass with per-module sinks review |
-| A.8.26 | Application security requirements | Central `config.security` package; admin uses `format_html` placeholders consistently; allowlist-by-omission patterns (`BLOCKED_CONFIG_KEYS`, `_PAYLOAD_TEMPLATE_KEYS`, `EXEMPT_PATH_PREFIXES`) |
+| A.8.26 | Application security requirements | Central `config.security` package; rendering code uses `format_html` placeholders consistently; allowlist-by-omission patterns (`BLOCKED_CONFIG_KEYS`, `_PAYLOAD_TEMPLATE_KEYS`, `EXEMPT_PATH_PREFIXES`) |
 | A.8.28 | Secure coding | `secrets.token_hex` for key generation; `hashlib.sha256` for storage; no `mark_safe` on user data; HTML output via `format_html` placeholders; sandboxed Jinja for templates |
 
 This table is the input for any external ISO certification or internal security review. When adding a new control surface (e.g., field-level DB encryption), add the row here and link to the implementing plan in `docs/plans/`.

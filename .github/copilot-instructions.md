@@ -46,7 +46,6 @@ apps/<app_name>/
 ├── views/          # Package (not monolithic views.py), organized by endpoint
 ├── _tests/         # Package mirroring source structure
 ├── AGENTS.md       # App-specific AI/agent guidance
-├── admin.py        # Extensive admin for operations
 ├── models.py
 ├── services.py     # Business logic
 └── drivers/ or providers/ or checkers/  # Integration implementations
@@ -54,7 +53,7 @@ apps/<app_name>/
 
 - **views/**: Must be a package directory, one module per endpoint (e.g., `views/webhook.py`, `views/health.py`).
 - **_tests/**: Must mirror the source tree (e.g., `drivers/grafana.py` → `_tests/drivers/test_grafana.py`).
-- **admin.py**: Every app must provide an extensive admin with filters, search, list displays, and pipeline tracing links.
+- **No admin.py**: Django's admin is uninstalled. Operators use the console at `/console/` (`apps/console`), superusers only.
 
 ## Code Conventions
 
@@ -150,7 +149,7 @@ Required tags: `trace_id/run_id`, `incident_id`, `stage`, `source`, `alert_finge
 - Always set timeouts for external I/O
 - Handle retries/backoff for outbound calls
 - Input validation for all external payloads
-- Redact secrets in admin displays (show refs, not values)
+- Redact secrets in console displays (show refs, not values)
 - **Always use absolute paths**: Resolve all file/directory paths to absolute form using `pathlib.Path.resolve()` before use. Never pass user-supplied relative paths directly to file operations, subprocess calls, or provider methods. Validate that resolved paths fall within allowed directories to prevent path traversal attacks.
 - **Always use full executable paths for subprocess**: Resolve the binary via `shutil.which("toolname")` and pass the absolute result as `argv[0]`. Do not rely on PATH lookup at exec time (no bare-name first elements like `["less", "-FRX"]`). This eliminates ambiguity about which binary runs and satisfies subprocess linters (bandit B603, Semgrep dynamic-argv) when paired with `# nosec B603  # nosemgrep` on the call.
 
@@ -159,7 +158,7 @@ Required tags: `trace_id/run_id`, `incident_id`, `stage`, `source`, `alert_finge
 - Code follows existing base class/module patterns
 - Config changes wired correctly (settings/env)
 - Tests exist in `_tests/` mirroring source structure
-- Admin updated if models changed
+- Console pages updated if operators need to see or act on changed models
 - Docs updated if behavior/config changed
 
 ## Key Documentation
@@ -182,4 +181,4 @@ Required tags: `trace_id/run_id`, `incident_id`, `stage`, `source`, `alert_finge
 - **Testing**: Mirror the source structure in `_tests/` (e.g., `views/webhook.py` → `_tests/views/test_webhook.py`)
 - **Pipeline work**: Always respect the orchestrator boundary—stages never call downstream stages
 - **External I/O**: Always use timeouts, handle retries, and redact secrets
-- **Admin**: Update admin.py with filters and search for new models
+- **Console**: New operator-facing models get a console page under `apps/console/`, not an admin

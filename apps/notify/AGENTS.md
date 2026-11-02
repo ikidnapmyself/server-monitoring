@@ -109,13 +109,10 @@ Key contract:
 - Always set timeouts/retries/backoff for outbound HTTP calls.
 - Do not log secrets (tokens/webhook URLs). Prefer refs/redaction.
 
-## Django Admin expectations
+## Operator pages
 
-Each app must provide an **extensive** `admin.py` so operators can manage its models and trace pipeline behavior.
-
-For `apps.notify`, operators read and edit channels in the console
-(`/console/channels/`). `NotificationChannelAdmin` is stock and read-only: no add, change
-or delete. Deliveries are read on the console run page.
+Operators read and edit channels in the console (`/console/channels/`). Deliveries are
+read on the console run page.
 
 ## App layout rules (required)
 
@@ -255,7 +252,7 @@ Authoritative source: [`docs/plans/2026-05-12-iso-27003-security-audit-notes.md`
 
 ### Email driver
 - `email.header.Header.encode()` raises on CRLF-embedded values — this is the email-header-injection mitigation. Do not bypass it by building headers as plain strings.
-- SMTP host is not URL-shaped; no `validate_safe_url` equivalent for it. Trust comes from admin-configured `NotificationChannel.config`.
+- SMTP host is not URL-shaped; no `validate_safe_url` equivalent for it. Trust comes from operator-configured `NotificationChannel.config`.
 
 ### Logging rules
 - **No `channel.config` in logs.** It contains secrets (SMTP passwords, integration keys, webhook URLs). Log channel `name` and `driver` only.

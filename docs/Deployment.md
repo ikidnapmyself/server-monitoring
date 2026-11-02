@@ -338,11 +338,11 @@ Make the first account with `manage.py createsuperuser` (prefix it with
 `docker compose -f deploy/docker/docker-compose.yml exec web` on Docker), then sign in at
 `/console/login/`. Manage further accounts at `/console/users/`.
 
-With `RATE_LIMIT_ENABLED=1`, `/console/login/` and `/admin/login/` each allow 10 sign-in
-attempts a minute per client IP. Behind the shipped nginx config with its unix-socket
-upstream, set `TRUSTED_PROXIES=unix` so each client gets its own bucket. With the Docker
-`web:8000` upstream, set the compose network's range instead. See `docs/Security.md` under
-Rate Limiting.
+With `RATE_LIMIT_ENABLED=1`, `/console/login/` allows 10 sign-in attempts a minute per
+client IP. Behind the shipped nginx config with its unix-socket upstream, set
+`TRUSTED_PROXIES=unix` so each client gets its own bucket. With the Docker `web:8000`
+upstream, set the compose network's range instead. See `docs/Security.md` under Rate
+Limiting.
 
 ## Monitoring the Deployment
 
@@ -594,7 +594,7 @@ Notes:
   `/orchestration/pipeline/` honours a caller-supplied `trace_id` and mints one
   otherwise. Cluster-ingested
   alerts also link to their originating **`Node`** (resolved from the `instance_id`
-  label). `trace_id` and `node` are both searchable/visible in the `Alert` admin.
+  label). Both show on the console alert page, and the alert list searches by `trace_id`.
 
 ### Agent setup
 
@@ -687,7 +687,7 @@ The registry holds every machine that reports on itself, **this one included**: 
 accepted cluster push **upserts a `Node`** (by `instance_id`, tracking hostname and
 last-seen) with `last_source: cluster`, and every local check run that records alerts
 upserts this machine with `last_source: local`. So a hub appears in its own registry
-alongside its agents. Browse them read-only in Django admin under **Alerts → Nodes**.
+alongside its agents. Browse them in the console at `/console/nodes/`.
 
 `manage.py doctor` is the single read-only diagnostic — it runs the preflight
 checks and reports the node's derived role, whether it is **accepting pushes**

@@ -31,7 +31,7 @@ the two. See `apps/orchestration/AGENTS.md`.
 - `apps/checkers/checks.py` — Django system checks (run with `manage.py check`)
 - `apps/checkers/management/commands/` — commands like `check_health`, `run_check`, `preflight`
 - `apps/checkers/models.py` — `CheckRun` (standalone mode audit trail); `PreflightRun` + `PreflightCheck` (node-local persisted history of `preflight` runs — counts, `overall_status`, and per-check `level`/`message`/`hint`; **no hub-push**). Operators read both in the console, at `/console/checks/` and `/console/preflight/`.
-- `apps/checkers/charts.py` — `render_sparkline(points, markers=…)`: self-contained inline SVG (no JS/CDN/`xmlns`, `currentColor` for theme). It draws the charts on the console node page. Reuse it for any trend chart.
+- `apps/checkers/charts.py`: `render_sparkline(points, markers=…)`: self-contained inline SVG (no JS/CDN/`xmlns`, `currentColor` for theme). It draws the charts on the console node page. Reuse it for any trend chart.
 
 ## Describing results
 
@@ -55,13 +55,10 @@ Every checker describes its own result, so no consumer decodes `metrics`.
 - Prefer small, deterministic checkers; isolate external I/O and enforce timeouts.
 - **Always use absolute paths**: Resolve all file/directory paths to absolute form via `pathlib.Path.resolve()` before use. Validate resolved paths against allowed directories when accepting user input.
 
-## Django Admin expectations
-
-Each app must provide an **extensive** `admin.py` so operators can manage its models and trace pipeline behavior.
+## Operator pages
 
 Operators read check runs at `/console/checks/` and preflight runs at
-`/console/preflight/`. `CheckRunAdmin` and `PreflightRunAdmin` are stock and read-only:
-plain `list_display`, and add, change and delete all refused.
+`/console/preflight/`.
 
 `apps/checkers/preflight_describing.py` words preflight output:
 - `preflight_headline(status, warnings, errors)` gives "Preflight passed", "Preflight found
@@ -144,13 +141,13 @@ Authoritative source: [`docs/plans/2026-05-12-iso-27003-security-audit-notes.md`
   - **Bare hostnames / IPs** (e.g. `NetworkChecker.hosts = ["8.8.8.8", "1.1.1.1"]`) → `ipaddress.ip_address(value)` for numeric IPs, or a hostname regex for DNS names. `validate_safe_url` will reject these because it requires a scheme.
   - **Filesystem paths** → `resolve_safe_path(path)` from `config.security`.
   - Fail closed on invalid input.
-- **Class-level `scan_targets` / `LOG_DIRECTORIES` constants are intentionally not kwargs.** If you need an admin to customise targets, route through the `IntelligenceProvider`/`CHECKER_CONFIG` DB layer or Django settings — never accept these as caller-supplied kwargs that would flow through `provider_config` (see [Finding 1](../../docs/plans/2026-05-12-iso-27003-security-audit-notes.md) for the `scan_paths` precedent).
+- **Class-level `scan_targets` / `LOG_DIRECTORIES` constants are intentionally not kwargs.** If an operator needs to customise targets, route through the `IntelligenceProvider`/`CHECKER_CONFIG` DB layer or Django settings. Never accept these as caller-supplied kwargs that would flow through `provider_config` (see [Finding 1](../../docs/plans/2026-05-12-iso-27003-security-audit-notes.md) for the `scan_paths` precedent).
 - **External API integrations** (StatusCake, PagerDuty, etc.) MUST use `safe_urlopen` from `config.security.http`; raw `urllib.request` is banned by ruff `TID251`.
 - **Timeouts on every outbound call.** No bare `urlopen(req)` without `timeout=`.
 
 ### Trust boundary discipline
 - Pipeline-mode checker inputs (`hostname`, `checker_configs`, `labels`) no longer arrive over HTTP: `POST /orchestration/pipeline/*` is a producer (ingest, then one run per changed incident) and forwards no checker configuration. CHECK still reads `checker_configs`/`labels` off a run's stored payload, so any future producer that writes them there is supplying untrusted input — treat it as such even after API-key auth.
-- Standalone CLI inputs (`run_check --paths`) are admin-trusted but still routed through `resolve_safe_path` for defence in depth.
+- Standalone CLI inputs (`run_check --paths`) are operator-trusted but still routed through `resolve_safe_path` for defence in depth.
 - Never echo raw exception messages into HTTP responses; log via `logger.exception(..., extra={"trace_id": ...})`.
 
 ### Audit checks before merging

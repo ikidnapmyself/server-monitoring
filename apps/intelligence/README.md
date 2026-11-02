@@ -260,9 +260,9 @@ apps/intelligence/
 
 ### DB-Driven Provider Selection
 
-Providers are configured via Django Admin (`IntelligenceProvider` model):
+Providers are configured in the console (`IntelligenceProvider` model):
 
-1. Go to Admin > Intelligence > Intelligence Providers
+1. Open `/console/providers/new/`
 2. Create a provider with type, name, and config (JSON with api_key, model, etc.)
 3. Set `is_active=True` — only one can be active at a time (enforced by `UniqueConstraint`)
 4. The orchestrator calls `get_active_provider()` by default, which queries the DB

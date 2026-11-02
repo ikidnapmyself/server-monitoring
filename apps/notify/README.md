@@ -152,8 +152,7 @@ Channels live in the console at `/console/channels/`, under **System**:
   leaving its box blank keeps the stored value
 - Delete a channel. The page names the routes that would stop delivering
 
-Routes pick a channel at `/console/routes/`. The `/admin/notify/` channel admin is
-read-only and never shows stored settings.
+Routes pick a channel at `/console/routes/`.
 
 ### Data model (high level)
 
@@ -294,7 +293,7 @@ Selection priority when the orchestration pipeline sends a notification:
    `no_driver` the same way.
 
 A hub with no active channel is seeded as recording-only rather than silently broken, and
-the admin readiness panel and `preflight` both surface the gap.
+the console readiness panel and `preflight` both surface the gap.
 
 **Templates may only come from a channel's stored config, never from a run payload.** That
 is an SSTI boundary, not a preference.
