@@ -6,14 +6,11 @@ pipeline stage and not an alert producer.
 ## Rules
 
 - **Nothing imports from `apps.console`.** It imports from the other apps, never the
-  reverse. Exception: `config/dashboard.py` until the auth slice deletes `/admin/`. It
-  reads the Reports queries, resolves their links through `resolve_action` and gives a
-  link only to a user `admits` lets in.
+  reverse.
 - **Reads go through `queries/`.** Functions there return frozen dataclasses, never
   querysets, so a template can't trigger a query. Views don't touch the ORM.
-- **No new write paths.** Action views call the functions the admin calls, such as
-  `IncidentManager`. If the logic lives in a `ModelAdmin` method, lift it into the
-  owning app first and make both surfaces call it.
+- **No new write paths in views.** Action views call the owning app's functions, such as
+  `IncidentManager`. If the logic doesn't live in its app yet, lift it there first.
 - **Every view subclasses `ConsoleView`** (`views/base.py`) and none overrides
   `dispatch`, so `_refusal` guards every route. `_tests/test_urls.py` fails otherwise.
 - **The console is for active superusers only.** `admits(user)` in `access.py` is the one
@@ -25,7 +22,7 @@ pipeline stage and not an alert producer.
   `admits` refuses gets `templates/console/not_superuser.html` with status 403. It has no
   console nav, only the header and its own Sign out form. A refused htmx request gets an
   empty 403 with `HX-Refresh: true`, since htmx swaps nothing on a 403, so the browser
-  reloads into the full refusal page. Non-superuser staff can still sign into `/admin/`.
+  reloads into the full refusal page.
 - **The console signs people in and out itself.** `/console/login/` is `ConsoleLoginView`,
   Django's `LoginView` with `ConsoleLoginForm`. It admits only an active superuser. Any
   other account, an inactive one, or a wrong password gets the one `REFUSED` message, so
@@ -35,10 +32,10 @@ pipeline stage and not an alert producer.
   only routes that aren't a `ConsoleView`, because someone the console refuses must still
   be able to sign in and out. `_tests/test_urls.py` exempts them by name. With
   `RATE_LIMIT_ENABLED=1`, `RateLimitMiddleware` allows 10 sign-in POSTs a minute per
-  client to `/console/login/`, and to `/admin/login/`, which takes the same credentials.
+  client to `/console/login/`.
   On the 11th it calls the view class's `rate_limited` hook, so the console answers with
   its own login page, status 429, the username kept and a `next` kept only when it's
-  local. The admin login has no hook and gets the JSON 429. `manage.py createsuperuser`
+  local. `manage.py createsuperuser`
   makes the first account.
 - **One URL, two sizes.** `ConsoleView` serves `partial_template_name` only when
   `wants_partial` is true, which means an htmx request that swaps a fragment. Two htmx
@@ -85,7 +82,7 @@ pipeline stage and not an alert producer.
   `c-counter`, `c-button`, `c-seg`, `c-flash`, `c-blankslate`, `c-pagination`,
   `c-timeline` and the issue-page `c-pagehead` and `c-sidebar`. Reuse one before writing
   a new rule. Colour is only ever a token: no hex outside the two token blocks.
-- **Tones come from `config/admin_badges.py`.** A `c-tone-<tone>` class sets the text
+- **Tones come from `config/tones.py`.** A `c-tone-<tone>` class sets the text
   colour and the `--tone-*` properties a component reads, so one tone class works on a
   label, a flash or a timeline badge. Incident states use `c-status--<status>` instead,
   because GitHub's colours for state differ from the tone table: open is green,
@@ -185,8 +182,7 @@ pipeline stage and not an alert producer.
     chip.
 - **System holds routes, channels, providers, API keys and users.** The header's System
   link in `base.html` opens `/console/routes/`. `partials/_system_nav.html` shows the
-  Routes, Channels, Providers, API keys and Users tabs in that order. The admins for the
-  first four are stock and read-only.
+  Routes, Channels, Providers, API keys and Users tabs in that order.
 - **The route pages.** `/console/routes/` lists every route in match order through
   `build_route_list`, which reads `config.netmap.get_map_context()`, so each card says
   when a route is off, never matches or is never reached, and whether it can deliver.
@@ -264,10 +260,9 @@ pipeline stage and not an alert producer.
   raising, because a raise is a 500 on every poll. Raw JSON renders through
   autoescaping only, inside an entry's Details.
 - **The incident page decodes nothing.** Every headline, stage outcome, check line,
-  analysis and delivery comes from the owning app's describer, and the read model builds
-  no admin URL. Navigation is an `Action` intent (`view_run`, `view_alert`), added only
+  analysis and delivery comes from the owning app's describer. Navigation is an `Action` intent (`view_run`, `view_alert`), added only
   when the description has no action of its own, so a link never hides a fix.
-- **`intents.py` is the only place that builds an admin URL.** `INTENTS` maps each
+- **`intents.py` turns intents into URLs.** `INTENTS` maps each
   `Action.intent` to a URL builder and a method. `resolve_action(action)` turns an
   `Action` into a link, a POST button, or plain text when the intent is unknown or the URL
   can't be built. Every intent now opens a console page. Reports have `view_checks`,
@@ -279,9 +274,7 @@ pipeline stage and not an alert producer.
   `edit_user`, `add_user`, `set_user_password`, `delete_user` and `make_superuser`. A
   `view_*` intent opens the page, or the list when it has no `pk`. A name link uses it. An
   `edit_*` intent opens the same page, and a remedy such as "Give it an active channel"
-  uses it. `admin_url()` covers only the header's Admin link, until 12b removes `/admin/`.
-  No template or query reverses an `admin:` name or writes `/admin/`, and
-  `_tests/test_intents.py` scans for both. Templates resolve an action with
+  uses it. Templates resolve an action with
   `{% load console %}{% resolved action as act %}` and render it through
   `partials/_action.html`.
 - **A `Description` renders through `partials/_description.html`.** It prints the
@@ -306,8 +299,7 @@ pipeline stage and not an alert producer.
 - **Incident actions are one POST-only view.** `IncidentActionView`
   (`views/incident_action.py`) serves `incidents/<pk>/<action>/` and calls
   `IncidentManager.transition`, which owns the status rules and locks the row. The view
-  holds no rule of its own. The admin's own incident buttons sit behind `is_staff` alone,
-  so the console, which admits superusers only, is the stricter surface.
+  holds no rule of its own.
   `IncidentPageView` (`views/incident.py`) is the one place that builds
   the page context, so the page and the action response can't drift.
 - **Rerunning checks is its own POST-only view.** `IncidentRerunView`
@@ -322,9 +314,8 @@ pipeline stage and not an alert producer.
   the inbox in a test.
 - **An action's outcome is a `Notice`, not a Django message.** An htmx POST gets the
   incident partial back with status 200 whether the action was applied or refused, with
-  the outcome passed in the context as `notice`. The messages framework is shared with
-  the admin, and a polled partial that rendered `messages` ate the admin's and leaked its
-  own. Only a plain POST uses it: it gets a 303 to the incident page, and
+  the outcome passed in the context as `notice`. A polled partial that rendered `messages`
+  would eat the next page's and leak its own. Only a plain POST uses it: it gets a 303 to the incident page, and
   `templates/console/incident.html` renders `messages` outside the polled wrapper, so only
   a full page load consumes them. A poll never carries a notice.
 - **The notice is marked `data-fresh`.** `console.js` focuses it after the swap, because
@@ -364,8 +355,7 @@ pipeline stage and not an alert producer.
 
 ## No models
 
-This app has no models, so it has no `admin.py` and no migrations. That is a
-deliberate exception to the repo's app layout rule.
+This app has no models, so it has no migrations.
 
 ## Frontend dependencies
 

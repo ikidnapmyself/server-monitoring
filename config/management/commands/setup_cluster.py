@@ -93,7 +93,10 @@ class Command(BaseCommand):
             "--notify-driver",
             dest="notify_driver",
             choices=["slack", "generic"],
-            help="Hub: notification channel driver to create (email: add via admin).",
+            help=(
+                "Hub: notification channel driver to create"
+                " (email: add at /console/channels/new/)."
+            ),
         )
         parser.add_argument(
             "--notify-webhook",
@@ -188,8 +191,7 @@ class Command(BaseCommand):
                 self.stdout.write(
                     self.style.WARNING(
                         f"Notifications: {len(active)} channels active — nothing bound. "
-                        "Pick one per lane in Django admin "
-                        "(Orchestration → Pipeline definitions)."
+                        "Pick one per route at /console/routes/."
                     )
                 )
                 return
@@ -218,7 +220,7 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.WARNING(
                     "Notifications: NONE — the hub accepts pushes but will not send anything. "
-                    "Add one in Django admin (Notify → Notification channels) or re-run with "
+                    "Add one at /console/channels/new/ or re-run with "
                     "--notify-driver slack --notify-webhook <url>."
                 )
             )
@@ -304,8 +306,8 @@ class Command(BaseCommand):
                 },
             )
         notify = PipelineStage.NOTIFY.value
-        # Read through routable_stages() rather than the raw column: clean() only runs
-        # on admin forms, so a fixture or shell edit can persist junk. A bare string
+        # Read through routable_stages() rather than the raw column: only a form
+        # validates stages, so a fixture or shell edit can persist junk. A bare string
         # would substring-match ("notify" in "notify") and skip the repair, and
         # unhashable junk would make the set() below raise TypeError instead of being
         # normalised away.

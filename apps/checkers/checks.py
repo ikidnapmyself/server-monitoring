@@ -439,7 +439,7 @@ def check_notification_channels(app_configs, **kwargs):
                 CheckWarning(
                     "No active notification channels configured",
                     hint=(
-                        "Create notification channels via Django Admin"
+                        "Create a notification channel at /console/channels/new/"
                         " or run 'python manage.py setup_cluster'."
                     ),
                     id="checkers.W014",
@@ -454,7 +454,7 @@ def check_notification_channels(app_configs, **kwargs):
                             f" has empty config",
                             hint=(
                                 f"Configure {ch['driver']} settings for channel"
-                                f" '{ch['name']}' in Django Admin."
+                                f" '{ch['name']}' at /console/channels/."
                             ),
                             id="checkers.W014",
                         )

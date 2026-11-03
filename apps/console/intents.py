@@ -161,11 +161,6 @@ INTENTS: dict[str, Intent] = {
 }
 
 
-def admin_url(name: str) -> str:
-    """The admin page the console header links to, its index, until /admin/ goes."""
-    return reverse(f"admin:{name}")
-
-
 def resolve_action(action: Action) -> ResolvedAction:
     intent = INTENTS.get(action.intent)
     if intent is None:

@@ -1,3 +1,3 @@
 """Shared constants for config middleware."""
 
-EXEMPT_PATH_PREFIXES = ("/admin/", "/static/")
+EXEMPT_PATH_PREFIXES = ("/static/",)

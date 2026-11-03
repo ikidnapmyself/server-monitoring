@@ -1869,8 +1869,8 @@ class TestNotifyExecutorRoutingGaps(TestCase):
     def test_an_unregistered_driver_fails_non_retryably(self):
         """A lane naming a driver that does not exist retries three times today.
 
-        No retry can invent a driver, and "Mark for Retry" in the admin spins it
-        again — a pointless loop against a typo in a config field.
+        No retry can invent a driver, and a retry from the console spins it
+        again, a pointless loop against a typo in a config field.
         """
         from apps.notify.models import NotificationChannel
         from apps.orchestration.errors import StageExecutionError

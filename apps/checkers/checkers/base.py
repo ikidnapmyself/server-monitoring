@@ -9,8 +9,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from config.admin_badges import CHECK_STATUS_TONES
 from config.describing import Action, Description, facts_from
+from config.tones import CHECK_STATUS_TONES
 
 logger = logging.getLogger(__name__)
 

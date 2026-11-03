@@ -1,9 +1,9 @@
-"""Self-contained inline SVG charts for the Django admin.
+"""Self-contained inline SVG charts for the console.
 
 No JavaScript, no external assets (fonts/CDN/images), no ``xmlns`` — the markup
-is inlined directly into admin HTML5 pages, so it must not reference any external
+is inlined directly into console HTML5 pages, so it must not reference any external
 host (it renders under the same self-contained constraints as an artifact). Colors
-use ``currentColor`` so the chart follows the admin's light/dark text color.
+use ``currentColor`` so the chart follows the page's light/dark text color.
 
 All markup is assembled with ``format_html``/``format_html_join`` (never
 ``mark_safe``): the templates are static literals and every interpolated value is

@@ -241,7 +241,7 @@ A reopen calls `Incident.reopen()` (status back to OPEN, `resolved_at`/`closed_a
 future snooze is one more row in this table and nothing else.
 
 **Operator transitions go through `IncidentManager.transition(incident_id, action, *,
-actor, summary)`** in `services.py`. It owns the status rules. The admin actions and any
+actor, summary)`** in `services.py`. It owns the status rules. The console's incident actions and any
 other operator surface are thin callers. `available_incident_actions(status)` is the
 table: acknowledge only from open, resolve from anything but resolved and closed, close
 from anything but closed. `transition` locks the row with `select_for_update()`, decides
@@ -267,21 +267,14 @@ changed alert of its own, which earns no run. See
   - Only `apps.orchestration` advances the pipeline.
 - Never log/store secrets from inbound payloads. Prefer storing **redacted refs**.
 
-## Django Admin expectations
+## Operator pages
 
-Each app must provide an **extensive** `admin.py` so operators can manage its models and trace pipeline behavior.
-
-For `apps.alerts`, admin should make it easy to:
-- Browse incidents and linked alerts efficiently (filters, search, list displays)
-- Inspect alert lifecycle/audit trail (`AlertHistory`)
-
-`AlertAdmin`, `AlertHistoryAdmin` and `IncidentAdmin` are stock and read-only. Operators read
-alerts and their history on the console alert pages, and read and act on incidents on the
-console incident pages.
+Operators read alerts and their history on the console alert pages, and read and act on
+incidents on the console incident pages.
 
 ### Node detail page
 
-`NodeAdmin` is stock and read-only. The operator overview is the console node page
+The operator overview is the console node page
 (`/console/nodes/<pk>/`). `apps/alerts/node_overview.py` builds its panels as plain
 dataclasses, so they are testable without a request, and `apps/console/queries/node.py`
 reads them.
@@ -293,8 +286,8 @@ reads them.
 - **The per-checker state table is the one panel that works for every node.** It reads
   `CheckRun` for the local node and the node's `Alert` rows for a peer, which is exactly the
   truth each one has.
-- **The local node's freshness is informational, never amber**, mirroring the nodes card in
-  `config/dashboard.py`. This instance's own `Node` row is upserted by its own local check
+- **The local node's freshness is informational, never amber**, mirroring the nodes entry in
+  `config/readiness.py`. This instance's own `Node` row is upserted by its own local check
   runs, so scoring it like a peer would paint a healthy fleet permanently amber.
 
 ### Node policy form
@@ -308,8 +301,7 @@ bumps `last_seen` and skips the stale check.
 
 - **The field spec is derived, not restated.** `FIELD_SPECS` is built from
   `reevaluation.SCORERS` and `PRIMARY_METRIC`, so adding a scorer adds a form section with
-  no edit to the form. A completeness test in `_tests/test_node_policy.py` guards it, the
-  same way one guards `config/admin.py`'s `SECTION_MAP`.
+  no edit to the form. A completeness test in `_tests/test_node_policy.py` guards it.
 - **Strict at the keyboard, fail-open at ingest.** `reevaluation.py` must never raise on a
   node's push, so it silently passes through any policy it cannot use. The editor rejects
   those same shapes outright, as field errors. A policy the runtime ignores is
@@ -364,7 +356,7 @@ its own.
   a `scope_digest` of the alerts, their incidents' status and the node's policy, and
   `apply_reeval` refuses it with `StaleReeval` when any of that changed since the preview. Its
   row lock serializes submits only on databases that support it. On SQLite a concurrent submit
-  gets a busy `OperationalError`, which the console view also answers with a 409. `AlertAdmin` is stock and read-only and has no re-evaluate action.
+  gets a busy `OperationalError`, which the console view also answers with a 409.
 - **`/console/policy/` answers "which machines have I overridden, and is any of it doing
   nothing?"** (`apps/alerts/policy_overview.py`, rendered by `apps/console/views/policy.py`). It rows on
   firing alerts as well as on config, so an alerting checker with no policy behind it still
@@ -410,6 +402,6 @@ Authoritative source for the security threat model: [`docs/plans/2026-05-12-iso-
 
 ### Audit checks before merging
 - [ ] New driver added: relies on the API-key middleware for auth (no bespoke signature check); any deliberate vendor-specific scheme is documented in `docs/Security.md` and audited.
-- [ ] No `mark_safe` / `format_html` without `{}` placeholders in admin code.
+- [ ] No `mark_safe` / `format_html` without `{}` placeholders in rendering code.
 - [ ] No `str(e)` returned in HTTP response bodies.
 - [ ] Run `uv run pytest apps/alerts/_tests/` and confirm signature-verification tests still pass.

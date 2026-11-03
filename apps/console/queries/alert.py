@@ -18,13 +18,13 @@ from apps.alerts.models import Alert, Incident
 from apps.alerts.reeval_existing import ReevalScope
 from apps.console.queries.hosts import alert_host
 from apps.console.queries.reeval import ReevalPreview, reeval_preview
-from config.admin_badges import (
+from config.describing import Action, Description, Fact
+from config.tones import (
     ALERT_STATUS_TONES,
     INCIDENT_STATUS_TONES,
     SEVERITY_TONES,
     tone_for,
 )
-from config.describing import Action, Description, Fact
 
 HISTORY_LIMIT = 50
 

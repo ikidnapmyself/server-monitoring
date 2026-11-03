@@ -2,7 +2,7 @@
 
 from django.utils.safestring import SafeString
 
-from apps.checkers.admin_charts import render_sparkline
+from apps.checkers.charts import render_sparkline
 
 
 def test_sparkline_returns_inline_svg_safestring():

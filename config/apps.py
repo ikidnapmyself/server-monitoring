@@ -1,11 +1,6 @@
-"""Custom Django admin and config app configuration."""
+"""The config app's configuration."""
 
 from django.apps import AppConfig
-from django.contrib.admin.apps import AdminConfig
-
-
-class MonitoringAdminConfig(AdminConfig):
-    default_site = "config.admin.MonitoringAdminSite"
 
 
 class ConfigAppConfig(AppConfig):
@@ -15,11 +10,4 @@ class ConfigAppConfig(AppConfig):
     verbose_name = "Config"
 
     def ready(self):
-        from django.contrib import admin
-
-        import config.checks  # noqa: F401 — register system checks
-        from config.admin import APIKeyAdmin
-        from config.models import APIKey
-
-        if APIKey not in admin.site._registry:
-            admin.site.register(APIKey, APIKeyAdmin)
+        import config.checks  # noqa: F401

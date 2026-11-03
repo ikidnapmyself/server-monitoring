@@ -120,11 +120,11 @@ migration `0018`) so the hub can page about itself. See
 
 ### Describers
 
-Nothing stores display text. Each app describes its own output when it's read, as a `Description` from `config/describing.py`: a headline, a tone, an optional detail and action, and facts. Checkers describe their results through `BaseChecker.describe`, using each checker's `label` and `problem`. `apps/alerts/describing.py` describes alerts and incidents, so an incident's headline ("High CPU usage on web-1") comes from its lead alert and node, not from a column. Each stage describes what it stored: `apps/checkers/describing.py` for check results, `apps/orchestration/describing.py` for runs and stage outcomes, `apps/intelligence/describing.py` for analyses and `apps/notify/describing.py` for deliveries. A failed run leads with its reason from the `REASONS` registry, such as "no route matches this incident", and a failed call to an outside service leads with its kind from `config/failures.py`, such as an expired API key or a rate limit. Readiness faults come from `config/dashboard.py` the same way. The console, the admin and notifications render these descriptions and never decode raw rows. An action names an intent, and the console's `apps/console/intents.py` resolves it to a link or a button. It is the one place in the console that builds an admin URL. Only active superusers reach the console, so no link depends on the viewer's permissions. Identifiers, error text and raw JSON stay in a Details disclosure.
+Nothing stores display text. Each app describes its own output when it's read, as a `Description` from `config/describing.py`: a headline, a tone, an optional detail and action, and facts. Checkers describe their results through `BaseChecker.describe`, using each checker's `label` and `problem`. `apps/alerts/describing.py` describes alerts and incidents, so an incident's headline ("High CPU usage on web-1") comes from its lead alert and node, not from a column. Each stage describes what it stored: `apps/checkers/describing.py` for check results, `apps/orchestration/describing.py` for runs and stage outcomes, `apps/intelligence/describing.py` for analyses and `apps/notify/describing.py` for deliveries. A failed run leads with its reason from the `REASONS` registry, such as "no route matches this incident", and a failed call to an outside service leads with its kind from `config/failures.py`, such as an expired API key or a rate limit. Readiness faults come from `config/readiness.py` the same way. The console and notifications render these descriptions and never decode raw rows. An action names an intent, and the console's `apps/console/intents.py` resolves it to a link or a button. Only active superusers reach the console, so no link depends on the viewer's permissions. Identifiers, error text and raw JSON stay in a Details disclosure.
 
 ### Stage Configuration
 
-Stage behavior is controlled through routing pipelines, the console and Django Admin, not environment variables:
+Stage behavior is controlled through routing pipelines and the console, not environment variables:
 
 - **Routing**: `PipelineDefinition` (console, `/console/routes/`) matches the run's subject alert and its ordered `stages` list selects which downstream stages run; its single `channel` is the notify target. Unmatched traffic fails non-retryably as `no_route`. There is no implicit fallback.
 - **Intelligence**: The `IntelligenceProvider` model (console, `/console/providers/`) controls which AI provider is active.
@@ -192,21 +192,19 @@ endpoint records one too); `manage.py process_inbox` claims and executes them
 (supervised `--loop` or cron). No message broker. See
 [Deployment → Durable ingest & the inbox drain](Deployment.md).
 
-### Django Admin
+### Console
 
-All apps register their models at `/admin/`:
+The console at `/console/` is the only UI, and only active superusers can sign in.
+`manage.py createsuperuser` makes the first account, and further accounts are managed at
+`/console/users/`.
 
-| Admin Path | Models |
-|------------|--------|
-| `/admin/alerts/` | Alert, Incident, AlertHistory, Node |
-| `/admin/checkers/` | CheckRun, PreflightRun, read-only. Read them at `/console/checks/` and `/console/preflight/` |
-| `/admin/intelligence/` | AnalysisRun, IntelligenceProvider, read-only. Read analyses at `/console/analyses/` and manage providers at `/console/providers/` |
-| `/admin/notify/` | NotificationChannel, read-only. Manage it at `/console/channels/` |
-| `/admin/orchestration/` | PipelineRun, StageExecution, PipelineDefinition, read-only. Manage routes at `/console/routes/` |
-| `/admin/config_app/` | APIKey, read-only. Manage keys at `/console/keys/` |
-
-The run, stage, inbox, route, channel, provider, API key, check run, preflight run and analysis admins are stock and read-only. Their pages
-live in the console.
+| Console path | What it holds |
+|--------------|---------------|
+| `/console/incidents/`, `/console/alerts/`, `/console/nodes/` | Incidents, alerts and their history, nodes and node policy |
+| `/console/runs/`, `/console/inbox/` | Pipeline runs and their stages, the inbox |
+| `/console/checks/`, `/console/preflight/`, `/console/analyses/` | Check runs, preflight runs, analyses |
+| `/console/routes/`, `/console/channels/`, `/console/providers/`, `/console/keys/` | Routes, notification channels, AI providers, API keys |
+| `/console/policy/`, `/console/reports/`, `/console/users/` | Fleet policy, reports, users |
 
 #### Routes
 
@@ -360,7 +358,7 @@ Every pipeline run carries:
 
 ### Key Environment Variables
 
-Environment variables configure **infrastructure only**. Application behavior (which checkers to run, intelligence provider, notification channels) is managed through the console and Django Admin. Routes, notification channels, AI providers and API keys live in the console at `/console/routes/`, `/console/channels/`, `/console/providers/` and `/console/keys/`.
+Environment variables configure **infrastructure only**. Application behavior (which checkers to run, intelligence provider, notification channels) is managed through the console. Routes, notification channels, AI providers and API keys live in the console at `/console/routes/`, `/console/channels/`, `/console/providers/` and `/console/keys/`.
 
 | Variable | Purpose | Default |
 |----------|---------|---------|

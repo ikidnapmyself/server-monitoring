@@ -60,10 +60,6 @@ class APIKeyAuthMiddlewareTests(TestCase):
         )
         assert response.status_code == 401
 
-    def test_admin_path_bypasses_auth(self):
-        response = self.client.get("/admin/login/")
-        assert response.status_code == 200
-
     def test_get_alerts_webhook_health_check_exempt(self):
         """GET /alerts/webhook/ is a health-check endpoint and is exempt from auth."""
         response = self.client.get("/alerts/webhook/")

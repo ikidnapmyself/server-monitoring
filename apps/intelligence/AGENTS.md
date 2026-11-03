@@ -76,12 +76,10 @@ so it turns the other providers off itself, in the same transaction. A create go
   - Store **redacted refs** rather than raw content.
 - **Always use absolute paths**: Any user-supplied path (HTTP params, CLI args) must be resolved to absolute form via `pathlib.Path.resolve()` and validated against an allowlist before use. See `views/disk.py` for the reference implementation.
 
-## Django Admin expectations
+## Operator pages
 
-Operators add, edit and delete providers in the console (`/console/providers/`).
-`IntelligenceProviderAdmin` is stock and read-only and excludes `config`, so no stored
-secret renders there. Operators read analyses at `/console/analyses/`. `AnalysisRunAdmin`
-is stock and read-only too and excludes `provider_config`.
+Operators add, edit and delete providers in the console (`/console/providers/`), and read
+analyses at `/console/analyses/`.
 
 `AnalysisRun` rows are worded on read:
 - `provider_label(key)` gives the `PROVIDER_CHOICES` label. `local` reads "Built-in local
@@ -118,7 +116,7 @@ Authoritative source: [`docs/plans/2026-05-12-iso-27003-security-audit-notes.md`
 `apps.intelligence.providers.get_provider` / `get_active_provider` accept caller-supplied `**kwargs` from API payloads via `provider_config`. The `BLOCKED_CONFIG_KEYS` frozenset (`apps/intelligence/providers/__init__.py:79`) strips dangerous kwargs before they reach the provider constructor. **Any new kwarg added to a provider's `__init__` requires one of:**
 
 1. **Constructor-time validation** with `validate_safe_url(value, allowed_hosts=settings.SSRF_ALLOWED_HOSTS)` (for URL / host kwargs), `resolve_safe_path(value)` (for path kwargs), or a project-specific validator.
-2. **Adding the key to `BLOCKED_CONFIG_KEYS`** so the registry strips it before it can reach the constructor from an API caller. DB-side admin-configured values still flow through.
+2. **Adding the key to `BLOCKED_CONFIG_KEYS`** so the registry strips it before it can reach the constructor from an API caller. DB-side operator-configured values still flow through.
 
 Current `BLOCKED_CONFIG_KEYS`: `{"host", "base_url", "scan_paths"}`. **Audit checklist for new kwargs:**
 
@@ -128,7 +126,7 @@ Current `BLOCKED_CONFIG_KEYS`: `{"host", "base_url", "scan_paths"}`. **Audit che
 | Filesystem path | `resolve_safe_path` at `__init__` **or** add to `BLOCKED_CONFIG_KEYS` (the `scan_paths` precedent) |
 | Shell command / argv | Reject at `__init__`; commands MUST be hardcoded class constants |
 | Template name or path | `resolve_safe_name` (or sandbox via `apps/notify/templating.py`) |
-| API key / secret | Allowed; keep out of `__init__` log lines and the admin display |
+| API key / secret | Allowed; keep out of `__init__` log lines and the console display |
 
 ### Other rules
 - **`_redact_config` (`apps/intelligence/providers/base.py:208`) must stay in sync with provider config shape.** When you add a new sensitive config key (api keys, tokens, secrets), add it to the redaction list. The `_redact_config` is shallow — flat dicts only; if a provider grows nested config, the redaction must become recursive.
@@ -138,7 +136,7 @@ Current `BLOCKED_CONFIG_KEYS`: `{"host", "base_url", "scan_paths"}`. **Audit che
 
 ### Trust boundary discipline
 - `provider_config` from `/intelligence/recommendations/` and `/orchestration/*` request bodies is **external/untrusted** (post-API-key). Audit every kwarg it touches.
-- `IntelligenceProvider.config` (DB) is **admin-trusted**. The DB-vs-payload split is enforced by `BLOCKED_CONFIG_KEYS` stripping caller kwargs while leaving DB config intact.
+- `IntelligenceProvider.config` (DB) is **operator-trusted**. The DB-vs-payload split is enforced by `BLOCKED_CONFIG_KEYS` stripping caller kwargs while leaving DB config intact.
 - Never log raw `provider_config`, prompts, completions, or API keys. Use `trace_id`-keyed structured logs only.
 
 ### Audit checks before merging

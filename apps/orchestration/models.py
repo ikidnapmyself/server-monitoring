@@ -598,7 +598,7 @@ class PipelineDefinition(models.Model):
     def routable_stages(self) -> list[str]:
         """Stored stages, filtered to known values and forced into canonical order.
 
-        ``clean()`` only runs on admin forms, so ``objects.create()``, fixtures and
+        ``clean()`` only runs on form validation, so ``objects.create()``, fixtures and
         shell edits can persist junk. Readers must not trust the column.
         """
         raw = self.stages if isinstance(self.stages, list) else []
@@ -610,8 +610,8 @@ class PipelineDefinition(models.Model):
         The FK guarantees the *value* (a real channel or NULL) in a way ``stages``
         never could, so this is not about junk data. It is about one rule living in
         one place: "active" is not DB-enforceable, and it is the rule that decides
-        whether the lane delivers at all. An inactive channel routes nowhere — notify
-        falls back to payload-driven selection — so every reader (delivery, admin,
+        whether the lane delivers at all. An inactive channel routes nowhere, and notify
+        falls back to payload-driven selection, so every reader (delivery, console,
         preflight, setup) must ask this question the same way rather than each
         re-deriving it and drifting apart.
         """

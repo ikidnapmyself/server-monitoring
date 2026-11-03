@@ -1,7 +1,4 @@
-"""Read model for the Reports summary. Returns dataclasses, never querysets.
-
-The admin dashboard reads the same functions until PR 11 deletes it.
-"""
+"""Read model for the Reports summary. Returns dataclasses, never querysets."""
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -13,14 +10,14 @@ from apps.checkers.checkers import checker_label
 from apps.checkers.models import CheckRun, PreflightRun
 from apps.checkers.preflight_describing import describe_preflight_run
 from apps.console.filters import CHECK_STATUS_CHOICES, RUN_STATUS_CHOICES, RunFilter
+from apps.console.queries.fleet import METRIC_UNITS, build_fleet_metrics
 from apps.console.queries.runs import reason_label
 from apps.intelligence.describing import provider_label
 from apps.intelligence.models import AnalysisRun
 from apps.orchestration.describing import REASONS
 from apps.orchestration.models import PipelineRun
-from config.admin_badges import CHECK_STATUS_TONES
-from config.dashboard import METRIC_UNITS, build_fleet_metrics
 from config.describing import Action, Description, format_percent
+from config.tones import CHECK_STATUS_TONES
 
 DAY = timedelta(hours=24)
 WEEK = timedelta(days=7)

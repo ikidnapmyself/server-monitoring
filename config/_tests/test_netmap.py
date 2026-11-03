@@ -205,7 +205,6 @@ class TestGetMapContext:
         )
         card = get_map_context()["lanes"][0]
         assert card["pk"] == lane_row.pk
-        assert "admin_url" not in card
         assert card["state"] == "ok"
         assert card["state_words"] == ""
         assert card["conditions"] == ["Source is cluster"]
@@ -385,5 +384,4 @@ def test_the_map_builds_no_urls():
 
     source = open(netmap.__file__).read()
     assert "reverse" not in source
-    assert "admin_links" not in source
     assert "apps.console" not in source

@@ -7,8 +7,6 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 
-from config.middleware.constants import EXEMPT_PATH_PREFIXES
-
 logger = logging.getLogger(__name__)
 API_PATH_PREFIXES = ("/alerts/", "/orchestration/", "/notify/", "/intelligence/")
 
@@ -23,7 +21,6 @@ HEALTH_CHECK_PATHS = (
 class APIKeyAuthMiddleware:
     """Stateless API key auth. Checks Bearer/X-API-Key header on API paths.
 
-    Admin paths use Django session auth.
     Health-check GET paths are exempt; all other requests on API paths require a key.
     """
 
@@ -35,9 +32,6 @@ class APIKeyAuthMiddleware:
             return self.get_response(request)
 
         path = request.path
-
-        if any(path.startswith(prefix) for prefix in EXEMPT_PATH_PREFIXES):
-            return self.get_response(request)
 
         if not any(path.startswith(prefix) for prefix in API_PATH_PREFIXES):
             return self.get_response(request)

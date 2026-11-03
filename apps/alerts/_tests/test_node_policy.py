@@ -704,7 +704,7 @@ class EffectivePolicyTests(TestCase):
 class ScoringChangedTests(TestCase):
     """Whether a saved config changed anything a scorer would read.
 
-    The question ``NodeAdmin`` asks to decide if a save is worth previewing.
+    The question the policy editor asks to decide if a save is worth previewing.
     ``to_config`` carries across every key it has no spec for, so a plain
     ``!=`` on the whole config would call a save changed for a key that scores
     nothing.

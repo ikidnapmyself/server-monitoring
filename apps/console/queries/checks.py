@@ -12,8 +12,8 @@ from apps.checkers.describing import check_status, describe_check
 from apps.checkers.models import CheckRun
 from apps.console.filters import CHECK_STATUS_CHOICES, CheckFilter
 from apps.console.queries.incidents import SINCE_CHIPS, ChipGroup, Choice, chip_group
-from config.admin_badges import CHECK_STATUS_TONES
 from config.describing import Action, Description, format_duration
+from config.tones import CHECK_STATUS_TONES
 
 PAGE_SIZE = 50
 

@@ -7,7 +7,7 @@ from django.template import Context, Template
 from django.urls import reverse
 
 from apps.alerts.models import Incident
-from apps.console.intents import INTENTS, Intent, ResolvedAction, admin_url, resolve_action
+from apps.console.intents import INTENTS, Intent, ResolvedAction, resolve_action
 from config.describing import Action
 
 INTENT = re.compile(r"""intent=["']([a-z_]+)["']|Action\(\s*[^,()]+,\s*["']([a-z_]+)["']""")
@@ -282,32 +282,6 @@ def test_rerun_check_posts_to_the_incident_rerun():
     assert resolved == ResolvedAction(
         "Run again", f"/console/incidents/{incident.pk}/rerun/", "post"
     )
-
-
-ADMIN_IN_PYTHON = re.compile(r"""reverse\(\s*f?["']admin:""")
-ADMIN_IN_TEMPLATE = re.compile(r"""/admin/|\{%\s*url\s+["']admin:""")
-
-
-def test_only_intents_builds_admin_urls():
-    root = Path(settings.BASE_DIR).resolve()
-    console = root / "apps" / "console"
-    offenders = [
-        str(path.relative_to(root))
-        for path in console.rglob("*.py")
-        if "_tests" not in path.relative_to(console).parts
-        and path.name != "intents.py"
-        and ADMIN_IN_PYTHON.search(path.read_text())
-    ] + [
-        str(path.relative_to(root))
-        for path in (root / "templates" / "console").rglob("*.html")
-        if ADMIN_IN_TEMPLATE.search(path.read_text())
-    ]
-
-    assert offenders == []
-
-
-def test_admin_url_names_the_admin_index():
-    assert admin_url("index") == reverse("admin:index")
 
 
 def test_the_list_intents_are_gone():

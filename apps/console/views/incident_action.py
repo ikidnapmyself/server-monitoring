@@ -37,7 +37,7 @@ class IncidentActionView(IncidentPageView):
             return self.not_found()
         full = request.POST.get("all") == "1"
         if self.wants_partial:
-            # Not the messages framework: the next poll, or an admin page, would eat it.
+            # Not the messages framework: the next poll, or another page, would eat it.
             notice = Notice(text=outcome.message, tone="ok" if outcome.ok else "warning")
             return self.render_incident(pk, full=full, notice=notice)
         messages.add_message(

@@ -2,8 +2,7 @@
 
 An alert names its machine through a linked ``Node`` when ingest found one, and
 otherwise only through its labels. Most checker alerts carry the labels alone, so
-reading the ``Node`` link by itself leaves the host blank. This follows the admin's
-``Host`` column.
+reading the ``Node`` link by itself leaves the host blank.
 """
 
 from collections import defaultdict

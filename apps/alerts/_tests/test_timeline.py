@@ -237,7 +237,7 @@ class TimelineSeverityDetailTests(TestCase):
 
 
 class TimelineConsoleKeysTests(TestCase):
-    """Keys the console's incident page reads. Additive: the admin ignores them."""
+    """Keys the console's incident page reads."""
 
     def test_alert_history_entries_name_their_alert_and_event(self):
         incident = Incident.objects.create()

@@ -128,7 +128,7 @@ class TestRoutableStagesNormalisation(TestCase):
 class TestRoutedChannel(TestCase):
     """``routed_channel()`` owns the one rule that decides whether a lane delivers.
 
-    Delivery, admin, preflight and setup all ask this question; before it was
+    Delivery, the console, preflight and setup all ask this question; before it was
     centralised each re-derived it and they drifted, so the contract is pinned here
     rather than only through those four callers.
     """

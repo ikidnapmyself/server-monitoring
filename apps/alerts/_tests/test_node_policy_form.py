@@ -56,7 +56,7 @@ class NodePolicyFormTests(TestCase):
         self.assertEqual(_save(form), {})
 
     def test_an_unsaved_instance_cannot_raise(self):
-        # NodeAdmin forbids adding nodes, but a form built with no instance at
+        # Nodes are never added by hand, but a form built with no instance at
         # all must not explode on a reverse relation that has no row to follow.
         form = NodePolicyForm()
         self.assertEqual(form.fields, {})

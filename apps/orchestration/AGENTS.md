@@ -65,7 +65,7 @@ Required tags/fields:
 - `apps/orchestration/management/commands/process_inbox.py` — broker-free drain of PENDING runs (thin CLI wrapper over `inbox.py`)
 - `apps/orchestration/intake.py` — **the front door for producers**: `enqueue_for(result, *, trace_id, origin, …, sync=False)` reads `result.material_alerts`, resolves the materially changed incidents, and enqueues one run each. `sync=True` drains them before returning.
 - `apps/orchestration/inbox.py` — **single source of truth** for the enqueue/drain/reclaim logic: `enqueue_incident_runs(incident_ids, …)`, `drain_runs(runs, orchestrator=…)` (the scoped synchronous drain `sync=True` uses), `claim` (atomic PENDING→PROCESSING CAS), `drain`, `drain_run`, `drain_each`, `pending_pks`, `requeue`, `abandon`, `reclaim_stuck`, `stuck`, `abandonable`, and `DEFAULT_STALE_MINUTES`. Both the `process_inbox` command and the console's run and inbox pages call these — never duplicate the claim.
-- `apps/orchestration/models.py` — `PipelineRun`, `StageExecution`. `PipelineRun.node` (FK → `alerts.Node`, the server the run concerns) and `PipelineRun.origin` (`incoming_webhook`/`checker_generated`/`manual`) power admin filtering by node+origin+status. `origin` is now passed by each producer into `enqueue_for`; `node` is passed only by `IncidentManager._announce`, so it is NULL on runs from the other producers — see "Known gaps" below. `InboxItem` is a proxy over `PipelineRun` filtered to PENDING/PROCESSING. It stays for its permissions, which the console's inbox page checks, and for a read-only admin list. See `docs/plans/2026-08-09-admin-hardening-design.md`.
+- `apps/orchestration/models.py`: `PipelineRun`, `StageExecution`. `PipelineRun.node` (FK to `alerts.Node`, the server the run concerns) and `PipelineRun.origin` (`incoming_webhook`/`checker_generated`/`manual`) power the console's run filters. `origin` is now passed by each producer into `enqueue_for`; `node` is passed only by `IncidentManager._announce`, so it is NULL on runs from the other producers. See "Known gaps" below. `InboxItem` is a proxy over `PipelineRun` filtered to PENDING/PROCESSING. Its only reader was the admin's inbox list, removed with the admin, so nothing reads it now. Dropping it needs a migration and is a follow-up.
 - `apps/orchestration/routing.py`: `resolve_pipeline` and the routing facts. It also holds what the console reads and edits routes with: `describe_condition` and `describe_match` word a match, `representable` says whether the console's condition rows reproduce it exactly, `save_route` writes a route only at the `version` the editor opened and raises `StaleRoute` otherwise, and `fallthrough` says where a deleted route's traffic goes.
 - `apps/orchestration/forms.py`: `RouteForm`, the console's route editor
 - `apps/orchestration/executors.py` / `dtos.py` — stage execution helpers and DTOs
@@ -202,12 +202,12 @@ These are real divergences between this document's promises and the code. They a
 recorded rather than quietly dropped:
 
 - **`PipelineRun.node` is NULL on most runs.** `enqueue_for` accepts `node` and no
-  producer except `IncidentManager._announce` passes it, so admin filtering by node and
+  producer except `IncidentManager._announce` passes it, so filtering runs by node and
   `manage.py report`'s per-node view are thinner than the field's help text promises.
   The incident's subject alert already carries `node`.
 - **`PipelineRun.alert_fingerprint` is blank on live runs.** It is written only in the
   legacy INGEST branch, so the `alert_fingerprint` tag this file lists as required is
-  empty on every incident run's signals, and admin search by fingerprint over
+  empty on every incident run's signals, and a search by fingerprint over
   `PipelineRun` finds nothing.
 - **`PipelineRun.environment` is `""` for producers that omit it** (the webhook,
   `push_to_hub --local`, `check_health`, `_announce`), rather than the model default.
@@ -222,9 +222,9 @@ recorded rather than quietly dropped:
 across an incident: `source`, `severity` (that alert's own), `status`
 (`firing`/`resolved`), `instance` (`instance_id` → `instance` → `hostname`, via
 `instance_key_from_labels`), `labels`, and `origin`
-(`incoming_webhook`/`checker_generated`/`manual`). Add a fact here and the admin's
-Routing help text must name it — a completeness test in `_tests/test_admin.py`
-enforces that, because an undiscoverable fact is one no operator can route on.
+(`incoming_webhook`/`checker_generated`/`manual`). Add a fact here and `FIELDS` in
+`routing.py` must name it too, so the console's route editor offers it. An undiscoverable
+fact is one no operator can route on. No test checks this yet.
 
 **There is no implicit fallback — in either half of the routing table.** The table can
 fail to say where work goes in exactly three ways, and all three raise the same
@@ -286,7 +286,7 @@ all (`"notify" in lane.routable_stages()`): a lane that lists no stages is not b
 it is quiet by design.
 
 **Two read-only surfaces say so before an incident does.** The readiness panel's
-`lane_channels` entry (`config/dashboard.py:build_readiness`) is `error` only when a lane
+`lane_channels` entry (`config/readiness.py:build_readiness`) is `error` only when a lane
 claims `notify` and `routed_channel()` is `None`; `info` ("recording only") when no lane
 delivers and no channel is active — a supported way to run this hub, never red; and `ok`
 otherwise, with a nudge in `detail` when a channel exists that no lane points at.
@@ -323,15 +323,11 @@ and the console run page; `manage.py trace <alert|trace_id>` (the chain); `manag
 
 Tests have been migrated to `_tests/` (completed). Some code still uses monolithic `views.py`; migrate to `views/` package when touching related code.
 
-## Django Admin expectations
+## Operator pages
 
-Each app must provide an **extensive** `admin.py` so operators can manage its models and trace pipeline behavior.
-
-For `apps.orchestration`, operators read and act on runs and the inbox in the console
-(`/console/runs/`, `/console/runs/<pk>/`, `/console/inbox/`). `PipelineRunAdmin`,
-`StageExecutionAdmin` and `InboxAdmin` are stock and read-only: filters and search, no add,
-change, delete or actions. Routes are read and edited in the console (`/console/routes/`),
-and `PipelineDefinitionAdmin` is stock and read-only too. Every console save bumps a
+Operators read and act on runs and the inbox in the console (`/console/runs/`,
+`/console/runs/<pk>/`, `/console/inbox/`). Routes are read and edited in the console
+(`/console/routes/`). Every console save bumps a
 route's `version`, and a new route starts at 1. Stored payloads and prompts are shown as
 refs, never secrets.
 
@@ -351,7 +347,7 @@ Authoritative source: [`docs/plans/2026-05-12-iso-27003-security-audit-notes.md`
 
 ### Dispatch discipline
 - **Stage dispatch on `PipelineOrchestrator` is enum-keyed** — `self.executors[PipelineStage.X]`. Do not introduce string-based dispatch from payload.
-- **Routing `match` conditions fail closed** (`PipelineDefinition.matches`): unknown ops / bad shapes never match. Keep it a fixed operator set (`is/is-not/in/not-in`); do not add `eval`/expression languages over the admin-editable `match`.
+- **Routing `match` conditions fail closed** (`PipelineDefinition.matches`): unknown ops / bad shapes never match. Keep it a fixed operator set (`is/is-not/in/not-in`); do not add `eval`/expression languages over the operator-editable `match`.
 
 ### Durable ingest / drain (broker-free)
 - The pipeline runs **without a message broker**. The webhook ingests inline — it writes the payload's alerts, lets incidents form — and records one `PENDING` `PipelineRun` per materially changed incident, with `inbound_payload = {"downstream_incident_id": N}`; `manage.py process_inbox` claims each (atomic `PENDING → PROCESSING`) and runs it via `execute_run`. The stored payload of a live run is therefore ours, not the sender's; only a legacy `{"driver", "payload"}` run still carries an untrusted inbound body, and it is still treated as untrusted.
