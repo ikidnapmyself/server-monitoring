@@ -1,6 +1,5 @@
 """What each console write records: the state of its row, its target and its secrets."""
 
-from apps.alerts.describing import node_name
 from apps.console.audit import config_keys, config_state, diff, record, snapshot, unlisted
 from apps.console.forms import UserEditForm
 from apps.intelligence.forms import PROVIDER_FIELDS
@@ -121,8 +120,8 @@ def user_changes(before: dict, after: dict) -> dict:
     return diff(before, after, secret=USER_SECRETS)
 
 
-def incident_target(pk: int) -> tuple[str, int, str]:
-    return ("incident", pk, f"#{pk}")
+def incident_target(pk: int, subject: str | None) -> tuple[str, int, str]:
+    return ("incident", pk, subject or "")
 
 
 def alert_target(alert) -> tuple[str, int, str]:
@@ -130,11 +129,11 @@ def alert_target(alert) -> tuple[str, int, str]:
 
 
 def node_target(node) -> tuple[str, int, str]:
-    return ("node", node.pk, node_name(node.hostname))
+    return ("node", node.pk, node.hostname)
 
 
 def run_target(pk: int) -> tuple[str, int, str]:
-    return ("run", pk, f"#{pk}")
+    return ("run", pk, "")
 
 
 def inbox_target() -> tuple[str, None, str]:

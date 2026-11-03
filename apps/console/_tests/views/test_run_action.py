@@ -231,8 +231,9 @@ class TestAudit:
             f"run.{action}",
             "run",
             run.pk,
-            f"#{run.pk}",
+            "",
         )
+        assert entry.changes == {"status": {"old": status, "new": _status(run)}}
 
     @pytest.mark.parametrize(("action", "status"), [("retry", "notified"), ("abandon", "failed")])
     def test_an_action_that_lost_records_nothing(self, client, superuser, action, status):

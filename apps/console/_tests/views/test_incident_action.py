@@ -553,7 +553,7 @@ def test_the_rendered_page_with_buttons_and_a_message_is_clean(client, superuser
 class TestAudit:
     @pytest.mark.parametrize("action", ["acknowledge", "close"])
     def test_an_action_is_recorded(self, client, superuser, action):
-        incident = _incident()
+        incident = _incident(subject="disk")
 
         client.post(_url(incident, action))
 
@@ -562,7 +562,7 @@ class TestAudit:
         assert (entry.target_kind, entry.target_id, entry.target_name) == (
             "incident",
             incident.pk,
-            f"#{incident.pk}",
+            "disk",
         )
         assert entry.changes == {}
 
@@ -572,6 +572,7 @@ class TestAudit:
         client.post(_url(incident, "resolve"), {"summary": "disk swapped"})
 
         entry = written().get()
+        assert entry.target_name == ""
         assert entry.action == "incident.resolve"
         assert entry.changes == {"summary": {"old": "", "new": "disk swapped"}}
 

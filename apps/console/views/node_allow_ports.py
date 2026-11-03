@@ -5,9 +5,10 @@ from django.db import OperationalError, transaction
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 
+from apps.alerts.models import Node
 from apps.alerts.node_policy import StalePolicy, save_policy, scoring_changed
 from apps.console.audit import record
-from apps.console.audited import policy_changes
+from apps.console.audited import node_target, policy_changes
 from apps.console.queries.allow_ports import build_allow_ports, parse_ports
 from apps.console.views.base import Notice
 from apps.console.views.node import NodePageView
@@ -48,8 +49,8 @@ class NodeAllowPortsView(NodePageView):
                 stored = save_policy(plan.pk, plan.config, expected=request.POST.get("digest", ""))
                 changes = policy_changes(stored, plan.config)
                 if changes:
-                    target = ("node", plan.pk, plan.name)
-                    record(request, "node.allow_ports", target, changes=changes)
+                    node = Node.objects.get(pk=plan.pk)
+                    record(request, "node.allow_ports", node_target(node), changes=changes)
         except (StalePolicy, OperationalError):
             return self.render_confirm(ports, Notice(STALE, "warning"), 409)
         if scoring_changed(stored, plan.config):

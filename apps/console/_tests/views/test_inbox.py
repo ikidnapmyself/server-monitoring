@@ -331,7 +331,7 @@ class TestAudit:
             "inbox.drain",
             "run",
             run.pk,
-            f"#{run.pk}",
+            "",
         )
         assert entry.changes == {"result": {"ran": 1, "failed": 0}}
 

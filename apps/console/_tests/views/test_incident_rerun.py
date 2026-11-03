@@ -229,6 +229,7 @@ def test_an_incident_this_machine_cant_check_offers_no_rerun(client, superuser, 
 class TestAudit:
     def test_a_rerun_records_what_it_found(self, client, superuser, run_checks):
         incident = _incident()
+        Incident.objects.filter(pk=incident.pk).update(subject="cpu")
 
         with mock.patch(ENQUEUE, return_value=[mock.sentinel.run]):
             client.post(_url(incident))
@@ -237,7 +238,7 @@ class TestAudit:
         assert (entry.action, entry.target_id, entry.target_name) == (
             "incident.rerun",
             incident.pk,
-            f"#{incident.pk}",
+            "cpu",
         )
         assert entry.changes == {
             "result": {
@@ -250,6 +251,13 @@ class TestAudit:
                 "runs": 1,
             }
         }
+
+    def test_a_rerun_that_queued_no_run_is_still_recorded(self, client, superuser, run_checks):
+        incident = _incident()
+
+        client.post(_url(incident))
+
+        assert written().get().changes["result"]["runs"] == 0
 
     def test_a_refused_rerun_records_nothing(self, client, superuser, run_checks):
         client.post(_url(_incident(instance="web-03")))

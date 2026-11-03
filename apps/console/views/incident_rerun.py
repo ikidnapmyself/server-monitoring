@@ -36,7 +36,9 @@ class IncidentRerunView(IncidentPageView):
         else:
             # Recorded after the rerun commits, not with it: the rerun samples its checkers
             # before opening a transaction, and wrapping it would hold the write lock that long.
-            record(request, "incident.rerun", incident_target(pk), changes=rerun_result(rerun))
+            subject = Incident.objects.filter(pk=pk).values_list("subject", flat=True).first()
+            target = incident_target(pk, subject)
+            record(request, "incident.rerun", target, changes=rerun_result(rerun))
             notice = Notice(text=RAN if rerun.runs else UNCHANGED, tone="ok")
         full = request.POST.get("all") == "1"
         if self.wants_partial:

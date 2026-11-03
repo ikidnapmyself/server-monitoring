@@ -40,7 +40,7 @@ class IncidentActionView(IncidentPageView):
                     record(
                         request,
                         f"incident.{action}",
-                        incident_target(pk),
+                        incident_target(pk, outcome.incident.subject),
                         changes=changes,
                     )
         except Incident.DoesNotExist:
