@@ -1,5 +1,6 @@
 """Records console writes as ``AuditEntry`` rows. Call ``record`` inside the write's transaction."""
 
+import datetime
 import json
 from collections.abc import Iterable
 from typing import Any
@@ -14,9 +15,10 @@ Target = models.Model | tuple[str, int | None, str] | None
 NAME_LENGTH = AuditEntry._meta.get_field("target_name").max_length or 255
 
 
-def record(request, action: str, target: Target = None, *, changes=None) -> AuditEntry:
-    user = getattr(request, "user", None)
-    actor = user if user is not None and user.is_authenticated else None
+def record(request, action: str, target: Target = None, *, changes=None, actor=None) -> AuditEntry:
+    if actor is None:
+        user = getattr(request, "user", None)
+        actor = user if user is not None and user.is_authenticated else None
     if isinstance(target, models.Model):
         kind, pk, name = target._meta.model_name or "", target.pk, str(target)
     elif target is None:
@@ -52,15 +54,17 @@ def snapshot(instance, fields: Iterable[str]) -> dict[str, Any]:
 
 
 def _json_safe(value):
+    if isinstance(value, (datetime.date, datetime.time)):
+        return value.isoformat()
     try:
-        json.dumps(value)
-    except TypeError:
+        json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError):
         return str(value)
     return value
 
 
 def signed_in(sender, request, user, **kwargs):
-    record(request, "session.sign_in", user)
+    record(request, "session.sign_in", user, actor=user)
 
 
 def signed_out(sender, request, user, **kwargs):
@@ -70,4 +74,4 @@ def signed_out(sender, request, user, **kwargs):
 
 def sign_in_failed(sender, credentials, request=None, **kwargs):
     if request is not None:
-        record(request, "session.sign_in_failed", ("user", None, credentials.get("username", "")))
+        record(request, "session.sign_in_failed", ("user", None, credentials.get("username") or ""))

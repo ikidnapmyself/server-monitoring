@@ -45,7 +45,9 @@ def test_added_and_removed_keys_count_as_changed():
 def test_a_secret_records_only_that_it_changed():
     changes = diff({"key": "old-secret"}, {"key": "new-secret"}, secret=frozenset({"key"}))
     assert changes == {"key": {"changed": True}}
-    assert "secret" not in json.dumps(changes)
+    text = json.dumps(changes)
+    assert "old-secret" not in text
+    assert "new-secret" not in text
 
 
 def test_an_unchanged_secret_is_left_out():
@@ -58,7 +60,7 @@ def test_snapshot_makes_values_json_safe(root):
     assert snap == {
         "username": "root",
         "is_active": True,
-        "last_login": "2026-11-03 12:00:00+00:00",
+        "last_login": "2026-11-03T12:00:00+00:00",
         "email": "",
     }
     json.dumps(snap)
@@ -69,12 +71,18 @@ def test_snapshot_strings_what_json_refuses():
         price = Decimal("1.50")
         tags = ["a"]
         nothing = None
+        ratio = float("nan")
+        day = datetime.date(2026, 11, 3)
 
-    assert snapshot(Thing(), ["price", "tags", "nothing"]) == {
+    snap = snapshot(Thing(), ["price", "tags", "nothing", "ratio", "day"])
+    assert snap == {
         "price": "1.50",
         "tags": ["a"],
         "nothing": None,
+        "ratio": "nan",
+        "day": "2026-11-03",
     }
+    json.dumps(snap, allow_nan=False)
 
 
 def test_record_with_an_instance(root):
@@ -104,6 +112,11 @@ def test_record_truncates_a_long_target_name(root):
 def test_record_with_no_target(root):
     entry = record(_request(root), "inbox.drain")
     assert (entry.target_kind, entry.target_id, entry.target_name) == ("", None, "")
+
+
+def test_record_takes_an_explicit_actor_over_the_request(root):
+    entry = record(_request(), "session.sign_in", root, actor=root)
+    assert (entry.actor, entry.actor_name) == (root, "root")
 
 
 def test_record_signed_out_has_no_actor(db):

@@ -5,6 +5,7 @@ import secrets
 import pytest
 from django.apps import apps
 from django.contrib.auth import authenticate, get_user_model
+from django.test import RequestFactory
 from django.urls import reverse
 
 from apps.console.models import AuditEntry
@@ -35,6 +36,13 @@ def test_a_sign_in_is_recorded(client, op):
     assert (entry.actor, entry.actor_name) == (op, "op")
     assert (entry.target_kind, entry.target_id, entry.target_name) == ("user", op.pk, "op")
     assert entry.address == "192.0.2.8"
+
+
+def test_a_programmatic_sign_in_names_its_user(client, op):
+    client.force_login(op)
+
+    entry = AuditEntry.objects.get(action="session.sign_in")
+    assert (entry.actor, entry.actor_name) == (op, "op")
 
 
 def test_a_sign_out_is_recorded(client, op):
@@ -83,6 +91,14 @@ def test_a_failed_authenticate_outside_a_request_records_nothing(op):
     assert authenticate(None, username="op", password="wrong") is None
 
     assert not AuditEntry.objects.exists()
+
+
+def test_a_failed_sign_in_with_no_username_records_a_blank_name():
+    request = RequestFactory().post("/")
+    assert authenticate(request, username=None, password="x") is None
+
+    entry = AuditEntry.objects.get()
+    assert (entry.action, entry.target_name) == ("session.sign_in_failed", "")
 
 
 def test_the_receivers_connect_once(client, op):
