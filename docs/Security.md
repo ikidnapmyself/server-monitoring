@@ -213,20 +213,40 @@ minute per client. The rest of `/admin/` stays exempt. Over the limit, the conso
 answers with its own page, status 429, saying how many seconds are left. It keeps the
 username, and keeps `next` only when it's a local URL. The admin login gets the JSON 429.
 
-**Behind a reverse proxy the two login buckets are shared by everyone.** The limiter keys
-an unauthenticated request on `REMOTE_ADDR`, and behind nginx, Cloudflare or an ALB that
-is the proxy's address. So every client shares one `/console/login/` bucket and one
-`/admin/login/` bucket, and 11 bad attempts in a minute from anyone block every
-operator's sign-in until the minute ends. A fix that reads the client IP from a trusted
-proxy is planned before `/admin/` is removed. Until then, either leave
-`RATE_LIMIT_ENABLED=0` behind a proxy and limit sign-in attempts at the proxy, or accept
-that one bad actor can hold sign-in shut a minute at a time.
+**Behind a reverse proxy, set `TRUSTED_PROXIES`.** With the proxy listed, the limiter
+keys each sign-in attempt on the client's own address, so one bad actor only locks
+themselves out. Behind the shipped nginx config with its unix-socket upstream, that's
+`TRUSTED_PROXIES=unix`. Leave it unset behind nginx, Cloudflare or an ALB and every client
+shares the proxy's bucket: 11 bad attempts in a minute from anyone block every operator's
+sign-in until the minute ends.
+
+With Cloudflare or a load balancer in front of nginx, list each of its published ranges
+too, for example `TRUSTED_PROXIES=unix,173.245.48.0/20` plus the rest of Cloudflare's list.
+Otherwise every client behind one edge address
+shares that address's bucket.
 
 ### Identity
 
-Limits are tracked per API key name (if authenticated) or per client IP (`REMOTE_ADDR`).
+Limits are tracked per API key name when the request is authenticated. Otherwise they're
+tracked per client IP, which `config/client_ip.py` works out from `TRUSTED_PROXIES`:
 
-**Reverse-proxy caveat:** `RateLimitMiddleware._get_identity` reads `request.META["REMOTE_ADDR"]` directly. Behind a proxy (nginx, Cloudflare, ALB), `REMOTE_ADDR` is the proxy's IP — every external client shares one bucket and the limiter becomes a global throttle. When deploying behind a proxy, either (a) configure a proxy-aware `REMOTE_ADDR` setter middleware **before** `RateLimitMiddleware`, or (b) rely solely on per-API-key bucketing (named keys side-step the IP collapse). Most operational deployments fall into (b).
+- When the peer isn't a trusted proxy, the client is `REMOTE_ADDR`. `X-Forwarded-For` is
+  ignored, so a direct client can't pick its own bucket.
+- When the peer is trusted, the client is the rightmost `X-Forwarded-For` hop that isn't
+  itself a trusted proxy. `unix` trusts a peer on the gunicorn unix socket, which gunicorn
+  reports as an empty `REMOTE_ADDR`.
+- A missing or empty header, a hop that isn't a bare IP, such as one with a port, or a
+  header made only of trusted hops falls back to `REMOTE_ADDR`.
+
+**Only list proxies that overwrite or append `X-Forwarded-For`.** A listed proxy that
+passes the header through untouched lets every client choose its own bucket. The shipped
+nginx configs append with `$proxy_add_x_forwarded_for`. An entry that isn't `unix`, an IP
+or a CIDR range fails the `config.E001` system check.
+
+**`unix` trusts every process that can open the socket.** gunicorn creates it with mode
+0777, so keep it reachable only by nginx's user. The systemd unit sets
+`RuntimeDirectoryMode=0750` on `/run/server-monitoring/`, which assumes nginx runs as
+`www-data`, the unit's group. If your nginx runs as another user, add it to that group.
 
 ### Scope: Mutating Requests Only
 
@@ -486,9 +506,9 @@ Additional operator tasks:
 - **SSRF allowlist:** keep `SSRF_ALLOWED_HOSTS` narrow; every entry expands the residual DNS-rebinding surface.
 - **Log rotation:** the default `LOGGING` config uses a plain `FileHandler` with no rotation. Either switch to `RotatingFileHandler` / `TimedRotatingFileHandler` in your production settings, or wire `logrotate` against `LOGS_DIR/django.log`.
 - **Filesystem allowlist:** narrow `ALLOWED_FILESYSTEM_ROOTS` to the directories the service genuinely needs to read; the default `/home` covers every user.
-- **Reverse-proxy header trust:** if you depend on per-IP rate-limit identity, install a proxy-aware `REMOTE_ADDR` setter ahead of `RateLimitMiddleware`.
+- **Reverse-proxy header trust:** behind a proxy, set `TRUSTED_PROXIES` to it (`unix` for the shipped nginx config's socket upstream) so per-IP rate limits see each client. Keep the list narrow and the socket private.
 - **Branch protection on `main`:** the auto-update flow trusts `origin/main`; protect that branch.
-- **Run `manage.py preflight --json` in CI** for the deployed environment; it surfaces every system check including `config.W001`, `config.W002`.
+- **Run `manage.py preflight --json` in CI** for the deployed environment; it surfaces every system check including `config.W001`, `config.W002` and `config.E001`.
 
 ## Data Handling
 

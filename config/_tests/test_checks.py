@@ -68,3 +68,26 @@ class AuthDisabledCheckTests(SimpleTestCase):
 
         errors = check_auth_enabled(None)
         assert len(errors) == 0
+
+
+class TrustedProxiesCheckTests(SimpleTestCase):
+    @override_settings(TRUSTED_PROXIES=("unix", "10.0.0.1", "10.0.0.0/8", "::1"))
+    def test_valid_entries_pass(self):
+        from config.checks import check_trusted_proxies
+
+        assert check_trusted_proxies(None) == []
+
+    @override_settings(TRUSTED_PROXIES=("unix", "nginx", "10.0.0.0/33"))
+    def test_entries_that_dont_parse_are_named(self):
+        from config.checks import check_trusted_proxies
+
+        errors = check_trusted_proxies(None)
+        assert len(errors) == 1
+        assert errors[0].id == "config.E001"
+        assert errors[0].msg.endswith("a CIDR range: nginx, 10.0.0.0/33.")
+
+
+def test_invalid_entries_names_only_the_entries_that_dont_parse():
+    from config.client_ip import invalid_entries
+
+    assert invalid_entries(("unix", "nginx", "::1", "10.0.0.0/33")) == ["nginx", "10.0.0.0/33"]
