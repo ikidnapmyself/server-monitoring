@@ -1,7 +1,11 @@
+from unittest import mock
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
 from django.urls import reverse
+
+from apps.console._tests.audit import written
 
 pytestmark = pytest.mark.django_db
 
@@ -79,3 +83,34 @@ def test_a_refused_promotion_writes_nothing_and_says_why(client, superuser, flag
         flags.get("is_active", True),
         flags.get("is_superuser", False),
     )
+
+
+class TestAudit:
+    def test_a_promotion_is_recorded(self, client, superuser, bob):
+        client.post(_url(bob))
+
+        entry = written().get()
+        assert (entry.action, entry.target_id, entry.target_name) == (
+            "user.promote",
+            bob.pk,
+            "bob",
+        )
+        assert entry.changes == {"is_superuser": {"old": False, "new": True}}
+
+    def test_a_refused_promotion_records_nothing(self, client, superuser):
+        client.post(_url(superuser))
+
+        assert not written().exists()
+
+    def test_a_missing_user_records_nothing(self, client, superuser):
+        client.post(reverse("console:user-make-superuser", args=[999]))
+
+        assert not written().exists()
+
+    def test_a_failed_record_leaves_them_as_they_were(self, client, superuser, bob):
+        with mock.patch("apps.console.queries.users.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(bob))
+
+        bob.refresh_from_db()
+        assert bob.is_superuser is False

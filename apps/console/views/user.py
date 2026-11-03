@@ -4,6 +4,8 @@ from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
+from apps.console.audit import record
+from apps.console.audited import user_changes, user_state, user_target
 from apps.console.queries.users import UserEditor, build_user_editor, update_user
 from apps.console.views.base import ConsoleView, Notice
 
@@ -54,6 +56,8 @@ class UserView(ConsoleView):
         try:
             with transaction.atomic():
                 user = editor.form.save()
+                changes = user_changes({}, user_state(user))
+                record(self.request, "user.add", user_target(user), changes=changes)
         except (IntegrityError, OperationalError):
             return self.render_editor(editor, Notice(NOT_ADDED, "warning"), 409)
         messages.success(self.request, f"User {user.username} added.")
@@ -61,7 +65,7 @@ class UserView(ConsoleView):
 
     def update(self, pk: int, editor: UserEditor):
         try:
-            refusal = update_user(self.request.user, editor.form)
+            refusal = update_user(self.request, editor.form)
         except (IntegrityError, OperationalError):
             refusal = BUSY
         if refusal is None:

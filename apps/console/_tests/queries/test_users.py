@@ -3,7 +3,9 @@ from unittest import mock
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from django.db.models import QuerySet
+from django.test import RequestFactory
 from django.utils import timezone
 
 from apps.console.queries.users import (
@@ -22,6 +24,12 @@ from apps.console.queries.users import (
 from config.describing import Action
 
 pytestmark = pytest.mark.django_db
+
+
+def _as(actor=None):
+    request = RequestFactory().post("/")
+    request.user = actor or AnonymousUser()
+    return request
 
 
 def _user(username, **kw):
@@ -187,7 +195,7 @@ class TestUpdateUser:
         actor = _superuser("root")
         amy = _user("amy")
 
-        assert update_user(actor, _edit(amy, email="amy@example.com")) == ""
+        assert update_user(_as(actor), _edit(amy, email="amy@example.com")) == ""
 
         amy.refresh_from_db()
         assert amy.email == "amy@example.com"
@@ -196,7 +204,7 @@ class TestUpdateUser:
         actor = _superuser("root")
         amy = _superuser("amy")
 
-        assert update_user(actor, _edit(amy, is_active="")) == ""
+        assert update_user(_as(actor), _edit(amy, is_active="")) == ""
 
         amy.refresh_from_db()
         assert amy.is_active is False
@@ -205,7 +213,7 @@ class TestUpdateUser:
         actor = _superuser("root")
         _superuser("amy")
 
-        refusal = update_user(actor, _edit(actor, is_active="", email="new@example.com"))
+        refusal = update_user(_as(actor), _edit(actor, is_active="", email="new@example.com"))
 
         assert refusal == "You can't deactivate your own account."
         actor.refresh_from_db()
@@ -215,7 +223,7 @@ class TestUpdateUser:
         actor = _superuser("root")
         _superuser("gone", is_active=False)
 
-        assert update_user(actor, _edit(actor, is_active="")) == LAST_SUPERUSER
+        assert update_user(_as(actor), _edit(actor, is_active="")) == LAST_SUPERUSER
         actor.refresh_from_db()
         assert actor.is_active is True
 
@@ -225,16 +233,16 @@ class TestUpdateUser:
         form = _edit(amy, email="amy@example.com")
         get_user_model().objects.filter(pk=amy.pk).delete()
 
-        assert update_user(actor, form) is None
+        assert update_user(_as(actor), form) is None
         assert not get_user_model().objects.filter(username="amy").exists()
 
     def test_a_promotion_after_the_form_was_built_survives_the_save(self):
         actor = _superuser("root")
         bob = _user("bob")
         form = _edit(bob, email="bob@example.com")
-        make_superuser(bob.pk)
+        make_superuser(_as(), bob.pk)
 
-        assert update_user(actor, form) == ""
+        assert update_user(_as(actor), form) == ""
 
         bob.refresh_from_db()
         assert (bob.email, bob.is_superuser, bob.is_staff) == ("bob@example.com", True, True)
@@ -247,7 +255,7 @@ class TestUpdateUser:
         stored.set_password("pw-correct-horse-9")
         stored.save()
 
-        assert update_user(actor, form) == ""
+        assert update_user(_as(actor), form) == ""
 
         bob.refresh_from_db()
         assert bob.first_name == "Bob"
@@ -313,27 +321,27 @@ class TestDeletion:
         actor = _superuser("root")
         bob = _user("bob")
 
-        assert delete_user(actor, bob.pk) == ""
+        assert delete_user(_as(actor), bob.pk) == ""
         assert not get_user_model().objects.filter(pk=bob.pk).exists()
 
     def test_delete_user_refuses_and_keeps_the_user(self):
         actor = _superuser("root")
         _superuser("amy")
 
-        assert delete_user(actor, actor.pk) == "You can't delete your own account."
+        assert delete_user(_as(actor), actor.pk) == "You can't delete your own account."
         assert get_user_model().objects.filter(pk=actor.pk).exists()
 
     def test_delete_user_on_a_missing_user_is_none(self):
-        assert delete_user(_superuser("root"), 999) is None
+        assert delete_user(_as(_superuser("root")), 999) is None
 
 
 class TestSetPassword:
     def test_it_sets_only_the_password(self):
         bob = _user("bob")
         stale = get_user_model().objects.get(pk=bob.pk)
-        make_superuser(bob.pk)
+        make_superuser(_as(), bob.pk)
 
-        user = set_password(stale.pk, "pw-correct-horse-9")
+        user = set_password(_as(), stale.pk, "pw-correct-horse-9")
 
         bob.refresh_from_db()
         assert user.pk == bob.pk
@@ -344,7 +352,7 @@ class TestSetPassword:
         bob = _user("bob")
         get_user_model().objects.filter(pk=bob.pk).delete()
 
-        assert set_password(bob.pk, "pw-correct-horse-9") is None
+        assert set_password(_as(), bob.pk, "pw-correct-horse-9") is None
         assert not get_user_model().objects.filter(pk=bob.pk).exists()
 
 
@@ -357,7 +365,7 @@ def test_a_fullwidth_rename_stores_the_normalized_name():
     )
     assert editor.form.is_valid(), editor.form.errors
 
-    assert update_user(actor, editor.form) == ""
+    assert update_user(_as(actor), editor.form) == ""
 
     bob.refresh_from_db()
     assert (bob.username, bob.email) == ("bobb", "b@example.com")
@@ -367,14 +375,14 @@ class TestMakeSuperuser:
     def test_it_sets_both_flags_and_names_the_user(self):
         bob = _user("bob")
 
-        assert make_superuser(bob.pk) == ("bob", "")
+        assert make_superuser(_as(), bob.pk) == ("bob", "")
         bob.refresh_from_db()
         assert (bob.is_superuser, bob.is_staff) == (True, True)
 
     def test_an_inactive_user_is_refused_and_unchanged(self):
         gone = _user("gone", is_active=False)
 
-        assert make_superuser(gone.pk) == (
+        assert make_superuser(_as(), gone.pk) == (
             "gone",
             "gone is inactive, so they can't be made a superuser.",
         )
@@ -385,12 +393,12 @@ class TestMakeSuperuser:
         amy = _superuser("amy")
 
         with mock.patch.object(type(amy), "save") as save:
-            assert make_superuser(amy.pk) == ("amy", "amy is already a superuser.")
+            assert make_superuser(_as(), amy.pk) == ("amy", "amy is already a superuser.")
 
         save.assert_not_called()
 
     def test_a_missing_user_is_none(self):
-        assert make_superuser(999) is None
+        assert make_superuser(_as(), 999) is None
 
 
 class TestDisplayCallsTakeNoLocks:

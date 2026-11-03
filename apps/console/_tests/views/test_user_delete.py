@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from unittest import mock
 
@@ -8,6 +9,7 @@ from django.db import IntegrityError, OperationalError
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.console._tests.audit import written
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console.queries.users import LAST_SUPERUSER
 
@@ -141,3 +143,47 @@ def test_a_post_checks_the_guard_once(client, superuser, amy):
         client.post(_url(amy))
 
     assert refusal.call_count == 1
+
+
+class TestAudit:
+    def test_a_delete_is_recorded_with_its_name(self, client, superuser, amy):
+        pk, digest = amy.pk, amy.password
+
+        client.post(_url(amy))
+
+        entry = written().get()
+        assert (entry.action, entry.target_kind) == ("user.delete", "user")
+        assert (entry.target_id, entry.target_name) == (pk, "amy")
+        assert entry.changes["username"] == {"old": "amy", "new": None}
+        assert entry.changes["password"] == {"changed": True}
+        assert digest not in json.dumps(entry.changes)
+
+    def test_a_refused_delete_records_nothing(self, client, superuser):
+        client.post(_url(superuser))
+
+        assert not written().exists()
+
+    def test_a_missing_user_records_nothing(self, client, superuser):
+        client.post(reverse("console:user-delete", args=[999]))
+
+        assert not written().exists()
+
+    def test_a_failed_record_keeps_the_user(self, client, superuser, amy):
+        with mock.patch("apps.console.queries.users.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(amy))
+
+        assert User.objects.filter(pk=amy.pk).exists()
+
+    def test_a_delete_another_request_won_records_nothing(self, client, superuser, amy):
+        delete = User.delete
+
+        def raced(self, *args, **kwargs):
+            User.objects.filter(pk=self.pk).delete()
+            return delete(self, *args, **kwargs)
+
+        with mock.patch.object(User, "delete", raced):
+            client.post(_url(amy))
+
+        assert not User.objects.filter(pk=amy.pk).exists()
+        assert not written().exists()

@@ -16,7 +16,7 @@ class UserPromoteView(ConsoleView):
         return reverse("console:user", args=[self.kwargs["pk"]])
 
     def post(self, request, *args, **kwargs):
-        outcome = make_superuser(kwargs["pk"])
+        outcome = make_superuser(request, kwargs["pk"])
         if outcome is None:
             return user_not_found(request)
         username, refusal = outcome

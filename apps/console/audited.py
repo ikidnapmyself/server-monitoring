@@ -1,6 +1,7 @@
 """What each console write records: the state of its row, its target and its secrets."""
 
 from apps.console.audit import config_keys, config_state, diff, record, snapshot, unlisted
+from apps.console.forms import UserEditForm
 from apps.intelligence.forms import PROVIDER_FIELDS
 from apps.intelligence.models import IntelligenceProvider
 from apps.intelligence.providers import PROVIDERS
@@ -18,6 +19,8 @@ CHANNEL_PUBLIC = config_keys(DRIVER_REGISTRY.values(), secret=False)
 PROVIDER_SECRETS = config_keys(PROVIDERS.values(), secret=True)
 PROVIDER_PUBLIC = config_keys(PROVIDERS.values(), secret=False)
 KEY_SECRETS = frozenset({"key"})
+USER_FIELDS = tuple(UserEditForm.Meta.fields)
+USER_SECRETS = frozenset({"password"})
 TURNED_OFF = {"is_active": {"old": True, "new": False}}
 
 
@@ -99,3 +102,15 @@ def key_target(key: APIKey) -> tuple[str, int, str]:
 
 def key_changes(before: dict, after: dict) -> dict:
     return diff(before, after, secret=KEY_SECRETS)
+
+
+def user_state(user) -> dict:
+    return snapshot(user, (*USER_FIELDS, "password"))
+
+
+def user_target(user) -> tuple[str, int, str]:
+    return ("user", user.pk, user.get_username())
+
+
+def user_changes(before: dict, after: dict) -> dict:
+    return diff(before, after, secret=USER_SECRETS)
