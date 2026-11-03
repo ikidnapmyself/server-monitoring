@@ -1,0 +1,132 @@
+"""Tests for the audit entry recorder and its diff."""
+
+import datetime
+import json
+from decimal import Decimal
+
+import pytest
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
+from django.test import RequestFactory, override_settings
+
+from apps.console.audit import diff, record, snapshot
+from apps.console.models import AuditEntry
+
+
+def _request(user=None, peer="192.0.2.1", forwarded=None):
+    meta = {"REMOTE_ADDR": peer}
+    if forwarded is not None:
+        meta["HTTP_X_FORWARDED_FOR"] = forwarded
+    request = RequestFactory().post("/", **meta)
+    request.user = user or AnonymousUser()
+    return request
+
+
+@pytest.fixture
+def root(db):
+    return get_user_model().objects.create_superuser("root", password="x")
+
+
+def test_equal_dicts_have_no_diff():
+    assert diff({"a": 1, "b": "x"}, {"a": 1, "b": "x"}) == {}
+
+
+def test_a_changed_value_records_old_and_new():
+    assert diff({"a": 1, "b": "x"}, {"a": 2, "b": "x"}) == {"a": {"old": 1, "new": 2}}
+
+
+def test_added_and_removed_keys_count_as_changed():
+    assert diff({"gone": 1}, {"new": 2}) == {
+        "gone": {"old": 1, "new": None},
+        "new": {"old": None, "new": 2},
+    }
+
+
+def test_a_secret_records_only_that_it_changed():
+    changes = diff({"key": "old-secret"}, {"key": "new-secret"}, secret=frozenset({"key"}))
+    assert changes == {"key": {"changed": True}}
+    assert "secret" not in json.dumps(changes)
+
+
+def test_an_unchanged_secret_is_left_out():
+    assert diff({"key": "s"}, {"key": "s"}, secret=frozenset({"key"})) == {}
+
+
+def test_snapshot_makes_values_json_safe(root):
+    root.last_login = datetime.datetime(2026, 11, 3, 12, 0, tzinfo=datetime.timezone.utc)
+    snap = snapshot(root, ["username", "is_active", "last_login", "email"])
+    assert snap == {
+        "username": "root",
+        "is_active": True,
+        "last_login": "2026-11-03 12:00:00+00:00",
+        "email": "",
+    }
+    json.dumps(snap)
+
+
+def test_snapshot_strings_what_json_refuses():
+    class Thing:
+        price = Decimal("1.50")
+        tags = ["a"]
+        nothing = None
+
+    assert snapshot(Thing(), ["price", "tags", "nothing"]) == {
+        "price": "1.50",
+        "tags": ["a"],
+        "nothing": None,
+    }
+
+
+def test_record_with_an_instance(root):
+    entry = record(_request(root), "user.edit", root, changes={"email": {"old": "", "new": "a"}})
+    entry.refresh_from_db()
+    assert entry.actor == root
+    assert entry.actor_name == "root"
+    assert entry.action == "user.edit"
+    assert (entry.target_kind, entry.target_id, entry.target_name) == ("user", root.pk, "root")
+    assert entry.changes == {"email": {"old": "", "new": "a"}}
+    assert entry.address == "192.0.2.1"
+    assert entry.at is not None
+
+
+def test_record_with_a_triple(root):
+    entry = record(_request(root), "inbox.drain", ("inbox", None, "inbox"))
+    assert (entry.target_kind, entry.target_id, entry.target_name) == ("inbox", None, "inbox")
+    assert entry.changes == {}
+
+
+def test_record_truncates_a_long_target_name(root):
+    entry = record(_request(root), "x.y", ("thing", 1, "n" * 300))
+    entry.refresh_from_db()
+    assert entry.target_name == "n" * 255
+
+
+def test_record_with_no_target(root):
+    entry = record(_request(root), "inbox.drain")
+    assert (entry.target_kind, entry.target_id, entry.target_name) == ("", None, "")
+
+
+def test_record_signed_out_has_no_actor(db):
+    entry = record(_request(), "session.sign_in_failed", ("user", None, "mallory"))
+    assert entry.actor is None
+    assert entry.actor_name == ""
+
+
+@override_settings(TRUSTED_PROXIES=("10.0.0.0/8",))
+def test_record_takes_the_client_address_behind_a_trusted_proxy(root):
+    entry = record(_request(root, peer="10.0.0.5", forwarded="198.51.100.7"), "x.y")
+    assert entry.address == "198.51.100.7"
+
+
+def test_an_entry_outlives_its_actor(root):
+    entry = record(_request(root), "user.edit", root)
+    root.delete()
+    entry.refresh_from_db()
+    assert entry.actor is None
+    assert entry.actor_name == "root"
+
+
+def test_entries_are_newest_first(root):
+    first = record(_request(root), "a.b")
+    second = record(_request(root), "a.b")
+    assert list(AuditEntry.objects.all()) == [second, first]
