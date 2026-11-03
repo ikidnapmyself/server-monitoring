@@ -1,3 +1,5 @@
+from unittest import mock
+
 import pytest
 from django.urls import reverse
 from django.utils import timezone
@@ -5,6 +7,7 @@ from django.utils import timezone
 from apps.alerts.describing import describe_alert
 from apps.alerts.models import Alert, Node
 from apps.alerts.node_policy import config_digest
+from apps.console._tests.audit import written
 from apps.console.queries.allow_ports import parse_ports
 
 pytestmark = pytest.mark.django_db
@@ -130,3 +133,44 @@ def test_a_lost_race_on_the_database_is_a_409(client, superuser, node, monkeypat
     response = client.post(_url(node), {"ports": "22", "digest": config_digest(node.config)})
 
     assert response.status_code == 409
+
+
+class TestAudit:
+    def test_allowing_ports_records_the_allowlist(self, client, superuser, node, alert):
+        client.post(_url(node), {"ports": "22,80", "digest": config_digest(node.config)})
+
+        entry = written().get()
+        assert (entry.action, entry.target_id, entry.target_name) == (
+            "node.allow_ports",
+            node.pk,
+            "web-1",
+        )
+        assert entry.changes == {
+            "listening_ports": {"old": None, "new": {"allowlist": [22, 80, 5432]}}
+        }
+
+    def test_allowing_ports_already_allowed_records_nothing(self, client, superuser, node):
+        node.config = {"listening_ports": {"allowlist": [22, 80]}}
+        node.save()
+
+        client.post(_url(node), {"ports": "22", "digest": config_digest(node.config)})
+
+        assert not written().exists()
+
+    def test_a_stale_digest_records_nothing(self, client, superuser, node):
+        client.post(_url(node), {"ports": "22", "digest": "old"})
+
+        assert not written().exists()
+
+    def test_no_ports_records_nothing(self, client, superuser, node):
+        client.post(_url(node), {"ports": "", "digest": config_digest(node.config)})
+
+        assert not written().exists()
+
+    def test_a_failed_record_rolls_the_save_back(self, client, superuser, node):
+        with mock.patch("apps.console.views.node_allow_ports.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(node), {"ports": "22", "digest": config_digest(node.config)})
+
+        node.refresh_from_db()
+        assert node.config == {}

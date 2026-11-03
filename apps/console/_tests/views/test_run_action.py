@@ -1,10 +1,12 @@
 import re
 from datetime import timedelta
+from unittest import mock
 
 import pytest
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.console._tests.audit import written
 from apps.console._tests.queries.test_runs import _run
 from apps.console.views.run import ABANDONED, NOT_FAILED, NOT_STUCK, RETRIED
 from apps.orchestration.models import PipelineRun
@@ -214,3 +216,35 @@ def test_the_button_posts_with_the_htmx_contract(client, superuser, status, acti
     assert 'hx-sync="#run:replace"' in form
     assert 'hx-disabled-elt="#run .c-button"' in form
     assert 'name="csrfmiddlewaretoken"' in form
+
+
+@pytest.mark.django_db
+class TestAudit:
+    @pytest.mark.parametrize(("action", "status"), [("retry", "failed"), ("abandon", "pending")])
+    def test_an_action_that_won_is_recorded(self, client, superuser, action, status):
+        run = _run(status=status)
+
+        client.post(_url(run, action))
+
+        entry = written().get()
+        assert (entry.action, entry.target_kind, entry.target_id, entry.target_name) == (
+            f"run.{action}",
+            "run",
+            run.pk,
+            f"#{run.pk}",
+        )
+
+    @pytest.mark.parametrize(("action", "status"), [("retry", "notified"), ("abandon", "failed")])
+    def test_an_action_that_lost_records_nothing(self, client, superuser, action, status):
+        client.post(_url(_run(status=status), action))
+
+        assert not written().exists()
+
+    def test_a_failed_record_rolls_the_retry_back(self, client, superuser):
+        run = _run(status="failed")
+
+        with mock.patch("apps.console.views.run.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(run, "retry"))
+
+        assert _status(run) == "failed"

@@ -6,6 +6,7 @@ import pytest
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.console._tests.audit import written
 from apps.console._tests.queries.test_runs import _run
 from apps.console.views import inbox as inbox_views
 from apps.orchestration.inbox import DEFAULT_STALE_MINUTES
@@ -316,3 +317,79 @@ def test_the_incident_link_is_on_the_row(client, superuser):
     body = client.get(PAGE).content.decode()
 
     assert f'id="inbox-run-{run.pk}-incident" href="/console/incidents/{incident.pk}/"' in body
+
+
+@pytest.mark.django_db
+class TestAudit:
+    def test_draining_one_run_records_it(self, client, superuser):
+        run = _run(status="pending")
+
+        client.post(reverse("console:inbox-drain", args=[run.pk]))
+
+        entry = written().get()
+        assert (entry.action, entry.target_kind, entry.target_id, entry.target_name) == (
+            "inbox.drain",
+            "run",
+            run.pk,
+            f"#{run.pk}",
+        )
+        assert entry.changes == {"result": {"ran": 1, "failed": 0}}
+
+    def test_draining_a_run_no_longer_queued_records_nothing(self, client, superuser):
+        run = _run(status="notified")
+
+        client.post(reverse("console:inbox-drain", args=[run.pk]))
+
+        assert not written().exists()
+
+    def test_draining_the_oldest_records_the_inbox(self, client, superuser):
+        _run(status="pending")
+
+        client.post(reverse("console:inbox-drain-oldest"))
+
+        entry = written().get()
+        assert (entry.action, entry.target_kind, entry.target_id, entry.target_name) == (
+            "inbox.drain_oldest",
+            "inbox",
+            None,
+            "inbox",
+        )
+        assert entry.changes == {"result": {"ran": 1, "failed": 0, "left": 0}}
+
+    def test_draining_an_empty_inbox_records_nothing(self, client, superuser):
+        client.post(reverse("console:inbox-drain-oldest"))
+
+        assert not written().exists()
+
+    def test_draining_the_oldest_when_another_drain_took_them_records_nothing(
+        self, client, superuser
+    ):
+        _run(status="pending")
+
+        with patch("apps.orchestration.inbox.claim", return_value=False):
+            client.post(reverse("console:inbox-drain-oldest"))
+
+        assert not written().exists()
+
+    def test_reclaiming_records_how_many_returned(self, client, superuser):
+        _stuck(_run(status="processing"))
+
+        client.post(reverse("console:inbox-reclaim"))
+
+        entry = written().get()
+        assert (entry.action, entry.target_kind) == ("inbox.reclaim", "inbox")
+        assert entry.changes == {"result": {"returned": 1}}
+
+    def test_reclaiming_nothing_records_nothing(self, client, superuser):
+        client.post(reverse("console:inbox-reclaim"))
+
+        assert not written().exists()
+
+    def test_a_failed_record_rolls_the_reclaim_back(self, client, superuser):
+        run = _stuck(_run(status="processing"))
+
+        with patch("apps.console.views.inbox.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(reverse("console:inbox-reclaim"))
+
+        assert _status(run) == "processing"

@@ -1,7 +1,10 @@
 from django.contrib import messages
+from django.db import transaction
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 
+from apps.console.audit import record
+from apps.console.audited import inbox_target, result, run_target
 from apps.console.filters import InboxFilter
 from apps.console.queries.inbox import build_inbox
 from apps.console.views.base import ConsoleView, Notice
@@ -61,9 +64,14 @@ class InboxActionView(InboxPageView):
     def act(self) -> Notice:
         action = self.kwargs["action"]
         if action == "drain":
-            ran, failed = inbox.drain_each([self.kwargs["pk"]])
+            pk = self.kwargs["pk"]
+            # A drain runs pipelines and commits as it goes, so it is recorded once it's done.
+            ran, failed = inbox.drain_each([pk])
             if not ran and not failed:
                 return Notice("This run is no longer queued.", "warning")
+            record(
+                self.request, "inbox.drain", run_target(pk), changes=result(ran=ran, failed=failed)
+            )
             return _drained(ran, failed)
         if action == "drain-oldest":
             pks = inbox.pending_pks(DRAIN_LIMIT)
@@ -71,8 +79,15 @@ class InboxActionView(InboxPageView):
                 return Notice("Nothing was waiting.", "info")
             ran, failed = inbox.drain_each(pks, seconds=DRAIN_SECONDS)
             left = PipelineRun.objects.filter(status=PipelineStatus.PENDING).count()
+            if ran or failed:
+                changes = result(ran=ran, failed=failed, left=left)
+                record(self.request, "inbox.drain_oldest", inbox_target(), changes=changes)
             return _drained(ran, failed, left)
-        count = inbox.reclaim_stuck()
+        with transaction.atomic():
+            count = inbox.reclaim_stuck()
+            if count:
+                changes = result(returned=count)
+                record(self.request, "inbox.reclaim", inbox_target(), changes=changes)
         if not count:
             return Notice("No run was stuck.", "info")
         plural = "s" if count != 1 else ""

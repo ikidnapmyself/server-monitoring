@@ -7,6 +7,7 @@ from django.test import Client
 from django.urls import reverse
 
 from apps.alerts.models import Incident, Node
+from apps.console._tests.audit import written
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console._tests.views.test_incident import focus_audit, named_incident
 from apps.console.views.incident import IncidentPageView
@@ -546,3 +547,60 @@ def test_the_rendered_page_with_buttons_and_a_message_is_clean(client, superuser
     assert [tone for tone, _ in _notices(warned)] == ["warning"] and "<html" in warned
     for body in (page, acted, warned):
         assert not FORBIDDEN[label].search(body), label
+
+
+@pytest.mark.django_db
+class TestAudit:
+    @pytest.mark.parametrize("action", ["acknowledge", "close"])
+    def test_an_action_is_recorded(self, client, superuser, action):
+        incident = _incident()
+
+        client.post(_url(incident, action))
+
+        entry = written().get()
+        assert (entry.action, entry.actor) == (f"incident.{action}", superuser)
+        assert (entry.target_kind, entry.target_id, entry.target_name) == (
+            "incident",
+            incident.pk,
+            f"#{incident.pk}",
+        )
+        assert entry.changes == {}
+
+    def test_a_resolve_records_its_summary(self, client, superuser):
+        incident = _incident()
+
+        client.post(_url(incident, "resolve"), {"summary": "disk swapped"})
+
+        entry = written().get()
+        assert entry.action == "incident.resolve"
+        assert entry.changes == {"summary": {"old": "", "new": "disk swapped"}}
+
+    def test_a_resolve_without_a_summary_records_no_changes(self, client, superuser):
+        incident = _incident()
+
+        client.post(_url(incident, "resolve"))
+
+        assert written().get().changes == {}
+
+    def test_a_refused_action_records_nothing(self, client, superuser):
+        incident = _incident(status="closed")
+
+        client.post(_url(incident, "resolve"))
+
+        assert not written().exists()
+
+    def test_a_missing_incident_records_nothing(self, client, superuser):
+        client.post(reverse("console:incident-action", args=[999, "close"]))
+
+        assert not written().exists()
+
+    def test_a_failed_record_rolls_the_action_back(self, client, superuser):
+        incident = _incident()
+
+        with mock.patch("apps.console.views.incident_action.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(incident, "close"))
+
+        incident.refresh_from_db()
+        assert incident.status == "open"
+        assert not PipelineRun.objects.exists()

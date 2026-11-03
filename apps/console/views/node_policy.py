@@ -1,11 +1,14 @@
 from django.contrib import messages
-from django.db import OperationalError
+from django.db import OperationalError, transaction
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 
 from apps.alerts.forms import ADD_SECTION_FIELD
+from apps.alerts.models import Node
 from apps.alerts.node_policy import StalePolicy, editor_anchor, save_policy, scoring_changed
 from apps.checkers.checkers import checker_label
+from apps.console.audit import record
+from apps.console.audited import node_target, policy_changes
 from apps.console.queries.node import PolicyEditor, build_policy_editor
 from apps.console.views.base import Notice
 from apps.console.views.node import NodePageView
@@ -46,7 +49,12 @@ class NodePolicyView(NodePageView):
             return self.render_editor(editor)
         config = editor.form.policy_config
         try:
-            stored = save_policy(pk, config, expected=digest)
+            with transaction.atomic():
+                stored = save_policy(pk, config, expected=digest)
+                changes = policy_changes(stored, config)
+                if changes:
+                    node = Node.objects.get(pk=pk)
+                    record(request, "node.policy", node_target(node), changes=changes)
         except (StalePolicy, OperationalError):
             return self.render_editor(build_policy_editor(pk), Notice(STALE, "warning"), 409)
         if scoring_changed(stored, config):

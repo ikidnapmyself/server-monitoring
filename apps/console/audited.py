@@ -1,5 +1,6 @@
 """What each console write records: the state of its row, its target and its secrets."""
 
+from apps.alerts.describing import node_name
 from apps.console.audit import config_keys, config_state, diff, record, snapshot, unlisted
 from apps.console.forms import UserEditForm
 from apps.intelligence.forms import PROVIDER_FIELDS
@@ -118,3 +119,57 @@ def user_target(user) -> tuple[str, int, str]:
 
 def user_changes(before: dict, after: dict) -> dict:
     return diff(before, after, secret=USER_SECRETS)
+
+
+def incident_target(pk: int) -> tuple[str, int, str]:
+    return ("incident", pk, f"#{pk}")
+
+
+def alert_target(alert) -> tuple[str, int, str]:
+    return ("alert", alert.pk, alert.name)
+
+
+def node_target(node) -> tuple[str, int, str]:
+    return ("node", node.pk, node_name(node.hostname))
+
+
+def run_target(pk: int) -> tuple[str, int, str]:
+    return ("run", pk, f"#{pk}")
+
+
+def inbox_target() -> tuple[str, None, str]:
+    return ("inbox", None, "inbox")
+
+
+def policy_changes(before, after) -> dict:
+    """A node policy's changes, one field per checker key."""
+    return diff(_policy(before), _policy(after))
+
+
+def _policy(config) -> dict:
+    return dict(config) if isinstance(config, dict) else {}
+
+
+def result(**counts: int) -> dict:
+    return {"result": counts}
+
+
+def reeval_result(report) -> dict:
+    return result(
+        changed=len(report.changes),
+        resolved=report.resolved_count,
+        incidents_resolved=len(report.swept_incident_ids),
+    )
+
+
+def rerun_result(rerun) -> dict:
+    checks = rerun.checks
+    return result(
+        checks_run=checks.checks_run,
+        alerts_created=checks.alerts_created,
+        alerts_updated=checks.alerts_updated,
+        alerts_resolved=checks.alerts_resolved,
+        incidents_created=checks.incidents_created,
+        incidents_updated=checks.incidents_updated,
+        runs=len(rerun.runs),
+    )

@@ -1,10 +1,13 @@
 from collections.abc import Callable
 
 from django.contrib import messages
+from django.db import transaction
 from django.http import Http404, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
+from apps.console.audit import record
+from apps.console.audited import run_target
 from apps.console.queries.run import build_run_detail, run_exists
 from apps.console.views.base import ConsoleView, Notice
 from apps.orchestration import inbox
@@ -53,7 +56,11 @@ class RunActionView(RunPageView):
             raise Http404("Unknown run action.")
         pk = kwargs["pk"]
         write, won, lost = ACTIONS[kwargs["action"]]
-        notice = Notice(won, "ok") if write(pk) else Notice(lost, "warning")
+        with transaction.atomic():
+            moved = write(pk)
+            if moved:
+                record(request, f"run.{kwargs['action']}", run_target(pk))
+        notice = Notice(won, "ok") if moved else Notice(lost, "warning")
         if self.wants_partial:
             # Not the messages framework: the next poll, or another page, would eat it.
             return self.render_run(pk, notice=notice)

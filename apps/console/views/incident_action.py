@@ -1,9 +1,12 @@
 from django.contrib import messages
+from django.db import transaction
 from django.http import Http404, HttpResponseRedirect
 from django.urls import reverse
 
 from apps.alerts.models import Incident
 from apps.alerts.services import INCIDENT_ACTIONS, IncidentManager
+from apps.console.audit import record
+from apps.console.audited import incident_target
 from apps.console.views.base import Notice
 from apps.console.views.incident import IncidentPageView
 
@@ -26,13 +29,20 @@ class IncidentActionView(IncidentPageView):
         pk, action = kwargs["pk"], kwargs["action"]
         if action not in INCIDENT_ACTIONS:
             raise Http404("Unknown incident action.")
+        summary = self._summary() if action == "resolve" else ""
         try:
-            outcome = IncidentManager.transition(
-                pk,
-                action,
-                actor=request.user.get_username(),
-                summary=self._summary() if action == "resolve" else "",
-            )
+            with transaction.atomic():
+                outcome = IncidentManager.transition(
+                    pk, action, actor=request.user.get_username(), summary=summary
+                )
+                if outcome.ok:
+                    changes = {"summary": {"old": "", "new": summary}} if summary else {}
+                    record(
+                        request,
+                        f"incident.{action}",
+                        incident_target(pk),
+                        changes=changes,
+                    )
         except Incident.DoesNotExist:
             return self.not_found()
         full = request.POST.get("all") == "1"
