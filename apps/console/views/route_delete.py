@@ -4,10 +4,10 @@ from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
-from apps.console.audit import diff, record
+from apps.console.audit import record
+from apps.console.audited import route_changes, route_state, route_target
 from apps.console.queries.routes import build_route_deletion
 from apps.console.views.base import ConsoleView
-from apps.console.views.route import route_state, route_target
 from apps.orchestration.models import PipelineDefinition
 
 
@@ -37,7 +37,8 @@ class RouteDeleteView(ConsoleView):
             if lane is None:
                 return self.not_found()
             target, before = route_target(lane), route_state(lane)
-            lane.delete()
-            record(request, "route.delete", target, changes=diff(before, {}))
+            deleted, _ = lane.delete()
+            if deleted:
+                record(request, "route.delete", target, changes=route_changes(before, {}))
         messages.success(request, f"Route {lane.name} deleted.")
         return HttpResponseRedirect(reverse("console:routes"), status=303)

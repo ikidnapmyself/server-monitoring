@@ -5,9 +5,15 @@ from django.shortcuts import render
 from django.urls import reverse
 
 from apps.console.audit import record
+from apps.console.audited import (
+    channel_changes,
+    channel_state,
+    channel_target,
+    record_routes_cut,
+    routes_on,
+)
 from apps.console.queries.channels import build_channel_deletion
 from apps.console.views.base import ConsoleView
-from apps.console.views.channel import channel_changes, channel_state, channel_target
 from apps.notify.models import NotificationChannel
 
 
@@ -37,7 +43,10 @@ class ChannelDeleteView(ConsoleView):
             if channel is None:
                 return self.not_found()
             target, before = channel_target(channel), channel_state(channel)
-            channel.delete()
-            record(request, "channel.delete", target, changes=channel_changes(before, {}))
+            routes = routes_on(channel)
+            deleted, _ = channel.delete()
+            if deleted:
+                record(request, "channel.delete", target, changes=channel_changes(before, {}))
+                record_routes_cut(request, routes, channel.name)
         messages.success(request, f"Channel {channel.name} deleted.")
         return HttpResponseRedirect(reverse("console:channels"), status=303)

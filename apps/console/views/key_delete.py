@@ -5,9 +5,9 @@ from django.shortcuts import render
 from django.urls import reverse
 
 from apps.console.audit import record
+from apps.console.audited import key_changes, key_state, key_target
 from apps.console.queries.keys import build_key_deletion
 from apps.console.views.base import ConsoleView
-from apps.console.views.key import key_changes, key_state, key_target
 from config.models import APIKey
 
 
@@ -37,7 +37,8 @@ class KeyDeleteView(ConsoleView):
             if key is None:
                 return self.not_found()
             target, before = key_target(key), key_state(key)
-            key.delete()
-            record(request, "key.delete", target, changes=key_changes(before, {}))
+            deleted, _ = key.delete()
+            if deleted:
+                record(request, "key.delete", target, changes=key_changes(before, {}))
         messages.success(request, f"API key {key.name} deleted.")
         return HttpResponseRedirect(reverse("console:keys"), status=303)

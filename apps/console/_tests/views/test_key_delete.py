@@ -140,3 +140,17 @@ class TestAudit:
                 client.post(_url(key))
 
         assert APIKey.objects.filter(pk=key.pk).exists()
+
+
+def test_a_delete_another_request_won_records_nothing(client, superuser, key):
+    delete = APIKey.delete
+
+    def raced(self, *args, **kwargs):
+        APIKey.objects.filter(pk=self.pk).delete()
+        return delete(self, *args, **kwargs)
+
+    with mock.patch.object(APIKey, "delete", raced):
+        client.post(_url(key))
+
+    assert not APIKey.objects.filter(pk=key.pk).exists()
+    assert not written().exists()

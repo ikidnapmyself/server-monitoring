@@ -5,9 +5,9 @@ from django.shortcuts import render
 from django.urls import reverse
 
 from apps.console.audit import record
+from apps.console.audited import provider_changes, provider_state, provider_target
 from apps.console.queries.providers import build_provider_deletion
 from apps.console.views.base import ConsoleView
-from apps.console.views.provider import provider_changes, provider_state, provider_target
 from apps.intelligence.models import IntelligenceProvider
 
 
@@ -37,7 +37,8 @@ class ProviderDeleteView(ConsoleView):
             if provider is None:
                 return self.not_found()
             target, before = provider_target(provider), provider_state(provider)
-            provider.delete()
-            record(request, "provider.delete", target, changes=provider_changes(before, {}))
+            deleted, _ = provider.delete()
+            if deleted:
+                record(request, "provider.delete", target, changes=provider_changes(before, {}))
         messages.success(request, f"Provider {provider.name} deleted.")
         return HttpResponseRedirect(reverse("console:providers"), status=303)

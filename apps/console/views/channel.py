@@ -6,7 +6,8 @@ from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
-from apps.console.audit import config_keys, config_state, diff, record, snapshot, unlisted
+from apps.console.audit import record
+from apps.console.audited import channel_changes, channel_state, channel_target
 from apps.console.queries.channels import (
     ChannelEditor,
     UnknownDriver,
@@ -15,8 +16,7 @@ from apps.console.queries.channels import (
 )
 from apps.console.views.base import ConsoleView, Notice
 from apps.notify.channels import StaleChannel, save_channel
-from apps.notify.drivers import DRIVER_REGISTRY
-from apps.notify.forms import CHANNEL_FIELDS, NAME_TAKEN
+from apps.notify.forms import NAME_TAKEN
 from apps.notify.models import NotificationChannel
 
 STALE = "This channel changed since you opened it. Here it is now."
@@ -25,21 +25,6 @@ NO_SUCH_DRIVER = "This hub has no driver by that name. Pick one it has."
 NOT_ADDED = "Couldn't add the channel just now. Nothing was saved, so try again."
 SAVED = "Channel saved."
 ADDED = "Channel added."
-
-CHANNEL_SECRETS = config_keys(DRIVER_REGISTRY.values(), secret=True)
-CHANNEL_PUBLIC = config_keys(DRIVER_REGISTRY.values(), secret=False)
-
-
-def channel_state(row: NotificationChannel) -> dict:
-    return snapshot(row, CHANNEL_FIELDS[:-1]) | config_state(row.config)
-
-
-def channel_target(row: NotificationChannel) -> tuple[str, int, str]:
-    return ("channel", row.pk, row.name)
-
-
-def channel_changes(before: dict, after: dict) -> dict:
-    return diff(before, after, secret=CHANNEL_SECRETS | unlisted(before, after, CHANNEL_PUBLIC))
 
 
 class ChannelView(ConsoleView):

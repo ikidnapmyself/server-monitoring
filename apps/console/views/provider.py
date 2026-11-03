@@ -6,7 +6,14 @@ from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
-from apps.console.audit import config_keys, config_state, diff, record, snapshot, unlisted
+from apps.console.audit import record
+from apps.console.audited import (
+    others_on,
+    provider_changes,
+    provider_state,
+    provider_target,
+    record_turned_off,
+)
 from apps.console.queries.providers import (
     ProviderEditor,
     UnknownProvider,
@@ -14,9 +21,8 @@ from apps.console.queries.providers import (
     provider_choices,
 )
 from apps.console.views.base import ConsoleView, Notice
-from apps.intelligence.forms import NAME_TAKEN, PROVIDER_FIELDS
+from apps.intelligence.forms import NAME_TAKEN
 from apps.intelligence.models import IntelligenceProvider
-from apps.intelligence.providers import PROVIDERS
 from apps.intelligence.saving import StaleProvider, save_provider
 
 STALE = "This provider changed since you opened it. Here it is now."
@@ -25,21 +31,6 @@ NOT_ADDED = "Couldn't add the provider just now. Nothing was saved, so try again
 NO_SUCH_PROVIDER = "This hub has no provider by that name. Pick one it has."
 SAVED = "Provider saved."
 ADDED = "Provider added."
-
-PROVIDER_SECRETS = config_keys(PROVIDERS.values(), secret=True)
-PROVIDER_PUBLIC = config_keys(PROVIDERS.values(), secret=False)
-
-
-def provider_state(row: IntelligenceProvider) -> dict:
-    return snapshot(row, PROVIDER_FIELDS[:-1]) | config_state(row.config)
-
-
-def provider_target(row: IntelligenceProvider) -> tuple[str, int, str]:
-    return ("provider", row.pk, row.name)
-
-
-def provider_changes(before: dict, after: dict) -> dict:
-    return diff(before, after, secret=PROVIDER_SECRETS | unlisted(before, after, PROVIDER_PUBLIC))
 
 
 class ProviderView(ConsoleView):
@@ -146,9 +137,11 @@ class ProviderView(ConsoleView):
         try:
             # A savepoint, so the re-render can still read after a unique-name race.
             with transaction.atomic():
+                others = others_on(None)
                 provider = IntelligenceProvider.objects.create(**fields)
                 changes = provider_changes({}, provider_state(provider))
                 record(self.request, "provider.add", provider_target(provider), changes=changes)
+                record_turned_off(self.request, others)
         except IntegrityError:
             if self.taken_by_another(fields["name"], None):
                 return self.name_taken(editor)
@@ -162,6 +155,7 @@ class ProviderView(ConsoleView):
         try:
             with transaction.atomic():
                 before = IntelligenceProvider.objects.filter(pk=pk).first()
+                others = others_on(pk)
                 save_provider(pk, fields, expected=digest)
                 row = IntelligenceProvider.objects.get(pk=pk)
                 changes = provider_changes(
@@ -169,6 +163,7 @@ class ProviderView(ConsoleView):
                 )
                 if changes:
                     record(self.request, "provider.edit", provider_target(row), changes=changes)
+                record_turned_off(self.request, others)
         except IntegrityError:
             if self.taken_by_another(fields["name"], pk):
                 return self.name_taken(editor)

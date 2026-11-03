@@ -169,3 +169,46 @@ class TestAudit:
                 client.post(_url(channel))
 
         assert NotificationChannel.objects.filter(pk=channel.pk).exists()
+
+
+class TestAuditRoutesCut:
+    def test_each_route_on_the_channel_records_its_channel_emptied(
+        self, client, superuser, channel
+    ):
+        lane = PipelineDefinition.objects.create(
+            name="web", stages=["notify"], match=[], channel=channel
+        )
+        PipelineDefinition.objects.create(name="other", stages=["notify"], match=[])
+
+        client.post(_url(channel))
+
+        entry = written(action="route.edit").get()
+        assert (entry.target_kind, entry.target_id, entry.target_name) == ("route", lane.pk, "web")
+        assert entry.changes == {"channel": {"old": "ops", "new": None}}
+
+    def test_a_failed_record_leaves_the_route_on_its_channel(self, client, superuser, channel):
+        lane = PipelineDefinition.objects.create(
+            name="web", stages=["notify"], match=[], channel=channel
+        )
+
+        with mock.patch("apps.console.audited.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(channel))
+
+        lane.refresh_from_db()
+        assert lane.channel_id == channel.pk
+        assert not written().exists()
+
+
+def test_a_delete_another_request_won_records_nothing(client, superuser, channel):
+    delete = NotificationChannel.delete
+
+    def raced(self, *args, **kwargs):
+        NotificationChannel.objects.filter(pk=self.pk).delete()
+        return delete(self, *args, **kwargs)
+
+    with mock.patch.object(NotificationChannel, "delete", raced):
+        client.post(_url(channel))
+
+    assert not NotificationChannel.objects.filter(pk=channel.pk).exists()
+    assert not written().exists()

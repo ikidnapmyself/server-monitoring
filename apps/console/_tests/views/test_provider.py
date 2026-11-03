@@ -629,3 +629,48 @@ class TestAudit:
                 client.post(_url(kind="claude"), _data(name="spare", cfg__api_key=TYPED))
 
         assert not IntelligenceProvider.objects.filter(name="spare").exists()
+
+
+class TestAuditTurningOthersOff:
+    def test_an_edit_that_turns_one_on_records_the_one_it_turned_off(
+        self, client, superuser, provider
+    ):
+        old = IntelligenceProvider.objects.create(name="old", provider="openai", is_active=True)
+
+        client.post(_url(provider), _data(provider, is_active="on"))
+
+        assert written(action="provider.edit", target_id=provider.pk).exists()
+        entry = written(target_id=old.pk).get()
+        assert (entry.action, entry.target_name) == ("provider.edit", "old")
+        assert entry.changes == {"is_active": {"old": True, "new": False}}
+
+    def test_an_add_that_turns_one_on_records_the_one_it_turned_off(self, client, superuser):
+        old = IntelligenceProvider.objects.create(name="old", provider="openai", is_active=True)
+
+        client.post(_url(kind="claude"), _data(name="spare", cfg__api_key=TYPED, is_active="on"))
+
+        assert written(action="provider.add").count() == 1
+        entry = written(action="provider.edit").get()
+        assert (entry.target_id, entry.changes) == (
+            old.pk,
+            {"is_active": {"old": True, "new": False}},
+        )
+
+    def test_an_edit_that_leaves_it_off_records_no_other(self, client, superuser, provider):
+        IntelligenceProvider.objects.create(name="old", provider="openai", is_active=True)
+
+        client.post(_url(provider), _data(provider, description="d"))
+
+        assert written().get().target_id == provider.pk
+
+    def test_a_failed_record_leaves_the_other_on(self, client, superuser, provider):
+        old = IntelligenceProvider.objects.create(name="old", provider="openai", is_active=True)
+
+        with mock.patch("apps.console.audited.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(provider), _data(provider, is_active="on"))
+
+        old.refresh_from_db()
+        provider.refresh_from_db()
+        assert (old.is_active, provider.is_active) == (True, False)
+        assert not written().exists()

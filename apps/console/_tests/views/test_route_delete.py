@@ -149,3 +149,17 @@ class TestAudit:
                 client.post(_url(route))
 
         assert PipelineDefinition.objects.filter(pk=route.pk).exists()
+
+
+def test_a_delete_another_request_won_records_nothing(client, superuser, route):
+    delete = PipelineDefinition.delete
+
+    def raced(self, *args, **kwargs):
+        PipelineDefinition.objects.filter(pk=self.pk).delete()
+        return delete(self, *args, **kwargs)
+
+    with mock.patch.object(PipelineDefinition, "delete", raced):
+        client.post(_url(route))
+
+    assert not PipelineDefinition.objects.filter(pk=route.pk).exists()
+    assert not written().exists()

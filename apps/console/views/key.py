@@ -6,7 +6,8 @@ from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
-from apps.console.audit import diff, record, snapshot
+from apps.console.audit import record
+from apps.console.audited import key_changes, key_state, key_target
 from apps.console.queries.keys import KeyEditor, build_key_editor
 from apps.console.views.base import ConsoleView, Notice
 from config.api_keys import KEY_FIELDS, StaleKey, save_key
@@ -16,19 +17,6 @@ STALE = "This key changed since you opened it. Here it is now."
 BUSY = "Couldn't save just now. Here's the key as it is."
 NOT_ADDED = "Couldn't add the key just now. Nothing was saved, so try again."
 SAVED = "Key saved."
-KEY_SECRETS = frozenset({"key"})
-
-
-def key_state(key: APIKey) -> dict:
-    return snapshot(key, (*KEY_FIELDS, "key"))
-
-
-def key_target(key: APIKey) -> tuple[str, int, str]:
-    return ("key", key.pk, key.name)
-
-
-def key_changes(before: dict, after: dict) -> dict:
-    return diff(before, after, secret=KEY_SECRETS)
 
 
 class KeyView(ConsoleView):

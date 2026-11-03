@@ -155,3 +155,17 @@ class TestAudit:
                 client.post(_url(provider))
 
         assert IntelligenceProvider.objects.filter(pk=provider.pk).exists()
+
+
+def test_a_delete_another_request_won_records_nothing(client, superuser, provider):
+    delete = IntelligenceProvider.delete
+
+    def raced(self, *args, **kwargs):
+        IntelligenceProvider.objects.filter(pk=self.pk).delete()
+        return delete(self, *args, **kwargs)
+
+    with mock.patch.object(IntelligenceProvider, "delete", raced):
+        client.post(_url(provider))
+
+    assert not IntelligenceProvider.objects.filter(pk=provider.pk).exists()
+    assert not written().exists()

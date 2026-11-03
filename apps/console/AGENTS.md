@@ -37,6 +37,9 @@ pipeline stage and not an alert producer.
   its own login page, status 429, the username kept and a `next` kept only when it's
   local. `manage.py createsuperuser`
   makes the first account.
+- **Sign-ins are audited.** Each sign-in, sign-out and failed sign-in records an
+  `AuditEntry`. A rate-limited sign-in attempt is refused before the form runs, so it
+  records nothing.
 - **One URL, two sizes.** `ConsoleView` serves `partial_template_name` only when
   `wants_partial` is true, which means an htmx request that swaps a fragment. Two htmx
   headers force the full page, because htmx swaps those responses into `<body>`:
