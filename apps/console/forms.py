@@ -6,6 +6,7 @@ from django.contrib.auth.forms import (
     UserCreationForm,
     UsernameField,
 )
+from django.contrib.auth.signals import user_login_failed
 from django.core.exceptions import ValidationError
 
 from apps.console.access import admits
@@ -24,6 +25,12 @@ class ConsoleLoginForm(AuthenticationForm):
 
     def confirm_login_allowed(self, user):
         if not admits(user):
+            # authenticate() accepted this account, so Django sent no failure signal.
+            user_login_failed.send(
+                sender=type(self),
+                credentials={"username": user.get_username()},
+                request=self.request,
+            )
             raise ValidationError(REFUSED, code="invalid_login")
 
 

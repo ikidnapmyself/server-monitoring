@@ -57,3 +57,17 @@ def _json_safe(value):
     except TypeError:
         return str(value)
     return value
+
+
+def signed_in(sender, request, user, **kwargs):
+    record(request, "session.sign_in", user)
+
+
+def signed_out(sender, request, user, **kwargs):
+    if user is not None:
+        record(request, "session.sign_out", user)
+
+
+def sign_in_failed(sender, credentials, request=None, **kwargs):
+    if request is not None:
+        record(request, "session.sign_in_failed", ("user", None, credentials.get("username", "")))
