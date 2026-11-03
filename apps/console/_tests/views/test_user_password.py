@@ -161,6 +161,18 @@ class TestAudit:
         assert PASSWORD not in text
         assert amy.password not in text
 
+    def test_setting_your_own_names_you_twice_and_keeps_you_signed_in(self, client, superuser):
+        client.post(_url(superuser), _set())
+
+        entry = written().get()
+        assert (entry.action, entry.actor, entry.actor_name) == (
+            "user.set_password",
+            superuser,
+            "root",
+        )
+        assert (entry.target_id, entry.target_name) == (superuser.pk, "root")
+        assert client.get(reverse("console:overview")).status_code == 200
+
     def test_a_mismatched_password_records_nothing(self, client, superuser, amy):
         client.post(_url(amy), _set(confirm="other-password-9"))
 

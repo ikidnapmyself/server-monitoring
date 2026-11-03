@@ -136,6 +136,7 @@ def test_a_busy_database_deletes_nothing_and_says_so(client, superuser, amy, err
     assert resp["Location"] == reverse("console:user", args=[amy.pk])
     assert _messages(resp) == ["Couldn't delete amy just now. Nothing was deleted, so try again."]
     assert User.objects.filter(pk=amy.pk).exists()
+    assert not written().exists()
 
 
 def test_a_post_checks_the_guard_once(client, superuser, amy):
@@ -161,6 +162,16 @@ class TestAudit:
     def test_a_refused_delete_records_nothing(self, client, superuser):
         client.post(_url(superuser))
 
+        assert not written().exists()
+
+    def test_deleting_yourself_records_nothing_while_another_superuser_remains(
+        self, client, superuser
+    ):
+        User.objects.create_superuser("amy-root", password="x")
+
+        resp = client.post(_url(superuser))
+
+        assert _messages(resp) == ["You can't delete your own account."]
         assert not written().exists()
 
     def test_a_missing_user_records_nothing(self, client, superuser):

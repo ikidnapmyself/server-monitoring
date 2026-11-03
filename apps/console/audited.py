@@ -21,7 +21,6 @@ PROVIDER_PUBLIC = config_keys(PROVIDERS.values(), secret=False)
 KEY_SECRETS = frozenset({"key"})
 USER_FIELDS = tuple(UserEditForm.Meta.fields)
 USER_SECRETS = frozenset({"password"})
-TURNED_OFF = {"is_active": {"old": True, "new": False}}
 
 
 def route_state(route: PipelineDefinition) -> dict:
@@ -39,7 +38,8 @@ def route_changes(before: dict, after: dict) -> dict:
 
 
 def routes_on(channel: NotificationChannel) -> list[PipelineDefinition]:
-    return list(PipelineDefinition.objects.filter(channel=channel).order_by("pk"))
+    routes = PipelineDefinition.objects.select_for_update().filter(channel=channel)
+    return list(routes.order_by("pk"))
 
 
 def record_routes_cut(request, routes: list[PipelineDefinition], channel_name: str) -> None:
@@ -76,8 +76,12 @@ def provider_changes(before: dict, after: dict) -> dict:
 
 
 def others_on(pk: int | None) -> list[IntelligenceProvider]:
-    on = IntelligenceProvider.objects.filter(is_active=True)
+    on = IntelligenceProvider.objects.select_for_update().filter(is_active=True)
     return list((on if pk is None else on.exclude(pk=pk)).order_by("pk"))
+
+
+def turned_off() -> dict:
+    return {"is_active": {"old": True, "new": False}}
 
 
 def record_turned_off(request, others: list[IntelligenceProvider]) -> None:
@@ -89,7 +93,7 @@ def record_turned_off(request, others: list[IntelligenceProvider]) -> None:
     )
     for other in others:
         if other.pk in off:
-            record(request, "provider.edit", provider_target(other), changes=TURNED_OFF)
+            record(request, "provider.edit", provider_target(other), changes=turned_off())
 
 
 def key_state(key: APIKey) -> dict:

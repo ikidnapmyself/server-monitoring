@@ -102,6 +102,15 @@ class TestAudit:
 
         assert not written().exists()
 
+    def test_promoting_an_inactive_user_records_nothing(self, client, superuser):
+        gone = User.objects.create_user("gone", password="x", is_active=False)
+
+        client.post(_url(gone))
+
+        gone.refresh_from_db()
+        assert gone.is_superuser is False
+        assert not written().exists()
+
     def test_a_missing_user_records_nothing(self, client, superuser):
         client.post(reverse("console:user-make-superuser", args=[999]))
 
