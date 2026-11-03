@@ -1,10 +1,13 @@
 from django.contrib import messages
+from django.db import transaction
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
+from apps.console.audit import record
 from apps.console.queries.channels import build_channel_deletion
 from apps.console.views.base import ConsoleView
+from apps.console.views.channel import channel_changes, channel_state, channel_target
 from apps.notify.models import NotificationChannel
 
 
@@ -29,9 +32,12 @@ class ChannelDeleteView(ConsoleView):
         return self.render_to_response(context)
 
     def post(self, request, *args, **kwargs):
-        channel = NotificationChannel.objects.filter(pk=kwargs["pk"]).first()
-        if channel is None:
-            return self.not_found()
-        channel.delete()
+        with transaction.atomic():
+            channel = NotificationChannel.objects.filter(pk=kwargs["pk"]).first()
+            if channel is None:
+                return self.not_found()
+            target, before = channel_target(channel), channel_state(channel)
+            channel.delete()
+            record(request, "channel.delete", target, changes=channel_changes(before, {}))
         messages.success(request, f"Channel {channel.name} deleted.")
         return HttpResponseRedirect(reverse("console:channels"), status=303)

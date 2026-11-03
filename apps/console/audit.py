@@ -13,6 +13,7 @@ from config.client_ip import client_ip
 Target = models.Model | tuple[str, int | None, str] | None
 
 NAME_LENGTH = AuditEntry._meta.get_field("target_name").max_length or 255
+CONFIG = "config."
 
 
 def record(request, action: str, target: Target = None, *, changes=None, actor=None) -> AuditEntry:
@@ -51,6 +52,37 @@ def diff(
 
 def snapshot(instance, fields: Iterable[str]) -> dict[str, Any]:
     return {field: _json_safe(getattr(instance, field)) for field in fields}
+
+
+def config_state(config) -> dict[str, Any]:
+    """A ``config`` dict as one ``config.<key>`` field per key, so a diff can hide each secret."""
+    if not isinstance(config, dict):
+        return {}
+    return {CONFIG + key: _json_safe(value) for key, value in config.items()}
+
+
+def config_keys(classes: Iterable, *, secret: bool) -> frozenset[str]:
+    """The ``config.<key>`` fields the classes declare secret, aliases included, or public."""
+    classes = tuple(classes)
+    secrets = {
+        CONFIG + key
+        for cls in classes
+        for key in [
+            *(spec.key for spec in cls.all_config_fields() if spec.secret),
+            *getattr(cls, "credential_aliases", {}),
+        ]
+    }
+    if secret:
+        return frozenset(secrets)
+    public = {CONFIG + spec.key for cls in classes for spec in cls.all_config_fields()}
+    return frozenset(public - secrets)
+
+
+def unlisted(before: dict, after: dict, public: frozenset[str]) -> frozenset[str]:
+    """Config fields no class declares public. They may hold a secret, so a diff hides them."""
+    return frozenset(
+        key for key in before.keys() | after.keys() if key.startswith(CONFIG) and key not in public
+    )
 
 
 def _json_safe(value):

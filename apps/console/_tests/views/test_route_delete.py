@@ -1,6 +1,9 @@
+from unittest import mock
+
 import pytest
 from django.urls import reverse
 
+from apps.console._tests.audit import written
 from apps.console._tests.test_guard import visible
 from apps.orchestration.models import PipelineDefinition
 from apps.orchestration.testing import clear_lanes
@@ -122,3 +125,27 @@ class TestTheEditorLink:
         body = client.get(reverse("console:route-new")).content.decode()
 
         assert 'id="route-delete"' not in body
+
+
+class TestAudit:
+    def test_a_delete_is_recorded_with_its_name(self, client, superuser, route):
+        pk = route.pk
+
+        client.post(_url(route))
+
+        entry = written().get()
+        assert (entry.action, entry.target_kind) == ("route.delete", "route")
+        assert (entry.target_id, entry.target_name) == (pk, "web")
+        assert entry.changes["name"] == {"old": "web", "new": None}
+
+    def test_a_missing_route_records_nothing(self, client, superuser):
+        client.post(reverse("console:route-delete", args=[999]))
+
+        assert not written().exists()
+
+    def test_a_failed_record_rolls_the_delete_back(self, client, superuser, route):
+        with mock.patch("apps.console.views.route_delete.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(route))
+
+        assert PipelineDefinition.objects.filter(pk=route.pk).exists()

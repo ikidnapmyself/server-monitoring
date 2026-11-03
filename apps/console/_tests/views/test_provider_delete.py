@@ -1,6 +1,10 @@
+import json
+from unittest import mock
+
 import pytest
 from django.urls import reverse
 
+from apps.console._tests.audit import written
 from apps.console._tests.test_guard import visible
 from apps.intelligence._tests.test_forms import KEY, STORED
 from apps.intelligence.models import IntelligenceProvider
@@ -126,3 +130,28 @@ class TestTheEditorLink:
         body = client.get(f"{reverse('console:provider-new')}?provider=claude").content.decode()
 
         assert 'id="provider-delete"' not in body
+
+
+class TestAudit:
+    def test_a_delete_is_recorded_with_its_secret_hidden(self, client, superuser, provider):
+        pk = provider.pk
+
+        client.post(_url(provider))
+
+        entry = written().get()
+        assert (entry.action, entry.target_kind) == ("provider.delete", "provider")
+        assert (entry.target_id, entry.target_name) == (pk, "main")
+        assert entry.changes["config.api_key"] == {"changed": True}
+        assert KEY not in json.dumps(entry.changes)
+
+    def test_a_missing_provider_records_nothing(self, client, superuser):
+        client.post(reverse("console:provider-delete", args=[999]))
+
+        assert not written().exists()
+
+    def test_a_failed_record_rolls_the_delete_back(self, client, superuser, provider):
+        with mock.patch("apps.console.views.provider_delete.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(provider))
+
+        assert IntelligenceProvider.objects.filter(pk=provider.pk).exists()

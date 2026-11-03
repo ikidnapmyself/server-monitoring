@@ -6,6 +6,7 @@ import pytest
 from django.db import IntegrityError, OperationalError
 from django.urls import reverse
 
+from apps.console._tests.audit import written
 from apps.console._tests.test_guard import visible
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console.queries.routes import build_route_editor
@@ -432,3 +433,61 @@ def test_a_checkbox_sits_before_its_label_and_the_description_is_short(client, s
     )
     assert re.search(r'<textarea name="description" cols="40" rows="3"', body)
     assert '<fieldset id="route-stages" class="c-fieldset">' in body
+
+
+class TestAudit:
+    def test_an_add_is_recorded(self, client, superuser):
+        client.post(_url(), _data())
+
+        added = PipelineDefinition.objects.get(name="db")
+        entry = written().get()
+        assert entry.action == "route.add"
+        assert (entry.target_kind, entry.target_id, entry.target_name) == ("route", added.pk, "db")
+        assert entry.actor == superuser
+        assert entry.changes["name"] == {"old": None, "new": "db"}
+        assert entry.changes["match"] == {"old": None, "new": [CLUSTER]}
+        assert entry.changes["stages"] == {"old": None, "new": ["check", "notify"]}
+
+    def test_an_edit_records_only_what_changed(self, client, superuser, route):
+        channel = NotificationChannel.objects.create(name="ops", driver="slack", config={})
+
+        client.post(_url(route), _data(route, priority="60", channel=str(channel.pk)))
+
+        entry = written().get()
+        assert (entry.action, entry.target_id, entry.target_name) == ("route.edit", route.pk, "web")
+        assert entry.changes == {
+            "priority": {"old": 50, "new": 60},
+            "channel": {"old": None, "new": "ops"},
+        }
+
+    def test_an_edit_that_changes_nothing_records_nothing(self, client, superuser, route):
+        resp = client.post(_url(route), _data(route))
+
+        assert resp.status_code == 303
+        assert not written().exists()
+
+    def test_an_invalid_edit_records_nothing(self, client, superuser, route):
+        client.post(_url(route), _data(route, name=""))
+
+        assert not written().exists()
+
+    def test_a_stale_edit_records_nothing(self, client, superuser, route):
+        resp = client.post(_url(route), _data(route, priority="60", version="99"))
+
+        assert resp.status_code == 409
+        assert not written().exists()
+
+    def test_a_failed_record_rolls_the_edit_back(self, client, superuser, route):
+        with mock.patch("apps.console.views.route.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(route), _data(route, priority="60"))
+
+        route.refresh_from_db()
+        assert route.priority == 50
+
+    def test_a_failed_record_rolls_the_add_back(self, client, superuser):
+        with mock.patch("apps.console.views.route.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(), _data())
+
+        assert not PipelineDefinition.objects.filter(name="db").exists()

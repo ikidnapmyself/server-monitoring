@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import RequestFactory, override_settings
 
-from apps.console.audit import diff, record, snapshot
+from apps.console.audit import config_keys, config_state, diff, record, snapshot, unlisted
 from apps.console.models import AuditEntry
 
 
@@ -143,3 +143,52 @@ def test_entries_are_newest_first(root):
     first = record(_request(root), "a.b")
     second = record(_request(root), "a.b")
     assert list(AuditEntry.objects.all()) == [second, first]
+
+
+class _Spec:
+    def __init__(self, key, secret=False):
+        self.key, self.secret = key, secret
+
+
+class _Driver:
+    credential_aliases = {"url": "endpoint"}
+
+    @classmethod
+    def all_config_fields(cls):
+        return (_Spec("endpoint", secret=True), _Spec("timeout"))
+
+
+class _Provider:
+    @classmethod
+    def all_config_fields(cls):
+        return (_Spec("model"), _Spec("timeout", secret=True))
+
+
+def test_config_state_flattens_each_key():
+    when = datetime.date(2026, 11, 3)
+    assert config_state({"url": "u", "on": when}) == {"config.url": "u", "config.on": "2026-11-03"}
+
+
+def test_a_config_that_isnt_a_dict_has_no_state():
+    assert config_state(["junk"]) == {}
+
+
+def test_config_keys_splits_secret_from_public():
+    assert config_keys([_Driver], secret=True) == {"config.endpoint", "config.url"}
+    assert config_keys([_Driver], secret=False) == {"config.timeout"}
+
+
+def test_a_key_secret_for_any_class_is_never_public():
+    assert config_keys([_Driver, _Provider], secret=False) == {"config.model"}
+    assert config_keys([_Driver, _Provider], secret=True) == {
+        "config.endpoint",
+        "config.url",
+        "config.timeout",
+    }
+
+
+def test_unlisted_names_config_keys_nobody_declared_public():
+    public = frozenset({"config.timeout"})
+    before = {"name": "a", "config.timeout": 1, "config.legacy": "x"}
+    after = {"name": "b", "config.timeout": 2, "config.other": "y"}
+    assert unlisted(before, after, public) == {"config.legacy", "config.other"}

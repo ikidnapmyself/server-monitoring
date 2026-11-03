@@ -1,9 +1,12 @@
+from typing import cast
+
 from django.contrib import messages
 from django.db import IntegrityError, OperationalError, transaction
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
+from apps.console.audit import config_keys, config_state, diff, record, snapshot, unlisted
 from apps.console.queries.channels import (
     ChannelEditor,
     UnknownDriver,
@@ -12,7 +15,8 @@ from apps.console.queries.channels import (
 )
 from apps.console.views.base import ConsoleView, Notice
 from apps.notify.channels import StaleChannel, save_channel
-from apps.notify.forms import NAME_TAKEN
+from apps.notify.drivers import DRIVER_REGISTRY
+from apps.notify.forms import CHANNEL_FIELDS, NAME_TAKEN
 from apps.notify.models import NotificationChannel
 
 STALE = "This channel changed since you opened it. Here it is now."
@@ -21,6 +25,21 @@ NO_SUCH_DRIVER = "This hub has no driver by that name. Pick one it has."
 NOT_ADDED = "Couldn't add the channel just now. Nothing was saved, so try again."
 SAVED = "Channel saved."
 ADDED = "Channel added."
+
+CHANNEL_SECRETS = config_keys(DRIVER_REGISTRY.values(), secret=True)
+CHANNEL_PUBLIC = config_keys(DRIVER_REGISTRY.values(), secret=False)
+
+
+def channel_state(row: NotificationChannel) -> dict:
+    return snapshot(row, CHANNEL_FIELDS[:-1]) | config_state(row.config)
+
+
+def channel_target(row: NotificationChannel) -> tuple[str, int, str]:
+    return ("channel", row.pk, row.name)
+
+
+def channel_changes(before: dict, after: dict) -> dict:
+    return diff(before, after, secret=CHANNEL_SECRETS | unlisted(before, after, CHANNEL_PUBLIC))
 
 
 class ChannelView(ConsoleView):
@@ -128,6 +147,8 @@ class ChannelView(ConsoleView):
             # A savepoint, so the re-render can still read after a unique-name race.
             with transaction.atomic():
                 channel = NotificationChannel.objects.create(**fields)
+                changes = channel_changes({}, channel_state(channel))
+                record(self.request, "channel.add", channel_target(channel), changes=changes)
         except IntegrityError:
             if self.taken_by_another(fields["name"], None):
                 return self.name_taken(editor)
@@ -140,7 +161,14 @@ class ChannelView(ConsoleView):
         fields = editor.form.channel_fields()
         try:
             with transaction.atomic():
+                before = NotificationChannel.objects.filter(pk=pk).first()
                 save_channel(pk, fields, expected=digest)
+                row = NotificationChannel.objects.get(pk=pk)
+                changes = channel_changes(
+                    channel_state(cast(NotificationChannel, before)), channel_state(row)
+                )
+                if changes:
+                    record(self.request, "channel.edit", channel_target(row), changes=changes)
         except IntegrityError:
             if self.taken_by_another(fields["name"], pk):
                 return self.name_taken(editor)
