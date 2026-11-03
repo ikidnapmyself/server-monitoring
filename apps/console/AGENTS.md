@@ -55,15 +55,20 @@ pipeline stage and not an alert producer.
   the checkers before its transaction opens, so wrapping it would hold the write lock
   while they sample. A drain runs whole pipelines that commit as they go. Both record
   once the service returns, so a failed record leaves the action done with no entry.
+  An incident rerun is the exception to "a write that changed nothing records nothing":
+  the checks ran, so it records even when they found nothing.
 - **Sign-ins are audited.** Each sign-in, sign-out and failed sign-in records an
-  `AuditEntry` through the auth signals connected in `ConsoleConfig.ready`. A refused
-  account with the right password gets `user_login_failed` from `ConsoleLoginForm`, since
-  Django sends none for it.
+  `AuditEntry` through the auth signals connected in `ConsoleConfig.ready`. An active
+  account that isn't a superuser and typed the right password gets `user_login_failed`
+  from `ConsoleLoginForm`, since `authenticate()` accepted it and Django sent none.
 - **The Activity page words entries on read.** `/console/activity/` lists every entry
   newest first, 50 a page, filtered by actor and kind. `describing.py` holds the wording:
   `ACTIONS` maps each action key to a sentence, and an unknown key reads "Changed
-  {kind} {target}", never the raw key. `KINDS` words each kind, and a field's label comes
-  from `FIELD_LABELS` or the form's own `ConfigField.label`. Old and new values render as
+  {target}" ("Changed route web", or "Changed a record" with no target), never the raw
+  key. `KINDS` words each kind, and a field's label comes from `FIELD_LABELS` or the
+  form's own `ConfigField.label`. Policy rows use `checker_label`. Any other field falls
+  back to its key in words. A new target kind needs `KINDS`, `KIND_INTENTS` and `MODELS`
+  in `queries/activity.py`. Old and new values render as
   a table, a secret as "Changed, value hidden", a delete as its last values, and a
   `{"result": {...}}` entry as a sentence of counts. A new action key needs a line in
   `ACTIONS`. A target links through its intent while its row exists. The actor filter

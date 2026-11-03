@@ -161,7 +161,7 @@ def describe_entry(entry: AuditEntry, *, exists: bool) -> EntryWords:
     fields = {k: v for k, v in changes.items() if k != "result"}
     summary = _counted(result) if isinstance(result, dict) else ""
     if entry.action.endswith(".delete"):
-        return _with(words, summary, last_values=_last_values(fields))
+        return _with(words, summary, last_values=_last_values(entry.target_kind, fields))
     by_checker = entry.action in POLICY_ACTIONS
     rows = tuple(
         _change(entry.target_kind, field, value, by_checker)
@@ -253,9 +253,12 @@ def _field_value(kind: str, field: str, value) -> str:
     return _value(value)
 
 
-def _last_values(fields: dict) -> tuple[Fact, ...]:
+def _last_values(kind: str, fields: dict) -> tuple[Fact, ...]:
     return tuple(
-        Fact(_label(field, False), HIDDEN if value.get("changed") else _value(value.get("old")))
+        Fact(
+            _label(field, False),
+            HIDDEN if value.get("changed") else _field_value(kind, field, value.get("old")),
+        )
         for field, value in fields.items()
         if isinstance(value, dict)
     )

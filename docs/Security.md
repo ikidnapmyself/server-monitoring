@@ -606,14 +606,16 @@ touched and which fields changed, old and new. The console shows them at
 - Config edits (routes, channels, providers, API keys), user changes, operator actions
   on incidents, alerts, nodes, runs and the inbox, and every sign-in, sign-out and failed
   sign-in are recorded. A failed sign-in records the username typed and no actor.
-- A secret is recorded only as changed, never its value: passwords, API key material and
-  every channel or provider setting the forms treat as write-only.
+- A secret is recorded only as changed, never its value: passwords, API key material,
+  every channel or provider setting the forms treat as write-only, and any config key no
+  registered driver or provider declares public.
 - An entry is written in the same transaction as the write it records, so a rolled-back
   write leaves none. Rerunning an incident's checks and draining the inbox are the two
   exceptions, recorded right after they commit.
 - Writes made outside the console are not recorded: the shell, management commands and
   webhooks. Rate-limited sign-in attempts aren't either.
-- The address comes from `client_ip()`, so it's the client's own behind a trusted proxy.
+- The address comes from `client_ip()`, so it's the client's own when the proxy is listed
+  in `TRUSTED_PROXIES`.
 - Entries are kept forever. Nothing edits or deletes them, and a deleted user's entries
   keep the username they had.
 

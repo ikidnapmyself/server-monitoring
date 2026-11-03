@@ -328,3 +328,11 @@ def test_a_long_value_is_cut_with_an_ellipsis():
     assert len(words.changes[0].old) == VALUE_LIMIT
     assert words.changes[0].old.endswith("\u2026")
     assert words.changes[0].new == "short"
+
+
+def test_a_deleted_route_words_its_conditions():
+    changes = {"match": {"old": [CLUSTER], "new": None}}
+
+    words = describe_entry(_entry("route.delete", changes=changes), exists=False)
+
+    assert words.last_values == (Fact("Conditions", describe_match([CLUSTER])),)
