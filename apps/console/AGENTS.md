@@ -37,9 +37,38 @@ pipeline stage and not an alert producer.
   its own login page, status 429, the username kept and a `next` kept only when it's
   local. `manage.py createsuperuser`
   makes the first account.
+- **Every console write is audited.** A new write calls `record()` from `audit.py`
+  inside the same `transaction.atomic()` as the write, after it succeeds, so a rolled-back
+  write leaves no `AuditEntry`. What a kind records lives in `audited.py`: its state,
+  its `(kind, id, name)` target, its secret fields and its side effects (a provider turned
+  on turns the others off, a deleted channel empties its routes' channel). Each records an
+  entry of its own. `target_name` is source data, never wording: a route's name, an
+  incident's subject, a node's raw hostname, "" for a run. Secrets (passwords, API key
+  material, every channel and provider setting a form treats as write-only, and any config
+  key no registered class declares public) are stored as `{"changed": true}`. Deletes
+  check the row count, so a delete another request won records nothing.
+- **What isn't recorded.** Writes outside the console: the shell, management commands,
+  webhooks. A rate-limited sign-in attempt, which is refused before the form runs. A
+  refused write (a guard, a stale digest, an invalid form, a lost race) and a write that
+  changed nothing.
+- **Two actions record after their own commits.** Rerunning an incident's checks samples
+  the checkers before its transaction opens, so wrapping it would hold the write lock
+  while they sample. A drain runs whole pipelines that commit as they go. Both record
+  once the service returns, so a failed record leaves the action done with no entry.
 - **Sign-ins are audited.** Each sign-in, sign-out and failed sign-in records an
-  `AuditEntry`. A rate-limited sign-in attempt is refused before the form runs, so it
-  records nothing.
+  `AuditEntry` through the auth signals connected in `ConsoleConfig.ready`. A refused
+  account with the right password gets `user_login_failed` from `ConsoleLoginForm`, since
+  Django sends none for it.
+- **The Activity page words entries on read.** `/console/activity/` lists every entry
+  newest first, 50 a page, filtered by actor and kind. `describing.py` holds the wording:
+  `ACTIONS` maps each action key to a sentence, and an unknown key reads "Changed
+  {kind} {target}", never the raw key. `KINDS` words each kind, and a field's label comes
+  from `FIELD_LABELS` or the form's own `ConfigField.label`. Old and new values render as
+  a table, a secret as "Changed, value hidden", a delete as its last values, and a
+  `{"result": {...}}` entry as a sentence of counts. A new action key needs a line in
+  `ACTIONS`. A target links through its intent while its row exists. The actor filter
+  lists only users who still exist, so a deleted actor can't be selected, though their
+  entries still show the name they had.
 - **One URL, two sizes.** `ConsoleView` serves `partial_template_name` only when
   `wants_partial` is true, which means an htmx request that swaps a fragment. Two htmx
   headers force the full page, because htmx swaps those responses into `<body>`:
@@ -183,9 +212,9 @@ pipeline stage and not an alert producer.
     duration. The stored `provider_config` renders only inside Details.
   - The Runs list's `reason` filter (a `REASONS` code, or `other`) shows as a removable
     chip.
-- **System holds routes, channels, providers, API keys and users.** The header's System
-  link in `base.html` opens `/console/routes/`. `partials/_system_nav.html` shows the
-  Routes, Channels, Providers, API keys and Users tabs in that order.
+- **System holds routes, channels, providers, API keys, users and activity.** The header's
+  System link in `base.html` opens `/console/routes/`. `partials/_system_nav.html` shows
+  the Routes, Channels, Providers, API keys, Users and Activity tabs in that order.
 - **The route pages.** `/console/routes/` lists every route in match order through
   `build_route_list`, which reads `config.netmap.get_map_context()`, so each card says
   when a route is off, never matches or is never reached, and whether it can deliver.
@@ -290,7 +319,9 @@ pipeline stage and not an alert producer.
   `_tests/test_guard.py` renders every page against `build_world()` from
   `_tests/fixtures.py`, a world with every routing gap and failure kind, and fails if any
   text outside `data-details` holds a UUID, a `snake_case` token, a `{` or a reason code.
-  A new outcome or reason code needs a case in `build_world()`. A stored policy value
+  A new outcome or reason code needs a case in `build_world()`. Its "shown" checks
+  collapse whitespace first, because a sentence split by a link joins with a double
+  space. A stored policy value
   renders as stored, like text a source sent. The editor validates every new value, so
   only legacy rows hold odd ones.
 - **The incident timeline is capped.** The page shows lifecycle entries plus the newest

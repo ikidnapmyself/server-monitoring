@@ -205,6 +205,7 @@ The console at `/console/` is the only UI, and only active superusers can sign i
 | `/console/checks/`, `/console/preflight/`, `/console/analyses/` | Check runs, preflight runs, analyses |
 | `/console/routes/`, `/console/channels/`, `/console/providers/`, `/console/keys/` | Routes, notification channels, AI providers, API keys |
 | `/console/policy/`, `/console/reports/`, `/console/users/` | Fleet policy, reports, users |
+| `/console/activity/` | The audit trail: who changed what in the console |
 
 #### Routes
 
