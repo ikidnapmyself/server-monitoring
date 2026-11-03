@@ -1,10 +1,15 @@
 """What an audit entry says: who did what to which record, worded when it's read."""
 
 from dataclasses import dataclass
+from typing import Any
 
 from apps.alerts.describing import node_name
 from apps.checkers.checkers import checker_label
 from apps.console.models import AuditEntry
+from apps.intelligence.providers import PROVIDERS
+from apps.notify.drivers import DRIVER_REGISTRY
+from apps.orchestration.models import PipelineStatus
+from apps.orchestration.routing import describe_match
 from config.describing import Action, Fact, format_list
 
 KINDS = {
@@ -61,7 +66,10 @@ ACTIONS = {
 FALLBACK = "Changed {target}"
 NOBODY = "Not signed in"
 BLANK_NAME = "a blank username"
-SECRET = "changed"
+SECRET = "Changed, value hidden"
+HIDDEN = "hidden"
+SOMETHING = "a record"
+VALUE_LIMIT = 200
 PORTLESS = "Allowed ports on {target}"
 NOTHING_COUNTED = "Nothing changed."
 
@@ -73,7 +81,18 @@ FIELD_LABELS = {
     "allowed_endpoints": "Allowed endpoints",
     "key": "Key",
     "password": "Password",
+    "driver": "Driver",
+    "provider": "Provider",
+    "match": "Conditions",
+    "stages": "Stages",
+    "email": "Email",
+    "priority": "Priority",
 }
+CONFIG_LABELS: dict[str, str] = {}
+_CONFIGURED: tuple[Any, ...] = (*DRIVER_REGISTRY.values(), *PROVIDERS.values())
+for _cls in _CONFIGURED:
+    for _spec in _cls.all_config_fields():
+        CONFIG_LABELS.setdefault(f"config.{_spec.key}", _spec.label)
 POLICY_ACTIONS = ("node.policy", "node.allow_ports")
 POLICY_PORTS = "listening_ports"
 
@@ -100,6 +119,7 @@ class Change:
     label: str
     old: str
     new: str
+    secret: bool = False
 
 
 @dataclass(frozen=True)
@@ -144,7 +164,7 @@ def describe_entry(entry: AuditEntry, *, exists: bool) -> EntryWords:
         return _with(words, summary, last_values=_last_values(fields))
     by_checker = entry.action in POLICY_ACTIONS
     rows = tuple(
-        _change(field, value, by_checker)
+        _change(entry.target_kind, field, value, by_checker)
         for field, value in fields.items()
         if isinstance(value, dict)
     )
@@ -171,6 +191,8 @@ def _target(entry: AuditEntry, exists: bool) -> Action:
         return Action("the inbox", "view_inbox")
     if kind == "node":
         text = f"node {entry.target_name}" if entry.target_name else node_name("")
+    elif not entry.target_name and entry.target_id is None:
+        return Action(SOMETHING)
     elif entry.target_name:
         text = f"{kind_word(kind)} {entry.target_name}"
     else:
@@ -186,32 +208,54 @@ def _label(field: str, by_checker: bool) -> str:
         return checker_label(field)
     if field in FIELD_LABELS:
         return FIELD_LABELS[field]
+    if field in CONFIG_LABELS:
+        return CONFIG_LABELS[field]
     return field.removeprefix("config.").replace("_", " ").replace(".", " ").capitalize()
 
 
 def _value(value) -> str:
+    text = _words(value)
+    return text if len(text) <= VALUE_LIMIT else f"{text[: VALUE_LIMIT - 1]}\u2026"
+
+
+def _words(value) -> str:
     if value is None:
         return "not set"
     if isinstance(value, bool):
         return "yes" if value else "no"
     if isinstance(value, list):
-        return ", ".join(_value(item) for item in value) or "none"
+        return ", ".join(_words(item) for item in value) or "none"
     if isinstance(value, dict):
-        parts = [f"{_label(str(k), False).lower()} {_value(v)}" for k, v in value.items()]
+        parts = [f"{_label(str(k), False).lower()} {_words(v)}" for k, v in value.items()]
         return "; ".join(parts) or "none"
     return str(value) if value != "" else "blank"
 
 
-def _change(field: str, value: dict, by_checker: bool) -> Change:
+def _change(kind: str, field: str, value: dict, by_checker: bool) -> Change:
     label = _label(field, by_checker)
     if value.get("changed"):
-        return Change(label, SECRET, SECRET)
-    return Change(label, _value(value.get("old")), _value(value.get("new")))
+        return Change(label, SECRET, SECRET, secret=True)
+    return Change(
+        label,
+        _field_value(kind, field, value.get("old")),
+        _field_value(kind, field, value.get("new")),
+    )
+
+
+def _field_value(kind: str, field: str, value) -> str:
+    """A stored value in the words its own page uses for it."""
+    if value is None:
+        return _value(value)
+    if (kind, field) == ("route", "match"):
+        return _value(describe_match(value))
+    if (kind, field) == ("run", "status") and value in PipelineStatus.values:
+        return str(PipelineStatus(value).label)
+    return _value(value)
 
 
 def _last_values(fields: dict) -> tuple[Fact, ...]:
     return tuple(
-        Fact(_label(field, False), SECRET if value.get("changed") else _value(value.get("old")))
+        Fact(_label(field, False), HIDDEN if value.get("changed") else _value(value.get("old")))
         for field, value in fields.items()
         if isinstance(value, dict)
     )

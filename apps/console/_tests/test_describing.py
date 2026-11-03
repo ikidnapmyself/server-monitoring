@@ -7,12 +7,17 @@ from apps.console.describing import (
     BLANK_NAME,
     KINDS,
     NOBODY,
+    SECRET,
+    VALUE_LIMIT,
     actor_action,
     describe_entry,
     kind_word,
 )
 from apps.console.models import AuditEntry
+from apps.orchestration.routing import describe_match
 from config.describing import Action, Fact
+
+CLUSTER = {"field": "source", "op": "is", "value": "cluster"}
 
 
 def _entry(action, kind="route", pk=7, name="web", changes=None, **fields):
@@ -124,7 +129,7 @@ def test_old_and_new_render_as_a_change_with_its_field_in_words():
         "allowed_endpoints": {"old": [], "new": ["/alerts/", "/hub/"]},
         "channel": {"old": None, "new": "ops"},
         "config.webhook_url": {"changed": True},
-        "match": {"old": None, "new": [{"field": "source", "op": "is"}]},
+        "match": {"old": None, "new": [CLUSTER]},
         "priority": {"old": 50, "new": 60},
     }
 
@@ -135,8 +140,8 @@ def test_old_and_new_render_as_a_change_with_its_field_in_words():
         ("Active", "yes", "no"),
         ("Allowed endpoints", "none", "/alerts/, /hub/"),
         ("Channel", "not set", "ops"),
-        ("Webhook url", "changed", "changed"),
-        ("Match", "not set", "field source; op is"),
+        ("Webhook URL", SECRET, SECRET),
+        ("Conditions", "not set", describe_match([CLUSTER])),
         ("Priority", "50", "60"),
     ]
     assert words.summary == ""
@@ -184,7 +189,7 @@ def test_a_delete_renders_its_last_values_not_a_change():
 
     assert words.headline == "Deleted API key web"
     assert words.changes == ()
-    assert words.last_values == (Fact("Name", "web"), Fact("Key", "changed"))
+    assert words.last_values == (Fact("Name", "web"), Fact("Key", "hidden"))
 
 
 def test_a_policy_change_labels_each_checker():
@@ -250,3 +255,76 @@ def test_the_actor_links_while_the_user_is_there(django_user_model):
 def test_a_deleted_actor_keeps_their_name_and_nobody_reads_as_not_signed_in():
     assert actor_action(AuditEntry(actor_name="gone")) == Action("gone")
     assert actor_action(AuditEntry(actor_name="")) == Action(NOBODY)
+
+
+def test_a_secret_row_is_marked_secret():
+    words = describe_entry(
+        _entry("channel.edit", changes={"config.webhook_url": {"changed": True}}), exists=True
+    )
+
+    assert words.changes[0].secret is True
+    assert words.changes[0].old == "Changed, value hidden"
+
+
+def test_config_fields_use_their_form_labels():
+    changes = {
+        "config.webhook_url": {"changed": True},
+        "config.api_key": {"changed": True},
+        "config.legacy_thing": {"old": 1, "new": 2},
+    }
+
+    words = describe_entry(_entry("channel.edit", changes=changes), exists=True)
+
+    assert [c.label for c in words.changes] == ["Webhook URL", "API key", "Legacy thing"]
+
+
+def test_the_route_and_provider_fields_have_their_own_labels():
+    changes = {
+        name: {"old": "a", "new": "b"}
+        for name in ("driver", "provider", "stages", "email", "priority")
+    }
+
+    words = describe_entry(_entry("x.edit", kind="widget", changes=changes), exists=True)
+
+    assert [c.label for c in words.changes] == [
+        "Driver",
+        "Provider",
+        "Stages",
+        "Email",
+        "Priority",
+    ]
+
+
+def test_conditions_outside_a_route_are_flattened():
+    changes = {"match": {"old": None, "new": [CLUSTER]}}
+
+    words = describe_entry(_entry("x.edit", kind="widget", changes=changes), exists=True)
+
+    assert words.changes[0].new == "field source; op is; value cluster"
+
+
+def test_an_unknown_action_with_no_target_changed_a_record():
+    entry = _entry("widget.spin", kind="", pk=None, name="")
+
+    assert describe_entry(entry, exists=False).headline == "Changed a record"
+
+
+def test_a_run_status_reads_as_its_label():
+    changes = {"status": {"old": "failed", "new": "pending"}}
+    odd = {"status": {"old": "weird", "new": None}}
+
+    words = describe_entry(_entry("run.retry", kind="run", changes=changes), exists=True)
+    odd_words = describe_entry(_entry("run.retry", kind="run", changes=odd), exists=True)
+
+    assert (words.changes[0].old, words.changes[0].new) == ("Failed", "Pending")
+    assert (odd_words.changes[0].old, odd_words.changes[0].new) == ("weird", "not set")
+
+
+def test_a_long_value_is_cut_with_an_ellipsis():
+    changes = {"description": {"old": "x" * 500, "new": "short"}}
+
+    words = describe_entry(_entry("route.edit", changes=changes), exists=True)
+
+    assert len(words.changes[0].old) == VALUE_LIMIT
+    assert words.changes[0].old.endswith("\u2026")
+    assert words.changes[0].new == "short"

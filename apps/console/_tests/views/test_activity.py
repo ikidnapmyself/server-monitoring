@@ -79,7 +79,8 @@ def test_a_secret_renders_as_changed_and_never_its_value(client, superuser):
     body = client.get(URL).content.decode()
 
     assert SECRET not in body
-    assert "Webhook url changed changed" in " ".join(visible(body).split())
+    assert '<td colspan="2">Changed, value hidden</td>' in body
+    assert "Webhook URL Changed, value hidden" in " ".join(visible(body).split())
     assert "entry-" in body and '-actor">gone</span>' in body
 
 
@@ -102,12 +103,13 @@ def test_a_result_renders_as_a_sentence(client, superuser):
 def test_a_delete_renders_its_last_values(client, superuser):
     entry = _entry(
         action="route.delete",
-        changes={"name": {"old": "web", "new": None}, "priority": {"old": 50, "new": None}},
+        changes={"name": {"old": "web", "new": None}, "key": {"changed": True}},
     )
 
     body = client.get(URL).content.decode()
 
     assert f'id="entry-{entry.pk}-last"' in body
+    assert "<dt>Key</dt><dd>hidden</dd>" in body
     assert f"entry-{entry.pk}-changes" not in body
     assert "Deleted route web Not signed in" in " ".join(visible(body).split())
 

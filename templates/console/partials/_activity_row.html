@@ -5,7 +5,7 @@
     {% if row.words.summary %}<p id="entry-{{ row.pk }}-summary">{{ row.words.summary }}</p>{% endif %}
     {% if row.words.changes %}<table id="entry-{{ row.pk }}-changes" class="c-table">
       <thead><tr><th scope="col">Field</th><th scope="col">Before</th><th scope="col">After</th></tr></thead>
-      <tbody>{% for change in row.words.changes %}<tr><td>{{ change.label }}</td><td>{{ change.old }}</td><td>{{ change.new }}</td></tr>{% endfor %}</tbody>
+      <tbody>{% for change in row.words.changes %}<tr><td>{{ change.label }}</td>{% if change.secret %}<td colspan="2">{{ change.old }}</td>{% else %}<td>{{ change.old }}</td><td>{{ change.new }}</td>{% endif %}</tr>{% endfor %}</tbody>
     </table>{% endif %}
     {% if row.words.last_values %}<dl id="entry-{{ row.pk }}-last" class="c-facts">
       {% for fact in row.words.last_values %}<div><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div>{% endfor %}
