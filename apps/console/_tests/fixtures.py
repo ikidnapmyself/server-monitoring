@@ -11,6 +11,7 @@ from django.utils import timezone
 from apps.alerts.identity import local_instance_id
 from apps.alerts.models import Alert, AlertHistory, Incident, Node
 from apps.checkers.models import CheckRun, CheckStatus, PreflightCheck, PreflightRun
+from apps.console.models import AuditEntry
 from apps.intelligence._tests.test_forms import KEY as PROVIDER_SECRET
 from apps.intelligence._tests.test_forms import STORED as PROVIDER_CONFIGS
 from apps.intelligence.models import AnalysisRun, IntelligenceProvider
@@ -488,6 +489,72 @@ def _users() -> list:
     ]
 
 
+def _audit_entries(amy, incident: Incident) -> None:
+    """One entry per way the Activity page words one: changes, a secret, counts, a delete."""
+    route = PipelineDefinition.objects.get(name="web-critical")
+    channel = NotificationChannel.objects.get(name="ops-slack")
+    key = APIKey.objects.get(name="agent")
+    node = Node.objects.get(hostname="cache-1")
+    run = PipelineRun.objects.earliest("pk")
+    by_amy = {"actor": amy, "actor_name": amy.username, "address": "192.0.2.1"}
+    for action, kind, pk, name, changes in (
+        ("route.edit", "route", route.pk, route.name, {"priority": {"old": 50, "new": 10}}),
+        (
+            "channel.edit",
+            "channel",
+            channel.pk,
+            channel.name,
+            {"config.webhook_url": {"changed": True}, "is_active": {"old": False, "new": True}},
+        ),
+        (
+            "provider.delete",
+            "provider",
+            9999,
+            "old-ai",
+            {"name": {"old": "old-ai", "new": None}, "config.api_key": {"changed": True}},
+        ),
+        ("key.add", "key", key.pk, key.name, {"key": {"changed": True}}),
+        ("user.set_password", "user", amy.pk, amy.username, {"password": {"changed": True}}),
+        (
+            "node.policy",
+            "node",
+            node.pk,
+            node.hostname,
+            {"cpu": {"old": {"warning_threshold": 80}, "new": {"warning_threshold": 70}}},
+        ),
+        (
+            "node.allow_ports",
+            "node",
+            node.pk,
+            node.hostname,
+            {"listening_ports": {"old": None, "new": {"allowlist": [22, 443]}}},
+        ),
+        ("incident.acknowledge", "incident", incident.pk, incident.subject, {}),
+        (
+            "incident.rerun",
+            "incident",
+            incident.pk,
+            incident.subject,
+            {"result": {"checks_run": 1, "alerts_updated": 1, "runs": 1}},
+        ),
+        ("run.retry", "run", run.pk, "", {"status": {"old": "failed", "new": "pending"}}),
+        ("inbox.drain_oldest", "inbox", None, "inbox", {"result": {"ran": 2, "failed": 1}}),
+        ("widget.spin", "widget_box", 4, "spinner", {"speed_limit": {"old": 1, "new": 2}}),
+    ):
+        AuditEntry.objects.create(
+            action=action,
+            target_kind=kind,
+            target_id=pk,
+            target_name=name,
+            changes=changes,
+            **by_amy,
+        )
+    AuditEntry.objects.create(action="session.sign_in", target_kind="user", actor_name="olduser")
+    AuditEntry.objects.create(
+        action="session.sign_in_failed", target_kind="user", target_name="mallory"
+    )
+
+
 def _check_runs() -> list[CheckRun]:
     """One run per status, the critical one with an alert and a trace, and a retired checker."""
     runs = [
@@ -585,6 +652,7 @@ def build_world() -> World:
     keys = _keys()
     users = _users()
     _preflight_runs()
+    _audit_entries(users[0], incidents[0])
     return World(
         incident_pks=tuple(i.pk for i in incidents),
         run_pks=tuple(PipelineRun.objects.values_list("pk", flat=True)),
