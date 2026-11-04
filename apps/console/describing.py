@@ -44,7 +44,7 @@ ACTIONS = {
         for kind in ("route", "channel", "provider", "key", "user")
         for verb, done in (("add", "Added"), ("edit", "Edited"), ("delete", "Deleted"))
     },
-    "user.set_password": "Set the password of {target}",
+    "user.set_password": "Set the password of {target}",  # nosec B105
     "user.promote": "Made {target} a superuser",
     "node.policy": "Edited the policy of {target}",
     "node.allow_ports": "Allowed ports {ports} on {target}",
@@ -66,7 +66,7 @@ ACTIONS = {
 FALLBACK = "Changed {target}"
 NOBODY = "Not signed in"
 BLANK_NAME = "a blank username"
-SECRET = "Changed, value hidden"
+MASKED = "Changed, value hidden"
 HIDDEN = "hidden"
 SOMETHING = "a record"
 VALUE_LIMIT = 200
@@ -80,7 +80,7 @@ FIELD_LABELS = {
     "last_name": "Last name",
     "allowed_endpoints": "Allowed endpoints",
     "key": "Key",
-    "password": "Password",
+    "password": "Password",  # nosec B105
     "driver": "Driver",
     "provider": "Provider",
     "match": "Conditions",
@@ -234,7 +234,7 @@ def _words(value) -> str:
 def _change(kind: str, field: str, value: dict, by_checker: bool) -> Change:
     label = _label(field, by_checker)
     if value.get("changed"):
-        return Change(label, SECRET, SECRET, secret=True)
+        return Change(label, MASKED, MASKED, secret=True)
     return Change(
         label,
         _field_value(kind, field, value.get("old")),

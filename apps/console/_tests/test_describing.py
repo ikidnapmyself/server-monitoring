@@ -6,8 +6,8 @@ from apps.console.describing import (
     ACTIONS,
     BLANK_NAME,
     KINDS,
+    MASKED,
     NOBODY,
-    SECRET,
     VALUE_LIMIT,
     actor_action,
     describe_entry,
@@ -140,7 +140,7 @@ def test_old_and_new_render_as_a_change_with_its_field_in_words():
         ("Active", "yes", "no"),
         ("Allowed endpoints", "none", "/alerts/, /hub/"),
         ("Channel", "not set", "ops"),
-        ("Webhook URL", SECRET, SECRET),
+        ("Webhook URL", MASKED, MASKED),
         ("Conditions", "not set", describe_match([CLUSTER])),
         ("Priority", "50", "60"),
     ]

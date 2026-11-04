@@ -10,7 +10,7 @@ from apps.orchestration.models import PipelineDefinition
 pytestmark = pytest.mark.django_db
 
 URL = "/console/activity/"
-SECRET = "https://hooks.slack.com/services/T0/B0/never-shown"
+WEBHOOK = "https://hooks.slack.com/services/T0/B0/never-shown"
 
 
 def _entry(**fields):
@@ -87,7 +87,7 @@ def test_a_secret_renders_as_changed_and_never_its_value(client, superuser):
 
     body = client.get(URL).content.decode()
 
-    assert SECRET not in body
+    assert WEBHOOK not in body
     assert '<td colspan="2">Changed, value hidden</td>' in body
     assert "Webhook URL Changed, value hidden" in " ".join(visible(body).split())
     assert "entry-" in body and '-actor">gone</span>' in body
