@@ -576,6 +576,22 @@ class TestAudit:
         assert entry.action == "incident.resolve"
         assert entry.changes == {"summary": {"old": "", "new": "disk swapped"}}
 
+    def test_a_reopened_incident_records_the_summary_it_had(self, client, superuser):
+        incident = _incident(summary="rotated the logs")
+
+        client.post(_url(incident, "resolve"), {"summary": "disk swapped"})
+
+        assert written().get().changes == {
+            "summary": {"old": "rotated the logs", "new": "disk swapped"}
+        }
+
+    def test_resolving_with_the_same_summary_records_no_changes(self, client, superuser):
+        incident = _incident(summary="disk swapped")
+
+        client.post(_url(incident, "resolve"), {"summary": "disk swapped"})
+
+        assert written().get().changes == {}
+
     def test_a_resolve_without_a_summary_records_no_changes(self, client, superuser):
         incident = _incident()
 
