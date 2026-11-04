@@ -1,3 +1,4 @@
+import json
 from unittest import mock
 
 import pytest
@@ -5,6 +6,7 @@ from django.contrib.messages import get_messages
 from django.db import IntegrityError, OperationalError
 from django.urls import reverse
 
+from apps.console._tests.audit import written
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console.queries.keys import build_key_editor
 from config.api_keys import StaleKey
@@ -236,3 +238,66 @@ class TestANewKey:
         assert "Couldn&#x27;t add the key just now." in body
         assert 'name="name" value="agent"' in body
         assert not APIKey.objects.exists()
+
+
+class TestAudit:
+    def test_an_add_records_that_key_material_changed_and_nothing_of_it(self, client, superuser):
+        resp = client.post(
+            _url(), _data(name="agent", is_active="on", allowed_endpoints="/alerts/")
+        )
+
+        added = APIKey.objects.get(name="agent")
+        token = resp.context["token"]
+        entry = written().get()
+        assert entry.action == "key.add"
+        assert (entry.target_kind, entry.target_id, entry.target_name) == ("key", added.pk, "agent")
+        assert entry.changes == {
+            "name": {"old": None, "new": "agent"},
+            "is_active": {"old": None, "new": True},
+            "allowed_endpoints": {"old": None, "new": ["/alerts/"]},
+            "key": {"changed": True},
+        }
+        text = json.dumps(entry.changes)
+        assert token not in text
+        assert added.key not in text
+        assert added.prefix not in text
+
+    def test_an_edit_records_only_what_changed(self, client, superuser, key):
+        client.post(_url(key), _data(key, name="hub-2"))
+
+        entry = written().get()
+        assert (entry.action, entry.target_id, entry.target_name) == ("key.edit", key.pk, "hub-2")
+        assert entry.changes == {"name": {"old": "hub", "new": "hub-2"}}
+        assert key.key not in json.dumps(entry.changes)
+
+    def test_an_edit_that_changes_nothing_records_nothing(self, client, superuser, key):
+        resp = client.post(_url(key), _data(key))
+
+        assert resp.status_code == 303
+        assert not written().exists()
+
+    def test_an_invalid_edit_records_nothing(self, client, superuser, key):
+        client.post(_url(key), _data(key, allowed_endpoints="nope"))
+
+        assert not written().exists()
+
+    def test_a_stale_edit_records_nothing(self, client, superuser, key):
+        resp = client.post(_url(key), _data(key, name="hub-2", digest="old"))
+
+        assert resp.status_code == 409
+        assert not written().exists()
+
+    def test_a_failed_record_rolls_the_edit_back(self, client, superuser, key):
+        with mock.patch("apps.console.views.key.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(key), _data(key, name="hub-2"))
+
+        key.refresh_from_db()
+        assert key.name == "hub"
+
+    def test_a_failed_record_rolls_the_add_back(self, client, superuser):
+        with mock.patch("apps.console.views.key.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(), _data(name="agent"))
+
+        assert not APIKey.objects.filter(name="agent").exists()

@@ -1,9 +1,13 @@
+from typing import cast
+
 from django.contrib import messages
 from django.db import IntegrityError, OperationalError, transaction
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
+from apps.console.audit import record
+from apps.console.audited import channel_changes, channel_state, channel_target
 from apps.console.queries.channels import (
     ChannelEditor,
     UnknownDriver,
@@ -128,6 +132,8 @@ class ChannelView(ConsoleView):
             # A savepoint, so the re-render can still read after a unique-name race.
             with transaction.atomic():
                 channel = NotificationChannel.objects.create(**fields)
+                changes = channel_changes({}, channel_state(channel))
+                record(self.request, "channel.add", channel_target(channel), changes=changes)
         except IntegrityError:
             if self.taken_by_another(fields["name"], None):
                 return self.name_taken(editor)
@@ -140,7 +146,14 @@ class ChannelView(ConsoleView):
         fields = editor.form.channel_fields()
         try:
             with transaction.atomic():
+                before = NotificationChannel.objects.filter(pk=pk).first()
                 save_channel(pk, fields, expected=digest)
+                row = NotificationChannel.objects.get(pk=pk)
+                changes = channel_changes(
+                    channel_state(cast(NotificationChannel, before)), channel_state(row)
+                )
+                if changes:
+                    record(self.request, "channel.edit", channel_target(row), changes=changes)
         except IntegrityError:
             if self.taken_by_another(fields["name"], pk):
                 return self.name_taken(editor)

@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from apps.alerts.models import Alert, AlertHistory, Node
 from apps.alerts.reeval_existing import scope_digest
+from apps.console._tests.audit import written
 from apps.console.queries.reeval import node_scope
 from apps.orchestration.models import PipelineRun
 
@@ -186,3 +187,30 @@ def test_a_missing_node_is_the_console_404_page(client, superuser, method):
 
     assert resp.status_code == 404
     assert "This node doesn't exist." in resp.content.decode()
+
+
+class TestAudit:
+    def test_an_apply_is_recorded_with_its_counts(self, client, superuser, node):
+        client.post(_url(node), {"digest": _digest(node)})
+
+        entry = written().get()
+        assert (entry.action, entry.target_kind, entry.target_id) == (
+            "node.reevaluate",
+            "node",
+            node.pk,
+        )
+        assert entry.target_name == node.hostname
+        assert entry.changes["result"]["changed"] == 1
+
+    def test_a_stale_apply_records_nothing(self, client, superuser, node):
+        client.post(_url(node), {"digest": "old"})
+
+        assert not written().exists()
+
+    def test_a_failed_record_rolls_the_apply_back(self, client, superuser, node):
+        with mock.patch("apps.console.views.node_reeval.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(node), {"digest": _digest(node)})
+
+        assert not AlertHistory.objects.exists()
+        assert not PipelineRun.objects.exists()

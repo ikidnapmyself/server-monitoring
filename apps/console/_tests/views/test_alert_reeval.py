@@ -7,6 +7,7 @@ from django.urls import reverse
 
 from apps.alerts.models import Alert, AlertHistory, Node
 from apps.alerts.reeval_existing import ReevalScope, scope_digest
+from apps.console._tests.audit import written
 from apps.orchestration.models import PipelineRun
 
 pytestmark = pytest.mark.django_db
@@ -142,3 +143,38 @@ def test_a_resolved_alert_warns_before_reopening(client, superuser, reevaluable_
     Alert.objects.filter(pk=reevaluable_alert.pk).update(status="resolved")
     body = client.get(_url(reevaluable_alert)).content.decode()
     assert "Applying reopens it and its incident." in body
+
+
+class TestAudit:
+    def test_an_apply_is_recorded_with_its_counts(self, client, superuser, reevaluable_alert):
+        client.post(_url(reevaluable_alert), {"digest": _digest(reevaluable_alert)})
+
+        entry = written().get()
+        assert (entry.action, entry.target_kind, entry.target_id) == (
+            "alert.reevaluate",
+            "alert",
+            reevaluable_alert.pk,
+        )
+        assert entry.target_name == reevaluable_alert.name
+        assert entry.changes["result"]["changed"] == 1
+
+    def test_nothing_to_apply_records_nothing(self, client, superuser, reevaluable_alert):
+        Alert.objects.filter(pk=reevaluable_alert.pk).update(severity="warning")
+        reevaluable_alert.refresh_from_db()
+
+        client.post(_url(reevaluable_alert), {"digest": _digest(reevaluable_alert)})
+
+        assert not written().exists()
+
+    def test_a_stale_apply_records_nothing(self, client, superuser, reevaluable_alert):
+        client.post(_url(reevaluable_alert), {"digest": "old"})
+
+        assert not written().exists()
+
+    def test_a_failed_record_rolls_the_apply_back(self, client, superuser, reevaluable_alert):
+        with mock.patch("apps.console.views.alert_reeval.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(reevaluable_alert), {"digest": _digest(reevaluable_alert)})
+
+        assert not AlertHistory.objects.filter(alert=reevaluable_alert).exists()
+        assert not PipelineRun.objects.exists()

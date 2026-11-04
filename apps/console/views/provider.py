@@ -1,9 +1,19 @@
+from typing import cast
+
 from django.contrib import messages
 from django.db import IntegrityError, OperationalError, transaction
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
+from apps.console.audit import record
+from apps.console.audited import (
+    others_on,
+    provider_changes,
+    provider_state,
+    provider_target,
+    record_turned_off,
+)
 from apps.console.queries.providers import (
     ProviderEditor,
     UnknownProvider,
@@ -127,7 +137,11 @@ class ProviderView(ConsoleView):
         try:
             # A savepoint, so the re-render can still read after a unique-name race.
             with transaction.atomic():
+                others = others_on(None)
                 provider = IntelligenceProvider.objects.create(**fields)
+                changes = provider_changes({}, provider_state(provider))
+                record(self.request, "provider.add", provider_target(provider), changes=changes)
+                record_turned_off(self.request, others)
         except IntegrityError:
             if self.taken_by_another(fields["name"], None):
                 return self.name_taken(editor)
@@ -140,7 +154,16 @@ class ProviderView(ConsoleView):
         fields = editor.form.provider_fields()
         try:
             with transaction.atomic():
+                before = IntelligenceProvider.objects.filter(pk=pk).first()
+                others = others_on(pk)
                 save_provider(pk, fields, expected=digest)
+                row = IntelligenceProvider.objects.get(pk=pk)
+                changes = provider_changes(
+                    provider_state(cast(IntelligenceProvider, before)), provider_state(row)
+                )
+                if changes:
+                    record(self.request, "provider.edit", provider_target(row), changes=changes)
+                record_turned_off(self.request, others)
         except IntegrityError:
             if self.taken_by_another(fields["name"], pk):
                 return self.name_taken(editor)

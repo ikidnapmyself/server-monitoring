@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from apps.alerts.models import Alert, Incident
 from apps.checkers.checkers import CheckResult, CheckStatus
+from apps.console._tests.audit import written
 from apps.console._tests.views.test_incident_action import _notices
 from apps.orchestration.models import PipelineRun
 
@@ -222,3 +223,49 @@ def test_an_incident_this_machine_cant_check_offers_no_rerun(client, superuser, 
 
     assert "action-rerun_check" not in body
     assert "Run the checks again" not in body
+
+
+@pytest.mark.django_db
+class TestAudit:
+    def test_a_rerun_records_what_it_found(self, client, superuser, run_checks):
+        incident = _incident()
+        Incident.objects.filter(pk=incident.pk).update(subject="cpu")
+
+        with mock.patch(ENQUEUE, return_value=[mock.sentinel.run]):
+            client.post(_url(incident))
+
+        entry = written().get()
+        assert (entry.action, entry.target_id, entry.target_name) == (
+            "incident.rerun",
+            incident.pk,
+            "cpu",
+        )
+        assert entry.changes == {
+            "result": {
+                "checks_run": 0,
+                "alerts_created": 0,
+                "alerts_updated": 0,
+                "alerts_resolved": 0,
+                "incidents_created": 0,
+                "incidents_updated": 0,
+                "runs": 1,
+            }
+        }
+
+    def test_a_rerun_that_queued_no_run_is_still_recorded(self, client, superuser, run_checks):
+        incident = _incident()
+
+        client.post(_url(incident))
+
+        assert written().get().changes["result"]["runs"] == 0
+
+    def test_a_refused_rerun_records_nothing(self, client, superuser, run_checks):
+        client.post(_url(_incident(instance="web-03")))
+
+        assert not written().exists()
+
+    def test_a_failed_enqueue_records_nothing(self, client, superuser, run_checks):
+        with mock.patch(ENQUEUE, side_effect=RuntimeError("queue down")):
+            client.post(_url(_incident()))
+
+        assert not written().exists()

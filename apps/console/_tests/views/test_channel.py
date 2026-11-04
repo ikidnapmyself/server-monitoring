@@ -1,9 +1,11 @@
+import json
 from unittest import mock
 
 import pytest
 from django.db import IntegrityError, OperationalError
 from django.urls import reverse
 
+from apps.console._tests.audit import written
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console.queries.channels import build_channel_editor
 from apps.notify._tests.test_forms import PD_KEY, SLACK_URL, STORED, initial_data
@@ -560,3 +562,91 @@ class TestANewChannel:
         resp = client.post(_url(driver="slack"), _data(name="db", cfg__webhook_url=SLACK_URL))
 
         assert "Channel added." in client.get(resp["Location"]).content.decode()
+
+
+class TestAudit:
+    def test_an_add_is_recorded_with_its_secret_hidden(self, client, superuser):
+        client.post(_url(driver="slack"), _data(name="db", cfg__webhook_url=SLACK_URL))
+
+        added = NotificationChannel.objects.get(name="db")
+        entry = written().get()
+        assert entry.action == "channel.add"
+        assert (entry.target_kind, entry.target_id, entry.target_name) == (
+            "channel",
+            added.pk,
+            "db",
+        )
+        assert entry.changes["name"] == {"old": None, "new": "db"}
+        assert entry.changes["driver"] == {"old": None, "new": "slack"}
+        assert entry.changes["config.webhook_url"] == {"changed": True}
+        assert SLACK_URL not in json.dumps(entry.changes)
+
+    def test_an_edit_records_only_what_changed(self, client, superuser, channel):
+        client.post(_url(channel), _data(channel, name="ops-2", cfg__timeout="30"))
+
+        entry = written().get()
+        assert (entry.action, entry.target_id, entry.target_name) == (
+            "channel.edit",
+            channel.pk,
+            "ops-2",
+        )
+        assert entry.changes == {
+            "name": {"old": "ops", "new": "ops-2"},
+            "config.timeout": {"old": 10, "new": 30},
+        }
+
+    def test_a_new_secret_records_only_that_it_changed(self, client, superuser, channel):
+        new = "https://hooks.slack.com/services/T1/B1/new-audit-secret"
+
+        client.post(_url(channel), _data(channel, cfg__webhook_url=new))
+
+        entry = written().get()
+        assert entry.changes == {"config.webhook_url": {"changed": True}}
+        text = json.dumps(entry.changes)
+        assert new not in text
+        assert SLACK_URL not in text
+
+    def test_a_switched_driver_hides_every_secret_and_unknown_key(self, client, superuser, channel):
+        data = _data(start="pagerduty", name="ops", cfg__integration_key=PD_KEY)
+        data["digest"] = build_channel_editor(channel.pk).digest
+
+        client.post(_url(channel, driver="pagerduty"), data)
+
+        entry = written().get()
+        text = json.dumps(entry.changes)
+        for value in (SLACK_URL, PD_KEY, UNKNOWN_VALUE):
+            assert value not in text
+        assert entry.changes["config.webhook_url"] == {"changed": True}
+        assert entry.changes["config.integration_key"] == {"changed": True}
+
+    def test_an_edit_that_changes_nothing_records_nothing(self, client, superuser, channel):
+        resp = client.post(_url(channel), _data(channel))
+
+        assert resp.status_code == 303
+        assert not written().exists()
+
+    def test_an_invalid_edit_records_nothing(self, client, superuser, channel):
+        client.post(_url(channel), _data(channel, name=""))
+
+        assert not written().exists()
+
+    def test_a_stale_edit_records_nothing(self, client, superuser, channel):
+        resp = client.post(_url(channel), _data(channel, name="ops-2", digest="old"))
+
+        assert resp.status_code == 409
+        assert not written().exists()
+
+    def test_a_failed_record_rolls_the_edit_back(self, client, superuser, channel):
+        with mock.patch("apps.console.views.channel.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(channel), _data(channel, name="ops-2"))
+
+        channel.refresh_from_db()
+        assert channel.name == "ops"
+
+    def test_a_failed_record_rolls_the_add_back(self, client, superuser):
+        with mock.patch("apps.console.views.channel.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(driver="slack"), _data(name="db", cfg__webhook_url=SLACK_URL))
+
+        assert not NotificationChannel.objects.filter(name="db").exists()

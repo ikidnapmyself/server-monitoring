@@ -1,3 +1,4 @@
+from apps.console.views.activity import ActivityView
 from apps.console.views.alert import AlertDetailView
 from apps.console.views.alert_reeval import AlertReevalView
 from apps.console.views.alerts import AlertListView
@@ -42,6 +43,7 @@ from apps.console.views.user_promote import UserPromoteView
 from apps.console.views.users import UsersView
 
 __all__ = [
+    "ActivityView",
     "AlertDetailView",
     "AlertListView",
     "AlertReevalView",

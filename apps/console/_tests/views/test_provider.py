@@ -1,3 +1,4 @@
+import json
 import socket
 from unittest import mock
 
@@ -5,6 +6,7 @@ import pytest
 from django.db import IntegrityError, OperationalError
 from django.urls import reverse
 
+from apps.console._tests.audit import written
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console.queries.providers import build_provider_editor
 from apps.intelligence._tests.test_forms import KEY, PRIVATE, STORED, initial_data
@@ -553,3 +555,122 @@ class TestANewProvider:
         resp = client.post(_url(kind="claude"), _data(name="spare"))
 
         assert "Provider added." in client.get(resp["Location"]).content.decode()
+
+
+class TestAudit:
+    def test_an_add_is_recorded_with_its_secret_hidden(self, client, superuser):
+        client.post(_url(kind="claude"), _data(name="spare", cfg__api_key=TYPED))
+
+        added = IntelligenceProvider.objects.get(name="spare")
+        entry = written().get()
+        assert entry.action == "provider.add"
+        assert (entry.target_kind, entry.target_id, entry.target_name) == (
+            "provider",
+            added.pk,
+            "spare",
+        )
+        assert entry.changes["provider"] == {"old": None, "new": "claude"}
+        assert entry.changes["config.api_key"] == {"changed": True}
+        assert TYPED not in json.dumps(entry.changes)
+
+    def test_an_edit_records_only_what_changed(self, client, superuser, provider):
+        client.post(_url(provider), _data(provider, description="d", cfg__api_key=TYPED))
+
+        entry = written().get()
+        assert (entry.action, entry.target_id) == ("provider.edit", provider.pk)
+        assert entry.changes == {
+            "description": {"old": "", "new": "d"},
+            "config.api_key": {"changed": True},
+        }
+        text = json.dumps(entry.changes)
+        for value in (KEY, TYPED, UNKNOWN_VALUE):
+            assert value not in text
+
+    def test_a_switched_kind_hides_every_secret_and_unknown_key(self, client, superuser, provider):
+        data = _data(start="openai", name="main", cfg__api_key=TYPED)
+        data["digest"] = build_provider_editor(provider.pk).digest
+
+        client.post(_url(provider, kind="openai"), data)
+
+        entry = written().get()
+        assert entry.changes["provider"] == {"old": "claude", "new": "openai"}
+        text = json.dumps(entry.changes)
+        for value in (KEY, TYPED, UNKNOWN_VALUE):
+            assert value not in text
+
+    def test_an_edit_that_changes_nothing_records_nothing(self, client, superuser, provider):
+        resp = client.post(_url(provider), _data(provider))
+
+        assert resp.status_code == 303
+        assert not written().exists()
+
+    def test_an_invalid_edit_records_nothing(self, client, superuser, provider):
+        client.post(_url(provider), _data(provider, name=""))
+
+        assert not written().exists()
+
+    def test_a_stale_edit_records_nothing(self, client, superuser, provider):
+        resp = client.post(_url(provider), _data(provider, description="d", digest="old"))
+
+        assert resp.status_code == 409
+        assert not written().exists()
+
+    def test_a_failed_record_rolls_the_edit_back(self, client, superuser, provider):
+        with mock.patch("apps.console.views.provider.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(provider), _data(provider, description="d"))
+
+        provider.refresh_from_db()
+        assert provider.description == ""
+
+    def test_a_failed_record_rolls_the_add_back(self, client, superuser):
+        with mock.patch("apps.console.views.provider.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(kind="claude"), _data(name="spare", cfg__api_key=TYPED))
+
+        assert not IntelligenceProvider.objects.filter(name="spare").exists()
+
+
+class TestAuditTurningOthersOff:
+    def test_an_edit_that_turns_one_on_records_the_one_it_turned_off(
+        self, client, superuser, provider
+    ):
+        old = IntelligenceProvider.objects.create(name="old", provider="openai", is_active=True)
+
+        client.post(_url(provider), _data(provider, is_active="on"))
+
+        assert written(action="provider.edit", target_id=provider.pk).exists()
+        entry = written(target_id=old.pk).get()
+        assert (entry.action, entry.target_name) == ("provider.edit", "old")
+        assert entry.changes == {"is_active": {"old": True, "new": False}}
+
+    def test_an_add_that_turns_one_on_records_the_one_it_turned_off(self, client, superuser):
+        old = IntelligenceProvider.objects.create(name="old", provider="openai", is_active=True)
+
+        client.post(_url(kind="claude"), _data(name="spare", cfg__api_key=TYPED, is_active="on"))
+
+        assert written(action="provider.add").count() == 1
+        entry = written(action="provider.edit").get()
+        assert (entry.target_id, entry.changes) == (
+            old.pk,
+            {"is_active": {"old": True, "new": False}},
+        )
+
+    def test_an_edit_that_leaves_it_off_records_no_other(self, client, superuser, provider):
+        IntelligenceProvider.objects.create(name="old", provider="openai", is_active=True)
+
+        client.post(_url(provider), _data(provider, description="d"))
+
+        assert written().get().target_id == provider.pk
+
+    def test_a_failed_record_leaves_the_other_on(self, client, superuser, provider):
+        old = IntelligenceProvider.objects.create(name="old", provider="openai", is_active=True)
+
+        with mock.patch("apps.console.audited.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(provider), _data(provider, is_active="on"))
+
+        old.refresh_from_db()
+        provider.refresh_from_db()
+        assert (old.is_active, provider.is_active) == (True, False)
+        assert not written().exists()

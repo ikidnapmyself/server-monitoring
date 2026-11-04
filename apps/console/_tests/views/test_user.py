@@ -1,3 +1,4 @@
+import json
 import secrets
 from unittest import mock
 
@@ -7,6 +8,7 @@ from django.contrib.messages import get_messages
 from django.db import IntegrityError, OperationalError
 from django.urls import reverse
 
+from apps.console._tests.audit import written
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console.queries.users import LAST_SUPERUSER, update_user
 
@@ -215,9 +217,9 @@ class TestAnExistingUser:
         assert 'value="x@example.com"' in body
 
     def test_a_user_deleted_during_the_save_is_the_404(self, client, superuser, amy):
-        def delete_then_update(actor, form):
+        def delete_then_update(request, form):
             User.objects.filter(pk=amy.pk).delete()
-            return update_user(actor, form)
+            return update_user(request, form)
 
         with mock.patch("apps.console.views.user.update_user", side_effect=delete_then_update):
             resp = client.post(_url(amy), _edit(amy, email="x@example.com"))
@@ -260,3 +262,66 @@ def test_your_own_page_offers_neither(client, superuser):
 
     assert 'id="user-promote"' not in body
     assert 'id="user-delete"' not in body
+
+
+class TestAudit:
+    def test_an_add_records_the_user_and_hides_the_password(self, client, superuser):
+        client.post(_url(), _new())
+
+        dan = User.objects.get(username="dan")
+        entry = written().get()
+        assert (entry.action, entry.actor) == ("user.add", superuser)
+        assert (entry.target_kind, entry.target_id, entry.target_name) == ("user", dan.pk, "dan")
+        assert entry.changes == {
+            "username": {"old": None, "new": "dan"},
+            "email": {"old": None, "new": "dan@example.com"},
+            "first_name": {"old": None, "new": "Dan"},
+            "last_name": {"old": None, "new": "Lee"},
+            "is_active": {"old": None, "new": True},
+            "password": {"changed": True},
+        }
+        text = json.dumps(entry.changes)
+        assert PASSWORD not in text
+        assert dan.password not in text
+
+    def test_an_invalid_add_records_nothing(self, client, superuser):
+        client.post(_url(), _new(password2="other"))
+
+        assert not written().exists()
+
+    def test_a_failed_record_rolls_the_add_back(self, client, superuser):
+        with mock.patch("apps.console.views.user.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(), _new())
+
+        assert not User.objects.filter(username="dan").exists()
+
+    def test_an_edit_records_only_what_changed(self, client, superuser, amy):
+        client.post(_url(amy), _edit(amy, email="x@example.com", is_active=""))
+
+        entry = written().get()
+        assert (entry.action, entry.target_id, entry.target_name) == ("user.edit", amy.pk, "amy")
+        assert entry.changes == {
+            "email": {"old": "amy@example.com", "new": "x@example.com"},
+            "is_active": {"old": True, "new": False},
+        }
+
+    def test_an_edit_that_changes_nothing_records_nothing(self, client, superuser, amy):
+        resp = client.post(_url(amy), _edit(amy))
+
+        assert resp.status_code == 303
+        assert not written().exists()
+
+    def test_a_refused_edit_records_nothing(self, client, superuser):
+        resp = client.post(_url(superuser), _edit(superuser, is_active=""))
+
+        assert resp.status_code == 409
+        assert not written().exists()
+
+    def test_a_failed_record_rolls_the_edit_back(self, client, superuser, amy):
+        with mock.patch("apps.console.queries.users.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(amy), _edit(amy, email="x@example.com"))
+
+        amy.refresh_from_db()
+        assert amy.email == "amy@example.com"

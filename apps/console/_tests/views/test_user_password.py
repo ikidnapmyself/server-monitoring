@@ -1,3 +1,4 @@
+import json
 import secrets
 from unittest import mock
 
@@ -7,6 +8,7 @@ from django.contrib.messages import get_messages
 from django.db import IntegrityError, OperationalError
 from django.urls import reverse
 
+from apps.console._tests.audit import written
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console.queries.users import make_superuser, set_password
 
@@ -118,9 +120,9 @@ def test_a_busy_database_sets_nothing_and_says_so(client, superuser, amy, error)
 
 
 def test_a_promotion_after_the_form_was_built_survives(client, superuser, amy):
-    def promote_then_set(pk, raw):
-        make_superuser(pk)
-        return set_password(pk, raw)
+    def promote_then_set(request, pk, raw):
+        make_superuser(request, pk)
+        return set_password(request, pk, raw)
 
     with mock.patch("apps.console.views.user_password.set_password", side_effect=promote_then_set):
         resp = client.post(_url(amy), _set())
@@ -132,12 +134,59 @@ def test_a_promotion_after_the_form_was_built_survives(client, superuser, amy):
 
 
 def test_a_user_deleted_before_the_save_stays_deleted(client, superuser, amy):
-    def delete_then_set(pk, raw):
+    def delete_then_set(request, pk, raw):
         User.objects.filter(pk=pk).delete()
-        return set_password(pk, raw)
+        return set_password(request, pk, raw)
 
     with mock.patch("apps.console.views.user_password.set_password", side_effect=delete_then_set):
         resp = client.post(_url(amy), _set())
 
     assert resp.status_code == 404
     assert not User.objects.filter(pk=amy.pk).exists()
+
+
+class TestAudit:
+    def test_a_new_password_records_only_that_it_changed(self, client, superuser, amy):
+        client.post(_url(amy), _set())
+
+        amy.refresh_from_db()
+        entry = written().get()
+        assert (entry.action, entry.target_id, entry.target_name) == (
+            "user.set_password",
+            amy.pk,
+            "amy",
+        )
+        assert entry.changes == {"password": {"changed": True}}
+        text = json.dumps(entry.changes)
+        assert PASSWORD not in text
+        assert amy.password not in text
+
+    def test_setting_your_own_names_you_twice_and_keeps_you_signed_in(self, client, superuser):
+        client.post(_url(superuser), _set())
+
+        entry = written().get()
+        assert (entry.action, entry.actor, entry.actor_name) == (
+            "user.set_password",
+            superuser,
+            "root",
+        )
+        assert (entry.target_id, entry.target_name) == (superuser.pk, "root")
+        assert client.get(reverse("console:overview")).status_code == 200
+
+    def test_a_mismatched_password_records_nothing(self, client, superuser, amy):
+        client.post(_url(amy), _set(confirm="other-password-9"))
+
+        assert not written().exists()
+
+    def test_a_missing_user_records_nothing(self, client, superuser):
+        client.post(reverse("console:user-password", args=[999]), _set())
+
+        assert not written().exists()
+
+    def test_a_failed_record_keeps_the_old_password(self, client, superuser, amy):
+        with mock.patch("apps.console.queries.users.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(amy), _set())
+
+        amy.refresh_from_db()
+        assert amy.check_password("old-password-9")

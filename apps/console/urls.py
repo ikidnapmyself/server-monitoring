@@ -2,6 +2,7 @@ from django.contrib.auth.views import LogoutView
 from django.urls import path
 
 from apps.console.views import (
+    ActivityView,
     AlertDetailView,
     AlertListView,
     AlertReevalView,
@@ -101,6 +102,7 @@ urlpatterns = [
     path("keys/<int:pk>/", KeyView.as_view(), name="key"),
     path("keys/<int:pk>/delete/", KeyDeleteView.as_view(), name="key-delete"),
     path("users/", UsersView.as_view(), name="users"),
+    path("activity/", ActivityView.as_view(), name="activity"),
     path("users/new/", UserView.as_view(), name="user-new"),
     path("users/<int:pk>/", UserView.as_view(), name="user"),
     path("users/<int:pk>/password/", UserPasswordView.as_view(), name="user-password"),

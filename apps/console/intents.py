@@ -130,6 +130,7 @@ INTENTS: dict[str, Intent] = {
     "delete_user": Intent(_record("console:user-delete"), "get"),
     "add_user": Intent(_page("console:user-new"), "get"),
     "make_superuser": Intent(_record("console:user-make-superuser"), "post"),
+    "view_activity": Intent(_page("console:activity"), "get"),
     "view_preflight": Intent(_page("console:preflight"), "get"),
     "view_inbox": Intent(_page("console:inbox", "status", "status"), "get"),
     "view_nodes": Intent(_page("console:nodes"), "get"),

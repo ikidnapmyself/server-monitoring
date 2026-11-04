@@ -46,6 +46,7 @@ ANALYSIS_FILTERS = {
     "provider": ["openai", "claude", "gemini", "local", "retired_provider"],
     "since": [key for key in SINCE_CHOICES if key],
 }
+ACTIVITY_FILTERS = {"kind": ["route", "channel", "key", "node", "inbox", "widget_box", "nope"]}
 VOID = {"br", "img", "input", "meta", "link", "hr", "use"}
 
 
@@ -187,6 +188,8 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         + [f"/console/preflight/{pk}/" for pk in world.preflight_pks]
         + _filtered("/console/analyses/", ANALYSIS_FILTERS)
         + [f"/console/analyses/{pk}/" for pk in world.analysis_pks]
+        + _filtered("/console/activity/", ACTIVITY_FILTERS)
+        + [f"/console/activity/?actor={pk}" for pk in world.user_pks]
     )
     html = {url: _get(client, url, headers) for url in urls}
     # The ids are on the page, inside Details, so the check below has something to catch.
@@ -212,7 +215,7 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "No node reported in the last 15 minutes",
     ):
         assert fault in overview, fault
-    everything = " ".join(pages.values())
+    everything = " ".join(" ".join(pages.values()).split())
     for shown in (
         "Run failed: no route matches this incident",
         "Not delivered: the channel uses a driver this hub doesn't have",
@@ -273,6 +276,22 @@ def test_no_page_leaks_identifiers(client, superuser, partial):
         "Other failures",
         "Not a superuser",
         "Never signed in",
+        "Edited route web-critical",
+        "Edited channel ops-slack",
+        "Deleted provider old-ai",
+        "Added API key agent",
+        "Set the password of user amy",
+        "Edited the policy of node cache-1",
+        "Allowed ports 22, 443 on node cache-1",
+        "Ran the checks of incident High CPU usage again",
+        "1 check ran, 1 alert updated and 1 run queued.",
+        "2 runs drained and 1 run raised an error.",
+        "Drained the oldest queued runs",
+        "Changed record spinner",
+        "Speed limit",
+        "Failed sign-in as mallory",
+        "Not signed in",
+        "olduser",
         "Make superuser",
         "Set password",
         "You can't delete your own account.",

@@ -1,9 +1,13 @@
+from typing import cast
+
 from django.contrib import messages
 from django.db import IntegrityError, OperationalError, transaction
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
+from apps.console.audit import record
+from apps.console.audited import key_changes, key_state, key_target
 from apps.console.queries.keys import KeyEditor, build_key_editor
 from apps.console.views.base import ConsoleView, Notice
 from config.api_keys import KEY_FIELDS, StaleKey, save_key
@@ -59,6 +63,8 @@ class KeyView(ConsoleView):
         try:
             with transaction.atomic():
                 key = APIKey.objects.create(**values)
+                changes = key_changes({}, key_state(key))
+                record(self.request, "key.add", key_target(key), changes=changes)
         except (IntegrityError, OperationalError):
             return self.render_editor(editor, Notice(NOT_ADDED, "warning"), 409)
         context = self.get_context_data(
@@ -75,7 +81,12 @@ class KeyView(ConsoleView):
     def update(self, pk: int, values: dict, digest: str):
         try:
             with transaction.atomic():
+                before = APIKey.objects.filter(pk=pk).first()
                 save_key(pk, values, expected=digest)
+                key = APIKey.objects.get(pk=pk)
+                changes = key_changes(key_state(cast(APIKey, before)), key_state(key))
+                if changes:
+                    record(self.request, "key.edit", key_target(key), changes=changes)
         except StaleKey:
             return self.refresh(pk, STALE)
         except (IntegrityError, OperationalError):

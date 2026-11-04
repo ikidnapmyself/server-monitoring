@@ -30,7 +30,7 @@ class UserDeleteView(ConsoleView):
             return user_not_found(request)
         back = HttpResponseRedirect(self.landing_path(), status=303)
         try:
-            refusal = delete_user(request.user, kwargs["pk"])
+            refusal = delete_user(request, kwargs["pk"])
         except (IntegrityError, OperationalError):
             messages.warning(
                 request, f"Couldn't delete {username} just now. Nothing was deleted, so try again."

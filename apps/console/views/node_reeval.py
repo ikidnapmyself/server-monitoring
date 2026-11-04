@@ -1,13 +1,15 @@
 from urllib.parse import urlencode
 
 from django.contrib import messages
-from django.db import OperationalError
+from django.db import OperationalError, transaction
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 
 from apps.alerts.describing import describe_reeval_applied
 from apps.alerts.models import Node
 from apps.alerts.reeval_existing import StaleReeval, apply_reeval
+from apps.console.audit import record
+from apps.console.audited import node_target, reeval_result
 from apps.console.filters import checker_param
 from apps.console.queries.reeval import build_node_reeval_preview, node_scope
 from apps.console.views.base import NOTHING_TO_APPLY, Notice
@@ -48,9 +50,14 @@ class NodeReevalView(NodePageView):
         if node is None:
             return self.not_found()
         try:
-            report = apply_reeval(
-                node_scope(node, self.checker), expected=request.POST.get("digest", "")
-            )
+            with transaction.atomic():
+                report = apply_reeval(
+                    node_scope(node, self.checker), expected=request.POST.get("digest", "")
+                )
+                if report.node is not None and report.changes:
+                    record(
+                        request, "node.reevaluate", node_target(node), changes=reeval_result(report)
+                    )
         except (StaleReeval, OperationalError):
             return self.render_preview(Notice(STALE, "warning"), status=409)
         if not report.changes:

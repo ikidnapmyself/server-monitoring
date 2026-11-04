@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from apps.alerts.models import Alert, Node
 from apps.alerts.node_policy import config_digest
+from apps.console._tests.audit import written
 from apps.console._tests.test_guard import visible
 from apps.console._tests.test_templates import FORBIDDEN
 from apps.console._tests.views.test_incident import focus_audit
@@ -247,3 +248,40 @@ def test_a_checker_box_without_open_alerts_has_no_hint(client, superuser, node):
     body = client.get(_url(node)).content.decode()
 
     assert "c-description__headline" not in body
+
+
+class TestAudit:
+    def test_a_save_records_each_checker_it_changed(self, client, superuser, node):
+        _post(client, node, _boxes(warning=70))
+
+        entry = written().get()
+        assert (entry.action, entry.target_kind, entry.target_id, entry.target_name) == (
+            "node.policy",
+            "node",
+            node.pk,
+            "web-1",
+        )
+        assert entry.changes == {
+            "cpu": {
+                "old": {"warning_threshold": 80, "critical_threshold": 90},
+                "new": {"warning_threshold": 70, "critical_threshold": 90},
+            }
+        }
+
+    def test_an_untouched_save_records_nothing(self, client, superuser, node):
+        _post(client, node, _boxes())
+
+        assert not written().exists()
+
+    def test_a_stale_save_records_nothing(self, client, superuser, node):
+        client.post(_url(node), {"digest": "old", **_boxes(warning=70)})
+
+        assert not written().exists()
+
+    def test_a_failed_record_rolls_the_save_back(self, client, superuser, node):
+        with mock.patch("apps.console.views.node_policy.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                _post(client, node, _boxes(warning=70))
+
+        node.refresh_from_db()
+        assert node.config == CPU

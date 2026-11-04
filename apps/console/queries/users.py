@@ -11,6 +11,8 @@ from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
 from apps.console.access import admits
+from apps.console.audit import diff, record, snapshot
+from apps.console.audited import user_changes, user_state, user_target
 from apps.console.forms import UserCreateForm, UserEditForm, UserPasswordForm
 from config.describing import Action, Fact
 
@@ -221,7 +223,7 @@ def removal_refusal(actor, user, verb: str, *, lock: bool = True) -> str:
     return ""
 
 
-def update_user(actor, form: ModelForm) -> str | None:
+def update_user(request, form: ModelForm) -> str | None:
     """Save a valid edit form, unless it deactivates someone who must stay.
 
     Returns why not, "" when saved, or None when the user is gone. Only the form's fields
@@ -234,39 +236,49 @@ def update_user(actor, form: ModelForm) -> str | None:
         if stored is None:
             return None
         if stored.is_active and not form.cleaned_data["is_active"]:
-            refusal = removal_refusal(actor, stored, "deactivate")
+            refusal = removal_refusal(request.user, stored, "deactivate")
             if refusal:
                 return refusal
+        before = user_state(stored)
         for field in fields:
             setattr(stored, field, getattr(form.instance, field))
         stored.save(update_fields=fields)
+        changes = user_changes(before, user_state(stored))
+        if changes:
+            record(request, "user.edit", user_target(stored), changes=changes)
     return ""
 
 
-def set_password(pk: int, raw: str):
+def set_password(request, pk: int, raw: str):
     """Set user ``pk``'s password and nothing else. Returns the user, or None when they're gone."""
     with transaction.atomic():
         user = get_user_model().objects.select_for_update().filter(pk=pk).first()
         if user is None:
             return None
+        before = user_state(user)
         user.set_password(raw)
         user.save(update_fields=["password"])
+        changes = user_changes(before, user_state(user))
+        record(request, "user.set_password", user_target(user), changes=changes)
     return user
 
 
-def delete_user(actor, pk: int) -> str | None:
+def delete_user(request, pk: int) -> str | None:
     """Delete user ``pk`` unless they must stay. Returns why not, or None when they're gone."""
     with transaction.atomic():
         user = get_user_model().objects.select_for_update().filter(pk=pk).first()
         if user is None:
             return None
-        refusal = removal_refusal(actor, user, "delete")
+        refusal = removal_refusal(request.user, user, "delete")
         if not refusal:
-            user.delete()
+            target, before = user_target(user), user_state(user)
+            deleted, _ = user.delete()
+            if deleted:
+                record(request, "user.delete", target, changes=user_changes(before, {}))
     return refusal
 
 
-def make_superuser(pk: int) -> tuple[str, str] | None:
+def make_superuser(request, pk: int) -> tuple[str, str] | None:
     """Make active user ``pk`` a superuser.
 
     Returns their username and why it was refused, "" when it wasn't, or None when they're
@@ -280,6 +292,9 @@ def make_superuser(pk: int) -> tuple[str, str] | None:
             return user.username, f"{user.username} is already a superuser."
         if not user.is_active:
             return user.username, f"{user.username} is inactive, so they can't be made a superuser."
+        before = snapshot(user, ["is_superuser"])
         user.is_superuser = user.is_staff = True
         user.save(update_fields=["is_superuser", "is_staff"])
+        changes = diff(before, snapshot(user, ["is_superuser"]))
+        record(request, "user.promote", user_target(user), changes=changes)
     return user.username, ""

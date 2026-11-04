@@ -4,6 +4,8 @@ from django.urls import reverse
 
 from apps.alerts.check_integration import PipelineRunFailed, RerunRefused, rerun_incident_checks
 from apps.alerts.models import Incident
+from apps.console.audit import record
+from apps.console.audited import incident_target, rerun_result
 from apps.console.views.base import Notice
 from apps.console.views.incident import IncidentPageView
 
@@ -32,6 +34,11 @@ class IncidentRerunView(IncidentPageView):
         except PipelineRunFailed:
             notice = Notice(text=NOT_QUEUED, tone="warning")
         else:
+            # Recorded after the rerun commits, not with it: the rerun samples its checkers
+            # before opening a transaction, and wrapping it would hold the write lock that long.
+            subject = Incident.objects.filter(pk=pk).values_list("subject", flat=True).first()
+            target = incident_target(pk, subject)
+            record(request, "incident.rerun", target, changes=rerun_result(rerun))
             notice = Notice(text=RAN if rerun.runs else UNCHANGED, tone="ok")
         full = request.POST.get("all") == "1"
         if self.wants_partial:

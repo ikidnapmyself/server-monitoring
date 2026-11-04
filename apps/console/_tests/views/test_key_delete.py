@@ -1,9 +1,12 @@
+import json
 from datetime import timedelta
+from unittest import mock
 
 import pytest
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.console._tests.audit import written
 from apps.console._tests.test_guard import visible
 from config.models import APIKey
 
@@ -111,3 +114,43 @@ class TestTheEditorLink:
     def test_a_new_key_has_none(self, client, superuser):
 
         assert 'id="key-delete"' not in client.get(reverse("console:key-new")).content.decode()
+
+
+class TestAudit:
+    def test_a_delete_is_recorded_without_the_key_material(self, client, superuser, key):
+        pk, digest = key.pk, key.key
+
+        client.post(_url(key))
+
+        entry = written().get()
+        assert (entry.action, entry.target_kind) == ("key.delete", "key")
+        assert (entry.target_id, entry.target_name) == (pk, "agent")
+        assert entry.changes["name"] == {"old": "agent", "new": None}
+        assert entry.changes["key"] == {"changed": True}
+        assert digest not in json.dumps(entry.changes)
+
+    def test_a_missing_key_records_nothing(self, client, superuser):
+        client.post(reverse("console:key-delete", args=[999]))
+
+        assert not written().exists()
+
+    def test_a_failed_record_rolls_the_delete_back(self, client, superuser, key):
+        with mock.patch("apps.console.views.key_delete.record", side_effect=RuntimeError):
+            with pytest.raises(RuntimeError):
+                client.post(_url(key))
+
+        assert APIKey.objects.filter(pk=key.pk).exists()
+
+
+def test_a_delete_another_request_won_records_nothing(client, superuser, key):
+    delete = APIKey.delete
+
+    def raced(self, *args, **kwargs):
+        APIKey.objects.filter(pk=self.pk).delete()
+        return delete(self, *args, **kwargs)
+
+    with mock.patch.object(APIKey, "delete", raced):
+        client.post(_url(key))
+
+    assert not APIKey.objects.filter(pk=key.pk).exists()
+    assert not written().exists()

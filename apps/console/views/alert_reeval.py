@@ -1,11 +1,13 @@
 from django.contrib import messages
-from django.db import OperationalError
+from django.db import OperationalError, transaction
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 
 from apps.alerts.describing import describe_reeval_applied
 from apps.alerts.models import Alert
 from apps.alerts.reeval_existing import ReevalScope, StaleReeval, apply_reeval
+from apps.console.audit import record
+from apps.console.audited import alert_target, reeval_result
 from apps.console.queries.alert import build_reeval_preview
 from apps.console.views.alert import AlertPageView
 from apps.console.views.base import NOTHING_TO_APPLY, Notice
@@ -37,9 +39,17 @@ class AlertReevalView(AlertPageView):
         if alert is None:
             return self.not_found()
         try:
-            report = apply_reeval(
-                ReevalScope.for_alert(alert), expected=request.POST.get("digest", "")
-            )
+            with transaction.atomic():
+                report = apply_reeval(
+                    ReevalScope.for_alert(alert), expected=request.POST.get("digest", "")
+                )
+                if report.node is not None and report.changes:
+                    record(
+                        request,
+                        "alert.reevaluate",
+                        alert_target(alert),
+                        changes=reeval_result(report),
+                    )
         except (StaleReeval, OperationalError):
             return self.render_preview(alert.pk, Notice(STALE, "warning"), status=409)
         if not report.changes:

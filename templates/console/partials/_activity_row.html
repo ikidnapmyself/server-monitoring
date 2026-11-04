@@ -1,0 +1,15 @@
+{% load console %}<li id="entry-{{ row.pk }}" class="c-box__row c-row">
+  <span class="c-row__icon">{% include "console/partials/_octicon.html" with name="person" %}</span>
+  <div class="c-row__main">
+    <span id="entry-{{ row.pk }}-what">{{ row.words.before }}{% if row.words.target %}{% resolved row.words.target as target %}{% if target.url %}<a id="entry-{{ row.pk }}-target" href="{{ target.url }}">{{ target.text }}</a>{% else %}{{ target.text }}{% endif %}{% endif %}{{ row.words.after }}</span>
+    <div class="c-row__meta">{% resolved row.actor as actor %}{% if actor.url %}<a id="entry-{{ row.pk }}-actor" href="{{ actor.url }}">{{ actor.text }}</a>{% else %}<span id="entry-{{ row.pk }}-actor">{{ actor.text }}</span>{% endif %} · {% include "console/partials/_time.html" with when=row.at %}</div>
+    {% if row.words.summary %}<p id="entry-{{ row.pk }}-summary">{{ row.words.summary }}</p>{% endif %}
+    {% if row.words.changes %}<table id="entry-{{ row.pk }}-changes" class="c-table">
+      <thead><tr><th scope="col">Field</th><th scope="col">Before</th><th scope="col">After</th></tr></thead>
+      <tbody>{% for change in row.words.changes %}<tr><td>{{ change.label }}</td>{% if change.secret %}<td colspan="2">{{ change.old }}</td>{% else %}<td>{{ change.old }}</td><td>{{ change.new }}</td>{% endif %}</tr>{% endfor %}</tbody>
+    </table>{% endif %}
+    {% if row.words.last_values %}<dl id="entry-{{ row.pk }}-last" class="c-facts">
+      {% for fact in row.words.last_values %}<div><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div>{% endfor %}
+    </dl>{% endif %}
+  </div>
+</li>

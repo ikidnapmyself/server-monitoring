@@ -1,13 +1,17 @@
 from collections.abc import Callable
 
 from django.contrib import messages
+from django.db import transaction
 from django.http import Http404, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
+from apps.console.audit import record
+from apps.console.audited import run_target
 from apps.console.queries.run import build_run_detail, run_exists
 from apps.console.views.base import ConsoleView, Notice
 from apps.orchestration import inbox
+from apps.orchestration.models import PipelineRun
 
 RETRIED = "Run queued again. The next drain runs the stages that didn't finish."
 NOT_FAILED = "This run is no longer failed."
@@ -53,7 +57,14 @@ class RunActionView(RunPageView):
             raise Http404("Unknown run action.")
         pk = kwargs["pk"]
         write, won, lost = ACTIONS[kwargs["action"]]
-        notice = Notice(won, "ok") if write(pk) else Notice(lost, "warning")
+        statuses = PipelineRun.objects.filter(pk=pk).values_list("status", flat=True)
+        with transaction.atomic():
+            before = statuses.first()
+            moved = write(pk)
+            if moved:
+                changes = {"status": {"old": before, "new": statuses.first()}}
+                record(request, f"run.{kwargs['action']}", run_target(pk), changes=changes)
+        notice = Notice(won, "ok") if moved else Notice(lost, "warning")
         if self.wants_partial:
             # Not the messages framework: the next poll, or another page, would eat it.
             return self.render_run(pk, notice=notice)

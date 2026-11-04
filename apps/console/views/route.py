@@ -1,9 +1,13 @@
+from typing import cast
+
 from django.contrib import messages
 from django.db import IntegrityError, OperationalError, transaction
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
+from apps.console.audit import record
+from apps.console.audited import route_changes, route_state, route_target
 from apps.console.queries.routes import RouteEditor, build_route_editor
 from apps.console.views.base import ConsoleView, Notice
 from apps.orchestration.forms import NAME_TAKEN, RouteForm
@@ -78,6 +82,8 @@ class RouteView(ConsoleView):
                 route = PipelineDefinition.objects.create(
                     **fields, created_by=self.request.user.get_username(), version=1
                 )
+                changes = route_changes({}, route_state(route))
+                record(self.request, "route.add", route_target(route), changes=changes)
         except IntegrityError:
             return self.name_taken(editor)
         return self.landed(ADDED, route.pk)
@@ -86,7 +92,14 @@ class RouteView(ConsoleView):
         fields = editor.form.route_fields()
         try:
             with transaction.atomic():
+                before = PipelineDefinition.objects.select_related("channel").filter(pk=pk).first()
                 save_route(pk, fields, expected=int(version) if version.isdigit() else 0)
+                route = PipelineDefinition.objects.select_related("channel").get(pk=pk)
+                changes = route_changes(
+                    route_state(cast(PipelineDefinition, before)), route_state(route)
+                )
+                if changes:
+                    record(self.request, "route.edit", route_target(route), changes=changes)
         except IntegrityError:
             others = PipelineDefinition.objects.exclude(pk=pk)
             if others.filter(name=fields["name"]).exists():

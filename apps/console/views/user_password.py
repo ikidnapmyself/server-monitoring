@@ -36,7 +36,7 @@ class UserPasswordView(ConsoleView):
         if editor is None or not editor.form.is_valid():
             return self.render_editor(editor)
         try:
-            user = set_password(editor.pk, editor.form.cleaned_data["new_password1"])
+            user = set_password(request, editor.pk, editor.form.cleaned_data["new_password1"])
         except (IntegrityError, OperationalError):
             return self.render_editor(editor, Notice(BUSY, "warning"), 409)
         if user is None:

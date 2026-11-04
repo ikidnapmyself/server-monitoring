@@ -1,8 +1,11 @@
 from django.contrib import messages
+from django.db import transaction
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 
+from apps.console.audit import record
+from apps.console.audited import provider_changes, provider_state, provider_target
 from apps.console.queries.providers import build_provider_deletion
 from apps.console.views.base import ConsoleView
 from apps.intelligence.models import IntelligenceProvider
@@ -29,9 +32,13 @@ class ProviderDeleteView(ConsoleView):
         return self.render_to_response(context)
 
     def post(self, request, *args, **kwargs):
-        provider = IntelligenceProvider.objects.filter(pk=kwargs["pk"]).first()
-        if provider is None:
-            return self.not_found()
-        provider.delete()
+        with transaction.atomic():
+            provider = IntelligenceProvider.objects.filter(pk=kwargs["pk"]).first()
+            if provider is None:
+                return self.not_found()
+            target, before = provider_target(provider), provider_state(provider)
+            deleted, _ = provider.delete()
+            if deleted:
+                record(request, "provider.delete", target, changes=provider_changes(before, {}))
         messages.success(request, f"Provider {provider.name} deleted.")
         return HttpResponseRedirect(reverse("console:providers"), status=303)

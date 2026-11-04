@@ -13,6 +13,8 @@ from django.http import QueryDict
 from apps.alerts.models import AlertSeverity, AlertStatus, IncidentStatus
 from apps.checkers.checkers import CHECKER_REGISTRY
 from apps.checkers.models import CheckRun, CheckStatus
+from apps.console.describing import KINDS
+from apps.console.models import AuditEntry
 from apps.intelligence.models import AnalysisRun, AnalysisRunStatus, IntelligenceProvider
 from apps.orchestration.describing import REASONS
 from apps.orchestration.errors import STAGE_FAILED_PREFIX
@@ -69,6 +71,7 @@ RUN_FIELDS = ("q", "status", "reason", "origin", "node", "since", "page")
 CHECK_FIELDS = ("q", "status", "checker", "host", "since", "page")
 PREFLIGHT_FIELDS = ("status", "since", "page")
 ANALYSIS_FIELDS = ("status", "provider", "since", "page")
+ACTIVITY_FIELDS = ("actor", "kind", "page")
 SEARCH_LIMIT = 255
 SOURCE_LIMIT = 100
 
@@ -469,6 +472,29 @@ class NodeFilter:
     def kept(self) -> tuple[tuple[str, str], ...]:
         """Filters a search submit must resend, since a GET form sends only its own fields."""
         return (("freshness", self.freshness),) if self.freshness else ()
+
+
+@dataclass(frozen=True)
+class ActivityFilter:
+    actor: int | None = None
+    kind: str = ""
+    page: int = 1
+    dropped: tuple[str, ...] = ()
+
+    @classmethod
+    def parse(cls, params: QueryDict) -> "ActivityFilter":
+        values, dropped = _parse(
+            params,
+            (
+                ("actor", None),
+                ("kind", _known_or_stored(tuple(KINDS), AuditEntry, "target_kind")),
+                ("page", None),
+            ),
+        )
+        return cls(**values, dropped=tuple(dropped))  # type: ignore[arg-type]
+
+    def querystring(self, **changes: str | int | None) -> str:
+        return _encode(self, ActivityFilter(), ACTIVITY_FIELDS, changes)
 
 
 def checker_param(params: QueryDict) -> str | None:
