@@ -6,7 +6,6 @@ import pytest
 from django.test import TestCase
 
 from apps.orchestration.models import (
-    InboxItem,
     PipelineOrigin,
     PipelineRun,
     PipelineStage,
@@ -176,13 +175,3 @@ class StageExecutionModelTests(TestCase):
                 stage=PipelineStage.INGEST,
                 attempt=1,
             )
-
-
-# --- Phase 3.1: InboxItem proxy model ---
-@pytest.mark.django_db
-def test_inbox_lists_only_pending_and_processing():
-    PipelineRun.objects.create(trace_id="t", run_id="a", status=PipelineStatus.PENDING)
-    PipelineRun.objects.create(trace_id="t", run_id="b", status=PipelineStatus.NOTIFIED)
-    PipelineRun.objects.create(trace_id="t", run_id="p", status=PipelineStatus.PROCESSING)
-    ids = set(InboxItem.objects.values_list("run_id", flat=True))
-    assert ids == {"a", "p"}

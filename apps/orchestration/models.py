@@ -286,28 +286,6 @@ class PipelineRun(models.Model):
         )
 
 
-class InboxManager(models.Manager):
-    """Restrict the queryset to un-drained runs (the inbox)."""
-
-    def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .filter(status__in=[PipelineStatus.PENDING, PipelineStatus.PROCESSING])
-        )
-
-
-class InboxItem(PipelineRun):
-    """Proxy view of PipelineRun limited to PENDING/PROCESSING runs (the inbox)."""
-
-    objects = InboxManager()  # type: ignore[misc]  # narrowing manager on a proxy model
-
-    class Meta:
-        proxy = True
-        verbose_name = "Inbox item"
-        verbose_name_plural = "Inbox"
-
-
 class StageExecution(models.Model):
     """
     Tracks individual stage executions within a pipeline run.
