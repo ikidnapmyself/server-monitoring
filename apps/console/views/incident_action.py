@@ -5,7 +5,7 @@ from django.urls import reverse
 
 from apps.alerts.models import Incident
 from apps.alerts.services import INCIDENT_ACTIONS, IncidentManager
-from apps.console.audit import record
+from apps.console.audit import diff, record
 from apps.console.audited import incident_target
 from apps.console.views.base import Notice
 from apps.console.views.incident import IncidentPageView
@@ -32,11 +32,18 @@ class IncidentActionView(IncidentPageView):
         summary = self._summary() if action == "resolve" else ""
         try:
             with transaction.atomic():
+                # A reopen keeps the last resolution's summary, so read it under the lock.
+                before = (
+                    Incident.objects.select_for_update()
+                    .filter(pk=pk)
+                    .values_list("summary", flat=True)
+                    .first()
+                )
                 outcome = IncidentManager.transition(
                     pk, action, actor=request.user.get_username(), summary=summary
                 )
                 if outcome.ok:
-                    changes = {"summary": {"old": "", "new": summary}} if summary else {}
+                    changes = diff({"summary": before}, {"summary": outcome.incident.summary})
                     record(
                         request,
                         f"incident.{action}",

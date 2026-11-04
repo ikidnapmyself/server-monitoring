@@ -2,6 +2,7 @@
 title: "Sysadmin Console PR 5: Console on Describers"
 parent: Plans
 ---
+{% raw %}
 
 # Sysadmin console PR 5: console on describers
 
@@ -1057,3 +1058,4 @@ rerun button on a local incident and its text form on a peer's, in light and dar
 - No page shows a UUID, `snake_case` token, reason code or `{` outside Details. The guard test
   proves it against every outcome and reason code.
 - No console template or query builds an admin URL. `intents.py` is the one place that does.
+{% endraw %}

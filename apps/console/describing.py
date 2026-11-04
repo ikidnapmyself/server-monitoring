@@ -44,7 +44,7 @@ ACTIONS = {
         for kind in ("route", "channel", "provider", "key", "user")
         for verb, done in (("add", "Added"), ("edit", "Edited"), ("delete", "Deleted"))
     },
-    "user.set_password": "Set the password of {target}",  # nosec B105
+    "user.set_password": "Set the password of {target}",  # nosec B105  # pragma: allowlist secret
     "user.promote": "Made {target} a superuser",
     "node.policy": "Edited the policy of {target}",
     "node.allow_ports": "Allowed ports {ports} on {target}",
@@ -80,7 +80,7 @@ FIELD_LABELS = {
     "last_name": "Last name",
     "allowed_endpoints": "Allowed endpoints",
     "key": "Key",
-    "password": "Password",  # nosec B105
+    "password": "Password",  # nosec B105  # pragma: allowlist secret
     "driver": "Driver",
     "provider": "Provider",
     "match": "Conditions",
