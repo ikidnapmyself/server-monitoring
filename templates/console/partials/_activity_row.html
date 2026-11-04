@@ -1,4 +1,5 @@
 {% load console %}<li id="entry-{{ row.pk }}" class="c-box__row c-row">
+  <span class="c-row__icon">{% include "console/partials/_octicon.html" with name="person" %}</span>
   <div class="c-row__main">
     <span id="entry-{{ row.pk }}-what">{{ row.words.before }}{% if row.words.target %}{% resolved row.words.target as target %}{% if target.url %}<a id="entry-{{ row.pk }}-target" href="{{ target.url }}">{{ target.text }}</a>{% else %}{{ target.text }}{% endif %}{% endif %}{{ row.words.after }}</span>
     <div class="c-row__meta">{% resolved row.actor as actor %}{% if actor.url %}<a id="entry-{{ row.pk }}-actor" href="{{ actor.url }}">{{ actor.text }}</a>{% else %}<span id="entry-{{ row.pk }}-actor">{{ actor.text }}</span>{% endif %} · {% include "console/partials/_time.html" with when=row.at %}</div>

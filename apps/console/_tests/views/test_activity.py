@@ -68,6 +68,15 @@ def test_a_row_says_who_did_what_and_links_the_target(client, superuser):
     assert "Priority 50 60" in text
 
 
+def test_a_row_fills_the_icon_column_so_its_text_has_room(client, superuser):
+    entry = _entry()
+
+    body = client.get(URL).content.decode()
+
+    row = body.split(f'<li id="entry-{entry.pk}"', 1)[1]
+    assert row.index('class="c-row__icon"') < row.index('class="c-row__main"')
+
+
 def test_a_secret_renders_as_changed_and_never_its_value(client, superuser):
     _entry(
         action="channel.edit",
