@@ -2,6 +2,7 @@
 title: "Sysadmin Console PR 11: Superuser-only"
 parent: Plans
 ---
+{% raw %}
 
 # Console superuser-only implementation plan
 
@@ -181,3 +182,4 @@ Expected: 100% on changed lines.
 **Step 4:** Run the server, sign in as a staff account that isn't a superuser and screenshot
 the refusal page. Then sign in as a superuser and screenshot the overview, a list with an
 Add button, and the reports page.
+{% endraw %}

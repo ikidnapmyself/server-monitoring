@@ -2,6 +2,7 @@
 title: "Admin Ops Skin"
 parent: Plans
 ---
+{% raw %}
 
 # Admin ops skin
 
@@ -137,3 +138,4 @@ New coverage:
 4. The `django_object_actions` buttons still appear on the Node changelist and
    change form.
 5. No change to any admin URL, registered model, field set or action.
+{% endraw %}
