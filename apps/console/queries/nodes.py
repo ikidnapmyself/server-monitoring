@@ -20,7 +20,7 @@ from config.readiness import NODE_RECENT_MINUTES
 from config.tones import SEVERITY_TONES, tone_for
 
 SEVERITIES = (AlertSeverity.CRITICAL, AlertSeverity.WARNING, AlertSeverity.INFO)
-TONE_RANK = {"critical": 0, "warning": 1, "info": 2, "muted": 3, "ok": 4}
+TONE_RANK = {"critical": 0, "warning": 1, "info": 2, "progress": 2, "muted": 3, "ok": 4}
 FRESHNESS_CHIPS: tuple[Choice, ...] = (
     ("all", "All", ""),
     ("silent", "Silent", "silent"),

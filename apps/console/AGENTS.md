@@ -124,7 +124,9 @@ pipeline stage and not an alert producer.
   label, a flash or a timeline badge. Incident states use `c-status--<status>` instead,
   because GitHub's colours for state differ from the tone table: open is green,
   acknowledged attention, resolved and closed done purple. `_tests/test_css.py` checks
-  every text pair at AA in both themes and needs a rule per tone.
+  every text pair at AA in both themes and needs a rule per tone. `progress` marks work
+  under way and shows the `sync` arrows. `info` is informational and shows the `info` icon.
+  Both share the accent colour.
 - **Icons are Octicons** from the sprite `static/console/vendor/octicons.svg`. Render one
   with `{% include "console/partials/_octicon.html" with name="..." %}`, never an inline
   path. A name the sprite lacks fails `_tests/test_templates.py`.

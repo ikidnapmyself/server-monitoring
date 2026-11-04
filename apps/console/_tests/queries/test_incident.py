@@ -333,7 +333,7 @@ def test_run_and_stage_entries_use_the_orchestration_describers():
     assert entry.what.headline == "Not delivered: the matched route has no active channel"
     assert entry.what.action.intent == "edit_route"
     entry = _entry(detail, f"entry-stage-{odd.pk}")
-    assert (entry.what.headline, entry.what.tone) == ("Custom is running", "info")
+    assert (entry.what.headline, entry.what.tone) == ("Custom is running", "progress")
     assert entry.what.action == open_run
 
 

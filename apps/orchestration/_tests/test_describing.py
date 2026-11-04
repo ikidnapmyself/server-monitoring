@@ -86,8 +86,8 @@ def test_unretryable_failure_without_a_message_has_no_error_fact():
     [
         ("check", "succeeded", "Diagnose finished", "ok"),
         ("analyze", "skipped", "Analyze skipped", "muted"),
-        ("notify", "running", "Notify is running", "info"),
-        ("notify", "retrying", "Notify is retrying", "info"),
+        ("notify", "running", "Notify is running", "progress"),
+        ("notify", "retrying", "Notify is retrying", "progress"),
         ("notify", "pending", "Notify is waiting", "muted"),
     ],
 )
@@ -128,11 +128,11 @@ def _run(status, message="", completed_at=None):
     [
         ("notified", "Run finished, notified", "ok"),
         ("pending", "Run queued", "muted"),
-        ("processing", "Run in progress", "info"),
-        ("ingested", "Run in progress, ingest done", "info"),
-        ("checked", "Run in progress, diagnose done", "info"),
-        ("analyzed", "Run in progress, analyze done", "info"),
-        ("retrying", "Run will be retried", "info"),
+        ("processing", "Run in progress", "progress"),
+        ("ingested", "Run in progress, ingest done", "progress"),
+        ("checked", "Run in progress, diagnose done", "progress"),
+        ("analyzed", "Run in progress, analyze done", "progress"),
+        ("retrying", "Run will be retried", "progress"),
         ("skipped", "Run skipped", "muted"),
         ("on_hold", "Run on hold", "muted"),
     ],

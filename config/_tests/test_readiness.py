@@ -393,6 +393,7 @@ def test_a_standalone_install_is_not_amber(settings):
     assert entry["status"] not in {"warn", "error"}
     assert "No nodes seen" not in entry["detail"]
     assert "standalone" in entry["detail"].lower()
+    assert entry["status"] == "info"
 
 
 @pytest.mark.django_db

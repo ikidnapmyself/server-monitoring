@@ -85,7 +85,7 @@ analyses at `/console/analyses/`.
 - `provider_label(key)` gives the `PROVIDER_CHOICES` label. `local` reads "Built-in local
   analyzer" and any other unknown key "A provider this hub doesn't have".
 - `describe_analysis_run(run)` reads pending and running rows as "AI analysis is still
-  running" in tone info, and a failed row as `FAILURES["unknown"]` with the stored error as
+  running" in tone progress, and a failed row as `FAILURES["unknown"]` with the stored error as
   a fact. A succeeded row goes through `describe_analysis`, and a summary there reads ok.
 - `describe_recommendations(items)` turns each item's title and description into a
   `Description`. Priority critical or high reads warning, anything else info. Items that

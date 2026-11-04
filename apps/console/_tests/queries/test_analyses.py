@@ -97,8 +97,8 @@ def test_status_chips_count_the_other_filters_and_carry_tones():
         "all": 2,
     }
     assert {key: chip.tone for key, chip in chips.items()} == {
-        "pending": "info",
-        "running": "info",
+        "pending": "progress",
+        "running": "progress",
         "succeeded": "ok",
         "failed": "warning",
         "all": "",

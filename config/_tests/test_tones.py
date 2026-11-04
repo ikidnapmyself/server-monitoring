@@ -21,8 +21,8 @@ _ALL_TABLES = {
 }
 
 
-def test_tones_are_the_five_documented_ones():
-    assert TONES == frozenset({"critical", "warning", "info", "ok", "muted"})
+def test_tones_are_the_six_documented_ones():
+    assert TONES == frozenset({"critical", "warning", "info", "progress", "ok", "muted"})
 
 
 def test_tone_for_maps_a_known_value():

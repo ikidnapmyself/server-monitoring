@@ -211,7 +211,7 @@ def test_provider_label(key, label):
 def test_an_unfinished_run_is_still_running(status):
     described = describe_analysis_run(AnalysisRun(status=status, provider="openai"))
 
-    assert described == Description(RUNNING, "info", facts=(Fact("Provider", "OpenAI"),))
+    assert described == Description(RUNNING, "progress", facts=(Fact("Provider", "OpenAI"),))
 
 
 def test_a_failed_run_reads_as_an_unknown_failure_with_its_error():

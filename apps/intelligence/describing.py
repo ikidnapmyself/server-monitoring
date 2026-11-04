@@ -105,7 +105,7 @@ def describe_analysis_run(run: AnalysisRun) -> Description:
             headline, "warning", action=action, facts=(Fact("Provider", label), *error)
         )
     if run.status != AnalysisRunStatus.SUCCEEDED:
-        return Description(RUNNING, "info", facts=(Fact("Provider", label),))
+        return Description(RUNNING, "progress", facts=(Fact("Provider", label),))
     described = describe_analysis(
         {
             "summary": run.summary,

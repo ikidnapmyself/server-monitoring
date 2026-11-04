@@ -170,3 +170,21 @@ def test_an_action_takes_an_extra_class():
     )
 
     assert 'class="c-button c-button--sm c-button--danger"' in html
+
+
+def _icon(tone):
+    return render_to_string("console/partials/_tone_icon.html", {"tone": tone})
+
+
+def test_progress_shows_the_sync_arrows():
+    html = _icon("progress")
+
+    assert "octicon-sync" in html
+    assert "octicon-info" not in html
+
+
+def test_info_shows_the_neutral_info_icon():
+    html = _icon("info")
+
+    assert "octicon-info" in html
+    assert "octicon-sync" not in html
