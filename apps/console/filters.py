@@ -483,6 +483,9 @@ class ActivityFilter:
 
     @classmethod
     def parse(cls, params: QueryDict) -> "ActivityFilter":
+        if params.get("actor") == "":
+            params = params.copy()
+            del params["actor"]
         values, dropped = _parse(
             params,
             (

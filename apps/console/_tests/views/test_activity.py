@@ -132,6 +132,17 @@ def test_the_filters_are_selects_that_keep_their_choice(client, superuser):
     assert '<option value="key" selected>API key</option>' in body
 
 
+def test_anyone_filters_by_kind_alone_without_a_notice(client, superuser):
+    key = _entry(action="key.edit", target_kind="key")
+    route = _entry()
+
+    body = client.get(f"{URL}?actor=&kind=key").content.decode()
+
+    assert "Ignored invalid filter" not in body
+    assert f'id="entry-{key.pk}"' in body
+    assert f'id="entry-{route.pk}"' not in body
+
+
 def test_htmx_gets_the_list_without_the_layout(client, superuser):
     resp = client.get(URL, HTTP_HX_REQUEST="true")
 
