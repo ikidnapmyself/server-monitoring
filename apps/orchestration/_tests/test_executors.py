@@ -1074,7 +1074,7 @@ class TestCheckExecutorTakesTheIncidentAsItsSubject(TestCase):
 
 
 class TestAnalyzeExecutorActiveProvider(TestCase):
-    """When payload has no 'provider', get_active_provider() is used."""
+    """The analyze stage always runs the active provider."""
 
     def test_no_provider_key_calls_get_active_provider(self):
         mock_provider = MagicMock()
@@ -1087,7 +1087,7 @@ class TestAnalyzeExecutorActiveProvider(TestCase):
             executor = AnalyzeExecutor()
             result = executor.execute(_ctx(payload={}))
 
-        mock_gap.assert_called_once()
+        mock_gap.assert_called_once_with()
         assert isinstance(result, AnalyzeResult)
         assert not result.errors
 
@@ -1111,7 +1111,7 @@ class TestAnalyzeExecutorActiveProvider(TestCase):
         assert result.model_info == {"provider": "claude"}
 
     def test_model_info_fallback_when_provider_has_no_name(self):
-        """When provider has no .name attr and no explicit provider_name, fallback is 'local'."""
+        """When provider has no .name attr, the fallback is 'local'."""
         mock_provider = MagicMock(spec=[])  # no attributes at all
         mock_provider.run = MagicMock(return_value=[])
 

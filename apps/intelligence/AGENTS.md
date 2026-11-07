@@ -43,7 +43,7 @@ was invented, so the describer hides it.
 
 - **DB-driven (default)**: The orchestrator calls `get_active_provider()` which queries `IntelligenceProvider`
   for the active DB record. If found, returns a configured provider instance.
-- **Explicit override**: If the pipeline payload specifies a `provider` key, `get_provider(name)` is used instead.
+- **No payload override**: The analyze stage ignores any `provider` or `provider_config` on the run payload. The active row is the only source.
 - **Fallback**: If no active DB provider exists (or DB is unavailable), falls back to `LocalRecommendationProvider`
 - **Config**: Provider credentials stored in `IntelligenceProvider.config` JSONField
 - **Single active**: Only one provider can be `is_active=True` at a time (enforced by model + UniqueConstraint)
