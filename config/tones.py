@@ -1,10 +1,10 @@
-"""Which of five tones each domain status reads in.
+"""Which of six tones each domain status reads in.
 
 A ``Description`` carries a tone name. The console's ``c-tone-<tone>`` classes in
 ``static/console/console.css`` give each tone its colour.
 """
 
-TONES = frozenset({"critical", "warning", "info", "ok", "muted"})
+TONES = frozenset({"critical", "warning", "info", "progress", "ok", "muted"})
 
 
 # Keyed on the raw string values rather than the enum members: the apps import these

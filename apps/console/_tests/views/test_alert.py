@@ -113,6 +113,22 @@ def test_an_alert_outside_an_incident_says_so(client, superuser):
 
 
 @pytest.mark.django_db
+def test_an_info_severity_alert_reads_info_with_the_neutral_icon(client, superuser):
+    alert = _checker_alert(
+        fingerprint="webhook-1", name="Disk note", severity="info", labels={}, raw_payload={}
+    )
+
+    body = client.get(_url(alert)).content.decode()
+
+    headline = re.search(
+        r'<div class="c-description c-tone-(\w+)">\s*<p[^>]*>(.*?)</p>', body, re.S
+    )
+    assert headline.group(1) == "info"
+    assert "octicon-info" in headline.group(2)
+    assert "octicon-sync" not in headline.group(2)
+
+
+@pytest.mark.django_db
 def test_a_superuser_gets_the_reevaluate_button_on_a_checker_alert(client, superuser):
     alert = _checker_alert()
 

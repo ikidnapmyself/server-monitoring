@@ -90,8 +90,8 @@ def describe_stage_outcome(
     took = f" in {format_duration(duration_ms / 1000)}" if duration_ms else ""
     plain = {
         "succeeded": (f"{name} finished{took}", "ok"),
-        "running": (f"{name} is running", "info"),
-        "retrying": (f"{name} is retrying", "info"),
+        "running": (f"{name} is running", "progress"),
+        "retrying": (f"{name} is retrying", "progress"),
         "pending": (f"{name} is waiting", "muted"),
     }
     headline, tone = plain.get(status, (f"{name} {status.replace('_', ' ')}", "muted"))
@@ -131,11 +131,11 @@ def describe_stage_diagnosis(entry: dict[str, Any]) -> Description:
 _RUN_PLAIN = {
     "notified": ("Run finished, notified", "ok"),
     "pending": ("Run queued", "muted"),
-    "processing": ("Run in progress", "info"),
-    "ingested": ("Run in progress, ingest done", "info"),
-    "checked": ("Run in progress, diagnose done", "info"),
-    "analyzed": ("Run in progress, analyze done", "info"),
-    "retrying": ("Run will be retried", "info"),
+    "processing": ("Run in progress", "progress"),
+    "ingested": ("Run in progress, ingest done", "progress"),
+    "checked": ("Run in progress, diagnose done", "progress"),
+    "analyzed": ("Run in progress, analyze done", "progress"),
+    "retrying": ("Run will be retried", "progress"),
     "skipped": ("Run skipped", "muted"),
 }
 _RUN_FINISHED = {

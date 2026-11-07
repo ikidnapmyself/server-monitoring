@@ -21,7 +21,12 @@ STATUS_CHIPS: tuple[Choice, ...] = (
     *((str(value), str(label), str(value)) for value, label in AnalysisRunStatus.choices),
     ("all", "All", ""),
 )
-STATUS_TONES = {"pending": "info", "running": "info", "succeeded": "ok", "failed": "warning"}
+STATUS_TONES = {
+    "pending": "progress",
+    "running": "progress",
+    "succeeded": "ok",
+    "failed": "warning",
+}
 
 
 @dataclass(frozen=True)

@@ -196,6 +196,13 @@ button { font: inherit; }
   --tone-border: var(--borderColor-accent-muted);
   --tone-border-emphasis: var(--borderColor-accent-emphasis);
 }
+.c-tone-progress {
+  color: var(--fgColor-accent);
+  --tone-fg: var(--fgColor-accent);
+  --tone-bg: var(--bgColor-accent-muted);
+  --tone-border: var(--borderColor-accent-muted);
+  --tone-border-emphasis: var(--borderColor-accent-emphasis);
+}
 .c-tone-ok {
   color: var(--fgColor-success);
   --tone-fg: var(--fgColor-success);
@@ -762,6 +769,7 @@ details[open] > .c-entry .c-entry__chevron { transform: rotate(90deg); }
 .c-timeline__badge.c-tone-critical,
 .c-timeline__badge.c-tone-warning,
 .c-timeline__badge.c-tone-info,
+.c-timeline__badge.c-tone-progress,
 .c-timeline__badge.c-tone-ok { color: var(--tone-fg); }
 .c-timeline__badge.c-tone-muted { color: var(--fgColor-muted); }
 .c-timeline__badge.c-status--open,
