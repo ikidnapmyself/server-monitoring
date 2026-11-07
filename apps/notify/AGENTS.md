@@ -40,7 +40,7 @@ matching an active `NotificationChannel` wins; otherwise the argument is treated
 provider key (`slack`, `generic`, …) against payload-supplied config. **The
 "first active channel ordered by name" default is opt-in** — `resolve` selects it only
 for callers passing `allow_default_channel=True`. The two interactive callers opt in
-(`views.py`'s send endpoint and `manage.py test_notify`): an operator asking for a send
+(`views/send.py` and `manage.py test_notify`): an operator asking for a send
 means "use my channel". **The pipeline does not**, and must not be changed to: picking a
 channel by alphabetical accident is how a critical alert lands in `#aaa-general`.
 
@@ -128,7 +128,7 @@ read on the console run page.
 
 ## Doc vs code status
 
-Tests have been migrated to `_tests/` (completed). Some code still uses monolithic `views.py`; migrate to `views/` package when touching related code.
+Tests have been migrated to `_tests/` and endpoints to the `views/` package (completed).
 
 ## Templates and presentation (added)
 

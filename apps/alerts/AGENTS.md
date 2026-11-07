@@ -17,7 +17,7 @@ Responsibilities:
 - Mint a `trace_id`, write it onto the alerts, and pass the same one to `enqueue_for`
 - Enqueue one run per materially changed incident, and nothing more
 
-**The webhook ingests on the request thread.** `apps/alerts/views.py` reads the body
+**The webhook ingests on the request thread.** `apps/alerts/views/webhook.py` reads the body
 (rejecting anything over `MAX_PAYLOAD_BYTES`), calls
 `AlertOrchestrator.process_webhook`, then `enqueue_for`. Its response contract:
 
@@ -383,7 +383,7 @@ its own.
 
 ## Doc vs code status
 
-Tests have been migrated to `_tests/` (completed). Some apps still use monolithic `views.py`; migrate to `views/` package when touching related code.
+Tests have been migrated to `_tests/` and endpoints to the `views/` package (completed).
 
 ## Security standards (audit-enforced)
 

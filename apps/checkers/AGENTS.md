@@ -128,7 +128,7 @@ Tag groups (in display order): security, environment, pipeline, crontab, migrati
 
 ## Doc vs code status
 
-Tests have been migrated to `_tests/` (completed). Some code still uses monolithic `views.py`; migrate to `views/` package when touching related code.
+Tests have been migrated to `_tests/` (completed).
 
 ## Security standards (audit-enforced)
 

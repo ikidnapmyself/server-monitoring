@@ -175,8 +175,8 @@ class Command(BaseCommand):
 
     def _ensure_notification_channel(self, options) -> None:
         """Wire one notification channel so the hub actually notifies (or warn if not)."""
+        from apps.notify.drivers import DRIVER_REGISTRY
         from apps.notify.models import NotificationChannel
-        from apps.notify.views import DRIVER_REGISTRY
 
         active = list(NotificationChannel.objects.filter(is_active=True))
         if len(active) > 1:
@@ -229,8 +229,7 @@ class Command(BaseCommand):
         webhook = options.get("notify_webhook") or input(f"{driver} webhook URL: ").strip()
         config = {"webhook_url": webhook}
         driver_cls = DRIVER_REGISTRY.get(driver)
-        # DRIVER_REGISTRY only holds concrete driver classes; mypy sees the abstract base.
-        if driver_cls is None or not driver_cls().validate_config(config):  # type: ignore[abstract]
+        if driver_cls is None or not driver_cls().validate_config(config):
             raise CommandError(
                 f"Invalid {driver} webhook. Slack needs an https://hooks.slack.com/... URL; "
                 "generic needs an https:// endpoint."

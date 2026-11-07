@@ -8,6 +8,8 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
+from apps.notify.drivers import DRIVER_REGISTRY
+
 
 class PipelineStage(models.TextChoices):
     """Pipeline stages in execution order.
@@ -613,9 +615,6 @@ class PipelineDefinition(models.Model):
         channel = self.routed_channel()
         if channel is None:
             return "no_channel"
-        # Imported here: apps.notify.views imports models at module scope.
-        from apps.notify.views import DRIVER_REGISTRY
-
         return None if channel.driver in DRIVER_REGISTRY else "no_driver"
 
     @staticmethod
