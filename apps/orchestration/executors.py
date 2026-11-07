@@ -396,8 +396,8 @@ class NotifyExecutor(BaseExecutor):
         result = NotifyResult()
 
         try:
+            from apps.notify.drivers import DRIVER_REGISTRY
             from apps.notify.drivers.base import NotificationMessage
-            from apps.notify.views import DRIVER_REGISTRY
 
             payload = ctx.payload
             previous = ctx.previous_results

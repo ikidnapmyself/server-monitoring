@@ -8,8 +8,8 @@ written" to "runs exist", and they drift.
 
 Six producers, five of them through ``enqueue_for``:
 
-* the alerts webhook — ``apps.alerts.views.AlertWebhookView``
-* ``POST /orchestration/pipeline/`` — ``apps.orchestration.views.PipelineView``
+* the alerts webhook — ``apps.alerts.views.webhook.AlertWebhookView``
+* ``POST /orchestration/pipeline/`` — ``apps.orchestration.views.pipeline.PipelineView``
 * a node push — ``push_to_hub --local``
 * this machine's checkers — ``check_health``
 * a replay or a sample run — ``run_pipeline`` (both its producers)

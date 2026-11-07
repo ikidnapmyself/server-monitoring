@@ -1687,7 +1687,9 @@ class TestNotifyExecutorDownstreamHeadline(TestCase):
 
     def _notify(self, incident_id, previous=None):
         driver_cls, driver_inst = _mock_driver_cls()
-        with patch.dict("apps.notify.views.DRIVER_REGISTRY", {"generic": driver_cls}, clear=False):
+        with patch.dict(
+            "apps.notify.drivers.DRIVER_REGISTRY", {"generic": driver_cls}, clear=False
+        ):
             NotifyExecutor().execute(
                 _ctx(
                     payload={"notify_driver": "generic"},
@@ -1818,7 +1820,9 @@ class TestNotifyExecutorRoutingGaps(TestCase):
         driver_cls, driver_inst = _mock_driver_cls()
         incident = self._incident_on_lane()
 
-        with patch.dict("apps.notify.views.DRIVER_REGISTRY", {"generic": driver_cls}, clear=False):
+        with patch.dict(
+            "apps.notify.drivers.DRIVER_REGISTRY", {"generic": driver_cls}, clear=False
+        ):
             result = NotifyExecutor().execute(
                 _ctx(payload={"notify_driver": "generic"}, incident_id=incident.id)
             )

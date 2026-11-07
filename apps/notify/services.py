@@ -20,8 +20,8 @@ provider key.
 
 from __future__ import annotations
 
+from apps.notify.drivers import DRIVER_REGISTRY
 from apps.notify.models import NotificationChannel
-from apps.notify.views import DRIVER_REGISTRY
 
 
 class NotifySelector:

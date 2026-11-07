@@ -321,7 +321,7 @@ and the console run page; `manage.py trace <alert|trace_id>` (the chain); `manag
 
 ## Doc vs code status
 
-Tests have been migrated to `_tests/` (completed). Some code still uses monolithic `views.py`; migrate to `views/` package when touching related code.
+Tests have been migrated to `_tests/` and endpoints to the `views/` package (completed).
 
 ## Operator pages
 
