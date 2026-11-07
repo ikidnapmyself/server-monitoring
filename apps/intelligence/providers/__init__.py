@@ -123,8 +123,8 @@ def get_active_provider(**kwargs) -> BaseProvider:
     driver class is available, returns a configured instance.  Otherwise
     falls back to the local provider.
 
-    URL-controlling kwargs (host, base_url) are stripped from the caller-
-    supplied kwargs to prevent SSRF via pipeline payload. Server-side
+    URL-controlling kwargs (host, base_url) are stripped from caller-
+    supplied kwargs so a caller can't point a provider elsewhere. Server-side
     DB config retains its URL values.
     """
     import logging

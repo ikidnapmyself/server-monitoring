@@ -43,7 +43,7 @@ was invented, so the describer hides it.
 
 - **DB-driven (default)**: The orchestrator calls `get_active_provider()` which queries `IntelligenceProvider`
   for the active DB record. If found, returns a configured provider instance.
-- **Explicit override**: If the pipeline payload specifies a `provider` key, `get_provider(name)` is used instead.
+- **No payload override**: The analyze stage ignores any `provider` or `provider_config` on the run payload. The active row is the only source.
 - **Fallback**: If no active DB provider exists (or DB is unavailable), falls back to `LocalRecommendationProvider`
 - **Config**: Provider credentials stored in `IntelligenceProvider.config` JSONField
 - **Single active**: Only one provider can be `is_active=True` at a time (enforced by model + UniqueConstraint)
@@ -113,7 +113,7 @@ Authoritative source: [`docs/plans/2026-05-12-iso-27003-security-audit-notes.md`
 
 ### Rules for new provider kwargs
 
-`apps.intelligence.providers.get_provider` / `get_active_provider` accept caller-supplied `**kwargs` from API payloads via `provider_config`. The `BLOCKED_CONFIG_KEYS` frozenset (`apps/intelligence/providers/__init__.py:79`) strips dangerous kwargs before they reach the provider constructor. **Any new kwarg added to a provider's `__init__` requires one of:**
+`apps.intelligence.providers.get_provider` / `get_active_provider` accept caller-supplied `**kwargs` from `/intelligence/recommendations/` via its `config` body field. The `BLOCKED_CONFIG_KEYS` frozenset (`apps/intelligence/providers/__init__.py:79`) strips dangerous kwargs before they reach the provider constructor. **Any new kwarg added to a provider's `__init__` requires one of:**
 
 1. **Constructor-time validation** with `validate_safe_url(value, allowed_hosts=settings.SSRF_ALLOWED_HOSTS)` (for URL / host kwargs), `resolve_safe_path(value)` (for path kwargs), or a project-specific validator.
 2. **Adding the key to `BLOCKED_CONFIG_KEYS`** so the registry strips it before it can reach the constructor from an API caller. DB-side operator-configured values still flow through.
@@ -135,7 +135,7 @@ Current `BLOCKED_CONFIG_KEYS`: `{"host", "base_url", "scan_paths"}`. **Audit che
 - **Path-walking sinks (`Path.rglob`, `os.walk`)** in `LocalRecommendationProvider` follow symlinks by default — acceptable because callers cannot supply `scan_paths` (post-Finding 1 fix). Any code that reads file *contents* from these walks must add per-entry `resolve_safe_path` validation.
 
 ### Trust boundary discipline
-- `provider_config` from `/intelligence/recommendations/` and `/orchestration/*` request bodies is **external/untrusted** (post-API-key). Audit every kwarg it touches.
+- `config` from `/intelligence/recommendations/` request bodies is **external/untrusted** (post-API-key). The analyze stage takes no provider kwargs from a run payload. Audit every kwarg it touches.
 - `IntelligenceProvider.config` (DB) is **operator-trusted**. The DB-vs-payload split is enforced by `BLOCKED_CONFIG_KEYS` stripping caller kwargs while leaving DB config intact.
 - Never log raw `provider_config`, prompts, completions, or API keys. Use `trace_id`-keyed structured logs only.
 

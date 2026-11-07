@@ -267,9 +267,7 @@ Providers are configured in the console (`IntelligenceProvider` model):
 3. Tick Active. Saving turns every other provider off, so only one is active at a time.
 4. The orchestrator calls `get_active_provider()` by default, which queries the DB
 5. If no active provider exists (or the DB is unavailable), falls back to `local`
-6. `AnalyzeExecutor` still honours an explicit `provider` key on the run payload, which
-   calls `get_provider()` directly — but no producer writes one any more (an incident run's
-   payload carries only `downstream_incident_id`), so in practice ANALYZE always takes
+6. `AnalyzeExecutor` never reads a provider from the run payload. ANALYZE always takes
    `get_active_provider()`
 
 ```python

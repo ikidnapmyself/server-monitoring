@@ -287,16 +287,9 @@ class AnalyzeExecutor(BaseExecutor):
         result = AnalyzeResult()
 
         try:
-            from apps.intelligence.providers import get_active_provider, get_provider
+            from apps.intelligence.providers import get_active_provider
 
-            payload = ctx.payload
-            provider_name = payload.get("provider")
-            provider_config = payload.get("provider_config", {})
-
-            if provider_name:
-                provider = get_provider(provider_name, **(provider_config or {}))
-            else:
-                provider = get_active_provider(**(provider_config or {}))
+            provider = get_active_provider()
             incident_id = ctx.incident_id
 
             incident = None
@@ -309,7 +302,6 @@ class AnalyzeExecutor(BaseExecutor):
                 incident=incident,
                 trace_id=ctx.trace_id,
                 pipeline_run_id=ctx.run_id,
-                provider_config=provider_config,
             )
 
             # Populate result
@@ -323,7 +315,7 @@ class AnalyzeExecutor(BaseExecutor):
                     # Convert object attributes to dict
                     recs_list.append(vars(r) if hasattr(r, "__dict__") else {"value": str(r)})
             result.recommendations = recs_list
-            result.model_info = {"provider": getattr(provider, "name", provider_name or "local")}
+            result.model_info = {"provider": getattr(provider, "name", "local")}
 
             if recommendations:
                 first_rec = recommendations[0]

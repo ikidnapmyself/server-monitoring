@@ -425,7 +425,7 @@ Both are extreme scenarios for single-tenant deployments. If the deployment ever
 
 ## Pipeline Orchestration
 
-The orchestration layer (`apps.orchestration`) is the only stage controller and is the entry point for `/orchestration/pipeline/*` and `/orchestration/definitions/*/execute/`. Treat **every** field of the request body as untrusted after API-key auth: `payload`, `provider`, `provider_config`, `notify_driver`, `notify_config`, `notify_channel`, `incident_id`, `trace_id`, `checker_configs`, `labels`, etc.
+The orchestration layer (`apps.orchestration`) is the only stage controller and is the entry point for `/orchestration/pipeline/*` and `/orchestration/definitions/*/execute/`. Treat **every** field of the request body as untrusted after API-key auth: `payload`, `notify_driver`, `notify_config`, `notify_channel`, `incident_id`, `trace_id`, `checker_configs`, `labels`, etc. The analyze stage never reads a provider or provider config from the payload. It runs the active `IntelligenceProvider` row.
 
 ### `run_id` and `trace_id`
 

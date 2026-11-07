@@ -1073,54 +1073,8 @@ class TestCheckExecutorTakesTheIncidentAsItsSubject(TestCase):
         assert (check.output_snapshot or {}).get("checks_run") == 0
 
 
-class TestAnalyzeExecutorExplicitProvider(SimpleTestCase):
-    """When payload contains 'provider', get_provider() is used."""
-
-    def test_explicit_provider_calls_get_provider(self):
-        mock_provider = MagicMock()
-        mock_provider.name = "local"
-        mock_provider.run.return_value = []
-
-        with patch(
-            "apps.intelligence.providers.get_provider", return_value=mock_provider
-        ) as mock_gp:
-            executor = AnalyzeExecutor()
-            result = executor.execute(_ctx(payload={"provider": "local"}))
-
-        mock_gp.assert_called_once_with("local")
-        assert isinstance(result, AnalyzeResult)
-        assert not result.errors
-
-    def test_explicit_provider_with_config_passes_kwargs(self):
-        mock_provider = MagicMock()
-        mock_provider.name = "openai"
-        mock_provider.run.return_value = []
-
-        with patch(
-            "apps.intelligence.providers.get_provider", return_value=mock_provider
-        ) as mock_gp:
-            executor = AnalyzeExecutor()
-            result = executor.execute(
-                _ctx(payload={"provider": "openai", "provider_config": {"model": "gpt-4o"}})
-            )
-
-        mock_gp.assert_called_once_with("openai", model="gpt-4o")
-        assert isinstance(result, AnalyzeResult)
-
-    def test_model_info_uses_provider_name_attribute(self):
-        mock_provider = MagicMock()
-        mock_provider.name = "openai"
-        mock_provider.run.return_value = []
-
-        with patch("apps.intelligence.providers.get_provider", return_value=mock_provider):
-            executor = AnalyzeExecutor()
-            result = executor.execute(_ctx(payload={"provider": "openai"}))
-
-        assert result.model_info == {"provider": "openai"}
-
-
 class TestAnalyzeExecutorActiveProvider(TestCase):
-    """When payload has no 'provider', get_active_provider() is used."""
+    """The analyze stage always runs the active provider."""
 
     def test_no_provider_key_calls_get_active_provider(self):
         mock_provider = MagicMock()
@@ -1133,26 +1087,31 @@ class TestAnalyzeExecutorActiveProvider(TestCase):
             executor = AnalyzeExecutor()
             result = executor.execute(_ctx(payload={}))
 
-        mock_gap.assert_called_once()
+        mock_gap.assert_called_once_with()
         assert isinstance(result, AnalyzeResult)
         assert not result.errors
 
-    def test_no_provider_key_with_provider_config(self):
+    def test_a_payload_provider_override_is_ignored(self):
         mock_provider = MagicMock()
         mock_provider.name = "claude"
         mock_provider.run.return_value = []
+        payload = {"provider": "openai", "provider_config": {"base_url": "http://evil"}}
 
-        with patch(
-            "apps.intelligence.providers.get_active_provider", return_value=mock_provider
-        ) as mock_gap:
-            executor = AnalyzeExecutor()
-            result = executor.execute(_ctx(payload={"provider_config": {"model": "claude-opus"}}))
+        with (
+            patch("apps.intelligence.providers.get_provider") as mock_gp,
+            patch(
+                "apps.intelligence.providers.get_active_provider", return_value=mock_provider
+            ) as mock_gap,
+        ):
+            result = AnalyzeExecutor().execute(_ctx(payload=payload))
 
-        mock_gap.assert_called_once_with(model="claude-opus")
+        mock_gp.assert_not_called()
+        mock_gap.assert_called_once_with()
+        assert "provider_config" not in mock_provider.run.call_args.kwargs
         assert result.model_info == {"provider": "claude"}
 
     def test_model_info_fallback_when_provider_has_no_name(self):
-        """When provider has no .name attr and no explicit provider_name, fallback is 'local'."""
+        """When provider has no .name attr, the fallback is 'local'."""
         mock_provider = MagicMock(spec=[])  # no attributes at all
         mock_provider.run = MagicMock(return_value=[])
 
