@@ -238,7 +238,7 @@ apps/intelligence/
 │   ├── ollama.py        # Ollama (local LLM)
 │   └── mistral.py       # Mistral AI
 ├── models.py            # IntelligenceProvider (DB config)
-├── views.py             # HTTP API endpoints
+├── views/               # HTTP API endpoints
 ├── urls.py              # URL routing
 └── management/
     └── commands/
