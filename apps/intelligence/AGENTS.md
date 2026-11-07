@@ -105,7 +105,7 @@ analyses at `/console/analyses/`.
 
 ## Doc vs code status
 
-Tests have been migrated to `_tests/` (completed). Some code still uses monolithic `views.py`; migrate to `views/` package when touching related code.
+Tests have been migrated to `_tests/` and endpoints to the `views/` package (completed).
 
 ## Security standards (audit-enforced)
 

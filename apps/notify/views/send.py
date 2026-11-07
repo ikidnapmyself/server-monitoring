@@ -1,0 +1,178 @@
+"""Single notification send endpoint."""
+
+import json
+import logging
+
+from django.http import JsonResponse
+from django.utils.decorators import method_decorator
+from django.views import View
+from django.views.decorators.csrf import csrf_exempt
+
+from apps.notify.drivers import DRIVER_REGISTRY
+from apps.notify.drivers.base import NotificationMessage
+
+logger = logging.getLogger(__name__)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class NotifyView(View):
+    """
+    API endpoint for sending notifications.
+
+    POST /notify/send/
+    POST /notify/send/<driver>/
+
+    Accepts JSON payload:
+    {
+        "title": "Alert Title",
+        "message": "Alert message body",
+        "severity": "critical",  // critical, warning, info, success
+        "channel": "ops-team",
+        "tags": {"env": "production"},
+        "context": {"cpu": 95.2},
+        "config": {
+            // Driver-specific configuration
+        }
+    }
+    """
+
+    def post(self, request, driver=None):
+        """Handle notification send request."""
+        try:
+            # Parse JSON payload
+            try:
+                payload = json.loads(request.body)
+            except json.JSONDecodeError as e:
+                logger.warning(f"Invalid JSON payload: {e}")
+                return JsonResponse(
+                    {"status": "error", "message": "Invalid JSON payload"},
+                    status=400,
+                )
+
+            # Validate required fields
+            if "title" not in payload or "message" not in payload:
+                return JsonResponse(
+                    {"status": "error", "message": "Missing required fields: title, message"},
+                    status=400,
+                )
+
+            # Determine provider/channel via centralized selector
+            from apps.notify.services import NotifySelector
+
+            requested = driver or payload.get("driver")
+            payload_config = payload.get("config", {})
+            requested_channel = payload.get("channel")
+
+            (
+                provider_name,
+                config,
+                selected_label,
+                driver_class,
+                channel_obj,
+                final_channel,
+            ) = NotifySelector.resolve(
+                requested,
+                payload_config,
+                requested_channel,
+                # An operator asking for a send with no driver named means "use my
+                # channel", so this caller opts in to the single-channel default.
+                allow_default_channel=True,
+            )
+
+            if driver_class is None:
+                return JsonResponse(
+                    {
+                        "status": "error",
+                        "message": f"Unknown driver/provider: {provider_name}",
+                        "available_drivers": list(DRIVER_REGISTRY.keys()),
+                    },
+                    status=400,
+                )
+
+            # Build notification message. Use final_channel from selector so that
+            # DB-configured channel destinations take precedence over the payload hint.
+            message = NotificationMessage(
+                title=payload["title"],
+                message=payload["message"],
+                severity=payload.get("severity", "info"),
+                channel=final_channel,
+                tags=payload.get("tags", {}),
+                context=payload.get("context", {}),
+            )
+
+            # Instantiate and validate driver
+            driver_instance = driver_class()
+
+            if not driver_instance.validate_config(config):
+                return JsonResponse(
+                    {
+                        "status": "error",
+                        "message": f"Invalid configuration for {provider_name} driver",
+                    },
+                    status=400,
+                )
+
+            # Send notification
+            result = driver_instance.send(message, config)
+
+            if result.get("success"):
+                logger.info(
+                    f"Notification sent via {provider_name} ({selected_label}): {message.title}"
+                )
+                return JsonResponse(
+                    {
+                        "status": "success",
+                        "driver": provider_name,
+                        "channel": selected_label,
+                        "message_id": result.get("message_id"),
+                        "metadata": result.get("metadata", {}),
+                    }
+                )
+            else:
+                logger.warning(
+                    f"Notification failed via {provider_name} ({selected_label}): {result.get('error')}"
+                )
+                return JsonResponse(
+                    {
+                        "status": "error",
+                        "driver": provider_name,
+                        "channel": selected_label,
+                        "message": result.get("error", "Unknown error"),
+                    },
+                    status=500,
+                )
+
+        except Exception as e:
+            logger.exception("Unexpected error sending notification")
+            return JsonResponse(
+                {"status": "error", "message": str(e)},
+                status=500,
+            )
+
+    def get(self, request, driver=None):
+        """Health check and driver info endpoint."""
+        if driver:
+            if driver not in DRIVER_REGISTRY:
+                return JsonResponse(
+                    {
+                        "status": "error",
+                        "message": f"Unknown driver: {driver}",
+                        "available_drivers": list(DRIVER_REGISTRY.keys()),
+                    },
+                    status=404,
+                )
+            return JsonResponse(
+                {
+                    "status": "ok",
+                    "driver": driver,
+                    "message": f"Notify endpoint ready for {driver} driver",
+                }
+            )
+
+        return JsonResponse(
+            {
+                "status": "ok",
+                "message": "Notify endpoint is ready",
+                "available_drivers": list(DRIVER_REGISTRY.keys()),
+            }
+        )

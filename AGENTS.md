@@ -85,8 +85,8 @@ door, `enqueue_for` (`apps/orchestration/intake.py`):
 
 | Producer | Where |
 |---|---|
-| the alerts webhook | `apps/alerts/views.py` |
-| the `/orchestration/pipeline/` endpoint | `apps/orchestration/views.py` |
+| the alerts webhook | `apps/alerts/views/webhook.py` |
+| the `/orchestration/pipeline/` endpoint | `apps/orchestration/views/pipeline.py` |
 | `manage.py push_to_hub --local` | `apps/alerts/management/commands/push_to_hub.py` |
 | `manage.py check_health` | `apps/checkers/management/commands/check_health.py` |
 | `manage.py run_pipeline` | `apps/orchestration/management/commands/run_pipeline.py` |
@@ -143,7 +143,7 @@ downstream app. Both producers share one identity — fingerprint
 
 ### App structure
 
-Apps under `apps/` should follow this layout. A few legacy `views.py` modules — `apps/alerts/views.py`, `apps/notify/views.py`, `apps/orchestration/views.py` — are pending migration to the `views/` package form; all *new* apps must use the package layout from day one.
+Apps under `apps/` should follow this layout, and all *new* apps must use the package layout from day one.
 
 - `views/` — a package (not a monolithic `views.py`), organized by endpoint (e.g. `views/webhook.py`, `views/health.py`).
 - `_tests/` — a package mirroring the source structure (e.g. `_tests/views/test_webhook.py`).

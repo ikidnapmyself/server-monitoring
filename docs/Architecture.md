@@ -26,7 +26,7 @@ produce truth  →  roll into incidents  →  enqueue one run per changed incide
 `run_pipeline` finish the job for an operator with no daemon. Without it, `process_inbox`
 takes them. Same rows, same lanes, same executors; `sync` only decides who runs them and when.
 
-Six producers walk through that one door: the alerts webhook (`apps/alerts/views.py`), the
+Six producers walk through that one door: the alerts webhook (`apps/alerts/views/webhook.py`), the
 `/orchestration/pipeline/` endpoint, `push_to_hub --local`, `check_health`, `run_pipeline`, and
 operator transitions on `IncidentManager`.
 

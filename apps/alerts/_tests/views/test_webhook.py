@@ -6,9 +6,9 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.alerts import views
 from apps.alerts.models import Alert, Incident, Node
 from apps.alerts.services import AlertOrchestrator, ProcessingResult
+from apps.alerts.views import webhook
 from apps.orchestration import inbox
 from apps.orchestration.models import (
     PipelineDefinition,
@@ -98,7 +98,7 @@ class WebhookViewTests(TestCase):
             "source": "cluster",
             "instance_id": "web-03",
             "alerts": [],
-            "pad": "x" * (views.MAX_PAYLOAD_BYTES + 1),
+            "pad": "x" * (webhook.MAX_PAYLOAD_BYTES + 1),
         }
 
         response = self._post(
@@ -113,7 +113,7 @@ class WebhookViewTests(TestCase):
 
     def test_a_payload_with_no_alerts_writes_no_run_and_logs(self):
         """A misconfigured sender, not a failure: 202, no rows, a WARNING."""
-        with self.assertLogs("apps.alerts.views", level="WARNING") as logs:
+        with self.assertLogs("apps.alerts.views.webhook", level="WARNING") as logs:
             response = self._post(
                 {"alerts": []}, url=reverse("alerts:webhook_driver", kwargs={"driver": "generic"})
             )
@@ -236,7 +236,7 @@ class WebhookViewTests(TestCase):
 
         with (
             patch("apps.alerts.services.AlertOrchestrator.process_webhook", return_value=result),
-            self.assertLogs("apps.alerts.views", level="ERROR") as logs,
+            self.assertLogs("apps.alerts.views.webhook", level="ERROR") as logs,
         ):
             response = self._post({"name": "CPU high", "status": "firing"})
 
@@ -296,7 +296,7 @@ class WebhookViewTests(TestCase):
         """
         mock_process.side_effect = RuntimeError("db down at /srv/secret/settings.py")
 
-        with self.assertLogs("apps.alerts.views", level="ERROR") as logs:
+        with self.assertLogs("apps.alerts.views.webhook", level="ERROR") as logs:
             response = self._post({"name": "x", "status": "firing"})
 
         self.assertEqual(response.status_code, 500)

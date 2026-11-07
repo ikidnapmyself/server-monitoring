@@ -304,7 +304,7 @@ class PipelineOrchestrator:
         pipeline_run.refresh_from_db()
         # A downstream run IS its stored payload: the one incident it was created
         # for. The resume endpoint builds `payload` from the caller's request body
-        # (views.py:229), which cannot describe that — resuming a child with it
+        # (apps/orchestration/views/resume.py), which cannot describe that — resuming a child with it
         # would drop the marker and send the run back through INGEST against an
         # empty payload. The caller has nothing to add here, so the stored payload
         # wins for children only; a push run still resumes on what it is given.

@@ -39,7 +39,7 @@ Each stage emits monitoring signals (`pipeline.stage.started/succeeded/failed`) 
 
 ## App Structure (Required Layout)
 
-Apps under `apps/` should follow this layout (a few legacy `views.py` modules — `apps/alerts/views.py`, `apps/notify/views.py`, `apps/orchestration/views.py` — are pending migration to the `views/` package form):
+Apps under `apps/` should follow this layout:
 
 ```
 apps/<app_name>/
