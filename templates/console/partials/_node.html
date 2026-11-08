@@ -1,4 +1,5 @@
-{% load console %}<a id="node-back" class="c-crumb" href="{% url 'console:nodes' %}">{% include "console/partials/_octicon.html" with name="chevron-right" %}Back to nodes</a>
+{% load console %}<div id="node" data-poll hx-get="{{ node.url }}" hx-trigger="every 30s, console:refresh" hx-swap="outerHTML">
+<a id="node-back" class="c-crumb" href="{% url 'console:nodes' %}">{% include "console/partials/_octicon.html" with name="chevron-right" %}Back to nodes</a>
 <div class="c-pagehead">
   <div class="c-pagehead__top">
     <h1 class="c-pagehead__title">{{ node.name }}</h1>
@@ -23,7 +24,16 @@
       </div>
     </section>
     <section class="c-box c-comment">
-      <h2 class="c-box__header c-box__title">Checker state</h2>
+      <div class="c-box__header">
+        <h2 class="c-box__title">Checker state</h2>
+        {% if node.checker_chips %}
+        <nav class="c-states" aria-label="Checker status">
+          {% for chip in node.checker_chips %}
+          <a id="chip-checkers-{{ chip.key }}" href="{{ chip.url }}" hx-get="{{ chip.url }}" hx-target="#node" hx-swap="outerHTML" hx-push-url="true" hx-sync="#node:replace"{% if chip.active %} aria-current="true"{% endif %}><span>{{ chip.label }}</span><span class="c-counter">{{ chip.count }}</span></a>
+          {% endfor %}
+        </nav>
+        {% endif %}
+      </div>
       {% if node.checkers %}
       <table class="c-table">
         <thead><tr><th scope="col">Checker</th><th scope="col">Status</th><th scope="col" class="c-table__num">Value</th><th scope="col">{{ node.checker_time_label }}</th></tr></thead>
@@ -31,13 +41,15 @@
           {% for line in node.checkers %}{% resolved line.action as act %}
           <tr>
             <td>{% if act.url %}<a id="checker-{{ line.key }}" href="{{ act.url }}">{{ line.label }}</a>{% else %}{{ line.label }}{% endif %}</td>
-            <td>{{ line.status }}</td>
+            <td><span class="c-label c-tone-{{ line.tone }}">{% include "console/partials/_tone_icon.html" with tone=line.tone %}<span>{{ line.status_label }}</span></span></td>
             <td class="c-table__num">{{ line.value }}</td>
             <td>{% include "console/partials/_time.html" with when=line.observed_at %}</td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
+      {% elif node.checker_chips %}
+      <div class="c-box__body"><p class="c-muted">No checker matches this filter.</p></div>
       {% else %}
       <div class="c-box__body"><p class="c-muted">No checker has reported on this node yet.</p></div>
       {% endif %}
@@ -143,4 +155,5 @@
       {% endif %}
     </div>
   </aside>
+</div>
 </div>
