@@ -57,6 +57,7 @@ class AlertDetail:
     node: str
     source: str
     started_at: datetime
+    refired_at: datetime | None
     last_seen: datetime
     ended_at: datetime | None
     incident: IncidentCard | None
@@ -155,6 +156,10 @@ def build_alert_detail(pk: int) -> AlertDetail | None:
         ),
         source=alert.source,
         started_at=alert.started_at,
+        refired_at=alert.history.filter(event="refired")
+        .order_by("-created_at", "-pk")
+        .values_list("created_at", flat=True)
+        .first(),
         last_seen=alert.updated_at,
         ended_at=alert.ended_at,
         incident=incident_card(alert.incident),
