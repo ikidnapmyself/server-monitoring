@@ -12,6 +12,7 @@ from apps.alerts.forms import ADD_SECTION_FIELD, NodePolicyForm
 from apps.alerts.models import Incident, Node
 from apps.alerts.node_overview import (
     Chart,
+    Identity,
     build_charts,
     build_checker_rows,
     build_identity,
@@ -27,14 +28,26 @@ from apps.alerts.node_policy import (
 )
 from apps.alerts.reeval_existing import ReevalScope
 from apps.checkers.checkers import checker_label
+from apps.checkers.models import CheckStatus
 from apps.console.queries.alert import IncidentCard, incident_cards
 from apps.console.queries.hosts import node_keys, node_name
+from apps.console.queries.incidents import Chip
 from apps.console.queries.nodes import SeverityCount, open_incidents_by_node, severity_counts
 from apps.console.queries.overview import SEVERITY_RANK, firing_by_node, node_badge
 from apps.console.queries.runs import RunListRow, recent_runs
 from config.describing import Action, Description, Fact, or_action
+from config.tones import CHECK_STATUS_TONES, tone_for
 
 RUN_LIMIT = 10
+
+CHECKER_FILTERS = {
+    "problems": frozenset({"critical", "warning", "unknown"}),
+    "ok": frozenset({"ok"}),
+}
+CHECKER_CHIPS = (("all", "All"), ("problems", "Problems"), ("ok", "OK"))
+# Anything unranked, skipped included, sorts after ok: it isn't a reading at all.
+CHECKER_RANK = {"critical": 0, "warning": 1, "unknown": 2, "ok": 3}
+STATUS_LABELS = dict(CheckStatus.choices)
 
 
 @dataclass(frozen=True)
@@ -62,6 +75,8 @@ class CheckerLine:
     key: str
     label: str
     status: str
+    status_label: str
+    tone: str
     value: str
     observed_at: object
     action: Action
@@ -87,6 +102,7 @@ class NodeDetail:
     label: str
     counts: tuple[SeverityCount, ...]
     checkers: tuple[CheckerLine, ...]
+    checker_chips: tuple[Chip, ...]
     checker_time_label: str
     incidents: tuple[IncidentCard, ...]
     charts: tuple[Chart, ...]
@@ -129,12 +145,53 @@ def _policy(node: Node) -> tuple[tuple[PolicyLine, ...], tuple[PolicyLine, ...],
     )
 
 
-def build_node_detail(pk: int) -> NodeDetail | None:
-    """One node for its page."""
+def _checker_lines(node: Node, identity: Identity) -> list[CheckerLine]:
+    lines = [
+        CheckerLine(
+            key=row.checker,
+            label=checker_label(row.checker),
+            status=row.status,
+            status_label=STATUS_LABELS.get(row.status, row.status.replace("_", " ").capitalize()),
+            tone=tone_for(CHECK_STATUS_TONES, row.status),
+            value=row.value,
+            observed_at=row.observed_at,
+            action=row.action,
+        )
+        for row in build_checker_rows(node, identity)
+    ]
+    return sorted(
+        lines, key=lambda line: (CHECKER_RANK.get(line.status, len(CHECKER_RANK)), line.label)
+    )
+
+
+def _checker_url(base: str, key: str) -> str:
+    return base if key == "all" else f"{base}?checkers={key}"
+
+
+def _checker_chips(lines: list[CheckerLine], current: str, base: str) -> tuple[Chip, ...]:
+    if not lines:
+        return ()
+    return tuple(
+        Chip(
+            key=key,
+            label=label,
+            url=_checker_url(base, key),
+            active=key == current,
+            count=sum(1 for line in lines if key == "all" or line.status in CHECKER_FILTERS[key]),
+        )
+        for key, label in CHECKER_CHIPS
+    )
+
+
+def build_node_detail(pk: int, checkers: str = "") -> NodeDetail | None:
+    """One node for its page. ``checkers`` is the checker table's filter, All when unknown."""
     node = Node.objects.filter(pk=pk).first()
     if node is None:
         return None
     identity = build_identity(node)
+    current = checkers if checkers in CHECKER_FILTERS else "all"
+    base = reverse("console:node", args=[node.pk])
+    lines = _checker_lines(node, identity)
     firing, critical, warning = firing_by_node()
     tone, label = node_badge(
         critical[node.pk], warning[node.pk], firing[node.pk], identity.freshness_status == "warn"
@@ -173,16 +230,9 @@ def build_node_detail(pk: int) -> NodeDetail | None:
         label=label,
         counts=severity_counts(node.pk, by_severity),
         checkers=tuple(
-            CheckerLine(
-                key=row.checker,
-                label=checker_label(row.checker),
-                status=row.status,
-                value=row.value,
-                observed_at=row.observed_at,
-                action=row.action,
-            )
-            for row in build_checker_rows(node, identity)
+            line for line in lines if current == "all" or line.status in CHECKER_FILTERS[current]
         ),
+        checker_chips=_checker_chips(lines, current, base),
         checker_time_label=checker_time_label(node, identity),
         incidents=incident_cards(incidents),
         charts=tuple(build_charts(node, identity)),
@@ -208,7 +258,7 @@ def build_node_detail(pk: int) -> NodeDetail | None:
         raw=json.dumps(
             {"labels": node.labels, "config": node.config}, indent=2, sort_keys=True, default=str
         ),
-        url=reverse("console:node", args=[node.pk]),
+        url=_checker_url(base, current),
     )
 
 

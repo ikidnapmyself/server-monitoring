@@ -14,7 +14,7 @@ class NodeDetailView(NodePageView):
     partial_template_name = "console/partials/_node.html"
 
     def get(self, request, *args, **kwargs):
-        node = build_node_detail(kwargs["pk"])
+        node = build_node_detail(kwargs["pk"], request.GET.get("checkers", ""))
         if node is None:
             return self.not_found()
         return self.render_to_response(self.get_context_data(node=node, nav="nodes"))

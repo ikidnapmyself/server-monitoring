@@ -235,3 +235,90 @@ def test_the_incident_scan_reads_only_this_nodes_alerts():
     assert found == {node.pk: {"warning": {mine.pk}}}
     scan = next(q["sql"] for q in captured.captured_queries if "labels" in q["sql"])
     assert "node_id" in scan.split("WHERE", 1)[1]
+
+
+def _mixed_hub():
+    node = _hub()
+    for name, status in (
+        ("cpu", "ok"),
+        ("disk", "warning"),
+        ("memory", "critical"),
+        ("network", "unknown"),
+        ("process", "ok"),
+        ("raid", "skipped"),
+    ):
+        CheckRun.objects.create(checker_name=name, hostname="hub", status=status, metrics={})
+    return node
+
+
+def test_each_checker_status_reads_its_label_and_tone():
+    detail = build_node_detail(_mixed_hub().pk)
+
+    by_key = {line.key: (line.status_label, line.tone) for line in detail.checkers}
+    assert by_key == {
+        "memory": ("Critical", "critical"),
+        "disk": ("Warning", "warning"),
+        "network": ("Unknown", "muted"),
+        "cpu": ("OK", "ok"),
+        "process": ("OK", "ok"),
+        "raid": ("Skipped", "muted"),
+    }
+
+
+def test_an_unmapped_status_keeps_its_word_and_reads_muted():
+    node = _hub()
+    CheckRun.objects.create(checker_name="cpu", hostname="hub", status="odd_one", metrics={})
+
+    line = build_node_detail(node.pk).checkers[0]
+
+    assert (line.status_label, line.tone) == ("Odd one", "muted")
+
+
+def test_checkers_come_out_worst_first_then_by_label():
+    detail = build_node_detail(_mixed_hub().pk)
+
+    assert [line.key for line in detail.checkers] == [
+        "memory",
+        "disk",
+        "network",
+        *sorted(["cpu", "process"], key=checker_label),
+        "raid",
+    ]
+
+
+@pytest.mark.parametrize(
+    "value, keys",
+    [
+        ("problems", {"memory", "disk", "network"}),
+        ("ok", {"cpu", "process"}),
+        ("", {"memory", "disk", "network", "cpu", "process", "raid"}),
+        ("bogus", {"memory", "disk", "network", "cpu", "process", "raid"}),
+    ],
+)
+def test_the_checker_filter_keeps_only_its_rows(value, keys):
+    detail = build_node_detail(_mixed_hub().pk, checkers=value)
+
+    assert {line.key for line in detail.checkers} == keys
+
+
+@pytest.mark.parametrize(
+    "value, active, url",
+    [("problems", "problems", "?checkers=problems"), ("ok", "ok", "?checkers=ok"), ("x", "", "")],
+)
+def test_the_checker_chips_count_every_row_and_mark_the_active_one(value, active, url):
+    node = _mixed_hub()
+    base = f"/console/nodes/{node.pk}/"
+
+    detail = build_node_detail(node.pk, checkers=value)
+
+    assert [(c.key, c.label, c.count, c.url) for c in detail.checker_chips] == [
+        ("all", "All", 6, base),
+        ("problems", "Problems", 3, f"{base}?checkers=problems"),
+        ("ok", "OK", 2, f"{base}?checkers=ok"),
+    ]
+    assert [c.key for c in detail.checker_chips if c.active] == [active or "all"]
+    assert detail.url == base + url
+
+
+def test_a_node_with_no_checkers_has_no_chips():
+    assert build_node_detail(_peer().pk).checker_chips == ()

@@ -230,3 +230,79 @@ def test_every_focusable_element_has_a_stable_id(client, superuser, headers):
     focusable, ids = focus_audit(region)
     assert [tag for tag, element_id in focusable if not element_id] == []
     assert len(ids) == len(set(ids))
+
+
+def _mixed_hub():
+    node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+    for name, status in (("cpu", "ok"), ("disk", "warning"), ("memory", "critical")):
+        CheckRun.objects.create(checker_name=name, hostname="hub", status=status, metrics={})
+    CheckRun.objects.create(checker_name="network", hostname="hub", status="unknown")
+    return node
+
+
+def _checker_table(body):
+    return re.search(r"<h2 class=\"c-box__title\">Checker state</h2>.*?</section>", body, re.S)
+
+
+@pytest.mark.django_db
+@BOTH
+def test_each_checker_status_is_a_toned_label_with_its_icon(client, superuser, headers):
+    node = _mixed_hub()
+
+    body = client.get(_url(node), **headers).content.decode()
+
+    table = _checker_table(body).group()
+    for tone, text, icon in (
+        ("critical", "Critical", "x-circle"),
+        ("warning", "Warning", "alert"),
+        ("muted", "Unknown", "skip"),
+        ("ok", "OK", "check-circle"),
+    ):
+        label = re.search(rf'<span class="c-label c-tone-{tone}">.*?</span></td>', table, re.S)
+        assert f"octicon-{icon}" in label.group() and visible(label.group()).strip() == text
+    rows = re.findall(r'<a id="checker-(\w+)"', table)
+    assert rows == ["memory", "disk", "network", "cpu"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "query, rows, active",
+    [
+        ("?checkers=problems", ["memory", "disk", "network"], "problems"),
+        ("?checkers=ok", ["cpu"], "ok"),
+        ("?checkers=nope", ["memory", "disk", "network", "cpu"], "all"),
+        ("", ["memory", "disk", "network", "cpu"], "all"),
+    ],
+)
+def test_the_checker_chips_filter_the_table(client, superuser, query, rows, active):
+    node = _mixed_hub()
+    url = _url(node)
+
+    body = client.get(url + query, **HTMX).content.decode()
+
+    table = _checker_table(body).group()
+    assert re.findall(r'<a id="checker-(\w+)"', table) == rows
+    for key, label, count, href in (
+        ("all", "All", 4, url),
+        ("problems", "Problems", 3, f"{url}?checkers=problems"),
+        ("ok", "OK", 1, f"{url}?checkers=ok"),
+    ):
+        chip = re.search(rf'<a id="chip-checkers-{key}"[^>]*>.*?</a>', table, re.S).group()
+        assert f'href="{href}" hx-get="{href}" hx-target="#node" hx-swap="outerHTML"' in chip
+        assert visible(chip).split() == [label, str(count)]
+        assert ('aria-current="true"' in chip) == (key == active)
+    poll = query if active != "all" else ""
+    assert re.search(rf'<div id="node" data-poll hx-get="{re.escape(url + poll)}"', body)
+
+
+@pytest.mark.django_db
+def test_a_chip_that_leaves_no_rows_says_so(client, superuser):
+    node = Node.objects.create(instance_id=local_instance_id(), hostname="hub")
+    CheckRun.objects.create(checker_name="cpu", hostname="hub", status="ok", metrics={})
+
+    body = client.get(_url(node) + "?checkers=problems").content.decode()
+
+    table = _checker_table(body).group()
+    assert "No checker matches this filter." in visible(table)
+    assert "<table" not in table
+    assert 'id="chip-checkers-all"' in table
