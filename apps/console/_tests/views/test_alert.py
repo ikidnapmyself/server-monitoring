@@ -1,4 +1,5 @@
 import re
+from datetime import timedelta
 
 import pytest
 from django.urls import reverse
@@ -185,6 +186,33 @@ def test_history_is_listed_and_capped(client, superuser, monkeypatch):
     assert '<ol class="c-timeline"' in body
     assert "cleared" in body
     assert "1 earlier entry not shown." in body
+
+
+@pytest.mark.django_db
+@BOTH
+def test_a_refired_alert_says_when_it_fired_again(client, superuser, headers):
+    alert = _checker_alert(started_at=timezone.now() - timedelta(weeks=3))
+    AlertHistory.objects.create(alert=alert, event="created", new_status="firing")
+    row = AlertHistory.objects.create(alert=alert, event="refired", new_status="firing")
+    AlertHistory.objects.filter(pk=row.pk).update(created_at=timezone.now() - timedelta(minutes=5))
+
+    body = client.get(_url(alert), **headers).content.decode()
+
+    assert re.search(r'Started <time datetime="[^"]+" title="[^"]+">3\s+weeks ago</time>', body)
+    assert re.search(
+        r'<span>Fired again <time datetime="[^"]+" title="[^"]+">5\s+minutes ago</time></span>',
+        body,
+    )
+
+
+@pytest.mark.django_db
+def test_an_alert_that_never_refired_does_not_say_it_fired_again(client, superuser):
+    alert = _checker_alert()
+    AlertHistory.objects.create(alert=alert, event="created", new_status="firing")
+
+    body = client.get(_url(alert)).content.decode()
+
+    assert "Fired again" not in body
 
 
 @pytest.mark.django_db

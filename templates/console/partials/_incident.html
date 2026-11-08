@@ -8,6 +8,7 @@
     <span class="c-state c-status--{{ incident.status }}">{% include "console/partials/_status_icon.html" with status=incident.status %}{{ incident.status|capfirst }}</span>
     <span class="c-host c-host--lg{% if not incident.nodes %} c-host--unknown{% endif %}">{% include "console/partials/_octicon.html" with name="server" %}{{ incident.nodes|default:"Unknown host" }}</span>
     <span>Started {% include "console/partials/_time.html" with when=incident.created_at %}</span>
+    {% if incident.reopened %}<span>Fired again {% include "console/partials/_time.html" with when=incident.opened_at %}</span>{% endif %}
     <span class="c-pagehead__dot">{{ incident.duration }}{% if incident.ongoing %} so far{% endif %}</span>
   </div>
 </div>

@@ -55,6 +55,8 @@ class IncidentDetail:
     status_tone: str
     summary: str
     created_at: datetime
+    opened_at: datetime
+    reopened: bool
     duration: str
     ongoing: bool
     nodes: str
@@ -83,7 +85,21 @@ def _lifecycle_entries(incident: Incident) -> list[TimelineEntry]:
                     body=None,
                 )
             )
+    if _reopened(incident):
+        entries.append(
+            TimelineEntry(
+                id="entry-incident-reopened",
+                when=incident.opened_at,
+                kind="incident",
+                what=Description("Incident fired again", tone_for(INCIDENT_STATUS_TONES, "open")),
+                body=None,
+            )
+        )
     return entries
+
+
+def _reopened(incident: Incident) -> bool:
+    return incident.opened_at > incident.created_at
 
 
 def _history_entry(event: dict[str, Any], headlines: dict[int, str]) -> TimelineEntry:
@@ -201,7 +217,7 @@ def build_incident_detail(pk: int, *, full: bool = False) -> IncidentDetail | No
     if incident is None:
         return None
     ended_at = incident.resolved_at or incident.closed_at
-    elapsed = (ended_at or timezone.now()) - incident.created_at
+    elapsed = (ended_at or timezone.now()) - incident.opened_at
     timeline, recorded = _timeline(incident, full)
     over = max(0, recorded - TIMELINE_LIMIT)
     recent_url = reverse("console:incident", args=[incident.pk])
@@ -216,6 +232,8 @@ def build_incident_detail(pk: int, *, full: bool = False) -> IncidentDetail | No
         status_tone=tone_for(INCIDENT_STATUS_TONES, incident.status),
         summary=incident.summary,
         created_at=incident.created_at,
+        opened_at=incident.opened_at,
+        reopened=_reopened(incident),
         duration=format_duration(elapsed.total_seconds()),
         ongoing=ended_at is None,
         nodes=", ".join(incident_hosts([incident.pk]).get(incident.pk, ())),

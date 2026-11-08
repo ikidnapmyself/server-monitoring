@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 from django.utils import timezone
 
@@ -134,3 +136,27 @@ def test_reeval_preview_of_an_alert_with_no_registered_node_cannot_apply():
 
     assert preview.rows
     assert not preview.can_apply
+
+
+def _history_at(alert, event, when):
+    row = AlertHistory.objects.create(alert=alert, event=event, new_status="firing")
+    AlertHistory.objects.filter(pk=row.pk).update(created_at=when)
+    return row
+
+
+def test_an_alert_that_never_fired_again_has_no_refired_time():
+    alert = _alert()
+    _history_at(alert, "created", timezone.now())
+
+    assert build_alert_detail(alert.pk).refired_at is None
+
+
+def test_refired_at_is_the_newest_refired_history_row():
+    now = timezone.now()
+    alert = _alert()
+    _history_at(alert, "created", now - timedelta(days=3))
+    _history_at(alert, "refired", now - timedelta(days=2))
+    _history_at(alert, "refired", now - timedelta(hours=1))
+    _history_at(alert, "resolved", now)
+
+    assert build_alert_detail(alert.pk).refired_at == now - timedelta(hours=1)

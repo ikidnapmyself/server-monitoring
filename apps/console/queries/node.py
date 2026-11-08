@@ -201,7 +201,7 @@ def build_node_detail(pk: int, checkers: str = "") -> NodeDetail | None:
     incidents = list(
         Incident.objects.filter(pk__in=set().union(*by_severity.values()))
         .annotate(rank=SEVERITY_RANK)
-        .order_by("rank", "created_at")
+        .order_by("rank", "opened_at")
     )
     preflight = build_preflight(node, identity)
     run = preflight.run

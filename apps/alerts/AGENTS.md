@@ -240,6 +240,10 @@ A reopen calls `Incident.reopen()` (status back to OPEN, `resolved_at`/`closed_a
 `summary` kept); the `refired` `AlertHistory` event surfaces it on the incident timeline. A
 future snooze is one more row in this table and nothing else.
 
+`Incident.opened_at` is when the current episode began. Create sets it. `reopen()` moves it
+only when the incident had ended (RESOLVED or CLOSED), so an escalation that reopens an
+acknowledged incident keeps it. `created_at` stays the first fire.
+
 **Operator transitions go through `IncidentManager.transition(incident_id, action, *,
 actor, summary)`** in `services.py`. It owns the status rules. The console's incident actions and any
 other operator surface are thin callers. `available_incident_actions(status)` is the

@@ -7,6 +7,7 @@
     <span class="c-state c-status--{{ alert.status }}">{% include "console/partials/_status_icon.html" with status=alert.status %}{{ alert.status|capfirst }}</span>
     <span class="c-host c-host--lg{% if not alert.node %} c-host--unknown{% endif %}">{% include "console/partials/_octicon.html" with name="server" %}{{ alert.node|default:"Unknown host" }}</span>
     <span>Started {% include "console/partials/_time.html" with when=alert.started_at %}</span>
+    {% if alert.refired_at %}<span>Fired again {% include "console/partials/_time.html" with when=alert.refired_at %}</span>{% endif %}
     <span class="c-pagehead__dot">Last seen {% include "console/partials/_time.html" with when=alert.last_seen %}</span>
   </div>
 </div>

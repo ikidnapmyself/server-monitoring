@@ -206,13 +206,33 @@ def test_the_node_filter_narrows_the_rows(client, superuser, url):
 @pytest.mark.django_db
 def test_the_since_filter_narrows_the_rows(client, superuser, url):
     old = named_incident("last month", severity="critical")
-    Incident.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=20))
+    long_ago = timezone.now() - timedelta(days=20)
+    Incident.objects.filter(pk=old.pk).update(created_at=long_ago, opened_at=long_ago)
     named_incident("today", severity="critical")
 
     body = client.get(f"{url}?since=7d").content.decode()
 
     assert "today" in body
     assert "last month" not in body
+
+
+@pytest.mark.django_db
+def test_a_reopened_row_says_when_it_fired_again(client, superuser, url):
+    now = timezone.now()
+    reopened = named_incident("came back", severity="critical")
+    Incident.objects.filter(pk=reopened.pk).update(
+        created_at=now - timedelta(weeks=3), opened_at=now - timedelta(minutes=5)
+    )
+    fresh = named_incident("first time", severity="critical")
+
+    body = client.get(url).content.decode()
+
+    assert re.search(
+        rf'#{reopened.pk} fired again <time datetime="[^"]+" title="[^"]+">5\s+minutes ago</time>',
+        body,
+    )
+    assert re.search(rf"#{fresh.pk} opened <time ", body)
+    assert f"#{fresh.pk} fired again" not in body
 
 
 @pytest.mark.django_db
