@@ -332,10 +332,10 @@ pipeline stage and not an alert producer.
   renders as stored, like text a source sent. The editor validates every new value, so
   only legacy rows hold odd ones.
 - **Incident clocks read `opened_at`.** The incident page's duration, the list's sort,
-  time window and row clock, and the overview's open incidents all read `opened_at`, so a
-  reopened incident reads from its latest fire and says "Fired again". The overview spark
-  reads `created_at`, because it counts first fires. An alert's "Fired again" comes from its
-  newest `refired` history row.
+  time window and row clock, and the open incidents on the overview and the node page all
+  read `opened_at`, so a reopened incident reads from its latest fire and says "Fired
+  again". The overview spark reads `created_at`, because it counts first fires. An alert's
+  "Fired again" comes from its newest `refired` history row.
 - **The incident timeline is capped.** The page shows lifecycle entries plus the newest
   `TIMELINE_LIMIT` others, and `?all=1` shows everything. Bodies are built only for
   entries that survive the cut. The database read is not capped.

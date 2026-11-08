@@ -154,6 +154,25 @@ def test_open_incidents_are_cards_worst_first_and_match_the_counts():
     assert sum(count.count for count in detail.counts) == 3
 
 
+def test_open_incidents_of_one_severity_sort_by_their_latest_fire():
+    node = _peer()
+    now = timezone.now()
+    reopened = Incident.objects.create(severity="warning", status="open")
+    fresh = Incident.objects.create(severity="warning", status="open")
+    Incident.objects.filter(pk=reopened.pk).update(
+        created_at=now - timedelta(days=30), opened_at=now
+    )
+    Incident.objects.filter(pk=fresh.pk).update(
+        created_at=now - timedelta(hours=1), opened_at=now - timedelta(hours=1)
+    )
+    _alert(node, "r", incident=reopened)
+    _alert(node, "f", incident=fresh)
+
+    detail = build_node_detail(node.pk)
+
+    assert [card.pk for card in detail.incidents] == [fresh.pk, reopened.pk]
+
+
 def test_recent_runs_are_the_runs_list_rows_for_this_node():
     node = _peer()
     runs = [_run(node=node) for _ in range(12)]
