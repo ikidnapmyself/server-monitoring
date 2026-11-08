@@ -89,6 +89,8 @@ def test_a_superuser_reads_the_page_with_the_nav_tab_current(client, superuser):
     assert 'aria-current="page"' in _nav(body, "Nodes")
     assert 'id="node-back"' in body and "Back to nodes" in body
     assert re.search(rf'<div id="node" data-poll hx-get="{_url(node)}"', body)
+    assert body.count('id="node"') == 1
+    assert re.search(r'<div id="node"[^>]*hx-swap="outerHTML"', body)
 
 
 @pytest.mark.django_db
@@ -293,6 +295,8 @@ def test_the_checker_chips_filter_the_table(client, superuser, query, rows, acti
         assert ('aria-current="true"' in chip) == (key == active)
     poll = query if active != "all" else ""
     assert re.search(rf'<div id="node" data-poll hx-get="{re.escape(url + poll)}"', body)
+    assert body.count('id="node"') == 1
+    assert re.search(r'<div id="node"[^>]*hx-swap="outerHTML"', body)
 
 
 @pytest.mark.django_db

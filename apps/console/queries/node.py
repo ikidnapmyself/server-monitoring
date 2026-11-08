@@ -29,6 +29,7 @@ from apps.alerts.node_policy import (
 from apps.alerts.reeval_existing import ReevalScope
 from apps.checkers.checkers import checker_label
 from apps.checkers.models import CheckStatus
+from apps.console.filters import CHECK_STATUS_CHOICES
 from apps.console.queries.alert import IncidentCard, incident_cards
 from apps.console.queries.hosts import node_keys, node_name
 from apps.console.queries.incidents import Chip
@@ -41,7 +42,7 @@ from config.tones import CHECK_STATUS_TONES, tone_for
 RUN_LIMIT = 10
 
 CHECKER_FILTERS = {
-    "problems": frozenset({"critical", "warning", "unknown"}),
+    "problems": frozenset(CHECK_STATUS_CHOICES["failing"]),
     "ok": frozenset({"ok"}),
 }
 CHECKER_CHIPS = (("all", "All"), ("problems", "Problems"), ("ok", "OK"))
