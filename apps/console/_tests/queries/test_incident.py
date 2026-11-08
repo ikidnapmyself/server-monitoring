@@ -6,6 +6,7 @@ import pytest
 from django.db import connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from apps.alerts.describing import alert_name, describe_incident
 from apps.alerts.models import Alert, AlertHistory, Incident, Node
@@ -13,7 +14,7 @@ from apps.alerts.services import INCIDENT_ACTIONS
 from apps.console._tests.queries.test_stages import CHECK_SNAPSHOT, NOTIFY_SNAPSHOT
 from apps.console.queries import incident as incident_queries
 from apps.console.queries.incident import build_incident_detail
-from apps.console.queries.stages import CheckBody, RawBody
+from apps.console.queries.stages import CheckBody, RawBody, TimelineEntry
 from apps.orchestration.models import PipelineDefinition, PipelineRun, StageExecution
 from config.describing import Action, Description
 
@@ -21,9 +22,11 @@ T0 = datetime(2026, 10, 14, 12, 0, tzinfo=dt_timezone.utc)
 QUERIES = 9
 
 
-def _incident(created_at=T0, **fields):
+def _incident(created_at=T0, opened_at=None, **fields):
     incident = Incident.objects.create(**fields)
-    Incident.objects.filter(pk=incident.pk).update(created_at=created_at)
+    Incident.objects.filter(pk=incident.pk).update(
+        created_at=created_at, opened_at=opened_at or created_at
+    )
     incident.refresh_from_db()
     return incident
 
@@ -204,6 +207,56 @@ def test_an_open_incident_has_only_the_opened_lifecycle_entry():
     detail = build_incident_detail(_incident().pk)
 
     assert [entry.id for entry in detail.timeline] == ["entry-incident-created"]
+
+
+@pytest.mark.django_db
+def test_a_never_reopened_incident_reads_from_its_first_fire(monkeypatch):
+    monkeypatch.setattr(timezone, "now", lambda: T0 + timedelta(minutes=5))
+
+    detail = build_incident_detail(_incident().pk)
+
+    assert detail.reopened is False
+    assert detail.opened_at == T0
+    assert detail.duration == "5m 00s"
+    assert "entry-incident-reopened" not in [entry.id for entry in detail.timeline]
+
+
+@pytest.mark.django_db
+def test_a_reopened_incident_reads_from_its_latest_fire(monkeypatch):
+    fired_again = T0 + timedelta(weeks=3)
+    monkeypatch.setattr(timezone, "now", lambda: fired_again + timedelta(minutes=5))
+    incident = _incident(opened_at=fired_again)
+
+    detail = build_incident_detail(incident.pk)
+
+    assert detail.reopened is True
+    assert (detail.created_at, detail.opened_at) == (T0, fired_again)
+    assert (detail.duration, detail.ongoing) == ("5m 00s", True)
+    assert _entry(detail, "entry-incident-reopened") == TimelineEntry(
+        id="entry-incident-reopened",
+        when=fired_again,
+        kind="incident",
+        what=Description("Incident fired again", "critical"),
+        body=None,
+    )
+    assert [entry.id for entry in detail.timeline] == [
+        "entry-incident-created",
+        "entry-incident-reopened",
+    ]
+
+
+@pytest.mark.django_db
+def test_a_reopened_incident_that_resolved_again_ends_its_clock_there():
+    fired_again = T0 + timedelta(weeks=3)
+    incident = _incident(
+        opened_at=fired_again,
+        status="resolved",
+        resolved_at=fired_again + timedelta(minutes=2),
+    )
+
+    detail = build_incident_detail(incident.pk)
+
+    assert (detail.duration, detail.ongoing) == ("2m 00s", False)
 
 
 @pytest.mark.django_db

@@ -286,9 +286,8 @@ def test_a_superuser_gets_navigation_links_into_the_console(client, superuser):
 def test_a_finished_bare_incident_drops_the_optional_header_parts(client, superuser):
     now = timezone.now()
     incident = Incident.objects.create(status="resolved", resolved_at=now)
-    Incident.objects.filter(pk=incident.pk).update(
-        created_at=now - timedelta(minutes=4, seconds=12)
-    )
+    started = now - timedelta(minutes=4, seconds=12)
+    Incident.objects.filter(pk=incident.pk).update(created_at=started, opened_at=started)
 
     body = client.get(_url(incident)).content.decode()
 
@@ -301,6 +300,36 @@ def test_a_finished_bare_incident_drops_the_optional_header_parts(client, superu
         r'<span class="c-host c-host--lg c-host--unknown">.*?</svg>Unknown host</span>', body
     )
     assert "c-prose" not in body
+
+
+@pytest.mark.django_db
+def test_a_never_reopened_incident_does_not_say_it_fired_again(client, superuser):
+    incident, *_ = _busy()
+
+    body = client.get(_url(incident)).content.decode()
+
+    assert "Fired again" not in body
+    assert 'id="entry-incident-reopened"' not in body
+
+
+@pytest.mark.django_db
+@BOTH
+def test_a_reopened_incident_reads_from_its_latest_fire(client, superuser, headers):
+    now = timezone.now()
+    incident = Incident.objects.create()
+    Incident.objects.filter(pk=incident.pk).update(
+        created_at=now - timedelta(weeks=3), opened_at=now - timedelta(minutes=5)
+    )
+
+    body = client.get(_url(incident), **headers).content.decode()
+
+    assert re.search(r'Started <time datetime="[^"]+" title="[^"]+">3\s+weeks ago</time>', body)
+    assert re.search(
+        r'<span>Fired again <time datetime="[^"]+" title="[^"]+">5\s+minutes ago</time></span>',
+        body,
+    )
+    assert re.search(r">5m 0\ds so far<", body)
+    assert '<span id="entry-incident-reopened">Incident fired again</span>' in body
 
 
 @pytest.mark.django_db
