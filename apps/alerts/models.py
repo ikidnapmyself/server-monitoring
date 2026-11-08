@@ -232,6 +232,9 @@ class Incident(models.Model):
     updated_at = models.DateTimeField(
         auto_now=True,
     )
+    opened_at = models.DateTimeField(
+        help_text="When the current episode began: creation, or the latest reopen.",
+    )
     acknowledged_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -266,11 +269,19 @@ class Incident(models.Model):
         indexes = [
             models.Index(fields=["status", "severity"]),
             models.Index(fields=["created_at"]),
+            models.Index(fields=["opened_at"]),
             models.Index(fields=["subject", "instance", "status"]),
         ]
 
     def __str__(self):
         return f"Incident #{self.pk} [{self.status}]"
+
+    def save(self, *args, **kwargs):
+        # Stamped here rather than by a field default so it reads the same patchable clock as
+        # created_at's auto_now_add, which keeps a never-reopened incident's clocks equal.
+        if self._state.adding and self.opened_at is None:
+            self.opened_at = timezone.now()
+        super().save(*args, **kwargs)
 
     @property
     def is_open(self) -> bool:
@@ -322,10 +333,13 @@ class Incident(models.Model):
         the incident's history, not something a reopen should erase.
         """
         self.status = IncidentStatus.OPEN
+        self.opened_at = timezone.now()
         self.resolved_at = None
         self.closed_at = None
         if save:
-            self.save(update_fields=["status", "resolved_at", "closed_at", "updated_at"])
+            self.save(
+                update_fields=["status", "opened_at", "resolved_at", "closed_at", "updated_at"]
+            )
 
 
 class AlertHistory(models.Model):

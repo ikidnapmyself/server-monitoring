@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest import mock
 
 from django.test import TestCase
 from django.utils import timezone
@@ -89,6 +90,28 @@ class IncidentModelTests(TestCase):
         incident = Incident.objects.create(status=IncidentStatus.OPEN)
         self.assertEqual(str(incident), f"Incident #{incident.pk} [open]")
 
+    def test_a_new_incident_opens_when_it_is_created(self):
+        incident = Incident.objects.create(subject="cpu")
+
+        self.assertIsNotNone(incident.opened_at)
+        self.assertLessEqual(incident.opened_at, incident.created_at)
+        self.assertLess(incident.created_at - incident.opened_at, timedelta(seconds=1))
+
+    def test_a_new_incident_opens_on_the_clock_it_was_created_by(self):
+        frozen = timezone.now() - timedelta(days=30)
+        with mock.patch.object(timezone, "now", return_value=frozen):
+            incident = Incident.objects.create(subject="cpu")
+
+        self.assertEqual(incident.opened_at, frozen)
+        self.assertEqual(incident.created_at, frozen)
+
+    def test_an_explicit_opened_at_survives_create(self):
+        when = timezone.now() - timedelta(days=3)
+        incident = Incident.objects.create(subject="cpu", opened_at=when)
+
+        incident.refresh_from_db()
+        self.assertEqual(incident.opened_at, when)
+
 
 class IncidentReopenTests(TestCase):
     """reopen() is the inverse of resolve()/close(), for an alert that fired again."""
@@ -125,6 +148,19 @@ class IncidentReopenTests(TestCase):
 
         incident.refresh_from_db()
         self.assertEqual(incident.summary, "was fixed by restarting")
+
+    def test_reopen_moves_opened_at_and_keeps_created_at(self):
+        incident = self._incident(IncidentStatus.OPEN)
+        created = incident.created_at
+        incident.resolve()
+        later = timezone.now() + timedelta(hours=1)
+
+        with mock.patch.object(timezone, "now", return_value=later):
+            incident.reopen()
+
+        incident.refresh_from_db()
+        self.assertEqual(incident.opened_at, later)
+        self.assertEqual(incident.created_at, created)
 
     def test_reopen_without_save_does_not_write(self):
         """Mirrors resolve()/close(): save=False lets a caller batch the write."""

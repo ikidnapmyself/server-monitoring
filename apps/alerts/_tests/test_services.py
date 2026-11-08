@@ -1,4 +1,5 @@
 import copy
+from datetime import timedelta
 from typing import Any, cast
 from unittest import mock
 
@@ -1379,6 +1380,20 @@ class RefireReopensIncidentTests(TestCase):
         incident = self._incident()
         self.assertEqual(incident.status, IncidentStatus.OPEN)
         self.assertIsNone(incident.resolved_at)
+
+    def test_a_refire_moves_opened_at_and_keeps_created_at(self):
+        self.orchestrator.process_webhook(self.payload)
+        self.orchestrator.process_webhook(self._resolved())
+        created = self._incident().created_at
+        later = timezone.now() + timedelta(days=21)
+
+        with mock.patch.object(timezone, "now", return_value=later):
+            self.orchestrator.process_webhook(self.payload)
+
+        incident = self._incident()
+        self.assertEqual(incident.status, IncidentStatus.OPEN)
+        self.assertEqual(incident.opened_at, later)
+        self.assertEqual(incident.created_at, created)
 
     def test_a_refire_reopens_a_closed_incident(self):
         self.orchestrator.process_webhook(self.payload)
