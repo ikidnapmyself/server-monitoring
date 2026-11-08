@@ -21,10 +21,13 @@ def base():
     return reverse("console:incidents")
 
 
-def _incident(title, severity="warning", status="open", age_hours=0.0, created_at=None):
+def _incident(
+    title, severity="warning", status="open", age_hours=0.0, created_at=None, opened_at=None
+):
     incident = Incident.objects.create(subject=title, severity=severity, status=status)
+    created_at = created_at or timezone.now() - timedelta(hours=age_hours)
     Incident.objects.filter(pk=incident.pk).update(
-        created_at=created_at or timezone.now() - timedelta(hours=age_hours)
+        created_at=created_at, opened_at=opened_at or created_at
     )
     return incident
 
@@ -96,11 +99,37 @@ def test_a_row_carries_tones_count_and_its_link():
     assert (row.severity, row.severity_tone) == ("critical", "critical")
     assert (row.status, row.status_tone) == ("acknowledged", "warning")
     assert row.alert_count == 2
-    assert row.created_at == Incident.objects.get(pk=incident.pk).created_at
+    assert row.opened_at == Incident.objects.get(pk=incident.pk).opened_at
+    assert row.reopened is False
     assert row.url == reverse("console:incident", args=[incident.pk])
     assert row.nodes == ""
     assert (quiet_row.pk, quiet_row.alert_count) == (quiet.pk, 0)
     assert (quiet_row.severity_tone, quiet_row.status_tone) == ("info", "muted")
+
+
+@pytest.mark.django_db
+def test_a_reopened_incident_sorts_by_its_latest_fire():
+    _incident("opened an hour ago", age_hours=1)
+    reopened = _incident(
+        "reopened a minute ago",
+        age_hours=24 * 30,
+        opened_at=timezone.now() - timedelta(minutes=1),
+    )
+
+    rows = build_incident_list(ALL).rows
+
+    assert _subjects(rows) == ["reopened a minute ago", "opened an hour ago"]
+    assert rows[0].opened_at == Incident.objects.get(pk=reopened.pk).opened_at
+    assert (rows[0].reopened, rows[1].reopened) == (True, False)
+
+
+@pytest.mark.django_db
+def test_the_since_filter_keeps_an_old_incident_that_fired_again(monkeypatch):
+    monkeypatch.setattr(timezone, "now", lambda: FROZEN)
+    _incident("old and quiet", age_hours=24 * 30)
+    _incident("old but fired again", age_hours=24 * 30, opened_at=FROZEN - timedelta(hours=1))
+
+    assert _titles(build_incident_list(IncidentFilter(since="24h"))) == ["old but fired again"]
 
 
 @pytest.mark.django_db

@@ -12,10 +12,13 @@ from config.describing import Action, Description
 from config.readiness import NODE_RECENT_MINUTES
 
 
-def _incident(title, severity="warning", status="open", age_hours=0, created_at=None):
+def _incident(
+    title, severity="warning", status="open", age_hours=0, created_at=None, opened_at=None
+):
     incident = Incident.objects.create(subject=title, severity=severity, status=status)
+    created_at = created_at or timezone.now() - timedelta(hours=age_hours)
     Incident.objects.filter(pk=incident.pk).update(
-        created_at=created_at or timezone.now() - timedelta(hours=age_hours)
+        created_at=created_at, opened_at=opened_at or created_at
     )
     return incident
 
@@ -66,6 +69,18 @@ def test_open_incidents_sort_by_severity_then_oldest_first(django_assert_num_que
         rows = overview.open_incidents()
 
     assert _subjects(rows) == ["critical", "old warning", "new warning", "info"]
+
+
+@pytest.mark.django_db
+def test_open_incidents_sort_by_their_latest_fire_within_a_severity():
+    _incident("opened an hour ago", age_hours=1)
+    _incident("reopened a minute ago", age_hours=24 * 30, opened_at=timezone.now())
+
+    rows = overview.open_incidents()
+
+    assert _subjects(rows) == ["opened an hour ago", "reopened a minute ago"]
+    assert (rows[0].reopened, rows[1].reopened) == (False, True)
+    assert rows[1].opened_at > rows[0].opened_at
 
 
 @pytest.mark.django_db
@@ -291,6 +306,15 @@ def test_spark_has_one_point_per_hour_and_counts_into_the_right_bucket(
     assert points[-1][1] == 3
     assert points[-4][1] == 1
     assert sum(y for _, y in points) == 5
+
+
+@pytest.mark.django_db
+def test_spark_counts_first_fires_not_reopens(monkeypatch):
+    frozen = datetime(2026, 10, 11, 12, 30, tzinfo=dt_timezone.utc)
+    monkeypatch.setattr(timezone, "now", lambda: frozen)
+    _incident("old but fired again", created_at=frozen - timedelta(days=30), opened_at=frozen)
+
+    assert sum(y for _, y in overview.incident_spark()) == 0
 
 
 @pytest.mark.django_db

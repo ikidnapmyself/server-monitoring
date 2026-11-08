@@ -58,7 +58,8 @@ class IncidentListRow:
     status: str
     status_tone: str
     nodes: str
-    created_at: datetime
+    opened_at: datetime
+    reopened: bool
     alert_count: int
     url: str
 
@@ -139,7 +140,7 @@ def _matching(criteria: IncidentFilter, node_keys: tuple[str, ...] = ()):
         incidents = incidents.filter(severity=criteria.severity)
     cutoff = criteria.cutoff(timezone.now())
     if cutoff:
-        incidents = incidents.filter(created_at__gte=cutoff)
+        incidents = incidents.filter(opened_at__gte=cutoff)
     if criteria.node is not None:
         # A subquery, not a join: a join would cut the alert count down to this node's alerts.
         incidents = incidents.filter(
@@ -167,7 +168,7 @@ def _rows(incidents, page: int) -> tuple[IncidentListRow, ...]:
     start = (page - 1) * PAGE_SIZE
     found = list(
         incidents.annotate(rank=SEVERITY_RANK, alerts_total=Count("alerts")).order_by(
-            "rank", "-created_at", "-pk"
+            "rank", "-opened_at", "-pk"
         )[start : start + PAGE_SIZE]
     )
     hosts = incident_hosts(incident.pk for incident in found)
@@ -182,7 +183,8 @@ def _rows(incidents, page: int) -> tuple[IncidentListRow, ...]:
             status=incident.status,
             status_tone=tone_for(INCIDENT_STATUS_TONES, incident.status),
             nodes=host_summary(hosts.get(incident.pk, ())),
-            created_at=incident.created_at,
+            opened_at=incident.opened_at,
+            reopened=incident.opened_at > incident.created_at,
             alert_count=incident.alerts_total,
             url=reverse("console:incident", args=[incident.pk]),
         )

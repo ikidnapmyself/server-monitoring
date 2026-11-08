@@ -46,7 +46,8 @@ class IncidentRow:
     severity_tone: str
     status: str
     status_tone: str
-    created_at: datetime
+    opened_at: datetime
+    reopened: bool
     alert_count: int
     nodes: str
     url: str
@@ -143,7 +144,7 @@ def open_incidents() -> tuple[IncidentRow, ...]:
     incidents = list(
         Incident.objects.filter(status__in=OPEN_STATUSES)
         .annotate(rank=SEVERITY_RANK, alerts_total=Count("alerts"))
-        .order_by("rank", "created_at")[:INCIDENT_LIMIT]
+        .order_by("rank", "opened_at")[:INCIDENT_LIMIT]
     )
     hosts = incident_hosts(incident.pk for incident in incidents)
     described = describe_incidents(incidents)
@@ -156,7 +157,8 @@ def open_incidents() -> tuple[IncidentRow, ...]:
             severity_tone=tone_for(SEVERITY_TONES, incident.severity),
             status=incident.status,
             status_tone=tone_for(INCIDENT_STATUS_TONES, incident.status),
-            created_at=incident.created_at,
+            opened_at=incident.opened_at,
+            reopened=incident.opened_at > incident.created_at,
             alert_count=incident.alerts_total,
             nodes=host_summary(hosts.get(incident.pk, ())),
             url=reverse("console:incident", args=[incident.pk]),
