@@ -162,6 +162,29 @@ class IncidentReopenTests(TestCase):
         self.assertEqual(incident.opened_at, later)
         self.assertEqual(incident.created_at, created)
 
+    def test_reopen_from_acknowledged_keeps_opened_at(self):
+        incident = self._incident(IncidentStatus.OPEN)
+        incident.acknowledge()
+        opened = incident.opened_at
+
+        with mock.patch.object(timezone, "now", return_value=opened + timedelta(hours=1)):
+            incident.reopen()
+
+        incident.refresh_from_db()
+        self.assertEqual(incident.status, IncidentStatus.OPEN)
+        self.assertEqual(incident.opened_at, opened)
+
+    def test_reopen_from_closed_moves_opened_at(self):
+        incident = self._incident(IncidentStatus.OPEN)
+        incident.close()
+        later = timezone.now() + timedelta(hours=1)
+
+        with mock.patch.object(timezone, "now", return_value=later):
+            incident.reopen()
+
+        incident.refresh_from_db()
+        self.assertEqual(incident.opened_at, later)
+
     def test_reopen_without_save_does_not_write(self):
         """Mirrors resolve()/close(): save=False lets a caller batch the write."""
         incident = self._incident(IncidentStatus.OPEN)

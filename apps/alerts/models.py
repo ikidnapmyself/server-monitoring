@@ -277,8 +277,7 @@ class Incident(models.Model):
         return f"Incident #{self.pk} [{self.status}]"
 
     def save(self, *args, **kwargs):
-        # Stamped here rather than by a field default so it reads the same patchable clock as
-        # created_at's auto_now_add, which keeps a never-reopened incident's clocks equal.
+        # Not a field default, so a patched clock stamps this and created_at the same.
         if self._state.adding and self.opened_at is None:
             self.opened_at = timezone.now()
         super().save(*args, **kwargs)
@@ -331,15 +330,19 @@ class Incident(models.Model):
 
         ``summary`` is deliberately kept: what the last resolution concluded is part of
         the incident's history, not something a reopen should erase.
+
+        An escalation also reopens an acknowledged incident. That incident never ended, so
+        ``opened_at`` moves only when leaving an end state.
         """
+        fields = ["status", "resolved_at", "closed_at", "updated_at"]
+        if self.status in (IncidentStatus.RESOLVED, IncidentStatus.CLOSED):
+            self.opened_at = timezone.now()
+            fields.append("opened_at")
         self.status = IncidentStatus.OPEN
-        self.opened_at = timezone.now()
         self.resolved_at = None
         self.closed_at = None
         if save:
-            self.save(
-                update_fields=["status", "opened_at", "resolved_at", "closed_at", "updated_at"]
-            )
+            self.save(update_fields=fields)
 
 
 class AlertHistory(models.Model):

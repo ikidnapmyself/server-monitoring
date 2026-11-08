@@ -1415,6 +1415,22 @@ class RefireReopensIncidentTests(TestCase):
 
         self.assertEqual(self._incident().status, IncidentStatus.ACKNOWLEDGED)
 
+    def test_an_escalation_under_an_acknowledged_incident_keeps_opened_at(self):
+        """The incident never ended, so its episode didn't restart."""
+        warning = copy.deepcopy(self.payload)
+        warning["alerts"][0]["labels"]["severity"] = "warning"
+        self.orchestrator.process_webhook(warning)
+        incident = self._incident()
+        incident.acknowledge()
+        opened = incident.opened_at
+
+        with mock.patch.object(timezone, "now", return_value=opened + timedelta(hours=1)):
+            self.orchestrator.process_webhook(self.payload)
+
+        incident = self._incident()
+        self.assertEqual(incident.status, IncidentStatus.OPEN)
+        self.assertEqual(incident.opened_at, opened)
+
     def test_a_refire_joins_a_sibling_open_incident(self):
         """One situation, one open incident — and the alert points at it.
 
